@@ -143,7 +143,11 @@ fn with_install_locations(path: &str, home: Option<&str>) -> String {
         .map(String::from)
         .collect();
     let mut seen: Vec<String> = entries.iter().map(|entry| key(entry)).collect();
-    let mut extras = vec!["/opt/homebrew/bin".to_string(), "/usr/local/bin".to_string()];
+    // Per-user directories first, as a login shell has them: the native installers prepend
+    // `~/.local/bin` in the shell rc, so the copy the user's terminal runs must win here too.
+    // Behind Homebrew, a stale `npm -g` launcher there shadowed a working native install and
+    // the CLI read as "not found".
+    let mut extras = Vec::new();
     if let Some(home) = home.filter(|home| !home.is_empty()) {
         let home = home.trim_end_matches('/');
         extras.extend(
@@ -152,6 +156,7 @@ fn with_install_locations(path: &str, home: Option<&str>) -> String {
                 .map(|dir| format!("{home}/{dir}")),
         );
     }
+    extras.extend(["/opt/homebrew/bin".to_string(), "/usr/local/bin".to_string()]);
     for extra in extras {
         let extra_key = key(&extra);
         if !seen.contains(&extra_key) {
@@ -266,16 +271,16 @@ mod tests {
     fn per_user_install_directories_come_from_home() {
         assert_eq!(
             with_install_locations("/usr/bin", Some("/Users/me/")),
-            "/usr/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.local/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin"
+            "/usr/bin:/Users/me/.local/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin:/opt/homebrew/bin:/usr/local/bin"
         );
         assert_eq!(
             with_install_locations("/Users/me/.local/bin:/usr/bin", Some("/Users/me")),
-            "/Users/me/.local/bin:/usr/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin"
+            "/Users/me/.local/bin:/usr/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin:/opt/homebrew/bin:/usr/local/bin"
         );
         // Same directory, other spelling: appending it again would only cost a second lookup.
         assert_eq!(
             with_install_locations("/Users/me/.local/bin/:/usr/bin", Some("/Users/me")),
-            "/Users/me/.local/bin/:/usr/bin:/opt/homebrew/bin:/usr/local/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin"
+            "/Users/me/.local/bin/:/usr/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin:/opt/homebrew/bin:/usr/local/bin"
         );
     }
 
