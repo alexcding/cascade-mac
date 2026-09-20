@@ -1,0 +1,17 @@
+--- a/Sources/GhosttyTerminal/Surface/TerminalSurface.swift
++++ b/Sources/GhosttyTerminal/Surface/TerminalSurface.swift
+@@ -24,6 +24,14 @@
+ 
+     var rawValue: ghostty_surface_t? {
+         surface
++    }
++
++    /// Actual native render-frame submissions since this surface was created.
++    /// Includes native-thread draws; reading does not refresh or draw.
++    /// This is not a GPU completion count or a display timestamp.
++    public var submittedFrameCount: UInt64? {
++        guard let surface else { return nil }
++        return ghostty_surface_submitted_frame_count(surface)
+     }
+ 
+     // MARK: - Input

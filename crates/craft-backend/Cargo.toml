@@ -1,0 +1,41 @@
+[package]
+name = "craft-backend"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.88"
+license = "ISC"
+
+# The native app links the crate as a static library (src/ffi.rs); the binary
+# remains the server for the web client and CLI tooling.
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+anyhow = "1.0"
+axum = { version = "0.8.4", features = ["json", "macros"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+futures-util = "0.3"
+libc = "0.2"
+mime_guess = "2.0"
+regex = "1.11"
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+sha2 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.47", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["set-header", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2.5"
+uuid = { version = "1.18", features = ["v4"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3.21"
+
+# Panics stay on unwind: ffi.rs catches them at the C ABI boundary.
+[profile.release]
+lto = "fat"
+codegen-units = 1

@@ -1,0 +1,85 @@
+--- a/Sources/GhosttyTerminal/Platform/AppKit/AppTerminalView.swift
++++ b/Sources/GhosttyTerminal/Platform/AppKit/AppTerminalView.swift
+@@ -22,6 +22,7 @@
+         var keyEcho: KeyEchoState = .init()
+         var pointer: PointerSelectionState = .init()
+         var focusBridge: FocusBridgeState = .init()
++        var colorSchemeUpdateScheduled = false
+ 
+         open weak var delegate: (any TerminalSurfaceViewDelegate)? {
+             get { core.delegate }
+--- a/Sources/GhosttyTerminal/Platform/AppKit/AppTerminalView+Lifecycle.swift
++++ b/Sources/GhosttyTerminal/Platform/AppKit/AppTerminalView+Lifecycle.swift
+@@ -224,6 +224,25 @@
+         }
+ 
+         func updateColorScheme() {
++            // AppKit can invoke appearance changes from setContentView or
++            // SwiftUI representable attachment. Reconfiguring TerminalViewState
++            // publishes, so perform the entire change after that update pass.
++            // Coalesce and read current ownership/appearance at execution time.
++            guard !colorSchemeUpdateScheduled else { return }
++            colorSchemeUpdateScheduled = true
++            terminalRunOnMainNextTurn { [weak self] in
++                guard let self else { return }
++                colorSchemeUpdateScheduled = false
++                guard window != nil else { return }
++                if let state = delegate as? TerminalViewState,
++                   let attached = state.attachedPlatformView, attached !== self {
++                    return
++                }
++                applyCurrentColorScheme()
++            }
++        }
++
++        private func applyCurrentColorScheme() {
+             let scheme: TerminalColorScheme = switch effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) {
+             case .darkAqua: .dark
+             default: .light
+--- a/Sources/GhosttyTerminal/State/TerminalViewState.swift
++++ b/Sources/GhosttyTerminal/State/TerminalViewState.swift
+@@ -50,6 +50,7 @@
+     /// surface view is made: set it before the surface first appears.
+     public var makePlatformView: (@MainActor () -> TerminalView)?
+     private var pendingFocusRequest = false
++    var colorSchemeRequest = UUID()
+ 
+     /// Whether the attached surface should keep drawing. Hosts that keep
+     /// several surfaces mounted at once (tabs hidden behind `opacity(0)`)
+--- a/Sources/GhosttyTerminal/State/TerminalViewState+Mutation.swift
++++ b/Sources/GhosttyTerminal/State/TerminalViewState+Mutation.swift
+@@ -8,6 +8,19 @@
+ import SwiftUI
+ 
+ public extension TerminalViewState {
++    // SwiftUI lifecycle callbacks can run inside Update.dispatchActions. Keep
++    // the public imperative adopt API synchronous, but defer view-driven work.
++    // Only the latest request from the still-attached view/controller may apply.
++    internal func requestColorScheme(_ colorScheme: ColorScheme) {
++        let request = UUID()
++        colorSchemeRequest = request
++        terminalRunOnMainNextTurn { [weak self, weak view = attachedView, weak controller] in
++            guard let self, colorSchemeRequest == request, self.controller === controller,
++                  let view, attachedView === view, view.window != nil else { return }
++            adopt(colorScheme: colorScheme)
++        }
++    }
++
+     func adopt(colorScheme: ColorScheme) {
+         adopt(terminalColorScheme: TerminalColorScheme(colorScheme))
+     }
+--- a/Sources/GhosttyTerminal/Surface/TerminalSurfaceView.swift
++++ b/Sources/GhosttyTerminal/Surface/TerminalSurfaceView.swift
+@@ -36,10 +36,10 @@
+         )
+         .background(.clear)
+         .onChange(of: colorScheme) { newScheme in
+-            context.adopt(colorScheme: newScheme)
++            context.requestColorScheme( newScheme)
+         }
+         .onAppear {
+-            context.adopt(colorScheme: colorScheme)
++            context.requestColorScheme( colorScheme)
+         }
+     }
+ 

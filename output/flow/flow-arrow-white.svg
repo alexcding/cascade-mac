@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Flow arrow</title>
+  <desc>A rounded forward arrow with a porcelain-white upper face and silver lower face, on a transparent background.</desc>
+  <defs>
+    <linearGradient id="upper" x1="300" y1="96" x2="550" y2="512" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F5F5F7"/>
+    </linearGradient>
+    <linearGradient id="lower" x1="600" y1="512" x2="360" y2="925" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8B9BF"/>
+      <stop offset="0.6" stop-color="#ACAFB7"/>
+      <stop offset="1" stop-color="#C3C5CB"/>
+    </linearGradient>
+    <clipPath id="arrow">
+      <path d="M135 99C108 85 82 113 99 138L356 512L99 886C82 911 108 939 135 925L920 535C943 523 943 501 920 489L135 99Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#arrow)">
+    <path fill="url(#lower)" d="M0 0H1024V1024H0Z"/>
+    <path fill="url(#upper)" d="M0 0H1024V512H0Z"/>
+  </g>
+</svg>

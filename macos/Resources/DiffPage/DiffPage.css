@@ -1,0 +1,89 @@
+/* The one embedded page of our own: the working-changes diff. The palette mirrors Theme/ so
+   the dark theme stays a pure palette swap via html[data-theme] — never per-widget colors. */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root, html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff; --surface: #ffffff; --surface-hover: #f1f3f5;
+  --border: #e7e9ee;
+  --text: #16181d; --text-2: #565d68; --text-3: #9298a3;
+  --accent: #2563eb;
+  --danger: #dc2626; --danger-bg: #fef2f2; --danger-border: #fbd5d5;
+  --tok-kw: #cf222e; --tok-str: #0a3069; --tok-com: #6e7781; --tok-num: #0550ae; --tok-fn: #8250df;
+  --diff-add-bg:#e6ffec; --diff-add-gut:#ccffd8; --diff-add-fg:#1a7f37;
+  --diff-del-bg:#ffebe9; --diff-del-gut:#ffd7d5; --diff-del-fg:#cf222e;
+  --diff-font: "SF Mono", Menlo, Monaco, monospace;
+  --diff-font-size: 12px;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1e1e1e; --surface: #1e1e1e; --surface-hover: #2a2a2a;
+  --border: #323232;
+  --text: #e8e8e8; --text-2: #a2a2a2; --text-3: #6e6e6e;
+  --accent: #4b86f0;
+  --danger: #f87171; --danger-bg: #2a1a1a; --danger-border: #4a2a2a;
+  --tok-kw: #ff7b72; --tok-str: #a5d6ff; --tok-com: #8b949e; --tok-num: #79c0ff; --tok-fn: #d2a8ff;
+  --diff-add-bg:rgba(63,185,80,.13); --diff-add-gut:rgba(63,185,80,.28); --diff-add-fg:#56d364;
+  --diff-del-bg:rgba(248,81,73,.13); --diff-del-gut:rgba(248,81,73,.28); --diff-del-fg:#f85149;
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+#native-diff { height: 100%; overflow: auto; overscroll-behavior: contain; font: var(--diff-font-size)/1.55 var(--diff-font); }
+
+.diff-empty { height:100%; display:flex; align-items:center; justify-content:center; padding:20px; text-align:center; color:var(--text-3); font:13px -apple-system,BlinkMacSystemFont,sans-serif; }
+.diff-root { padding:8px 10px 16px; position:relative; }
+.diff-root .diff-empty { height:auto; padding:12px; }
+/* No overflow:hidden on .diff-file — it would break the sticky header (an overflow
+   ancestor becomes the sticky containing block). The current file's header stays
+   pinned at the top until the next file's header pushes it away (each header is
+   sticky within its own card); .diff-body does the rounded-corner clipping instead. */
+.diff-file { margin-top:8px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.diff-file-head { display:flex; align-items:center; gap:6px; padding:6px 10px; cursor:pointer; user-select:none; font-weight:600; color:var(--text); position:sticky; top:0; background:var(--surface); z-index:1; border-radius:8px 8px 0 0; }
+.diff-file-head:last-child, .diff-file.collapsed .diff-file-head { border-radius:8px; }
+.diff-file-head:hover { background:var(--surface-hover); }
+.diff-body { overflow:hidden; border-radius:0 0 8px 8px; }
+.diff-chev { display:inline-flex; color:var(--text-3); transition:transform .12s; transform:rotate(90deg); }
+.diff-file.collapsed .diff-chev { transform:rotate(0); }
+.diff-file.collapsed .diff-body { display:none; }
+.diff-badge { font-size:10px; font-weight:700; padding:0 5px; border-radius:4px; }
+.diff-badge-added   { color:var(--diff-add-fg); background:var(--diff-add-bg); }
+.diff-badge-deleted { color:var(--diff-del-fg); background:var(--diff-del-bg); }
+.diff-badge-renamed { color:var(--text-2); background:var(--surface-hover); }
+.diff-fpath { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left; }
+.diff-counts { flex-shrink:0; display:flex; gap:6px; font-weight:600; }
+.dc-add { color:var(--diff-add-fg); }
+.dc-del { color:var(--diff-del-fg); }
+/* separate+0 spacing (not collapse): collapsed rows share paint edges, which lets a
+   row's background slice the hover frame's vertical shadow lines at each row seam. */
+.diff-table { width:100%; border-collapse:separate; border-spacing:0; border-top:1px solid var(--border); }
+.diff-table td { padding:0 8px 0 0; border-bottom:none; vertical-align:top; font-size:inherit; }
+.dg { width:1%; min-width:34px; text-align:right; color:var(--text-3); user-select:none; padding:0 6px; }
+.dx { white-space:pre-wrap; word-break:break-all; width:100%; }
+.dm { display:inline-block; width:1ch; margin-right:4px; user-select:none; opacity:.7; }
+.diff-hunk .dx { color:var(--text-3); background:var(--surface-hover); padding:2px 8px; }
+.diff-hunk .dg { background:var(--surface-hover); }
+/* Discard floats over a change block's first row, revealed by hovering anywhere in
+   that block (each block is its own <tbody>) — the VS Code hover-actions pattern. */
+.diff-line .dx { position:relative; }
+.hunk-discard { position:absolute; right:7px; top:5px; opacity:0; pointer-events:none; padding:5px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--danger); font:600 12px -apple-system,BlinkMacSystemFont,sans-serif; cursor:pointer; z-index:2; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+/* Frame the hovered block so the discard scope is visible before clicking. An overlay div
+   positioned by DiffPage.js, NOT table borders: anything drawn by the cells themselves gets
+   sliced at row seams by table background paint order. */
+.diff-frame { position:absolute; display:none; border:1px solid var(--accent); border-radius:2px; pointer-events:none; z-index:3; }
+.diff-block:hover .hunk-discard, .diff-block:focus-within .hunk-discard { opacity:1; pointer-events:auto; }
+.hunk-discard:hover { background:var(--danger-bg); border-color:var(--danger-border); }
+.tok-kw { color:var(--tok-kw); }
+.tok-str { color:var(--tok-str); }
+.tok-com { color:var(--tok-com); font-style:italic; }
+.tok-num { color:var(--tok-num); }
+.tok-fn { color:var(--tok-fn); }
+.diff-line.add .dx { background:var(--diff-add-bg); }
+.diff-line.add .dg { background:var(--diff-add-gut); }
+.diff-line.del .dx { background:var(--diff-del-bg); }
+.diff-line.del .dg { background:var(--diff-del-gut); }
+.diff-stub { padding:10px 12px; color:var(--text-3); border-top:1px solid var(--border); font-size:12px; }
+.diff-stub code { background:var(--surface-hover); padding:1px 5px; border-radius:4px; }
+.diff-untracked-head { cursor:default; color:var(--text-2); }
+.diff-untracked { padding:2px 12px 2px 30px; color:var(--diff-add-fg); border-top:1px solid var(--border); overflow-wrap:anywhere; }
+.diff-open-file { font:inherit; color:inherit; background:transparent; border:0; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+.diff-open-file:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.dg .diff-open-file { width:100%; padding:0; text-align:right; text-decoration:none; }
+.dg .diff-open-file:hover { text-decoration:underline; }

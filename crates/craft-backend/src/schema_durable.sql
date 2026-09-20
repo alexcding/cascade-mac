@@ -1,0 +1,32 @@
+CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', repo TEXT NOT NULL DEFAULT '',
+  workspace TEXT NOT NULL DEFAULT '', jira_project_key TEXT NOT NULL DEFAULT '', jql TEXT NOT NULL DEFAULT '',
+  merge_transition TEXT NOT NULL DEFAULT '', forward_webhooks INTEGER NOT NULL DEFAULT 1,
+  fix_version_enabled INTEGER NOT NULL DEFAULT 0, fix_version_prefix TEXT NOT NULL DEFAULT '',
+  fix_version_script TEXT NOT NULL DEFAULT '', workflows TEXT NOT NULL DEFAULT '', ide TEXT NOT NULL DEFAULT '',
+  ide_cmd TEXT NOT NULL DEFAULT '', ide_target TEXT NOT NULL DEFAULT '', run_scheme TEXT NOT NULL DEFAULT '',
+  run_sim TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS links (
+  id TEXT PRIMARY KEY, pr_number INTEGER, pr_repo TEXT, jira_key TEXT, project_id TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT, type TEXT, payload TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tabs (
+  id TEXT PRIMARY KEY, url TEXT NOT NULL, kind TEXT NOT NULL, title TEXT, repo TEXT, branch TEXT,
+  pane_view TEXT NOT NULL DEFAULT 'term', diff_open INTEGER NOT NULL DEFAULT 0,
+  page_closed INTEGER NOT NULL DEFAULT 0, diff_pos INTEGER NOT NULL DEFAULT 0,
+  category TEXT NOT NULL DEFAULT '', login TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '',
+  links TEXT NOT NULL DEFAULT '[]', cur TEXT NOT NULL DEFAULT '', history TEXT NOT NULL DEFAULT '[]',
+  position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0,
+  pinned INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace TEXT NOT NULL, worktree TEXT NOT NULL,
+  branch TEXT, title TEXT, kind TEXT, url TEXT, jira_key TEXT, cli TEXT, session_id TEXT,
+  created_at TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS review_state (key TEXT PRIMARY KEY, requested_at TEXT, viewed_at TEXT);

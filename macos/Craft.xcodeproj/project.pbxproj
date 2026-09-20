@@ -1,0 +1,843 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4415510CF7AF502B0F5DD509 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */; };
+		4E7DF3CF4810B4EC38A55D12 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C55F686B0B0D671AF14E3A3D /* GhosttyTerminal */; };
+		62D68FC07EABB6B4C6958926 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3847F04EE724731C9EFB5B91 /* Sparkle */; };
+		728A6AA42A2A9D55ABD412B4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0A01EF5361B23C1FC613C721 /* Sparkle */; };
+		7AAB4F2B3EBA9D918EF3C7D0 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 904836571D4D28F3C2E7EB04 /* GhosttyTerminal */; };
+		7F05583EB11B7BDAB70F064F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 1A5E96BC02299C04C288CFCB /* Sparkle */; };
+		A1B2C3D40000000000000011 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D40000000000000001 /* GhosttyTheme */; };
+		A1B2C3D40000000000000012 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D40000000000000002 /* GhosttyTheme */; };
+		A1B2C3D40000000000000013 /* GhosttyTheme in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D40000000000000003 /* GhosttyTheme */; };
+		CE5E00000000000000000011 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = CE5E00000000000000000021 /* CodeEditSourceEditor */; };
+		CE5E00000000000000000012 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = CE5E00000000000000000022 /* CodeEditSourceEditor */; };
+		CE5E00000000000000000013 /* CodeEditSourceEditor in Frameworks */ = {isa = PBXBuildFile; productRef = CE5E00000000000000000023 /* CodeEditSourceEditor */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		8BC265752DEDD3F500F279A4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8BC265542DEDD3F400F279A4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 8BC2655B2DEDD3F400F279A4;
+			remoteInfo = Craft;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		5A200C8AEBCE06F85302EE31 /* CraftTerminalStress */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CraftTerminalStress; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BC2655C2DEDD3F400F279A4 /* Craft.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Craft.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BC265742DEDD3F500F279A4 /* CraftUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CraftUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FB9BE2BCFF7EB69F13DEF145 /* CraftTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CraftTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		68FFD18885C9187FE175C988 /* Exceptions for "Resources" folder in "Craft" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Configs/App-Info.plist",
+				Configs/Debug.xcconfig,
+				Configs/Release.xcconfig,
+				Configs/Shared.xcconfig,
+				Configs/Tests.xcconfig,
+			);
+			target = 8BC2655B2DEDD3F400F279A4 /* Craft */;
+		};
+		81BC54CC21B36CE29521406E /* Exceptions for "App" folder in "CraftTerminalStress" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppDelegate.swift,
+				CraftApp.swift,
+			);
+			target = 3CC1E0BAAD4175D7C15C173D /* CraftTerminalStress */;
+		};
+		E99123A3C53A3B5DE0AC00D5 /* Exceptions for "Tests" folder in "CraftTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Craft.xctestplan,
+			);
+			target = F7381EC033A0950860B176B2 /* CraftTests */;
+		};
+		F5393EF0687FD362436C8BA7 /* Exceptions for "App" folder in "CraftTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppDelegate.swift,
+				CraftApp.swift,
+			);
+			target = F7381EC033A0950860B176B2 /* CraftTests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		0402D689C52ABEA7C2FFFCF3 /* Coordinators */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Coordinators;
+			sourceTree = "<group>";
+		};
+		2FDDEC91A901B778B4B9F76A /* Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				E99123A3C53A3B5DE0AC00D5 /* Exceptions for "Tests" folder in "CraftTests" target */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		3967AE8821F31EF10D65A2C6 /* UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		401276856BE81AD67D6572CC /* Components */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Components;
+			sourceTree = "<group>";
+		};
+		43258EF5A8DF2C859423F691 /* Container */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Container;
+			sourceTree = "<group>";
+		};
+		6D04B25C2C483E7442DB515F /* Utilities */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Utilities;
+			sourceTree = "<group>";
+		};
+		7E44CFF338EC3AC8A9909D21 /* Theme */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		B78F3A185686E4383D9987CF /* Tools */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tools;
+			sourceTree = "<group>";
+		};
+		B7C4DEC1AB14B75741E687F3 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F5393EF0687FD362436C8BA7 /* Exceptions for "App" folder in "CraftTests" target */,
+				81BC54CC21B36CE29521406E /* Exceptions for "App" folder in "CraftTerminalStress" target */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C1E2D27BDC02FCA7A98D8C49 /* Resources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				68FFD18885C9187FE175C988 /* Exceptions for "Resources" folder in "Craft" target */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		EB6EACE8F0E1830593E26D8B /* Scenes */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Scenes;
+			sourceTree = "<group>";
+		};
+		EEA485BC4DC98C183DAC9E64 /* Services */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Services;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		24E62AD82EFC3DE733459B62 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7AAB4F2B3EBA9D918EF3C7D0 /* GhosttyTerminal in Frameworks */,
+				A1B2C3D40000000000000012 /* GhosttyTheme in Frameworks */,
+				7F05583EB11B7BDAB70F064F /* Sparkle in Frameworks */,
+				CE5E00000000000000000011 /* CodeEditSourceEditor in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8BC265592DEDD3F400F279A4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4415510CF7AF502B0F5DD509 /* GhosttyTerminal in Frameworks */,
+				A1B2C3D40000000000000011 /* GhosttyTheme in Frameworks */,
+				728A6AA42A2A9D55ABD412B4 /* Sparkle in Frameworks */,
+				CE5E00000000000000000012 /* CodeEditSourceEditor in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8BC265712DEDD3F500F279A4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8E47683524FB5106B066EF08 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4E7DF3CF4810B4EC38A55D12 /* GhosttyTerminal in Frameworks */,
+				A1B2C3D40000000000000013 /* GhosttyTheme in Frameworks */,
+				62D68FC07EABB6B4C6958926 /* Sparkle in Frameworks */,
+				CE5E00000000000000000013 /* CodeEditSourceEditor in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8B90D1462DEDD44A00FBD189 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		8BC265532DEDD3F400F279A4 = {
+			isa = PBXGroup;
+			children = (
+				B7C4DEC1AB14B75741E687F3 /* App */,
+				EB6EACE8F0E1830593E26D8B /* Scenes */,
+				0402D689C52ABEA7C2FFFCF3 /* Coordinators */,
+				401276856BE81AD67D6572CC /* Components */,
+				43258EF5A8DF2C859423F691 /* Container */,
+				EEA485BC4DC98C183DAC9E64 /* Services */,
+				7E44CFF338EC3AC8A9909D21 /* Theme */,
+				6D04B25C2C483E7442DB515F /* Utilities */,
+				C1E2D27BDC02FCA7A98D8C49 /* Resources */,
+				2FDDEC91A901B778B4B9F76A /* Tests */,
+				3967AE8821F31EF10D65A2C6 /* UITests */,
+				B78F3A185686E4383D9987CF /* Tools */,
+				8B90D1462DEDD44A00FBD189 /* Frameworks */,
+				8BC2655D2DEDD3F400F279A4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8BC2655D2DEDD3F400F279A4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8BC2655C2DEDD3F400F279A4 /* Craft.app */,
+				8BC265742DEDD3F500F279A4 /* CraftUITests.xctest */,
+				FB9BE2BCFF7EB69F13DEF145 /* CraftTests.xctest */,
+				5A200C8AEBCE06F85302EE31 /* CraftTerminalStress */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3CC1E0BAAD4175D7C15C173D /* CraftTerminalStress */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 65159389CCD8EC893A2C2336 /* Build configuration list for PBXNativeTarget "CraftTerminalStress" */;
+			buildPhases = (
+				31676919C4918B62519A3373 /* Sources */,
+				8E47683524FB5106B066EF08 /* Frameworks */,
+				AD37BBB4A7E1B762F747318E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0402D689C52ABEA7C2FFFCF3 /* Coordinators */,
+				401276856BE81AD67D6572CC /* Components */,
+				43258EF5A8DF2C859423F691 /* Container */,
+				6D04B25C2C483E7442DB515F /* Utilities */,
+				7E44CFF338EC3AC8A9909D21 /* Theme */,
+				B78F3A185686E4383D9987CF /* Tools */,
+				B7C4DEC1AB14B75741E687F3 /* App */,
+				EB6EACE8F0E1830593E26D8B /* Scenes */,
+				EEA485BC4DC98C183DAC9E64 /* Services */,
+			);
+			name = CraftTerminalStress;
+			packageProductDependencies = (
+				C55F686B0B0D671AF14E3A3D /* GhosttyTerminal */,
+				A1B2C3D40000000000000003 /* GhosttyTheme */,
+				3847F04EE724731C9EFB5B91 /* Sparkle */,
+				CE5E00000000000000000023 /* CodeEditSourceEditor */,
+			);
+			productName = CraftTerminalStress;
+			productReference = 5A200C8AEBCE06F85302EE31 /* CraftTerminalStress */;
+			productType = "com.apple.product-type.tool";
+		};
+		8BC2655B2DEDD3F400F279A4 /* Craft */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8BC2657E2DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "Craft" */;
+			buildPhases = (
+				F36EA6D42DFE4794AB254F48 /* Bootstrap */,
+				8BC265582DEDD3F400F279A4 /* Sources */,
+				8BC265592DEDD3F400F279A4 /* Frameworks */,
+				8BC2655A2DEDD3F400F279A4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0402D689C52ABEA7C2FFFCF3 /* Coordinators */,
+				401276856BE81AD67D6572CC /* Components */,
+				43258EF5A8DF2C859423F691 /* Container */,
+				6D04B25C2C483E7442DB515F /* Utilities */,
+				7E44CFF338EC3AC8A9909D21 /* Theme */,
+				B7C4DEC1AB14B75741E687F3 /* App */,
+				C1E2D27BDC02FCA7A98D8C49 /* Resources */,
+				EB6EACE8F0E1830593E26D8B /* Scenes */,
+				EEA485BC4DC98C183DAC9E64 /* Services */,
+			);
+			name = Craft;
+			packageProductDependencies = (
+				8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */,
+				A1B2C3D40000000000000001 /* GhosttyTheme */,
+				0A01EF5361B23C1FC613C721 /* Sparkle */,
+				CE5E00000000000000000022 /* CodeEditSourceEditor */,
+			);
+			productName = Craft;
+			productReference = 8BC2655C2DEDD3F400F279A4 /* Craft.app */;
+			productType = "com.apple.product-type.application";
+		};
+		8BC265732DEDD3F500F279A4 /* CraftUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8BC265842DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "CraftUITests" */;
+			buildPhases = (
+				8BC265702DEDD3F500F279A4 /* Sources */,
+				8BC265712DEDD3F500F279A4 /* Frameworks */,
+				8BC265722DEDD3F500F279A4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8BC265762DEDD3F500F279A4 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				3967AE8821F31EF10D65A2C6 /* UITests */,
+			);
+			name = CraftUITests;
+			packageProductDependencies = (
+			);
+			productName = CraftUITests;
+			productReference = 8BC265742DEDD3F500F279A4 /* CraftUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		F7381EC033A0950860B176B2 /* CraftTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 720B97BDA40345316CC49B24 /* Build configuration list for PBXNativeTarget "CraftTests" */;
+			buildPhases = (
+				5EE2C5ACAC4B8227990AE08A /* Sources */,
+				24E62AD82EFC3DE733459B62 /* Frameworks */,
+				D543CE10FAC68652519483D4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				0402D689C52ABEA7C2FFFCF3 /* Coordinators */,
+				2FDDEC91A901B778B4B9F76A /* Tests */,
+				401276856BE81AD67D6572CC /* Components */,
+				43258EF5A8DF2C859423F691 /* Container */,
+				6D04B25C2C483E7442DB515F /* Utilities */,
+				7E44CFF338EC3AC8A9909D21 /* Theme */,
+				B7C4DEC1AB14B75741E687F3 /* App */,
+				EB6EACE8F0E1830593E26D8B /* Scenes */,
+				EEA485BC4DC98C183DAC9E64 /* Services */,
+			);
+			name = CraftTests;
+			packageProductDependencies = (
+				904836571D4D28F3C2E7EB04 /* GhosttyTerminal */,
+				A1B2C3D40000000000000002 /* GhosttyTheme */,
+				1A5E96BC02299C04C288CFCB /* Sparkle */,
+				CE5E00000000000000000021 /* CodeEditSourceEditor */,
+			);
+			productName = CraftTests;
+			productReference = FB9BE2BCFF7EB69F13DEF145 /* CraftTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8BC265542DEDD3F400F279A4 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1630;
+				LastUpgradeCheck = 1630;
+				ORGANIZATIONNAME = "$(ORGANIZATION_NAME)";
+				TargetAttributes = {
+					8BC2655B2DEDD3F400F279A4 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+					8BC265732DEDD3F500F279A4 = {
+						CreatedOnToolsVersion = 16.3;
+						TestTargetID = 8BC2655B2DEDD3F400F279A4;
+					};
+				};
+			};
+			buildConfigurationList = 8BC265572DEDD3F400F279A4 /* Build configuration list for PBXProject "Craft" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8BC265532DEDD3F400F279A4;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */,
+				EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */,
+				CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8BC2655D2DEDD3F400F279A4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8BC2655B2DEDD3F400F279A4 /* Craft */,
+				8BC265732DEDD3F500F279A4 /* CraftUITests */,
+				F7381EC033A0950860B176B2 /* CraftTests */,
+				3CC1E0BAAD4175D7C15C173D /* CraftTerminalStress */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8BC2655A2DEDD3F400F279A4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8BC265722DEDD3F500F279A4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AD37BBB4A7E1B762F747318E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D543CE10FAC68652519483D4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F36EA6D42DFE4794AB254F48 /* Bootstrap */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = Bootstrap;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/bash;
+			shellScript = "\"$PROJECT_DIR/scripts/bootstrap.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		31676919C4918B62519A3373 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EE2C5ACAC4B8227990AE08A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8BC265582DEDD3F400F279A4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8BC265702DEDD3F500F279A4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8BC265762DEDD3F500F279A4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 8BC2655B2DEDD3F400F279A4 /* Craft */;
+			targetProxy = 8BC265752DEDD3F500F279A4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1960B0485607257F95F7E267 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path",
+					"@loader_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.terminalstress;
+				PRODUCT_NAME = CraftTerminalStress;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		199F657ABAB96381DB1ABF86 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path",
+					"@loader_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.tests;
+				PRODUCT_NAME = CraftTests;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Release;
+		};
+		4F4ED917D9B55D8AA8C3F1B2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path",
+					"@loader_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.terminalstress;
+				PRODUCT_NAME = CraftTerminalStress;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8BC2657C2DEDD3F500F279A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8BC2657D2DEDD3F500F279A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8BC2657F2DEDD3F500F279A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = C1E2D27BDC02FCA7A98D8C49 /* Resources */;
+			baseConfigurationReferenceRelativePath = Configs/Debug.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8BC265802DEDD3F500F279A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = C1E2D27BDC02FCA7A98D8C49 /* Resources */;
+			baseConfigurationReferenceRelativePath = Configs/Release.xcconfig;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(PRODUCT_DISPLAY_NAME)";
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		8BC265852DEDD3F500F279A4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = C1E2D27BDC02FCA7A98D8C49 /* Resources */;
+			baseConfigurationReferenceRelativePath = Configs/Tests.xcconfig;
+			buildSettings = {
+				PRODUCT_NAME = CraftUITests;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		8BC265862DEDD3F500F279A4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = C1E2D27BDC02FCA7A98D8C49 /* Resources */;
+			baseConfigurationReferenceRelativePath = Configs/Tests.xcconfig;
+			buildSettings = {
+				PRODUCT_NAME = CraftUITests;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		D5DE68908E76B45C516C3D39 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				BUNDLE_LOADER = "";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../Frameworks",
+					"@executable_path",
+					"@loader_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/../crates/craft-backend/target/release",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lcraft_backend",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.tests;
+				PRODUCT_NAME = CraftTests;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		65159389CCD8EC893A2C2336 /* Build configuration list for PBXNativeTarget "CraftTerminalStress" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1960B0485607257F95F7E267 /* Debug */,
+				4F4ED917D9B55D8AA8C3F1B2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		720B97BDA40345316CC49B24 /* Build configuration list for PBXNativeTarget "CraftTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D5DE68908E76B45C516C3D39 /* Debug */,
+				199F657ABAB96381DB1ABF86 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8BC265572DEDD3F400F279A4 /* Build configuration list for PBXProject "Craft" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BC2657C2DEDD3F500F279A4 /* Debug */,
+				8BC2657D2DEDD3F500F279A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8BC2657E2DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "Craft" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BC2657F2DEDD3F500F279A4 /* Debug */,
+				8BC265802DEDD3F500F279A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8BC265842DEDD3F500F279A4 /* Build configuration list for PBXNativeTarget "CraftUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8BC265852DEDD3F500F279A4 /* Debug */,
+				8BC265862DEDD3F500F279A4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/alexcding/ghostty-terminal-spm";
+			requirement = {
+				kind = exactVersion;
+				version = "1.6.20260909-taskhub.1";
+			};
+		};
+		CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
+			requirement = {
+				kind = exactVersion;
+				version = 0.15.2;
+			};
+		};
+		EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0A01EF5361B23C1FC613C721 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		1A5E96BC02299C04C288CFCB /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		3847F04EE724731C9EFB5B91 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTerminal;
+		};
+		904836571D4D28F3C2E7EB04 /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTerminal;
+		};
+		A1B2C3D40000000000000001 /* GhosttyTheme */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTheme;
+		};
+		A1B2C3D40000000000000002 /* GhosttyTheme */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTheme;
+		};
+		A1B2C3D40000000000000003 /* GhosttyTheme */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTheme;
+		};
+		C55F686B0B0D671AF14E3A3D /* GhosttyTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */;
+			productName = GhosttyTerminal;
+		};
+		CE5E00000000000000000021 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		CE5E00000000000000000022 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+		CE5E00000000000000000023 /* CodeEditSourceEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
+			productName = CodeEditSourceEditor;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8BC265542DEDD3F400F279A4 /* Project object */;
+}

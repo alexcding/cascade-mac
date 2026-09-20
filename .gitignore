@@ -1,0 +1,35 @@
+# Runtime data — user state, regenerated at runtime (never source)
+craft.db
+craft.db-journal
+craft.db-wal
+craft.db-shm
+config.db
+config.db-journal
+config.db-wal
+config.db-shm
+data.db
+data.db-journal
+data.db-wal
+data.db-shm
+logs.db
+logs.db-journal
+logs.db-wal
+logs.db-shm
+
+# Runtime artifact: the loopback port the embedded backend bound to
+.server-port
+
+# Env / OS
+.env
+.env.local
+.DS_Store
+*.log
+
+# Claude Code local worktrees (embedded git repos — never commit)
+.claude/worktrees/
+
+# Agent task buckets — session scratch notes, never source
+.claude/scratch/
+
+# LLVM coverage output from instrumented Rust test runs
+*.profraw
