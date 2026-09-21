@@ -89,6 +89,10 @@ private actor ProjectFixture: ProjectService {
     #expect(model.rows.first?.title == "open result")
     #expect(model.rows.count == 1 && model.loadedState == "open")
     #expect(await service.requestedStates == ["merged", "open"])
+    // The cancelled "merged" read records itself when its sleep throws, which can land after
+    // the "open" read has already finished. Wait for it instead of assuming that order; the
+    // time limit on this test is what catches a cancel that never happens.
+    while await service.cancelledStates.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
     #expect(await service.cancelledStates == ["merged"])
     model.state = "open"
     await Task.yield()
