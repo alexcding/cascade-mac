@@ -31,7 +31,7 @@ use axum::{
 use tokio::{net::TcpListener, runtime::Runtime, sync::oneshot, task::JoinHandle};
 use tower::ServiceExt;
 
-use crate::{build_app, recovery, AppState, Database};
+use crate::{build_app, cli, recovery, AppState, Database};
 
 /// Receives one response per `craft_backend_request`, on a runtime thread.
 /// `content_type` may be null; `body` is valid only for the duration of the call.
@@ -120,6 +120,8 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
         .context("bind a loopback port for webhooks and hooks")?;
     let port = listener.local_addr()?.port();
     let database = Database::open(&data_dir)?;
+    // Off the request path: the first poll and the first warm-up must not wait on the shell.
+    cli::prime_shell_environment();
     let state = AppState::new(database, instance_id);
     state.poller.start(state.clone());
     let port_file = data_dir.join(".server-port");

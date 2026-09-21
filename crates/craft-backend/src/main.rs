@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("bind 127.0.0.1:{port}"))?;
     let database = Database::open(&data_dir)?;
+    craft_backend::cli::prime_shell_environment();
     let state = AppState::new(database, env::var("CRAFT_INSTANCE_ID").ok());
     state.poller.start(state.clone());
     let bound_port = listener.local_addr()?.port();

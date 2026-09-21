@@ -1,5 +1,5 @@
 mod agents;
-mod cli;
+pub mod cli;
 mod db;
 mod error;
 pub mod ffi;

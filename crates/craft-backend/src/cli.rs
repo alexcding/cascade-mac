@@ -18,6 +18,13 @@ pub(crate) fn command(program: &str) -> Command {
     let mut command = Command::new(resolve(program, search_path()));
     // The child still gets the same PATH, for the programs IT starts (`npx` runs `node`).
     command.env("PATH", search_path());
+    // The agent socket the user's terminal has. A Finder launch inherits Apple's ssh-agent,
+    // while 1Password and friends export their own in the shell rc; without this a `git`
+    // over SSH (a private Swift package, a fetch) reaches an agent with no keys and fails
+    // instead of showing the approval prompt the user gets in a terminal.
+    if let Some(socket) = shell_ssh_auth_sock() {
+        command.env("SSH_AUTH_SOCK", socket);
+    }
     // Its own process group, because the backend runs INSIDE the app: a child left in the
     // host's group shares its fate in both directions. Anything group-directed would reach
     // the app itself, and helpers the child spawns (`git` starts `git-remote-https`) would
@@ -114,6 +121,180 @@ async fn wait_or_kill(program: &str, child: Child, duration: Duration) -> Result
             }
             Err(anyhow!("{program} timed out after {}s", duration.as_secs()))
         }
+    }
+}
+
+/// `SSH_AUTH_SOCK` as the user's interactive login shell sets it, when that names a live socket
+/// other than the one this process inherited. Filled by `prime_shell_environment`; until the
+/// probe has answered, children keep the inherited socket rather than wait for it.
+fn shell_ssh_auth_sock() -> Option<&'static str> {
+    SHELL_SOCKET.get().and_then(Option::as_deref)
+}
+
+static SHELL_SOCKET: OnceLock<Option<String>> = OnceLock::new();
+
+/// Start the shell probe on its own thread. Called once at backend start: the probe sources
+/// the user's rc files, which can take seconds, and nothing on the request path may block on
+/// it. The result lands in `SHELL_SOCKET` whether the probe answered or gave up.
+pub fn prime_shell_environment() {
+    // Gate on "started", not on the result: a stop/start cycle inside the probe's deadline
+    // must not run a second login shell. Tests never source the developer's rc files.
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    if cfg!(test) || std::env::var_os("CRAFT_NO_SHELL_PROBE").is_some() {
+        return;
+    }
+    STARTED.call_once(|| {
+        let inherited = std::env::var("SSH_AUTH_SOCK").ok();
+        let shell = std::env::var("SHELL").ok();
+        std::thread::Builder::new()
+            .name("craft-shell-probe".into())
+            .spawn(move || {
+                let socket = shell
+                    .filter(|shell| shell.starts_with('/'))
+                    .and_then(|shell| {
+                        run_briefly(&shell, &["-ilc", SOCKET_PROBE], Duration::from_secs(5))
+                    })
+                    .and_then(|output| {
+                        choose_socket(
+                            &String::from_utf8_lossy(&output),
+                            inherited.as_deref(),
+                            |path| is_socket(Path::new(path)),
+                        )
+                    });
+                let _ = SHELL_SOCKET.set(socket);
+            })
+            .ok();
+    });
+}
+
+/// Markers, because an rc file may print anything before the value.
+const SOCKET_PROBE: &str = "printf '\\n<craft-ssh>%s</craft-ssh>\\n' \"$SSH_AUTH_SOCK\"";
+const PROBE_END: &str = "</craft-ssh>";
+
+/// The socket to export, or nothing when the shell agrees with the inherited value or names a
+/// path that is not a live socket.
+fn choose_socket(
+    output: &str,
+    inherited: Option<&str>,
+    live: impl Fn(&str) -> bool,
+) -> Option<String> {
+    let socket = socket_from_probe(output)?;
+    if inherited == Some(socket.as_str()) {
+        return None;
+    }
+    live(&socket).then_some(socket)
+}
+
+fn socket_from_probe(output: &str) -> Option<String> {
+    let start = output.rfind("<craft-ssh>")? + "<craft-ssh>".len();
+    let end = output[start..].find(PROBE_END)? + start;
+    let value = output[start..end].trim();
+    value.starts_with('/').then(|| value.to_owned())
+}
+
+fn is_socket(path: &Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    std::fs::metadata(path).is_ok_and(|data| data.file_type().is_socket())
+}
+
+/// A short synchronous run with no stdin, bounded on both the process and its output. The read
+/// stops at the closing marker or the deadline, not at end of file: a grandchild the rc file
+/// backgrounded (an agent, a version manager's daemon) inherits the pipe and would hold it
+/// open indefinitely. Whatever is left of the group is then killed, as `wait_or_kill` does.
+/// `program` is absolute, so std takes `posix_spawn`.
+fn run_briefly(program: &str, args: &[&str], deadline: Duration) -> Option<Vec<u8>> {
+    use std::{io::Read, os::unix::io::AsRawFd, os::unix::process::CommandExt};
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .ok()?;
+    let pid = child.id() as i32;
+    let mut stdout = child.stdout.take()?;
+    let fd = stdout.as_raw_fd();
+    // Non-blocking is what makes the deadline real; without it the read below would wait for
+    // end of file, so a failure here ends the probe rather than proceed unbounded.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        drop(stdout);
+        end_group(&mut child, pid);
+        return None;
+    }
+    let started = std::time::Instant::now();
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let complete = loop {
+        let remaining = deadline.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            break false;
+        }
+        let mut poll = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe {
+            libc::poll(
+                &mut poll,
+                1,
+                remaining.as_millis().min(i32::MAX as u128) as i32,
+            )
+        };
+        if ready < 0 {
+            // A signal — tokio's SIGCHLD handler, for one — interrupts `poll`, and Darwin does
+            // not restart it. That is a wait cut short, not a failed probe.
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break false;
+        }
+        match stdout.read(&mut chunk) {
+            Ok(0) => break true,
+            Ok(count) => {
+                buffer.extend_from_slice(&chunk[..count]);
+                // The marker can only straddle the last chunk boundary, so scan that tail alone.
+                let tail = buffer.len().saturating_sub(count + PROBE_END.len() - 1);
+                if buffer[tail..]
+                    .windows(PROBE_END.len())
+                    .any(|window| window == PROBE_END.as_bytes())
+                {
+                    break true;
+                }
+                if buffer.len() > PROBE_OUTPUT_CAP {
+                    break false;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => break false,
+        }
+    };
+    drop(stdout);
+    end_group(&mut child, pid);
+    complete.then_some(buffer)
+}
+
+/// More than any rc file has reason to print before one `printf`.
+const PROBE_OUTPUT_CAP: usize = 1 << 20;
+
+/// The shell normally exits on its own right after the printf; give it that moment, then take
+/// the whole group so a wedged rc leaves no helpers behind. Skip the signal when the leader is
+/// already reaped: its pid could have been reused by then.
+fn end_group(child: &mut std::process::Child, pid: i32) {
+    let exited = (0..10).any(|_| {
+        matches!(child.try_wait(), Ok(Some(_))) || {
+            std::thread::sleep(Duration::from_millis(10));
+            false
+        }
+    });
+    if !exited {
+        if unsafe { libc::getpgid(pid) } == pid {
+            unsafe { libc::killpg(pid, libc::SIGKILL) };
+        }
+        let _ = child.wait();
     }
 }
 
@@ -253,6 +434,100 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_probe_reads_the_marked_value_past_rc_noise() {
+        assert_eq!(
+            socket_from_probe("Last login: today\nmotd\n<craft-ssh>/tmp/agent.sock</craft-ssh>\n"),
+            Some("/tmp/agent.sock".to_owned())
+        );
+        assert_eq!(socket_from_probe("<craft-ssh></craft-ssh>\n"), None);
+        assert_eq!(
+            socket_from_probe("<craft-ssh>relative.sock</craft-ssh>"),
+            None
+        );
+        assert_eq!(socket_from_probe("no marker at all"), None);
+    }
+
+    #[test]
+    fn shell_socket_is_exported_only_when_it_is_new_and_live() {
+        let probe = "<craft-ssh>/tmp/agent.sock</craft-ssh>";
+        assert_eq!(
+            choose_socket(probe, None, |_| true),
+            Some("/tmp/agent.sock".to_owned())
+        );
+        assert_eq!(
+            choose_socket(probe, Some("/tmp/agent.sock"), |_| true),
+            None
+        );
+        assert_eq!(
+            choose_socket(probe, Some("/var/run/other"), |_| false),
+            None
+        );
+        assert_eq!(choose_socket("garbage", None, |_| true), None);
+    }
+
+    #[test]
+    fn brief_run_returns_at_the_marker_while_a_grandchild_holds_the_pipe() {
+        // `sleep` inherits stdout and outlives the shell: a read to end of file would wait 30s.
+        let started = std::time::Instant::now();
+        let output = run_briefly(
+            "/bin/sh",
+            &[
+                "-c",
+                "(sleep 30 &); printf '<craft-ssh>/x</craft-ssh>\\n'; sleep 30",
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("marker read");
+        assert!(String::from_utf8_lossy(&output).contains("</craft-ssh>"));
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn brief_run_finds_a_marker_split_across_chunks_and_caps_runaway_output() {
+        // 5000 bytes of noise pushes the marker past the first 4096-byte chunk.
+        let output = run_briefly(
+            "/bin/sh",
+            &[
+                "-c",
+                "head -c 5000 /dev/zero | tr '\\0' x; printf '<craft-ssh>/y</craft-ssh>\\n'",
+            ],
+            Duration::from_secs(5),
+        )
+        .expect("marker read");
+        assert_eq!(
+            socket_from_probe(&String::from_utf8_lossy(&output)),
+            Some("/y".to_owned())
+        );
+        let started = std::time::Instant::now();
+        assert!(run_briefly(
+            "/bin/sh",
+            &["-c", "yes | head -c 3000000"],
+            Duration::from_secs(5)
+        )
+        .is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn brief_run_gives_up_at_the_deadline_and_kills_the_group() {
+        let started = std::time::Instant::now();
+        assert!(run_briefly("/bin/sh", &["-c", "sleep 30"], Duration::from_millis(300)).is_none());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn install_locations_are_appended_once_after_the_inherited_path() {
