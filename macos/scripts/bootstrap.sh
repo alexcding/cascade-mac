@@ -99,4 +99,18 @@ if [[ -n "${TARGET_BUILD_DIR:-}" && -n "${CONTENTS_FOLDER_PATH:-}" ]]; then
   fi
 fi
 
+# 5. The output directory the vendored SwiftLint plugin declares but never creates.
+#    CodeEditTextView and CodeEditSourceEditor each carry a SwiftLint build-tool plugin
+#    (SourcePackages/checkouts/SwiftLintPlugin) whose prebuild command names
+#    <workdir>/Output as its output; swiftlint writes a cache there and nothing else, so
+#    every build ends with two "The folder Output doesn't exist" failures for lint runs
+#    that found nothing and that this project cannot act on. Xcode checks the directory
+#    after the command, so creating it first is all it takes. The plugin also honours
+#    DISABLE_SWIFTLINT, but plugin evaluation does not see the target's build settings.
+if [[ -n "${OBJROOT:-}" ]]; then
+  PLUGINS="$OBJROOT/BuildToolPluginIntermediates"
+  mkdir -p "$PLUGINS/codeedittextview.output/CodeEditTextView/SwiftLint/Output" \
+           "$PLUGINS/codeeditsourceeditor.output/CodeEditSourceEditor/SwiftLint/Output"
+fi
+
 log "ready"
