@@ -248,6 +248,21 @@ extension WorkspaceServing {
     /// turn, so the controls wait for the agent to go idle.
     func compactAgent() { if let driver = agentDriver { typeToAgent([.line(driver.compactCommand)]) } }
     func clearAgent() { if let driver = agentDriver { typeToAgent([.line(driver.clearCommand)]) } }
+    func isRunning(_ selection: AgentSelection) -> Bool {
+        guard let running = agentSelection else { return false }
+        return agentCatalog.model(selection.model)?.id == (agentCatalog.model(running.model)?.id ?? running.model) && selection.effort == running.effort
+    }
+    /// The model menu's presets, in menu order. The toolbar owns their storage and hands the
+    /// resolved list over, so the Next Model command and the menu cannot disagree.
+    var agentPresets: [AgentPreset] = []
+    var canCycleAgentPreset: Bool { context != nil && canSendAgentCommand && agentPresets.count > 1 }
+    /// The next or previous preset in menu order, wrapping. From a model no preset names, the first.
+    func cycleAgentPreset(_ direction: Int) {
+        guard canCycleAgentPreset else { return }
+        let presets = agentPresets
+        let next = presets.firstIndex { isRunning($0.selection) }.map { ($0 + direction + presets.count) % presets.count } ?? 0
+        switchAgent(to: presets[next].selection)
+    }
     /// Switches the agent inside its running conversation. The driver knows what its CLI wants
     /// typed; this only carries it out.
     func switchAgent(to selection: AgentSelection) {

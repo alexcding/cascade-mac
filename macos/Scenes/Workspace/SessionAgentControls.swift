@@ -1,46 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// A key combination that switches to a preset while the session's window is in front.
-struct AgentShortcut: Codable, Equatable, Sendable {
-    var key: String
-    var command = false
-    var option = false
-    var control = false
-    var shift = false
-
-    var modifiers: EventModifiers {
-        var value: EventModifiers = []
-        if command { value.insert(.command) }
-        if option { value.insert(.option) }
-        if control { value.insert(.control) }
-        if shift { value.insert(.shift) }
-        return value
-    }
-    var keyboardShortcut: KeyboardShortcut? {
-        key.count == 1 ? key.first.map { KeyboardShortcut(KeyEquivalent($0), modifiers: modifiers) } : nil
-    }
-    /// As the menu bar writes them: ⌃⌥⇧⌘ then the key.
-    var title: String {
-        (control ? "⌃" : "") + (option ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "") + key.uppercased()
-    }
-}
-
-// An extension, so the memberwise initialiser stays.
-extension AgentShortcut {
-    /// Nil for a press that cannot be a shortcut: no key, or none of ⌘ ⌃ ⌥ held, which would
-    /// take an ordinary letter away from the terminal.
-    init?(event: NSEvent) {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !flags.isDisjoint(with: [.command, .control, .option]),
-              let pressed = event.charactersIgnoringModifiers?.lowercased(), pressed.count == 1,
-              pressed.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7F && !(0xF700...0xF8FF).contains($0.value) }) else { return nil }
-        key = pressed
-        command = flags.contains(.command); option = flags.contains(.option)
-        control = flags.contains(.control); shift = flags.contains(.shift)
-    }
-}
-
 /// One entry in the model menu: a model and effort, and the shortcut that reaches it.
 struct AgentPreset: Codable, Equatable, Identifiable, Sendable {
     /// Random for a preset the user adds; derived from the model for one the catalog stands in
@@ -119,6 +79,7 @@ struct SessionAgentControlsView: View {
         .fixedSize()
         .background { shortcuts }
         .task(id: model.agentStatusTrigger) { await model.watchAgentStatus() }
+        .onChange(of: presets, initial: true) { model.agentPresets = presets }
         .accessibilityIdentifier("workspace-agent-controls")
     }
 
@@ -127,11 +88,7 @@ struct SessionAgentControlsView: View {
         return (listed?.name ?? selection.model, listed?.efforts.first { $0.id == selection.effort }?.name)
     }
 
-    private func isActive(_ selection: AgentSelection) -> Bool {
-        guard let running = model.agentSelection else { return false }
-        let catalog = model.agentCatalog
-        return catalog.model(selection.model)?.id == (catalog.model(running.model)?.id ?? running.model) && selection.effort == running.effort
-    }
+    private func isActive(_ selection: AgentSelection) -> Bool { model.isRunning(selection) }
 
     private var modelMenu: some View {
         Menu {
@@ -269,6 +226,7 @@ private struct ContextRing: View {
 private struct AgentPresetEditor: View {
     let catalog: AgentCatalog
     @Binding var presets: [AgentPreset]
+    @State private var rejection: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -286,7 +244,8 @@ private struct AgentPresetEditor: View {
                     }
                     .frame(width: 110)
                     .disabled(efforts.isEmpty)
-                    ShortcutRecorder(shortcut: Binding(get: { preset.shortcut }, set: { value in assign(value, to: preset.id) }))
+                    ShortcutRecorder(shortcut: Binding(get: { preset.shortcut }, set: { value in assign(value, to: preset.id) }),
+                                     conflict: { ShortcutRegistry.shared.conflict($0) }, rejected: { rejection = $0 })
                     Button("Remove Preset", systemImage: "minus.circle") { presets.removeAll { $0.id == preset.id } }
                         .labelStyle(.iconOnly).buttonStyle(.borderless).disabled(presets.count == 1)
                 }
@@ -297,8 +256,8 @@ private struct AgentPresetEditor: View {
                 presets.append(AgentPreset(selection: AgentSelection(model: first.id, effort: first.defaultEffort ?? first.efforts.first?.id)))
             }
             .disabled(catalog.models.isEmpty)
-            Text("A shortcut needs ⌘, ⌃ or ⌥. It works while this window is in front; one the terminal or a menu already uses will not reach it.")
-                .font(.caption).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
+            Text(rejection ?? "A shortcut needs ⌘, so it never takes a key from the CLI. It works while this window is in front; one a menu command holds is refused.")
+                .font(.caption).foregroundStyle(rejection == nil ? Theme.textSecondary : Theme.danger).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .frame(width: 440)
@@ -330,32 +289,5 @@ private struct AgentPresetEditor: View {
         }
         if let index = value.firstIndex(where: { $0.id == id }) { value[index].shortcut = shortcut }
         presets = value
-    }
-}
-
-/// Click, then press the combination. Escape leaves it as it was; Delete clears it.
-private struct ShortcutRecorder: View {
-    @Binding var shortcut: AgentShortcut?
-    @State private var monitor: Any?
-
-    var body: some View {
-        Button(monitor != nil ? "Press keys…" : shortcut?.title ?? "Add Shortcut") { monitor == nil ? start() : stop() }
-            .frame(width: 96)
-            .help("Click, then press a combination with ⌘, ⌃ or ⌥. Delete clears it.")
-            .onDisappear(perform: stop)
-    }
-
-    private func start() {
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 53 { stop(); return nil }
-            if event.keyCode == 51 || event.keyCode == 117 { shortcut = nil; stop(); return nil }
-            if let value = AgentShortcut(event: event) { shortcut = value; stop() }
-            return nil
-        }
-    }
-
-    private func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
     }
 }

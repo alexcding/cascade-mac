@@ -46,6 +46,7 @@ struct SettingsView: View {
                 BrowserAdBlockSection(model: model.adBlock)
             case .terminal: TerminalSettingsView(fonts: model.fonts, shell: shell)
             case .editor: EditorSettingsView(fonts: model.fonts, shell: shell)
+            case .shortcuts: ShortcutsSettingsView(registry: .shared)
             case .clis: clis
             case .system: system
             case .activity: EmptyView() // Not a form; `detail` shows it.
@@ -207,6 +208,7 @@ private extension SettingsSection {
         case .browser: "globe"
         case .terminal: "terminal"
         case .editor: "doc.plaintext"
+        case .shortcuts: "keyboard"
         case .clis: "puzzlepiece.extension"
         case .system: "cpu"
         case .activity: "clock"

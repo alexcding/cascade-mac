@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import WebKit
 
 @MainActor @Observable
 public final class AppViewModel {
@@ -379,7 +380,11 @@ public final class AppViewModel {
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
         case .nextPage, .previousPage: (viewer.active?.modeTabs.count ?? 0) > 1
-        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil
+        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
+        case .reloadPage: canPerform(.zoomIn)
+        case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
+        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9:
+            (viewer.active?.modeTabs.count ?? 0) > (command == .tab9 ? 0 : command.tabIndex ?? 0)
         case .refresh: connection == "Connected"
         case .runProject: coordinator.activeWorkspaceModel.map { $0.canRun && $0.build?.running != true } ?? false
         case .stopBuild: coordinator.canPresent && coordinator.activeWorkspaceModel?.build?.running == true
@@ -389,7 +394,15 @@ public final class AppViewModel {
 
     public func perform(_ command: ShellCommand) {
         if [.overview, .terminal].contains(command) { coordinator.discardQueuedDeepLink() }
+        // ⌘+ / ⌘− / ⌘0 zoom the web page when that is what has focus, or is all there is to zoom.
+        if let zoom = pageZoom(for: command) { return perform(zoom) }
         switch command {
+        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9:
+            guard canPerform(command), let context = viewer.active, let index = command.tabIndex else { return }
+            context.select(command == .tab9 ? context.modeTabs[context.modeTabs.count - 1] : context.modeTabs[index])
+        case .nextModel, .previousModel:
+            if canPerform(command) { coordinator.activeWorkspaceModel?.cycleAgentPreset(command == .nextModel ? 1 : -1) }
+        case .reloadPage: if canPerform(.reloadPage) { viewer.active?.activePage?.controls.reload() }
         case .newProject:
             guard canPerform(.newProject), let api else { return }
             coordinator.presentNewProject(service: backendFactory.projects(api: api), didSave: { [weak self] in self?.savedProject($0) })
@@ -429,6 +442,26 @@ public final class AppViewModel {
         case .resetFont: if let kind = fontTarget { shell.setFont(kind, size: kind.defaultSize) }
         default: break
         }
+    }
+
+    private func pageZoom(for command: ShellCommand) -> ShellCommand? {
+        let zoom: ShellCommand? = switch command {
+        case .biggerFont: .zoomIn
+        case .smallerFont: .zoomOut
+        case .resetFont: .resetZoom
+        default: nil
+        }
+        guard let zoom, canPerform(zoom), viewer.active?.pane != .diff, fontTarget == nil || webPageFocused else { return nil }
+        return zoom
+    }
+
+    private var webPageFocused: Bool {
+        var view = NSApp.keyWindow?.firstResponder as? NSView
+        while let current = view {
+            if current is WKWebView { return true }
+            view = current.superview
+        }
+        return false
     }
 
     /// Which font size ⌘+ / ⌘− / ⌘0 move. While a Settings tab that shows a size slider is up,

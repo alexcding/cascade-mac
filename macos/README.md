@@ -244,9 +244,11 @@ requests can trigger alerts and the configured sound. Notification permission is
 requested through the user's explicit action. The sidebar bell opens recent
 activity, with access to the full Activity section.
 
-Common shortcuts are **⌘1** for Overview, **⌘2** for the terminal, **⌃⌘S** for the
-sidebar, **⌘⇧U** for Reviews & Usage, and **⌘,** for Settings. Standard editing
-commands follow the focused responder.
+Common shortcuts are **⌘R** / **⌘.** to run and stop, **⌘1**–**⌘9** for tabs, **⌘D** for the
+next model preset, **⇧⌘H** for Overview, **⌃⌘T** for the terminal, **⇧⌘U** for Reviews &
+Usage, and **⌘,** for Settings. Every command's key can be changed under Settings →
+Shortcuts; a combination must include ⌘, so it never takes a key from the CLI in the
+terminal. Standard editing commands follow the focused responder.
 
 ## Verify
 

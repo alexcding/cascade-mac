@@ -60,7 +60,7 @@ struct APISettingsService: SettingsService {
 /// including Jira; System is the read-only diagnostics; Activity is the event log, which has its
 /// own coordinator and is not a form.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General", browser = "Browser", terminal = "Terminal", editor = "Text Editor", clis = "Integrations", system = "System", activity = "Activity"
+    case general = "General", browser = "Browser", terminal = "Terminal", editor = "Text Editor", clis = "Integrations", shortcuts = "Shortcuts", system = "System", activity = "Activity"
     var id: String { rawValue }
 }
 

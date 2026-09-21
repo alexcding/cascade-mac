@@ -64,20 +64,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         adoptWindow()
         NotificationCenter.default.addObserver(self, selector: #selector(sheetDidEnd),
             name: NSWindow.didEndSheetNotification, object: nil)
-        // ⌘T is New Tab and ⌥⌘T is New Sidebar Tab everywhere in the app. The terminal surface
-        // binds ⌘T itself and would consume it before the menu, so claim both ahead of the
-        // responder chain.
+        // The terminal surface binds ⌘T, ⌘1–9 and the tab-cycling keys itself and would consume
+        // them before the menu, so claim those ahead of the responder chain, under whatever keys
+        // Settings → Shortcuts gives them. Every one carries ⌘, so nothing the CLI reads is taken.
+        // A claimed key that cannot run right now is dropped, as a disabled menu item's is, rather
+        // than passed on for the terminal surface to read as a binding of its own.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, window?.isKeyWindow == true, window?.attachedSheet == nil,
-                  event.charactersIgnoringModifiers?.lowercased() == "t" else { return event }
-            let command: ShellCommand
-            switch event.modifierFlags.intersection(.deviceIndependentFlagsMask) {
-            case .command: command = .newTab
-            case [.command, .option]: command = .newSidebarTab
-            default: return event
-            }
-            guard model.canPerform(command) else { return event }
-            perform(command)
+            guard let self, !ShortcutRecorder.recording, window?.isKeyWindow == true, window?.attachedSheet == nil,
+                  let command = ShortcutRegistry.shared.command(for: event), command.claimedAheadOfResponders else { return event }
+            if model.canPerform(command) { perform(command) } else { NSSound.beep() }
             return nil
         }
         model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },

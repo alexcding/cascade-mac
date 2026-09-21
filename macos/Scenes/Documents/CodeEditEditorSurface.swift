@@ -83,8 +83,7 @@ import CodeEditSourceEditor
         Self.live[ObjectIdentifier(self)] = { [weak self] in self }
         guard Self.saveMonitor == nil else { return }
         Self.saveMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  event.charactersIgnoringModifiers?.lowercased() == "s",
+            guard ShortcutRegistry.shared.command(for: event) == .saveFile,
                   let surface = Self.live.values.lazy.compactMap({ $0() }).first(where: \.isFocused) else { return event }
             surface.saveRequested()
             return nil

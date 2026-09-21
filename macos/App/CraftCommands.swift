@@ -8,58 +8,78 @@ struct CraftCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .appInfo) {
-            command("Check for Updates…", .checkForUpdates)
+            command(.checkForUpdates)
         }
         CommandGroup(replacing: .newItem) {
-            command("New Project…", .newProject)
-            command("New Session…", .newSession, key: "n")
-            command("New Tab", .newTab, key: "t")
-            command("New Sidebar Tab", .newSidebarTab, key: "t", modifiers: [.command, .option])
-            command("Open File…", .openFile, key: "o")
+            command(.newProject)
+            command(.newSession)
+            command(.newTab)
+            command(.newSidebarTab)
+            command(.openFile)
         }
         CommandGroup(replacing: .saveItem) {
-            command("Save File", .saveFile, key: "s")
-            command("Close Tab / Window", .closePage, key: "w")
+            command(.saveFile)
+            command(.closePage)
         }
         CommandGroup(after: .pasteboard) {
-            command("Find in Page…", .findPage, key: "f")
+            command(.findPage)
         }
         CommandGroup(replacing: .toolbar) {
-            command("Refresh", .refresh, key: "r", modifiers: [.command, .shift])
-            command("Reviews & Usage", .tray, key: "u", modifiers: [.command, .shift])
+            command(.refresh)
+            command(.reloadPage)
+            command(.tray)
             Divider()
-            command("Bigger Code Font", .biggerFont, key: "=")
-            command("Smaller Code Font", .smallerFont, key: "-")
-            command("Reset Code Font", .resetFont, key: "0")
+            // One set of zoom keys: the page when a web page has focus, the code font otherwise.
+            command(.biggerFont)
+            command(.smallerFont)
+            command(.resetFont)
             Divider()
-            command("Zoom Page In", .zoomIn, key: "=", modifiers: [.command, .option])
-            command("Zoom Page Out", .zoomOut, key: "-", modifiers: [.command, .option])
-            command("Reset Page Zoom", .resetZoom, key: "0", modifiers: [.command, .option])
+            command(.zoomIn)
+            command(.zoomOut)
+            command(.resetZoom)
         }
+        // Owns Toggle Sidebar and its ⌃⌘S; Focus Sidebar below keeps off it.
         SidebarCommands()
         CommandMenu("Product") {
-            command("Run", .runProject, key: "r")
-            command("Stop", .stopBuild, key: ".")
+            command(.runProject)
+            command(.stopBuild)
+            Divider()
+            command(.nextModel)
+            command(.previousModel)
         }
         CommandMenu("Go") {
-            command("Overview", .overview, key: "1")
-            command("Terminal", .terminal, key: "2")
-            command("Back", .back, key: "[")
-            command("Forward", .forward, key: "]")
-            command("Next Page", .nextPage, key: "]", modifiers: [.command, .shift])
-            command("Previous Page", .previousPage, key: "[", modifiers: [.command, .shift])
+            command(.overview)
+            command(.terminal)
+            command(.sidebar)
+            command(.activity)
             Divider()
-            command("Focus Sidebar", .sidebar, key: "s", modifiers: [.command, .control])
-            command("Focus Terminal", .terminal, key: "t", modifiers: [.command, .control])
+            command(.back)
+            command(.forward)
+            Divider()
+            command(.nextPage)
+            command(.previousPage)
+            ForEach(ShellCommand.tabs, id: \.self) { command($0) }
         }
     }
 
-    @ViewBuilder private func command(_ title: String, _ command: ShellCommand,
-                                      key: KeyEquivalent? = nil,
-                                      modifiers: EventModifiers = .command) -> some View {
-        let button = Button(title) { perform(command) }
+    private func command(_ command: ShellCommand) -> some View {
+        CommandItem(command: command, model: model, perform: perform, canCheckForUpdates: canCheckForUpdates)
+    }
+}
+
+/// One menu item. Titles and keys both come from the shortcut table, so Settings → Shortcuts and
+/// the menu bar cannot disagree. A view of its own, so that reading the table and the model in
+/// `body` is what redraws the item when a key is rebound or the command's availability changes.
+private struct CommandItem: View {
+    let command: ShellCommand
+    let model: AppViewModel
+    let perform: (ShellCommand) -> Void
+    let canCheckForUpdates: Bool
+
+    var body: some View {
+        let button = Button(command.title) { perform(command) }
             .disabled(command == .checkForUpdates ? !canCheckForUpdates : !model.canPerform(command))
-        if let key { button.keyboardShortcut(key, modifiers: modifiers) }
+        if let shortcut = ShortcutRegistry.shared.shortcut(for: command)?.keyboardShortcut { button.keyboardShortcut(shortcut) }
         else { button }
     }
 }
