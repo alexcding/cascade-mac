@@ -660,9 +660,10 @@ public final class AppViewModel {
         viewer.active?.open(request.url, title: request.title)
     }
 
-    public func makeTray(openWindow: @escaping () -> Void, dismiss: @escaping () -> Void) -> TrayCoordinator {
+    public func makeTray(openWindow: @escaping () -> Void, dismiss: @escaping () -> Void,
+                         quit: @escaping () -> Void = {}) -> TrayCoordinator {
         coordinator.makeTray(factory: trayFactory, runtime: self, shell: shell,
-                             presentation: TrayPresentation(openWindow: openWindow, dismiss: dismiss))
+                             presentation: TrayPresentation(openWindow: openWindow, dismiss: dismiss, quit: quit))
     }
 
     func select(_ destination: SidebarDestination) {

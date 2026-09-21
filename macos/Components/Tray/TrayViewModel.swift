@@ -14,11 +14,12 @@ import Observation
 }
 
 @MainActor @Observable public final class TrayViewModel {
-    enum Action: Equatable { case refresh, openReview(String) }
+    enum Action: Equatable { case refresh, openReview(String), openUsage, quit }
     let shell: ShellStore
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     @ObservationIgnored private weak var service: (any TrayServing)?
     private(set) var retired = false
+    /// Opening the menu asks for a refresh, through the same gated path as every other request.
     private(set) var active = false {
         didSet { if oldValue != active && active { refresh() } }
     }
@@ -29,14 +30,32 @@ import Observation
     }
     private var state: TrayState { service?.trayState() ?? TrayState() }
     var available: Bool { !retired && service != nil }
-    var pendingReviews: [TrayPR] { state.reviews.filter(\.pendingReview) }
-    func canOpen(_ review: TrayPR) -> Bool {
-        available && active && state.canNavigate && review.pendingReview
-            && review.webURL != nil && !state.acknowledging.contains(review.id)
+    var pendingReviews: [TrayPR] { Self.pending(state) }
+
+    /// Everything a menu build needs, taken from one snapshot, so a build reads the service
+    /// once instead of once per row.
+    struct Snapshot {
+        let pending: [TrayPR]
+        let acknowledging: Set<String>
+        let canNavigate: Bool
     }
+    func snapshot() -> Snapshot {
+        let state = state
+        return Snapshot(pending: Self.pending(state), acknowledging: state.acknowledging, canNavigate: state.canNavigate)
+    }
+    func canOpen(_ review: TrayPR, in snapshot: Snapshot) -> Bool {
+        available && active && snapshot.canNavigate && review.pendingReview
+            && review.webURL != nil && !snapshot.acknowledging.contains(review.id)
+    }
+    private static func pending(_ state: TrayState) -> [TrayPR] { state.reviews.filter(\.pendingReview) }
+    func canOpen(_ review: TrayPR) -> Bool { canOpen(review, in: snapshot()) }
     func setActive(_ value: Bool) { if !retired { active = value } }
     func refresh() { request(.refresh) }
-    func openReview(_ review: TrayPR) { request(.openReview(review.id)) }
+    func openReview(_ review: TrayPR) { openReview(review.id) }
+    /// By identity: the coordinator re-resolves and gates the row, so a click needs no lookup here.
+    func openReview(_ id: String) { request(.openReview(id)) }
+    func openUsage() { request(.openUsage) }
+    func quit() { request(.quit) }
     private func request(_ action: Action) { if available && active { onAction(action) } }
 
     func performRefresh() { if available { service?.refreshTray() } }

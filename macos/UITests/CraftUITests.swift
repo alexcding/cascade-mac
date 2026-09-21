@@ -1382,18 +1382,17 @@ final class CraftUITests: XCTestCase {
         let status = app.descendants(matching: .any)["craft-status-item"].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 5))
         status.click()
-        XCTAssertTrue(app.staticTexts["Review requested"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Connect to load review requests"].exists)
-        XCTAssertTrue(app.buttons["Open Craft"].exists)
-        XCTAssertTrue(app.buttons["Quit Craft"].exists) // the tray ends with Quit Craft
+        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5)) // the tray ends with Quit Craft
+        // Offline there is nothing to review, and no line stands in for the section.
+        XCTAssertFalse(app.menuItems["Review requested"].exists)
+        XCTAssertTrue(app.menuItems["Nothing to review"].exists)
         app.typeKey(.escape, modifierFlags: [])
-        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["Open Craft"])
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.menuItems["Quit Craft"])
         wait(for: [dismissed], timeout: 5)
         XCTAssertTrue(status.exists)
-        status.click()
-        XCTAssertTrue(app.buttons["Open Craft"].waitForExistence(timeout: 5))
-        app.buttons["Open Craft"].click()
-        XCTAssertFalse(app.buttons["Open Craft"].exists)
+        status.rightClick() // either click opens the menu
+        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5))
+        app.typeKey(.escape, modifierFlags: [])
     }
 
     @MainActor
@@ -1408,18 +1407,18 @@ final class CraftUITests: XCTestCase {
         app.launch()
         let status = app.descendants(matching: .any)["craft-status-item"].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 10))
-        status.click()
-        XCTAssertTrue(app.buttons["Open Craft"].waitForExistence(timeout: 10), app.debugDescription)
-        // The fixture's tabs are plain web pages: only PR and Jira tabs are listed.
-        XCTAssertFalse(app.buttons["Browser fixture"].exists)
-        XCTAssertFalse(app.buttons["Next page"].exists)
+        status.rightClick()
+        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 10), app.debugDescription)
+        // The tray lists review requests only, never the open pages.
+        XCTAssertFalse(app.menuItems["Browser fixture"].exists)
+        XCTAssertFalse(app.menuItems["Next page"].exists)
         app.typeKey(.escape, modifierFlags: [])
         app.buttons["New Project"].click()
         let draft = app.sheets.textFields["project-name"]
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         draft.click(); app.typeText("Keep this tray draft")
-        status.click()
-        XCTAssertTrue(app.buttons["Open Craft"].waitForExistence(timeout: 5), app.debugDescription)
+        status.rightClick()
+        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5), app.debugDescription)
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         XCTAssertEqual(draft.value as? String, "Keep this tray draft")
@@ -1427,7 +1426,7 @@ final class CraftUITests: XCTestCase {
         // The sidebar bell is today's activity (events-popover.js), not the tray.
         app.buttons["Today's activity"].click()
         XCTAssertTrue(app.descendants(matching: .any)["today-activity-popover"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Open Craft"].exists)
+        XCTAssertFalse(app.menuItems["Quit Craft"].exists)
     }
 
     @MainActor

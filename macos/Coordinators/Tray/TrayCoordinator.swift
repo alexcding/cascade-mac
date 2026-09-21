@@ -14,11 +14,15 @@ import Observation
 @MainActor protocol TrayCoordinating: TrayServing {
     /// Opens a review in a Craft tab (or the session that already owns its address).
     func openTrayReview(_ request: OpenPageRequest) async throws
+    /// Shows the screen that carries the plan usage the tray summarises.
+    func openTrayUsage()
 }
 
 @MainActor struct TrayPresentation {
     let openWindow: () -> Void
     let dismiss: () -> Void
+    /// Quit through the app's own contract — the same path as the Craft menu's Quit.
+    var quit: () -> Void = {}
 }
 
 @MainActor @Observable public final class TrayCoordinator {
@@ -41,6 +45,11 @@ import Observation
         guard !retired, isOwned(), model.available, model.active, let runtime, presentation != nil else { return }
         switch action {
         case .refresh: model.performRefresh()
+        case .openUsage:
+            runtime.openTrayUsage()
+            model.setActive(false); presentation?.dismiss(); presentation?.openWindow()
+        case .quit:
+            model.setActive(false); presentation?.dismiss(); presentation?.quit()
         case .openReview(let id):
             // A repeat click on the review already opening is ignored; a click on another one wins,
             // so the panel never sits on a slow open while the user has moved on.

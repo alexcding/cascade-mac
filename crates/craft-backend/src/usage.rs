@@ -96,7 +96,21 @@ async fn agent_stats(agent: &str) -> Option<Value> {
             "cost":item.and_then(|v|v["totalCost"].as_f64().or_else(||v["costUSD"].as_f64())).unwrap_or(0.0)})
     }).collect();
     let today = history.last()?;
-    Some(json!({"tokens":today["tokens"],"cost":today["cost"],"history":history}))
+    // The model that cost the most over the window, from ccusage's per-day model breakdowns.
+    let mut by_model: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+    for day in daily {
+        for entry in day["modelBreakdowns"].as_array().into_iter().flatten() {
+            let Some(name) = entry["modelName"].as_str() else { continue };
+            let cost = entry["cost"].as_f64().or_else(|| entry["costUSD"].as_f64()).unwrap_or(0.0);
+            *by_model.entry(name.to_owned()).or_default() += cost;
+        }
+    }
+    let top_model = by_model
+        .into_iter()
+        .filter(|(_, cost)| *cost > 0.0)
+        .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|(name, _)| name);
+    Some(json!({"tokens":today["tokens"],"cost":today["cost"],"history":history,"topModel":top_model}))
 }
 
 async fn active_block() -> Option<Value> {

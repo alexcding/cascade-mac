@@ -3,7 +3,7 @@ import SwiftUI
 import Observation
 
 @MainActor @Observable
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     let model: AppViewModel = {
         // Before the model: it reads preferences as it is built.
         LegacyIdentity.carryDefaults()
@@ -18,8 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// for, so it is repainted only when one of them changes.
     @ObservationIgnored private var statusTint: NSColor?
     @ObservationIgnored private var statusThickness: CGFloat = 0
-    private let popover = NSPopover()
     @ObservationIgnored private var tray: TrayCoordinator?
+    @ObservationIgnored private var trayMenu: TrayMenuController?
     private var updater: AppUpdater?
     @ObservationIgnored private lazy var termination = AppTerminationCoordinator(prepare: { [weak self] reason in
         guard let self else { throw CancellationError() }
@@ -85,22 +85,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         item.button?.image = Self.menuBarImage(tint: nil)
         statusThickness = NSStatusBar.system.thickness
         item.button?.setAccessibilityIdentifier("craft-status-item")
-        item.button?.target = self
-        item.button?.action = #selector(toggleTray)
         statusItem = item
         // A display added, removed or rearranged can change the menu bar's height under the glyph.
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        popover.behavior = .transient
-        popover.delegate = self
         let tray = model.makeTray(openWindow: { [weak self] in self?.showWindow() },
-            dismiss: { [weak self] in self?.popover.performClose(nil) })
+            dismiss: { [weak self] in self?.trayMenu?.dismiss() },
+            quit: { NSApp.terminate(nil) })
         self.tray = tray
-        // The tray asks for the height its content needs and the popover follows it, here and as
-        // reviews and usage land later, rather than standing at a fixed height over a short list.
-        let hosting = NSHostingController(rootView: NativeTrayView(model: tray.model))
-        hosting.sizingOptions = [.preferredContentSize]
-        popover.contentViewController = hosting
+        // The tray is the status item's own menu: either click opens it, AppKit closes it.
+        let trayMenu = TrayMenuController(model: tray.model, setActive: { [weak tray] in tray?.setActive($0) })
+        item.menu = trayMenu.menu
+        self.trayMenu = trayMenu
         observeStatus()
         updater = AppUpdater()
         Task { await model.start() }
@@ -139,20 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    @objc func toggleTray() {
-        if popover.isShown { popover.performClose(nil); return }
-        guard let button = statusItem?.button else { return }
-        tray?.setActive(true)
-        // The popover hangs off the status item, so its ceiling is that item's screen — which is
-        // not necessarily the one the main window is on.
-        if let hosting = popover.contentViewController as? NSHostingController<NativeTrayView> {
-            hosting.rootView.maxHeight = TrayMetrics.maxHeight(on: button.window?.screen)
-        }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
-    }
-
-    func popoverDidClose(_ notification: Notification) { tray?.setActive(false) }
+    /// The tray shortcut opens the status item's menu the way a click does.
+    @objc func toggleTray() { statusItem?.button?.performClick(nil) }
 
     static let trayBronze = NSColor(srgbRed: 0.596, green: 0.443, blue: 0.173, alpha: 1)
 
@@ -245,7 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// closing only orders it out — so this undoes a hide. Menu commands never need it; they
     /// only fire while Craft is active.
     private func showWindow() {
-        popover.performClose(nil)
+        trayMenu?.dismiss()
         NSApp.unhide(nil)
         if let window {
             if window.isMiniaturized { window.deminiaturize(nil) }

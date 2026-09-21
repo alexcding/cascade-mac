@@ -5,6 +5,7 @@ struct TrayPR: Decodable, Identifiable, Equatable, Sendable {
         let status: String?
         let conclusion: String?
     }
+    struct Author: Decodable, Equatable, Sendable { let login: String? }
     let url: String
     let repo: String
     let number: Int
@@ -16,6 +17,7 @@ struct TrayPR: Decodable, Identifiable, Equatable, Sendable {
     var requestedAt: String? = nil
     let projectName: String?
     let ci: CI?
+    var author: Author? = nil
     var id: String { "\(repo)#\(number)" }
     var pendingReview: Bool { state == "OPEN" && category == "review" && reviewPending == true }
     var webURL: URL? { safeWebURL(url) }
@@ -67,7 +69,14 @@ public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct UsageSnapshot: Decodable, Equatable, Sendable {
-    struct Agent: Decodable, Equatable, Sendable { let tokens: Double; let cost: Double }
+    struct Day: Decodable, Equatable, Sendable { let date: String; let tokens: Double; let cost: Double }
+    struct Agent: Decodable, Equatable, Sendable {
+        let tokens: Double
+        let cost: Double
+        /// The last 30 days, oldest first, today last.
+        var history: [Day]? = nil
+        var topModel: String? = nil
+    }
     struct Window: Decodable, Equatable, Sendable {
         let usedPct: Double
         let resetsAt: String?
