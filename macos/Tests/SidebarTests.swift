@@ -7,21 +7,29 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
           branch: id, url: url, createdAt: created, pinned: pinned)
 }
 
-@Test func sidebarPinsAreMirrorsAndTaskTabsAreNotDuplicated() {
+@Test func sidebarPinsLeaveProjectsAndOrphansAndTaskTabsAreNotDuplicated() {
     let sessions = [workspaceSession("new", created: "2026-02", pinned: true, url: "https://example.com/task"),
                     workspaceSession("old", created: nil),
-                    workspaceSession("orphan", created: "2026-01", project: "deleted")]
+                    workspaceSession("orphan", created: "2026-01", project: "deleted"),
+                    workspaceSession("pinned-orphan", created: "2026-03", pinned: true, project: "deleted")]
     let tabs = [SavedTab(kind: "web", title: "Task context", url: "https://example.com/task"),
                 SavedTab(kind: "web", title: "Docs", url: "https://example.com/docs")]
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs)
-    // Web sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans, Tabs.
-    #expect(entries.map(\.id) == ["overview", "label:pinned", "pin:new", "label:projects", "project:p1",
+    // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans, Tabs.
+    #expect(entries.map(\.id) == ["overview", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
                                    "session:orphan", "label:tabs", "tab:https://example.com/docs"])
     let project = entries.first { $0.id == "project:p1" }
-    #expect(project?.children.map(\.id) == ["session:old", "session:new"])
-    #expect(entries.flatMap(\.descendants).filter { $0.destination == .session("new") }.count == 2)
+    #expect(project?.children.map(\.id) == ["session:old"])
+    for session in sessions {
+        #expect(entries.flatMap(\.descendants).filter { $0.destination == .session(session.id) }.count == 1)
+    }
     #expect(entries.filter { $0.role == .label }.allSatisfy { $0.destination == nil && $0.children.isEmpty })
     #expect(Set(entries.flatMap(\.descendants).map(\.id)).count == entries.flatMap(\.descendants).count)
+    let unpinned = sessions.map { session in var value = session; value.pinned = false; return value }
+    let restored = SidebarEntry.make(projects: [sidebarProject], sessions: unpinned, tabs: tabs)
+    #expect(!restored.contains { $0.id == "label:pinned" })
+    #expect(restored.first { $0.id == "project:p1" }?.children.map(\.id) == ["session:old", "session:new"])
+    #expect(restored.contains { $0.id == "session:pinned-orphan" })
 }
 
 @MainActor @Test func cocoaOutlineRetainsNodesSelectionAndExpansionAcrossRefresh() throws {
@@ -50,13 +58,22 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     let original = try node("session:first")
     outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: original)), byExtendingSelection: false)
     #expect(selected == .session("first"))
-    var pinned = first; pinned.pinned = true
-    coordinator.update(sidebar([pinned, workspaceSession("second", created: "2026-02")], selection: selected))
+    let second = workspaceSession("second", created: "2026-02")
+    coordinator.update(sidebar([first, second], selection: selected))
     #expect(try node("session:first") === original)
     #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === original)
+    var pinned = first; pinned.pinned = true
+    coordinator.update(sidebar([pinned, second], selection: selected))
+    let pin = try node("pin:first")
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === pin)
     let project = try node("project:p1")
+    #expect(project.children.map(\.entry.id) == ["session:second"])
     outline.collapseItem(project)
-    coordinator.update(sidebar([pinned], selection: .project("p1")))
+    coordinator.update(sidebar([first, second], selection: selected))
+    #expect(outline.isItemExpanded(project))
+    #expect((outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node)?.entry.id == "session:first")
+    outline.collapseItem(project)
+    coordinator.update(sidebar([first], selection: .project("p1")))
     #expect(!outline.isItemExpanded(project))
     #expect(preferences.stringArray(forKey: "sidebar.collapsed")?.contains("project:p1") == true)
 }
@@ -257,14 +274,16 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     defer { preferences.removePersistentDomain(forName: suite) }
     let projects = [sidebarProject, Project(id: "p2", name: "Second", repo: "o/s", color: nil, workspace: "/tmp"),
                     Project(id: "p3", name: "Third", repo: "o/t", color: nil, workspace: "/tmp")]
-    let sessions = [workspaceSession("a", created: "2026-01", pinned: true), workspaceSession("b", created: "2026-02"),
-                    workspaceSession("c", created: "2026-03"), workspaceSession("x", created: "2026-04", pinned: true, project: "p2"),
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("b", created: "2026-02"),
+                    workspaceSession("c", created: "2026-03"), workspaceSession("x", created: "2026-04", project: "p2"),
+                    workspaceSession("pa", created: "2026-01", pinned: true),
+                    workspaceSession("px", created: "2026-04", pinned: true, project: "p2"),
                     workspaceSession("orphan", created: "2026-05", project: "deleted")]
     let tabs = [SavedTab(id: "t1", kind: "web", title: "One", url: "https://example.com/1"),
                 SavedTab(id: "t2", kind: "web", title: "Two", url: "https://example.com/2")]
     var moves: [String] = []
     var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: tabs),
-                             selection: .overview, pinnedIDs: ["a", "x"], onSelect: { _ in }, onTogglePin: { _ in })
+                             selection: .overview, pinnedIDs: ["pa", "px"], onSelect: { _ in }, onTogglePin: { _ in })
     value.onMoveTab = { moves.append("tab \($0) before \($1 ?? "end")") }
     value.onMoveProject = { moves.append("project \($0) before \($1 ?? "end")") }
     value.onMoveSession = { moves.append("session \($0) before \($1 ?? "end")") }
@@ -289,9 +308,9 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let before = rows()
 
     // Rows that must not move, and drops that leave a row's own list.
-    #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("pin:a")) != nil)
-    #expect(!drop("pin:a", on: nil, at: try root("project:p2")))
-    #expect(!drop("pin:a", on: try node("project:p1"), at: 0))
+    #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("pin:pa")) != nil)
+    #expect(!drop("pin:pa", on: nil, at: try root("project:p2")))
+    #expect(!drop("pin:pa", on: try node("project:p1"), at: 0))
     #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("session:orphan")) == nil)
     #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("label:projects")) == nil)
     #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("session:b")) != nil)
@@ -326,7 +345,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let answer = ["p3", "p2", "p1"]
     value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: tabs,
                                                     order: .init(projects: answer, sessions: ["a", "c", "b"])),
-                         selection: .overview, pinnedIDs: ["a", "x"], onSelect: { _ in }, onTogglePin: { _ in })
+                         selection: .overview, pinnedIDs: ["pa", "px"], onSelect: { _ in }, onTogglePin: { _ in })
     value.onMoveTab = { moves.append("tab \($0) before \($1 ?? "end")") }
     value.onMoveProject = { moves.append("project \($0) before \($1 ?? "end")") }
     value.onMoveSession = { moves.append("session \($0) before \($1 ?? "end")") }
@@ -348,12 +367,12 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(!drop("session:c", on: try node("project:p1"), at: -1))
     #expect(drop("session:b", on: try node("project:p1"), at: -1))
     #expect(drop("session:b", on: try node("project:p1"), at: 3))
-    // A pinned mirror moves within Pinned only, and its project's row stays where it was.
-    #expect(drop("pin:a", on: try node("pin:x"), at: -1))
-    #expect(drop("pin:a", on: nil, at: try root("pin:x")))
+    // Pinned sessions reorder independently of the unpinned project sessions.
+    #expect(drop("pin:pa", on: try node("pin:px"), at: -1))
+    #expect(drop("pin:pa", on: nil, at: try root("pin:px")))
     #expect(moves == ["project p3 before p1", "project p1 before p2", "project p1 before p3",
                       "session a before b", "tab t1 before end", "session b before c", "session b before end",
-                      "pinned a before end", "pinned a before x"])
+                      "pinned pa before end", "pinned pa before px"])
     #expect(try node("project:p1").children.map(\.entry.id) == ["session:c", "session:a", "session:b"])
     #expect(rows().sorted() == before.sorted())
 }

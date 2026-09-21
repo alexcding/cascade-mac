@@ -159,18 +159,17 @@ struct CocoaSidebar: NSViewRepresentable {
             let selected = placed?.entry.destination == value.selection ? placed
                 : roots.flatMap(flatten).first { $0.entry.destination == value.selection }
             guard let selected else { outline.deselectAll(nil); return }
+            let changedPlacement = selectedPlacement != selected.entry.id
             selectedPlacement = selected.entry.id
-            if changedSelection {
-                var ancestor = outline.parent(forItem: selected)
-                while let item = ancestor {
-                    outline.expandItem(item)
-                    ancestor = outline.parent(forItem: item)
-                }
+            if changedSelection || changedPlacement {
+                // A newly unpinned child may not be known to the outline while its
+                // folder is collapsed. Use the snapshot's parent map to reveal it.
+                if let folder = homes[ObjectIdentifier(selected)] { outline.expandItem(folder) }
             }
             let row = outline.row(forItem: selected)
             if row >= 0 {
                 outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                if changedSelection { outline.scrollRowToVisible(row) }
+                if changedSelection || changedPlacement { outline.scrollRowToVisible(row) }
             } else { outline.deselectAll(nil) }
         }
 
@@ -193,7 +192,7 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool { (item as? Node)?.entry.isHeading == true }
 
         // Drag to reorder, always among siblings: a tab within the Tabs section, a project within
-        // Projects, a session within its own project, a pinned mirror within Pinned. The
+        // Projects, a session within its own project, a pinned session within Pinned. The
         // pasteboard carries the row's placement id.
         private enum Drag: Equatable { case tab, project, session, pinned }
         private func drag(for node: Node) -> Drag? {
@@ -201,7 +200,7 @@ struct CocoaSidebar: NSViewRepresentable {
             case .tab: return .tab
             case .project: return .project
             case .session(let id):
-                // A Pinned mirror moves within Pinned, a project's row within its project; an orphan stays put.
+                // A pinned session moves within Pinned, a project's row within its project; an orphan stays put.
                 if node.entry.id == "pin:\(id)" { return .pinned }
                 return home(of: node) != nil ? .session : nil
             default: return nil

@@ -148,7 +148,7 @@ struct SidebarEntry: Equatable {
         case pinnedTabs([SidebarPinnedTab])       // Arc-style favourites grid right under Dashboard
     }
 
-    let id: String // placement identity: a pinned mirror differs from its original
+    let id: String // placement identity changes when a session is pinned or unpinned
     let title: String
     let symbol: String
     var detail = ""
@@ -168,14 +168,14 @@ struct SidebarEntry: Equatable {
     var sessionID: String? { if case .session(let id) = destination { id } else { nil } }
     var projectID: String? { if case .project(let id) = destination { id } else { nil } }
 
-    /// Mirrors src/renderer/components/sidebar.js: Dashboard, the pinned-tabs grid, the Pinned
-    /// session mirrors, the Projects heading with each folder's sessions nested under it, sessions
-    /// whose project is gone (unlabeled), then every unpinned task-less tab under "Tabs". Headings
+    /// Dashboard, the pinned-tabs grid, Pinned sessions, then the Projects heading with each
+    /// folder's unpinned sessions nested under it, unpinned sessions whose project is gone
+    /// (unlabeled), then every unpinned task-less tab under "Tabs". Headings
     /// are flat rows, not collapsible groups — only a project folder collapses.
     static func make(projects: [Project], sessions: [WorkspaceSession], tabs: [SavedTab],
                      status: [String: SidebarSessionStatus] = [:], workflowProgress: [String: String] = [:],
                      tabIcons: [String: SidebarTabIcon] = [:], order: SidebarOrder = .init()) -> [Self] {
-        let ordered = displayOrder(sessions, dragged: order.sessions)
+        let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
         let projects = displayOrder(projects, dragged: order.projects)
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
             let state = status[session.id] ?? SidebarSessionStatus(cli: session.cli)
@@ -202,7 +202,7 @@ struct SidebarEntry: Equatable {
                                role: .pinnedTabs(pinnedTabs.map { .init(id: $0.id, title: tabTitle($0), url: $0.url, icon: icon($0)) })))
         }
         // Pinned lists across projects and has an order of its own: a drag inside one project
-        // must not carry its mirror past another project's.
+        // must not change the order used when sessions are pinned.
         let pinned = displayOrder(sessions.filter(\.pinned), dragged: order.pinned)
         if !pinned.isEmpty {
             result.append(label("label:pinned", "Pinned"))

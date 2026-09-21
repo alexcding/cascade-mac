@@ -163,7 +163,7 @@ private actor RefreshTransport: BackendTransport {
     terminal.agentTurns.bind(terminalID: "sidebar-test")
     terminal.agentTurns.setStreamAvailable(true)
     func busy() -> Bool {
-        guard let entry = model.root.entries.flatMap(\.descendants).first(where: { $0.id == "session:s" }),
+        guard let entry = model.root.entries.flatMap(\.descendants).first(where: { $0.id == "pin:s" }),
               case .session(let status, _) = entry.role else { return false }
         return status.busy && status.cli == "claude"
     }
