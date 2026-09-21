@@ -46,7 +46,10 @@ extension BuildSettings {
             : document.isEmpty ? target : (target as NSString).deletingLastPathComponent
         // One foreground shell group keeps Stop and completion detection scoped to
         // the entire build/install/launch chain, including transitions between tools.
-        let build = "/usr/bin/xcodebuild\(document) -scheme \(q(scheme)) -configuration \(q(configuration)) -destination \(q("id=" + simulator)) -quiet build"
+        // The launch is exec'd, so the group's leader stops being a shell once the app is up:
+        // that is how `BuildWorkspaceViewModel` tells building from running.
+        // Not -quiet: a cold build is minutes long, and a silent log reads as a hang.
+        let build = "/usr/bin/xcodebuild\(document) -scheme \(q(scheme)) -configuration \(q(configuration)) -destination \(q("id=" + simulator)) build"
         let platform = platform ?? "iphonesimulator"
         if platform == "macosx" {
             // Run the executable itself so its output lands here and Stop reaches it.
@@ -54,17 +57,17 @@ extension BuildSettings {
             guard let executablePath, !executablePath.isEmpty, executablePath != (appPath as NSString).deletingLastPathComponent else {
                 throw BackendError.operation("Scheme \(scheme) builds no runnable application.")
             }
-            return "(cd \(q(cwd)) && { \(build) && { /usr/bin/pkill -f -- \(q(NSRegularExpression.escapedPattern(for: executablePath))) >/dev/null 2>&1; \(q(executablePath)); }; })"
+            return "(cd \(q(cwd)) && { \(build) && { /usr/bin/pkill -f -- \(q(NSRegularExpression.escapedPattern(for: executablePath))) >/dev/null 2>&1; exec \(q(executablePath)); }; })"
         }
         if !platform.hasSuffix("simulator") {
             return "(cd \(q(cwd)) && { \(build)"
                 + " && /usr/bin/xcrun devicectl device install app --device \(q(simulator)) \(q(appPath))"
-                + " && /usr/bin/xcrun devicectl device process launch --console --terminate-existing --device \(q(simulator)) \(q(bundleId)); })"
+                + " && exec /usr/bin/xcrun devicectl device process launch --console --terminate-existing --device \(q(simulator)) \(q(bundleId)); })"
         }
         return "(cd \(q(cwd)) && { /usr/bin/xcrun simctl boot \(q(simulator)) >/dev/null 2>&1 || true; "
             + "{ /usr/bin/open \"$(/usr/bin/xcode-select -p)/Applications/Simulator.app\" || /usr/bin/open \"$(/usr/bin/xcode-select -p)/../Applications/DeviceHub.app\" || /usr/bin/open -a Simulator; } >/dev/null 2>&1; "
             + build
             + " && /usr/bin/xcrun simctl install \(q(simulator)) \(q(appPath))"
-            + " && /usr/bin/xcrun simctl launch --console-pty --terminate-running-process \(q(simulator)) \(q(bundleId)); })"
+            + " && exec /usr/bin/xcrun simctl launch --console-pty --terminate-running-process \(q(simulator)) \(q(bundleId)); })"
     }
 }
