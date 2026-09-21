@@ -18,8 +18,7 @@ struct DashboardCoordinatorView: View {
     /// Usage agent: a plain native segmented control.
     private var usageAgentPicker: some View {
         Picker("Usage agent", selection: Binding(get: { coordinator.shell.usageAgent }, set: coordinator.shell.setUsageAgent)) {
-            Text("Claude").tag("claude")
-            Text("Codex").tag("codex")
+            ForEach(Theme.usageAgents, id: \.key) { agent in Text(agent.title).tag(agent.key) }
         }
         .labelsHidden()
         .pickerStyle(.segmented)

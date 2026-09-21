@@ -98,6 +98,10 @@ enum Theme {
     /// An agent CLI's own brand colour, for what is that agent's and not the app's: its usage on
     /// the Dashboard, its used context in a session. Not a palette colour, so it does not swap
     /// with the theme; both read on light and dark.
+    /// The agents whose plan usage the app can show, as (setting value, label), in picker order.
+    /// The Dashboard toolbar and the tray both build their pickers from this one list.
+    static let usageAgents: [(key: String, title: String)] = [("claude", "Claude"), ("codex", "Codex")]
+
     static func agentTint(_ cli: String?) -> Color {
         cli == "codex" ? Color(red: 0.44, green: 0.48, blue: 0.94) : Color(red: 0.85, green: 0.47, blue: 0.34)
     }

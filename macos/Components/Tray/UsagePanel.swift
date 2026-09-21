@@ -33,11 +33,8 @@ struct UsagePanel: View {
         }
     }
 
-    /// Each agent's own accent: Claude coral, Codex periwinkle.
-    private var accent: Color {
-        shell.usageAgent == "codex" ? Color(red: 0x71 / 255, green: 0x7a / 255, blue: 0xf0 / 255)
-            : Color(red: 0xd9 / 255, green: 0x77 / 255, blue: 0x57 / 255)
-    }
+    /// Each agent's own accent, the Dashboard's.
+    private var accent: Color { Theme.agentTint(shell.usageAgent) }
 }
 
 enum UsageWindowMath {

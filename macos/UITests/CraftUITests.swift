@@ -1385,7 +1385,11 @@ final class CraftUITests: XCTestCase {
         XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5)) // the tray ends with Quit Craft
         // Offline there is nothing to review, and no line stands in for the section.
         XCTAssertFalse(app.menuItems["Review requested"].exists)
-        XCTAssertTrue(app.menuItems["Nothing to review"].exists)
+        XCTAssertFalse(app.menuItems["Nothing to review"].exists)
+        XCTAssertFalse(app.menuItems["Connect to load review requests"].exists)
+        // The first row picks whose plan the usage block shows.
+        XCTAssertTrue(app.descendants(matching: .any)["tray-agent-claude"].firstMatch.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["tray-agent-codex"].firstMatch.exists)
         app.typeKey(.escape, modifierFlags: [])
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.menuItems["Quit Craft"])
         wait(for: [dismissed], timeout: 5)

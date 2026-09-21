@@ -18,6 +18,12 @@ import SwiftUI
     private let setActive: (Bool) -> Void
     private var isOpen = false
     nonisolated(unsafe) private var avatarObserver: NSObjectProtocol?
+    /// The first row: whose plan the tray shows. Its width is the menu's.
+    private lazy var agentItem: NSMenuItem = {
+        let item = NSMenuItem()
+        item.view = NSHostingView(rootView: TrayAgentRow(shell: model.shell))
+        return item
+    }()
     private lazy var usageItem: NSMenuItem = {
         let item = NSMenuItem()
         item.view = NSHostingView(rootView: TrayUsageRow(shell: model.shell, open: { [weak self] in
@@ -53,22 +59,38 @@ import SwiftUI
     }
     func dismiss() { menu.cancelTracking() }
 
+    /// Two tracks: a data change rebuilds the rows; an agent switch only changes what the two
+    /// hosted SwiftUI rows draw, which they do on their own, so it is re-measured, not rebuilt —
+    /// rebuilding would detach the very row that is handling the click.
     private func observe() {
         withObservationTracking {
             let shell = model.shell
             _ = model.pendingReviews; _ = model.actionError; _ = model.active
             _ = shell.trayUpdated; _ = shell.trayError
-            _ = shell.usage; _ = shell.usageAgent; _ = shell.usageLoading; _ = shell.usageError
+            _ = shell.usage; _ = shell.usageLoading; _ = shell.usageError
         } onChange: { [weak self] in
             Task { @MainActor in self?.rebuildIfOpen(); self?.observe() }
+        }
+        withObservationTracking {
+            _ = model.shell.usageAgent
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.resizeIfOpen(); self?.observeAgent() }
+        }
+    }
+    private func observeAgent() {
+        withObservationTracking {
+            _ = model.shell.usageAgent
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.resizeIfOpen(); self?.observeAgent() }
         }
     }
 
     private func rebuildIfOpen() { if isOpen { rebuild() } }
+    private func resizeIfOpen() { if isOpen { sizeRows() } }
 
     private func rebuild() {
         let shell = model.shell
-        var items: [NSMenuItem] = []
+        var items: [NSMenuItem] = [agentItem, .separator()]
         // The section exists only while there is something to review; nothing stands in for it.
         let snapshot = model.snapshot()
         let pending = snapshot.pending
@@ -84,9 +106,9 @@ import SwiftUI
             item.toolTip = "\(pr.projectName ?? pr.repo) · \(pr.ciLabel)"
             items.append(item)
         }
-        if !listed { items.append(note(shell.trayUpdated == nil ? "Connect to load review requests" : "Nothing to review")) }
-        items.append(.separator())
-        sizeUsage()
+        // No placeholder: with nothing to review the menu goes straight from the picker to usage.
+        if listed { items.append(.separator()) }
+        sizeRows()
         items.append(usageItem)
         if let error = model.actionError { items.append(note(error)) }
         items.append(.separator())
@@ -94,13 +116,15 @@ import SwiftUI
         menu.items = items
     }
 
-    /// The usage row is a SwiftUI view; a menu item takes a frame, not a layout, so it is
-    /// measured here for the width it is given.
-    private func sizeUsage() {
-        guard let view = usageItem.view else { return }
-        var size = view.fittingSize
-        size.width = Self.usageWidth
-        view.frame = NSRect(origin: .zero, size: size)
+    /// The hosted rows are SwiftUI views; a menu item takes a frame, not a layout, so each is
+    /// measured here for the width it is given — on every build, so a text-size change lands.
+    private func sizeRows() {
+        for view in [agentItem.view, usageItem.view].compactMap({ $0 }) {
+            view.layoutSubtreeIfNeeded()
+            var size = view.fittingSize
+            size.width = Self.usageWidth
+            view.frame = NSRect(origin: .zero, size: size)
+        }
     }
 
     private func row(_ title: String, action: TrayViewModel.Action, enabled: Bool = true) -> NSMenuItem {
@@ -179,7 +203,46 @@ private final class TrayMenuAction: NSObject {
     }
 }
 
-/// The plan usage block as one menu row. A click goes to the Dashboard, where the agent is picked.
+/// Whose plan the tray shows, as the menu's first row. The same setting the Dashboard
+/// toolbar's picker binds to, so the two never disagree. A custom control rather than the
+/// system segmented one: a light, half-transparent track over the menu's own material, with
+/// a soft pill under the chosen agent.
+struct TrayAgentRow: View {
+    let shell: ShellStore
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Theme.usageAgents, id: \.key) { agent in
+                let selected = shell.usageAgent == agent.key
+                Button { shell.setUsageAgent(agent.key) } label: {
+                    Text(agent.title)
+                        .font(.system(size: 12, weight: selected ? .medium : .regular))
+                        .foregroundStyle(selected ? .primary : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background {
+                            if selected {
+                                Capsule().fill(Color.primary.opacity(0.12))
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("tray-agent-\(agent.key)")
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
+            }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .padding(.horizontal, 14).padding(.vertical, 6)
+        .frame(width: TrayMenuController.usageWidth)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tray-agent")
+        .accessibilityLabel("Usage agent")
+    }
+}
+
+/// The plan usage block as one menu row. A click goes to the Dashboard.
 struct TrayUsageRow: View {
     let shell: ShellStore
     let open: () -> Void
