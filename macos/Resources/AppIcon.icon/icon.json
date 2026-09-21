@@ -7,6 +7,7 @@
       "blur-material" : 0.5,
       "layers" : [
         {
+          "hidden" : true,
           "image-name" : "download (1).svg",
           "name" : "download (1)",
           "position" : {
@@ -36,13 +37,18 @@
       }
     },
     {
+      "blur-material" : null,
       "layers" : [
         {
-          "hidden" : true,
+          "fill" : {
+            "automatic-gradient" : "extended-gray:0.25000,1.00000"
+          },
+          "glass" : true,
+          "hidden" : false,
           "image-name" : "download (2).svg",
           "name" : "download (2)",
           "position" : {
-            "scale" : 0.92,
+            "scale" : 0.82,
             "translation-in-points" : [
               0,
               0
@@ -54,6 +60,7 @@
         "kind" : "neutral",
         "opacity" : 0.5
       },
+      "specular" : true,
       "translucency" : {
         "enabled" : true,
         "value" : 0.3
