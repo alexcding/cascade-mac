@@ -256,11 +256,17 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     let submit: () -> Bool
     let select: () -> Void
     let close: () -> Void
+    /// Whether the leading slot shows a magnifying glass rather than the icon while editing:
+    /// true for a tab with no site icon to show. Defaults to the magnifying glass.
+    var searching = true
     @ViewBuilder let icon: Icon
     /// Trailing buttons, given whether the pointer is over the tab.
     @ViewBuilder let accessories: (Bool) -> Accessories
     @State private var hovering = false
     @State private var hoveringClose = false
+    /// What the trailing buttons take: the title is inset by as much on both sides, so it sits in
+    /// the horizontal center of the tab, as Safari's does, and never runs under a button.
+    @State private var accessoriesWidth: CGFloat = 0
 
     private var isEditing: Bool { active && editing }
     /// The selected tab shows Close; a titled tab also shows it under the pointer, since the title
@@ -289,9 +295,37 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     }
 
     private var titledTab: some View {
-        HStack(spacing: 4) {
-            // Safari's leading slot: one 24pt position that holds Close at rest and the magnifying
-            // glass while the field is edited, so neither ever pushes the text sideways.
+        ZStack {
+            // The title is centered in the tab; the field, while typed into, runs from the close slot
+            // to the buttons and reads from the left, as Safari's address field does.
+            titleAndField
+                .padding(.leading, (isEditing ? CompactTabMetrics.closeSlotWidth : max(CompactTabMetrics.closeSlotWidth, accessoriesWidth)) + 4)
+                .padding(.trailing, (isEditing ? accessoriesWidth : max(CompactTabMetrics.closeSlotWidth, accessoriesWidth)) + 4)
+            HStack(spacing: 4) {
+                closeSlot
+                Spacer(minLength: 0)
+                HStack(spacing: 0) { accessories(hovering) }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { accessoriesWidth = $0 }
+            }
+        }
+        .padding(.horizontal, CompactTabMetrics.tabPadding)
+        .frame(height: CompactTabMetrics.tabHeight)
+        .background(hovering && !active ? Theme.border.opacity(0.5) : .clear, in: Capsule())
+        // Safari's focus ring while the field is being edited.
+        .overlay { if isEditing { Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 3).padding(-1) } }
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityAction(named: closeTitle, close)
+        .animation(.easeInOut(duration: 0.15), value: active)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .onAppear { takeFocusIfBlank() }
+        .onChange(of: active) { _, _ in takeFocusIfBlank() }
+        .onChange(of: workspaceActive) { _, _ in takeFocusIfBlank() }
+    }
+
+    /// Safari's leading slot: one 24pt position that holds Close at rest and the magnifying glass
+    /// while the field is edited, so neither ever pushes the text sideways.
+    private var closeSlot: some View {
             ZStack {
                 Button(closeTitle, systemImage: Theme.Symbol.close, action: close)
                     .labelStyle(.iconOnly).buttonStyle(.plain)
@@ -301,16 +335,26 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
                     .opacity(showsClose ? 1 : 0)
                     .allowsHitTesting(showsClose)
                     .accessibilityHidden(!showsClose)
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Theme.textTertiary)
-                    .opacity(isEditing && !showsClose ? 1 : 0)
-                    .accessibilityHidden(true)
+                // A tab with a site icon keeps it while its address is edited; the magnifying glass
+                // belongs to a blank tab, or one whose site has no icon.
+                if isEditing && !showsClose {
+                    if searching {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.textTertiary)
+                            .accessibilityHidden(true)
+                    } else {
+                        icon.accessibilityHidden(true)
+                    }
+                }
             }
             .frame(width: CompactTabMetrics.closeSlotWidth, height: CompactTabMetrics.closeSlotWidth)
             // On the slot, not the button: a hidden button does not hit-test, so it never hovers.
             .contentShape(Rectangle())
             .onHover { hoveringClose = $0 }
+    }
+
+    private var titleAndField: some View {
             ZStack {
                 Button(action: { if !active { select() } else if editable { editing = true } }) {
                     HStack(spacing: 6) {
@@ -350,21 +394,6 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
                         .accessibilityHidden(!isEditing)
                 }
             }
-            accessories(hovering)
-        }
-        .padding(.horizontal, CompactTabMetrics.tabPadding)
-        .frame(height: CompactTabMetrics.tabHeight)
-        .background(hovering && !active ? Theme.border.opacity(0.5) : .clear, in: Capsule())
-        // Safari's focus ring while the field is being edited.
-        .overlay { if isEditing { Capsule().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 3).padding(-1) } }
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(active ? .isSelected : [])
-        .accessibilityAction(named: closeTitle, close)
-        .animation(.easeInOut(duration: 0.15), value: active)
-        .animation(.easeOut(duration: 0.12), value: hovering)
-        .onAppear { takeFocusIfBlank() }
-        .onChange(of: active) { _, _ in takeFocusIfBlank() }
-        .onChange(of: workspaceActive) { _, _ in takeFocusIfBlank() }
     }
 
     /// Deferred one turn: the field is inserted in the same update that makes the tab active, and
@@ -384,6 +413,8 @@ struct CompactTabAccessory: View {
     let systemImage: String
     var size: CGFloat = 15
     var tint: Color = Theme.textSecondary
+    /// The slot the button occupies; a bar with several accessories packs them tighter.
+    var width: CGFloat = 24
     let visible: Bool
     /// Hover is a pointer affordance: a button hidden only by hover stays reachable to VoiceOver.
     var accessible: Bool? = nil
@@ -394,7 +425,7 @@ struct CompactTabAccessory: View {
             .labelStyle(.iconOnly).buttonStyle(.plain)
             .font(.system(size: size))
             .foregroundStyle(tint)
-            .frame(width: 24, height: 24)
+            .frame(width: width, height: 24)
             .opacity(visible ? 1 : 0)
             .allowsHitTesting(visible)
             .accessibilityHidden(!(accessible ?? visible))

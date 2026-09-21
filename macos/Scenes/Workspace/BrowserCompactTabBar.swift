@@ -201,6 +201,12 @@ private struct CompactTab: View {
     let select: () -> Void
     let close: () -> Void
 
+    private static let slotWidth: CGFloat = 22
+    /// The host as Safari shows it: without a leading "www.".
+    private static func displayHost(_ url: String) -> String? {
+        guard let host = URL(string: url)?.host else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
     private var controls: BrowserControlsViewModel { page.controls }
     private var bookmarked: Bool { bookmarks?.contains(page.url) == true }
     /// Always on the selected tab, hovered or not and loading or not, for a page a bookmark could
@@ -209,8 +215,8 @@ private struct CompactTab: View {
     /// Safari shows the page title on an unselected tab and the host on the selected one.
     private var label: String {
         if controls.isBlank { return active ? "" : "New Tab" }
-        if active { return URL(string: page.url)?.host ?? (page.title.isEmpty ? page.url : page.title) }
-        return page.title.isEmpty ? (URL(string: page.url)?.host ?? page.url) : page.title
+        if active { return Self.displayHost(page.url) ?? (page.title.isEmpty ? page.url : page.title) }
+        return page.title.isEmpty ? (Self.displayHost(page.url) ?? page.url) : page.title
     }
 
     var body: some View {
@@ -218,23 +224,43 @@ private struct CompactTab: View {
         CompactTabShell(label: label, placeholder: "Search or enter website name", closeTitle: "Close \(page.title)", help: page.url,
                         active: active, workspaceActive: workspaceActive, blank: controls.isBlank, autoFocus: autoFocus,
                         closable: closable, iconOnly: iconOnly, text: $controls.address, editing: $editing, moveHighlight: moveHighlight,
-                        submit: { submitHighlighted() || controls.submitAddress() }, select: select, close: close) {
+                        submit: { submitHighlighted() || controls.submitAddress() }, select: select, close: close,
+                        searching: controls.isBlank || FaviconStore.host(of: page.url) == nil) {
             if FaviconStore.host(of: page.url) != nil { FaviconImage(url: page.url, size: 16) }
             // An icon-only tab must still be something to click.
             else if iconOnly { Image(systemName: "globe").font(.system(size: 14)).foregroundStyle(Theme.textTertiary) }
         } accessories: { hovering in
-            // Reload appears only while the pointer is over the selected tab. Stop, the same button
-            // while a page loads, stays visible: a slow load must always have a way to be stopped.
-            CompactTabAccessory(title: controls.loading ? "Stop Loading" : "Reload Page",
-                                systemImage: controls.loading ? "xmark" : "arrow.clockwise",
-                                visible: active && !controls.isBlank && (hovering || controls.loading),
-                                accessible: active && !controls.isBlank, action: controls.toggleLoading)
-            CompactTabAccessory(title: bookmarked ? "Remove Bookmark" : "Add Bookmark", systemImage: bookmarked ? "star.fill" : "star",
-                                size: 14, tint: bookmarked ? Theme.accent : Theme.textSecondary, visible: showsBookmark) {
-                bookmarks?.toggle(url: page.url, title: page.title)
+            let speaker = controls.playingAudio || controls.muted
+            // Safari packs a tab's trailing buttons about half as far apart as the bar's own gap.
+            HStack(spacing: 0) {
+                // Reload appears only while the pointer is over the selected tab. Stop, the same button
+                // while a page loads, stays visible: a slow load must always have a way to be stopped.
+                if active {
+                    CompactTabAccessory(title: controls.loading ? "Stop Loading" : "Reload Page",
+                                        systemImage: controls.loading ? "xmark" : "arrow.clockwise", width: Self.slotWidth,
+                                        visible: !controls.isBlank && (hovering || controls.loading),
+                                        accessible: !controls.isBlank, action: controls.toggleLoading)
+                }
+                // As in Safari, a speaker sits on any tab making sound, and stays while muted so the
+                // tab can be unmuted after the page has gone quiet.
+                if speaker {
+                    CompactTabAccessory(title: controls.muted ? "Unmute Tab" : "Mute Tab",
+                                        systemImage: controls.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 13,
+                                        tint: controls.muted ? Theme.textTertiary : Theme.textSecondary, width: Self.slotWidth,
+                                        visible: true, action: controls.toggleMute)
+                        .help(controls.muted ? "Unmute this tab" : "Mute this tab")
+                        .accessibilityIdentifier("mute-tab")
+                }
+                if active {
+                    CompactTabAccessory(title: bookmarked ? "Remove Bookmark" : "Add Bookmark", systemImage: bookmarked ? "star.fill" : "star",
+                                        size: 14, tint: bookmarked ? Theme.accent : Theme.textSecondary, width: Self.slotWidth,
+                                        visible: showsBookmark) {
+                        bookmarks?.toggle(url: page.url, title: page.title)
+                    }
+                    .help(bookmarked ? "Remove this page from your bookmarks" : "Bookmark this page")
+                    .accessibilityIdentifier("bookmark-page")
+                }
             }
-            .help(bookmarked ? "Remove this page from your bookmarks" : "Bookmark this page")
-            .accessibilityIdentifier("bookmark-page")
         }
     }
 }

@@ -10,6 +10,8 @@ import Observation
     var canGoForward: Bool { get }
     var error: String? { get }
     var found: Bool? { get }
+    var muted: Bool { get }
+    var playingAudio: Bool { get }
     func navigate(_ address: String)
     func back()
     func forward()
@@ -17,13 +19,19 @@ import Observation
     func stop()
     func zoom(_ delta: Double?)
     func find(_ text: String, backwards: Bool)
+    func toggleMute()
 }
 
-extension BrowserControlling { var hasPopupDocument: Bool { false } }
+extension BrowserControlling {
+    var hasPopupDocument: Bool { false }
+    var muted: Bool { false }
+    var playingAudio: Bool { false }
+    func toggleMute() {}
+}
 
 @MainActor @Observable final class BrowserControlsViewModel {
     enum Action {
-        case navigate(URL), back, forward, reload, stop, zoom(Double?), find(String, backwards: Bool)
+        case navigate(URL), back, forward, reload, stop, zoom(Double?), find(String, backwards: Bool), toggleMute
     }
     enum ActionError {
         case invalidAddress
@@ -58,6 +66,8 @@ extension BrowserControlling { var hasPopupDocument: Bool { false } }
     var canGoBack: Bool { active && page?.canGoBack == true }
     var canGoForward: Bool { active && page?.canGoForward == true }
     var found: Bool? { page?.found }
+    var muted: Bool { page?.muted == true }
+    var playingAudio: Bool { page?.playingAudio == true }
     var error: String? { actionError?.message ?? page?.error }
 
     /// Whether the field holds something the user typed, rather than the page's own address that
@@ -109,6 +119,11 @@ extension BrowserControlling { var hasPopupDocument: Bool { false } }
         perform(loading ? .stop : .reload)
     }
     func find(_ text: String, backwards: Bool = false) { perform(.find(text, backwards: backwards)) }
+    /// Any tab can be silenced, selected or not: the sound is coming from it either way.
+    func toggleMute() {
+        guard page != nil else { return }
+        onAction?(.toggleMute)
+    }
     private func perform(_ action: Action) {
         guard active, page != nil else { return }
         actionError = nil

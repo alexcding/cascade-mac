@@ -145,6 +145,9 @@ struct BrowserPane: View {
                 HStack { Text(error).font(.callout); Spacer(); Button("Retry", action: model.retry) }
                     .padding(10).foregroundStyle(.orange)
             }
+            ForEach(page.downloads) { download in
+                BrowserDownloadRow(download: download) { page.dismiss(download) }
+            }
             ZStack {
                 BrowserSurfaceStack(webViews: context.pages.compactMap(\.webView), active: model.isBlank ? nil : page.webView)
                     .accessibilityHidden(page.dialogs.request != nil)
@@ -161,6 +164,29 @@ struct BrowserPane: View {
         .onChange(of: page.id) { model.synchronizeAddress() }
         .onChange(of: context.findVisible) { _, value in if value { finding = true } }
         .onExitCommand { context.findVisible = false }
+    }
+}
+
+/// One saved file under the address: a bar while it transfers, then where it went.
+private struct BrowserDownloadRow: View {
+    let download: BrowserDownload
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: download.error != nil ? "exclamationmark.circle" : download.finished ? "checkmark.circle" : "arrow.down.circle")
+                .foregroundStyle(download.error != nil ? Theme.danger : Theme.textSecondary)
+            Text(download.filename).font(.callout).lineLimit(1).truncationMode(.middle)
+            if let error = download.error { Text(error).font(.caption).foregroundStyle(Theme.danger).lineLimit(1) }
+            else if download.running { ProgressView(value: download.fraction).frame(maxWidth: 160) }
+            Spacer()
+            if download.finished { Button("Show in Finder", action: download.reveal) }
+            Button(download.running ? "Cancel Download" : "Dismiss", systemImage: "xmark", action: dismiss)
+                .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("browser-download")
     }
 }
 

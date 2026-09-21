@@ -18,6 +18,30 @@ import Testing
     func stop() { actions.append("stop") }
     func zoom(_ delta: Double?) { actions.append("zoom:\(delta.map { String($0) } ?? "reset")") }
     func find(_ text: String, backwards: Bool) { actions.append("find:\(backwards):\(text)") }
+    var muted = false
+    var playingAudio = false
+    func toggleMute() { muted.toggle(); actions.append("mute:\(muted)") }
+}
+
+/// Mute is the one control that works on a tab that is not selected: sound comes from it either
+/// way. It is still gated on the page being owned, and the other controls still need selection.
+@MainActor @Test func browserControlsMuteBackgroundTabsButNothingElse() {
+    let page = ControlledBrowser()
+    let model = BrowserControlsViewModel(page: page)
+    var owned = true
+    let coordinator = BrowserControlsCoordinator(canPerform: { false })
+    defer { withExtendedLifetime(coordinator) {} }
+    coordinator.bind(model, page: page, isOwned: { owned })
+    model.active = false
+    model.reload()
+    #expect(page.actions.isEmpty)
+    model.toggleMute()
+    #expect(page.muted && model.muted && page.actions == ["mute:true"])
+    page.playingAudio = true
+    #expect(model.playingAudio)
+    owned = false
+    model.toggleMute()
+    #expect(page.muted && page.actions == ["mute:true"])
 }
 
 @MainActor @Test func browserControlsPreserveAddressEditsAndValidateNavigation() {

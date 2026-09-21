@@ -33,7 +33,58 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-@MainActor @Observable final class BrowserPage: NSObject, Identifiable, BrowserControlling, WKNavigationDelegate, WKUIDelegate {
+/// The browser's own web view. ⌘R belongs to Run Project in the menu bar; while a page has the
+/// keyboard, it reloads that page instead, as it would in Safari. Handled here, ahead of the menu,
+/// because a menu item cannot tell which view has focus.
+final class BrowserWebView: WKWebView {
+    var onReload: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown, let onReload,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+              event.charactersIgnoringModifiers?.lowercased() == "r",
+              (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+        else { return super.performKeyEquivalent(with: event) }
+        onReload()
+        return true
+    }
+}
+
+/// One file a page is saving to Downloads: progress while it transfers, then a way to find it.
+@MainActor @Observable final class BrowserDownload: Identifiable {
+    let id = UUID()
+    private(set) var filename: String
+    private(set) var destination: URL?
+    private(set) var fraction: Double = 0
+    private(set) var finished = false
+    private(set) var error: String?
+    @ObservationIgnored fileprivate weak var download: WKDownload?
+    @ObservationIgnored fileprivate var observation: NSKeyValueObservation?
+
+    init(filename: String) { self.filename = filename }
+
+    var running: Bool { !finished && error == nil }
+
+    fileprivate func begin(_ download: WKDownload, at destination: URL) {
+        self.download = download
+        self.destination = destination
+        filename = destination.lastPathComponent
+        observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+            let value = progress.fractionCompleted
+            Task { @MainActor in self?.fraction = value }
+        }
+    }
+    fileprivate func finish() { fraction = 1; finished = true; observation = nil }
+    fileprivate func fail(_ message: String) { error = message; observation = nil }
+
+    func cancel() { download?.cancel() }
+    func reveal() {
+        guard finished, let destination else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([destination])
+    }
+}
+
+@MainActor @Observable final class BrowserPage: NSObject, Identifiable, BrowserControlling, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     let id: String
     private(set) var url: String { didSet { if oldValue != url { controls.synchronizeAddress() } } }
     private(set) var title: String
@@ -43,6 +94,12 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     private(set) var error: String?
     private(set) var webView: WKWebView?
     private(set) var found: Bool?
+    /// Mute is a property of the tab, not the document: it outlives navigation and suspension.
+    private(set) var muted = false
+    /// WebKit's word on whether the page is producing sound right now.
+    private(set) var playingAudio = false
+    private(set) var downloads: [BrowserDownload] = []
+    @ObservationIgnored private var observingAudio = false
     /// Set while the start page is shown over a loaded site: Back from the first real page. The
     /// site stays loaded behind it so Forward can return. WebKit never sees this entry.
     @ObservationIgnored private var parkedURL: URL?
@@ -78,12 +135,15 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
         // Remote pages never receive a document bridge, local file read access,
         // terminal handlers, or injected app scripts.
         PageMenuTracking.observe()
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = BrowserWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
         view.allowsBackForwardNavigationGestures = true
         view.setAccessibilityIdentifier("context-webview")
+        view.onReload = { [weak self] in self?.reload() }
         webView = view
+        if muted { applyMute(to: view) }
+        observeAudio(on: view)
         observations = [view.observe(\.title, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.update() }
         }, view.observe(\.url, options: [.new]) { [weak self] _, _ in
@@ -104,9 +164,13 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
 
     func evict() {
         dialogs.cancel()
+        // The download delegate is weak: a transfer outliving its page would finish unseen.
+        for download in downloads { download.cancel() }
+        downloads.removeAll()
         update()
         observations.removeAll()
         if let webView {
+            stopObservingAudio(on: webView)
             // Dropping the view does not stop a playing page: its web process keeps the
             // audio going until WebKit tears it down. End playback and unload the document
             // first, so closing a tab is silent immediately.
@@ -119,8 +183,93 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
             Self.releaseWebContentProcess(of: webView)
         }
         webView = nil
-        loading = false
+        loading = false; playingAudio = false
         canGoBack = false; canGoForward = false
+    }
+
+    // MARK: Sound
+
+    /// WebKit mutes at the page level through a private setter; where it is missing, the media
+    /// elements in the document are muted instead, which covers everything but Web Audio.
+    private static let setPageMuted = NSSelectorFromString("_setPageMuted:")
+    private static let isPlayingAudio = "_isPlayingAudio"
+
+    func toggleMute() {
+        muted.toggle()
+        if let webView { applyMute(to: webView) }
+    }
+    private func applyMute(to view: WKWebView) {
+        if view.responds(to: Self.setPageMuted), let method = view.method(for: Self.setPageMuted) {
+            typealias Setter = @convention(c) (AnyObject, Selector, UInt) -> Void
+            unsafeBitCast(method, to: Setter.self)(view, Self.setPageMuted, muted ? 1 : 0)
+        } else {
+            view.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(m => { m.muted = \(muted) })")
+        }
+    }
+    private func observeAudio(on view: WKWebView) {
+        guard view.responds(to: NSSelectorFromString(Self.isPlayingAudio)) else { return }
+        view.addObserver(self, forKeyPath: Self.isPlayingAudio, options: [.initial, .new], context: nil)
+        observingAudio = true
+    }
+    private func stopObservingAudio(on view: WKWebView) {
+        guard observingAudio else { return }
+        view.removeObserver(self, forKeyPath: Self.isPlayingAudio)
+        observingAudio = false
+    }
+    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
+        guard keyPath == Self.isPlayingAudio else {
+            return super.observeValue(forKeyPath: keyPath, of: object, change: change, context: context)
+        }
+        let playing = (change?[.newKey] as? Bool) ?? false
+        Task { @MainActor in self.playingAudio = playing }
+    }
+
+    // MARK: Downloads
+
+    func dismiss(_ download: BrowserDownload) {
+        download.cancel()
+        downloads.removeAll { $0 === download }
+    }
+    private func track(_ download: WKDownload) {
+        download.delegate = self
+        let item = BrowserDownload(filename: download.originalRequest?.url?.lastPathComponent ?? "Download")
+        item.download = download
+        downloads.append(item)
+    }
+    private func item(for download: WKDownload) -> BrowserDownload? { downloads.first { $0.download === download } }
+
+    /// The next free name in Downloads, numbered the way Finder numbers a duplicate.
+    private static func downloadDestination(for filename: String) -> URL {
+        let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        let name = filename.isEmpty ? "Download" : filename
+        var candidate = folder.appendingPathComponent(name)
+        let stem = candidate.deletingPathExtension().lastPathComponent
+        let ext = candidate.pathExtension
+        var n = 2
+        // The name is claimed by creating the file exclusively: WebKit writes only after this
+        // returns, so two downloads deciding at once would otherwise settle on the same free name.
+        while true {
+            let fd = open(candidate.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+            if fd >= 0 { close(fd); return candidate }
+            if errno != EEXIST { return candidate }
+            candidate = folder.appendingPathComponent(ext.isEmpty ? "\(stem) \(n)" : "\(stem) \(n).\(ext)")
+            n += 1
+        }
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { track(download) }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { track(download) }
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                  completionHandler: @escaping @MainActor @Sendable (URL?) -> Void) {
+        let destination = Self.downloadDestination(for: suggestedFilename)
+        item(for: download)?.begin(download, at: destination)
+        completionHandler(destination)
+    }
+    func downloadDidFinish(_ download: WKDownload) { item(for: download)?.finish() }
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        guard let item = item(for: download) else { return }
+        if (error as NSError).code == NSURLErrorCancelled { downloads.removeAll { $0 === item } } else { item.fail(error.localizedDescription) }
     }
 
     /// WebKit keeps a closed page's web content process in a cache for reuse, so its memory
@@ -202,7 +351,11 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     private func failed(_ error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription }
+        let failure = error as NSError
+        // 102 is WebKit's "frame load interrupted": what a navigation that became a download
+        // reports. Nothing went wrong for the user.
+        let interrupted = failure.domain == "WebKitErrorDomain" && failure.code == 102
+        if failure.code != NSURLErrorCancelled && !interrupted { self.error = error.localizedDescription }
         update()
     }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -214,6 +367,10 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         let raw = action.request.url?.absoluteString ?? ""
+        // A link marked for download saves its target rather than showing it. blob: and data:
+        // targets are fine to save; the host filesystem is never read through one.
+        if action.shouldPerformDownload, let target = action.request.url,
+           safeWebURL(raw) != nil || ["blob", "data"].contains(target.scheme ?? "") { decisionHandler(.download); return }
         // about:blank is needed by login popups. Subframes can render data/blob
         // content, but may never navigate into the host filesystem.
         let subframe = action.targetFrame?.isMainFrame == false
@@ -222,6 +379,15 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
             || (subframe && ["about", "data", "blob"].contains(scheme))
         if !allowed { error = "This page tried to open an unsupported address." }
         decisionHandler(allowed ? .allow : .cancel)
+    }
+    /// A response the page cannot display, or one the server marked as an attachment, is saved.
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+                 decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void) {
+        let disposition = (response.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+        let attachment = disposition.trimmingCharacters(in: .whitespaces).hasPrefix("attachment")
+        // A frame the page embedded may not drop files on the user unless the server asked for it.
+        let download = attachment || (response.isForMainFrame && !response.canShowMIMEType)
+        decisionHandler(download ? .download : .allow)
     }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

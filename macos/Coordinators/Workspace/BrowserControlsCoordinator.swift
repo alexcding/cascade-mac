@@ -9,8 +9,10 @@ import Foundation
         let bindingID = UUID()
         model.bindingID = bindingID
         model.onAction = { [weak self, weak model, weak page] action in
-            guard let self, let model, let page, model.bindingID == bindingID,
-                  model.active, isOwned(), canPerform() else { return }
+            guard let self, let model, let page, model.bindingID == bindingID, isOwned() else { return }
+            // Mute is the one control that works on a background tab, and needs no dialog slot.
+            if case .toggleMute = action { page.toggleMute(); return }
+            guard model.active, canPerform() else { return }
             switch action {
             case .navigate(let url):
                 guard let url = safeWebURL(url.absoluteString) else { return }
@@ -21,6 +23,7 @@ import Foundation
             case .stop: page.stop()
             case .zoom(let delta): page.zoom(delta)
             case .find(let text, let backwards): page.find(text, backwards: backwards)
+            case .toggleMute: page.toggleMute()
             }
         }
     }
