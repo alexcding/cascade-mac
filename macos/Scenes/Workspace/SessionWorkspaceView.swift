@@ -498,25 +498,29 @@ struct SessionWorkspaceBuildTitle: View {
 /// silently reads as a hang; the glyph turns for as long as the work is real.
 private struct SessionWorkspaceWarmupLine: View {
     let state: IDEWarmupState
-    @State private var turning = false
+    private static let turn: TimeInterval = 1.1
 
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: state.failed ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(state.failed ? Theme.danger : Theme.accent)
-                .rotationEffect(.degrees(turning ? 360 : 0))
-                // Keyed on the run, not on appearance: a warm-up that failed and started again
-                // keeps this view, so a one-shot `onAppear` would leave the glyph still.
-                .animation(state.running ? .linear(duration: 1.1).repeatForever(autoreverses: false) : .default,
-                           value: turning)
+            // The angle is read off the clock rather than animated in: an implicit
+            // `repeatForever` animation on a view whose frame is still settling animates the
+            // position too, and the glyph drifts across the toolbar instead of turning in place.
+            TimelineView(.animation(paused: !state.running)) { context in
+                Image(systemName: state.failed ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(state.failed ? Theme.danger : Theme.accent)
+                    .rotationEffect(.degrees(state.running ? Self.angle(at: context.date) : 0))
+            }
+            .frame(width: 12, height: 12)
             Text(state.failed ? "\(state.label) failed" : "\(state.label)…")
                 .font(.subheadline).foregroundStyle(Theme.textSecondary)
                 .lineLimit(1).truncationMode(.tail)
         }
-        .onAppear { turning = state.running }
-        .onChange(of: state.running) { _, running in turning = running }
         .help(state.failed ? state.message : "\(state.label) in this worktree, so the first build does not wait on it")
+    }
+
+    private static func angle(at date: Date) -> Double {
+        date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: turn) / turn * 360
     }
 }
 
