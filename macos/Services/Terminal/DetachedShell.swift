@@ -88,6 +88,14 @@ import AppKit
         return result.atShell
     }
 
+    func foregroundProcess() async throws -> (atShell: Bool, process: String, subshell: Bool?) {
+        // `subshell` is missing from a daemon that outlived the app version it was started by.
+        struct Foreground: Decodable, Sendable { let atShell: Bool; let process: String; var subshell: Bool? }
+        guard let client, let termID else { throw PtyError.closed }
+        let result: Foreground = try await client.request(.init(op: "foreground", term: termID))
+        return (result.atShell, result.process, result.subshell)
+    }
+
     func submit(_ line: String) async throws {
         guard let client, let termID else { throw PtyError.closed }
         guard !line.contains("\n"), !line.contains("\r"), !line.contains("\0") else {

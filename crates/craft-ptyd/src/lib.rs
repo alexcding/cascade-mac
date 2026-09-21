@@ -1079,6 +1079,7 @@ impl Daemon {
   // `atShell` is whether that group is the shell's own — the renderer uses it to know whether a
   // build is still running (build.js watchBuild) and whether it may type a command (cli-launch.js).
   // An unknown terminal, or a failed query, reads as at-shell so callers never wait on it forever.
+  // `subshell` is whether a group that is not the shell's own is still led by a copy of the shell.
   fn foreground(&self, id: &str) -> Value {
     let terms = self.terms.lock().unwrap();
     let Some(t) = terms.get(id) else { return json!({ "process": "", "atShell": true }) };
@@ -1091,7 +1092,10 @@ impl Daemon {
     let at_shell = pgid as u32 == t.info.pid;
     let process_path = if at_shell { String::new() } else { proc_path(pgid) };
     let process = process_path.rsplit('/').next().unwrap_or("");
-    json!({ "process": process, "processPath": process_path, "pgid": pgid, "atShell": at_shell })
+    // A subshell running a command chain is a fork of the shell, so it shares its executable;
+    // once the chain execs its last command the leader is that program instead.
+    let subshell = !process_path.is_empty() && process_path == proc_path(t.info.pid as libc::pid_t);
+    json!({ "process": process, "processPath": process_path, "pgid": pgid, "atShell": at_shell, "subshell": subshell })
   }
 
   // Attach: the ring for replay. A renderer flow pause belongs to the client that asked for it;

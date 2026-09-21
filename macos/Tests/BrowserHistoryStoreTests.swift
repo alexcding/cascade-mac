@@ -118,3 +118,18 @@ import Testing
     _ = restored.select(id: "task:two", url: "session:two", title: "Two")
     #expect(restored.browserHistory.entries.isEmpty)
 }
+
+@MainActor @Test func aHiddenSecondPanelStaysHiddenAcrossARelaunchPerSession() throws {
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("craft-tabs-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: cache) }
+    let viewer = ViewerStore(cacheURL: cache)
+    let hidden = viewer.select(id: "task:one", url: "https://example.com/one", title: "One")
+    let shown = viewer.select(id: "task:two", url: "https://example.com/two", title: "Two")
+    hidden.setPane(.off)
+    #expect(hidden.pane == .off && shown.pane == .term)
+
+    let relaunched = ViewerStore(cacheURL: cache)
+    #expect(relaunched.restore(id: "task:one", url: "https://example.com/one", title: "One").pane == .off)
+    #expect(relaunched.restore(id: "task:two", url: "https://example.com/two", title: "Two").pane == .term)
+    #expect(relaunched.select(id: "task:one", url: "https://example.com/one", title: "One").pane == .off)
+}

@@ -28,6 +28,9 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
     var shell = true
     func waitUntilReady() async throws {}
     func atShell() async throws -> Bool { shell }
+    var process = "zsh"
+    var subshell: Bool?
+    func foregroundProcess() async throws -> (atShell: Bool, process: String, subshell: Bool?) { (shell, shell ? "" : process, subshell) }
     func submit(_ line: String) async throws { commands.append(line); shell = false }
     func interrupt() async throws { interrupts += 1; shell = true }
     func close() {}
@@ -64,8 +67,19 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(destination.retired && !destination.canRun)
     await destination.run()
     #expect(build.commands.count == 1 && model.running)
+    // The subshell running the chain is still the build; the exec'd launch is the app.
+    try await Task.sleep(for: .milliseconds(1500))
+    #expect(model.running && !model.launched)
+    build.process = "nu"; build.subshell = true
+    try await Task.sleep(for: .milliseconds(1500))
+    #expect(model.running && !model.launched)
+    build.process = "simctl"; build.subshell = false
+    for _ in 0..<300 where !model.launched { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.running && model.launched)
     await model.stop()
     #expect(build.interrupts == 1)
+    for _ in 0..<300 where model.running { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!model.running && !model.launched)
     model.disconnect()
     #expect(!model.canRun)
 }
@@ -96,7 +110,7 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(command.hasPrefix("(cd "))
     #expect(command.hasSuffix("; })"))
     #expect(command.contains("&& /usr/bin/xcrun simctl install"))
-    #expect(command.contains("&& /usr/bin/xcrun simctl launch --console-pty --terminate-running-process"))
+    #expect(command.contains("&& exec /usr/bin/xcrun simctl launch --console-pty --terminate-running-process"))
     #expect(command.contains("'App'\"'\"'s scheme; echo injected'"))
     #expect(!command.contains("\n"))
     let shell = Process()

@@ -493,7 +493,8 @@ private struct SessionWorkspaceBuildLogButton: View {
     @State private var presented = false
 
     var body: some View {
-        let busy = model.build?.running == true || model.build?.starting == true
+        // Once the app is launched the build is over; it still holds the terminal, so Stop stays.
+        let busy = model.build?.starting == true || (model.build?.running == true && model.build?.launched != true)
         if busy || model.buildTerminal != nil {
             Button { presented.toggle() } label: {
                 Group {

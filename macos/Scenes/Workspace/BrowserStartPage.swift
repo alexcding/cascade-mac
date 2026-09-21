@@ -177,6 +177,9 @@ private struct BrowserHistoryScreen: View {
                 Text(query.isEmpty ? "No history yet" : "No pages match \u{201C}\(query)\u{201D}")
                     .font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
                     .frame(maxWidth: .infinity).padding(.top, 60)
+                // The list fills the height and pins the header; without it the stack hugs its
+                // content and the page centres it, header and all.
+                Spacer(minLength: 0)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {

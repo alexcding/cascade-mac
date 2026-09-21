@@ -5,9 +5,15 @@ import SwiftUI
 @MainActor protocol BuildTerminal: AnyObject {
     func waitUntilReady() async throws
     func atShell() async throws -> Bool
+    func foregroundProcess() async throws -> (atShell: Bool, process: String, subshell: Bool?)
     func submit(_ line: String) async throws
     func interrupt() async throws
     func close()
+}
+extension BuildTerminal {
+    /// The foreground group's leader, empty when unknown. A terminal that cannot tell reports
+    /// a build for as long as it is away from its shell.
+    func foregroundProcess() async throws -> (atShell: Bool, process: String, subshell: Bool?) { (try await atShell(), "", nil) }
 }
 extension DetachedShell: BuildTerminal {}
 
@@ -64,6 +70,9 @@ protocol BuildServing: Sendable {
     private(set) var loading = false
     private(set) var starting = false
     private(set) var running = false
+    /// The build is over and what holds the terminal is the app it launched. Still `running`,
+    /// so Stop reaches it; only the spinner ends.
+    private(set) var launched = false
     private(set) var error: String?
     private let service: any BuildServing
     private var project: Project
@@ -161,6 +170,8 @@ protocol BuildServing: Sendable {
         if !schemes.contains(scheme) { scheme = values.0.resolve(scheme, project: project) }
         if !simulators.contains(where: { $0.udid == simulator }) { simulator = simulators.first?.udid ?? "" }
     }
+    /// Only for a daemon too old to say whether the leader is a subshell.
+    private static let shells: Set<String> = ["zsh", "bash", "sh", "dash", "ksh", "fish"]
     fileprivate func run(presentation id: UUID, direct: Bool = false) async -> Bool {
         if direct, schemes.isEmpty, let cached = Self.cachedDestinations[cacheKey(scheme)] { apply(cached) }
         guard isCurrent(id), direct ? canRunSaved : canRun, !Task.isCancelled else { return false }
@@ -187,20 +198,25 @@ protocol BuildServing: Sendable {
             guard isCurrent(id) else { return false }
             // A detached build already running is adopted without injecting a
             // second command. Only this build PTY is polled or interrupted.
-            running = true
+            running = true; launched = false
             let generation = UUID(); monitorGeneration = generation
             monitor = Task { [weak self, weak terminal] in
                 while !Task.isCancelled && self?.monitorGeneration == generation {
                     do {
                         try await Task.sleep(for: .milliseconds(1200))
                         guard self?.monitorGeneration == generation, let terminal else { break }
-                        if try await terminal.atShell() { break }
+                        let foreground = try await terminal.foregroundProcess()
+                        if foreground.atShell { break }
+                        // Until the launch is exec'd the leader is the subshell running the chain.
+                        if self?.monitorGeneration == generation, !foreground.process.isEmpty {
+                            self?.launched = !(foreground.subshell ?? Self.shells.contains(foreground.process))
+                        }
                     } catch {
                         if !Task.isCancelled && self?.monitorGeneration == generation { self?.error = error.localizedDescription }
                         break
                     }
                 }
-                if self?.monitorGeneration == generation { self?.running = false }
+                if self?.monitorGeneration == generation { self?.running = false; self?.launched = false }
             }
             return true
         } catch { if isCurrent(id) && !Task.isCancelled { self.error = error.localizedDescription } }
@@ -225,7 +241,7 @@ protocol BuildServing: Sendable {
     }
     func disconnect() {
         valid = false; presentationID = nil; loadGeneration = UUID(); monitorGeneration = UUID()
-        monitor = nil; terminal?.close(); terminal = nil; running = false; loading = false
+        monitor = nil; terminal?.close(); terminal = nil; running = false; launched = false; loading = false
     }
 }
 
