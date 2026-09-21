@@ -12,6 +12,16 @@ extension AppViewModel: WorkspaceCoordinating {
         for context in viewer.contexts.values { context.workspaceViewModel?.terminalStateChanged() }
     }
 
+    /// Starts the session worktree's IDE preparation, for the session being opened and no other.
+    /// Lazy on purpose: warming every session a workflow creates would run several package
+    /// resolves at once over one SwiftPM cache, and most of them for a checkout nobody is about
+    /// to build. Creating a session selects it, so the one being worked on is always warmed.
+    /// The backend coalesces, so selecting it again costs nothing.
+    func warmIDE(for session: WorkspaceSession) {
+        guard let project = projects.first(where: { $0.id == session.projectId }) else { return }
+        ideWarmup.warm(worktree: session.worktree, ide: project.ide ?? "", target: project.ideTarget ?? "")
+    }
+
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState {
         guard viewer.contexts[context.id] === context else { return SessionWorkspaceState() }
         let session = sessions.first { "task:\($0.id)" == context.id }
@@ -32,7 +42,8 @@ extension AppViewModel: WorkspaceCoordinating {
             offersPageSession: offersPageSession(in: context), offersNewTab: !context.holdsOnePage, editorID: project?.ide,
             editorLabel: workspaceLaunch.editorLabel(project),
             launchError: workspaceLaunch.errors[context.id],
-            reviewBase: base)
+            reviewBase: base,
+            warmup: ideWarmup.state(for: session?.worktree ?? ""))
     }
 
     /// Create Session belongs in the toolbar only where the page decides the session: a GitHub PR

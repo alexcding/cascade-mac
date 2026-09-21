@@ -63,6 +63,55 @@ fn xcode_request(query: &XcodeQuery) -> Result<(PathBuf, PathBuf), ApiError> {
     Ok((root, target))
 }
 
+/// What Xcode resolves before a fresh checkout can build: the Swift package graph. Every
+/// worktree is a path Xcode has never seen, so this is paid once per worktree, and paying it
+/// during the build is what reads as a hang.
+///
+/// No `Package.resolved` means no packages to fetch, and no plan — an Xcode project without
+/// dependencies never spawns anything.
+pub(crate) fn warmup_plan(root: &Path, rel: &str) -> Option<crate::warmup::Plan> {
+    const LABEL: &str = "Resolving Swift packages";
+    let (target, _) = resolve_launch(root, rel, "xcode").ok()?;
+    if target.file_name().and_then(|v| v.to_str()) == Some("Package.swift") {
+        let cwd = target.parent()?.to_path_buf();
+        let stamp = cwd.join("Package.resolved");
+        return stamp.exists().then(|| crate::warmup::Plan {
+            label: LABEL,
+            program: "swift",
+            args: vec!["package".into(), "resolve".into()],
+            cwd,
+            stamp,
+        });
+    }
+    let document = target_args(&target);
+    if document.is_empty() {
+        return None;
+    }
+    let stamp = resolved_versions(&target)?;
+    let mut args = vec!["-resolvePackageDependencies".to_string()];
+    args.extend(document);
+    Some(crate::warmup::Plan {
+        label: LABEL,
+        program: "xcodebuild",
+        args,
+        cwd: root.to_path_buf(),
+        stamp,
+    })
+}
+
+/// Where Xcode keeps the versions it resolved: inside the workspace, or inside the implicit
+/// workspace every project carries.
+fn resolved_versions(target: &Path) -> Option<PathBuf> {
+    let name = target.file_name()?.to_str()?;
+    let base = if name.ends_with(".xcworkspace") {
+        target.to_path_buf()
+    } else {
+        target.join("project.xcworkspace")
+    };
+    let path = base.join("xcshareddata/swiftpm/Package.resolved");
+    path.exists().then_some(path)
+}
+
 pub async fn schemes(
     headers: HeaderMap,
     Query(query): Query<XcodeQuery>,

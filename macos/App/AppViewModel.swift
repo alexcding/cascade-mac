@@ -24,6 +24,9 @@ public final class AppViewModel {
     var logs: LogsViewModel? { coordinator.logsCoordinator?.model }
     var settings: SettingsViewModel? { coordinator.settingsCoordinator?.model }
     let workspaceLaunch: WorkspaceLaunchViewModel
+    /// What each worktree's IDE is still preparing. Fed by `ide-warmup` events, read by every
+    /// session workspace.
+    let ideWarmup = IDEWarmupStore()
     /// Opens the Settings window. The main window installs SwiftUI's `openSettings` here, since
     /// that action only exists in a view's environment.
     @ObservationIgnored var openSettingsWindow: (() -> Void)?
@@ -690,6 +693,7 @@ public final class AppViewModel {
             if let session = sessions.first(where: { $0.id == id }) {
                 let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url })
                 _ = workflowRunModel(for: session)
+                warmIDE(for: session)
                 buildModel(for: session, context: context)?.warmDestinations()
                 openTerminal()
             } else { viewer.deactivate() }
@@ -1190,6 +1194,7 @@ public final class AppViewModel {
             guard started, startGeneration == generation else { return }
             api = connectedAPI
             if let api { shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api)); shell.refreshUsage() }
+            if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
             if let api { for model in projectModels.values {
                 model.connect(backendFactory.projects(api: api)); model.board?.connect(api: api)
                 model.tickets?.connect(backendFactory.tickets(api: api))
@@ -1360,6 +1365,9 @@ public final class AppViewModel {
         connection = "Connected"
         terminals.values.forEach { $0.agentTurns.setStreamAvailable(true) }
         refresh() // SSE has no replay IDs: refresh the snapshot on every reconnect.
+        // Events missed while the stream was down include the one that ends a warm-up, so the
+        // open sessions ask for their state rather than showing a run that already finished.
+        ideWarmup.resync(worktrees: sessions.filter { viewer.contexts["task:\($0.id)"] != nil }.map(\.worktree))
         settings?.diagnostics.invalidate()
     }
 
@@ -1396,6 +1404,7 @@ public final class AppViewModel {
             if coordinator.activityVisible { logs?.refresh() }
             todayActivity.activityReceived()
         }
+        ideWarmup.receive(event)
         if event.type == "settings" { shell.loadSettings() }
         if event.type == "config" { settings?.refresh() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
@@ -1457,6 +1466,7 @@ public final class AppViewModel {
             model.connect(nil); model.board?.pause(); await model.tickets?.stop()
         }
         await viewer.stop()
+        ideWarmup.connect(nil)
         for model in buildModels.values { model.disconnect() }
         buildModels.removeAll()
         for model in diffModels.values { model.disconnect() }

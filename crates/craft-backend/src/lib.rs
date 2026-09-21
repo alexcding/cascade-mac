@@ -12,6 +12,7 @@ mod poller;
 pub mod recovery;
 mod routes;
 mod usage;
+mod warmup;
 mod xcode;
 
 use std::sync::Arc;
@@ -35,6 +36,7 @@ pub struct AppState {
     pub poller: Arc<poller::Poller>,
     pub forwarders: Arc<integrations::ForwarderManager>,
     pub usage: Arc<usage::Usage>,
+    pub warmup: Arc<warmup::Warmup>,
 }
 
 impl AppState {
@@ -47,6 +49,7 @@ impl AppState {
             poller: Arc::new(poller::Poller::new()),
             forwarders: Arc::new(integrations::ForwarderManager::new()),
             usage: Arc::new(usage::Usage::default()),
+            warmup: Arc::new(warmup::Warmup::default()),
         }
     }
 
@@ -128,6 +131,10 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/api/xcode/build-settings",
             get(xcode::build_settings),
+        )
+        .route(
+            "/api/ide/warmup",
+            get(warmup::get_warmup).post(warmup::post_warmup),
         )
         .route("/api/prs/lookup", get(routes::lookup_pr))
         .route("/api/prs/tray", get(routes::prs_tray))

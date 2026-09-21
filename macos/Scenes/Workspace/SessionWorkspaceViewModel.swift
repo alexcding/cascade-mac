@@ -32,6 +32,9 @@ import Observation
     var editorLabel: String?
     var launchError: String?
     var reviewBase: String?
+    /// What this session's IDE is still preparing in its worktree — a package resolve a build
+    /// would otherwise wait on silently.
+    var warmup = IDEWarmupState()
 }
 
 enum WorkspaceOperation: Equatable {
@@ -172,6 +175,9 @@ extension WorkspaceServing {
     var showsModePicker: Bool { showsTerminal || context?.documents.isEmpty == false }
     func canSelectMode(_ mode: WorkspaceMode) -> Bool { mode != .diff || canShowChanges }
     var showsBuildActions: Bool { session != nil && state.project?.ide == "xcode" }
+    /// What this worktree's IDE is still preparing, if anything. `ready` for every IDE that
+    /// prepares nothing, so the toolbar can ask without knowing which ones do.
+    var warmup: IDEWarmupState { state.warmup }
     var canCreateSession: Bool { state.canCreateSession }
     var offersPageSession: Bool { session == nil && state.offersPageSession }
     var canOpenExternal: Bool { session != nil && !state.openingExternal && !state.changingSession }

@@ -17,6 +17,7 @@ import Foundation
     func changes(api: APIClient) -> any GitChangesService
     func workspaceTargets(api: APIClient) -> any WorkspaceTargetService
     func sessions(api: APIClient) -> any SessionServing
+    func ideWarmup(api: APIClient) -> any IDEWarmupServing
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving
     func workflowService(api: APIClient) -> any WorkflowRunService
     func workflowPreparation(api: APIClient) -> any WorkflowPagePreparing
@@ -41,6 +42,7 @@ extension BackendFeatureFactory {
     func changes(api: APIClient) -> any GitChangesService { APIGitChangesService(api: api) }
     func workspaceTargets(api: APIClient) -> any WorkspaceTargetService { APIWorkspaceTargetService(api: api) }
     func sessions(api: APIClient) -> any SessionServing { SessionOperations(api: api) }
+    func ideWarmup(api: APIClient) -> any IDEWarmupServing { APIIDEWarmupService(api: api) }
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }

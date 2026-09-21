@@ -715,7 +715,7 @@ fn worktree_failure(branch: &str, message: String) -> String {
 /// The line that says what went wrong, as the JS backend's `gitErrLine` picks it: git narrates
 /// before it fails ("Preparing worktree (checking out 'x')\nfatal: …"), and a toast showing the
 /// narration first reads as though nothing is wrong.
-fn error_line(message: &str) -> String {
+pub(crate) fn error_line(message: &str) -> String {
     message
         .lines()
         .map(str::trim)

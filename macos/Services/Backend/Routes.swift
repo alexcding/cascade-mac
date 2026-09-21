@@ -25,6 +25,7 @@ public enum Routes {
     public static let FILE = "/api/file"
     public static let FILES = "/api/files"
     public static let LAUNCH_TARGET = "/api/launch-target"
+    public static let IDE_WARMUP = "/api/ide/warmup"
     public static let XCODE_SCHEMES = "/api/xcode/schemes"
     public static let XCODE_DESTINATIONS = "/api/xcode/destinations"
     public static let XCODE_BUILD_SETTINGS = "/api/xcode/build-settings"

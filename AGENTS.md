@@ -81,8 +81,8 @@ xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
 - `ffi.rs` - the C ABI the app links: start/stop/request plus the event callback.
 - `routes.rs` - thin handlers; `local.rs` - git, worktrees, files, diffs, Xcode;
   `github.rs` - `gh` wrapper, `lean()`, PR classification; `jira.rs` - `acli`;
-  `poller.rs` - the sync engine and merge automation; `integrations.rs` - webhook
-  forwarders; `usage.rs` - agent usage; `recovery.rs` - packaged-start data checks.
+  `poller.rs` - the sync engine and merge automation; `warmup.rs` - IDE warm-up;
+  `integrations.rs` - webhook forwarders; `usage.rs` - agent usage; `recovery.rs` - packaged-start data checks.
 - `db.rs` + `schema_durable.sql` / `schema_cache.sql` / `schema_logs.sql` - the three
   SQLite stores.
 
@@ -112,6 +112,13 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **The snapshot is lean** (`github.rs:324`): the app only ever sees fields `lean()` copies
   through. A new `gh` field must be added to both the PR query and `lean()`, or it is
   silently absent client-side.
+- **A new worktree is warmed up, not built cold.** `warmup.rs` prepares the checkout the IDE
+  is about to open — for Xcode, `xcodebuild -resolvePackageDependencies`, which a fresh worktree
+  would otherwise pay for inside the first build with a silent log. It is lazy: only the session
+  being opened is warmed, coalesced per worktree, reporting through `ide-warmup` events that the
+  build title turns a spinner for. Creating a session selects it, so a new one is warmed too. The module is IDE-neutral: each IDE contributes a `Plan` from
+  its own module, and an IDE with no plan reports `ready`. It is background and non-fatal — a
+  failed warm-up never blocks a session.
 - **Worktree creation never touches the network.** It adds from what the checkout has and
   only fetches when adopting a branch that is not local yet — a fetch on the create path
   cannot succeed and once froze New Session for a minute.

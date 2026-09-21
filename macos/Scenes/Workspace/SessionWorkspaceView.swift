@@ -472,8 +472,14 @@ struct SessionWorkspaceBuildTitle: View {
                         Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.textSecondary)
                     }
-                    Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
-                        .lineLimit(1).truncationMode(.tail)
+                    // While the worktree is being prepared, that is the more useful subtitle:
+                    // the session's name is in the sidebar, the reason Run is slow is not.
+                    if model.warmup.running || model.warmup.failed {
+                        SessionWorkspaceWarmupLine(state: model.warmup)
+                    } else {
+                        Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1).truncationMode(.tail)
+                    }
                 }
                 .frame(maxWidth: 320, alignment: .leading)
                 .contentShape(Rectangle())
@@ -484,6 +490,33 @@ struct SessionWorkspaceBuildTitle: View {
             SessionWorkspaceBuildLogButton(model: model)
         }
         .padding(.leading, 8)
+    }
+}
+
+/// The worktree's IDE preparation, in the line the session title usually holds. A fresh
+/// checkout resolves its package graph before anything can build, and a build that waits on it
+/// silently reads as a hang; the glyph turns for as long as the work is real.
+private struct SessionWorkspaceWarmupLine: View {
+    let state: IDEWarmupState
+    @State private var turning = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: state.failed ? "exclamationmark.triangle.fill" : "arrow.triangle.2.circlepath")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(state.failed ? Theme.danger : Theme.accent)
+                .rotationEffect(.degrees(turning ? 360 : 0))
+                // Keyed on the run, not on appearance: a warm-up that failed and started again
+                // keeps this view, so a one-shot `onAppear` would leave the glyph still.
+                .animation(state.running ? .linear(duration: 1.1).repeatForever(autoreverses: false) : .default,
+                           value: turning)
+            Text(state.failed ? "\(state.label) failed" : "\(state.label)…")
+                .font(.subheadline).foregroundStyle(Theme.textSecondary)
+                .lineLimit(1).truncationMode(.tail)
+        }
+        .onAppear { turning = state.running }
+        .onChange(of: state.running) { _, running in turning = running }
+        .help(state.failed ? state.message : "\(state.label) in this worktree, so the first build does not wait on it")
     }
 }
 

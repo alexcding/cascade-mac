@@ -11,6 +11,11 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var source: String? = nil
     /// Snapshot domain; absent on inventory changes and events from older backends.
     public var scope: String? = nil
+    /// `ide-warmup` only: the worktree being prepared and how far it got.
+    public var worktree: String? = nil
+    public var status: String? = nil
+    public var label: String? = nil
+    public var message: String? = nil
 }
 
 // Byte framing preserves empty lines, CRLF and UTF-8 split between network reads.
