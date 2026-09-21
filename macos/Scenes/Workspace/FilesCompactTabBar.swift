@@ -9,8 +9,6 @@ struct FilesCompactTabBar: View {
     @FocusState private var editing: Bool
     /// Keyboard highlight in the result list; nil means Enter opens the best match.
     @State private var highlighted: Int?
-    /// The empty-state tab the bar opened itself: unlike ＋ it must not take the keyboard.
-    @State private var fillerTab = false
 
     private var search: FileSearchViewModel { context.fileSearch }
     private var root: String? { model.session?.worktree }
@@ -22,7 +20,7 @@ struct FilesCompactTabBar: View {
     }
 
     var body: some View {
-        CompactTabBar(newTabTitle: "New File Tab", newTabHelp: "Open a new file tab", newTab: { fillerTab = false; model.newFileTab() }) {
+        CompactTabBar(newTabTitle: "New File Tab", newTabHelp: "Open a new file tab", newTab: { context.fillerFileTab = false; model.newFileTab() }) {
             HoverCircleButton("Open File…", systemImage: "folder", enabled: model.canOpenTab, action: model.openFile)
                 .help(root == nil ? "Choose a file to open" : "Choose a file from this worktree")
                 .barGlass()
@@ -51,14 +49,15 @@ struct FilesCompactTabBar: View {
         .onChange(of: results.map(\.id)) { _, _ in highlighted = nil }
         // Searching is driven from here, once per keystroke, never from the body.
         .onChange(of: search.query) { _, _ in search.search(in: root) }
-        .animation(.snappy(duration: 0.3), value: ids)
+        .transaction(value: context.id) { $0.animation = nil }
+        .animation(.snappy(duration: 0.3), value: context.fileEdits)
         // A files panel always has a field to search from, as the browser always has an address.
         .onChange(of: needsBlankTab, initial: true) { _, needed in
-            if needed { fillerTab = true; model.newFileTab() }
+            if needed { context.fillerFileTab = true; model.newFileTab() }
         }
         // The flag describes one blank tab only: once that tab is used or closed, the next blank is
         // one the user asked for, and takes the keyboard.
-        .onChange(of: context.hasBlankFileTab) { _, exists in if !exists { fillerTab = false } }
+        .onChange(of: context.hasBlankFileTab) { _, exists in if !exists { context.fillerFileTab = false } }
         // Leaving a tab, or the field, drops the text: a file tab shows its file, not a stale query.
         .onChange(of: context.activeID) { _, _ in editing = false; search.reset() }
         .onChange(of: editing) { _, value in if !value { highlighted = nil; search.reset() } }
@@ -71,7 +70,7 @@ struct FilesCompactTabBar: View {
                      select: @escaping () -> Void, close: @escaping () -> Void) -> some View {
         @Bindable var search = search
         return CompactTabShell(label: label, placeholder: placeholder, closeTitle: "Close \(label.isEmpty ? "tab" : label)", help: help,
-                               active: id == context.activeID, workspaceActive: model.isActive, blank: blank, autoFocus: !fillerTab,
+                               active: id == context.activeID, workspaceActive: model.isActive, blank: blank, autoFocus: !context.fillerFileTab,
                                closable: closable, iconOnly: iconOnly, editable: blank, text: $search.query, editing: $editing, moveHighlight: moveHighlight,
                                submit: submit, select: select, close: close) {
             if !blank { Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }

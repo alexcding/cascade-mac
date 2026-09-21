@@ -179,16 +179,15 @@ struct SessionWorkspaceView: View {
         }
     }
 
-    // One share of the split for every session, 60% by default; show/hide
-    // is per session via its context pane.
-    @AppStorage("workspace.contextPaneFraction") private var contextPaneFraction: Double = 0.6
+    private static let defaultPaneFraction = 0.6
 
     @ViewBuilder private var primaryContent: some View {
         if model.showsTerminal {
             NativeSplitView(showsTrailing: model.showsPage,
+                            identity: context.id,
                             trailingFraction: Binding(
-                                get: { CGFloat(contextPaneFraction) },
-                                set: { contextPaneFraction = Double($0) })) {
+                                get: { CGFloat(context.paneFraction ?? Self.defaultPaneFraction) },
+                                set: { context.setPaneFraction(Double($0)) })) {
                 terminalContent
             } trailing: {
                 SessionWorkspaceContextPane(context: context, model: model)

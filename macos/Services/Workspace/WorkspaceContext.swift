@@ -41,6 +41,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var historyOrder: [String]? = nil
     var legacyDocuments: [SavedTabContent]? = nil
     var legacyFileHistory: [SavedTabContent]? = nil
+    var paneFraction: Double? = nil
 
     static func importing(_ tab: SavedTab) -> Self {
         var result = Self()
@@ -104,12 +105,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private(set) var lastMode: WorkspaceMode = .browser
     @ObservationIgnored private var lastPageID: String?
     @ObservationIgnored private var lastDocumentID: String?
+    private(set) var paneFraction: Double?
     private(set) var reviewSection: ReviewSection = .changes {
         didSet { if oldValue != reviewSection { workspaceViewModel?.reviewStateChanged() } }
     }
     var restoring = false {
-        didSet { if oldValue != restoring { workspaceViewModel?.documentStateChanged() } }
+        didSet {
+            guard oldValue != restoring else { return }
+            workspaceViewModel?.documentStateChanged()
+            if !restoring, let value = pendingFraction { pendingFraction = nil; setPaneFraction(value) }
+        }
     }
+    /// A divider drag made while restoring, kept until saving it can no longer turn the restore away.
+    @ObservationIgnored private var pendingFraction: Double?
     var findVisible = false
     var findText = ""
     var error: String?
@@ -167,6 +175,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             activeID = tabOrder.contains(snapshot.activeID ?? "") ? snapshot.activeID : tabOrder.first
             pane = WorkspacePane(rawValue: snapshot.pane) ?? .term
             reviewSection = snapshot.reviewSection ?? .changes
+            paneFraction = snapshot.paneFraction
             if pane == .term, activeDocument != nil { pane = .files }
             if pane == .files, activeDocument == nil, activePage != nil { pane = .term }
             lastPageID = activePage?.id; lastDocumentID = activeDocument?.id
@@ -183,7 +192,14 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The Files panel's empty tab: a field to search the worktree from, holding no file yet. It
     /// trails the file tabs, is never saved, and gives its slot to the file it opens.
     static let blankFileID = "blank-file"
-    private(set) var hasBlankFileTab = false
+    private(set) var hasBlankFileTab = false { didSet { if oldValue != hasBlankFileTab { fileEdits += 1 } } }
+    /// Count tabs opened, closed and moved by hand, never a restore: what each tab bar animates on.
+    private(set) var pageEdits = 0
+    private(set) var fileEdits = 0
+    private func noteEdit(page: Bool) { if page { pageEdits += 1 } else { fileEdits += 1 } }
+    /// The empty-state tabs the bars opened themselves: unlike Cmd-T they must not take the keyboard.
+    var fillerPageID: String?
+    var fillerFileTab = false
     var blankFileActive: Bool { hasBlankFileTab && activeID == Self.blankFileID }
     func newFileTab() {
         hasBlankFileTab = true; activeID = Self.blankFileID; pane = .files; changed()
@@ -217,7 +233,13 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var snapshot: ContextSnapshot {
         .init(pages: pages.map(\.record), activeID: activeID, history: history, pane: pane.rawValue,
               reviewSection: reviewSection, documents: documents.map(\.record), tabOrder: tabOrder, fileHistory: fileHistory, historyOrder: historyOrder,
-              legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory)
+              legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory,
+              paneFraction: paneFraction)
+    }
+    func setPaneFraction(_ value: Double) {
+        guard !restoring else { pendingFraction = value; return }
+        guard paneFraction.map({ abs($0 - value) > 0.001 }) ?? true else { return }
+        paneFraction = value; changed()
     }
     func setReviewSection(_ value: ReviewSection) { reviewSection = value; changed() }
     func setPane(_ value: WorkspacePane) {
@@ -272,12 +294,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         // A file opened from the blank tab takes its place: the blank trails the tabs, and so does
         // an insert with no active tab to follow.
         if blankFileActive { hasBlankFileTab = false; fileSearch.reset() }
-        documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
+        documents.append(file); wire(file); insert(file.id, page: false); noteHistory(file.record)
         select(.file(file)); file.focus(line: line, column: column); return file
     }
-    private func insert(_ id: String, atEnd: Bool = false) {
+    private func insert(_ id: String, page: Bool = true, atEnd: Bool = false) {
         let index = atEnd ? tabOrder.endIndex : tabOrder.firstIndex(of: activeID ?? "").map { $0 + 1 } ?? tabOrder.endIndex
-        tabOrder.insert(id, at: index)
+        tabOrder.insert(id, at: index); noteEdit(page: page)
         pages.sort { tabOrder.firstIndex(of: $0.id)! < tabOrder.firstIndex(of: $1.id)! }
     }
     /// Moves a tab before another, or to the end for nil. Pages and files share one order, and each
@@ -288,7 +310,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         order.remove(at: from)
         order.insert(id, at: target.flatMap(order.firstIndex(of:)) ?? order.endIndex)
         guard order != tabOrder else { return }
-        tabOrder = order
+        tabOrder = order; noteEdit(page: pages.contains { $0.id == id })
         pages.sort { tabOrder.firstIndex(of: $0.id)! < tabOrder.firstIndex(of: $1.id)! }
         changed()
     }
@@ -311,7 +333,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let kin = Set((page ? pages.map(\.id) : documents.map(\.id)) + [id])
         let siblings = tabOrder.filter(kin.contains)
         let index = siblings.firstIndex(of: id) ?? 0
-        tabOrder.removeAll { $0 == id }
+        tabOrder.removeAll { $0 == id }; noteEdit(page: page)
         if lastPageID == id { lastPageID = nil }
         if lastDocumentID == id { lastDocumentID = nil }
         if activeID == id {
@@ -370,6 +392,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         lastPageID = restored.activePage?.id; lastDocumentID = restored.activeDocument?.id
         lastMode = restored.lastMode
         reviewSection = restored.reviewSection
+        paneFraction = restored.paneFraction
         documents = restored.documents; tabOrder = restored.tabOrder; fileHistory = restored.fileHistory; historyOrder = restored.historyOrder
         documents.forEach(wire)
         legacyDocuments = restored.legacyDocuments; legacyFileHistory = restored.legacyFileHistory

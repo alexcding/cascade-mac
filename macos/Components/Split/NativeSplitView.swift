@@ -14,6 +14,7 @@ private enum SplitMetrics {
 /// both panes scale with the window, and a drag sets a new fraction.
 struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentable {
     let showsTrailing: Bool
+    var identity: AnyHashable? = nil
     @Binding var trailingFraction: CGFloat
     @ViewBuilder let leading: () -> Leading
     @ViewBuilder let trailing: () -> Trailing
@@ -34,6 +35,8 @@ struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresent
         var onFractionChange: (CGFloat) -> Void = { _ in }
 
         private var shown: Bool?
+        private var identity: AnyHashable?
+        private var switched = false
         private var desiredFraction: CGFloat = 0.6
         /// The fraction `show` was last handed, as opposed to the one the divider is at.
         private var givenFraction: CGFloat?
@@ -82,6 +85,16 @@ struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresent
             updateCursorArea()
         }
 
+        /// A pending drag report belongs to the old owner, so flush it before the callback is replaced.
+        func adopt(_ identity: AnyHashable?) {
+            guard identity != self.identity else { return }
+            self.identity = identity
+            switched = shown != nil
+            if let pending = writeBack, !pending.isCancelled { pending.perform(); pending.cancel() }
+            writeBack = nil
+            givenFraction = nil
+        }
+
         func show(_ value: Bool, fraction: CGFloat) {
             // SwiftUI calls this on every update with the *stored* fraction, which lags a drag by the
             // write-back debounce. Only a fraction that differs from the last one handed in is news;
@@ -92,7 +105,8 @@ struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresent
             if given { desiredFraction = fraction }
             // The first call sets the starting state, so it must not animate: the pane is either
             // already there when the session opens or it is not.
-            let animated = shown != nil
+            let animated = shown != nil && !switched
+            switched = false
             let changed = shown != value
             shown = value
             guard isViewLoaded else { _ = view; return }
@@ -251,6 +265,7 @@ struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresent
 
     private func configure(_ controller: Controller) {
         let fraction = $trailingFraction
+        controller.adopt(identity)
         controller.onFractionChange = { value in
             if abs(fraction.wrappedValue - value) > 0.001 { fraction.wrappedValue = value }
         }

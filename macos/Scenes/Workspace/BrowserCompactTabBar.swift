@@ -11,12 +11,11 @@ struct BrowserCompactTabBar: View {
     @FocusState private var editingAddress: Bool
     /// Keyboard highlight in the suggestion list; nil means Enter submits the typed text.
     @State private var highlighted: Int?
-    /// The empty-state tab the bar opened itself: unlike Cmd-T it must not take the keyboard.
-    @State private var fillerTabID: String?
     private var searchSuggestions = SearchSuggestionStore.shared
 
     private var pages: [BrowserPage] { context.pageTabs.compactMap { if case .page(let page) = $0 { page } else { nil } } }
     private var active: BrowserPage? { context.activePage }
+    private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
 
     var body: some View {
         CompactTabBar(newTabTitle: "New Tab", newTabHelp: "Open a new web tab", newTab: model.newTab) {
@@ -47,16 +46,18 @@ struct BrowserCompactTabBar: View {
             if editingAddress, let text, webAddress(text) == nil { searchSuggestions.prefetch(text) }
         }
         // On the whole row, so the pill's re-centring animates with its contents: opening a tab
-        // moves the existing tabs left as the new one slides in from the right. Keyed on the tab
-        // list only: selecting a tab switches instantly, with no glide.
-        .animation(.snappy(duration: 0.3), value: pages.map(\.id))
-        .animation(.snappy(duration: 0.25), value: active?.controls.canGoForward == true)
+        // moves the existing tabs left as the new one slides in from the right. Keyed on tabs
+        // opened and closed only: selecting a tab or restoring the saved ones does not glide.
+        // Another session's tabs arriving is not an edit. Inside the animation, so it wins.
+        .transaction(value: context.id) { $0.animation = nil }
+        .animation(.snappy(duration: 0.3), value: context.pageEdits)
         // A browser panel always has a page to type into: a blank tab showing this panel's history
         // is the empty state, never a pill with nothing in it. Keyed on presentability too, so a
         // refusal while a sheet is up is retried once the sheet goes away.
         .onChange(of: needsBlankTab, initial: true) { _, needed in
-            if needed { model.newTab(); fillerTabID = context.activePage?.id }
+            if needed { model.newTab(); context.fillerPageID = context.activePage?.id }
         }
+        .onChange(of: fillerIsBlank) { _, blank in if !blank { context.fillerPageID = nil } }
         .onAppear { synchronizeEditing() }
         .onChange(of: context.activeID) { _, _ in synchronizeEditing() }
         .onChange(of: editingAddress) { _, value in
@@ -76,7 +77,7 @@ struct BrowserCompactTabBar: View {
                        select: { id in pages.first { $0.id == id }.map { model.selectTab(.page($0)) } }, move: model.moveTab) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive,
-                           autoFocus: page.id != fillerTabID,
+                           autoFocus: page.id != context.fillerPageID,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
                            // A lone blank tab has nothing to close: closing it would only make another.
                            closable: !(pages.count == 1 && page.controls.isBlank), iconOnly: iconOnly, editing: $editingAddress,
