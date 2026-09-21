@@ -204,6 +204,8 @@ struct SessionWorkspaceView: View {
     @ViewBuilder private var terminalContent: some View {
         if let terminal = model.terminal {
             TerminalPane(session: terminal).id(terminal.id)
+        } else if model.removingSession {
+            ProgressView("Removing Session…")
         } else if model.session != nil {
             ProgressView("Opening Terminal…")
         } else {

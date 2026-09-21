@@ -16,6 +16,9 @@ import Observation
     var terminalStyle = TerminalStyle()
     var connected = false
     var changingSession = false
+    /// A removal in flight for this session. Distinct from `changingSession`: removal tears the
+    /// terminal down and never brings one back, so the pane must not claim one is opening.
+    var removingSession = false
     var openingExternal = false
     var canPresent = false
     var canCreateSession = false
@@ -76,6 +79,7 @@ extension WorkspaceServing {
     var session: WorkspaceSession? { state.session }
     var title: String { state.title }
     var terminal: TerminalSession? { state.terminal }
+    var removingSession: Bool { state.removingSession }
     var buildTerminal: TerminalSession? { state.buildTerminal }
     var build: BuildWorkspaceViewModel? { state.build }
     var history: GitHistoryViewModel? { state.history }

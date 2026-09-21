@@ -65,7 +65,9 @@ public final class AppViewModel {
     @ObservationIgnored private var pageWorkflowTargets: [String: WorkflowPageTarget] = [:]
     @ObservationIgnored private var preparingWorkflowPages: Set<String> = []
     @ObservationIgnored private var pendingPins: Set<String> = []
-    @ObservationIgnored private var removalLocks: [UUID: Set<String>] = [:]
+    /// Observed, not ignored: `isRemoving(_:)` is read from a view body, so a lock taken or
+    /// released has to invalidate it.
+    private var removalLocks: [UUID: Set<String>] = [:]
     @ObservationIgnored private let backendRuntime: any BackendRuntimeServing
     @ObservationIgnored private let backendFactory: any BackendFeatureFactory
     @ObservationIgnored private var api: APIClient?
@@ -858,8 +860,12 @@ public final class AppViewModel {
                 sessions.removeAll { record in removed.contains { $0.id == record.id } }
                 refresh()
             }, finished: { [weak self] in
-                if let self, let ids = removalLocks.removeValue(forKey: operationID) { changingSessions.subtract(ids) }
-                self?.refresh()
+                guard let self else { return }
+                if let ids = removalLocks.removeValue(forKey: operationID) { changingSessions.subtract(ids) }
+                // Removal stops the terminal before it deletes anything. A failed removal leaves the
+                // session alive with no shell, so give it one back rather than an endless spinner.
+                openTerminal()
+                refresh()
             })
     }
 
@@ -886,6 +892,12 @@ public final class AppViewModel {
         })
         buildModels[context.id] = model
         return model
+    }
+
+    /// Whether a removal is under way for this session. The pane tells that from a terminal that
+    /// is merely still opening, which looks the same: a session with no terminal.
+    func isRemoving(_ sessionID: String) -> Bool {
+        removalLocks.values.contains { $0.contains(sessionID) }
     }
 
     private func stopForRemoval(_ keys: Set<String>, operationID: UUID) async throws {

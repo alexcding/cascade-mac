@@ -26,6 +26,7 @@ extension AppViewModel: WorkspaceCoordinating {
             history: historyModels[context.id], diff: diffModels[context.id], workflow: workflowModel(in: context),
             appearance: shell.appearance, documentFont: shell.font(.diff), editorStyle: shell.editorStyle, terminalStyle: shell.terminalStyle, connected: connection == "Connected",
             changingSession: session.map { changingSessions.contains($0.id) } ?? false,
+            removingSession: session.map { isRemoving($0.id) } ?? false,
             openingExternal: workspaceLaunch.opening.contains(context.id), canPresent: coordinator.canPresent,
             canCreateSession: canPerform(.newSession), title: title,
             offersPageSession: offersPageSession(in: context), editorID: project?.ide,
