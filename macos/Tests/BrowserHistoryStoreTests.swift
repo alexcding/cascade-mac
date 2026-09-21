@@ -119,6 +119,20 @@ import Testing
     #expect(restored.browserHistory.entries.isEmpty)
 }
 
+/// The history screen's Clear History, reached through any one context, forgets every session's pages.
+@MainActor @Test func clearingFromOneContextForgetsEverySessionsPagesAndTheSharedStore() throws {
+    let viewer = ViewerStore()
+    let one = viewer.select(id: "task:one", url: "session:one", title: "One")
+    let two = viewer.select(id: "task:two", url: "session:two", title: "Two")
+    _ = try #require(one.open("https://example.com/one", title: "One"))
+    _ = try #require(two.open("https://example.com/two", title: "Two"))
+    #expect(viewer.browserHistory.entries.count == 2)
+
+    one.clearBrowsingHistory()
+    #expect(one.history.isEmpty && two.history.isEmpty)
+    #expect(viewer.browserHistory.entries.isEmpty)
+}
+
 @MainActor @Test func aHiddenSecondPanelStaysHiddenAcrossARelaunchPerSession() throws {
     let cache = FileManager.default.temporaryDirectory.appendingPathComponent("craft-tabs-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: cache) }

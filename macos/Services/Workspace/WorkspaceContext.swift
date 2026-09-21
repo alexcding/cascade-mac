@@ -128,6 +128,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored var globalHistory: BrowserHistoryStore?
     /// Shared by every context, as the history is; nil in a bare context.
     @ObservationIgnored var bookmarks: BrowserBookmarkStore?
+    /// Forgets the shared history and every context's page visits; a bare context clears its own.
+    @ObservationIgnored lazy var clearBrowsingHistory: () -> Void = { [weak self] in
+        self?.clearPageHistory(); self?.globalHistory?.clear()
+    }
     @ObservationIgnored var activateDocument: (EditorDocumentViewModel) -> Void = { _ in }
     @ObservationIgnored var activatePage: (BrowserPage) -> Void = { _ in }
     @ObservationIgnored var isOwned: () -> Bool = { true }
@@ -583,6 +587,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         contexts[id] = context
         context.globalHistory = browserHistory
         context.bookmarks = browserBookmarks
+        context.clearBrowsingHistory = { [weak self] in self?.clearBrowsingHistory() }
         context.fileSearch.service = { [weak self] in
             guard let self, let api else { return nil }
             return documentFactory.fileSearchService(api: api)

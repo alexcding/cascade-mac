@@ -1,42 +1,45 @@
 import SwiftUI
 
-/// What a blank tab shows in place of a web view: the bookmarks as icon tiles, then the newest
-/// pages visited in any panel as a list, as many as fit without scrolling. There is one history,
-/// shared by every panel. Clicking either loads it in this tab.
+/// What a blank tab shows in place of a web view: the bookmarks as icon tiles, then this
+/// session's own pages as the same tiles, newest first. A session with none left to show
+/// offers the pages visited in any panel instead. The History heading leads to the one history
+/// shared by every panel. Clicking a tile loads it in this tab.
 struct BrowserStartPage: View {
     let context: WorkspaceContext
     let controls: BrowserControlsViewModel
     /// The full-history screen replaces the start page in this tab until Back is pressed.
     @State private var showingAll = false
-    /// Bookmarks fold to `bookmarkRows` rows of however many tiles the pane's width fits.
-    @State private var bookmarkColumns = 6
+    /// Bookmarks fold to `tileRows` rows of however many tiles the pane's width fits, history to `historyRows`.
+    @State private var tileColumns = 6
     @State private var showingAllBookmarks = false
-    /// The pane's height and where the history rows start in the page, which together say
-    /// how many rows fit without scrolling.
-    @State private var viewportHeight: CGFloat = 0
-    @State private var historyTop: CGFloat = 0
 
-    static let bookmarkRows = 2
+    static let tileRows = 2, historyRows = 1
     static let tileMinimum: CGFloat = 92, tileSpacing: CGFloat = 8
-    static let pagePadding: CGFloat = 24, rowSpacing: CGFloat = 2
+    static let pagePadding: CGFloat = 24
 
-    /// How many pages the start page shows before deferring to the full history: as many
-    /// rows as fit below the bookmarks, and a few even when none do.
-    private var historyLimit: Int {
-        let room = viewportHeight - historyTop - Self.pagePadding + Self.rowSpacing
-        return min(max(3, Int(room / (StartPageRow.height + Self.rowSpacing))), 30)
+    /// This session's pages, newest first, or every panel's when it has none. Bookmarked pages
+    /// are left out, so nothing appears twice on the page, and so is a page since removed from
+    /// the shared history: Clear History and a row's Delete forget it here too.
+    private func recent(excluding bookmarks: [BrowserBookmark]) -> [WebPageRecord] {
+        let marked = Set(bookmarks.map(\.url)), limit = tileColumns * Self.historyRows
+        let kept = context.globalHistory.map { Set($0.entries.map(\.url)) }
+        let own = context.history.reversed().filter { !marked.contains($0.url) && kept?.contains($0.url) != false }
+        if !own.isEmpty { return own.prefix(limit).map { WebPageRecord(id: $0.url, url: $0.url, title: $0.title) } }
+        return (context.globalHistory?.recent(excluding: marked, limit: limit) ?? [])
+            .map { WebPageRecord(id: $0.url, url: $0.url, title: $0.title) }
     }
 
-    /// One history for the whole app: the newest pages visited in any panel, without the
-    /// bookmarked ones, so nothing appears twice on the page.
-    private func recent(excluding bookmarks: [BrowserBookmark]) -> [BrowserHistoryEntry] {
-        context.globalHistory?.recent(excluding: Set(bookmarks.map(\.url)), limit: historyLimit) ?? []
+    private func tileGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .top)], spacing: 12, content: content)
+            .onGeometryChange(for: Int.self) { proxy in
+                max(1, Int((proxy.size.width + Self.tileSpacing) / (Self.tileMinimum + Self.tileSpacing)))
+            } action: { tileColumns = $0 }
     }
 
     var body: some View {
         Group {
             if showingAll, let history = context.globalHistory {
-                BrowserHistoryScreen(history: history, back: { showingAll = false }, open: open)
+                BrowserHistoryScreen(history: history, back: { showingAll = false }, open: open, clear: context.clearBrowsingHistory)
             } else {
                 startPage
             }
@@ -56,7 +59,7 @@ struct BrowserStartPage: View {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     if !bookmarks.isEmpty {
-                        let folded = bookmarkColumns * Self.bookmarkRows
+                        let folded = tileColumns * Self.tileRows
                         HStack {
                             Text("Bookmarks").font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
                             Spacer()
@@ -66,18 +69,15 @@ struct BrowserStartPage: View {
                                     .accessibilityIdentifier("toggle-all-bookmarks")
                             }
                         }
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .top)], spacing: 12) {
+                        tileGrid {
                             ForEach(showingAllBookmarks ? bookmarks : Array(bookmarks.prefix(folded))) { bookmark in
                                 StartPageTile(record: WebPageRecord(id: bookmark.url, url: bookmark.url, title: bookmark.title),
                                               open: { open(bookmark.url) }, remove: { context.bookmarks?.remove(url: bookmark.url) })
                             }
                         }
-                        .onGeometryChange(for: Int.self) { proxy in
-                            max(1, Int((proxy.size.width + Self.tileSpacing) / (Self.tileMinimum + Self.tileSpacing)))
-                        } action: { bookmarkColumns = $0 }
                         .accessibilityLabel("Bookmarks")
                     }
-                    if context.globalHistory?.entries.isEmpty == false {
+                    if context.globalHistory?.entries.isEmpty == false || !recent.isEmpty {
                         Button { showingAll = true } label: {
                             HStack(spacing: 6) {
                                 Text("History").font(.title3.weight(.semibold))
@@ -93,22 +93,19 @@ struct BrowserStartPage: View {
                         .accessibilityIdentifier("show-all-history")
                         // Every visited page may be bookmarked: the heading still leads to the full history.
                         if !recent.isEmpty {
-                            LazyVStack(alignment: .leading, spacing: Self.rowSpacing) {
-                                ForEach(recent) { entry in
-                                    StartPageRow(entry: entry) { open(entry.url) }
+                            tileGrid {
+                                ForEach(recent) { record in
+                                    StartPageTile(record: record, open: { open(record.url) })
                                 }
                             }
                             .accessibilityLabel("History")
-                            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("startPage")).minY } action: { historyTop = $0 }
                         }
                     }
                 }
                 .padding(Self.pagePadding)
-                .coordinateSpace(name: "startPage")
                 .readableColumn()
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
     }
 
     private func open(_ url: String) {
@@ -125,6 +122,8 @@ private struct BrowserHistoryScreen: View {
     let history: BrowserHistoryStore
     let back: () -> Void
     let open: (String) -> Void
+    /// Forgets everything: the shared history and every session's own pages.
+    let clear: () -> Void
     @State private var query = ""
     @FocusState private var searching: Bool
     @State private var backHovering = false
@@ -168,7 +167,7 @@ private struct BrowserHistoryScreen: View {
                     .disabled(history.entries.isEmpty)
                     .accessibilityIdentifier("clear-history")
                     .confirmationDialog("Clear all browsing history?", isPresented: $confirmingClear, titleVisibility: .visible) {
-                        Button("Clear History", role: .destructive) { history.clear() }
+                        Button("Clear History", role: .destructive) { clear() }
                     } message: {
                         Text("Every page visited in any panel is forgotten. Open tabs stay open.")
                     }
@@ -201,11 +200,10 @@ private struct BrowserHistoryScreen: View {
 private struct StartPageRow: View {
     let entry: BrowserHistoryEntry
     let open: () -> Void
-    /// Forgets this page. Only the full-history screen offers it; the start page list does not.
+    /// Forgets this page.
     var remove: (() -> Void)? = nil
     @State private var hovering = false
 
-    /// A 24pt favicon inside the row's vertical padding; the start page counts rows by it.
     static let height: CGFloat = 44
 
     private var visited: String? {
