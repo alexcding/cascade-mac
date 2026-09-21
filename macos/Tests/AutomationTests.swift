@@ -13,16 +13,16 @@ private actor AutomationFixture: AutomationService {
         try await Task.sleep(for: .milliseconds(60))
         if fails { throw BackendError.operation("Fixture automation save failed") }
         project.forwardWebhooks = draft.forwardWebhooks; project.mergeTransition = draft.mergeTransition
-        project.fixVersionEnabled = draft.fixVersionEnabled; project.fixVersionPrefix = draft.fixVersionPrefix
+        project.fixVersionEnabled = draft.fixVersionEnabled
         project.fixVersionScript = draft.fixVersionScript
         return project
     }
-    func preview(projectID: String, prefix: String, script: String) async throws -> FixVersionPreview {
+    func preview(projectID: String, script: String) async throws -> FixVersionPreview {
         previews += 1
         // Deliberately ignores cancellation to exercise generation checks.
         try? await Task.sleep(for: .milliseconds(60))
         if fails { throw BackendError.operation("Fixture script error") }
-        return .init(version: prefix + script, exists: true)
+        return .init(version: script, exists: true)
     }
     func forwarders() async throws -> [String] { [project.repo] }
 }
@@ -41,10 +41,10 @@ private actor AutomationFixture: AutomationService {
     #expect(model.changedElsewhere && model.draft.mergeTransition == "Local")
     model.revert()
     #expect(model.draft.mergeTransition == "External" && !model.dirty)
-    model.draft.mergeTransition = "  Done  "; model.draft.fixVersionPrefix = " ios- "
+    model.draft.mergeTransition = "  Done  "
     model.draft.fixVersionScript = " return '1'; "
     let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(model.draft.payload)) as? [String: Any])
-    #expect(Set(wire.keys) == ["forwardWebhooks", "mergeTransition", "fixVersionEnabled", "fixVersionPrefix", "fixVersionScript"])
+    #expect(Set(wire.keys) == ["forwardWebhooks", "mergeTransition", "fixVersionEnabled", "fixVersionScript"])
     #expect(wire["fixVersionScript"] as? String == " return '1'; ")
     await service.fail(true); await model.save()
     #expect(model.dirty && model.error == "Fixture automation save failed" && received.isEmpty)
@@ -54,7 +54,7 @@ private actor AutomationFixture: AutomationService {
     await one; await two
     #expect(await service.saves == 2)
     #expect(model.saved && !model.dirty && received.count == 1)
-    #expect(model.draft.mergeTransition == "Done" && model.draft.fixVersionPrefix == "ios-")
+    #expect(model.draft.mergeTransition == "Done")
     #expect(model.forwardingStatus.contains("Forwarding enabled"))
 }
 

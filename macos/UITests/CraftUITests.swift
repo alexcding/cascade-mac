@@ -450,15 +450,13 @@ final class CraftUITests: XCTestCase {
         app.radioButtons["Automation"].click()
         XCTAssertTrue(app.staticTexts["Add a GitHub repository in Settings to forward events."].waitForExistence(timeout: 5))
         app.descendants(matching: .any)["automation-fix-version"].firstMatch.click()
-        let prefix = app.textFields["automation-prefix"]
-        XCTAssertTrue(prefix.waitForExistence(timeout: 5))
-        prefix.click(); app.typeKey("a", modifierFlags: .command); app.typeText("ios-")
         let script = app.textFields["automation-script"]
-        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("return 123;")
+        XCTAssertTrue(script.waitForExistence(timeout: 5))
+        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("ios-{nope}")
         app.scrollViews["automation-form"].scroll(byDeltaX: 0, deltaY: -300)
         app.buttons["Preview Version"].click()
-        XCTAssertTrue(app.staticTexts["script must return a non-empty string"].waitForExistence(timeout: 5), app.debugDescription)
-        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("return '1.2.3';")
+        XCTAssertTrue(app.staticTexts["Unknown version-template placeholder {nope}"].waitForExistence(timeout: 5), app.debugDescription)
+        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("ios-1.2.3")
         app.buttons["Preview Version"].click()
         XCTAssertTrue(app.staticTexts["Preview: ios-1.2.3 (already exists)"].waitForExistence(timeout: 5))
         let transition = app.textFields["automation-transition"]

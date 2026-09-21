@@ -780,6 +780,11 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
     ] {
         let _ = conn.execute(migration, []);
     }
+    // The Fix Version prefix used to be its own field; it is now the start of the template.
+    let _ = conn.execute(
+        "UPDATE projects SET fix_version_script = fix_version_prefix || fix_version_script, fix_version_prefix = '' WHERE fix_version_prefix <> ''",
+        [],
+    );
     migrate_tabs_to_ids(conn)?;
     Ok(())
 }
@@ -843,7 +848,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         "workspace": row.get::<_,String>("workspace")?, "jiraProjectKey": row.get::<_,String>("jira_project_key")?,
         "jql": row.get::<_,String>("jql")?, "mergeTransition": row.get::<_,String>("merge_transition")?,
         "forwardWebhooks": row.get::<_,i64>("forward_webhooks")? != 0, "created_at": row.get::<_,String>("created_at")?,
-        "fixVersionEnabled": row.get::<_,i64>("fix_version_enabled")? != 0, "fixVersionPrefix": text(row,"fix_version_prefix")?,
+        "fixVersionEnabled": row.get::<_,i64>("fix_version_enabled")? != 0,
         "fixVersionScript": text(row,"fix_version_script")?, "workflows": parse_json(&text(row,"workflows")?, json!([])),
         "ide": text(row,"ide")?, "ideCmd": text(row,"ide_cmd")?, "ideTarget": text(row,"ide_target")?,
         "runScheme": text(row,"run_scheme")?, "runSim": text(row,"run_sim")?,

@@ -24,14 +24,13 @@ struct AutomationView: View {
                     if model.draft.fixVersionEnabled {
                         Text("Create the version if missing and assign it to the ticket. Requires a Jira API token in Settings → Connections.")
                             .font(.caption).foregroundStyle(.secondary)
-                        TextField("Platform prefix", text: $model.draft.fixVersionPrefix).accessibilityIdentifier("automation-prefix")
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Version template")
                             TextField("Version template", text: $model.draft.fixVersionScript, axis: .vertical)
                                 .labelsHidden().multilineTextAlignment(.leading).lineLimit(3...8)
                                 .font(.system(.body, design: .monospaced)).accessibilityIdentifier("automation-script")
                         }
-                        Text("Use {year}, {month}, {day}, {isoWeek}, or {prNumber}. The prefix is added to the result. Example: 0.{isoWeek}")
+                        Text("Use {year}, {month}, {day}, {isoWeek} (zero-padded), {m}, {d}, {w} (unpadded), or {prNumber}. Add an offset with +N or -N, such as {year-2026} or {y-2000} for a short year; offset values are not padded. Dates follow this Mac's time zone. Literal text such as a platform prefix is kept. Example: ios-{year-2026}.{m}.{d}")
                             .font(.caption).foregroundStyle(.secondary)
                         HStack {
                             Button("Preview Version") { Task { await model.previewVersion() } }.disabled(!model.canPreview)

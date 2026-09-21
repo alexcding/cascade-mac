@@ -63,7 +63,6 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var forwardWebhooks: Bool? = nil
     var mergeTransition: String? = nil
     var fixVersionEnabled: Bool? = nil
-    var fixVersionPrefix: String? = nil
     var fixVersionScript: String? = nil
 }
 

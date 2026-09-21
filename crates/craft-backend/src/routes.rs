@@ -775,7 +775,6 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
         "jql",
         "workspace",
         "mergeTransition",
-        "fixVersionPrefix",
         "ide",
         "ideCmd",
         "runScheme",

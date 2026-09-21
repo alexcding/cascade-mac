@@ -199,15 +199,11 @@ pub async fn apply_merge(app: &AppState, project: &Value, pr: &Value) {
 
 async fn prepare_version(app: &AppState, project: &Value, pr: &Value) -> Result<String> {
     let key = project["jiraProjectKey"].as_str().unwrap_or("");
-    let number = render_version_template(
+    let version = render_version_template(
         project["fixVersionScript"].as_str().unwrap_or(""),
         pr["number"].as_i64().unwrap_or(0),
     )
     .map_err(|error| anyhow::anyhow!(error.to_string()))?;
-    let version = format!(
-        "{}{number}",
-        project["fixVersionPrefix"].as_str().unwrap_or("")
-    );
     ensure!(
         !version.is_empty() && version.len() <= 255,
         "Invalid Jira version name"

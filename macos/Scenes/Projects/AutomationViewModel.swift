@@ -7,7 +7,7 @@ import Observation
         didSet {
             guard draft != oldValue else { return }
             saved = false
-            if draft.fixVersionPrefix != oldValue.fixVersionPrefix || draft.fixVersionScript != oldValue.fixVersionScript {
+            if draft.fixVersionScript != oldValue.fixVersionScript {
                 invalidatePreview()
             }
         }
@@ -84,7 +84,7 @@ import Observation
         let task = Task {
             defer { if previewGeneration == token { previewing = false; previewTask = nil } }
             do {
-                let result = try await service.preview(projectID: id, prefix: value.fixVersionPrefix, script: value.fixVersionScript)
+                let result = try await service.preview(projectID: id, script: value.fixVersionScript)
                 guard previewGeneration == token else { return }
                 preview = result
             } catch { if previewGeneration == token { previewError = error.localizedDescription } }
