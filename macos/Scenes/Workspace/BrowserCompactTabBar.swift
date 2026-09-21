@@ -143,7 +143,10 @@ struct BrowserCompactTabBar: View {
 
     // Not while restoring: a blank tab opened before the saved snapshot lands would mark the
     // context edited and the saved tabs would be skipped.
-    private var needsBlankTab: Bool { pages.isEmpty && model.canOpenTab && !context.restoring }
+    /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
+    /// a blank tab is never saved, so on every launch the filler opened, selected itself and
+    /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
+    private var needsBlankTab: Bool { pages.isEmpty && model.showsBrowser && model.canOpenTab && !context.restoring }
 
     private func synchronizeEditing() {
         if active?.controls.isBlank != true { editingAddress = false }
