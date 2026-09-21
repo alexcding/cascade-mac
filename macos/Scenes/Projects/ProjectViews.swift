@@ -153,7 +153,7 @@ struct ProjectPageView: View {
                         }
                         ForEach(model.rows) { row in
                             DashboardCard(row: row, opening: model.opening.contains(row.id),
-                                          open: { model.open(row) }, copy: { model.copyLink(row) })
+                                          open: { model.open(row) }, session: { model.openSession(row) })
                             Divider()
                         }
                     }

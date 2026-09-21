@@ -55,7 +55,6 @@ actor JiraFixture: JiraService {
     let open: (OpenPageRequest) async throws -> Void
     func openPage(_ request: OpenPageRequest) async throws { try await open(request) }
     func openBrowser(_ url: URL) -> Bool { true }
-    func copyLink(_ value: String) {}
 }
 
 @MainActor private func jiraModel(_ service: JiraFixture, now: @escaping () -> Date = Date.init,

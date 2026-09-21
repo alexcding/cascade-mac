@@ -109,7 +109,7 @@ private struct SettingsFontFixture: CodeFontCatalog {
 
 @MainActor @Test(.timeLimit(.minutes(1))) func settingsFactoryUsesInjectedPlatformDependencies() async {
     let actions = ProjectPageActions()
-    let factory = NativeSettingsFeatureFactory(desktop: actions, copy: actions.copyLink,
+    let factory = NativeSettingsFeatureFactory(desktop: actions, copy: actions.copy,
         loginItem: SettingsLoginFixture(), fontCatalog: SettingsFontFixture())
     let model = factory.settings()
     let runtime = SettingsRuntimeFixture(), coordinator = SettingsCoordinator(model: model, runtime: runtime)

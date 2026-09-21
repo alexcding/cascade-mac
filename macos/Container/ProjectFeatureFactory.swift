@@ -18,12 +18,11 @@ struct ProjectFeatureServices {
 
 @MainActor struct NativeProjectFeatureFactory: ProjectFeatureFactory {
     let creation: any CreationFlowFactory
-    let copy: (String) -> Void
 
     func project(_ project: Project, services: ProjectFeatureServices,
                  openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel {
         let editor = creation.projectEditor(project: project, service: services.projects)
-        let pageActions = NativePageActionService(open: openPage, copy: copy)
+        let pageActions = NativePageActionService(open: openPage)
         let board = WebBoardViewModel(projectID: project.id, api: services.api, pageActions: pageActions)
         let tickets = JiraTicketsViewModel(project: project, service: services.tickets, pageActions: pageActions)
         let workflows = WorkflowEditorViewModel(project: project, service: services.workflows)

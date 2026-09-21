@@ -93,6 +93,17 @@ struct OpenPageRequest: Encodable, Sendable {
     var branch: String = ""
     var category: String = ""
     var login: String = ""
+    /// Open the page's session instead of a tab: the one it already has, else a new one.
+    /// Routing only — the backend never sees it, nor the project of the row it was asked from.
+    var inSession = false
+    var projectID: String? = nil
+
+    private enum CodingKeys: String, CodingKey { case id, url, kind, title, repo, branch, category, login }
+
+    /// A session start already says what failed; a page open needs the surface's own words.
+    func failure(_ description: String, _ error: any Error) -> String {
+        inSession ? error.localizedDescription : "\(description): \(error.localizedDescription)"
+    }
 }
 
 protocol DashboardService: Sendable {

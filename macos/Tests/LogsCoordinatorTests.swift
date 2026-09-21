@@ -25,7 +25,7 @@ private actor HeldLogsService: LogService {
 }
 
 @MainActor private func loadedLogs(_ service: HeldLogsService, actions: ProjectPageActions) async -> LogsViewModel {
-    let model = NativeLogsFeatureFactory().logs(pageActions: actions, copy: actions.copyLink)
+    let model = NativeLogsFeatureFactory().logs(pageActions: actions, copy: actions.copy)
     model.connect(service); model.refresh()
     while model.loading { await Task.yield() }
     return model

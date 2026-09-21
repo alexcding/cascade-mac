@@ -196,7 +196,8 @@ private struct BoardCard: View {
             return NSItemProvider(object: ticket.key as NSString)
         }
         .contextMenu {
-            Button("Open Ticket") { model.open(ticket) }
+            Button("Open in Tab") { model.open(ticket) }
+            Button("Open in Session") { model.openSession(ticket) }
             Divider()
             Menu("Move To") { moveItems }
         }

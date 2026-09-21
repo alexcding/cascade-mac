@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class ProjectPageViewModel {
-    enum PullRequestAction: Equatable { case open(String), copy(String) }
+    enum PullRequestAction: Equatable { case open(String), session(String) }
     enum Action: Equatable {
         case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
@@ -49,6 +49,7 @@ import Observation
     private(set) var loading = false
     private(set) var refreshing = false
     private(set) var opening: Set<String> = []
+    @ObservationIgnored private var openingInSession = false
     private(set) var actionError: String?
     private(set) var retired = false
     private var service: (any ProjectService)?
@@ -110,7 +111,7 @@ import Observation
         tickets?.cancelActions(); board?.cancelActions()
     }
     func open(_ row: DashboardRow) { request(.open(row.id)) }
-    func copyLink(_ row: DashboardRow) { request(.copy(row.id)) }
+    func openSession(_ row: DashboardRow) { request(.session(row.id)) }
     private func request(_ action: PullRequestAction) {
         guard !retired, pageActions != nil else { return }
         onAction(.pullRequest(action))
@@ -118,15 +119,18 @@ import Observation
     func performPullRequestAction(_ action: PullRequestAction) {
         guard !retired, let pageActions else { return }
         let id: String
-        switch action { case .open(let value), .copy(let value): id = value }
+        switch action { case .open(let value), .session(let value): id = value }
         guard let row = rows.first(where: { $0.id == id }) else { return }
         switch action {
-        case .open:
-            guard !opening.contains(id) else { return }
+        case .open, .session:
+            var request = row.openPageRequest
+            if case .session = action { request.inSession = true; request.projectID = row.projectID }
+            // The same row asked the other way — tab, then session — is a new request, not a repeat.
+            guard !opening.contains(id) || openingInSession != request.inSession else { return }
+            openingInSession = request.inSession
             let generation = UUID(), errorGeneration = UUID()
             actionGeneration = generation; actionErrorGeneration = errorGeneration
             opening = [id]; actionError = nil
-            let request = row.openPageRequest
             actionTask = Task { [weak self] in
                 defer {
                     if self?.actionGeneration == generation { self?.opening = []; self?.actionTask = nil }
@@ -136,13 +140,10 @@ import Observation
                     try await pageActions.openPage(request)
                 } catch {
                     if !Task.isCancelled && self?.actionGeneration == generation && self?.actionErrorGeneration == errorGeneration {
-                        self?.actionError = "Could not open pull request: \(error.localizedDescription)"
+                        self?.actionError = request.failure("Could not open pull request", error)
                     }
                 }
             }
-        case .copy:
-            actionErrorGeneration = UUID(); actionError = nil
-            pageActions.copyLink(row.url.absoluteString)
         }
     }
     private(set) var rows: [DashboardRow] = []

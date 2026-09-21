@@ -30,7 +30,6 @@ private final class BoardFixture: BoardService, @unchecked Sendable {
 private struct BoardPageActions: PageActionServing {
     func openPage(_ request: OpenPageRequest) async throws {}
     func openBrowser(_ url: URL) -> Bool { true }
-    func copyLink(_ value: String) {}
 }
 
 private func ticket(_ key: String, _ status: String, _ statusId: String, category: String? = nil, email: String? = nil) -> JiraTicket {

@@ -15,8 +15,7 @@ import Testing
 }
 
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {
-    let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }),
-        copy: { _ in })
+    let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }))
     var creations = 0
     func project(_ project: Project, services: ProjectFeatureServices,
                  openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel {

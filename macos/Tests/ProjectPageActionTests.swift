@@ -30,7 +30,7 @@ actor ProjectPageGate {
         navigated.append(request.url)
     }
     func openBrowser(_ url: URL) -> Bool { browsers.append(url); return browserSucceeds }
-    func copyLink(_ value: String) { copied.append(value) }
+    func copy(_ value: String) { copied.append(value) }
     func reveal(_ url: URL) {}
 }
 
@@ -70,8 +70,8 @@ struct ProjectPageService: ProjectService {
     let child = root.installProject(model, runtime: runtime)
     let review = model.rows[1], other = model.rows[2]
     #expect(model.rows[3].openPageRequest.category == "other")
-    model.open(review); model.copyLink(review)
-    #expect(actions.opened.isEmpty && actions.copied.isEmpty)
+    model.open(review); model.openSession(review)
+    #expect(actions.opened.isEmpty && model.opening.isEmpty)
     root.navigate(to: .project(model.project.id))
     actions.failOpen = true
     model.open(review)
@@ -85,17 +85,15 @@ struct ProjectPageService: ProjectService {
     model.open(other)
     while !model.opening.isEmpty { await Task.yield() }
     #expect(actions.opened.last?.category == "other")
-    model.copyLink(review)
-    #expect(actions.copied == [review.url.absoluteString] && model.actionError == nil)
     model.editor.requestDeletion()
-    model.open(other); model.copyLink(other)
-    #expect(actions.opened.count == 3 && actions.copied.count == 1)
+    model.open(other); model.openSession(other)
+    #expect(actions.opened.count == 3 && model.opening.isEmpty)
     child.cancelDeletion(id: try #require(child.deletionConfirmation).id)
     model.setSearch("Mine")
-    model.copyLink(review); model.open(review)
-    #expect(actions.copied.count == 1 && actions.opened.count == 3)
-    runtime.owns = false; model.copyLink(model.rows[0])
-    #expect(actions.copied.count == 1)
+    model.openSession(review); model.open(review)
+    #expect(actions.opened.count == 3 && model.opening.isEmpty)
+    runtime.owns = false; model.openSession(model.rows[0])
+    #expect(actions.opened.count == 3 && model.opening.isEmpty)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func projectPageActionsCoalesceAndLatestOpenSupersedesEarlierRequest() async throws {
@@ -136,14 +134,14 @@ func projectPageActionsCancelPendingNavigationWhenTheirContextChanges(change: St
     #expect(actions.navigated.isEmpty && model.actionError == nil)
     if let sheet = root.sheet { root.dismissSheet(id: sheet.id) }
     child.retire()
-    model.open(model.rows[0]); model.copyLink(model.rows[0])
+    model.open(model.rows[0]); model.openSession(model.rows[0])
     model.connect(ProjectPageService()); await model.refresh()
-    #expect(model.retired && actions.opened.count == 1 && actions.copied.isEmpty)
+    #expect(model.retired && actions.opened.count == 1 && model.opening.isEmpty)
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func projectPageActionFactoryInjectsOpeningDesktopAndClipboardWithoutDashboard() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func projectPageActionFactoryInjectsOpeningWithoutDashboard() async throws {
     let actions = ProjectPageActions()
-    let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }), copy: actions.copyLink)
+    let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
     let project = try actionProject(actions)
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!)
     let services = ProjectFeatureServices(projects: ProjectPageService(), tickets: APIJiraService(api: api),
@@ -151,8 +149,8 @@ func projectPageActionsCancelPendingNavigationWhenTheirContextChanges(change: St
     let model = native.project(project.project, services: services, openPage: actions.openPage)
     model.update(project.project, snapshot: project.prs)
     let coordinator = ProjectCoordinator(model: model)
-    model.copyLink(model.rows[1]); model.open(model.rows[1])
+    model.open(model.rows[1])
     while !model.opening.isEmpty { await Task.yield() }
-    #expect(actions.opened.count == 1 && actions.copied.count == 1)
+    #expect(actions.opened.count == 1)
     coordinator.retire()
 }

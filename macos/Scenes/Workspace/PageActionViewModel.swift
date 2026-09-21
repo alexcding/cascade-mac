@@ -10,6 +10,7 @@ import Observation
     @ObservationIgnored private let failureDescription: String
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var feedbackGeneration = UUID()
+    @ObservationIgnored private var openingInSession = false
     @ObservationIgnored private var task: Task<Void, Never>? { didSet { oldValue?.cancel() } }
 
     init(service: any PageActionServing, failureDescription: String = "Could not open ticket") {
@@ -17,10 +18,11 @@ import Observation
     }
 
     func open(_ request: OpenPageRequest) {
-        guard opening != request.url else { return }
+        // The same row asked the other way — tab, then session — is a new request, not a repeat.
+        guard opening != request.url || openingInSession != request.inSession else { return }
         let generation = UUID(), feedback = UUID()
         self.generation = generation; feedbackGeneration = feedback
-        opening = request.url; error = nil
+        opening = request.url; openingInSession = request.inSession; error = nil
         let service = service
         let failureDescription = failureDescription
         task = Task { [weak self] in
@@ -30,13 +32,10 @@ import Observation
                 try await service.openPage(request)
             } catch {
                 if !Task.isCancelled && self?.generation == generation && self?.feedbackGeneration == feedback {
-                    self?.error = "\(failureDescription): \(error.localizedDescription)"
+                    self?.error = request.failure(failureDescription, error)
                 }
             }
         }
-    }
-    func copy(_ url: URL) {
-        feedbackGeneration = UUID(); error = nil; service.copyLink(url.absoluteString)
     }
     func cancel() { generation = UUID(); task = nil; opening = nil }
     func reject(_ message: String) { cancel(); feedbackGeneration = UUID(); error = message }

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class JiraTicketsViewModel {
-    enum Action: Equatable { case open(String), copy(String) }
+    enum Action: Equatable { case open(String), session(String) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -272,16 +272,18 @@ import Observation
         return baseURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key)
     }
     func open(_ ticket: JiraTicket) { if !retired { onAction(.open(ticket.key)) } }
-    func copyLink(_ ticket: JiraTicket) { if !retired { onAction(.copy(ticket.key)) } }
+    func openSession(_ ticket: JiraTicket) { if !retired { onAction(.session(ticket.key)) } }
     func perform(_ action: Action) {
         guard !retired, service != nil else { return }
         let key: String
-        switch action { case .open(let value), .copy(let value): key = value }
+        switch action { case .open(let value), .session(let value): key = value }
         guard let ticket = rows.first(where: { $0.key == key }) else { return }
         guard let url = ticketURL(ticket) else { siteError = "Configure the Jira site to open ticket links."; return }
         switch action {
-        case .open: navigation.open(OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")"))
-        case .copy: navigation.copy(url)
+        case .open, .session:
+            var request = OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")")
+            if case .session = action { request.inSession = true; request.projectID = project.id }
+            navigation.open(request)
         }
     }
     func cancelActions() { navigation.cancel() }

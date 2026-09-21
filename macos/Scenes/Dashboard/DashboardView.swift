@@ -88,7 +88,7 @@ struct DashboardView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
                         DashboardCard(row: row, opening: model.navigation.opening == row.url.absoluteString,
-                            open: { model.open(row) }, copy: { model.copyLink(row) })
+                            open: { model.open(row) }, session: { model.openSession(row) })
                         if row.id != rows.last?.id { Divider().padding(.horizontal, 10) }
                     }
                 }
@@ -132,7 +132,7 @@ private struct UsageFigure: View {
 }
 
 struct DashboardCard: View {
-    let row: DashboardRow; let opening: Bool; let open: () -> Void; let copy: () -> Void
+    let row: DashboardRow; let opening: Bool; let open: () -> Void; let session: () -> Void
     @State private var hovering = false
     var body: some View {
         Button(action: open) {
@@ -161,7 +161,7 @@ struct DashboardCard: View {
                 .background(hovering ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(opening).onHover { hovering = $0 }
             .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-            .contextMenu { Button("Open in Craft", action: open); Button("Copy Link", action: copy) }
+            .contextMenu { Button("Open in Tab", action: open); Button("Open in Session", action: session) }
     }
     @ViewBuilder private func reviewState(_ status: String) -> some View {
         if status == "Draft" {

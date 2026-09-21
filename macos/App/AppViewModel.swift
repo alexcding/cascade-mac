@@ -133,7 +133,7 @@ public final class AppViewModel {
         self.documentFactory = documentFactory
         self.trayFactory = trayFactory
         self.copy = copy
-        self.projectFactory = projectFactory ?? NativeProjectFeatureFactory(creation: creationFactory, copy: copy)
+        self.projectFactory = projectFactory ?? NativeProjectFeatureFactory(creation: creationFactory)
         let documentCloser = EditorCloseCoordinator(factory: documentFactory, presenter: documentClosePresenter)
         let browserDialogs = BrowserDialogCoordinator(presenter: browserDialogPresenter)
         viewer = platformFactory.viewer(dialogs: browserDialogs, documents: documentFactory, close: documentCloser)
@@ -157,11 +157,11 @@ public final class AppViewModel {
         _ = coordinator.makeDashboard(factory: dashboardFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation("The workspace has closed.") }
             try await self.openPage(request)
-        }, copy: copy), shell: shell)
+        }), shell: shell)
         _ = coordinator.makeLogs(factory: logsFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation("The workspace has closed.") }
             try await self.openPage(request)
-        }, copy: copy), copy: copy)
+        }), copy: copy)
         dashboard?.snapshotChanged = { [weak self] in self?.updateWorkspaceReviewState() }
         _ = coordinator.makeSettings(factory: settingsFactory ?? NativeSettingsFeatureFactory(desktop: desktop, copy: copy, adBlocker: .shared), shell: shell, runtime: self)
         viewer.contextChanged = { [weak self] context in
@@ -417,6 +417,50 @@ public final class AppViewModel {
             case .needsBranch: presentNewSession(in: projectID, pageURL: pageURL)
             case .failed(let message): context?.error = message
             }
+        }
+    }
+
+    /// The session a PR or ticket page already has: started from that page, on the ticket's key,
+    /// or on the PR's head branch in its project.
+    static func pageSession(for request: OpenPageRequest, sessions: [WorkspaceSession], projects: [Project]) -> WorkspaceSession? {
+        guard let page = SessionPage.parse(request.url) else { return nil }
+        let projectID = pageSessionProject(for: request, in: projects)?.id
+        // The page's own session wins over one that merely shares its branch or key — but only
+        // in the row's project: two projects can track one repository.
+        return sessions.first { $0.url == page.url && (projectID == nil || $0.projectId == projectID) } ?? sessions.first { session in
+            guard session.projectId == projectID else { return false }
+            if page.kind == "jira" { return session.jiraKey?.uppercased() == page.key }
+            return !request.branch.isEmpty && session.branch == request.branch
+        }
+    }
+
+    /// The row's own project when it names one — a JQL project lists tickets no key prefix
+    /// would find — else the project the page belongs to.
+    static func pageSessionProject(for request: OpenPageRequest, in projects: [Project]) -> Project? {
+        if let id = request.projectID { return projects.first { $0.id == id && !$0.workspace.isEmpty } }
+        return pageProject(request.url, in: projects)
+    }
+
+    /// Open in Session from a list row: go to the page's session, or start one as its page would.
+    func openPageSession(_ request: OpenPageRequest) async throws {
+        if let session = Self.pageSession(for: request, sessions: sessions, projects: projects) { select(.session(session.id)); return }
+        guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
+            throw BackendError.operation("No project with a workspace matches this page.")
+        }
+        // One start at a time: a second row asked meanwhile would create and select a session too.
+        guard canStartSession, let operations = sessionOperations, startingPages.isEmpty else {
+            throw BackendError.operation("A session cannot be started right now.")
+        }
+        startingPages.insert(request.url)
+        // Its own task, as in startSession: the row's action is cancelled by any navigation, and a
+        // create cancelled between the worktree and its record would leave a checkout with no session.
+        let agent = shell.defaultAgent
+        let outcome = await Task { await PageSessionStart.run(url: request.url, project: project, agent: agent, operations: operations) }.value
+        startingPages.remove(request.url)
+        switch outcome {
+        case .created(let session): createdSession(session)
+        case .needsBranch: presentNewSession(in: project.id, pageURL: request.url)
+        case .failed(let message): throw BackendError.operation(message)
         }
     }
 
@@ -691,6 +735,7 @@ public final class AppViewModel {
     func openPage(_ request: OpenPageRequest) async throws {
         try Task.checkCancellation()
         guard safeWebURL(request.url) != nil else { throw BackendError.operation("Invalid page address.") }
+        if request.inSession { try await openPageSession(request); return }
         if let session = sessions.first(where: { $0.url == request.url }) {
             select(.session(session.id))
             viewer.active?.open(request.url, title: request.title)

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class DashboardViewModel {
-    enum Action: Equatable { case open(String), copy(String) }
+    enum Action: Equatable { case open(String), session(String) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -84,17 +84,18 @@ import Observation
     }
 
     func open(_ row: DashboardRow) { if !retired { onAction(.open(row.id)) } }
-    func copyLink(_ row: DashboardRow) { if !retired { onAction(.copy(row.id)) } }
+    func openSession(_ row: DashboardRow) { if !retired { onAction(.session(row.id)) } }
     func perform(_ action: Action) {
         guard !retired else { return }
         let id: String
-        switch action { case .open(let value), .copy(let value): id = value }
+        switch action { case .open(let value), .session(let value): id = value }
         guard let row = visibleRows.first(where: { $0.id == id }) else { return }
         switch action {
-        case .open:
+        case .open, .session:
             guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
-            navigation.open(row.openPageRequest)
-        case .copy: navigation.copy(row.url)
+            var request = row.openPageRequest
+            if case .session = action { request.inSession = true; request.projectID = row.projectID }
+            navigation.open(request)
         }
     }
     func cancelActions() { navigation.cancel() }

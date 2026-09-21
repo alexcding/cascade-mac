@@ -58,8 +58,8 @@ struct JiraTicketsView: View {
                                 .accessibilityIdentifier("jira-status-\(ticket.key)")
                         }.padding(.vertical, 12)
                             .contextMenu {
-                                Button("Open Ticket") { model.open(ticket) }
-                                Button("Copy Link") { model.copyLink(ticket) }
+                                Button("Open in Tab") { model.open(ticket) }
+                                Button("Open in Session") { model.openSession(ticket) }
                             }
                         Divider()
                     }

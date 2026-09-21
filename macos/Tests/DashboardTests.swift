@@ -40,8 +40,6 @@ private actor DashboardFixture: DashboardService {
     model.open(row); await model.navigation.waitForOpen()
     let opened = actions.opened.last
     #expect(opened?.category == "review" && opened?.url == row.url.absoluteString)
-    model.copyLink(row)
-    #expect(actions.copied.last == row.url.absoluteString)
     await service.setFailure()
     model.refresh()
     while model.loading { try await Task.sleep(for: .milliseconds(10)) }
@@ -78,8 +76,8 @@ private actor DashboardFixture: DashboardService {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil })), actions = ProjectPageActions()
     let model = await connectedDashboard(root, actions: actions), row = try #require(model.reviews.first)
     #expect(root.dashboardCoordinator?.model === model)
-    root.navigate(to: .terminal); model.open(row); model.copyLink(row)
-    #expect(actions.opened.isEmpty && actions.copied.isEmpty)
+    root.navigate(to: .terminal); model.open(row); model.openSession(row); await model.navigation.waitForOpen()
+    #expect(actions.opened.isEmpty)
     root.navigate(to: .overview)
     actions.failOpen = true; model.open(row); await model.navigation.waitForOpen()
     let error = try #require(model.navigation.error)
@@ -88,8 +86,8 @@ private actor DashboardFixture: DashboardService {
     actions.failOpen = false; model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.last?.category == "review" && model.navigation.error == nil)
     let hidden = try #require(model.rows.first { $0.pr.number == 3 })
-    model.copyLink(hidden)
-    #expect(actions.copied.isEmpty)
+    model.open(hidden); model.openSession(hidden); await model.navigation.waitForOpen()
+    #expect(!actions.opened.contains { $0.url == hidden.url.absoluteString })
     root.dashboardCoordinator?.retire()
     model.connect(DashboardFixture()); model.open(row)
     #expect(model.retired && !model.loading && actions.opened.count == 2)
@@ -129,8 +127,8 @@ func dashboardPendingOpenCancelsWhenItsOwnerOrSelectionChanges(change: String) a
     await gate.finish(failing: true); await Task.yield()
     #expect(actions.navigated == [second.url.absoluteString] && model.navigation.error == nil)
     root = nil
-    model.open(first); model.copyLink(first)
-    #expect(actions.opened.count == 2 && actions.copied.isEmpty)
+    model.open(first); model.openSession(first); await model.navigation.waitForOpen()
+    #expect(actions.opened.count == 2)
     child.retire()
 }
 
@@ -186,15 +184,15 @@ private actor HeldDashboardSnapshot: DashboardService {
     model.retire()
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardCachedLinksKeepBrowserAndCopyAvailableWhileDisconnected() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func dashboardRefusesToOpenCachedRowsWhileDisconnectedOrRetired() async throws {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil })), actions = ProjectPageActions()
     let model = await connectedDashboard(root, actions: actions), row = try #require(model.mine.first)
     await model.stop()
     model.open(row)
     #expect(actions.opened.isEmpty && model.navigation.error == "Connect to open pull requests in Craft.")
-    model.copyLink(row)
-    #expect(actions.copied == [row.url.absoluteString] && model.navigation.error == nil)
+    model.openSession(row)
+    #expect(actions.opened.isEmpty && model.navigation.error == "Connect to open pull requests in Craft.")
     root.dashboardCoordinator?.retire()
-    model.copyLink(row)
-    #expect(actions.copied.count == 1)
+    model.open(row); model.openSession(row); await model.navigation.waitForOpen()
+    #expect(actions.opened.isEmpty)
 }

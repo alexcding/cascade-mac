@@ -101,7 +101,7 @@ private actor SectionFontCatalog: CodeFontCatalog {
 @MainActor @Test(.timeLimit(.minutes(1))) func settingsCLIIntentsRequireCoordinatorOwnershipAndKeepActionErrorsSeparate() async throws {
     let actions = ProjectPageActions(), service = CLIFixture(), runtime = SettingsRuntimeFixture()
     var root: AppCoordinator? = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let model = NativeSettingsFeatureFactory(desktop: actions, copy: actions.copyLink, loginItem: SectionLoginService(), fontCatalog: SectionFontCatalog()).settings()
+    let model = NativeSettingsFeatureFactory(desktop: actions, copy: actions.copy, loginItem: SectionLoginService(), fontCatalog: SectionFontCatalog()).settings()
     model.clis.connect(service)
     let child = try #require(root).installSettings(model, runtime: runtime)
     model.clis.copyLogin(.gh); model.clis.openGuide(.gh)
