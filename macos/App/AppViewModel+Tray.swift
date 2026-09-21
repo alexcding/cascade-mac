@@ -2,7 +2,7 @@ import Foundation
 
 extension AppViewModel: TrayCoordinating {
     func trayState() -> TrayState {
-        .init(reviews: shell.prs,
+        .init(pendingReviews: shell.pendingReviews,
               acknowledging: shell.acknowledging, canNavigate: coordinator.canPresent && coordinator.canOpenExternalRoute())
     }
     func refreshTray() {

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor struct TrayState {
-    var reviews: [TrayPR] = []
+    var pendingReviews: [TrayPR] = []
     var acknowledging: Set<String> = []
     var canNavigate = false
 }
@@ -30,7 +30,7 @@ import Observation
     }
     private var state: TrayState { service?.trayState() ?? TrayState() }
     var available: Bool { !retired && service != nil }
-    var pendingReviews: [TrayPR] { Self.pending(state) }
+    var pendingReviews: [TrayPR] { state.pendingReviews }
 
     /// Everything a menu build needs, taken from one snapshot, so a build reads the service
     /// once instead of once per row.
@@ -41,13 +41,12 @@ import Observation
     }
     func snapshot() -> Snapshot {
         let state = state
-        return Snapshot(pending: Self.pending(state), acknowledging: state.acknowledging, canNavigate: state.canNavigate)
+        return Snapshot(pending: state.pendingReviews, acknowledging: state.acknowledging, canNavigate: state.canNavigate)
     }
     func canOpen(_ review: TrayPR, in snapshot: Snapshot) -> Bool {
         available && active && snapshot.canNavigate && review.pendingReview
             && review.webURL != nil && !snapshot.acknowledging.contains(review.id)
     }
-    private static func pending(_ state: TrayState) -> [TrayPR] { state.reviews.filter(\.pendingReview) }
     func canOpen(_ review: TrayPR) -> Bool { canOpen(review, in: snapshot()) }
     func setActive(_ value: Bool) { if !retired { active = value } }
     func refresh() { request(.refresh) }

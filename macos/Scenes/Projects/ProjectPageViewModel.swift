@@ -41,8 +41,8 @@ import Observation
     }
     var active = false { didSet { if oldValue != active { updateBoardPresentation() } } }
     var appearance = AppAppearance.system { didSet { if oldValue != appearance { updateBoardPresentation() } } }
-    var state = "open" { didSet { if oldValue != state { requestRefresh() } } }
-    var search = ""
+    private(set) var state = "open"
+    private(set) var search = ""
     private(set) var prs: [DashboardPR] = []
     private(set) var loadedState: String?
     private(set) var error: String?
@@ -145,17 +145,37 @@ import Observation
             pageActions.copyLink(row.url.absoluteString)
         }
     }
-    var rows: [DashboardRow] {
-        guard loadedState == state else { return [] }
+    private(set) var rows: [DashboardRow] = []
+    private(set) var warnings: [String] = []
+    @ObservationIgnored private var loadedRows: [DashboardRow] = []
+
+    func setState(_ value: String) {
+        guard !retired, state != value else { return }
+        state = value
+        updateVisibleRows()
+        requestRefresh()
+    }
+    func setSearch(_ value: String) {
+        guard !retired, search != value else { return }
+        search = value
+        updateVisibleRows()
+    }
+    private func prepareRows() {
         var seen: Set<String> = []
-        return prs.compactMap { pr in
+        loadedRows = prs.compactMap { pr in
             guard pr.error == nil, let raw = pr.url, let url = safeWebURL(raw) else { return nil }
             let row = DashboardRow(projectID: project.id, projectName: project.name, pr: pr, url: url)
-            guard seen.insert(row.id).inserted, search.isEmpty || row.searchText.localizedStandardContains(search) else { return nil }
+            guard seen.insert(row.id).inserted else { return nil }
             return row
         }
+        updateVisibleRows()
     }
-    var warnings: [String] { loadedState == state ? prs.compactMap(\.error) : [] }
+    private func updateVisibleRows() {
+        let rows = loadedState == state ? loadedRows.filter { search.isEmpty || $0.searchText.localizedStandardContains(search) } : []
+        let warnings = loadedState == state ? prs.compactMap(\.error) : []
+        if self.rows != rows { self.rows = rows }
+        if self.warnings != warnings { self.warnings = warnings }
+    }
     func update(_ project: Project, snapshot: [DashboardPR]? = nil) {
         guard !retired else { return }
         if self.project.repo != project.repo || self.project.jiraProjectKey != project.jiraProjectKey {
@@ -165,6 +185,7 @@ import Observation
         workflows?.update(project); automation?.update(project)
         section = Self.resolve(section, for: project)
         if state == "open", let snapshot { prs = snapshot; loadedState = "open" }
+        prepareRows()
     }
     func refresh(force: Bool = false) async {
         guard !retired, !Task.isCancelled, let service else { return }
@@ -173,13 +194,17 @@ import Observation
         loading = true
         defer { if self.generation == generation { loading = false } }
         do {
-            let result = try await service.pullRequests(project.id, state: requestedState, force: force)
-            try Task.checkCancellation()
-            guard self.generation == generation && state == requestedState else { return }
-            prs = result.prs; loadedState = requestedState
-            refreshing = result.refreshing; error = result.error
+            try await load(from: service, state: requestedState, force: force, generation: generation)
         } catch {
             if self.generation == generation && !Task.isCancelled { self.error = error.localizedDescription; refreshing = false }
         }
+    }
+    private func load(from service: any ProjectService, state: String, force: Bool, generation: UUID) async throws {
+        let result = try await service.pullRequests(project.id, state: state, force: force)
+        try Task.checkCancellation()
+        guard !retired, self.generation == generation, self.state == state else { return }
+        prs = result.prs; loadedState = state
+        prepareRows()
+        refreshing = result.refreshing; error = result.error
     }
 }

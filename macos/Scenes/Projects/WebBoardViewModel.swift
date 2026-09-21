@@ -164,7 +164,7 @@ struct APIBoardService: BoardService {
     /// New for every drag, so a watcher left over from the last drag of the same card can't end this one.
     private(set) var dragID: UUID?
     private(set) var dropTarget: String?
-    var assigneeFilter = "" { didSet { if oldValue != assigneeFilter { persistFilter() } } }
+    private(set) var assigneeFilter = ""
     var queryDraft = ""
     /// Set by the view while the query field has focus, so a background refresh never clobbers a
     /// half-typed clause.
@@ -191,23 +191,42 @@ struct APIBoardService: BoardService {
     }
 
     /// Snapshot items with unconfirmed moves applied.
-    var items: [JiraTicket] {
-        (snapshot?.items ?? []).map { ticket in
+    private(set) var items: [JiraTicket] = []
+    private(set) var tickets: [JiraTicket] = []
+    private(set) var groups: [BoardGroup] = []
+    /// Every status a card can be moved to, in board order.
+    private(set) var columns: [String] = []
+    private(set) var assignees: [(id: String, name: String)] = []
+    private var hasUnassignedTickets = false
+
+    func setAssigneeFilter(_ value: String) {
+        guard !retired, assigneeFilter != value else { return }
+        assigneeFilter = value
+        updateGroups()
+        persistFilter()
+    }
+
+    private func updateItems() {
+        let items = (snapshot?.items ?? []).map { ticket in
             guard let move = pendingMoves[ticket.key] else { return ticket }
             var moved = ticket
             moved.status = move.status
             if !move.statusId.isEmpty { moved.statusId = move.statusId }
             return moved
         }
+        if self.items != items { self.items = items }
+        updateGroups()
     }
-    var tickets: [JiraTicket] {
-        if assigneeFilter == Self.unassigned { return items.filter { ($0.assigneeId ?? "").isEmpty } }
-        if !assigneeFilter.isEmpty { return items.filter { $0.assigneeId == assigneeFilter } }
-        return items
+    private func updateGroups() {
+        let tickets: [JiraTicket]
+        if assigneeFilter == Self.unassigned { tickets = items.filter { ($0.assigneeId ?? "").isEmpty } }
+        else if !assigneeFilter.isEmpty { tickets = items.filter { $0.assigneeId == assigneeFilter } }
+        else { tickets = items }
+        let groups = BoardGroup.build(tickets, columns: snapshot?.columns)
+        if self.tickets != tickets { self.tickets = tickets }
+        if self.groups != groups { self.groups = groups }
     }
-    var groups: [BoardGroup] { BoardGroup.build(tickets, columns: snapshot?.columns) }
-    /// Every status a card can be moved to, in board order.
-    var columns: [String] {
+    private func prepareOptions() {
         var result: [String] = []
         for column in snapshot?.columns ?? [] {
             for id in column.statusIds {
@@ -215,17 +234,18 @@ struct APIBoardService: BoardService {
             }
         }
         for status in (snapshot?.items ?? []).compactMap(\.status) where !status.isEmpty && !result.contains(status) { result.append(status) }
-        return result
-    }
-    var assignees: [(id: String, name: String)] {
+        if columns != result { columns = result }
         var people: [String: String] = [:]
         for ticket in snapshot?.items ?? [] {
             if let id = ticket.assigneeId, !id.isEmpty { people[id] = ticket.assignee ?? id }
         }
-        return people.map { ($0.key, $0.value) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let assignees = people.map { (id: $0.key, name: $0.value) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if !self.assignees.elementsEqual(assignees, by: { $0.id == $1.id && $0.name == $1.name }) { self.assignees = assignees }
+        let hasUnassignedTickets = (snapshot?.items ?? []).contains { ($0.assigneeId ?? "").isEmpty }
+        if self.hasUnassignedTickets != hasUnassignedTickets { self.hasUnassignedTickets = hasUnassignedTickets }
     }
     var showsUnassignedFilter: Bool {
-        assigneeFilter == Self.unassigned || (snapshot?.items ?? []).contains { ($0.assigneeId ?? "").isEmpty }
+        assigneeFilter == Self.unassigned || hasUnassignedTickets
     }
     var sprintTitle: String? {
         guard let name = snapshot?.sprint?.name, !name.isEmpty else { return nil }
@@ -296,21 +316,24 @@ struct APIBoardService: BoardService {
                 }
             }
             do {
-                async let board = service.snapshot(projectID: projectID, force: force)
-                async let site = service.site()
-                let value = try await board
-                try Task.checkCancellation()
-                guard self.generation == generation else { return }
-                accept(value)
-                if let location = try? await site, self.generation == generation {
-                    siteURL = safeWebURL(location.baseUrl)
-                    account = location.me
-                }
-                if !preferencesLoaded, let settings = try? await service.settings(), self.generation == generation {
-                    assigneeFilter = settings["board_filter_" + projectID] ?? ""
-                    preferencesLoaded = true
-                }
+                try await load(from: service, force: force, generation: generation)
             } catch { if !Task.isCancelled, self.generation == generation { self.error = error.localizedDescription } }
+        }
+    }
+    private func load(from service: any BoardService, force: Bool, generation: UUID) async throws {
+        async let board = service.snapshot(projectID: projectID, force: force)
+        async let site = service.site()
+        let value = try await board
+        try Task.checkCancellation()
+        guard !retired, self.generation == generation else { return }
+        accept(value)
+        if let location = try? await site, self.generation == generation, !Task.isCancelled {
+            siteURL = safeWebURL(location.baseUrl)
+            account = location.me
+        }
+        if !preferencesLoaded, let settings = try? await service.settings(), self.generation == generation, !Task.isCancelled {
+            setAssigneeFilter(settings["board_filter_" + projectID] ?? "")
+            preferencesLoaded = true
         }
     }
     func reload() { error = nil; refresh(force: true) }
@@ -326,6 +349,8 @@ struct APIBoardService: BoardService {
             return ticket.status != move.status && (move.statusId.isEmpty || ticket.statusId != move.statusId)
         }
         snapshot = value
+        prepareOptions()
+        updateItems()
         if !queryEditing { queryDraft = value.query ?? "" }
         if let message = value.error, !message.isEmpty { error = message }
     }
@@ -402,6 +427,7 @@ struct APIBoardService: BoardService {
         busy.insert(ticket.key); error = nil
         let move = PendingBoardMove(status: status, statusId: statusId.flatMap { $0.isEmpty ? nil : $0 } ?? statusID(named: status), at: now())
         pendingMoves[ticket.key] = move
+        updateItems()
         let service = service
         Task {
             defer { busy.remove(ticket.key) }
@@ -411,7 +437,7 @@ struct APIBoardService: BoardService {
                 announce("\(ticket.key) → \(status)")
                 refresh(force: true)
             } catch {
-                if pendingMoves[ticket.key] == move { pendingMoves[ticket.key] = nil }
+                if pendingMoves[ticket.key] == move { pendingMoves[ticket.key] = nil; updateItems() }
                 if !retired { self.error = error.localizedDescription }
             }
         }

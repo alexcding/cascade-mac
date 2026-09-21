@@ -6,14 +6,7 @@ import Observation
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
-    private(set) var projects: [DashboardProject] = [] {
-        didSet {
-            if oldValue != projects {
-                snapshotChanged()
-                if let url = navigation.opening, !visibleRows.contains(where: { $0.url.absoluteString == url }) { cancelActions() }
-            }
-        }
-    }
+    private(set) var projects: [DashboardProject] = []
     @ObservationIgnored var snapshotChanged: () -> Void = {}
     private(set) var loading = false
     private(set) var updated: Date?
@@ -32,9 +25,22 @@ import Observation
         cancelRefresh(); cancelActions(); self.service = service; refresh()
     }
 
-    var rows: [DashboardRow] {
+    private(set) var rows: [DashboardRow] = []
+    private(set) var visibleRows: [DashboardRow] = []
+    private(set) var mine: [DashboardRow] = []
+    private(set) var reviews: [DashboardRow] = []
+    private(set) var warnings: [String] = []
+
+    /// Load the snapshot and its display lists together before notifying the coordinator.
+    private func load(from service: any DashboardService, generation: UUID) async throws {
+        let projects = try await service.snapshot()
+        try Task.checkCancellation()
+        guard !retired, connectionGeneration == generation else { return }
+        defer { updated = Date(); error = nil }
+        guard self.projects != projects else { return }
+        self.projects = projects
         var seen: Set<String> = []
-        return projects.flatMap { project in
+        let rows = projects.flatMap { project in
             project.prs.compactMap { pr -> DashboardRow? in
                 guard pr.error == nil, pr.state == "OPEN", let address = pr.url, let url = safeWebURL(address) else { return nil }
                 let row = DashboardRow(projectID: project.id, projectName: project.name, pr: pr, url: url)
@@ -42,17 +48,22 @@ import Observation
                 return row
             }
         }
-    }
-    var visibleRows: [DashboardRow] { rows.filter { $0.isMine || $0.inReviewGroup } }
-    var mine: [DashboardRow] { visibleRows.filter(\.isMine) }
-    var reviews: [DashboardRow] { visibleRows.filter { !$0.isMine && $0.inReviewGroup } }
-    var warnings: [String] {
-        projects.flatMap { project -> [String] in
+        let visibleRows = rows.filter { $0.isMine || $0.inReviewGroup }
+        let mine = visibleRows.filter(\.isMine)
+        let reviews = visibleRows.filter { !$0.isMine && $0.inReviewGroup }
+        let warnings = projects.flatMap { project -> [String] in
             var messages = project.prs.compactMap { $0.error.map { "\(project.name): \($0)" } }
             if let error = project.syncError { messages.insert("\(project.name): \(error)", at: 0) }
             if project.lastSynced == nil { messages.append("\(project.name): waiting for the first sync.") }
             return messages
         }
+        if self.rows != rows { self.rows = rows }
+        if self.visibleRows != visibleRows { self.visibleRows = visibleRows }
+        if self.mine != mine { self.mine = mine }
+        if self.reviews != reviews { self.reviews = reviews }
+        if self.warnings != warnings { self.warnings = warnings }
+        snapshotChanged()
+        if let url = navigation.opening, !visibleRows.contains(where: { $0.url.absoluteString == url }) { cancelActions() }
     }
 
     func refresh() {
@@ -66,11 +77,7 @@ import Observation
             while refreshPending && !Task.isCancelled && connectionGeneration == generation {
                 refreshPending = false
                 do {
-                    let snapshot = try await service.snapshot()
-                    try Task.checkCancellation()
-                    guard connectionGeneration == generation else { return }
-                    if projects != snapshot { projects = snapshot }
-                    updated = Date(); error = nil
+                    try await load(from: service, generation: generation)
                 } catch { if !Task.isCancelled && connectionGeneration == generation { self.error = error.localizedDescription } }
             }
         }

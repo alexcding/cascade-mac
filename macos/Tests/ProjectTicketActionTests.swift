@@ -56,7 +56,7 @@ func projectTicketNavigationCancelsWithoutClearingDrafts(change: String) async t
     case "dialog": root.presentNewProject(service: ProjectPageService(), didSave: { _ in })
     case "section": model.selectSection(.board)
     case "disconnect": await tickets.stop()
-    case "filter": tickets.filterText = "Completed"
+    case "filter": tickets.setFilterText("Completed")
     case "site": await tickets.invalidateSite()
     default: child.retire()
     }

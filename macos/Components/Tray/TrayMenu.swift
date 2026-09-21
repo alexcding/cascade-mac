@@ -39,6 +39,7 @@ import SwiftUI
         menu.autoenablesItems = false
         rebuild()
         observe()
+        observeUsage()
         // A face that arrives after the menu opened swaps in for the octicon.
         avatarObserver = NotificationCenter.default.addObserver(forName: SidebarAvatars.loaded, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.rebuildIfOpen() }
@@ -59,29 +60,24 @@ import SwiftUI
     }
     func dismiss() { menu.cancelTracking() }
 
-    /// Two tracks: a data change rebuilds the rows; an agent switch only changes what the two
+    /// Two tracks: a review change rebuilds the rows; usage only changes what the two
     /// hosted SwiftUI rows draw, which they do on their own, so it is re-measured, not rebuilt —
     /// rebuilding would detach the very row that is handling the click.
     private func observe() {
         withObservationTracking {
             let shell = model.shell
-            _ = model.pendingReviews; _ = model.actionError; _ = model.active
-            _ = shell.trayUpdated; _ = shell.trayError
-            _ = shell.usage; _ = shell.usageLoading; _ = shell.usageError
+            _ = model.snapshot(); _ = model.actionError; _ = model.active
+            _ = shell.trayError
         } onChange: { [weak self] in
             Task { @MainActor in self?.rebuildIfOpen(); self?.observe() }
         }
-        withObservationTracking {
-            _ = model.shell.usageAgent
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.resizeIfOpen(); self?.observeAgent() }
-        }
     }
-    private func observeAgent() {
+    private func observeUsage() {
         withObservationTracking {
-            _ = model.shell.usageAgent
+            let shell = model.shell
+            _ = shell.usageAgent; _ = shell.usage; _ = shell.usageLoading; _ = shell.usageError
         } onChange: { [weak self] in
-            Task { @MainActor in self?.resizeIfOpen(); self?.observeAgent() }
+            Task { @MainActor in self?.resizeIfOpen(); self?.observeUsage() }
         }
     }
 

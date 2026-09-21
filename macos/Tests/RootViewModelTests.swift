@@ -124,6 +124,7 @@ private struct InertRemovalService: SessionRemoving {
     runtime.state.sessions = [WorkspaceSession(id: "s", projectId: "p", workspace: "/tmp", worktree: "/tmp/worktree", title: "Title",
         branch: "feature", url: "", createdAt: nil, pinned: true)]
     runtime.state.selection = .session("s")
+    runtime.state.pinnedIDs = ["s"]
     #expect(model.title == "worktree" && model.pinnedIDs == ["s"])
     #expect(model.session("s")?.id == "s")
     runtime.state.sessions = []

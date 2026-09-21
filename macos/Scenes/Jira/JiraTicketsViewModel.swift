@@ -8,7 +8,7 @@ import Observation
     private(set) var retired = false
     private(set) var project: Project
     var query = ""
-    var filterText = "" { didSet { if oldValue != filterText { cancelActions() } } }
+    private(set) var filterText = ""
     private(set) var filters: [String: String] = [:]
     private(set) var snapshot: JiraSnapshot?
     private(set) var searchResult: JiraSnapshot?
@@ -54,19 +54,49 @@ import Observation
     }
     func connect(_ service: any JiraService) { guard !retired else { return }; self.service = service; persistFilters() }
     var source: JiraSnapshot? { searchResult ?? snapshot }
-    var items: [JiraTicket] {
-        (source?.items ?? []).map { ticket in
+    private(set) var items: [JiraTicket] = []
+    private(set) var rows: [JiraTicket] = []
+    private var facetOptions: [JiraFacet: [String]] = [:]
+    private var facetCounts: [JiraFacet: [String: Int]] = [:]
+
+    private func rebuildItems() {
+        let items = (source?.items ?? []).map { ticket in
             var result = ticket
             if let move = pendingMoves[ticket.key] { result.status = move.status }
             return result
         }
+        guard self.items != items else { return }
+        self.items = items
+        rebuildFilters()
     }
-    private func matching(_ ticket: JiraTicket, except: JiraFacet? = nil) -> Bool {
-        JiraFacet.allCases.allSatisfy { facet in
-            facet == except || (filters[facet.rawValue] ?? "").isEmpty || facet.value(ticket) == filters[facet.rawValue]
-        } && (filterText.isEmpty || "\(ticket.key) \(ticket.summary ?? "") \(ticket.assignee ?? "")".localizedStandardContains(filterText))
+
+    /// Count every facet in one pass. Each facet ignores its own selection, but respects
+    /// the text filter and all other selections. View updates then only read the results.
+    private func rebuildFilters() {
+        var rows: [JiraTicket] = []
+        var counts: [JiraFacet: [String: Int]] = [:]
+        for ticket in items {
+            guard filterText.isEmpty || "\(ticket.key) \(ticket.summary ?? "") \(ticket.assignee ?? "")".localizedStandardContains(filterText) else { continue }
+            let values = JiraFacet.allCases.map { (facet: $0, value: $0.value(ticket)) }
+            let mismatches = values.filter {
+                let selected = filters[$0.facet.rawValue] ?? ""
+                return !selected.isEmpty && selected != $0.value
+            }
+            if mismatches.isEmpty { rows.append(ticket) }
+            for (facet, value) in values where mismatches.isEmpty || (mismatches.count == 1 && mismatches[0].facet == facet) {
+                counts[facet, default: [:]][value, default: 0] += 1
+            }
+        }
+        var options: [JiraFacet: [String]] = [:]
+        for facet in JiraFacet.allCases {
+            var values = Set((counts[facet] ?? [:]).keys.filter { !$0.isEmpty })
+            if let selected = filters[facet.rawValue], !selected.isEmpty { values.insert(selected) }
+            options[facet] = values.sorted()
+        }
+        if self.rows != rows { self.rows = rows }
+        if facetOptions != options { facetOptions = options }
+        if facetCounts != counts { facetCounts = counts }
     }
-    var rows: [JiraTicket] { items.filter { matching($0) } }
     var emptyMessage: String {
         if !items.isEmpty { return "No tickets match these filters." }
         if searchResult != nil { return "No tickets match this search." }
@@ -75,16 +105,21 @@ import Observation
         }
         return "No Jira tickets found."
     }
-    func options(_ facet: JiraFacet) -> [String] {
-        var values = Set(items.filter { matching($0, except: facet) }.map { facet.value($0) }.filter { !$0.isEmpty })
-        if let selected = filters[facet.rawValue], !selected.isEmpty { values.insert(selected) }
-        return values.sorted()
+    func options(_ facet: JiraFacet) -> [String] { facetOptions[facet] ?? [] }
+    func count(_ value: String, facet: JiraFacet) -> Int { facetCounts[facet]?[value] ?? 0 }
+    func setFilterText(_ value: String) {
+        guard !retired, filterText != value else { return }
+        filterText = value
+        rebuildFilters(); cancelActions()
     }
-    func count(_ value: String, facet: JiraFacet) -> Int { items.filter { matching($0, except: facet) && facet.value($0) == value }.count }
     func setFilter(_ facet: JiraFacet, _ value: String) {
         guard !retired else { return }
         cancelActions()
-        filters[facet.rawValue] = value.isEmpty ? nil : value
+        let selected = value.isEmpty ? nil : value
+        if filters[facet.rawValue] != selected {
+            filters[facet.rawValue] = selected
+            rebuildFilters()
+        }
         filterRevision += 1; preferencesDirty = true; persistFilters()
     }
     func refresh() {
@@ -98,12 +133,30 @@ import Observation
             while refreshPending && !Task.isCancelled {
                 refreshPending = false
                 do {
-                    let result = try await service.snapshot(projectID: project.id)
-                    try Task.checkCancellation()
-                    snapshot = result; remember(result); snapshotError = nil
+                    try await load(from: service)
                 } catch { if !Task.isCancelled { snapshotError = error.localizedDescription } }
             }
         }
+    }
+    /// Await source data, then apply status overlays and set the stored display lists.
+    private func load(from service: any JiraService, search: (query: String, generation: UUID)? = nil) async throws {
+        let connection = connectionGeneration
+        let result: JiraSnapshot
+        if let search {
+            result = try await service.search(jql: JiraQuery.make(search.query, projectKey: project.jiraProjectKey ?? ""))
+        } else {
+            result = try await service.snapshot(projectID: project.id)
+        }
+        try Task.checkCancellation()
+        guard !retired, connection == connectionGeneration else { return }
+        if let search {
+            guard searchGeneration == search.generation, query.trimmingCharacters(in: .whitespacesAndNewlines) == search.query else { return }
+            searchResult = result; searchedQuery = search.query
+        } else {
+            snapshot = result; snapshotError = nil
+        }
+        remember(result)
+        rebuildItems()
     }
     private func remember(_ result: JiraSnapshot) {
         statuses.formUnion(result.items.compactMap(\.status))
@@ -123,7 +176,10 @@ import Observation
                 do {
                     let settings = try await service.settings()
                     try Task.checkCancellation()
-                    if filterRevision == 0 { filters = Self.parseFilters(settings["ticket_filter_" + project.id] ?? "") }
+                    if filterRevision == 0 {
+                        let saved = Self.parseFilters(settings["ticket_filter_" + project.id] ?? "")
+                        if filters != saved { filters = saved; rebuildFilters() }
+                    }
                     preferencesLoaded = true
                 } catch { if !Task.isCancelled { preferenceError = error.localizedDescription } }
             }
@@ -170,13 +226,14 @@ import Observation
         searching = true; error = nil
         defer { if searchGeneration == generation { searching = false } }
         do {
-            let result = try await service.search(jql: JiraQuery.make(typed, projectKey: project.jiraProjectKey ?? ""))
-            try Task.checkCancellation()
-            guard searchGeneration == generation, query.trimmingCharacters(in: .whitespacesAndNewlines) == typed else { return }
-            searchResult = result; searchedQuery = typed; remember(result)
+            try await load(from: service, search: (typed, generation))
         } catch { if searchGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription } }
     }
-    func clearSearch() { cancelActions(); searchGeneration = UUID(); searching = false; query = ""; searchResult = nil; searchedQuery = nil; error = nil }
+    func clearSearch() {
+        guard !retired else { return }
+        cancelActions(); searchGeneration = UUID(); searching = false; query = ""; searchResult = nil; searchedQuery = nil; error = nil
+        rebuildItems()
+    }
     func nextStatuses(_ ticket: JiraTicket) -> [String] { statuses.filter { !$0.isEmpty && $0 != ticket.status }.sorted() }
     func transition(_ ticket: JiraTicket, to status: String) async {
         guard !busy.contains(ticket.key), let service, nextStatuses(ticket).contains(status) else { return }
@@ -191,6 +248,7 @@ import Observation
             if let index = searchResult?.items.firstIndex(where: { $0.key == ticket.key }) {
                 searchResult?.items[index].status = status
             }
+            rebuildItems()
             refresh()
             syncAfterMutation()
         } catch { if connection == connectionGeneration { self.error = error.localizedDescription } }

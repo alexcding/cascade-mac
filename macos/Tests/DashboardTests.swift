@@ -147,9 +147,28 @@ private actor HeldDashboardSnapshot: DashboardService {
     model.open(try #require(model.mine.first)); await gate.waitForStart()
     await service.removeRows(); model.refresh(); while model.loading { await Task.yield() }
     #expect(model.navigation.opening == nil && model.projects.isEmpty)
+    #expect(model.rows.isEmpty && model.visibleRows.isEmpty && model.mine.isEmpty && model.reviews.isEmpty && model.warnings.isEmpty)
     await gate.finish(); await Task.yield()
     #expect(actions.navigated.isEmpty)
     child.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func dashboardPublishesDerivedRowsBeforeSnapshotCallbacks() async {
+    let service = DashboardFixture(), model = DashboardViewModel(pageActions: ProjectPageActions())
+    var snapshots = 0
+    model.snapshotChanged = {
+        snapshots += 1
+        #expect(model.mine.map(\.pr.number) == [1])
+        #expect(model.reviews.map(\.pr.number) == [2, 4])
+        #expect(model.warnings == ["Native: Sync unavailable"])
+    }
+    model.connect(service)
+    while model.loading { await Task.yield() }
+    model.refresh()
+    while model.loading { await Task.yield() }
+    #expect(snapshots == 1)
+    model.snapshotChanged = {}
+    await model.stop()
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func dashboardOldDisconnectCannotClearReplacementConnectionOrSnapshot() async throws {

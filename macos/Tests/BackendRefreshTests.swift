@@ -1,11 +1,14 @@
 import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 private actor RefreshTransport: BackendTransport {
     var requests: [URLRequest] = []
     var includesProject = true
     private var includesTab = false
+    private var includesSession = false
+    func addSession() { includesSession = true }
     private var holdTabs = false
     private var heldTabs: CheckedContinuation<Void, Never>?
     var tabsAreHeld: Bool { heldTabs != nil }
@@ -26,7 +29,9 @@ private actor RefreshTransport: BackendTransport {
             body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC"}]"# : "[]"
         case Routes.TABS:
             body = includesTab ? #"{"tabs":[{"id":"t","kind":"web","title":"New tab","url":"https://example.test"}]}"# : #"{"tabs":[]}"#
-        case Routes.TASKS, Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
+        case Routes.TASKS:
+            body = includesSession ? #"[{"id":"s","projectId":"p","workspace":"/fixture","worktree":"/fixture/work","title":"Session","branch":"feature","url":"","pinned":true}]"# : "[]"
+        case Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
         case Routes.projectJira("p"), Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.projectPrs("p"): body = #"{"prs":[],"refreshing":false}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
@@ -71,6 +76,40 @@ private actor RefreshTransport: BackendTransport {
     }
 }
 
+@MainActor @Test func sidebarFirstLayoutHasNavigationBeforeAsyncLoading() throws {
+    let suite = "sidebar-first-layout-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let model = refreshApp(RefreshRuntime(), preferences: preferences)
+    let initial = model.root.entries
+    let hosting = NSHostingView(rootView: SidebarView(viewModel: model.root))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 420),
+                          styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = hosting
+    defer { window.close() }
+    hosting.layoutSubtreeIfNeeded()
+    func outline(in view: NSView) -> NSOutlineView? {
+        if let outline = view as? NSOutlineView { return outline }
+        return view.subviews.lazy.compactMap { outline(in: $0) }.first
+    }
+    let list = try #require(outline(in: hosting))
+    // No await or run-loop turn: inspect and render the first layout, before the
+    // scheduled sidebar load or backend startup can supply any rows.
+    if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        if let png = bitmap.representation(using: .png, properties: [:]) {
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("craft-sidebar-first-layout.png")
+            try png.write(to: path)
+            print("First sidebar layout: \(path.path)")
+        }
+    }
+    #expect(initial.map(\.id) == ["overview", "label:projects", "label:tabs"])
+    #expect(model.root.entries == initial)
+    #expect(list.numberOfRows == 3)
+    #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "overview")
+}
+
 @MainActor @Test func snapshotEventsBatchWithoutReloadingInventoryAndLegacyEventsStillReload() async throws {
     let suite = "refresh-events-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -107,6 +146,36 @@ private actor RefreshTransport: BackendTransport {
     try await refreshEventually { model.projects.isEmpty && model.projectModels["p"] == nil }
     let paths = await transport.paths
     #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS) && paths.contains(Routes.TABS))
+    await model.stop()
+}
+
+@MainActor @Test func sidebarSnapshotFollowsInventoryDraftsAndLiveAgentState() async throws {
+    let suite = "sidebar-snapshot-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.addSession()
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.lastUpdate != nil && model.root.pinnedIDs == ["s"] }
+    #expect(model.root.entries.flatMap(\.descendants).contains { $0.id == "pin:s" })
+    let terminal = try #require(model.terminals["task:s"])
+    terminal.agentTurns.bind(terminalID: "sidebar-test")
+    terminal.agentTurns.setStreamAvailable(true)
+    func busy() -> Bool {
+        guard let entry = model.root.entries.flatMap(\.descendants).first(where: { $0.id == "session:s" }),
+              case .session(let status, _) = entry.role else { return false }
+        return status.busy && status.cli == "claude"
+    }
+    terminal.agentTurns.receive(ServerEvent(type: "agent-turn-start", projectId: nil, id: nil, runId: "sidebar-test", cli: "claude", sessionId: "conversation"))
+    try await refreshEventually { busy() }
+    terminal.agentTurns.receive(ServerEvent(type: "agent-turn-done", projectId: nil, id: nil, runId: "sidebar-test", cli: "claude", sessionId: "conversation"))
+    try await refreshEventually { !busy() }
+    model.newTab()
+    let draft = try #require(model.draftTabs.first)
+    try await refreshEventually { model.root.entries.contains { $0.destination == .tab(draft.id) } }
+    model.closeTab(draft.id)
+    try await refreshEventually { !model.root.entries.contains { $0.destination == .tab(draft.id) } }
     await model.stop()
 }
 

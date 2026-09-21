@@ -4,6 +4,7 @@ import Observation
 @MainActor struct RootState {
     var selection: SidebarDestination = .overview
     var entries: [SidebarEntry] = []
+    var pinnedIDs: Set<String> = []
     var projects: [Project] = []
     var sessions: [WorkspaceSession] = []
     var tabs: [SavedTab] = []
@@ -39,7 +40,7 @@ import Observation
     private var state: RootState { service?.rootState() ?? RootState() }
     var selection: SidebarDestination { state.selection }
     var entries: [SidebarEntry] { state.entries }
-    var pinnedIDs: Set<String> { Set(state.sessions.filter(\.pinned).map(\.id)) }
+    var pinnedIDs: Set<String> { state.pinnedIDs }
     var error: String? {
         let state = self.state
         switch state.selection {

@@ -71,6 +71,30 @@ private func configuredBoard() -> BoardSnapshot {
     #expect(BoardGroup.build(items, columns: nil).map(\.name) == ["Backlog", "Blocked", "Review", "Shipped"])
 }
 
+@MainActor @Test(.timeLimit(.minutes(1))) func boardDisplayListsFollowFiltersColumnsAndReplacementSnapshots() async {
+    var board = configuredBoard()
+    board.items[0].assigneeId = "z"; board.items[0].assignee = "Zoe"
+    board.items[1].assigneeId = "a"; board.items[1].assignee = "Alice"
+    let fixture = BoardFixture(board), model = await loadedBoard(fixture)
+    #expect(model.assignees.map(\.name) == ["Alice", "Zoe"])
+    #expect(model.columns == ["Ready", "Spec", "Doing", "Parked"])
+    model.setAssigneeFilter("z")
+    #expect(model.tickets.map(\.key) == ["REC-1"] && model.groups[0].total == 1)
+    model.setAssigneeFilter(WebBoardViewModel.unassigned)
+    #expect(model.tickets.map(\.key) == ["REC-9"] && model.showsUnassignedFilter)
+    model.setAssigneeFilter("")
+    #expect(model.tickets.count == 3)
+
+    // Column-only changes must regroup unchanged tickets too.
+    board.columns = [BoardColumn(name: "Combined", statusIds: ["1", "2", "3"])]
+    fixture.replace(board); model.refresh(); await settle(model)
+    #expect(model.groups.map(\.name) == ["Combined", "Other"] && model.groups[0].total == 2)
+    fixture.replace(BoardSnapshot(items: [])); model.refresh(); await settle(model)
+    #expect(model.items.isEmpty && model.tickets.isEmpty && model.groups.isEmpty)
+    #expect(model.assignees.isEmpty && model.columns.isEmpty && !model.showsUnassignedFilter)
+    model.retire()
+}
+
 @Test func sprintBusinessDaysSkipWeekends() throws {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = try #require(TimeZone(identifier: "UTC"))
@@ -161,7 +185,7 @@ private func configuredBoard() -> BoardSnapshot {
     model.refresh(); await settle(model)
     #expect(model.emptyMessage == "No tickets match “component = iOS” in the active sprint.")
     fixture.replace(configuredBoard()); model.refresh(); await settle(model)
-    model.assigneeFilter = "nobody"
+    model.setAssigneeFilter("nobody")
     #expect(model.emptyMessage == "No tickets match this filter.")
     #expect(model.sprintTitle == "Sprint 4")
 }

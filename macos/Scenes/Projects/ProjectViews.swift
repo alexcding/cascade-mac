@@ -129,8 +129,8 @@ struct ProjectPageView: View {
                 if let workflows = model.workflows { WorkflowEditorView(model: workflows) }
             case .prs:
                 HStack {
-                    TextField("Search project pull requests", text: $model.search).textFieldStyle(.roundedBorder)
-                    Picker("State", selection: $model.state) {
+                    TextField("Search project pull requests", text: Binding(get: { model.search }, set: model.setSearch)).textFieldStyle(.roundedBorder)
+                    Picker("State", selection: Binding(get: { model.state }, set: model.setState)) {
                         Text("Open").tag("open"); Text("Merged").tag("merged"); Text("All").tag("all")
                     }.frame(width: 140).accessibilityIdentifier("project-pr-state")
                     if model.loading || model.refreshing { ProgressView().controlSize(.small) }

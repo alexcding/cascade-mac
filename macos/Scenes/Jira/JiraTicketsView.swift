@@ -14,7 +14,7 @@ struct JiraTicketsView: View {
             }
             if let query = model.searchedQuery { Text("Search results: \(query)").font(.caption).foregroundStyle(.secondary) }
             HStack {
-                TextField("Filter loaded tickets", text: $model.filterText).textFieldStyle(.roundedBorder)
+                TextField("Filter loaded tickets", text: Binding(get: { model.filterText }, set: model.setFilterText)).textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("jira-filter")
                 if model.loading { ProgressView().controlSize(.small) }
                 Button("Refresh Tickets", systemImage: "arrow.clockwise", action: model.retry).labelStyle(.iconOnly)

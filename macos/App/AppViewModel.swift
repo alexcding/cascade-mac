@@ -83,6 +83,12 @@ public final class AppViewModel {
     @ObservationIgnored private var eventRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRefreshEvents: [ServerEvent] = []
     @ObservationIgnored private var started = false
+    // Keep navigation visible on the first frame, before the async inventory load.
+    private(set) var sidebarEntries = SidebarEntry.make(projects: [], sessions: [], tabs: [])
+    private(set) var sidebarPinnedIDs: Set<String> = []
+    @ObservationIgnored private var sidebarLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var sidebarLoadPending = false
+    @ObservationIgnored private var sidebarNeedsLoad = true
 
     public convenience init() { self.init(creationFactory: NativeCreationFlowFactory(), welcomeStore: UserDefaultsWelcomeStore()) }
 
@@ -185,9 +191,45 @@ public final class AppViewModel {
             guard let self else { throw CancellationError() }
             try await openActivityEntry(entry)
         }
+        scheduleSidebarLoad()
     }
 
-    var sidebarEntries: [SidebarEntry] {
+    private func scheduleSidebarLoad() {
+        sidebarLoadPending = true
+        guard sidebarLoadTask == nil else { return }
+        sidebarLoadTask = Task { [weak self] in
+            guard let self else { return }
+            while sidebarLoadPending {
+                sidebarLoadPending = false
+                await loadSidebar()
+            }
+            sidebarLoadTask = nil
+        }
+    }
+
+    /// Store the display snapshot after loading inventory or a live dependency changes.
+    /// Tracking includes nested terminal, workflow, and browser state, so those updates
+    /// schedule a load even when no backend inventory request is needed.
+    private func loadSidebar() async {
+        guard sidebarNeedsLoad else { return }
+        sidebarNeedsLoad = false
+        let (entries, pinnedIDs) = withObservationTracking {
+            (makeSidebarEntries(), Set(sessions.filter(\.pinned).map(\.id)))
+        } onChange: { [weak self] in
+            // Every source is MainActor-owned. Mark dirty synchronously so an inventory
+            // load can flush the new rows before validating selection. Re-arm only after
+            // an actual change, keeping one observation even across unchanged refreshes.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.sidebarNeedsLoad = true
+                self.scheduleSidebarLoad()
+            }
+        }
+        if sidebarEntries != entries { sidebarEntries = entries }
+        if sidebarPinnedIDs != pinnedIDs { sidebarPinnedIDs = pinnedIDs }
+    }
+
+    private func makeSidebarEntries() -> [SidebarEntry] {
         // Per-session agent state for the row glyph (sidebar.js taskSessions + refreshTermBusy):
         // live while its terminal is attached, busy between the CLI's turn hooks or while a
         // workflow runs on it.
@@ -1278,6 +1320,7 @@ public final class AppViewModel {
                         await model.refresh()
                     }
                     guard refreshPending.isEmpty else { continue }
+                    await loadSidebar()
                     // Only sidebar-backed destinations can go stale: a project, session or tab that
                     // the inventory no longer lists. Settings, Activity and Terminal are reached from
                     // the menu and have no sidebar row, so they must never be bounced to Dashboard.

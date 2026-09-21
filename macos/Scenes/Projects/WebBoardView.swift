@@ -16,7 +16,7 @@ struct WebBoardView: View {
                     .onSubmit { model.applyQuery() }
                     .help("A JQL clause ANDed into the board and the tickets (blank = everything). Return applies.")
                     .onChange(of: queryFocused) { _, focused in model.queryEditing = focused }
-                Picker("Assignee", selection: Bindable(model).assigneeFilter) {
+                Picker("Assignee", selection: Binding(get: { model.assigneeFilter }, set: model.setAssigneeFilter)) {
                     Text("All assignees").tag("")
                     if model.showsUnassignedFilter { Text("Unassigned").tag(WebBoardViewModel.unassigned) }
                     ForEach(model.assignees, id: \.id) { Text($0.name).tag($0.id) }

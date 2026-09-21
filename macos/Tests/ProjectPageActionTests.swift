@@ -91,7 +91,7 @@ struct ProjectPageService: ProjectService {
     model.open(other); model.copyLink(other)
     #expect(actions.opened.count == 3 && actions.copied.count == 1)
     child.cancelDeletion(id: try #require(child.deletionConfirmation).id)
-    model.search = "Mine"
+    model.setSearch("Mine")
     model.copyLink(review); model.open(review)
     #expect(actions.copied.count == 1 && actions.opened.count == 3)
     runtime.owns = false; model.copyLink(model.rows[0])

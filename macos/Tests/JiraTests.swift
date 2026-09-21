@@ -131,6 +131,54 @@ actor JiraFixture: JiraService {
     await model.stop()
 }
 
+@MainActor @Test func jiraFacetCountsFollowFiltersSearchAndSnapshotRestoration() async throws {
+    let model = jiraModel(JiraFixture())
+    model.refresh()
+    try await waitForJira { !model.loading && model.baseURL != nil }
+
+    // Compare the cached presentation to a direct scan across combinations, including
+    // selected options with no matches and tickets missing facet values.
+    func check() {
+        func matches(_ ticket: JiraTicket, except: JiraFacet? = nil) -> Bool {
+            JiraFacet.allCases.allSatisfy {
+                $0 == except || (model.filters[$0.rawValue] ?? "").isEmpty || $0.value(ticket) == model.filters[$0.rawValue]
+            } && (model.filterText.isEmpty || "\(ticket.key) \(ticket.summary ?? "") \(ticket.assignee ?? "")".localizedStandardContains(model.filterText))
+        }
+        #expect(model.rows == model.items.filter { matches($0) })
+        for facet in JiraFacet.allCases {
+            let matching = model.items.filter { matches($0, except: facet) }
+            var options = Set(matching.map { facet.value($0) }.filter { !$0.isEmpty })
+            if let selected = model.filters[facet.rawValue], !selected.isEmpty { options.insert(selected) }
+            #expect(model.options(facet) == options.sorted())
+            for value in options.union(["", "Missing"]) {
+                #expect(model.count(value, facet: facet) == matching.filter { facet.value($0) == value }.count)
+            }
+        }
+    }
+
+    for project in ["", "REC", "Missing"] {
+        model.setFilter(.project, project)
+        for status in ["", "Done", "To Do"] {
+            model.setFilter(.status, status)
+            for text in ["", "alice", "task", "unmatched"] {
+                model.setFilterText(text)
+                check()
+            }
+        }
+    }
+    model.setFilterText("")
+    model.setFilter(.project, "")
+    model.setFilter(.status, "")
+    model.query = "REC-1"
+    await model.search()
+    #expect(model.items.count == 1)
+    check()
+    model.clearSearch()
+    #expect(model.items.count == 3)
+    check()
+    await model.stop()
+}
+
 @MainActor @Test func jiraMovesRejectFailuresCoalesceAndSurviveStaleSnapshotsUntilExpiry() async throws {
     let service = JiraFixture()
     var date = Date()

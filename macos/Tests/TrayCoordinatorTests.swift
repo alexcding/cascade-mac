@@ -77,7 +77,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
 @MainActor @Test func trayReviewsOpenInACraftTabAndAcknowledgeOnlySuccessfulOpens() async {
     let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
     let first = trayReview(1), reviewed = trayReview(2, category: "other")
-    runtime.state.reviews = [first, reviewed]
+    runtime.state.pendingReviews = [first, reviewed].filter(\.pendingReview)
     let model = TrayViewModel(service: runtime, shell: trayShell())
     let coordinator = TrayCoordinator(model: model, runtime: runtime, presentation: window.presentation)
     coordinator.setActive(true)
@@ -89,7 +89,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(model.actionError == "Could not open the pull request in Craft.")
     model.refresh(); #expect(model.actionError != nil)
     let current = trayReview(1, url: "https://example.test/pr/current")
-    runtime.state.reviews[0] = current
+    runtime.state.pendingReviews[0] = current
     runtime.failsOpen = false
     model.openReview(first); await settle() // Re-resolve an old row through its identity.
     #expect(runtime.opened.last?.url == current.url && runtime.opened.last?.kind == "github")
@@ -99,17 +99,17 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     runtime.state.acknowledging = []; runtime.state.canNavigate = false
     model.openReview(first); await settle()
     #expect(runtime.opened.count == 1, "A competing presentation blocks the open")
-    runtime.state.canNavigate = true; runtime.state.reviews = [trayReview(1, url: "file:///tmp/private")]
+    runtime.state.canNavigate = true; runtime.state.pendingReviews = [trayReview(1, url: "file:///tmp/private")]
     model.openReview(first); await settle()
     #expect(runtime.opened.count == 1)
-    runtime.state.reviews = []; model.openReview(first); await settle()
+    runtime.state.pendingReviews = []; model.openReview(first); await settle()
     #expect(runtime.opened.count == 1)
 }
 
 @MainActor @Test func trayClickOnAnotherReviewSupersedesASlowOpen() async {
     let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
     let first = trayReview(1), second = trayReview(2)
-    runtime.state.reviews = [first, second]; runtime.holdsOpens = true
+    runtime.state.pendingReviews = [first, second]; runtime.holdsOpens = true
     let model = TrayViewModel(service: runtime, shell: trayShell())
     let coordinator = TrayCoordinator(model: model, runtime: runtime, presentation: window.presentation)
     coordinator.setActive(true)
@@ -156,4 +156,25 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(window.events.last == "quit")
     #expect(TrayMenuController.truncate("a very long pull request title that goes past the limit", limit: 12) == "a very long…")
     #expect(TrayMenuController.truncate("short", limit: 12) == "short")
+}
+
+@MainActor @Test func trayUsageChangesPreserveReviewMenuItems() async throws {
+    let runtime = TrayRuntimeFixture(), shell = trayShell()
+    runtime.state.pendingReviews = [trayReview(1)]
+    let model = TrayViewModel(service: runtime, shell: shell)
+    let controller = TrayMenuController(model: model, setActive: model.setActive)
+    controller.menuWillOpen(controller.menu)
+    await settle()
+    let original = try #require(controller.menu.items.first { $0.title.hasPrefix("PR #1") })
+    shell.setUsageAgent("codex")
+    await settle()
+    #expect(controller.menu.items.contains { $0 === original })
+    runtime.state.pendingReviews = [trayReview(2)]
+    await settle()
+    #expect(!controller.menu.items.contains { $0 === original })
+    let replacement = try #require(controller.menu.items.first { $0.title.hasPrefix("PR #2") })
+    shell.setUsageAgent("claude")
+    await settle()
+    #expect(controller.menu.items.contains { $0 === replacement })
+    controller.menuDidClose(controller.menu)
 }

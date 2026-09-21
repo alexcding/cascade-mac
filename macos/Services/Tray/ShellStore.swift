@@ -100,7 +100,7 @@ import Observation
                                   showMinimap: preferences.string(forKey: "native.editorMinimap") != "off")
     }
 
-    var pendingReviews: [TrayPR] { prs.filter(\.pendingReview) }
+    private(set) var pendingReviews: [TrayPR] = []
     public var pendingReviewCount: Int { pendingReviews.count }
 
     public func applyAppearance() { onAction(.applyAppearance(appearance)) }
@@ -127,16 +127,23 @@ import Observation
             while refreshPending && !Task.isCancelled {
                 refreshPending = false
                 do {
-                    let result: [TrayPR] = try await service.reviews()
-                    try Task.checkCancellation()
-                    var seen: Set<String> = []
-                    prs = result.filter { seen.insert($0.id).inserted }
-                    notifications.receiveReviews(prs, sound: reviewSound)
-                    trayError = nil
-                    trayUpdated = Date()
+                    try await loadReviews(from: service)
                 } catch { if !Task.isCancelled { trayError = error.localizedDescription } }
             }
         }
+    }
+
+    private func loadReviews(from service: any ShellDataServing) async throws {
+        let result = try await service.reviews()
+        try Task.checkCancellation()
+        var seen: Set<String> = []
+        let prs = result.filter { seen.insert($0.id).inserted }
+        if self.prs != prs { self.prs = prs }
+        let pending = prs.filter(\.pendingReview)
+        if pendingReviews != pending { pendingReviews = pending }
+        notifications.receiveReviews(prs, sound: reviewSound)
+        trayError = nil
+        trayUpdated = Date()
     }
 
     func refreshUsage() {
@@ -181,6 +188,7 @@ import Observation
                 try await service.acknowledgeReview(repo: repo, number: number)
                 guard generation == currentGeneration else { return }
                 if let index = prs.firstIndex(where: { $0.id == id }) { prs[index].reviewPending = false }
+                pendingReviews.removeAll { $0.id == id }
                 refresh()
             } catch { if generation == currentGeneration { trayError = "Could not mark review opened: \(error.localizedDescription)" } }
         }
