@@ -7,6 +7,7 @@ import Observation
     let desktop: any DesktopActions
     let copy: (String) -> Void
     var loginItem: any LoginItemService = NativeLoginItemService()
+    var microphone: any MicrophoneAccessService = NativeMicrophoneAccessService()
     var fontCatalog: any CodeFontCatalog = InstalledCodeFontCatalog()
     /// Nil builds an inert blocker, the way `BrowserPageFactory` leaves pages unattached.
     var adBlocker: BrowserAdBlocker?
@@ -15,7 +16,8 @@ import Observation
         SettingsViewModel(clis: CLISettingsViewModel(copy: copy, openBrowser: desktop.openBrowser), diagnostics: DiagnosticsViewModel(),
             loginItem: LoginItemViewModel(service: loginItem), fonts: FontSettingsViewModel(catalog: fontCatalog),
             resources: ResourceUsageViewModel(),
-            adBlock: BrowserSettingsViewModel(blocker: adBlocker ?? .inert(), openBrowser: desktop.openBrowser))
+            adBlock: BrowserSettingsViewModel(blocker: adBlocker ?? .inert(), openBrowser: desktop.openBrowser),
+            microphone: MicrophoneAccessViewModel(service: microphone))
     }
 }
 
@@ -85,7 +87,7 @@ import Observation
         model.setActive(value)
     }
     func waitForCompletion() async { await completion?.value }
-    func cancelNavigation() { model.loginItem.cancelSettingsOpen() }
+    func cancelNavigation() { model.loginItem.cancelSettingsOpen(); model.microphone.cancelSettingsOpen() }
     func retire() {
         retired = true; isOwned = { false }; canPresent = { false }; completion?.cancel(); completion = nil
         runtime = nil; model.retire()

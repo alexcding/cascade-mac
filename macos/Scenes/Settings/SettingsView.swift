@@ -75,6 +75,7 @@ struct SettingsView: View {
                 }
             }
             LoginItemView(model: model.loginItem)
+            MicrophoneAccessView(model: model.microphone)
             Section("Default agent") {
                 SettingsRow(title: "New session agent") {
                     Picker("Default session agent", selection: Binding(get: { shell.defaultAgent }, set: shell.setDefaultAgent)) {

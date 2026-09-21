@@ -27,6 +27,7 @@ import Observation
     let clis: CLISettingsViewModel
     let diagnostics: DiagnosticsViewModel
     let loginItem: LoginItemViewModel
+    let microphone: MicrophoneAccessViewModel
     let fonts: FontSettingsViewModel
     let resources: ResourceUsageViewModel
     let adBlock: BrowserSettingsViewModel
@@ -52,8 +53,8 @@ import Observation
     @ObservationIgnored private var readGeneration = UUID()
 
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
-         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel) {
-        self.clis = clis; self.diagnostics = diagnostics; self.loginItem = loginItem
+         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, microphone: MicrophoneAccessViewModel) {
+        self.clis = clis; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
         self.resources = resources; self.adBlock = adBlock
     }
@@ -86,6 +87,9 @@ import Observation
         let general = active && section == .general
         loginItem.setActive(general)
         if general { loginItem.refresh() } else { _ = loginItem.cancelRead() }
+        // Microphone access is granted or revoked in System Settings; re-read it each time General shows.
+        microphone.setActive(general)
+        if general { microphone.refresh() }
         // Both tabs show a family picker, so the installed-font catalogue is read for either.
         if active && (section == .editor || section == .terminal) { fonts.refresh() } else { _ = fonts.cancelRead() }
         // The app may have been installed or removed since the last look.
@@ -95,7 +99,7 @@ import Observation
     func applicationActiveChanged(_ value: Bool) {
         guard !retired else { return }
         resources.setForeground(value)
-        if value && active && section == .general { loginItem.refresh() }
+        if value && active && section == .general { loginItem.refresh(); microphone.refresh() }
         if value && active && section == .browser { adBlock.refresh() }
     }
     var canSave: Bool { !retired && loaded && dirty && !saving && service != nil && draft.validationError == nil }
@@ -154,14 +158,16 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); loginItem.retire(); adBlock.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()
         let cliReads = clis.disconnect()
-        let loginMutation = loginItem.cancelRead(), fontRead = fonts.cancelRead()
+        microphone.setActive(false)
+        let loginMutation = loginItem.cancelRead(), fontRead = fonts.cancelRead(), microphoneRead = microphone.cancelRead()
         await loginMutation?.value
         await fontRead?.value
+        await microphoneRead?.value
         await read?.value
         for task in cliReads { await task.value }
     }
