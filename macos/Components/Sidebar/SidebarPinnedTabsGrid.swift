@@ -66,8 +66,9 @@ private struct SidebarPinnedTabTile: View {
 
     var body: some View {
         Button(action: select) {
-            HStack(spacing: 8) {
+            HStack(spacing: SidebarMetrics.gap) {
                 SidebarPinnedTabIcon(icon: tab.icon, url: tab.url, size: showsTitle ? 18 : 20)
+                    .frame(width: showsTitle ? SidebarMetrics.iconSlot : 20)
                 if showsTitle {
                     Text(tab.title)
                         .font(.system(size: 14))
