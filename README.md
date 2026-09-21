@@ -1,132 +1,206 @@
 # Craft
 
-**A native macOS app for running coding agents on git worktrees, next to the pull requests
-and tickets they are working on.**
+**One workspace for your coding agents, pull requests, and tickets. Built for Mac.**
 
-Craft puts the whole loop in one window: pick a ticket or a pull request, start Claude Code
-or Codex on its own worktree, watch it work in a real terminal, review the diff, and merge.
-It reads GitHub, Jira and git through the CLIs you already have signed in, so there are no
-tokens to paste and no hosted service behind it.
+Running a few coding agents is easy. Keeping track of their branches, terminals,
+changes, and reviews is the hard part.
 
-![Craft dashboard](docs/images/dashboard.png)
+Craft brings that work together. Start Claude Code or Codex from a branch, GitHub
+pull request, or Jira ticket. Give each task its own git worktree. Keep the terminal,
+browser, files, and diff together, then switch tasks without reconstructing your
+context.
 
-## What it does
+Built in the open with Swift, SwiftUI, AppKit, and Rust.
 
-- **Agent sessions, one per worktree.** A session is an agent running on its own git
-  worktree, titled by the ticket or pull request it was started from. Several run side by
-  side without touching each other's checkout.
-- **Terminals that outlive the app.** Shells belong to a small detached daemon, so quitting,
-  updating or crashing the app does not end a running agent. Reopen and they are still there,
-  scrollback included. Rendering is Ghostty.
-- **Review where the work happened.** Each session has a working-changes diff, commit
-  history, a file browser and an editor beside its terminal.
-- **Your queue, split the way you think about it.** The dashboard separates pull requests
-  that are yours from the ones waiting on your review, with CI state on each.
-- **Projects tie it together.** A project is one GitHub repository, an optional Jira query,
-  a workspace folder and a color. When a pull request merges, its ticket moves to the state
-  you chose.
-- **A Jira sprint board**, native, for the tickets behind the work.
-- **A menu-bar signal** for tasks and reviews, with Claude and Codex usage at a glance, so
-  the window does not have to stay in front.
-- **Agent hooks, if you want them.** Craft can add entries to Claude Code's and Codex's
-  configuration that report when a turn starts and finishes, and a Claude status line that
-  reports context use. It merges its own entries and removes only its own. A first-launch
-  guide walks through it.
-- **Deep links.** `craft://app/...` opens a project, a session or a terminal.
+[Get started](#get-started) · [Your first session](#your-first-session) ·
+[Contribute](#help-build-craft) · [Report an issue](https://github.com/alexcding/craft-mac/issues)
 
-## Requirements
+![Craft dashboard showing pull requests, review requests, Jira tickets, and agent usage](docs/images/dashboard.png)
 
-- macOS 14 or later, Apple Silicon.
-- Xcode, to build it.
-- [`gh`](https://cli.github.com), signed in. Optional: Atlassian's `acli` for Jira, and
-  Claude Code or Codex for agent sessions.
+## Why Craft?
 
-Rust is installed for you on the first build if it is missing.
+- **Give every task room to work.** Run agents side by side in separate git worktrees.
+  Each worktree is a checkout with its own branch and files, so you can work on a
+  feature while another session investigates a bug.
+- **Keep the context with the code.** Open a PR, ticket, or documentation page next
+  to its terminal. Saved tabs, pinned sessions, and a project sidebar help you pick
+  up where you left off.
+- **Review before you ship.** Inspect working changes and branch history, open
+  files in the editor, discard individual change blocks with a preview, and commit
+  and push from the session.
+- **See what needs your attention.** The dashboard separates your PRs from your
+  review queue and shows CI status. The menu bar keeps review requests and available
+  Claude/Codex usage information close by.
+- **Use the tools you already know.** Agents run in real Ghostty-powered terminals.
+  GitHub uses your signed-in `gh`; Jira uses `acli`. Open a worktree in your preferred
+  IDE or Git client whenever you need it.
+- **Make repeatable work easier.** Save multi-step agent workflows per project,
+  follow their progress, and optionally transition linked Jira tickets when a PR
+  merges.
 
-## Build and run
+You can start with a local repository and a shell. Add agents, GitHub, and Jira as
+you need them.
 
-```bash
-open macos/Craft.xcodeproj   # then press ⌘R
-```
+## Get started
 
-That is the whole setup. The scheme runs `macos/scripts/bootstrap.sh` before each build,
-which installs rustup if needed, downloads the pinned Ghostty runtime, and builds the Rust
-side. The first build takes a few minutes; later ones are incremental. Its log is
-`macos/.build/bootstrap.log`.
+Build and run Craft from source:
+
+1. Use an **Apple Silicon Mac**, with **macOS 14 or later** as the app's deployment
+   target. Building the current source requires **Xcode 26 or later** for the macOS
+   26 SDK; your build machine must support that Xcode version.
+2. Clone the repository and open the Xcode project:
+
+   ```bash
+   git clone https://github.com/alexcding/craft-mac.git
+   cd craft-mac
+   open macos/Craft.xcodeproj
+   ```
+
+3. Select **Craft → My Mac** and press **⌘R**.
+
+The build prepares the Rust backend and terminal helper, downloads the pinned
+Ghostty runtime, and installs Rust through rustup if Cargo is missing. The first
+build needs network access and takes longer; subsequent builds are incremental.
+If you already have Rust installed, the backend requires **Rust 1.88 or later**.
+Bootstrap output is saved to `macos/.build/bootstrap.log`.
+
+### Connect only what you use
+
+| Tool | What it adds |
+| --- | --- |
+| [GitHub CLI (`gh`)](https://cli.github.com) | Pull requests, review requests, and CI status. Sign in with `gh auth login`. |
+| Claude Code or Codex | Agent sessions using your installed CLI and its existing account. Choose **Shell only** to work without an agent. |
+| [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/guides/install-macos/) | Jira tickets, sprint data, and status transitions. Sign in with `acli jira auth login`. |
+| [`gh-webhook`](https://github.com/cli/gh-webhook) | Faster GitHub updates. Optional; polling works without it. |
+
+The first-launch guide checks your tools and offers optional agent hooks. You can
+revisit these controls in **Settings → Integrations**. Hooks report agent turn boundaries
+and are required for multi-step workflows; ordinary terminal sessions work without
+them.
+
+Some optional Jira features, including board-column configuration and Fix Version
+automation, also need a Jira API token in Settings. Craft itself has no separate
+account to create or hosted backend to deploy.
+
+## Your first session
+
+1. **Add a project.** Choose **New Project** in the sidebar, give it a name, and
+   select an existing local Git checkout. Craft detects its GitHub repository.
+   Add a Jira project key if you use Jira.
+2. **Start a task.** Use the project's **+** button or **⌘N**. Enter a branch name,
+   PR URL, or Jira ticket URL, choose the base branch, and select Claude, Codex, or
+   Shell only. Craft creates or reuses the matching worktree.
+3. **Work with the context beside you.** Give the agent a task, keep the relevant
+   pages open, and inspect its files and changes. Start another session when you
+   want to work on a different branch.
+4. **Review and share your work.** Check the diff, make any edits, then use
+   **Commit and Push**. Follow the PR and its CI status from the dashboard.
+
+Closing the main window keeps Craft and its sessions running. **⌘Q** explicitly
+stops the terminals; saved sessions can resume an agent conversation when its
+conversation ID is available. The detached terminal daemon also lets Craft
+reattach to running shells after an unexpected app exit.
+
+## Make it your workflow
+
+**For repeated agent tasks:** create a recipe in a project's **Workflows** section.
+Choose an agent and give it ordered prompts, such as investigate, implement, and
+review. Placeholders like `{branch}`, `{worktree}`, and `{url}` tie the recipe to
+the current session. Run it with agent hooks installed to follow step progress.
+
+**For teams using Jira:** browse tickets or the native Sprint Board, filter the
+work you care about, and start sessions from ticket links. In **Automation**, choose
+the status linked tickets should move to after a PR merges. Fix Version assignment
+is optional.
+
+**For your Mac setup:** choose light or dark appearance, customize terminal and
+editor fonts and themes, and set your preferred IDE and Git client. Xcode projects
+can select a scheme and run destination, build, and launch from the workspace.
 
 ## How it works
 
-Two languages and nothing else: **Swift** for the app, **Rust** for everything behind it.
+Craft's app is SwiftUI and AppKit, with a Rust backend linked into the same process.
+The backend refreshes GitHub and Jira data in the background and stores snapshots
+in SQLite. Screens read the saved snapshot immediately and update when fresh data
+arrives.
 
-```text
-gh / acli / git
-      |
-   poller  ── writes ──>  SQLite snapshots
-                               |
-                 Rust API (linked into the app)
-                               |
-        SwiftUI + AppKit: dashboard, sessions, board, tray
-                               |
-             craft-ptyd (detached) ── owns the shells
-```
+Ghostty renders the terminals; a separate Rust daemon owns the shells and their
+terminal state. WebKit hosts context pages and a bundled diff renderer. The diff
+page has no network access and receives its data from the native app.
 
-- **Snapshots, not live calls.** One poller talks to the CLIs and writes lean snapshots.
-  Every screen reads a snapshot, which is instant, and a stale read triggers a refresh in
-  the background. Request handlers never shell out. If something needs to be fresher, the
-  fix belongs in the sync path.
-- **The backend is a library.** The Rust API is linked into the app and called over a C ABI,
-  so there is no port to manage and no child process. `--backend-path` or `--backend-url`
-  runs the same app against a separate backend over HTTP.
-- **The terminal is three pieces.** `craft-ptyd` owns the PTYs in its own session;
-  GhosttyTerminal draws them; `craft-vt` is a headless Ghostty used to snapshot a terminal so
-  it can be restored exactly.
-- **Local data.** Everything lives in `~/Library/Application Support/Craft`: `craft.db` is
-  durable configuration, `data.db` and `logs.db` are caches that can be rebuilt. Set
-  `CRAFT_DATA_DIR` to put it elsewhere.
+Projects, session records, and settings live locally under
+`~/Library/Application Support/Craft`. Git checkouts stay on disk, and agents keep
+their own conversation stores. GitHub, Jira, agents, and pages you open still use
+their respective online services. See [data recovery](docs/DATA-RECOVERY.md) for
+backup and restore details.
 
-## Repository layout
-
-| Path | What is there |
+| Where to look | What you'll find |
 | --- | --- |
-| `macos/` | The app, its tests and packaging. [`macos/README.md`](macos/README.md) covers each surface in depth |
-| `crates/craft-backend` | API, poller, CLI integrations and SQLite stores |
-| `crates/craft-ptyd` | The detached terminal daemon |
-| `crates/craft-vt` | Headless Ghostty VT engine for terminal snapshots |
-| `docs/` | [Data recovery](docs/DATA-RECOVERY.md) and images |
+| [`macos/Scenes/`](macos/Scenes) | Dashboard, sessions, editor, Jira, workflows, and settings |
+| [`macos/Services/`](macos/Services) | Terminal, backend, browser, and workspace services |
+| [`crates/craft-backend/`](crates/craft-backend) | API, background sync, Git/CLI integrations, and SQLite stores |
+| [`crates/craft-ptyd/`](crates/craft-ptyd) | Detached terminal daemon |
+| [`crates/craft-vt/`](crates/craft-vt) | Headless Ghostty runtime for terminal snapshots |
+| [`AGENTS.md`](AGENTS.md) | Contributor working guide, architecture, and coding conventions |
 
-[`AGENTS.md`](AGENTS.md) is the fast path for making a change, and [`CLAUDE.md`](CLAUDE.md)
-describes the app's architecture: layers, coordinators, and how a screen is added.
+## Help build Craft
 
-## Development
+Craft is being built around real development work. If you try it, your experience
+can help shape what comes next. You don't need to know both Swift and Rust to
+contribute, and you don't need to write code to make a useful contribution.
+
+- **Try one real task.** Tell us where setup, navigation, or the agent workflow
+  felt confusing. A clear description of what you expected is useful feedback.
+- **Report a bug.** [Open an issue](https://github.com/alexcding/craft-mac/issues/new)
+  with steps to reproduce, expected and actual behavior, your macOS/Xcode versions,
+  and relevant logs or screenshots. Remove credentials and private project details.
+- **Improve a small piece.** Setup documentation, keyboard navigation,
+  accessibility, error messages, and regression tests are useful starting points.
+- **Bring a workflow.** Show how you use agents, worktrees, or Jira, and describe
+  the friction you'd like Craft to remove. Open an issue before a large change so
+  we can work through the approach together.
+- **Help people find it.** Star the repository, share it with a teammate, or post
+  a walkthrough of a task you completed with Craft.
+
+### Sending a pull request
+
+Fork the repository, create a branch, and read [AGENTS.md](AGENTS.md) before making
+changes. Keep the PR focused, explain the problem and resulting behavior, and
+include screenshots for UI changes. Describe how you verified it and any checks
+you couldn't run. Small, well-explained contributions are welcome.
+
+After the first Xcode build has prepared the native dependencies, run the checks
+that cover your change:
 
 ```bash
+# Rust backend
 cargo test --manifest-path crates/craft-backend/Cargo.toml
+
+# Terminal daemon and snapshots
 cargo test --manifest-path crates/craft-ptyd/Cargo.toml --features terminal-snapshots
 
+# Native app unit tests
 xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
   -derivedDataPath macos/.build/xcode -only-testing:CraftTests
 ```
 
-- Swift Testing ignores `-only-testing:` filters that name a single function: it runs
-  nothing and still reports success. Read the `Executed N tests` line.
-- A route exists in two places, `macos/Services/Backend/Routes.swift` and the Rust router.
-  The `route_contract` test fails when they disagree.
-- If `gh webhook` is not installed, polling still catches merges. `gh extension install
-  cli/gh-webhook` makes updates arrive sooner.
+Swift Testing can report success after running zero tests when filtered by a single
+function name. Use the target-level command above and check the executed test count.
 
-## Packaging
+For deeper work, see the [native app guide](macos/README.md),
+[terminal snapshot protocol](crates/craft-ptyd/SNAPSHOTS.md), and
+[Ghostty patch guide](macos/patches/ghostty/README.md). Direct-distribution packaging
+is documented in the [packaging guide](macos/README.md#direct-distribution-packaging).
 
-Build the Release scheme, run `macos/scripts/bundle-backend.sh`, then
-`macos/scripts/package-direct.py --local`. Craft is distributed as a direct download, not
-through the App Store; [`macos/README.md`](macos/README.md) has the signing and notarization
-steps. The backend binary also provides `backup`, `verify` and `restore` — see
-[data recovery](docs/DATA-RECOVERY.md).
+## Acknowledgments and licensing
 
-## Contributing
+Craft builds on [Ghostty](https://github.com/ghostty-org/ghostty),
+[GhosttyTerminal](https://github.com/alexcding/ghostty-terminal-spm),
+[CodeEditSourceEditor](https://github.com/CodeEditApp/CodeEditSourceEditor), and
+[Sparkle](https://github.com/sparkle-project/Sparkle), alongside the CLI tools that
+connect it to your work.
 
-Contributions are welcome. Keep the snapshot rule in mind before changing how data moves:
-handlers stay thin, and anything slow belongs in the poller or a service.
-
-## License
-
-ISC — see the `license` field in each crate's `Cargo.toml`.
+The Rust crates declare the **ISC** license in their manifests
+([backend](crates/craft-backend/Cargo.toml), [terminal daemon](crates/craft-ptyd/Cargo.toml),
+[VT runtime](crates/craft-vt/Cargo.toml)). Third-party dependencies retain their own
+licenses.

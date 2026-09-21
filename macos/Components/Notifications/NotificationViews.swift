@@ -35,7 +35,7 @@ struct NotificationPreferencesView: View {
                 } label: {
                     Text("Permission")
                     Text(shell.notifications.permission == .denied
-                         ? "Allow Craft Native in System Settings → Notifications."
+                         ? "Allow Craft in System Settings → Notifications."
                          : shell.notifications.permission.label)
                 }
             }

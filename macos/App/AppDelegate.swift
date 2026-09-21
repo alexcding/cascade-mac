@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },
             showWindow: { [weak self] in self?.showWindow() })
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Craft Native")
+        item.button?.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Craft")
         item.button?.image?.isTemplate = true
         item.button?.setAccessibilityIdentifier("craft-status-item")
         item.button?.target = self
@@ -150,7 +150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             statusItem?.button?.contentTintColor = reviews > 0
                 ? NSColor(srgbRed: 0.596, green: 0.443, blue: 0.173, alpha: 1)
                 : (model.hasOpenWork ? .systemBlue : .labelColor)
-            statusItem?.button?.toolTip = reviews > 0 ? "Craft: \(reviews) pending reviews" : "Craft Native"
+            statusItem?.button?.toolTip = reviews > 0 ? "Craft: \(reviews) pending reviews" : "Craft"
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }
         }

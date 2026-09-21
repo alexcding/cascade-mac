@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="712" height="788" viewBox="27 12 178 197" fill="none" role="img" aria-labelledby="craft-title craft-description">
+  <title id="craft-title">Craft app icon</title>
+  <desc id="craft-description">A softly folded C ribbon on a transparent background: a cyan-to-blue upper ribbon, deep blue vertical fold, and violet lower ribbon, traced from the supplied reference.</desc>
+  <defs>
+    <linearGradient id="upper" x1="78" y1="27" x2="147" y2="99" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#73D3FC"/>
+      <stop offset="0.46" stop-color="#399DFB"/>
+      <stop offset="1" stop-color="#2878FF"/>
+    </linearGradient>
+    <linearGradient id="spine" x1="32" y1="115" x2="100" y2="115" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#3A3DF2"/>
+      <stop offset="0.48" stop-color="#3234DE"/>
+      <stop offset="1" stop-color="#2529B7"/>
+    </linearGradient>
+    <radialGradient id="fold-shade" cx="0" cy="0" r="1" gradientTransform="translate(75 67) rotate(109) scale(64 48)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#061A8B" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#1023A9" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lower" x1="115" y1="123" x2="104" y2="205" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B280FF"/>
+      <stop offset="0.4" stop-color="#8F61FD"/>
+      <stop offset="1" stop-color="#5540E5"/>
+    </linearGradient>
+    <linearGradient id="upper-edge" x1="54" y1="46" x2="172" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D0F6FF" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#B3E5FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="lower-edge" x1="53" y1="161" x2="167" y2="136" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D2B6FF" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#D2B6FF" stop-opacity="0"/>
+    </linearGradient>
+    <path id="spine-shape" d="M31.5 80 C31.5 70 35.5 62.5 43 58.5 C48 55.7 53.5 55.7 60 59 L100.5 78.7 V142 L57.5 164 C44 171 31.5 167.5 31.5 151 Z"/>
+  </defs>
+  <g id="folded-ribbon">
+    <g id="left-fold">
+      <use href="#spine-shape" fill="url(#spine)"/>
+      <use href="#spine-shape" fill="url(#fold-shade)"/>
+      <path d="M32 149 V80 C32 70 35.8 62.7 43.2 58.8" stroke="#6686FF" stroke-opacity="0.42" stroke-width="0.65"/>
+    </g>
+    <g id="upper-fold">
+      <path d="M42.5 58.8 L99.5 20 C106.3 15.4 111.5 14.9 119.8 18.3 L191 48.8 C197.3 51.5 200.2 55.1 200.2 61.9 V63.8 C200.2 68.8 197.8 71.9 192.2 75 L152.1 96.2 C146.5 99.2 142.1 99.2 136.3 96.4 L60.2 59.5 C53.1 55.9 48.1 55.6 42.5 58.8 Z" fill="url(#upper)"/>
+      <path d="M43.5 58.1 L99.8 20.4 C106.5 15.9 111.7 15.4 119.5 18.7 L190.8 49.2" stroke="url(#upper-edge)" stroke-width="0.7" stroke-linecap="round"/>
+    </g>
+    <g id="lower-fold">
+      <path d="M40.5 165.3 C45.4 168.2 50.3 167.7 58.5 163.3 L132.3 124.7 C139.2 121.1 144 121 150.5 124.4 L191.9 145.7 C197.8 148.7 200.2 152.1 200.2 158.2 V159.4 C200.2 164.9 197.7 168.3 191.9 171 L121.5 202.7 C115.2 205.6 110.2 205.4 104.2 202.2 L44.8 169 C43 168 41.5 166.7 40.5 165.3 Z" fill="url(#lower)"/>
+      <path d="M41.5 165.6 C46 167.7 50.8 167.1 58.7 162.9 L132.6 125.1 C139.3 121.6 144 121.5 150.2 124.8 L191.5 146.1" stroke="url(#lower-edge)" stroke-width="0.75" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

@@ -554,8 +554,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.tests;
 				PRODUCT_NAME = CraftTests;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
 				TEST_HOST = "";
@@ -585,8 +585,8 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.terminalstress;
 				PRODUCT_NAME = CraftTerminalStress;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
 			};

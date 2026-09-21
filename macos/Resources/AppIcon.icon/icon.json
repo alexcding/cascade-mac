@@ -1,18 +1,48 @@
 {
   "fill" : {
-    "automatic-gradient" : "srgb:0.00000,0.00000,0.00000,1.00000"
+    "automatic-gradient" : "extended-gray:1.00000,1.00000"
   },
   "groups" : [
     {
+      "blur-material" : 0.5,
       "layers" : [
         {
-          "glass" : true,
-          "hidden" : false,
-          "image-name" : "flow-arrow-white.svg",
-          "name" : "flow-arrow-white",
-          "opacity" : 0.83,
+          "image-name" : "download (1).svg",
+          "name" : "download (1)",
           "position" : {
-            "scale" : 0.73,
+            "scale" : 0.99,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "position" : {
+        "scale" : 1,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "specular" : true,
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.3
+      }
+    },
+    {
+      "layers" : [
+        {
+          "hidden" : true,
+          "image-name" : "download (2).svg",
+          "name" : "download (2)",
+          "position" : {
+            "scale" : 0.92,
             "translation-in-points" : [
               0,
               0
