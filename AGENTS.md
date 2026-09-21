@@ -122,7 +122,9 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **`gh webhook` extension may be missing.** Polling still catches merges. Install it with
   `gh extension install cli/gh-webhook`.
 - **Build is arm64-only**, ad-hoc signed for local use.
-- Tray status color: **black/white** idle, **blue** tasks, **bronze (#98712c)** review.
+- Tray status color: **black/white** (the menu bar's own, from the template glyph) unless a
+  review is waiting, which paints it **bronze (#98712c)**. A tint can only be painted into the
+  image: `contentTintColor` on a status item comes out black under the menu bar's vibrancy.
 - **A session is one task record per worktree** — the agent running on a worktree, live or
   stopped, linked to its context and titled by the page it was started from. A git worktree
   with no session is invisible to the app.

@@ -227,7 +227,6 @@ public final class AppViewModel {
         }
     }
     var terminal: TerminalSession? { activeTerminalKey.flatMap { terminals[$0] } }
-    public var hasOpenWork: Bool { !sessions.isEmpty || !tabs.isEmpty }
     public var hasActivePage: Bool { viewer.active?.activeID != nil }
     var activeHistory: GitHistoryViewModel? {
         guard let context = viewer.active, context.pane == .diff, context.reviewSection == .history else { return nil }

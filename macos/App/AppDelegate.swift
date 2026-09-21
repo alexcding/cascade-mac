@@ -14,6 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.windows.first { $0.identifier?.rawValue.hasSuffix("main") == true && !($0 is NSPanel) }
     }
     @ObservationIgnored private var statusItem: NSStatusItem?
+    /// What the status glyph is currently painted with, and the menu bar thickness it was drawn
+    /// for, so it is repainted only when one of them changes.
+    @ObservationIgnored private var statusTint: NSColor?
+    @ObservationIgnored private var statusThickness: CGFloat = 0
     private let popover = NSPopover()
     @ObservationIgnored private var tray: TrayCoordinator?
     private var updater: AppUpdater?
@@ -78,19 +82,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },
             showWindow: { [weak self] in self?.showWindow() })
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "square.stack.3d.up", accessibilityDescription: "Craft")
-        item.button?.image?.isTemplate = true
+        item.button?.image = Self.menuBarImage(tint: nil)
+        statusThickness = NSStatusBar.system.thickness
         item.button?.setAccessibilityIdentifier("craft-status-item")
         item.button?.target = self
         item.button?.action = #selector(toggleTray)
         statusItem = item
+        // A display added, removed or rearranged can change the menu bar's height under the glyph.
+        NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         popover.behavior = .transient
         popover.delegate = self
-        popover.contentSize = NSSize(width: 380, height: 580)
         let tray = model.makeTray(openWindow: { [weak self] in self?.showWindow() },
             dismiss: { [weak self] in self?.popover.performClose(nil) })
         self.tray = tray
-        popover.contentViewController = NSHostingController(rootView: NativeTrayView(model: tray.model))
+        // The tray asks for the height its content needs and the popover follows it, here and as
+        // reviews and usage land later, rather than standing at a fixed height over a short list.
+        let hosting = NSHostingController(rootView: NativeTrayView(model: tray.model))
+        hosting.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hosting
         observeStatus()
         updater = AppUpdater()
         Task { await model.start() }
@@ -133,18 +143,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if popover.isShown { popover.performClose(nil); return }
         guard let button = statusItem?.button else { return }
         tray?.setActive(true)
+        // The popover hangs off the status item, so its ceiling is that item's screen — which is
+        // not necessarily the one the main window is on.
+        if let hosting = popover.contentViewController as? NSHostingController<NativeTrayView> {
+            hosting.rootView.maxHeight = TrayMetrics.maxHeight(on: button.window?.screen)
+        }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 
     func popoverDidClose(_ notification: Notification) { tray?.setActive(false) }
 
+    static let trayBronze = NSColor(srgbRed: 0.596, green: 0.443, blue: 0.173, alpha: 1)
+
+    /// The status item carries the app's own mark, sized from the menu bar's own thickness rather
+    /// than a fixed point size, so it keeps its margin whatever height the bar is on this Mac.
+    ///
+    /// Idle is a template image and takes no tint: the bar draws it in its own black or white and
+    /// inverts it under the highlight. A status color cannot go through `contentTintColor` — the
+    /// menu bar draws its button vibrantly, and a tinted template glyph comes back a flat black
+    /// silhouette there whatever color is asked for. Bronze and blue are painted into a plain
+    /// image instead, which the bar leaves alone.
+    private static func menuBarImage(tint: NSColor?) -> NSImage? {
+        guard let base = NSImage(named: "MenuBarIcon")?.copy() as? NSImage else { return nil }
+        let side = (NSStatusBar.system.thickness * 0.72).rounded()
+        base.size = NSSize(width: side, height: side)
+        base.accessibilityDescription = "Craft"
+        guard let tint else { base.isTemplate = true; return base }
+        let painted = NSImage(size: base.size, flipped: false) { rect in
+            base.draw(in: rect)
+            tint.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        painted.accessibilityDescription = "Craft"
+        return painted
+    }
+
+    /// Repaints the glyph, but only when something about it actually changed: its color, or the
+    /// thickness it is drawn for. Moving the bar to a display of another height is a screen-
+    /// parameter change, not a status change, so it comes through `screenParametersChanged`.
+    private func applyStatusImage(tint: NSColor?) {
+        let thickness = NSStatusBar.system.thickness
+        guard let button = statusItem?.button else { return }
+        guard tint != statusTint || thickness != statusThickness || button.image == nil else { return }
+        statusTint = tint; statusThickness = thickness
+        button.image = Self.menuBarImage(tint: tint)
+    }
+
+    @objc private func screenParametersChanged() { applyStatusImage(tint: statusTint) }
+
     private func observeStatus() {
         withObservationTracking {
             let reviews = model.shell.pendingReviewCount
-            statusItem?.button?.contentTintColor = reviews > 0
-                ? NSColor(srgbRed: 0.596, green: 0.443, blue: 0.173, alpha: 1)
-                : (model.hasOpenWork ? .systemBlue : .labelColor)
+            // Only a review request colors the glyph. Running tasks leave it untinted, so it stays
+            // the menu bar's own black or white like every other icon up there.
+            applyStatusImage(tint: reviews > 0 ? Self.trayBronze : nil)
             statusItem?.button?.toolTip = reviews > 0 ? "Craft: \(reviews) pending reviews" : "Craft"
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }

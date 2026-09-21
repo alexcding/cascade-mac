@@ -1,9 +1,27 @@
+import AppKit
 import SwiftUI
+
+/// The tray's width is fixed; its height is whatever the content needs, up to what the screen
+/// can show without the popover running off the bottom.
+enum TrayMetrics {
+    static let width: CGFloat = 380
+    /// The ceiling belongs to the screen the status item is on, since the popover hangs off it —
+    /// not to whichever screen holds the key window. Falling back to the screen that owns the
+    /// menu bar, which is the first one.
+    static func maxHeight(on screen: NSScreen?) -> CGFloat {
+        max(280, ((screen ?? NSScreen.screens.first)?.visibleFrame.height ?? 720) - 120)
+    }
+}
 
 // The menu bar tray shows two things: the pull requests waiting on your review, and the AI plan
 // usage. A review opens in a Craft tab. Everything else lives in the app's own window.
 public struct NativeTrayView: View {
     let model: TrayViewModel
+    /// Set from the status item's own screen each time the tray is about to open.
+    var maxHeight: CGFloat = TrayMetrics.maxHeight(on: nil)
+    /// What the content last measured. The first layout replaces this estimate, and every later
+    /// one resizes the popover through the hosting controller's preferred content size.
+    @State private var contentHeight: CGFloat = 320
 
     public init(model: TrayViewModel) { self.model = model }
 
@@ -17,11 +35,17 @@ public struct NativeTrayView: View {
                     }
                     Divider()
                     UsagePanel(shell: model.shell)
-                }.padding(16)
+                }
+                .padding(16)
+                // Measured inside the scroll view, so this is the height the content wants, not the
+                // height it was given: the panel hugs a short list and only a long one scrolls.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
+            .frame(height: min(contentHeight, maxHeight))
+            .scrollBounceBehavior(.basedOnSize)
             if let error = model.actionError { Text(error).font(.caption).foregroundStyle(.orange).padding(.horizontal, 12).padding(.bottom, 8) }
         }
-        .frame(width: 380, height: 580)
+        .frame(width: TrayMetrics.width)
         .accessibilityIdentifier("native-tray-panel")
     }
 
