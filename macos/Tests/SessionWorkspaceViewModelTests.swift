@@ -41,10 +41,13 @@ import Testing
     service.state.session = WorkspaceSession(id: "one", projectId: "p", workspace: "/tmp", worktree: "/tmp/one", title: "One",
                                              branch: "one", url: "", createdAt: nil, pinned: false)
     service.state.project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
-    // A session shows the blank page pane even before any tab is open.
-    #expect(model.showsTerminal && model.showsPage && model.canToggleContext && !model.canRun)
+    // A session with no page of its own opens on its terminal alone; the pane is one toggle away.
+    #expect(model.showsTerminal && !model.showsPage && model.canToggleContext && !model.canRun)
+    model.toggleContext(); #expect(context.pane == .term && model.showsPage)
+    model.toggleContext(); #expect(context.pane == .off && !model.showsPage)
     _ = try #require(context.open("https://example.test/context"))
-    #expect(model.showsPage && model.canToggleContext)
+    // Opening a page brings the pane back with it.
+    #expect(context.pane == .term && model.showsPage && model.canToggleContext)
     model.toggleContext(); #expect(context.pane == .off && !model.showsPage)
     model.toggleContext(); #expect(context.pane == .term && model.showsPage)
     context.setPane(.diff)

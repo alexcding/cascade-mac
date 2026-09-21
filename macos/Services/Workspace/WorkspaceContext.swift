@@ -187,6 +187,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         } else if safeWebURL(sourceURL) != nil {
             let page = pageFactory.make(.init(url: sourceURL, title: title))
             pages = [page]; tabOrder = [page.id]; activeID = page.id
+        } else {
+            // Nothing to show beside the terminal: a session started from no page, and the scratch
+            // Terminal, open on the shell alone rather than on an empty browser. Toggling the
+            // context back, or opening any page or file, brings the pane in — `lastMode` still
+            // says Browser.
+            pane = .off
         }
         pages.forEach(wire)
         documents.forEach(wire)
