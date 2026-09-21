@@ -56,41 +56,59 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     }
 }
 
-/// The bar's row: a leading control, the centred pill, and New Tab trailing it. The suggestion
-/// list hangs under the row, above whatever the panel shows beneath.
-struct CompactTabBar<Leading: View, Pill: View, Suggestions: View>: View {
+/// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
+/// New Tab, where the panel offers one. The suggestion list hangs under the row, above whatever
+/// the panel shows beneath.
+struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: View>: View {
     let newTabTitle: String
     let newTabHelp: String
     let newTab: () -> Void
+    /// False for a panel that is one page — a sidebar tab — which offers no New Tab at all.
+    var showsNewTab = true
     @ViewBuilder let leading: Leading
-    /// Given the width left between the leading control and New Tab.
+    /// Given the width left between the leading control and the trailing actions.
     @ViewBuilder let pill: (CGFloat) -> Pill
+    /// Trailing the pill, beside New Tab: the panel's own action, if it has one.
+    @ViewBuilder let trailing: Trailing
     @ViewBuilder let suggestions: Suggestions
 
     var body: some View {
         HStack(spacing: 8) {
             leading
             // The pill is centred in whatever the row has left, and told how much that is: tabs that
-            // would overrun it fall back to icons rather than pushing New Tab out of the pane.
+            // would overrun it fall back to icons rather than pushing the trailing actions out of the pane.
             GeometryReader { proxy in
                 pill(proxy.size.width).frame(width: proxy.size.width, height: proxy.size.height)
             }
-            // The 32pt square is the label, not a frame around the button, so the whole capsule
-            // takes the click rather than the 14pt glyph alone.
-            Button(action: newTab) {
-                Label(newTabTitle, systemImage: "plus")
-                    .labelStyle(SquareIconLabelStyle())
-                    .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
-                    .contentShape(Rectangle())
+            trailing
+            if showsNewTab {
+                // The 32pt square is the label, not a frame around the button, so the whole capsule
+                // takes the click rather than the 14pt glyph alone.
+                Button(action: newTab) {
+                    Label(newTabTitle, systemImage: "plus")
+                        .labelStyle(SquareIconLabelStyle())
+                        .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
+                        .contentShape(Rectangle())
+                }
+                .help(newTabHelp)
+                .barGlass()
             }
-            .help(newTabHelp)
-            .barGlass()
         }
         .padding(.horizontal, 12)
         .frame(height: CompactTabMetrics.barHeight)
         // Above the content beneath, or the list would render under it.
         .zIndex(1)
         .overlay(alignment: .top) { suggestions.padding(.top, 52) }
+    }
+}
+
+extension CompactTabBar where Trailing == EmptyView {
+    /// A bar whose only trailing control is New Tab.
+    init(newTabTitle: String, newTabHelp: String, newTab: @escaping () -> Void, showsNewTab: Bool = true,
+         @ViewBuilder leading: () -> Leading, @ViewBuilder pill: @escaping (CGFloat) -> Pill,
+         @ViewBuilder suggestions: () -> Suggestions) {
+        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, showsNewTab: showsNewTab,
+                  leading: leading, pill: pill, trailing: { EmptyView() }, suggestions: suggestions)
     }
 }
 
@@ -275,7 +293,7 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
             // Safari's leading slot: one 24pt position that holds Close at rest and the magnifying
             // glass while the field is edited, so neither ever pushes the text sideways.
             ZStack {
-                Button(closeTitle, systemImage: "xmark.circle.fill", action: close)
+                Button(closeTitle, systemImage: Theme.Symbol.close, action: close)
                     .labelStyle(.iconOnly).buttonStyle(.plain)
                     .font(.system(size: 17))
                     .foregroundStyle(hoveringClose ? Theme.textSecondary : Theme.textTertiary)

@@ -29,7 +29,7 @@ extension AppViewModel: WorkspaceCoordinating {
             removingSession: session.map { isRemoving($0.id) } ?? false,
             openingExternal: workspaceLaunch.opening.contains(context.id), canPresent: coordinator.canPresent,
             canCreateSession: canPerform(.newSession), title: title,
-            offersPageSession: offersPageSession(in: context), editorID: project?.ide,
+            offersPageSession: offersPageSession(in: context), offersNewTab: !context.holdsOnePage, editorID: project?.ide,
             editorLabel: workspaceLaunch.editorLabel(project),
             launchError: workspaceLaunch.errors[context.id],
             reviewBase: base)

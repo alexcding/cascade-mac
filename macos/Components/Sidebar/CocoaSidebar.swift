@@ -689,7 +689,7 @@ enum SidebarGlyphs {
             accessory.setAccessibilityLabel(accessory.toolTip)
         case .tab(let tab):
             configureTabIcon(tab)
-            accessory.image = SidebarIcons.symbol("close")
+            accessory.image = SidebarIcons.closeSymbol
             accessory.toolTip = "Close tab"
             accessory.setAccessibilityLabel("Close tab")
         case .pinnedTabs:

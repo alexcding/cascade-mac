@@ -86,6 +86,12 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         .init(id: "a", title: "Docs", url: "https://docs.example", icon: .init(kind: "web", url: "https://docs.example")),
         .init(id: "b", title: "PR", url: "https://github.com/o/r/pull/1", icon: .init(kind: "github", login: "octocat", url: "https://github.com/o/r/pull/1")),
     ]))
+    // The grid row is no row's destination, but it presents one per tile, so a selected pinned
+    // tab is still a destination the sidebar lists and never goes stale back to Dashboard.
+    #expect(grid?.destinations == [.tab("a"), .tab("b")])
+    #expect(entries.flatMap(\.descendants).flatMap(\.destinations).contains(.tab("a")))
+    #expect(entries.first { $0.id == "tab:c" }?.destinations == [.tab("c")])
+    #expect(entries.first { $0.id == "label:projects" }?.destinations == [])
     // A pinned tab that belongs to a session stays hidden, like any task tab.
     let owned = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs)
     if case .pinnedTabs(let shown)? = owned.first(where: { $0.id == "pinned-tabs" })?.role { #expect(shown.map(\.id) == ["b"]) } else { Issue.record("grid missing") }

@@ -8,7 +8,7 @@ import AppKit
         // The first name this system has: text.rectangle.page arrived with macOS 15, and the app runs on 14.
         "dashboard": ["text.rectangle.page", "doc.text"],
         "folder": ["folder"],
-        "close": ["xmark"],
+        "close": [Theme.Symbol.close],
         "plus": ["plus"],
         "globe": ["globe"],
         "pin": ["pin"],
@@ -36,6 +36,17 @@ import AppKit
         let key = "plus@add"
         if let hit = cache[key] { return hit }
         let image = symbol("plus")?.withSymbolConfiguration(.init(pointSize: 15, weight: .medium))
+        cache[key] = image
+        return image
+    }
+
+    /// A tab row's close mark: `Theme.Symbol.close`, the one a panel's tab bar closes a tab with,
+    /// sized for the 18pt accessory slot. Like "+", it is an action rather than a state of the row,
+    /// so it is drawn a step larger than the pin.
+    static var closeSymbol: NSImage? {
+        let key = "close@tab"
+        if let hit = cache[key] { return hit }
+        let image = symbol("close")?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
         cache[key] = image
         return image
     }

@@ -160,6 +160,17 @@ public final class AppViewModel {
             commitDraftTab(context)
             syncTabTitle(context)
         }
+        // A link opened from a sidebar tab becomes its own tab under Tabs, the way one opened from
+        // the dashboard does. A session's second panel keeps such links as pages of that panel.
+        // Opening a tab needs the backend, so before it connects the link opens in its own panel
+        // rather than not at all.
+        viewer.openSidebarTab = { [weak self] url, keepInPanel in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { try await openPage(OpenPageRequest(url: url, kind: "web", title: "")) }
+                catch { keepInPanel() }
+            }
+        }
         viewer.prepareContext = { [weak self] context in
             guard let self else { return }
             context.configureWorkspace(factory: workspaceFactory, service: self)
@@ -374,7 +385,9 @@ public final class AppViewModel {
     public func canPerform(_ command: ShellCommand) -> Bool {
         switch command {
         case .newProject: connection == "Connected" && coordinator.canPresent
-        case .newTab: coordinator.canPresent && viewer.active != nil
+        // ⌘T follows the panel in view, as `newBrowserTab` does: a file tab from Files, and a web
+        // tab from anywhere else — which a panel holding one page has nowhere to put.
+        case .newTab: coordinator.canPresent && viewer.active.map { $0.pane == .files || !$0.holdsOnePage } == true
         case .newSidebarTab: coordinator.canPresent
         case .newSession: canStartSession && sessionProject(for: selection) != nil
         case .back: coordinator.canPresent && viewer.active?.activePage?.controls.canGoBack == true
@@ -1262,8 +1275,10 @@ public final class AppViewModel {
                     // Only sidebar-backed destinations can go stale: a project, session or tab that
                     // the inventory no longer lists. Settings, Activity and Terminal are reached from
                     // the menu and have no sidebar row, so they must never be bounced to Dashboard.
+                    // Ask each entry for the destinations it presents, not for its own: a pinned tab
+                    // is a tile inside the grid row and has no row of its own to match.
                     if selection.isSidebarBacked,
-                       !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destination == selection }),
+                       !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }),
                        pageWorkflowRuns[viewer.activeContextID ?? ""]?.running != true { select(.overview) }
                     lastUpdate = Date()
                     error = nil

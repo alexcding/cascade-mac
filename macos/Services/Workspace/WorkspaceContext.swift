@@ -85,7 +85,20 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
 }
 
 @MainActor @Observable final class WorkspaceContext: @MainActor Identifiable {
-    fileprivate(set) var id: String
+    /// What a panel is, which decides what it can hold. Read from the id where the id is minted and
+    /// again where promotion rewrites it, so nothing else has to know how an id is spelled.
+    enum Kind: Equatable {
+        case tab, session, scratch
+        init(id: String) {
+            if id.hasPrefix("tab:") { self = .tab } else if id.hasPrefix("task:") { self = .session } else { self = .scratch }
+        }
+    }
+    fileprivate(set) var id: String { didSet { kind = Kind(id: id) } }
+    private(set) var kind: Kind
+    /// A sidebar tab's panel *is* that one tab: its row in the sidebar is the tab, so the panel
+    /// offers no New Tab of its own. A session's workspace and the scratch terminal hold as many
+    /// pages as they are asked for. The blank filler page is not a New Tab and is unaffected.
+    var holdsOnePage: Bool { kind == .tab }
     let sourceURL: String
     private(set) var pages: [BrowserPage] = []
     private(set) var documents: [EditorDocumentViewModel] = []
@@ -132,6 +145,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored lazy var clearBrowsingHistory: () -> Void = { [weak self] in
         self?.clearPageHistory(); self?.globalHistory?.clear()
     }
+    /// Where a link that asked for a new window goes when this panel holds one page: the sidebar's
+    /// Tabs list, as a tab of its own. The second argument keeps the link in this panel instead,
+    /// for when the list cannot take it. Nil in a bare context (tests), which keeps the link here.
+    @ObservationIgnored var openSidebarTab: ((String, @escaping () -> Void) -> Void)?
     @ObservationIgnored var activateDocument: (EditorDocumentViewModel) -> Void = { _ in }
     @ObservationIgnored var activatePage: (BrowserPage) -> Void = { _ in }
     @ObservationIgnored var isOwned: () -> Bool = { true }
@@ -157,7 +174,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
          pageFactory: BrowserPageFactory = BrowserPageFactory(),
          documentFactory: any DocumentFeatureFactory = NativeDocumentFeatureFactory(),
          closeCoordinator: EditorCloseCoordinator? = nil) {
-        self.id = id; self.sourceURL = sourceURL
+        self.id = id; self.kind = Kind(id: id); self.sourceURL = sourceURL
         self.pageFactory = pageFactory
         self.documentFactory = documentFactory
         self.closeCoordinator = closeCoordinator ?? EditorCloseCoordinator(factory: documentFactory)
@@ -445,13 +462,23 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             guard let self, let page else { return }
             noteHistory(page.record); changed()
         }
-        page.openPopup = { [weak self] url, configuration, linkActivated in
+        page.openPopup = { [weak self] url, configuration, openedLink in
             guard let self else { return nil }
-            // Scripted popups (window.open, OAuth and payment flows, about:blank) need the
-            // child web view back so the opener handshake completes. A plain link click that
-            // asked for a new window opens as another tab of this panel, never a sidebar tab.
-            if linkActivated, url.absoluteString != "about:blank" { open(url.absoluteString, allowDuplicate: true); return nil }
-            return open(url.absoluteString, configuration: configuration)?.webView
+            // Scripted popups (window.open, OAuth and payment flows, about:blank) need the child
+            // web view back so the opener handshake completes, whatever panel they are in.
+            guard openedLink, url.absoluteString != "about:blank" else {
+                return open(url.absoluteString, configuration: configuration)?.webView
+            }
+            // The user opening a link into a new window is a page they asked for. A panel that
+            // holds one page — a sidebar tab, pinned or not — has nowhere to put it, so it becomes
+            // its own tab under Tabs; a session's second panel opens it as another of its pages.
+            // Where the sidebar cannot take it, it opens here rather than nowhere.
+            if holdsOnePage, let openSidebarTab {
+                openSidebarTab(url.absoluteString) { [weak self] in self?.open(url.absoluteString, allowDuplicate: true) }
+            } else {
+                open(url.absoluteString, allowDuplicate: true)
+            }
+            return nil
         }
     }
 }
@@ -479,6 +506,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored var activeContextChanged: () -> Void = {}
     /// Called whenever a context's snapshot changes: a page navigated, a tab opened or closed.
     @ObservationIgnored var contextChanged: (WorkspaceContext) -> Void = { _ in }
+    /// Opens a link as a new tab in the sidebar's Tabs list, for the panels that hold one page.
+    /// Calls `keepInPanel` instead where the list cannot take it, so the link still opens.
+    @ObservationIgnored var openSidebarTab: (String, @escaping () -> Void) -> Void = { _, _ in }
     @ObservationIgnored private var api: APIClient?
     @ObservationIgnored private var saved: [String: ContextSnapshot] = [:]
     @ObservationIgnored private var dirty: Set<String> = []
@@ -609,6 +639,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             if let context { self?.save(context) }
         }
         context.activatePage = { [weak self] in self?.activate($0) }
+        context.openSidebarTab = { [weak self] url, keepInPanel in self?.openSidebarTab(url, keepInPanel) }
         context.activateDocument = { [weak self] in self?.configure($0) }
         context.documents.forEach(configure)
         return context

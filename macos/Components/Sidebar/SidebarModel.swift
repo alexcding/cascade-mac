@@ -158,6 +158,13 @@ struct SidebarEntry: Equatable {
     var tooltip: String?
 
     var isGroup: Bool { destination == nil }
+    /// Every destination this entry can take the selection to. A row is its own destination;
+    /// the pinned-tabs grid has none of its own and presents one per tile, so a selection a
+    /// tile owns is still listed by the sidebar.
+    var destinations: [SidebarDestination] {
+        if case .pinnedTabs(let tabs) = role { return tabs.map { .tab($0.id) } }
+        return destination.map { [$0] } ?? []
+    }
     var sessionID: String? { if case .session(let id) = destination { id } else { nil } }
     var projectID: String? { if case .project(let id) = destination { id } else { nil } }
 

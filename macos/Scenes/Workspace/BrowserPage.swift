@@ -8,6 +8,31 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     var title: String
 }
 
+/// Whether a menu is tracking, or has just closed. WebKit shows a page's own context menu with
+/// `popUpMenuPositioningItem:`, which never reaches the view's menu chain, so `NSView.willOpenMenu`
+/// never fires for it and Open Link in New Window arrives at the delegate looking exactly like a
+/// scripted `window.open`. The menu's own tracking notifications are the one public signal that
+/// does fire, and they tell the two apart.
+@MainActor enum PageMenuTracking {
+    private(set) static var active = false
+    private static var observers: [any NSObjectProtocol] = []
+
+    static func observe() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { active = true }
+            },
+            // The chosen item's action runs once tracking has ended, so the flag outlives this
+            // turn and is dropped on the next one.
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { Task { @MainActor in active = false } }
+            },
+        ]
+    }
+}
+
 @MainActor @Observable final class BrowserPage: NSObject, Identifiable, BrowserControlling, WKNavigationDelegate, WKUIDelegate {
     let id: String
     private(set) var url: String { didSet { if oldValue != url { controls.synchronizeAddress() } } }
@@ -26,9 +51,10 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
     let dialogs = BrowserDialogViewModel()
     @ObservationIgnored var isOwned: () -> Bool = { false }
     @ObservationIgnored var changed: () -> Void = {}
-    /// `linkActivated` is true for a plain user click on a target=_blank link; false for a
-    /// scripted `window.open` or a popup that asked for window features.
-    @ObservationIgnored var openPopup: ((URL, WKWebViewConfiguration, _ linkActivated: Bool) -> WKWebView?)?
+    /// `openedLink` is true where the user opened a link — a click on a target=_blank link, or the
+    /// page menu's Open Link in New Window — and false for a scripted `window.open` or a popup that
+    /// asked for window features, both of which need the child web view back for their opener.
+    @ObservationIgnored var openPopup: ((URL, WKWebViewConfiguration, _ openedLink: Bool) -> WKWebView?)?
     /// Set by the page factory: attaches the shared web-extension controller (ad blocking).
     @ObservationIgnored var configureWebView: (WKWebViewConfiguration) -> Void = { _ in }
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
@@ -51,6 +77,7 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
         configureWebView(configuration)
         // Remote pages never receive a document bridge, local file read access,
         // terminal handlers, or injected app scripts.
+        PageMenuTracking.observe()
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = self
         view.uiDelegate = self
@@ -202,7 +229,8 @@ struct WebPageRecord: Codable, Identifiable, Equatable, Sendable {
               safeWebURL(url.absoluteString) != nil || url.absoluteString == "about:blank" else { return nil }
         let sized = windowFeatures.width != nil || windowFeatures.height != nil
             || windowFeatures.x != nil || windowFeatures.y != nil
-        return openPopup?(url, configuration, action.navigationType == .linkActivated && !sized)
+        let openedLink = action.navigationType == .linkActivated || PageMenuTracking.active
+        return openPopup?(url, configuration, openedLink && !sized)
     }
     private func requestDialog(_ kind: BrowserDialogViewModel.Kind, from webView: WKWebView, frame: WKFrameInfo,
                                completion: @escaping (BrowserDialogViewModel.Response) -> Void) {

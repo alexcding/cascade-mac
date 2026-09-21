@@ -44,3 +44,72 @@ import WebKit
     #expect(restored.open("https://user:password@example.com") == nil)
 }
 
+
+@MainActor @Test func aLinkAskingForANewWindowBecomesASidebarTabOnlyWhereThePanelHoldsOnePage() throws {
+    // A sidebar tab is one page, pinned or not: a link that asked for a new window leaves for the
+    // Tabs list rather than opening a second page this panel has no tab bar for.
+    let tab = WorkspaceContext(id: "tab:one", sourceURL: "https://example.com/tab", title: "Tab")
+    var opened: [String] = []
+    tab.openSidebarTab = { url, _ in opened.append(url) }
+    let page = try #require(tab.open("https://example.com/tab", title: "Tab"))
+    let link = try #require(URL(string: "https://example.com/link"))
+    #expect(page.openPopup?(link, WKWebViewConfiguration(), true) == nil)
+    #expect(opened == ["https://example.com/link"])
+    #expect(tab.pages.map(\.url) == ["https://example.com/tab"])
+
+    // A session's second panel opens the same link as another of its own pages.
+    let session = WorkspaceContext(id: "task:one", sourceURL: "", title: "Session")
+    session.openSidebarTab = { url, _ in opened.append(url) }
+    let first = try #require(session.open("https://example.com/a", title: "A"))
+    #expect(first.openPopup?(link, WKWebViewConfiguration(), true) == nil)
+    #expect(opened.count == 1)
+    #expect(session.pages.map(\.url) == ["https://example.com/a", "https://example.com/link"])
+}
+
+@MainActor @Test func aOnePagePanelKeepsScriptedPopupsAndFallsBackToItselfWhenTheTabsListRefuses() throws {
+    let context = WorkspaceContext(id: "tab:popup", sourceURL: "https://example.com/tab", title: "Tab")
+    var opened: [String] = []
+    context.openSidebarTab = { url, _ in opened.append(url) }
+    let page = try #require(context.open("https://example.com/tab", title: "Tab"))
+    let link = try #require(URL(string: "https://example.com/link"))
+
+    // A scripted popup keeps its child web view, so its opener handshake still completes, and it
+    // opens here rather than in the sidebar — a diverted popup would come back with no opener.
+    let popup = page.openPopup?(link, WKWebViewConfiguration(), false)
+    #expect(popup != nil)
+    #expect(opened.isEmpty)
+    #expect(context.pages.map(\.url) == ["https://example.com/tab", "https://example.com/link"])
+    context.pages.last.map(context.close)
+
+    // A link the Tabs list cannot take — the backend is not connected yet — opens in this panel
+    // rather than nowhere.
+    context.openSidebarTab = { _, keepInPanel in keepInPanel() }
+    #expect(page.openPopup?(link, WKWebViewConfiguration(), true) == nil)
+    #expect(context.pages.map(\.url) == ["https://example.com/tab", "https://example.com/link"])
+}
+
+@MainActor @Test func menuTrackingOutlivesTheTurnTheMenuClosesOn() async {
+    // Verified against AppKit: `NSMenu.popUp(positioning:at:in:)` — the call WebKit's
+    // WebContextMenuProxyMac shows a page's context menu with — posts both notifications, so the
+    // page menu's Open Link in New Window is seen as a link the user opened.
+    PageMenuTracking.observe()
+    NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: NSMenu())
+    #expect(PageMenuTracking.active)
+    NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: NSMenu())
+    // The chosen item's action runs on the close, so the flag must survive it and go on the next turn.
+    #expect(PageMenuTracking.active)
+    await Task.yield()
+    #expect(!PageMenuTracking.active)
+}
+
+@MainActor @Test func aPanelsKindFollowsItsIdThroughPromotion() throws {
+    #expect(WorkspaceContext(id: "tab:one", sourceURL: "", title: "Tab").kind == .tab)
+    #expect(WorkspaceContext(id: "task:one", sourceURL: "", title: "Session").kind == .session)
+    #expect(WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal").kind == .scratch)
+    // A tab promoted into a session stops being one page: its panel now has tabs of its own.
+    let viewer = ViewerStore()
+    let context = viewer.select(id: "tab:promoted", url: "", title: "Tab")
+    #expect(context.holdsOnePage)
+    try viewer.promoteContext(from: "tab:promoted", to: "task:promoted")
+    #expect(context.kind == .session && !context.holdsOnePage)
+}

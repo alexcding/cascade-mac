@@ -212,3 +212,26 @@ import Testing
     #expect(fresh.presentation.active && fresh.snapshot != nil)
     viewer.deactivate(); old.disconnect(); fresh.disconnect()
 }
+
+@MainActor @Test func onlyAPanelThatHoldsManyPagesOffersNewTab() {
+    // A sidebar tab is one page: its row in the sidebar is the tab, so the panel shows no ＋ and
+    // ⌘T does nothing. A session's second panel and the scratch terminal keep both.
+    #expect(WorkspaceContext(id: "tab:one", sourceURL: "", title: "Tab").holdsOnePage)
+    #expect(!WorkspaceContext(id: "task:one", sourceURL: "", title: "Session").holdsOnePage)
+    #expect(!WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal").holdsOnePage)
+
+    let context = WorkspaceContext(id: "tab:one", sourceURL: "", title: "Tab")
+    let service = WorkspaceFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
+    model.onAction = { [weak service, weak context] action in
+        if let context { service?.record(action, in: context) }
+    }
+    service.state.canPresent = true
+    model.setActive(true)
+    service.state.offersNewTab = false
+    // The panel still fills itself with its blank page; only the affordance is gone.
+    #expect(!model.offersNewTab && model.canOpenTab)
+    model.newTab()
+    #expect(service.actions == [.newTab])
+    service.state.offersNewTab = true
+    #expect(model.offersNewTab && model.canOpenTab)
+}

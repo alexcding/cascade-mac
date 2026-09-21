@@ -26,6 +26,8 @@ import Observation
     var title = ""
     /// A GitHub PR or Jira ticket page whose project exists: the toolbar offers Create Session.
     var offersPageSession = false
+    /// Whether this panel offers New Tab at all — false for a sidebar tab, which is one page.
+    var offersNewTab = true
     var editorID: String?
     var editorLabel: String?
     var launchError: String?
@@ -188,6 +190,9 @@ extension WorkspaceServing {
     func moveTab(_ id: String, before target: String?) { onAction(.moveTab(id, before: target)) }
     /// Only the workspace on screen may open tabs.
     var canOpenTab: Bool { active && state.canPresent }
+    /// Whether the panel shows New Tab and answers ⌘T. A sidebar tab is one page, so it shows
+    /// neither; `canOpenTab` still holds, so the panel's own blank filler page is unaffected.
+    var offersNewTab: Bool { state.offersNewTab }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
     func newTab() { guard canOpenTab else { return }; onAction(.newTab) }

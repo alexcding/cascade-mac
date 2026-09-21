@@ -18,7 +18,14 @@ struct BrowserCompactTabBar: View {
     private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
 
     var body: some View {
-        CompactTabBar(newTabTitle: "New Tab", newTabHelp: "Open a new web tab", newTab: model.newTab) {
+        CompactTabBar(newTabTitle: "New Tab", newTabHelp: "Open a new web tab", newTab: model.newTab,
+                      showsNewTab: model.offersNewTab) {
+            NavigationCluster(controls: active?.controls)
+        } pill: { available in
+            tabPill(available)
+        } trailing: {
+            // Create Session takes the end of the row, where New Tab sits in a panel that has one.
+            // A sidebar tab offers the session and no New Tab; a session's panel, the other way round.
             if model.offersPageSession, model.fillsTitleBar {
                 Button("Create Session", systemImage: "terminal", action: model.createSession)
                     .disabled(!model.canCreateSession)
@@ -26,9 +33,6 @@ struct BrowserCompactTabBar: View {
                     .padding(.horizontal, 12)
                     .barGlass(iconOnly: false)
             }
-            NavigationCluster(controls: active?.controls)
-        } pill: { available in
-            tabPill(available)
         } suggestions: {
             if let controls = active?.controls, editingAddress, !suggestions.isEmpty {
                 CompactSuggestionList(items: suggestions, highlighted: highlighted, accessibilityLabel: "Address suggestions",
@@ -79,8 +83,9 @@ struct BrowserCompactTabBar: View {
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive,
                            autoFocus: page.id != context.fillerPageID,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
-                           // A lone blank tab has nothing to close: closing it would only make another.
-                           closable: !(pages.count == 1 && page.controls.isBlank), iconOnly: iconOnly, editing: $editingAddress,
+                           // A lone tab has nothing to close to: the panel always has a page, so
+                           // closing it would only make another. Close appears once there are two.
+                           closable: pages.count > 1, iconOnly: iconOnly, editing: $editingAddress,
                            select: { model.selectTab(.page(page)) }, close: { model.closeTab(.page(page)) })
             }
         }

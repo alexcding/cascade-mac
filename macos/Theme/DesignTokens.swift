@@ -114,6 +114,14 @@ enum Theme {
     /// `--bg`: the surface a content pane sits on. Follows the window appearance.
     static var paneBackground: Color { Color(nsColor: .windowBackgroundColor) }
 
+    /// Symbols a surface shares with another, so the two cannot drift apart. A glyph only one
+    /// surface draws stays at its call site.
+    enum Symbol {
+        /// The mark that closes a tab, wherever tabs are listed: the sidebar's Tabs rows and the
+        /// browser and files tab bars. Each sizes it for its own slot.
+        static let close = "xmark.circle.fill"
+    }
+
     enum Size {
         /// 1 — a hairline rule.
         static let hairline: CGFloat = 1
