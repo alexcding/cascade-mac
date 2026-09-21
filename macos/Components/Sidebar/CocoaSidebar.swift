@@ -514,8 +514,10 @@ enum SidebarPalette {
     /// A row's symbol, sampled from Finder's own sidebar in each appearance. No one system colour is
     /// both: `systemGray` is this in light mode, but resolves well dimmer than Finder in dark.
     static let icon = dynamic(0x8d8d92, 0xc1c4cb)
+    /// Each CLI's own brand colour, matching `Theme.agentTint`: one agent reads the same in the
+    /// sidebar spinner, on the Dashboard and in its context ring.
     static let spinClaude = dynamic(0xd97757, 0xd97757)
-    static let spinCodex = dynamic(0x39d353, 0x39d353)
+    static let spinCodex = dynamic(0x707af0, 0x707af0)
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
     static let danger = dynamic(0xdc2626, 0xf87171)
