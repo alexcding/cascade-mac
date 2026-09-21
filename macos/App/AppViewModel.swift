@@ -72,8 +72,11 @@ public final class AppViewModel {
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var startGeneration = UUID()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshPending = false
-    @ObservationIgnored private var refreshRequestID = UUID()
+    private enum Inventory: Hashable { case projects, sessions, tabs }
+    @ObservationIgnored private var refreshPending: Set<Inventory> = []
+    @ObservationIgnored private var inventoryGenerations: [Inventory: UUID] = [:]
+    @ObservationIgnored private var eventRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingRefreshEvents: [ServerEvent] = []
     @ObservationIgnored private var started = false
 
     public convenience init() { self.init(creationFactory: NativeCreationFlowFactory(), welcomeStore: UserDefaultsWelcomeStore()) }
@@ -1191,8 +1194,9 @@ public final class AppViewModel {
     }
 
     public func refresh() {
-        refreshRequestID = UUID()
+        pendingRefreshEvents.removeAll()
         shell.refresh()
+        shell.refreshUsage()
         dashboard?.refresh()
         if coordinator.activityVisible { logs?.refresh() }
         if case .project(let id) = selection, let model = projectModels[id], model.section == .board {
@@ -1201,26 +1205,34 @@ public final class AppViewModel {
         if case .project(let id) = selection, let model = projectModels[id], model.section == .tickets {
             model.tickets?.refresh()
         }
-        refreshPending = true
+        refreshInventory([.projects, .sessions, .tabs])
+    }
+
+    private func refreshInventory(_ inventory: Set<Inventory>) {
+        for item in inventory { inventoryGenerations[item] = UUID() }
+        refreshPending.formUnion(inventory)
         guard refreshTask == nil, let api else { return }
         refreshTask = Task { [weak self] in
             guard let self else { return }
             defer { refreshTask = nil }
-            while refreshPending && !Task.isCancelled {
-                refreshPending = false
-                let requestID = refreshRequestID
+            while !refreshPending.isEmpty && !Task.isCancelled {
+                let inventory = refreshPending
+                refreshPending.removeAll()
+                let generations = inventoryGenerations
                 do {
-                    async let projectRequest: [Project] = api.get(Routes.PROJECTS)
-                    async let sessionRequest: [WorkspaceSession] = api.get(Routes.TASKS)
-                    async let tabRequest: SavedTabs = api.get(Routes.TABS)
+                    async let projectRequest: [Project]? = inventory.contains(.projects) ? api.get(Routes.PROJECTS) : nil
+                    async let sessionRequest: [WorkspaceSession]? = inventory.contains(.sessions) ? api.get(Routes.TASKS) : nil
+                    async let tabRequest: SavedTabs? = inventory.contains(.tabs) ? api.get(Routes.TABS) : nil
                     let (snapshot, sessionSnapshot, tabSnapshot) = try await (projectRequest, sessionRequest, tabRequest)
                     try Task.checkCancellation()
-                    // A save/delete or newer SSE refresh supersedes this batch.
-                    // Do not apply its older inventory or retire newly created models.
-                    guard requestID == refreshRequestID else { refreshPending = true; continue }
-                    if projects != snapshot { projects = snapshot; adoptProjectDestinations() }
-                    for model in coordinator.removeMissingProjects(Set(snapshot.map(\.id))) { retireProject(model) }
-                    if sessions != sessionSnapshot {
+                    // A newer request invalidates only its own inventory. Keep the other
+                    // results, and let the pending set reload only what changed mid-flight.
+                    let current = inventory.filter { generations[$0] == inventoryGenerations[$0] }
+                    if current.contains(.projects), let snapshot {
+                        if projects != snapshot { projects = snapshot; adoptProjectDestinations() }
+                        for model in coordinator.removeMissingProjects(Set(snapshot.map(\.id))) { retireProject(model) }
+                    }
+                    if current.contains(.sessions), let sessionSnapshot, sessions != sessionSnapshot {
                         let retained = Set(sessionSnapshot.map(\.id))
                         for session in sessions where !retained.contains(session.id) {
                             workspaceLaunch.cancel(sessionID: session.id)
@@ -1228,12 +1240,14 @@ public final class AppViewModel {
                         }
                         sessions = sessionSnapshot
                     }
-                    if tabs != tabSnapshot.tabs { tabs = tabSnapshot.tabs }
+                    if current.contains(.tabs), let tabSnapshot, tabs != tabSnapshot.tabs { tabs = tabSnapshot.tabs }
                     restoreSessionTerminals()
                     showSelectedContext()
-                    if case .project(let id) = selection, let model = projectModels[id], model.section == .prs {
+                    if current.contains(.projects), case .project(let id) = selection,
+                       let model = projectModels[id], model.section == .prs {
                         await model.refresh()
                     }
+                    guard refreshPending.isEmpty else { continue }
                     // Only sidebar-backed destinations can go stale: a project, session or tab that
                     // the inventory no longer lists. Settings, Activity and Terminal are reached from
                     // the menu and have no sidebar row, so they must never be bounced to Dashboard.
@@ -1247,6 +1261,50 @@ public final class AppViewModel {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }
                 }
             }
+        }
+    }
+
+    /// Batch staggered project completions without postponing refresh indefinitely during a
+    /// steady stream. Events received during a read get one more batch after that read finishes.
+    private func queueRefresh(_ event: ServerEvent) {
+        if !pendingRefreshEvents.contains(event) { pendingRefreshEvents.append(event) }
+        guard eventRefreshTask == nil else { return }
+        eventRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { eventRefreshTask = nil }
+            while !pendingRefreshEvents.isEmpty && !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(150)) } catch { return }
+                let events = pendingRefreshEvents
+                pendingRefreshEvents.removeAll()
+                await refreshSnapshots(for: events)
+            }
+        }
+    }
+
+    private func refreshSnapshots(for events: [ServerEvent]) async {
+        // Project edits and legacy backends do not distinguish snapshot and inventory changes.
+        if events.contains(where: { $0.type == "reload" || ($0.type == "sync" && !["prs", "usage"].contains($0.scope ?? "")) }) {
+            refresh()
+            return
+        }
+        var inventory: Set<Inventory> = []
+        if events.contains(where: { $0.type == "tabs" }) { inventory.insert(.tabs) }
+        if events.contains(where: { $0.type == "tasks" }) { inventory.insert(.sessions) }
+        if !inventory.isEmpty { refreshInventory(inventory) }
+        let prs = events.filter { $0.type == "sync" && $0.scope == "prs" }
+        if !prs.isEmpty { dashboard?.refresh() }
+        if !prs.isEmpty || events.contains(where: { $0.type == "reviews" }) { shell.refresh() }
+        if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
+        guard case .project(let id) = selection, let model = projectModels[id] else { return }
+        let jira = events.filter { $0.type == "jira-sync" }
+        switch model.section {
+        case .prs:
+            if prs.contains(where: { $0.projectId == nil || $0.projectId == id }) { await model.refresh() }
+        case .tickets:
+            if jira.contains(where: { $0.id == nil || $0.id == id }) { model.tickets?.refresh() }
+        case .board:
+            if jira.contains(where: { $0.id == nil || $0.id == "board:\(id)" }) { model.board?.refresh() }
+        default: break
         }
     }
 
@@ -1314,8 +1372,7 @@ public final class AppViewModel {
         if event.type == "settings" { shell.loadSettings() }
         if event.type == "config" { settings?.refresh() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
-        if event.type == "reviews" { shell.refresh() }
-        if ["sync", "jira-sync", "tabs", "tasks", "reload"].contains(event.type) { refresh() }
+        if ["sync", "jira-sync", "tabs", "tasks", "reviews", "reload"].contains(event.type) { queueRefresh(event) }
     }
 
     /// Marked shown when it goes up, not when it is finished: a welcome that was seen and
@@ -1346,6 +1403,10 @@ public final class AppViewModel {
 
     private func finishStop() async {
         await backendRuntime.stopEvents()
+        eventRefreshTask?.cancel()
+        await eventRefreshTask?.value
+        eventRefreshTask = nil
+        pendingRefreshEvents.removeAll()
         for model in pageWorkflowRuns.values { await model.stop() }
         pageWorkflowRuns.removeAll()
         pageWorkflowTargets.removeAll()
@@ -1357,6 +1418,7 @@ public final class AppViewModel {
         refreshTask?.cancel()
         await refreshTask?.value
         refreshTask = nil
+        refreshPending.removeAll()
         await shell.stop()
         await dashboard?.stop()
         await logs?.stop()

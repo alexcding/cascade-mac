@@ -56,7 +56,7 @@ pub async fn get(State(app): State<AppState>) -> Json<Value> {
             state.fetched = Some(Instant::now());
             state.busy = false;
             drop(state);
-            app.broadcast(json!({"type":"sync"}));
+            app.broadcast(json!({"type":"sync","scope":"usage"}));
         });
     }
     Json(state.value.clone().unwrap_or_else(empty))

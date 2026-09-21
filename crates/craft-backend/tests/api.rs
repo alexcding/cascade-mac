@@ -106,10 +106,11 @@ async fn project_pr_snapshot_refresh_flag_clears_before_completion_event() {
     let (_, initial) = json_request(&app, "GET", &path, Value::Null).await;
     assert_eq!(initial["prs"], json!([]));
     assert_eq!(initial["refreshing"], true);
-    tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(event, json!({"type":"sync","scope":"prs","projectId":id}));
     let (_, completed) = json_request(&app, "GET", &path, Value::Null).await;
     assert_eq!(completed["refreshing"], false);
     assert!(completed["lastSynced"].is_string());

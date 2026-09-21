@@ -203,7 +203,7 @@ import Observation
             while syncPending && !Task.isCancelled {
                 syncPending = false
                 // Explicit successful mutation only; ordinary reads remain snapshot-backed.
-                do { try await service.syncAfterMutation() }
+                do { try await service.syncAfterMutation(projectID: project.id) }
                 catch { if !Task.isCancelled { snapshotError = "Status saved; refresh failed: \(error.localizedDescription)" } }
                 if !Task.isCancelled { refresh() }
             }

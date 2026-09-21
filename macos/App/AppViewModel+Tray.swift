@@ -7,7 +7,7 @@ extension AppViewModel: TrayCoordinating {
     }
     func refreshTray() {
         shell.notifications.refreshAuthorization()
-        refresh(); shell.refreshUsage(); shell.loadSettings()
+        refresh(); shell.loadSettings()
     }
     func acknowledgeTrayReview(_ review: TrayPR) { shell.acknowledge(review) }
     func openTrayReview(_ request: OpenPageRequest) async throws { try await openPage(request) }

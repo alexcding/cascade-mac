@@ -9,6 +9,8 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var cli: String? = nil
     public var sessionId: String? = nil
     public var source: String? = nil
+    /// Snapshot domain; absent on inventory changes and events from older backends.
+    public var scope: String? = nil
 }
 
 // Byte framing preserves empty lines, CRLF and UTF-8 split between network reads.

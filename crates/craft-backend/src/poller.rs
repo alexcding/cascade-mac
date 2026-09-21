@@ -139,7 +139,7 @@ impl Poller {
                 .db
                 .set_pr_snapshot(&id, &json!({"prs":[],"lastSynced":now(),"error":null}));
             self.leave(&key);
-            app.broadcast(json!({"type":"sync","projectId":id}));
+            app.broadcast(json!({"type":"sync","scope":"prs","projectId":id}));
             return;
         }
         let jira_key = project
@@ -224,7 +224,7 @@ impl Poller {
             }
         }
         self.leave(&key);
-        app.broadcast(json!({"type":"sync","projectId":id}));
+        app.broadcast(json!({"type":"sync","scope":"prs","projectId":id}));
     }
 
     pub async fn sync_pr_scope(&self, app: &AppState, project: Value, state: &str) {
@@ -258,7 +258,7 @@ impl Poller {
         }
         let _ = app.db.set_pr_scope_snapshot(&project, state, &snapshot);
         self.leave(&key);
-        app.broadcast(json!({"type":"sync","projectId":id}));
+        app.broadcast(json!({"type":"sync","scope":"prs","projectId":id}));
     }
 
     pub async fn sync_all_jira(&self, app: &AppState) {

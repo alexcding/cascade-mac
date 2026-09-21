@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::LazyLock, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
@@ -402,11 +402,12 @@ fn summarize_ci(value: Option<&Value>) -> Value {
 }
 
 pub(crate) fn jira_keys(title: &str, body: &str, project: &str) -> Vec<String> {
-    let code = Regex::new(r"(?s)```.*?```|~~~.*?~~~|`[^`]*`").unwrap();
+    static CODE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)```.*?```|~~~.*?~~~|`[^`]*`").unwrap());
+    let code = &*CODE;
     let body = code.replace_all(body, " ");
     let title = code.replace_all(title, " ");
-    let link = Regex::new(r"(?i)/browse/([A-Za-z][A-Za-z0-9]+-\d+)\b").unwrap();
-    let plain = Regex::new(r"(?i)\b([A-Za-z][A-Za-z0-9]+-\d+)\b").unwrap();
+    static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)/browse/([A-Za-z][A-Za-z0-9]+-\d+)\b").unwrap());
+    static PLAIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\b([A-Za-z][A-Za-z0-9]+-\d+)\b").unwrap());
     let prefix = project.to_ascii_uppercase();
     let extract = |source: &str, regex: &Regex| {
         let mut keys = Vec::new();
@@ -419,9 +420,9 @@ pub(crate) fn jira_keys(title: &str, body: &str, project: &str) -> Vec<String> {
         }
         keys
     };
-    let linked = extract(&body, &link);
+    let linked = extract(&body, &LINK);
     if linked.is_empty() {
-        extract(&title, &plain)
+        extract(&title, &PLAIN)
     } else {
         linked
     }

@@ -91,7 +91,6 @@ public enum Routes {
     public static let DB = "/api/db"
     public static let STREAM = "/api/stream"
     public static let FORWARDERS = "/api/forwarders"
-    public static let POLL = "/api/poll"
     public static let WEBHOOK_GITHUB = "/webhook/github"
     public static let CLI_TOOLS = "/api/cli-tools"
     public static let AGENT_HOOKS = "/api/agent-hooks"

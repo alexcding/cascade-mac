@@ -42,7 +42,8 @@ actor JiraFixture: JiraService {
         try await Task.sleep(for: .milliseconds(60))
         return ["ticket_filter_p": #"{"project":"OTHER"}"#]
     }
-    func syncAfterMutation() {}
+    var syncedProjects: [String] = []
+    func syncAfterMutation(projectID: String) { syncedProjects.append(projectID) }
     func saveFilters(_ filters: String, projectID: String) async throws {
         try await Task.sleep(for: .milliseconds(20))
         if fails { throw BackendError.operation("Preferences offline") }

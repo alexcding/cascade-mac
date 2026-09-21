@@ -54,7 +54,7 @@ protocol JiraService: Sendable {
     func site() async throws -> JiraSite
     func search(jql: String) async throws -> JiraSnapshot
     func transition(key: String, status: String) async throws
-    func syncAfterMutation() async throws
+    func syncAfterMutation(projectID: String) async throws
     func settings() async throws -> [String: String]
     func saveFilters(_ filters: String, projectID: String) async throws
 }
@@ -69,8 +69,10 @@ struct APIJiraService: JiraService {
     func transition(key: String, status: String) async throws {
         let _: OperationOK = try await api.request(Routes.jiraKeyTransition(key), method: "POST", body: ["transition": status])
     }
-    func syncAfterMutation() async throws {
-        let _: OperationOK = try await api.request(Routes.POLL, method: "POST", body: [String: String]())
+    func syncAfterMutation(projectID: String) async throws {
+        async let tickets: JiraSnapshot = api.get(APIClient.query(Routes.projectJira(projectID), ["refresh": "1"]), timeout: 130)
+        async let board: BoardSnapshot = api.get(APIClient.query(Routes.projectBoard(projectID), ["refresh": "1"]), timeout: 130)
+        _ = try await (tickets, board)
     }
     func settings() async throws -> [String: String] { try await api.get(Routes.SETTINGS) }
     func saveFilters(_ filters: String, projectID: String) async throws {
