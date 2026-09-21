@@ -89,8 +89,6 @@ private struct SidebarPinnedTabTile: View {
         .accessibilityLabel(tab.title)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .contextMenu {
-            Button("Copy Link") { SidebarLinkActions.copy(tab.url) }
-            Divider()
             Button("Unpin Tab", action: unpin)
             Button("Close Tab", action: close)
         }

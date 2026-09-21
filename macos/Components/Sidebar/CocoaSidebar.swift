@@ -440,8 +440,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 }
                 add("Reveal in Finder", action: #selector(reveal(_:)))
             } else if case .tab = destination {
-                add("Copy Link", action: #selector(copyDetail(_:)))
-                menu.addItem(.separator())
                 add("Pin Tab", action: #selector(pinTab(_:)))
                 add("Close Tab", action: #selector(closeTab(_:)))
             }
@@ -479,19 +477,6 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let node = sender.representedObject as? Node else { return }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.entry.detail)])
         }
-        @objc private func copyDetail(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node else { return }
-            SidebarLinkActions.copy(node.entry.detail)
-        }
-    }
-}
-
-/// The link actions a tab row and a pinned tile share, so their menus cannot drift. Pages
-/// open only inside Craft's own browser; there is no hand-off to the system browser.
-@MainActor enum SidebarLinkActions {
-    static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
