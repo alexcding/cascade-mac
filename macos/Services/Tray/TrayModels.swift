@@ -86,7 +86,10 @@ struct UsageSnapshot: Decodable, Equatable, Sendable {
         let label: String?
         var remaining: Double { max(0, min(100, 100 - usedPct)) }
         func paceRemaining(duration: TimeInterval, now: Date) -> Double? {
-            guard duration > 0, let resetsAt, let reset = backendTimestamp(resetsAt) else { return nil }
+            // A reset further off than the window is long means the window is not the length assumed
+            // (Codex reports its weekly allowance as "session"), so there is no honest pace to draw.
+            guard duration > 0, let resetsAt, let reset = backendTimestamp(resetsAt),
+                  reset.timeIntervalSince(now) <= duration else { return nil }
             return max(0, min(100, reset.timeIntervalSince(now) / duration * 100))
         }
     }

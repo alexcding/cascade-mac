@@ -151,6 +151,8 @@ import Observation
     }
 
     func navigate(to destination: SidebarDestination) {
+        // Picking Overview always lands on the Dashboard's home, never on a My Tickets left pushed.
+        if destination == .overview { dashboardCoordinator?.leaveTickets() }
         if selection != destination {
             projectCoordinator?.endPresentation(); dashboardCoordinator?.model.cancelActions()
         }
@@ -166,6 +168,10 @@ import Observation
         switch route {
         case .destination(let destination): navigate(to: destination)
         case .projectSection: projectCoordinator?.navigate(to: route)
+        case .dashboardTickets:
+            navigate(to: SidebarDestination.overview)
+            // Through the model, like View All, so the list opens on every ticket, not a stale tag.
+            dashboardCoordinator?.model.showTickets()
         }
     }
 

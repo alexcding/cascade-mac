@@ -12,6 +12,7 @@ enum Destination: Hashable {
     // MARK: Screen destinations (view models)
 
     case dashboard(DashboardViewModel, ShellStore)
+    case dashboardTickets(DashboardViewModel)
     case logs(LogsViewModel)
     case project(ProjectPageViewModel)
     case sessionWorkspace(SessionWorkspaceViewModel, WorkspaceContext)
@@ -56,6 +57,8 @@ extension Destination {
         // Screens
         case .dashboard(let viewModel, let shell):
             DashboardView(model: viewModel, shell: shell)
+        case .dashboardTickets(let viewModel):
+            DashboardTicketsView(model: viewModel)
         case .logs(let viewModel):
             LogsView(model: viewModel)
         case .project(let viewModel):

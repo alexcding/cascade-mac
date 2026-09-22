@@ -61,6 +61,8 @@ private actor ReviewSnapshotService: ShellDataServing {
     #expect(half.paceRemaining(duration: 5 * 3600, now: now) == 50)
     #expect(half.paceRemaining(duration: 5 * 3600, now: now.addingTimeInterval(86400)) == 0)
     #expect(limit.paceRemaining(duration: 5 * 3600, now: now) == nil)
+    let weekLong = UsageSnapshot.Window(usedPct: 17, resetsAt: "2026-09-17T04:00:00Z", label: nil)
+    #expect(weekLong.paceRemaining(duration: 5 * 3600, now: now) == nil)
 }
 
 private actor TodayLogService: LogService {

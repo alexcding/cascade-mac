@@ -547,7 +547,7 @@ final class CraftUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
         app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
-        XCTAssertTrue(app.staticTexts["Pull requests"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 10), app.debugDescription)
         app.activate()
         func emitActivity() async throws {
             var request = URLRequest(url: URL(string: base + "/fixture/activity-notification")!)
@@ -567,7 +567,7 @@ final class CraftUITests: XCTestCase {
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
         app.buttons["Dismiss activity"].click()
         XCTAssertFalse(toast.exists)
-        XCTAssertTrue(app.staticTexts["Pull requests"].exists)
+        XCTAssertTrue(app.staticTexts["My pull requests"].exists)
     }
 
     @MainActor
@@ -1364,7 +1364,7 @@ final class CraftUITests: XCTestCase {
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 5))
         app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
-        XCTAssertTrue(app.staticTexts["Pull requests"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Reconnect"].waitForExistence(timeout: 15))
     }
 
@@ -1447,7 +1447,7 @@ final class CraftUITests: XCTestCase {
         XCTAssertFalse(app.menuItems["Check for Updates…"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("1", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["Pull requests"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 5))
         app.typeKey("q", modifierFlags: .command)
         let stopped = expectation(for: NSPredicate(format: "state == %d", XCUIApplication.State.notRunning.rawValue), evaluatedWith: app)
         wait(for: [stopped], timeout: 10)

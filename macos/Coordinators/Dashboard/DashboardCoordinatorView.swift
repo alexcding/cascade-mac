@@ -1,29 +1,27 @@
 import SwiftUI
 
-/// Hosts the dashboard and owns its toolbar: the page title and the usage agent picker.
+/// Hosts the dashboard and owns its toolbar: the page title, with the dashboard's own
+/// `.searchable` field filling the trailing side. My Tickets pushes over the home screen and
+/// takes the title, with a back button to return.
 struct DashboardCoordinatorView: View {
     @Bindable var coordinator: DashboardCoordinator
 
     var body: some View {
-        coordinator.root.view()
+        let pushed = coordinator.path.last
+        (pushed ?? coordinator.root).view()
             .padding(.horizontal, 28).padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
-                PageTitleToolbarItem(title: "Dashboard")
+                if pushed != nil {
+                    ToolbarItem(placement: .navigation) {
+                        Button { coordinator.model.closeTickets() } label: { Image(systemName: "chevron.left") }
+                            .help("Back to Dashboard").accessibilityLabel("Back to Dashboard")
+                            .accessibilityIdentifier("dashboard-back")
+                            .keyboardShortcut("[", modifiers: .command)
+                    }
+                }
+                PageTitleToolbarItem(title: pushed == nil ? "Dashboard" : "My Tickets")
                 if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
-                ToolbarItem(placement: .primaryAction) { usageAgentPicker }
             }
-    }
-
-    /// Usage agent: a plain native segmented control.
-    private var usageAgentPicker: some View {
-        Picker("Usage agent", selection: Binding(get: { coordinator.shell.usageAgent }, set: coordinator.shell.setUsageAgent)) {
-            ForEach(Theme.usageAgents, id: \.key) { agent in Text(agent.title).tag(agent.key) }
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .fixedSize()
-        .help("Usage agent")
-        .accessibilityIdentifier("dashboard-agent")
     }
 }

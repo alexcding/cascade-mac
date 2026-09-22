@@ -8,4 +8,6 @@ enum Route: Hashable {
     case destination(SidebarDestination)
     /// A section inside the selected project, consumed by `ProjectCoordinator`.
     case projectSection(ProjectSection)
+    /// The Dashboard's full ticket list, pushed over its home screen.
+    case dashboardTickets
 }

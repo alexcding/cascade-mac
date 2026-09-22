@@ -448,10 +448,30 @@ pub async fn whoami() -> ApiResult<Value> {
     Ok(Json(json!({"name":crate::github::user_name().await})))
 }
 
-pub async fn poll(State(app): State<AppState>) -> ApiResult<Value> {
-    app.poller.sync_all(&app).await;
-    app.poller.sync_all_jira(&app).await;
+#[derive(Default, Deserialize)]
+pub struct PollQuery {
+    scope: Option<String>,
+}
+
+pub async fn poll(
+    State(app): State<AppState>,
+    Query(query): Query<PollQuery>,
+) -> ApiResult<Value> {
+    let (prs, jira) = poll_targets(query.scope.as_deref());
+    if prs {
+        app.poller.sync_all(&app).await;
+    }
+    if jira {
+        app.poller.sync_all_jira(&app).await;
+    }
     Ok(Json(json!({"ok":true})))
+}
+
+/// Which syncs a poll runs, as (pull requests, Jira): `prs` or `jira` narrows it to one, and no
+/// scope (or any other value) runs both, as a poll always did.
+fn poll_targets(scope: Option<&str>) -> (bool, bool) {
+    let scope = scope.unwrap_or_default();
+    (scope != "jira", scope != "prs")
 }
 
 pub async fn project_jira(
@@ -935,4 +955,17 @@ fn truncate(value: &str, max: usize) -> String {
 }
 fn empty_pr_snapshot() -> Value {
     json!({"prs":[],"lastSynced":null,"error":null})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::poll_targets;
+
+    #[test]
+    fn poll_scope_narrows_to_one_sync_and_defaults_to_both() {
+        assert_eq!(poll_targets(Some("prs")), (true, false));
+        assert_eq!(poll_targets(Some("jira")), (false, true));
+        assert_eq!(poll_targets(None), (true, true));
+        assert_eq!(poll_targets(Some("")), (true, true));
+    }
 }

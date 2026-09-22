@@ -2,17 +2,21 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class DashboardViewModel {
-    enum Action: Equatable { case open(String, inTab: Bool), session(String, agent: SessionAgent?), openTicket(String, inTab: Bool), ticketSession(String, agent: SessionAgent?) }
+    enum Action: Equatable { case open(String, inTab: Bool), session(String, agent: SessionAgent?), openTicket(String, inTab: Bool), ticketSession(String, agent: SessionAgent?), showTickets, closeTickets }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
     private(set) var projects: [DashboardProject] = []
     @ObservationIgnored var snapshotChanged: () -> Void = {}
     private(set) var loading = false
+    /// A forced GitHub sync, apart from `loading`: a snapshot read finishing mid-sync must not
+    /// re-enable the refresh button while the sync still runs.
+    private(set) var syncing = false
     private(set) var updated: Date?
     private(set) var error: String?
     @ObservationIgnored private var service: (any DashboardService)?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
     @ObservationIgnored private var connectionGeneration = UUID()
 
@@ -33,48 +37,92 @@ import Observation
     /// The Jira section. `ticketsAvailable` is false until the service offers tickets at all.
     private(set) var tickets: [DashboardTicketRow] = []
     private(set) var ticketsError: String?
+    private(set) var ticketsLoading = false
     var ticketsAvailable: Bool { service is DashboardTicketService }
     @ObservationIgnored private var ticketTask: Task<Void, Never>?
 
-    /// The dashboard's filter bar. The segments are pull-request shaped, so anything but `all`
-    /// hides the Jira section rather than pretending a ticket can have failing checks.
-    enum Filter: String, CaseIterable, Identifiable {
-        case all, failing
-        var id: String { rawValue }
+    var query = ""
+    private var needle: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var filtering: Bool { !needle.isEmpty }
+
+    private func searchMatches(_ row: DashboardRow) -> Bool {
+        needle.isEmpty || row.searchText.localizedCaseInsensitiveContains(needle)
+    }
+    private func searchMatches(_ row: DashboardTicketRow) -> Bool {
+        let needle = needle
+        return needle.isEmpty || row.ticket.key.localizedCaseInsensitiveContains(needle)
+            || row.title.localizedCaseInsensitiveContains(needle)
+    }
+
+    var visibleMine: [DashboardRow] { mine.filter(searchMatches) }
+    var visibleReviews: [DashboardRow] { reviews.filter(searchMatches) }
+    var visibleTickets: [DashboardTicketRow] { tickets.filter(searchMatches) }
+    func clearFilter() { guard !retired else { return }; query = "" }
+
+    /// The My Tickets screen's tags: every ticket, one workflow stage, or the urgent ones.
+    enum TicketFilter: Hashable, Identifiable {
+        case all, stage(TicketStage), urgent
+        static let allCases: [TicketFilter] = [.all] + TicketStage.allCases.map(TicketFilter.stage) + [.urgent]
+        var id: String {
+            switch self {
+            case .all: return "all"
+            case .stage(let stage): return stage.rawValue
+            case .urgent: return "urgent"
+            }
+        }
         var title: String {
             switch self {
             case .all: return "All"
-            case .failing: return "Failing"
+            case .stage(let stage): return stage.title
+            case .urgent: return "Urgent"
+            }
+        }
+        func matches(_ row: DashboardTicketRow) -> Bool {
+            switch self {
+            case .all: return true
+            case .stage(let stage): return row.stage == stage
+            case .urgent: return row.urgent
             }
         }
     }
-    var query = ""
-    var filter: Filter = .all
-    private var needle: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var filtering: Bool { filter != .all || !needle.isEmpty }
-
-    private func matches(_ row: DashboardRow) -> Bool {
-        let needle = needle
-        if !needle.isEmpty, !row.searchText.localizedCaseInsensitiveContains(needle) { return false }
-        switch filter {
-        case .all: return true
-        case .failing: return row.checks == .failing
-        }
+    var ticketFilter: TicketFilter = .all
+    /// The My Tickets screen's rows from the searched tickets: the tag, then urgent first, each
+    /// half in Jira's own order.
+    func screenTickets(from rows: [DashboardTicketRow]) -> [DashboardTicketRow] {
+        let tagged = rows.filter(ticketFilter.matches)
+        return tagged.filter(\.urgent) + tagged.filter { !$0.urgent }
     }
-    var visibleMine: [DashboardRow] { mine.filter(matches) }
-    var visibleReviews: [DashboardRow] { reviews.filter(matches) }
-    var visibleTickets: [DashboardTicketRow] {
-        guard filter == .all else { return [] }
-        let needle = needle
-        guard !needle.isEmpty else { return tickets }
-        return tickets.filter {
-            $0.ticket.key.localizedCaseInsensitiveContains(needle) || $0.title.localizedCaseInsensitiveContains(needle)
+    /// The home screen's short list, in `attentionRank` order and each group in Jira's own order.
+    /// A ticket being worked on is left out once one of the listed pull requests names it: the
+    /// pull request's row already stands for that work. Nothing else is padded in.
+    func attentionTickets(from rows: [DashboardTicketRow], limit: Int) -> [DashboardTicketRow] {
+        let linked = linkedPRs
+        let ranked = rows.enumerated().compactMap { offset, row -> (rank: Int, offset: Int, row: DashboardTicketRow)? in
+            guard let rank = row.attentionRank, !(rank == 2 && linked[row.ticket.key] != nil) else { return nil }
+            return (rank, offset, row)
         }
+        return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
     }
-    func clearFilter() { guard !retired else { return }; query = ""; filter = .all }
+    /// Each My Tickets tag's count over the searched tickets, in one pass.
+    func ticketCounts(of rows: [DashboardTicketRow]) -> [DashboardViewModel.TicketFilter: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: TicketFilter.allCases.map { ($0, 0) })
+        for row in rows {
+            counts[.all, default: 0] += 1
+            counts[.stage(row.stage), default: 0] += 1
+            if row.urgent { counts[.urgent, default: 0] += 1 }
+        }
+        return counts
+    }
+    func showTickets(_ filter: TicketFilter = .all) {
+        guard !retired else { return }
+        ticketFilter = filter
+        onAction(.showTickets)
+    }
+    func closeTickets() { if !retired { onAction(.closeTickets) } }
 
-    /// Every Jira key a shown pull request references, against that pull request's number. The
-    /// Jira section's Pull Request column reads it; the lowest number wins when two PRs name one
+    /// Every Jira key a shown pull request references, against that pull request's number. My
+    /// Tickets' Pull Request column reads it, and the home list uses it to skip tickets whose pull
+    /// request is already shown; the lowest number wins when two PRs name one
     /// ticket, so the column does not flip between them as the snapshot reorders.
     var linkedPRs: [String: String] {
         var value: [String: Int] = [:]
@@ -137,13 +185,31 @@ import Observation
         }
     }
 
+    func syncPRs() {
+        guard !retired, let service, syncTask == nil else { return }
+        let generation = connectionGeneration
+        syncing = true
+        syncTask = Task {
+            defer { if connectionGeneration == generation { syncTask = nil; syncing = false } }
+            do {
+                try await service.syncPRs()
+                try Task.checkCancellation()
+                guard !retired, connectionGeneration == generation else { return }
+                try await load(from: service, generation: generation)
+            } catch {
+                if !Task.isCancelled && connectionGeneration == generation { self.error = error.localizedDescription }
+            }
+        }
+    }
+
     /// Tickets load apart from the PR snapshot: a GitHub sync must not re-query Jira, and Jira
     /// can be slow or unconfigured without holding the PR sections back.
     func refreshTickets() {
         guard !retired, let service = service as? DashboardTicketService, ticketTask == nil else { return }
         let generation = connectionGeneration
+        ticketsLoading = true
         ticketTask = Task {
-            defer { if connectionGeneration == generation { ticketTask = nil } }
+            defer { if connectionGeneration == generation { ticketTask = nil; ticketsLoading = false } }
             do {
                 let tickets = try await service.myTickets()
                 try Task.checkCancellation()
@@ -188,20 +254,23 @@ import Observation
             if let row = tickets.first(where: { $0.id == id }) { navigation.open(Self.tabRequest(row.openPageRequest, inTab: inTab)) }
         case .ticketSession(let id, let agent):
             if let row = tickets.first(where: { $0.id == id }) { navigation.open(Self.sessionRequest(row, agent: agent)) }
+        case .showTickets, .closeTickets:
+            break
         }
     }
     func cancelActions() { navigation.cancel() }
     private func cancelRefresh() {
         connectionGeneration = UUID(); refreshTask?.cancel(); refreshTask = nil; refreshPending = false; loading = false
-        ticketTask?.cancel(); ticketTask = nil
+        syncTask?.cancel(); syncTask = nil; syncing = false
+        ticketTask?.cancel(); ticketTask = nil; ticketsLoading = false
     }
     func retire() {
         retired = true; onAction = { _ in }; snapshotChanged = {}; service = nil
         cancelActions(); cancelRefresh()
     }
     func stop() async {
-        let pending = refreshTask, pendingTickets = ticketTask
+        let pending = refreshTask, pendingTickets = ticketTask, pendingSync = syncTask
         cancelActions(); cancelRefresh(); service = nil
-        await pending?.value; await pendingTickets?.value
+        await pending?.value; await pendingTickets?.value; await pendingSync?.value
     }
 }

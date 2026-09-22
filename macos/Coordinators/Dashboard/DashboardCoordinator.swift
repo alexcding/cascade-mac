@@ -26,13 +26,27 @@ import Observation
         root = .dashboard(model, shell)
         model.onAction = { [weak self] in self?.handle($0) }
     }
-    func makeDestination(for route: Route) -> Destination { .none }
+    func makeDestination(for route: Route) -> Destination {
+        if case .dashboardTickets = route { return .dashboardTickets(model) }
+        return .none
+    }
     func handle(_ action: Action) {
         if case .dashboard(let action) = action { handle(action) } else { self.action?(action) }
     }
     func handle(_ action: DashboardViewModel.Action) {
         guard !retired, isOwned(), canPresent() else { return }
-        model.perform(action)
+        switch action {
+        case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
+        case .closeTickets: leaveTickets()
+        default: model.perform(action)
+        }
+    }
+    /// Back to the home screen, dropping the search typed on My Tickets: the two screens share one
+    /// query, and a ticket key left in it would read as "None match" over the pull requests.
+    func leaveTickets() {
+        guard !path.isEmpty else { return }
+        popToRoot()
+        model.clearFilter()
     }
     func retire() { retired = true; isOwned = { false }; canPresent = { false }; model.retire() }
 }

@@ -1,59 +1,61 @@
 import Foundation
 import SwiftUI
 
+/// The Dashboard's home: the day's headline numbers, each agent's quota and spend as the tray draws
+/// them, the user's pull requests by age, and a summary of their Jira tickets that leads through to the full list.
 struct DashboardView: View {
     @Bindable var model: DashboardViewModel
     let shell: ShellStore
+    /// How many tickets the home screen lists before View All takes over.
+    static let ticketPreview = 5
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                hero.padding(.top, 8).padding(.bottom, 30)
+                hero.padding(.top, 12).padding(.bottom, 28)
                 if let error = model.error { warning(error, retry: true) }
                 if let error = model.navigation.error { warning(error) }
                 ForEach(Array(model.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
                 if model.updated == nil {
                     Text(model.loading ? "Loading pull requests…" : "Connect to load pull requests.").foregroundStyle(.secondary)
-                } else if model.projects.isEmpty {
-                    noProjects
                 } else {
-                    filterBar.padding(.bottom, 24)
-                    results
+                    summary.padding(.bottom, 48)
+                    // Each list is filtered and sorted once here and passed down.
+                    let mine = model.visibleMine.sorted { $0.sortDate < $1.sortDate }
+                    let reviews = model.visibleReviews.sorted { $0.sortDate < $1.sortDate }
+                    let tickets = model.visibleTickets
+                    if model.filtering && mine.isEmpty && reviews.isEmpty && tickets.isEmpty {
+                        noMatches
+                    } else {
+                        let attention = model.attentionTickets(from: tickets, limit: Self.ticketPreview)
+                        VStack(alignment: .leading, spacing: 52) {
+                            myPullRequests(mine)
+                            if !reviews.isEmpty { reviewRequests(reviews) }
+                            ticketSummary(tickets, attention: attention)
+                        }
+                    }
                 }
-            }.padding(.bottom, 28)
+            }
+            .padding(.bottom, 40).padding(.trailing, 16)
         }
         .accessibilityIdentifier("native-dashboard")
+        .searchable(text: $model.query, placement: .toolbar,
+                    prompt: "Search pull requests and tickets")
         .task { await shell.watchUsage() }
         .onDisappear(perform: model.cancelActions)
     }
 
-    private var noProjects: some View {
-        VStack(spacing: 5) {
-            Image(systemName: "folder").imageScale(.large).foregroundStyle(Theme.textSecondary)
-                .frame(width: 44, height: 44)
-                .background(Theme.surfaceHover, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
-                .padding(.bottom, 9)
-                .accessibilityHidden(true)
-            Text("No projects yet").font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
-            Text("Add one with New Project in the sidebar to track its pull requests.")
-                .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary).multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: 260)
-        .frame(maxWidth: .infinity)
-        .padding(.top, 72)
-    }
+    // MARK: Header
 
+    /// The greeting leads, with the date as one quiet line under it.
     private var hero: some View {
-        HStack(alignment: .bottom, spacing: 32) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                    .font(.system(size: 11.5, weight: .semibold)).tracking(1).textCase(.uppercase).foregroundStyle(.tertiary)
-                Text(greeting).font(.system(size: 30, weight: .semibold)).tracking(-0.7)
-            }
-            Spacer(minLength: 16)
-            DashboardUsageFigures(shell: shell).layoutPriority(1)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(greeting).font(.system(size: 26, weight: .semibold)).tracking(-0.5)
+            Text(Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var greeting: String {
@@ -62,133 +64,187 @@ struct DashboardView: View {
         return NSFullUserName().split(separator: " ").first.map { "\(value), \($0)" } ?? value
     }
 
-    /// Search plus the two segments. The segments read as underlined tabs rather than a filled
-    /// control, so the surface keeps a single background.
-    private var filterBar: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            searchField.frame(maxWidth: 340)
-            HStack(spacing: 16) {
-                ForEach(DashboardViewModel.Filter.allCases) { value in filterTab(value) }
+    // MARK: Summary
+
+    /// One row of chips: the work counts, then each agent's session. Urgent opens My Tickets on
+    /// its tag; an agent chip opens the tray's usage panel. A line of context sits under the row.
+    private var summary: some View {
+        let mine = model.mine, reviews = model.reviews
+        let failing = mine.filter { $0.checks == .failing }.count
+        let drafts = mine.filter { $0.pr.isDraft == true }.count
+        let approved = mine.filter { $0.pr.reviewDecision == "APPROVED" }.count
+        // Counts, like the pull request chips beside them, ignore the search.
+        let tickets = model.tickets
+        let urgent = tickets.filter(\.urgent).count
+        let month = [shell.usage?.claude, shell.usage?.codex].compactMap { $0?.history }.flatMap { $0 }.reduce(0) { $0 + $1.cost }
+        var context = ["\(drafts) draft\(drafts == 1 ? "" : "s"), \(approved == 0 ? "none" : "\(approved)") approved"]
+        if model.ticketsAvailable && !(model.ticketsLoading && tickets.isEmpty) {
+            context.append("\(urgent) urgent of \(tickets.count) tickets")
+        }
+        if month > 0 { context.append("\(UsageStats.money(month, whole: true)) of AI over 30 days") }
+        return VStack(alignment: .leading, spacing: 14) {
+            FlowRow(spacing: 10, lineSpacing: 10) {
+                countChip(mine.count, "Open", symbol: "arrow.triangle.pull", tint: .secondary, interactive: false)
+                countChip(failing, "Failing", symbol: "xmark.circle.fill", tint: Theme.danger, emphasis: failing > 0, interactive: false)
+                countChip(reviews.count, "To review", symbol: "eye", tint: .secondary, interactive: false)
+                if model.ticketsAvailable {
+                    Button { model.showTickets(.urgent) } label: {
+                        countChip(urgent, "Urgent", symbol: "exclamationmark.triangle.fill", tint: .orange)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show urgent tickets")
+                    .accessibilityIdentifier("dashboard-urgent-tickets")
+                }
+                if DashboardUsageChips.loading(shell) || !DashboardUsageChips.plans(shell.usage).isEmpty {
+                    Rectangle().fill(DashboardPalette.buttonBorder).frame(width: 1, height: 24).padding(.horizontal, 6)
+                        .frame(height: 40)
+                    DashboardUsageChips(shell: shell)
+                }
             }
-            Spacer(minLength: 8)
-            if let updated = model.updated { syncedLabel(updated) }
+            Text(context.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                .monospacedDigit().padding(.leading, 4)
         }
     }
 
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.textTertiary).accessibilityHidden(true)
-            TextField("Filter by title, repo, branch or key", text: $model.query)
-                .textFieldStyle(.plain).font(.system(size: 12.5))
-                .accessibilityIdentifier("dashboard-filter")
-            if !model.query.isEmpty {
-                Button(action: model.clearFilter) {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 11))
-                }.buttonStyle(.plain).foregroundStyle(Theme.textTertiary).accessibilityLabel("Clear filter")
-            }
+    private func countChip(_ value: Int, _ title: String, symbol: String, tint: Color, emphasis: Bool = false,
+                           interactive: Bool = true) -> some View {
+        DashboardChip(interactive: interactive) {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
+            Text("\(value)").font(.system(size: 15, weight: .bold).monospacedDigit())
+                .foregroundStyle(emphasis ? DashboardPalette.criticalText : Color.primary)
+            Text(title).font(.system(size: 13, weight: .medium))
         }
-        .padding(.horizontal, 9).frame(height: 28)
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
+        .accessibilityElement(children: .combine)
     }
 
-    private func filterTab(_ value: DashboardViewModel.Filter) -> some View {
-        let active = model.filter == value
-        return Button { model.filter = value } label: {
-            Text(value.title)
-                .font(.system(size: 12.5, weight: active ? .semibold : .medium))
-                .foregroundStyle(active ? Color.primary : Theme.textSecondary)
-                .padding(.bottom, 5)
-                .overlay(alignment: .bottom) { Rectangle().fill(active ? Color.primary : .clear).frame(height: 2) }
+    // MARK: Pull requests
+
+    /// Yours oldest first, each ending in its draft state and age as quiet text. The refresh here
+    /// syncs every pull request, review requests included.
+    private func myPullRequests(_ rows: [DashboardRow]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DashboardSectionHeader(title: "My pull requests", detail: "\(rows.count) open",
+                                   refresh: { model.syncPRs() }, busy: model.loading || model.syncing, id: "prs")
+            if model.projects.isEmpty {
+                noProjects
+            } else {
+                if rows.isEmpty {
+                    Text(model.filtering ? "None match the search." : "No open pull requests you authored.")
+                        .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.vertical, 12)
+                }
+                prRows(rows)
+            }
+        }
+    }
+
+    /// Other people's pull requests waiting on the user, as their own section; left out when none are.
+    private func reviewRequests(_ rows: [DashboardRow]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DashboardSectionHeader(title: "Review requested", detail: "\(rows.count) waiting on you")
+            prRows(rows)
+        }
+    }
+
+    private func prRows(_ rows: [DashboardRow]) -> some View {
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+            prRow(row, first: index == 0)
+        }
+    }
+
+    private func prRow(_ row: DashboardRow, first: Bool) -> some View {
+        let mark = model.sessionMark(row)
+        return DashboardPRRow(row: row, mark: mark, opening: model.navigation.opening == row.url.absoluteString,
+                              first: first, open: { model.open(row) })
+            .contextMenu {
+                PageRowMenu(hasSession: mark != nil, open: { model.open(row, inTab: true) },
+                            session: { model.openSession(row, agent: $0) })
+            }
+    }
+
+    private var noProjects: some View {
+        VStack(spacing: 5) {
+            Image(systemName: "folder").imageScale(.large).foregroundStyle(DashboardPalette.ink2)
+                .frame(width: 44, height: 44)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
+                .padding(.bottom, 9)
+                .accessibilityHidden(true)
+            Text("No projects yet").font(.system(size: 13, weight: .semibold)).foregroundStyle(DashboardPalette.ink2)
+            Text("Add one with New Project in the sidebar to track its pull requests.")
+                .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: 260)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: Tickets
+
+    /// Where the tickets stand as My Tickets' stage bar, then the few that need attention. The full
+    /// list lives on My Tickets, one click away.
+    @ViewBuilder private func ticketSummary(_ rows: [DashboardTicketRow], attention: [DashboardTicketRow]) -> some View {
+        if model.ticketsAvailable {
+            VStack(alignment: .leading, spacing: 0) {
+                DashboardSectionHeader(title: "Tickets", detail: "\(rows.count) assigned to you",
+                                       refresh: { model.refreshTickets() }, busy: model.ticketsLoading, id: "tickets")
+                if rows.isEmpty && model.ticketsLoading {
+                    Text("Loading tickets…").font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
+                } else if rows.isEmpty {
+                    Text(model.ticketsError ?? (model.filtering ? "None match the search." : "No tickets assigned to you."))
+                        .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
+                } else {
+                    TicketStageBar(tickets: rows) { model.showTickets(.stage($0)) }
+                        .padding(.top, 2)
+                    Spacer().frame(height: 24)
+                    if attention.isEmpty {
+                        Text("Nothing in progress or urgent.").font(.system(size: 13))
+                            .foregroundStyle(DashboardPalette.ink3).padding(.leading, 8).padding(.vertical, 8)
+                    }
+                    ForEach(Array(attention.enumerated()), id: \.element.id) { index, row in
+                        ticketRow(row, first: index == 0)
+                    }
+                    Button { model.showTickets() } label: {
+                        Text("View all \(rows.count) tickets").font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(DashboardPalette.link)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 14).padding(.leading, 8)
+                    .accessibilityIdentifier("dashboard-view-all-tickets")
+                }
+            }
+        }
+    }
+
+    private func ticketRow(_ row: DashboardTicketRow, first: Bool) -> some View {
+        Button { model.open(row) } label: {
+            HStack(spacing: 10) {
+                TicketPriorityMark(level: row.level)
+                Text(row.ticket.key).font(.system(size: 13.5)).foregroundStyle(DashboardPalette.link)
+                    .frame(width: 104, alignment: .leading)
+                Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.status).font(.system(size: 12)).lineLimit(1).fixedSize()
+                    .foregroundStyle(row.stage == .blocked ? DashboardPalette.criticalText : DashboardPalette.ink3)
+            }
+            .modifier(DashboardHoverRow(first: first))
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("dashboard-filter-\(value.rawValue)")
-        .accessibilityAddTraits(active ? .isSelected : [])
-    }
-
-    private func syncedLabel(_ updated: Date) -> some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            Text("Synced \(Self.age(of: updated, at: context.date)) ago")
-                .font(.system(size: 11.5)).foregroundStyle(Theme.textTertiary).fixedSize()
+        .disabled(model.navigation.opening == row.url.absoluteString)
+        .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
+        .contextMenu {
+            PageRowMenu(hasSession: model.sessionMark(row) != nil, open: { model.open(row, inTab: true) },
+                        session: { model.openSession(row, agent: $0) })
         }
     }
 
-    private static func age(of date: Date, at now: Date) -> String {
-        let seconds = max(0, Int(now.timeIntervalSince(date)))
-        if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3_600 { return "\(seconds / 60)m" }
-        return "\(seconds / 3_600)h"
-    }
-
-    /// The three sections, against the filtered lists. A section with no rows is dropped while a
-    /// filter is on — its own empty line would otherwise read as "you have none", not "none match".
-    /// Empty with no filter set is not the same state: a repository with no open pull requests
-    /// gets the My Pull Requests section's own line, never an offer to clear a filter nobody set.
-    @ViewBuilder private var results: some View {
-        let mine = model.visibleMine, reviews = model.visibleReviews, tickets = model.visibleTickets
-        let ticketError = model.ticketsAvailable && model.ticketsError != nil && !model.filtering
-        if model.filtering && mine.isEmpty && reviews.isEmpty && tickets.isEmpty {
-            noMatches
-        } else {
-            if !mine.isEmpty || !model.filtering {
-                section("GitHub · My Pull Requests", rows: mine, empty: "No open PRs you authored.", kind: .mine)
-            }
-            // Review and Jira sections appear only with rows, so a project without Jira keys adds nothing.
-            if !reviews.isEmpty { section("Review Requested", rows: reviews, empty: nil, kind: .review) }
-            if !tickets.isEmpty || ticketError { ticketSection(tickets) }
-        }
-    }
+    // MARK: States
 
     private var noMatches: some View {
         VStack(spacing: 5) {
-            Text("Nothing matches this filter").font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
-            Button("Clear the filter", action: model.clearFilter).buttonStyle(.link).font(Theme.Typography.emptyHint)
+            Text("Nothing matches the search").font(.system(size: 13, weight: .semibold)).foregroundStyle(DashboardPalette.ink2)
+            Button("Clear the search", action: model.clearFilter).buttonStyle(.link).font(.system(size: 12))
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 48)
-    }
-
-    /// `empty` is shown only by a section that renders with no rows; a gated section passes nil.
-    private func section(_ title: String, rows: [DashboardRow], empty: String?,
-                         kind: DashboardTable.Kind) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader(title, count: rows.count)
-            Divider().padding(.bottom, rows.isEmpty ? 14 : 0)
-            if rows.isEmpty { Text(empty ?? "").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
-            else {
-                DashboardTable(rows: rows, opening: model.navigation.opening,
-                    open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
-                    session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
-                    kind: kind)
-            }
-        }.padding(.bottom, 36)
-    }
-
-    private func ticketSection(_ tickets: [DashboardTicketRow]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("Jira · My Tickets", count: tickets.count)
-            Divider().padding(.bottom, tickets.isEmpty ? 14 : 0)
-            // Shown only with rows or an error, so the only empty state left is the error.
-            if tickets.isEmpty {
-                Text(model.ticketsError ?? "").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
-            } else {
-                DashboardTicketTable(rows: tickets, opening: model.navigation.opening,
-                    open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
-                    session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
-                    linkedPRs: model.linkedPRs)
-            }
-        }.padding(.bottom, 36)
-    }
-
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack(spacing: 9) {
-            Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.2)
-            Text("\(count)").font(.system(size: 11.5, weight: .semibold).monospacedDigit())
-                .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, 7).padding(.vertical, 1.5)
-                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
-        }.padding(.bottom, 10)
+        .padding(.top, 24)
     }
 
     private func warning(_ text: String, retry: Bool = false) -> some View {
@@ -200,182 +256,63 @@ struct DashboardView: View {
     }
 }
 
-/// The usage agent's remaining windows, drawn beside the dashboard greeting.
-struct DashboardUsageFigures: View {
-    let shell: ShellStore
+/// A list row's resting and hover state, as tall as My Tickets' rows: full-width hairlines above
+/// a group's first row and under every row, so each group reads as one ruled list; a square wash
+/// under the pointer that fills the band between the rules.
+private struct DashboardHoverRow: ViewModifier {
+    var first = false
+    @State private var hovering = false
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 8).frame(height: 44)
+            .background(hovering ? Color.primary.opacity(0.04) : .clear)
+            .overlay(alignment: .top) { if first { rule } }
+            .overlay(alignment: .bottom) { rule }
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+
+    private var rule: some View {
+        Rectangle().fill(DashboardPalette.hairline).frame(height: 1).accessibilityHidden(true)
+    }
+}
+
+/// One pull request on the home screen: checks, number, title, the agent working on it, then
+/// its draft state and age as one quiet line of text.
+private struct DashboardPRRow: View {
+    let row: DashboardRow
+    let mark: PageSessionMark?
+    let opening: Bool
+    let first: Bool
+    let open: () -> Void
     var body: some View {
-        let limits = shell.usageAgent == "codex" ? shell.usage?.codexLimits : shell.usage?.limits
-        if shell.usageLoading && limits == nil { ProgressView().controlSize(.small) }
-        else if let limits {
+        Button(action: open) {
             HStack(spacing: 10) {
-                if let session = limits.session { UsageFigure(title: "Session", window: session, tint: tint) }
-                if let weekly = limits.weekly { UsageFigure(title: "Weekly", window: weekly, tint: tint) }
-                ForEach(Array((limits.scoped ?? []).enumerated()), id: \.offset) { _, value in UsageFigure(title: value.label ?? "Model", window: value, tint: tint) }
-            }
-        }
-    }
-    private var tint: Color { Theme.agentTint(shell.usageAgent) }
-}
-
-private struct UsageFigure: View {
-    let title: String; let window: UsageSnapshot.Window; let tint: Color
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            HStack(spacing: 9) {
-                ZStack {
-                    Circle().stroke(tint.opacity(0.2), lineWidth: 2.5)
-                    Circle().trim(from: 0, to: window.remaining / 100)
-                        .stroke(tint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round)).rotationEffect(.degrees(-90))
-                }.frame(width: 20, height: 20)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("\(Int(window.remaining.rounded()))%").font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    Text(resetLabel(now: context.date)).font(.system(size: 10.5, weight: .medium)).foregroundStyle(.tertiary).lineLimit(1).fixedSize()
-                }
-            }.fixedSize().padding(.leading, 11).padding(.trailing, 15).padding(.vertical, 8)
-                .background(.quaternary.opacity(0.38), in: Capsule())
-        }
-    }
-    private func resetLabel(now: Date) -> String {
-        guard let raw = window.resetsAt, let reset = backendTimestamp(raw) else { return title }
-        let minutes = max(0, Int(reset.timeIntervalSince(now) / 60))
-        let value = minutes >= 1_440 ? "\(minutes / 1_440)d \((minutes % 1_440) / 60)h" : minutes >= 60 ? "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m" : "\(minutes)m"
-        return "\(title) · \(value)"
-    }
-}
-
-/// One native table per dashboard section. Sorting is per table; single-clicking the title or
-/// double-clicking a row opens the pull request, and the row menu offers its session.
-struct DashboardTable: View {
-    let rows: [DashboardRow]
-    let opening: String?
-    let open: (DashboardRow) -> Void
-    /// The menu's Open in Tab: a tab behind this screen, never the row's session.
-    let openTab: (DashboardRow) -> Void
-    let session: (DashboardRow, SessionAgent?) -> Void
-    let sessionMark: (DashboardRow) -> PageSessionMark?
-    /// Which of the two pull-request sections this is. Both offer the same columns and open on the
-    /// same four; the section decides only which saved layout the header menu writes to.
-    enum Kind: String { case mine, review }
-    let kind: Kind
-    @State private var sortOrder = [KeyPathComparator(\DashboardRow.sortDate, order: .reverse)]
-    @State private var selection: DashboardRow.ID?
-    /// Which columns are shown, in what order, at what width — right-click the header to change it.
-    /// The two sections keep separate layouts, so hiding Branch on one leaves the other alone.
-    @AppStorage private var columns: TableColumnCustomization<DashboardRow>
-
-    init(rows: [DashboardRow], opening: String?, open: @escaping (DashboardRow) -> Void,
-         openTab: @escaping (DashboardRow) -> Void, session: @escaping (DashboardRow, SessionAgent?) -> Void,
-         sessionMark: @escaping (DashboardRow) -> PageSessionMark?, kind: Kind) {
-        self.rows = rows
-        self.opening = opening
-        self.open = open
-        self.openTab = openTab
-        self.session = session
-        self.sessionMark = sessionMark
-        self.kind = kind
-        _columns = AppStorage(wrappedValue: Self.defaultColumns, "dashboard.columns.\(kind.rawValue)")
-    }
-
-    /// Both sections open on Pull Request, Session, Repository and Age — what a row is triaged by,
-    /// with room left for the title. Tags, Jira, Author and Branch are opt-in through the header's
-    /// right-click menu; eight columns at once leave the title nothing to read in.
-    private static let defaultColumns: TableColumnCustomization<DashboardRow> = {
-        var value = TableColumnCustomization<DashboardRow>()
-        for id in ["tags", "jira", "author", "branch"] { value[visibility: id] = .hidden }
-        return value
-    }()
-    private static let rowHeight: CGFloat = 44
-    private static let headerHeight: CGFloat = 28
-
-    /// Stamp each row with its session's name so the Session column can sort, then order. Live:
-    /// this is recomputed with the body, so starting a session re-sorts with it.
-    private var sorted: [DashboardRow] {
-        rows.map { row in
-            var row = row; row.sessionName = sessionMark(row)?.shortName ?? ""; return row
-        }.sorted(using: sortOrder)
-    }
-    private func row(_ id: DashboardRow.ID?) -> DashboardRow? { rows.first { $0.id == id } }
-
-    var body: some View {
-        Table(sorted, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
-            titleColumn; sessionColumn; tagsColumn; jiraColumn
-            authorColumn; repoColumn; branchColumn; ageColumn
-        }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .environment(\.defaultMinListRowHeight, Self.rowHeight)
-        .scrollDisabled(true)
-        .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
-        .contextMenu(forSelectionType: DashboardRow.ID.self) { ids in
-            if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, open: { openTab(row) }, session: { session(row, $0) })
-            }
-        } primaryAction: { ids in
-            if let row = row(ids.first) { open(row) }
-        }
-    }
-
-
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var titleColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Pull Request", value: \.title) { row in
-            HStack(spacing: 8) {
                 ChecksIcon(row: row)
-                Text(row.number).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(Theme.textTertiary)
-                Button(action: { open(row) }) {
-                    Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
-                }.buttonStyle(.plain).disabled(opening == row.url.absoluteString)
-                    .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-                if let status = row.reviewLabel { OutlinedTag(text: status, tint: Self.reviewTint(status)) }
-            }.frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.number).font(.system(size: 12, weight: .medium).monospacedDigit())
+                    .foregroundStyle(DashboardPalette.ink3).frame(width: 40, alignment: .leading)
+                Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                sessionIcon.frame(width: 16)
+                Text(row.pr.isDraft == true ? "Draft · \(row.ageLabel)" : row.ageLabel)
+                    .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
+                    .fixedSize().frame(minWidth: 30, alignment: .trailing)
+            }
+            .modifier(DashboardHoverRow(first: first))
         }
-        .width(min: 200, ideal: 380)
-        // Resizable and reorderable, but never hideable: it holds the only link out of the row.
-        .disabledCustomizationBehavior(.visibility)
-        .customizationID("title")
-    }
-    /// Which agent is running on the pull request's worktree, or nothing when it has no session.
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var sessionColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Session", value: \.sessionName) { row in SessionCell(mark: sessionMark(row)) }
-            .width(min: 72, ideal: 92, max: 180)
-            .customizationID("session")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var tagsColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Tags", value: \.sortTags) { row in TagList(tags: row.tags) }
-            .width(min: 80, ideal: 150, max: 340)
-            .customizationID("tags")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var jiraColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Jira", value: \.sortJira) { row in
-            Text((row.pr.jiraKeys ?? []).prefix(2).joined(separator: " "))
-                .font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.accent).lineLimit(1)
-        }.width(min: 72, ideal: 92, max: 200).customizationID("jira")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var authorColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Author", value: \.author) { row in
-            Text(row.author).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-        }.width(min: 72, ideal: 92, max: 200).customizationID("author")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var repoColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Repository", value: \.sortRepo) { row in
-            Text(row.sortRepo).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-        }.width(min: 90, ideal: 118, max: 260).customizationID("repo")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var branchColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Branch", value: \.sortBranch) { row in
-            Text(row.sortBranch).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.textSecondary).lineLimit(1).truncationMode(.middle)
-        }.width(min: 100, ideal: 150, max: 340).customizationID("branch")
-    }
-    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var ageColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
-        TableColumn("Age", value: \.sortAge) { row in
-            Text(row.ageLabel).font(.system(size: 12).monospacedDigit()).foregroundStyle(Theme.textSecondary)
-                .help(row.dateLabel ?? "")
-        }.width(min: 46, ideal: 56, max: 110).customizationID("age")
+        .buttonStyle(.plain)
+        .disabled(opening)
+        .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
+        .help(row.detail)
     }
 
-    static func reviewTint(_ status: String) -> Color {
-        switch status {
-        case "Approved": return Theme.success
-        case "Draft": return Theme.textTertiary
-        default: return Theme.warn
+    @ViewBuilder private var sessionIcon: some View {
+        if let mark, let asset = mark.asset {
+            Image(asset).renderingMode(.template).resizable().scaledToFit().frame(width: 13, height: 13)
+                .foregroundStyle(Theme.agentTint(mark.cli)).help(mark.label).accessibilityLabel(mark.label)
+        } else if let mark {
+            Image(systemName: "terminal").font(.system(size: 11)).foregroundStyle(DashboardPalette.ink3)
+                .help(mark.label).accessibilityLabel(mark.label)
         }
     }
 }
@@ -396,164 +333,6 @@ private struct ChecksIcon: View {
         case .failing: return Theme.danger
         case .running: return Theme.warn
         case .unknown: return Theme.textTertiary
-        }
-    }
-}
-
-/// The pull request's labels. GitHub label colours run as pale as #ededed, so the colour is a mark
-/// and the name stays in readable text. Past two, the rest go to the tooltip, not the column.
-private struct TagList: View {
-    let tags: [DashboardPR.Tag]
-    var body: some View {
-        HStack(spacing: 7) {
-            ForEach(tags.prefix(2), id: \.name) { tag in
-                HStack(spacing: 4) {
-                    Circle().fill(Theme.tagTint(tag.color)).frame(width: 6, height: 6)
-                    Text(tag.name).font(.system(size: 11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-                }
-            }
-            if tags.count > 2 {
-                Text("+\(tags.count - 2)").font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(Theme.textTertiary).fixedSize()
-            }
-        }.help(tags.map(\.name).joined(separator: ", "))
-    }
-}
-
-/// A ticket's Jira labels. Jira labels carry no colour of their own, so unlike the pull request
-/// Tags column there is no dot to draw; past two the rest go to the tooltip.
-private struct JiraLabelList: View {
-    let labels: [String]
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(labels.prefix(2), id: \.self) { label in
-                Text(label).font(.system(size: 11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-                    .padding(.horizontal, 6).padding(.vertical, 1.5)
-                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
-            }
-            if labels.count > 2 {
-                Text("+\(labels.count - 2)").font(.system(size: 11).monospacedDigit())
-                    .foregroundStyle(Theme.textTertiary).fixedSize()
-            }
-        }.help(labels.joined(separator: ", "))
-    }
-}
-
-/// A status word in its own colour, outlined rather than filled.
-private struct OutlinedTag: View {
-    let text: String
-    let tint: Color
-    var body: some View {
-        Text(text).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint).lineLimit(1).fixedSize()
-            .padding(.horizontal, 6).padding(.vertical, 1.5)
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .strokeBorder(tint.opacity(0.35), lineWidth: Theme.Size.hairline))
-    }
-}
-
-/// The Jira section's table: key and summary open the ticket; the row menu offers its session.
-struct DashboardTicketTable: View {
-    let rows: [DashboardTicketRow]
-    let opening: String?
-    let open: (DashboardTicketRow) -> Void
-    let openTab: (DashboardTicketRow) -> Void
-    let session: (DashboardTicketRow, SessionAgent?) -> Void
-    let sessionMark: (DashboardTicketRow) -> PageSessionMark?
-    /// Each Jira key a pull request on this dashboard references, against that pull request's
-    /// number. The PR column reads it, so a ticket already being worked on says where.
-    let linkedPRs: [String: String]
-    @State private var sortOrder: [KeyPathComparator<DashboardTicketRow>] = []
-    @State private var selection: DashboardTicketRow.ID?
-    /// Right-click the header to show, hide or reorder; drag a divider to resize.
-    @AppStorage("dashboard.columns.tickets") private var columns = Self.defaultColumns()
-
-    /// The section opens on Ticket, Status, Type and Priority — what a ticket is triaged by.
-    /// Everything else is opt-in through the header's right-click menu: Pull Request and Session
-    /// are the dashboard's own cross-reference rather than the ticket's, Labels and Reporter are
-    /// detail, and Project repeats the key's own prefix until more than one Jira project is
-    /// tracked. Assignee is not offered at all: the section's JQL is `assignee = currentUser()`,
-    /// so the column would read the same on every row.
-    private static func defaultColumns() -> TableColumnCustomization<DashboardTicketRow> {
-        var value = TableColumnCustomization<DashboardTicketRow>()
-        for id in ["pr", "session", "labels", "reporter", "project"] { value[visibility: id] = .hidden }
-        return value
-    }
-    private static let rowHeight: CGFloat = 44
-    private static let headerHeight: CGFloat = 28
-
-    private var sorted: [DashboardTicketRow] {
-        rows.map { row in
-            var row = row
-            row.sessionName = sessionMark(row)?.shortName ?? ""
-            row.pullRequest = linkedPRs[row.ticket.key] ?? ""
-            return row
-        }.sorted(using: sortOrder)
-    }
-    private func row(_ id: DashboardTicketRow.ID?) -> DashboardTicketRow? { rows.first { $0.id == id } }
-
-    var body: some View {
-        Table(sorted, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
-            TableColumn("Ticket", value: \.title) { row in
-                HStack(spacing: 8) {
-                    Text(row.ticket.key).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.accent)
-                    Button(action: { open(row) }) {
-                        Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
-                    }.buttonStyle(.plain).disabled(opening == row.url.absoluteString)
-                        .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .width(min: 200, ideal: 420)
-            .disabledCustomizationBehavior(.visibility)
-            .customizationID("ticket")
-            TableColumn("Status", value: \.status) { row in
-                if !row.status.isEmpty {
-                    Text(row.status).font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(row.inProgress ? Theme.accent : Theme.textSecondary).lineLimit(1).fixedSize()
-                        .padding(.horizontal, 7).padding(.vertical, 1.5)
-                        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .strokeBorder((row.inProgress ? Theme.accent : Theme.border).opacity(row.inProgress ? 0.35 : 1),
-                                          lineWidth: Theme.Size.hairline))
-                }
-            }.width(min: 90, ideal: 118, max: 240).customizationID("status")
-            TableColumn("Type", value: \.type) { row in
-                Text(row.type).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-            }.width(min: 56, ideal: 72, max: 150).customizationID("type")
-            TableColumn("Priority", value: \.priority) { row in
-                Text(row.priority).font(.system(size: 12, weight: row.urgent ? .semibold : .regular))
-                    .foregroundStyle(row.urgent ? Theme.danger : Theme.textSecondary).lineLimit(1)
-            }.width(min: 60, ideal: 80, max: 150).customizationID("priority")
-            TableColumn("Pull Request", value: \.pullRequest) { row in
-                if !row.pullRequest.isEmpty {
-                    Text(row.pullRequest).font(.system(size: 11.5, design: .monospaced).monospacedDigit())
-                        .foregroundStyle(Theme.accent).lineLimit(1)
-                        .help("Open on this dashboard as \(row.pullRequest)")
-                } else {
-                    Text("—").font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
-                }
-            }.width(min: 72, ideal: 92, max: 170).customizationID("pr")
-            TableColumn("Session", value: \.sessionName) { row in SessionCell(mark: sessionMark(row)) }
-                .width(min: 72, ideal: 92, max: 180).customizationID("session")
-            TableColumn("Labels", value: \.sortLabels) { row in JiraLabelList(labels: row.labels) }
-                .width(min: 80, ideal: 150, max: 340).customizationID("labels")
-            TableColumn("Reporter", value: \.reporter) { row in
-                Text(row.reporter).font(.system(size: 12)).foregroundStyle(Theme.textSecondary).lineLimit(1)
-            }.width(min: 80, ideal: 110, max: 220).customizationID("reporter")
-            TableColumn("Project", value: \.project) { row in
-                Text(row.project).font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary).lineLimit(1)
-            }.width(min: 60, ideal: 80, max: 160).customizationID("project")
-        }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .environment(\.defaultMinListRowHeight, Self.rowHeight)
-        .scrollDisabled(true)
-        .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
-        .contextMenu(forSelectionType: DashboardTicketRow.ID.self) { ids in
-            if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, open: { openTab(row) }, session: { session(row, $0) })
-            }
-        } primaryAction: { ids in
-            if let row = row(ids.first) { open(row) }
         }
     }
 }
@@ -608,20 +387,8 @@ struct DashboardCard: View {
     }
 }
 
-/// The Session column: the agent's chip, or a dash for a page nothing is running on, so an empty
-/// cell reads as "no session" rather than as a column that failed to draw.
-private struct SessionCell: View {
-    let mark: PageSessionMark?
-    var body: some View {
-        if let mark { AgentChip(mark: mark) } else {
-            Text("—").font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
-                .help("No session").accessibilityLabel("No session")
-        }
-    }
-}
-
 /// The session's agent as a tag: its colour as the dot, its name as the text.
-private struct AgentChip: View {
+struct AgentChip: View {
     let mark: PageSessionMark
     var body: some View {
         HStack(spacing: 4) {

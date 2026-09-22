@@ -46,10 +46,6 @@ struct DashboardRow: Identifiable, Equatable {
     let projectName: String
     let pr: DashboardPR
     let url: URL
-    /// The Session column's sort key. A row cannot know its own session — the lookup lives on the
-    /// view model — and `Table` can only order by a key path, so the table fills this in before
-    /// sorting. Empty means no session, which sorts first.
-    var sessionName = ""
     var id: String { "\(projectID):\(url.absoluteString)" }
     var title: String { pr.title ?? "Pull request" }
     var number: String { pr.number.map { "#\($0)" } ?? "PR" }
@@ -79,8 +75,7 @@ struct DashboardRow: Identifiable, Equatable {
         default: return "circle.dashed"
         }
     }
-    /// The Checks column's state. A 7px dot could not separate "running" from "no checks", so the
-    /// column names the state instead; `ciLabel` stays the longer phrasing for help and VoiceOver.
+    /// The CI state the row's glyph draws; `ciLabel` is its phrasing for help and VoiceOver.
     enum Checks: Equatable { case passing, failing, running, unknown }
     var checks: Checks {
         if ciRunning { return .running }
@@ -90,20 +85,8 @@ struct DashboardRow: Identifiable, Equatable {
         default: return .unknown
         }
     }
-    var checksTitle: String {
-        switch checks {
-        case .passing: return "Passing"
-        case .failing: return "Failing"
-        case .running: return "Running"
-        case .unknown: return "No checks"
-        }
-    }
     var author: String { pr.author?.login ?? "" }
-    /// The pull request's own GitHub labels. `github.rs` already queries `labels(first:20)` and
-    /// `lean()` copies them through, so the column has real data without touching the query.
-    var tags: [DashboardPR.Tag] { pr.labels ?? [] }
-    var sortTags: String { tags.map(\.name).joined(separator: " ") }
-    /// Compact age for the table's last column: 12m, 4h, 3d.
+    /// Compact age at the row's trailing edge: 12m, 4h, 3d.
     var ageLabel: String { compactAge(pr.createdAt.flatMap(backendTimestamp)) }
     var reviewLabel: String? {
         if pr.isDraft == true { return "Draft" }
@@ -119,20 +102,8 @@ struct DashboardRow: Identifiable, Equatable {
     var dateLabel: String? {
         pr.createdAt.flatMap(backendTimestamp)?.formatted(date: .abbreviated, time: .omitted)
     }
-    // Sort keys for the dashboard table; every key is total so columns sort without optionals.
-    var sortNumber: Int { pr.number ?? 0 }
-    var sortRepo: String { (pr.repo ?? projectName).split(separator: "/").last.map(String.init) ?? projectName }
-    var sortBranch: String { pr.headRefName ?? "" }
+    /// The home screen lists oldest first; a row with no date counts as oldest.
     var sortDate: Date { pr.createdAt.flatMap(backendTimestamp) ?? .distantPast }
-    /// The Age column sorts by age, not by date: ascending has to put the youngest first, or the
-    /// arrow points the opposite way to the numbers under it. A row with no date is oldest.
-    var sortAge: TimeInterval { -sortDate.timeIntervalSinceReferenceDate }
-    var sortJira: String { (pr.jiraKeys ?? []).joined(separator: " ") }
-    /// Failing first, then running, passing, and unknown.
-    var ciRank: Int {
-        if ciRunning { return 1 }
-        switch pr.ci?.conclusion { case "failure": return 0; case "success": return 2; default: return 3 }
-    }
     var searchText: String {
         ([title, number, projectName, detail] + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
     }
@@ -170,11 +141,12 @@ struct OpenPageRequest: Encodable, Sendable {
     }
 }
 
-/// A Jira ticket assigned to the user, as the dashboard's third section shows it.
+/// A Jira ticket assigned to the user, as the home screen's Tickets section and My Tickets show it.
 struct DashboardTicketRow: Identifiable, Equatable {
     let ticket: JiraTicket
     let url: URL
-    /// Filled by the table before sorting, as on `DashboardRow`.
+    /// My Tickets' Session column sort key. A row cannot know its own session — the lookup lives on
+    /// the view model — and `Table` orders only by key path, so the table fills this in before sorting.
     var sessionName = ""
     /// The number of the pull request that references this ticket, `#123`, or empty for none.
     /// Also filled by the table: the link is drawn from the dashboard's rows, not from Jira.
@@ -184,10 +156,29 @@ struct DashboardTicketRow: Identifiable, Equatable {
     var status: String { ticket.status ?? "" }
     var type: String { ticket.type ?? "" }
     var priority: String { ticket.priority ?? "" }
-    /// Jira's own words, kept out of the view: which statuses read as moving, and which
-    /// priorities the dashboard is allowed to shout about.
-    var inProgress: Bool { status.localizedCaseInsensitiveContains("progress") }
-    var urgent: Bool { ["highest", "blocker", "critical"].contains(priority.lowercased()) }
+    /// Read from Jira's words once, when the row is built: sorting and filtering ask for these
+    /// on every comparison, and each would otherwise redo the string matching.
+    let stage: TicketStage
+    let level: TicketPriority
+
+    init(ticket: JiraTicket, url: URL) {
+        self.ticket = ticket
+        self.url = url
+        stage = TicketStage(status: ticket.status ?? "", category: ticket.statusCategory)
+        level = TicketPriority(ticket.priority ?? "")
+    }
+    /// One list of Jira's priority names decides both the Urgent tag and the row's urgent glyph.
+    var urgent: Bool { level == .urgent }
+    /// Where the ticket falls in the home screen's short list, or nil to leave it to My Tickets:
+    /// blocked, then reopened, then being worked on, then urgent work not yet started. The stage
+    /// comes from Jira's status category, so no workflow's status names are listed here.
+    var attentionRank: Int? {
+        if stage == .blocked { return 0 }
+        if status.localizedCaseInsensitiveContains("reopen") { return 1 }
+        if stage == .inProgress { return 2 }
+        if stage == .toDo && urgent { return 3 }
+        return nil
+    }
     /// The key's project prefix — the Project column, which earns its place only once the
     /// dashboard tracks more than one Jira project, so it opens hidden.
     var project: String { ticket.projectKey }
@@ -200,8 +191,70 @@ struct DashboardTicketRow: Identifiable, Equatable {
     }
 }
 
+/// Where a ticket sits in its workflow, read from Jira's status name first and its category second:
+/// a Jira board names "Ready for Development" as in progress, but nobody has started it yet.
+enum TicketStage: String, CaseIterable, Identifiable, Sendable {
+    case toDo, inProgress, pendingRelease, blocked
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .toDo: return "To do"
+        case .inProgress: return "In progress"
+        case .pendingRelease: return "Pending release"
+        case .blocked: return "Blocked"
+        }
+    }
+
+    init(status: String, category: String?) {
+        let status = status.lowercased()
+        if status.contains("block") { self = .blocked }
+        else if status.contains("release") || status.contains("done") || status.contains("resolved") || category == "done" { self = .pendingRelease }
+        else if status.contains("reopen") { self = .inProgress }
+        else if category == "new" || status.hasPrefix("ready for") || ["open", "to do", "backlog", "selected for development"].contains(status) { self = .toDo }
+        else { self = .inProgress }
+    }
+}
+
+/// Jira's priority names folded onto four levels, most pressing first; anything unrecognised
+/// (or no priority at all) reads as Medium, Jira's own default. Each level draws Jira's own
+/// arrow shape as well as its colour, so none depends on colour alone.
+enum TicketPriority: String, CaseIterable, Identifiable, Sendable {
+    case urgent, high, medium, low
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .urgent: return "Urgent"
+        case .high: return "High"
+        case .medium: return "Medium"
+        case .low: return "Low"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .urgent: return "chevron.up.2"
+        case .high: return "chevron.up"
+        case .medium: return "equal"
+        case .low: return "chevron.down"
+        }
+    }
+
+    init(_ name: String) {
+        switch name.lowercased() {
+        case "urgent", "highest", "blocker", "critical": self = .urgent
+        case "high", "major": self = .high
+        case "low", "lowest", "minor", "trivial": self = .low
+        default: self = .medium
+        }
+    }
+}
+
 protocol DashboardService: Sendable {
     func snapshot() async throws -> [DashboardProject]
+    func syncPRs() async throws
+}
+
+extension DashboardService {
+    func syncPRs() async throws {}
 }
 
 /// The dashboard's Jira section: the tickets assigned to the user across every project.
@@ -214,6 +267,9 @@ struct APIDashboardService: DashboardService, DashboardTicketService {
     static let myTicketsJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     let api: APIClient
     func snapshot() async throws -> [DashboardProject] { try await api.get(Routes.DASHBOARD) }
+    func syncPRs() async throws {
+        let _: OperationOK = try await api.request(APIClient.query(Routes.POLL, ["scope": "prs"]), method: "POST", body: [String: String]())
+    }
     func myTickets() async throws -> [DashboardTicketRow] {
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
         guard let base = URL(string: site.baseUrl) else { return [] }

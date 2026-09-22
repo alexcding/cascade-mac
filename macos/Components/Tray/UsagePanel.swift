@@ -53,7 +53,8 @@ enum UsageWindowMath {
     }
 }
 
-private struct UsageBar: View {
+/// Also drawn on the Dashboard, so both places read a quota the same way.
+struct UsageBar: View {
     let title: String
     let window: UsageSnapshot.Window
     let duration: TimeInterval
@@ -75,37 +76,12 @@ private struct UsageBar: View {
                         Text("Resets in \(until)").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
                     }
                 }
-                track(left: left, pace: pace)
+                UsageTrack(left: left, pace: pace, accent: accent)
                 Text(caption(left: left, pace: pace, now: now)).font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
         }
-    }
-
-    /// Track, fill, gridmarks at the quarters, then the green pace notch on top.
-    private func track(left: Double, pace: Double?) -> some View {
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.12))
-                Capsule().fill(accent).frame(width: (width * left / 100).rounded())
-                // Gridmarks and the notch's halo are cut out of the bar, not painted over it, so
-                // the menu's own material shows through whatever theme it is drawn on.
-                ForEach([25.0, 50.0, 75.0], id: \.self) { mark in
-                    Rectangle().fill(.black).frame(width: 2).offset(x: (width * mark / 100).rounded() - 1).blendMode(.destinationOut)
-                }
-                if let pace {
-                    let x = (width * pace / 100).rounded()
-                    Rectangle().fill(.black).frame(width: 7).offset(x: x - 3.5).blendMode(.destinationOut)
-                    Rectangle().fill(Color(nsColor: SidebarPalette.success)).frame(width: 3).offset(x: x - 1.5)
-                        .accessibilityLabel("Pace")
-                }
-            }
-            .compositingGroup()
-        }
-        .frame(height: 6)
-        .clipShape(Capsule())
     }
 
     /// "36% in reserve · Lasts until reset", or "12% over pace · Runs out before reset". The
@@ -129,7 +105,7 @@ private struct UsageBar: View {
 
 /// Under the bars: today's and the month's cost and tokens, the month as a bar chart of daily
 /// cost with its ceiling labelled, and the model that cost the most.
-private struct UsageStats: View {
+struct UsageStats: View {
     let agent: UsageSnapshot.Agent
     let accent: Color
 
@@ -192,5 +168,37 @@ private struct UsageStats: View {
             return scaled.formatted(.number.precision(.fractionLength(scaled < 10 ? 1 : 0))) + suffix
         }
         return value.formatted(.number.precision(.fractionLength(0)))
+    }
+}
+
+/// The quota bar itself, as the tray draws it: track, fill, gridmarks at the quarters, then the green
+/// pace notch on top. The Dashboard's usage row draws the same one, so the two always match.
+struct UsageTrack: View {
+    let left: Double
+    let pace: Double?
+    let accent: Color
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.12))
+                Capsule().fill(accent).frame(width: (width * left / 100).rounded())
+                // Gridmarks and the notch's halo are cut out of the bar, not painted over it, so
+                // the menu's own material shows through whatever theme it is drawn on.
+                ForEach([25.0, 50.0, 75.0], id: \.self) { mark in
+                    Rectangle().fill(.black).frame(width: 2).offset(x: (width * mark / 100).rounded() - 1).blendMode(.destinationOut)
+                }
+                if let pace {
+                    let x = (width * pace / 100).rounded()
+                    Rectangle().fill(.black).frame(width: 7).offset(x: x - 3.5).blendMode(.destinationOut)
+                    Rectangle().fill(Color(nsColor: SidebarPalette.success)).frame(width: 3).offset(x: x - 1.5)
+                        .accessibilityLabel("Pace")
+                }
+            }
+            .compositingGroup()
+        }
+        .frame(height: 6)
+        .clipShape(Capsule())
     }
 }
