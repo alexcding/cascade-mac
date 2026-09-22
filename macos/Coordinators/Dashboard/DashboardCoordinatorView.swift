@@ -9,7 +9,7 @@ struct DashboardCoordinatorView: View {
             .padding(.horizontal, 28).padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .toolbar {
-                PageTitleToolbarItem(title: "Overview")
+                PageTitleToolbarItem(title: "Dashboard")
                 if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
                 ToolbarItem(placement: .primaryAction) { usageAgentPicker }
             }

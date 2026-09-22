@@ -17,8 +17,9 @@ struct DashboardView: View {
                 } else if model.projects.isEmpty {
                     noProjects
                 } else {
-                    section("GitHub · My Pull Requests", rows: model.mine, empty: "No open PRs you authored.")
+                    section("GitHub · My Pull Requests", rows: model.mine, empty: "No open PRs you authored.", showsBranch: false)
                     section("Review Requested", rows: model.reviews, empty: "Nothing awaiting your review.")
+                    if model.ticketsAvailable { ticketSection }
                 }
             }.padding(.bottom, 28)
         }
@@ -52,46 +53,49 @@ struct DashboardView: View {
                 Text(greeting).font(.system(size: 30, weight: .semibold)).tracking(-0.7)
             }
             Spacer(minLength: 16)
-            usageFigures.layoutPriority(1)
+            DashboardUsageFigures(shell: shell).layoutPriority(1)
         }
     }
 
-    @ViewBuilder private var usageFigures: some View {
-        let limits = shell.usageAgent == "codex" ? shell.usage?.codexLimits : shell.usage?.limits
-        if shell.usageLoading && limits == nil { ProgressView().controlSize(.small) }
-        else if let limits {
-            HStack(spacing: 10) {
-                if let session = limits.session { UsageFigure(title: "Session", window: session, tint: usageTint) }
-                if let weekly = limits.weekly { UsageFigure(title: "Weekly", window: weekly, tint: usageTint) }
-                ForEach(Array((limits.scoped ?? []).enumerated()), id: \.offset) { _, value in UsageFigure(title: value.label ?? "Model", window: value, tint: usageTint) }
-            }
-        }
-    }
-
-    private var usageTint: Color { Theme.agentTint(shell.usageAgent) }
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: .now)
         let value = hour < 5 ? "Up late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
         return NSFullUserName().split(separator: " ").first.map { "\(value), \($0)" } ?? value
     }
 
-    private func section(_ title: String, rows: [DashboardRow], empty: String) -> some View {
+    private func section(_ title: String, rows: [DashboardRow], empty: String, showsBranch: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
                 Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.2)
                 Text("\(rows.count)").font(.system(size: 11.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
                     .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.55), in: Capsule())
             }.padding(.bottom, 10)
-            Divider().padding(.bottom, rows.isEmpty ? 14 : 6)
+            Divider().padding(.bottom, rows.isEmpty ? 14 : 0)
             if rows.isEmpty { Text(empty).font(.system(size: 13)).foregroundStyle(.tertiary) }
             else {
-                LazyVStack(spacing: 0) {
-                    ForEach(rows) { row in
-                        DashboardCard(row: row, opening: model.navigation.opening == row.url.absoluteString,
-                            open: { model.open(row) }, session: { model.openSession(row, agent: $0) }, sessionMark: model.sessionMark(row))
-                        if row.id != rows.last?.id { Divider().padding(.horizontal, 10) }
-                    }
-                }
+                DashboardTable(rows: rows, opening: model.navigation.opening,
+                    open: { model.open($0) }, session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
+                    showsBranch: showsBranch)
+            }
+        }.padding(.bottom, 36)
+    }
+
+    private var ticketSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 9) {
+                Text("Jira · My Tickets").font(.system(size: 15, weight: .semibold)).tracking(-0.2)
+                Text("\(model.tickets.count)").font(.system(size: 11.5, weight: .semibold).monospacedDigit()).foregroundStyle(.secondary)
+                    .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.55), in: Capsule())
+            }.padding(.bottom, 10)
+            Divider().padding(.bottom, model.tickets.isEmpty ? 14 : 0)
+            if let error = model.ticketsError, model.tickets.isEmpty {
+                Text(error).font(.system(size: 13)).foregroundStyle(.tertiary)
+            } else if model.tickets.isEmpty {
+                Text(model.ticketsLoaded ? "No open tickets assigned to you." : "Loading tickets…").font(.system(size: 13)).foregroundStyle(.tertiary)
+            } else {
+                DashboardTicketTable(rows: model.tickets, opening: model.navigation.opening,
+                    open: { model.open($0) }, session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
+                    linkedKeys: Set(model.visibleRows.flatMap { $0.pr.jiraKeys ?? [] }))
             }
         }.padding(.bottom, 36)
     }
@@ -103,6 +107,23 @@ struct DashboardView: View {
         }.font(.callout).foregroundStyle(.orange).padding(10)
             .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).padding(.bottom, 12)
     }
+}
+
+/// The usage agent's remaining windows, drawn beside the dashboard greeting.
+struct DashboardUsageFigures: View {
+    let shell: ShellStore
+    var body: some View {
+        let limits = shell.usageAgent == "codex" ? shell.usage?.codexLimits : shell.usage?.limits
+        if shell.usageLoading && limits == nil { ProgressView().controlSize(.small) }
+        else if let limits {
+            HStack(spacing: 10) {
+                if let session = limits.session { UsageFigure(title: "Session", window: session, tint: tint) }
+                if let weekly = limits.weekly { UsageFigure(title: "Weekly", window: weekly, tint: tint) }
+                ForEach(Array((limits.scoped ?? []).enumerated()), id: \.offset) { _, value in UsageFigure(title: value.label ?? "Model", window: value, tint: tint) }
+            }
+        }
+    }
+    private var tint: Color { Theme.agentTint(shell.usageAgent) }
 }
 
 private struct UsageFigure: View {
@@ -128,6 +149,152 @@ private struct UsageFigure: View {
         let minutes = max(0, Int(reset.timeIntervalSince(now) / 60))
         let value = minutes >= 1_440 ? "\(minutes / 1_440)d \((minutes % 1_440) / 60)h" : minutes >= 60 ? "\(minutes / 60)h \(String(format: "%02d", minutes % 60))m" : "\(minutes)m"
         return "\(title) · \(value)"
+    }
+}
+
+/// One native table per dashboard section. Sorting is per table; single-clicking the title or
+/// double-clicking a row opens the pull request, and the row menu offers its session.
+struct DashboardTable: View {
+    let rows: [DashboardRow]
+    let opening: String?
+    let open: (DashboardRow) -> Void
+    let session: (DashboardRow, SessionAgent?) -> Void
+    let sessionMark: (DashboardRow) -> PageSessionMark?
+    /// Off for the user's own pull requests, where the branch is theirs and rarely worth a column.
+    var showsBranch = true
+    @State private var sortOrder = [KeyPathComparator(\DashboardRow.sortDate, order: .reverse)]
+    @State private var selection: DashboardRow.ID?
+    private static let rowHeight: CGFloat = 44
+    private static let headerHeight: CGFloat = 28
+
+    private var sorted: [DashboardRow] { rows.sorted(using: sortOrder) }
+    private func row(_ id: DashboardRow.ID?) -> DashboardRow? { rows.first { $0.id == id } }
+
+    var body: some View {
+        Group {
+            if showsBranch {
+                Table(sorted, selection: $selection, sortOrder: $sortOrder) { leading; branchColumn; trailing }
+            } else {
+                Table(sorted, selection: $selection, sortOrder: $sortOrder) { leading; trailing }
+            }
+        }
+        .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .environment(\.defaultMinListRowHeight, Self.rowHeight)
+        .scrollDisabled(true)
+        .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
+        .contextMenu(forSelectionType: DashboardRow.ID.self) { ids in
+            if let row = row(ids.first) {
+                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) }, session: { session(row, $0) })
+            }
+        } primaryAction: { ids in
+            if let row = row(ids.first) { open(row) }
+        }
+    }
+
+
+    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var leading: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
+        TableColumn("Pull Request", value: \.title) { row in
+            HStack(spacing: 8) {
+                Circle().fill(ciColor(row)).frame(width: 7, height: 7).help(row.ciLabel).accessibilityLabel(row.ciLabel)
+                Text(row.number).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(.tertiary)
+                Button(action: { open(row) }) {
+                    Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
+                }.buttonStyle(.plain).disabled(opening == row.url.absoluteString)
+                    .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
+                if let status = row.reviewLabel { reviewState(status) }
+                if let mark = sessionMark(row) { AgentChip(mark: mark) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.width(min: 260)
+        TableColumn("Jira", value: \.sortJira) { row in
+            HStack(spacing: 4) {
+                ForEach((row.pr.jiraKeys ?? []).prefix(2), id: \.self) { key in
+                    Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(.blue)
+                        .padding(.horizontal, 8).padding(.vertical, 2).background(Color.blue.opacity(0.08), in: Capsule())
+                }
+            }
+        }.width(110)
+        TableColumn("Repository", value: \.sortRepo) { row in
+            Text(row.sortRepo).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1)
+        }.width(140)
+    }
+    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var branchColumn: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
+        TableColumn("Branch", value: \.sortBranch) { row in
+            Text(row.sortBranch).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
+        }.width(180)
+    }
+    @TableColumnBuilder<DashboardRow, KeyPathComparator<DashboardRow>> private var trailing: some TableColumnContent<DashboardRow, KeyPathComparator<DashboardRow>> {
+        TableColumn("Created", value: \.sortDate) { row in
+            Text(row.dateLabel ?? "").font(.system(size: 12).monospacedDigit()).foregroundStyle(.tertiary)
+        }.width(96)
+    }
+
+    @ViewBuilder private func reviewState(_ status: String) -> some View {
+        if status == "Draft" {
+            Text(status.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.3).foregroundStyle(.tertiary)
+                .padding(.horizontal, 5).padding(.vertical, 2).overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
+        } else {
+            Label(status, systemImage: status == "Approved" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(status == "Approved" ? .green : .orange).lineLimit(1)
+        }
+    }
+    private func ciColor(_ row: DashboardRow) -> Color {
+        if row.ciRunning { return .orange }
+        switch row.pr.ci?.conclusion { case "success": return .green; case "failure": return .red; default: return .secondary.opacity(0.5) }
+    }
+}
+
+/// The Jira section's table: key and summary open the ticket; the row menu offers its session.
+struct DashboardTicketTable: View {
+    let rows: [DashboardTicketRow]
+    let opening: String?
+    let open: (DashboardTicketRow) -> Void
+    let session: (DashboardTicketRow, SessionAgent?) -> Void
+    let sessionMark: (DashboardTicketRow) -> PageSessionMark?
+    /// Jira keys a PR row on the dashboard already carries; their sessions are shown on the PR.
+    let linkedKeys: Set<String>
+    @State private var sortOrder: [KeyPathComparator<DashboardTicketRow>] = []
+    @State private var selection: DashboardTicketRow.ID?
+    private static let rowHeight: CGFloat = 44
+    private static let headerHeight: CGFloat = 28
+
+    private var sorted: [DashboardTicketRow] { rows.sorted(using: sortOrder) }
+    private func row(_ id: DashboardTicketRow.ID?) -> DashboardTicketRow? { rows.first { $0.id == id } }
+
+    var body: some View {
+        Table(sorted, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Ticket", value: \.title) { row in
+                HStack(spacing: 8) {
+                    Text(row.ticket.key).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(.tertiary)
+                    Button(action: { open(row) }) {
+                        Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
+                    }.buttonStyle(.plain).disabled(opening == row.url.absoluteString)
+                        .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
+                    // A ticket with a PR on the dashboard shows its session there, not twice.
+                    if !linkedKeys.contains(row.ticket.key), let mark = sessionMark(row) { AgentChip(mark: mark) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.width(min: 260)
+            TableColumn("Status", value: \.status) { row in
+                Text(row.status).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
+                    .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.45), in: Capsule())
+            }.width(120)
+            TableColumn("Type", value: \.type) { row in
+                Text(row.type).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }.width(64)
+            TableColumn("Priority", value: \.priority) { row in
+                Text(row.priority).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }.width(64)
+        }
+        .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .environment(\.defaultMinListRowHeight, Self.rowHeight)
+        .scrollDisabled(true)
+        .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
+        .contextMenu(forSelectionType: DashboardTicketRow.ID.self) { ids in
+            if let row = row(ids.first) {
+                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) }, session: { session(row, $0) })
+            }
+        } primaryAction: { ids in
+            if let row = row(ids.first) { open(row) }
+        }
     }
 }
 
@@ -185,12 +352,10 @@ struct DashboardCard: View {
 private struct AgentChip: View {
     let mark: PageSessionMark
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(mark.cli.isEmpty ? Color.secondary : Theme.agentTint(mark.cli)).frame(width: 7, height: 7)
-            Text(mark.cli.isEmpty ? "Shell" : mark.agentName).lineLimit(1)
-        }
-            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.45), in: Capsule())
+        Text(mark.shortName).lineLimit(1)
+            .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.white)
+            .padding(.horizontal, 8).padding(.vertical, 2)
+            .background(mark.cli.isEmpty ? Color.secondary : Theme.agentTint(mark.cli), in: Capsule())
             .help(mark.label).accessibilityLabel(mark.label)
     }
 }

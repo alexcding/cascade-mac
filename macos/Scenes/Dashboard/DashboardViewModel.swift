@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class DashboardViewModel {
-    enum Action: Equatable { case open(String), session(String, agent: SessionAgent?) }
+    enum Action: Equatable { case open(String), session(String, agent: SessionAgent?), openTicket(String), ticketSession(String, agent: SessionAgent?) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -22,7 +22,7 @@ import Observation
 
     func connect(_ service: any DashboardService) {
         guard !retired else { return }
-        cancelRefresh(); cancelActions(); self.service = service; refresh()
+        cancelRefresh(); cancelActions(); self.service = service; refresh(); refreshTickets()
     }
 
     private(set) var rows: [DashboardRow] = []
@@ -30,6 +30,12 @@ import Observation
     private(set) var mine: [DashboardRow] = []
     private(set) var reviews: [DashboardRow] = []
     private(set) var warnings: [String] = []
+    /// The Jira section. `ticketsAvailable` is false until the service offers tickets at all.
+    private(set) var tickets: [DashboardTicketRow] = []
+    private(set) var ticketsError: String?
+    private(set) var ticketsLoaded = false
+    var ticketsAvailable: Bool { service is DashboardTicketService }
+    @ObservationIgnored private var ticketTask: Task<Void, Never>?
 
     /// Load the snapshot and its display lists together before notifying the coordinator.
     private func load(from service: any DashboardService, generation: UUID) async throws {
@@ -83,6 +89,34 @@ import Observation
         }
     }
 
+    /// Tickets load apart from the PR snapshot: a GitHub sync must not re-query Jira, and Jira
+    /// can be slow or unconfigured without holding the PR sections back.
+    func refreshTickets() {
+        guard !retired, let service = service as? DashboardTicketService, ticketTask == nil else { return }
+        let generation = connectionGeneration
+        ticketTask = Task {
+            defer { if connectionGeneration == generation { ticketTask = nil } }
+            do {
+                let tickets = try await service.myTickets()
+                try Task.checkCancellation()
+                guard !retired, connectionGeneration == generation else { return }
+                if self.tickets != tickets { self.tickets = tickets }
+                ticketsError = nil; ticketsLoaded = true
+            } catch {
+                if !Task.isCancelled && connectionGeneration == generation { ticketsError = error.localizedDescription; ticketsLoaded = true }
+            }
+        }
+    }
+
+    func open(_ row: DashboardTicketRow) { if !retired { onAction(.openTicket(row.id)) } }
+    func openSession(_ row: DashboardTicketRow, agent: SessionAgent? = nil) { if !retired { onAction(.ticketSession(row.id, agent: agent)) } }
+    func sessionMark(_ row: DashboardTicketRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
+    static func sessionRequest(_ row: DashboardTicketRow, agent: SessionAgent? = nil) -> OpenPageRequest {
+        var request = row.openPageRequest
+        request.inSession = true; request.agent = agent
+        return request
+    }
+
     func open(_ row: DashboardRow) { if !retired { onAction(.open(row.id)) } }
     func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { if !retired { onAction(.session(row.id, agent: agent)) } }
     func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
@@ -93,26 +127,30 @@ import Observation
     }
     func perform(_ action: Action) {
         guard !retired else { return }
-        let id: String
-        switch action { case .open(let value), .session(let value, _): id = value }
-        guard let row = visibleRows.first(where: { $0.id == id }) else { return }
         guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
         switch action {
-        case .open: navigation.open(row.openPageRequest)
-        case .session(_, let agent): navigation.open(Self.sessionRequest(row, agent: agent))
+        case .open(let id):
+            if let row = visibleRows.first(where: { $0.id == id }) { navigation.open(row.openPageRequest) }
+        case .session(let id, let agent):
+            if let row = visibleRows.first(where: { $0.id == id }) { navigation.open(Self.sessionRequest(row, agent: agent)) }
+        case .openTicket(let id):
+            if let row = tickets.first(where: { $0.id == id }) { navigation.open(row.openPageRequest) }
+        case .ticketSession(let id, let agent):
+            if let row = tickets.first(where: { $0.id == id }) { navigation.open(Self.sessionRequest(row, agent: agent)) }
         }
     }
     func cancelActions() { navigation.cancel() }
     private func cancelRefresh() {
         connectionGeneration = UUID(); refreshTask?.cancel(); refreshTask = nil; refreshPending = false; loading = false
+        ticketTask?.cancel(); ticketTask = nil
     }
     func retire() {
         retired = true; onAction = { _ in }; snapshotChanged = {}; service = nil
         cancelActions(); cancelRefresh()
     }
     func stop() async {
-        let pending = refreshTask
+        let pending = refreshTask, pendingTickets = ticketTask
         cancelActions(); cancelRefresh(); service = nil
-        await pending?.value
+        await pending?.value; await pendingTickets?.value
     }
 }

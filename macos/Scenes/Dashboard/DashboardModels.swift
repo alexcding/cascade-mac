@@ -79,6 +79,17 @@ struct DashboardRow: Identifiable, Equatable {
     var dateLabel: String? {
         pr.createdAt.flatMap(backendTimestamp)?.formatted(date: .abbreviated, time: .omitted)
     }
+    // Sort keys for the dashboard table; every key is total so columns sort without optionals.
+    var sortNumber: Int { pr.number ?? 0 }
+    var sortRepo: String { (pr.repo ?? projectName).split(separator: "/").last.map(String.init) ?? projectName }
+    var sortBranch: String { pr.headRefName ?? "" }
+    var sortDate: Date { pr.createdAt.flatMap(backendTimestamp) ?? .distantPast }
+    var sortJira: String { (pr.jiraKeys ?? []).joined(separator: " ") }
+    /// Failing first, then running, passing, and unknown.
+    var ciRank: Int {
+        if ciRunning { return 1 }
+        switch pr.ci?.conclusion { case "failure": return 0; case "success": return 2; default: return 3 }
+    }
     var searchText: String {
         ([title, number, projectName, detail] + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
     }
@@ -112,11 +123,45 @@ struct OpenPageRequest: Encodable, Sendable {
     }
 }
 
+/// A Jira ticket assigned to the user, as the dashboard's third section shows it.
+struct DashboardTicketRow: Identifiable, Equatable {
+    let ticket: JiraTicket
+    let url: URL
+    var id: String { ticket.key }
+    var title: String { ticket.summary ?? ticket.key }
+    var status: String { ticket.status ?? "" }
+    var type: String { ticket.type ?? "" }
+    var priority: String { ticket.priority ?? "" }
+    /// The project is resolved from the key when the page opens, so none is fixed here.
+    var openPageRequest: OpenPageRequest {
+        OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")", jiraKeys: [ticket.key])
+    }
+}
+
 protocol DashboardService: Sendable {
     func snapshot() async throws -> [DashboardProject]
 }
 
-struct APIDashboardService: DashboardService {
+/// The dashboard's Jira section: the tickets assigned to the user across every project.
+/// Separate from `DashboardService` so fixtures without Jira keep conforming.
+protocol DashboardTicketService: Sendable {
+    func myTickets() async throws -> [DashboardTicketRow]
+}
+
+struct APIDashboardService: DashboardService, DashboardTicketService {
+    static let myTicketsJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     let api: APIClient
     func snapshot() async throws -> [DashboardProject] { try await api.get(Routes.DASHBOARD) }
+    func myTickets() async throws -> [DashboardTicketRow] {
+        let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
+        guard let base = URL(string: site.baseUrl) else { return [] }
+        let result: JiraSnapshot = try await api.request(Routes.JIRA_SEARCH, method: "POST", body: ["jql": Self.myTicketsJQL])
+        if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
+        return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
+    }
+}
+
+enum DashboardTicketError: LocalizedError {
+    case search(String)
+    var errorDescription: String? { switch self { case .search(let message): return message } }
 }

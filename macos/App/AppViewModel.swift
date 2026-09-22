@@ -1335,7 +1335,7 @@ public final class AppViewModel {
         pendingRefreshEvents.removeAll()
         shell.refresh()
         shell.refreshUsage()
-        dashboard?.refresh()
+        dashboard?.refresh(); dashboard?.refreshTickets()
         if coordinator.activityVisible { logs?.refresh() }
         if case .project(let id) = selection, let model = projectModels[id], model.section == .board {
             model.board?.refresh()

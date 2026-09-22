@@ -21,6 +21,8 @@ struct PageSessionMark: Equatable, Sendable {
     /// The agent's mark in the asset catalogue; a shell has none.
     var asset: String? { switch cli { case "claude": "AgentClaude"; case "codex": "AgentCodex"; default: nil } }
     var agentName: String { switch cli { case "claude": "Claude Code"; case "codex": "Codex"; default: "shell" } }
+    /// The one-word form for tight columns: "Claude", "Codex" or "Shell".
+    var shortName: String { switch cli { case "claude": "Claude"; case "codex": "Codex"; default: "Shell" } }
     var label: String { "Has a \(agentName) session" }
 }
 
