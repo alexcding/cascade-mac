@@ -265,7 +265,7 @@ public final class AppViewModel {
         // tab a session owns stays out of the list under that address.
         let sessionURLs = Set(sessions.map(\.url))
         let shownTabs = visibleTabs.map { tab in
-            guard !sessionURLs.contains(tab.url),
+            guard !tab.isOwned(by: sessionURLs),
                   viewer.contexts["tab:\(tab.id)"]?.activePage?.controls.isBlank == true else { return tab }
             var blank = SavedTab(id: tab.id, kind: "web", title: "New Tab", url: "")
             blank.pinned = tab.pinned
@@ -756,8 +756,8 @@ public final class AppViewModel {
         guard safeWebURL(request.url) != nil else { throw BackendError.operation("Invalid page address.") }
         if request.inSession { try await openPageSession(request); return }
         // A page that already has a session — its own, or one on its branch or ticket key — goes
-        // there; only a page with none opens a tab.
-        if let session = Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests) {
+        // there; only a page with none opens a tab. Open in Tab asked for the tab regardless.
+        if !request.inTab, let session = Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests) {
             select(.session(session.id))
             viewer.active?.open(request.url, title: request.title)
             return
@@ -766,7 +766,8 @@ public final class AppViewModel {
         let saved: SavedTabs = try await api.request(Routes.TABS, method: "POST", body: request)
         try Task.checkCancellation()
         tabs = saved.tabs
-        guard let id = saved.active else { return }
+        // A background tab loads when it is selected; the row's screen stays where it was.
+        guard let id = saved.active, !request.inTab else { return }
         select(.tab(id))
         viewer.active?.open(request.url, title: request.title)
     }
@@ -799,7 +800,7 @@ public final class AppViewModel {
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
-                let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url })
+                let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url && !$0.standalone })
                 _ = workflowRunModel(for: session)
                 warmIDE(for: session)
                 buildModel(for: session, context: context)?.warmDestinations()
@@ -915,12 +916,26 @@ public final class AppViewModel {
         let destination = "task:\(record.id)"
         let wasSelected = sourceID.hasPrefix("tab:") && selection == .tab(String(sourceID.dropFirst("tab:".count)))
         try viewer.promoteContext(from: sourceID, to: destination)
+        await adoptTab(sourceID)
         pageWorkflowRuns.removeValue(forKey: sourceID)
         pageWorkflowTargets.removeValue(forKey: sourceID)
         workflowRuns[record.id] = model
         if wasSelected { select(.session(record.id)) }
         refresh()
         return record
+    }
+
+    /// The tab a session was just started from is the session's own now. A standalone tab (Open in
+    /// Tab beside a session) would otherwise keep its row next to the session's under the same page.
+    /// Awaited by the caller ahead of its refresh, so the two writes to `tabs` cannot cross.
+    private func adoptTab(_ sourceID: String) async {
+        guard sourceID.hasPrefix("tab:") else { return }
+        let id = String(sourceID.dropFirst("tab:".count))
+        guard let api, let index = tabs.firstIndex(where: { $0.id == id }), tabs[index].standalone else { return }
+        tabs[index].standalone = false
+        struct Payload: Encodable { let id: String; let standalone: Bool }
+        do { let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: Payload(id: id, standalone: false)); tabs = saved.tabs }
+        catch { /* The refresh that follows restores the list from the backend. */ }
     }
 
     func openWorkflowHookSettings() {
@@ -1207,7 +1222,7 @@ public final class AppViewModel {
     /// still preparing stays open, since the run promotes this tab's pages into its session.
     func closeTab(_ id: String) {
         let sessionURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
-        let visible = visibleTabs.filter { !sessionURLs.contains($0.url) }.map(\.id)
+        let visible = visibleTabs.filter { !$0.isOwned(by: sessionURLs) }.map(\.id)
         if let index = draftTabs.firstIndex(where: { $0.id == id }) {
             if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
             draftTabs.remove(at: index)
@@ -1276,7 +1291,7 @@ public final class AppViewModel {
         for record in sessions {
             let key = "task:\(record.id)"
             _ = viewer.restore(id: key, url: record.url, title: record.title,
-                               legacy: tabs.first { $0.url == record.url })
+                               legacy: tabs.first { $0.url == record.url && !$0.standalone })
             _ = workflowRunModel(for: record)
             if terminals[key] == nil { terminals[key] = makeTerminal(record) }
         }

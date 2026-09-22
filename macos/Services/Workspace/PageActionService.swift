@@ -52,8 +52,9 @@ struct PageDestinationMark: View {
 }
 
 /// The row menu for a PR or ticket. The first item is what a click does: the page's session when it
-/// has one, else a tab; the other way of opening follows. A new session is started with the agent
-/// picked from the submenu.
+/// has one, else a tab; the other way of opening follows. Open in Tab always makes a tab, behind the
+/// current screen, even for a page with a session. A new session is started with the agent picked
+/// from the submenu.
 struct PageRowMenu: View {
     /// The agents a New Session menu offers, in menu order.
     static let agents: [SessionAgent] = [.claude, .codex, .shell]

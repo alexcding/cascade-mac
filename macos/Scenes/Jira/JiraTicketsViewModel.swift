@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class JiraTicketsViewModel {
-    enum Action: Equatable { case open(String), session(String, agent: SessionAgent?) }
+    enum Action: Equatable { case open(String, inTab: Bool = false), session(String, agent: SessionAgent?) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -271,12 +271,12 @@ import Observation
         guard ticket.key.range(of: #"^[A-Z][A-Z0-9_]*-\d+$"#, options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
         return baseURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key)
     }
-    func open(_ ticket: JiraTicket) { if !retired { onAction(.open(ticket.key)) } }
+    func open(_ ticket: JiraTicket, inTab: Bool = false) { if !retired { onAction(.open(ticket.key, inTab: inTab)) } }
     func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { if !retired { onAction(.session(ticket.key, agent: agent)) } }
     func perform(_ action: Action) {
         guard !retired, service != nil else { return }
         let key: String
-        switch action { case .open(let value), .session(let value, _): key = value }
+        switch action { case .open(let value, _), .session(let value, _): key = value }
         guard let ticket = rows.first(where: { $0.key == key }) else { return }
         guard let url = ticketURL(ticket) else { siteError = "Configure the Jira site to open ticket links."; return }
         switch action {
@@ -284,6 +284,7 @@ import Observation
             var request = pageRequest(ticket, url: url)
             request.projectID = project.id
             if case .session(_, let agent) = action { request.inSession = true; request.agent = agent }
+            if case .open(_, let inTab) = action { request.inTab = inTab }
             navigation.open(request)
         }
     }

@@ -24,6 +24,9 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     let row = try #require(model.mine.first)
     model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.last?.inSession == false && actions.opened.last?.projectID == "p", "A tab open names the row's project too, so its session lookup matches the badge's")
+    #expect(actions.opened.last?.inTab == false, "A click keeps the page's session routing")
+    model.open(row, inTab: true); await model.navigation.waitForOpen()
+    #expect(actions.opened.last?.inTab == true && actions.opened.last?.inSession == false, "The menu's Open in Tab asks for a tab regardless of any session")
     model.openSession(row); await model.navigation.waitForOpen()
     let opened = try #require(actions.opened.last)
     #expect(opened.inSession && opened.projectID == "p" && opened.branch == "feature/one" && opened.url == row.url.absoluteString)
@@ -65,7 +68,8 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     request.id = "draft"
     let sent = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
     let fields = Set(Mirror(reflecting: request).children.compactMap(\.label))
-    #expect(Set(sent.keys) == fields.subtracting(["inSession", "projectID", "jiraKeys", "agent"]))
+    #expect(Set(sent.keys) == fields.subtracting(["inSession", "inTab", "projectID", "jiraKeys", "agent"]).union(["standalone"]))
+    #expect(sent["standalone"] as? Bool == false)
 }
 
 @MainActor @Test func aPageFindsTheSessionItAlreadyHas() {

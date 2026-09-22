@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class ProjectPageViewModel {
-    enum PullRequestAction: Equatable { case open(String), session(String, agent: SessionAgent?) }
+    enum PullRequestAction: Equatable { case open(String, inTab: Bool = false), session(String, agent: SessionAgent?) }
     enum Action: Equatable {
         case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
@@ -50,6 +50,7 @@ import Observation
     private(set) var refreshing = false
     private(set) var opening: Set<String> = []
     @ObservationIgnored private var openingInSession = false
+    @ObservationIgnored private var openingInTab = false
     private(set) var actionError: String?
     private(set) var retired = false
     private var service: (any ProjectService)?
@@ -110,7 +111,7 @@ import Observation
         actionTask = nil; actionGeneration = UUID(); opening = []
         tickets?.cancelActions(); board?.cancelActions()
     }
-    func open(_ row: DashboardRow) { request(.open(row.id)) }
+    func open(_ row: DashboardRow, inTab: Bool = false) { request(.open(row.id, inTab: inTab)) }
     func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { request(.session(row.id, agent: agent)) }
     func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : pageActions?.pageSession(DashboardViewModel.sessionRequest(row)) }
     private func request(_ action: PullRequestAction) {
@@ -120,15 +121,16 @@ import Observation
     func performPullRequestAction(_ action: PullRequestAction) {
         guard !retired, let pageActions else { return }
         let id: String
-        switch action { case .open(let value), .session(let value, _): id = value }
+        switch action { case .open(let value, _), .session(let value, _): id = value }
         guard let row = rows.first(where: { $0.id == id }) else { return }
         switch action {
         case .open, .session:
             var request = row.openPageRequest
             if case .session(_, let agent) = action { request.inSession = true; request.projectID = row.projectID; request.agent = agent }
-            // The same row asked the other way — tab, then session — is a new request, not a repeat.
-            guard !opening.contains(id) || openingInSession != request.inSession else { return }
-            openingInSession = request.inSession
+            if case .open(_, let inTab) = action { request.inTab = inTab }
+            // The same row asked another way — click, Open in Tab, session — is a new request, not a repeat.
+            guard !opening.contains(id) || openingInSession != request.inSession || openingInTab != request.inTab else { return }
+            openingInSession = request.inSession; openingInTab = request.inTab
             let generation = UUID(), errorGeneration = UUID()
             actionGeneration = generation; actionErrorGeneration = errorGeneration
             opening = [id]; actionError = nil

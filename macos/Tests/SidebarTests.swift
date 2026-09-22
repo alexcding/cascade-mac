@@ -112,6 +112,10 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     // A pinned tab that belongs to a session stays hidden, like any task tab.
     let owned = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs)
     if case .pinnedTabs(let shown)? = owned.first(where: { $0.id == "pinned-tabs" })?.role { #expect(shown.map(\.id) == ["b"]) } else { Issue.record("grid missing") }
+    // Open in Tab beside that session made a standalone tab: same address, but its own row.
+    let standalone = SavedTab(id: "d", kind: "web", title: "Docs again", url: "https://docs.example", standalone: true)
+    let beside = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs + [standalone])
+    #expect(beside.first { $0.id == "tab:d" }?.destinations == [.tab("d")], "A standalone tab is never taken for the session's own")
     // One tile is a full row; more wrap four to a row.
     #expect(SidebarPinnedTabsGrid.height(count: 1) == SidebarPinnedTabsGrid.height(count: 4))
     #expect(SidebarPinnedTabsGrid.height(count: 4) == SidebarPinnedTabsGrid.height(count: 2))

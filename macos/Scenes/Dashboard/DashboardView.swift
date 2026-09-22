@@ -18,8 +18,9 @@ struct DashboardView: View {
                     noProjects
                 } else {
                     section("GitHub · My Pull Requests", rows: model.mine, empty: "No open PRs you authored.", showsBranch: false)
-                    section("Review Requested", rows: model.reviews, empty: "Nothing awaiting your review.")
-                    if model.ticketsAvailable { ticketSection }
+                    // Review and Jira sections appear only with rows, so a project without Jira keys adds nothing.
+                    if !model.reviews.isEmpty { section("Review Requested", rows: model.reviews, empty: nil) }
+                    if model.ticketsAvailable, !model.tickets.isEmpty || model.ticketsError != nil { ticketSection }
                 }
             }.padding(.bottom, 28)
         }
@@ -63,7 +64,8 @@ struct DashboardView: View {
         return NSFullUserName().split(separator: " ").first.map { "\(value), \($0)" } ?? value
     }
 
-    private func section(_ title: String, rows: [DashboardRow], empty: String, showsBranch: Bool = true) -> some View {
+    /// `empty` is shown only by a section that renders with no rows; a gated section passes nil.
+    private func section(_ title: String, rows: [DashboardRow], empty: String?, showsBranch: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 9) {
                 Text(title).font(.system(size: 15, weight: .semibold)).tracking(-0.2)
@@ -71,10 +73,11 @@ struct DashboardView: View {
                     .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.55), in: Capsule())
             }.padding(.bottom, 10)
             Divider().padding(.bottom, rows.isEmpty ? 14 : 0)
-            if rows.isEmpty { Text(empty).font(.system(size: 13)).foregroundStyle(.tertiary) }
+            if rows.isEmpty { Text(empty ?? "").font(.system(size: 13)).foregroundStyle(.tertiary) }
             else {
                 DashboardTable(rows: rows, opening: model.navigation.opening,
-                    open: { model.open($0) }, session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
+                    open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
+                    session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
                     showsBranch: showsBranch)
             }
         }.padding(.bottom, 36)
@@ -88,13 +91,13 @@ struct DashboardView: View {
                     .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.55), in: Capsule())
             }.padding(.bottom, 10)
             Divider().padding(.bottom, model.tickets.isEmpty ? 14 : 0)
-            if let error = model.ticketsError, model.tickets.isEmpty {
-                Text(error).font(.system(size: 13)).foregroundStyle(.tertiary)
-            } else if model.tickets.isEmpty {
-                Text(model.ticketsLoaded ? "No open tickets assigned to you." : "Loading tickets…").font(.system(size: 13)).foregroundStyle(.tertiary)
+            // Shown only with rows or an error, so the only empty state left is the error.
+            if model.tickets.isEmpty {
+                Text(model.ticketsError ?? "").font(.system(size: 13)).foregroundStyle(.tertiary)
             } else {
                 DashboardTicketTable(rows: model.tickets, opening: model.navigation.opening,
-                    open: { model.open($0) }, session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
+                    open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
+                    session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
                     linkedKeys: Set(model.visibleRows.flatMap { $0.pr.jiraKeys ?? [] }))
             }
         }.padding(.bottom, 36)
@@ -158,6 +161,8 @@ struct DashboardTable: View {
     let rows: [DashboardRow]
     let opening: String?
     let open: (DashboardRow) -> Void
+    /// The menu's Open in Tab: a tab behind this screen, never the row's session.
+    let openTab: (DashboardRow) -> Void
     let session: (DashboardRow, SessionAgent?) -> Void
     let sessionMark: (DashboardRow) -> PageSessionMark?
     /// Off for the user's own pull requests, where the branch is theirs and rarely worth a column.
@@ -184,7 +189,7 @@ struct DashboardTable: View {
         .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
         .contextMenu(forSelectionType: DashboardRow.ID.self) { ids in
             if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) }, session: { session(row, $0) })
+                PageRowMenu(hasSession: sessionMark(row) != nil, open: { openTab(row) }, session: { session(row, $0) })
             }
         } primaryAction: { ids in
             if let row = row(ids.first) { open(row) }
@@ -248,6 +253,7 @@ struct DashboardTicketTable: View {
     let rows: [DashboardTicketRow]
     let opening: String?
     let open: (DashboardTicketRow) -> Void
+    let openTab: (DashboardTicketRow) -> Void
     let session: (DashboardTicketRow, SessionAgent?) -> Void
     let sessionMark: (DashboardTicketRow) -> PageSessionMark?
     /// Jira keys a PR row on the dashboard already carries; their sessions are shown on the PR.
@@ -290,7 +296,7 @@ struct DashboardTicketTable: View {
         .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
         .contextMenu(forSelectionType: DashboardTicketRow.ID.self) { ids in
             if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) }, session: { session(row, $0) })
+                PageRowMenu(hasSession: sessionMark(row) != nil, open: { openTab(row) }, session: { session(row, $0) })
             }
         } primaryAction: { ids in
             if let row = row(ids.first) { open(row) }
@@ -299,7 +305,7 @@ struct DashboardTicketTable: View {
 }
 
 struct DashboardCard: View {
-    let row: DashboardRow; let opening: Bool; let open: () -> Void; let session: (SessionAgent?) -> Void
+    let row: DashboardRow; let opening: Bool; let open: () -> Void; let openTab: () -> Void; let session: (SessionAgent?) -> Void
     var sessionMark: PageSessionMark? = nil
     private var hasSession: Bool { sessionMark != nil }
     @State private var hovering = false
@@ -331,7 +337,7 @@ struct DashboardCard: View {
                 .background(hovering ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(opening).onHover { hovering = $0 }
             .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-            .contextMenu { PageRowMenu(hasSession: hasSession, open: open, session: session) }
+            .contextMenu { PageRowMenu(hasSession: hasSession, open: openTab, session: session) }
     }
     @ViewBuilder private func reviewState(_ status: String) -> some View {
         if status == "Draft" {

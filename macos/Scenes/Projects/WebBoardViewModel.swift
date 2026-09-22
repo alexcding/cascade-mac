@@ -145,7 +145,7 @@ struct APIBoardService: BoardService {
 }
 
 @MainActor @Observable final class WebBoardViewModel {
-    enum Action: Equatable { case openTicket(BoardTicketLink), openSession(BoardTicketLink, agent: SessionAgent?) }
+    enum Action: Equatable { case openTicket(BoardTicketLink, inTab: Bool = false), openSession(BoardTicketLink, agent: SessionAgent?) }
     static let unassigned = "__unassigned__"
     static let unmappedDrop = "Can’t tell which status this column maps to — use the move menu."
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
@@ -452,7 +452,7 @@ struct APIBoardService: BoardService {
             catch { self.error = error.localizedDescription }
         }
     }
-    func open(_ ticket: JiraTicket) { link(ticket).map { onAction(.openTicket($0)) } }
+    func open(_ ticket: JiraTicket, inTab: Bool = false) { link(ticket).map { onAction(.openTicket($0, inTab: inTab)) } }
     func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { link(ticket).map { onAction(.openSession($0, agent: agent)) } }
     func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }
@@ -470,11 +470,11 @@ struct APIBoardService: BoardService {
     func perform(_ action: Action) {
         guard !retired, active else { return }
         switch action {
-        case .openTicket(let link):
+        case .openTicket(let link, let inTab):
             // Every ticket opens in a Craft tab; `external` stays in the link's shape only.
             guard safeWebURL(link.url) != nil else { return }
             var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
-            request.projectID = projectID
+            request.projectID = projectID; request.inTab = inTab
             navigation.open(request)
         case .openSession(let link, let agent):
             guard safeWebURL(link.url) != nil else { return }

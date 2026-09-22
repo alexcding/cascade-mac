@@ -142,19 +142,41 @@ pub async fn rename_tab(State(state): State<AppState>, Json(body): Json<Value>) 
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .ok_or_else(|| ApiError::bad_request("id required"))?;
-    if let Some(pinned) = body.get("pinned") {
-        let pinned = pinned
-            .as_bool()
-            .ok_or_else(|| ApiError::bad_request("pinned must be a boolean"))?;
-        let saved = state.db.pin_tab(id, pinned)?;
-        state.broadcast(json!({ "type": "tabs" }));
-        return Ok(Json(saved));
+    // Every field present is applied; a body naming none of them is a mistake, not a no-op.
+    let pinned = match body.get("pinned") {
+        Some(value) => Some(
+            value
+                .as_bool()
+                .ok_or_else(|| ApiError::bad_request("pinned must be a boolean"))?,
+        ),
+        None => None,
+    };
+    let adopt = match body.get("standalone") {
+        Some(value) if value.as_bool() == Some(false) => true,
+        Some(_) => return Err(ApiError::bad_request("standalone can only be cleared")),
+        None => false,
+    };
+    let title = match body.get("title") {
+        Some(value) => Some(
+            value
+                .as_str()
+                .ok_or_else(|| ApiError::bad_request("title must be a string"))?,
+        ),
+        None => None,
+    };
+    if pinned.is_none() && !adopt && title.is_none() {
+        return Err(ApiError::bad_request("title required"));
     }
-    let title = body
-        .get("title")
-        .and_then(Value::as_str)
-        .ok_or_else(|| ApiError::bad_request("title required"))?;
-    let saved = state.db.rename_tab(id, title)?;
+    let mut saved = Value::Null;
+    if let Some(pinned) = pinned {
+        saved = state.db.pin_tab(id, pinned)?;
+    }
+    if adopt {
+        saved = state.db.adopt_tab(id)?;
+    }
+    if let Some(title) = title {
+        saved = state.db.rename_tab(id, title)?;
+    }
     state.broadcast(json!({ "type": "tabs" }));
     Ok(Json(saved))
 }
@@ -741,9 +763,10 @@ fn validate_open_tab(tab: &Map<String, Value>) -> Result<(), ApiError> {
     const FIELDS: &[&str] = &[
         "id", "url", "kind", "title", "repo", "branch", "category", "login",
     ];
-    let valid_fields = tab
-        .iter()
-        .all(|(key, value)| FIELDS.contains(&key.as_str()) && value.is_string());
+    // `standalone`: a tab opened on purpose beside a session with the same page; never the session's own.
+    let valid_fields = tab.iter().all(|(key, value)| {
+        (FIELDS.contains(&key.as_str()) && value.is_string()) || (key == "standalone" && value.is_boolean())
+    });
     let url = tab
         .get("url")
         .and_then(Value::as_str)

@@ -197,7 +197,7 @@ private struct BoardCard: View {
             return NSItemProvider(object: ticket.key as NSString)
         }
         .contextMenu {
-            PageRowMenu(hasSession: model.sessionMark(ticket) != nil, open: { model.open(ticket) }, session: { model.openSession(ticket, agent: $0) })
+            PageRowMenu(hasSession: model.sessionMark(ticket) != nil, open: { model.open(ticket, inTab: true) }, session: { model.openSession(ticket, agent: $0) })
             Divider()
             Menu("Move To") { moveItems }
         }

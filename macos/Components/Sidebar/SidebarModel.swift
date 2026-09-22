@@ -58,15 +58,22 @@ struct SavedTab: Codable, Identifiable, Equatable, Sendable {
     var history: [SavedTabContent]? = nil
     /// A pinned tab leaves the Tabs list for the favourites grid under Dashboard.
     var pinned: Bool = false
+    /// Opened on purpose beside a session showing the same page (Open in Tab). A session owns the
+    /// tab it was started from, found by URL; a standalone tab is never that one.
+    var standalone: Bool = false
 
     init(id: String? = nil, kind: String, title: String, url: String, category: String? = nil, cur: String? = nil,
          paneView: String? = nil, reviewView: String? = nil, pageClosed: Bool? = nil, login: String? = nil,
-         avatar: String? = nil, links: [SavedTabContent]? = nil, history: [SavedTabContent]? = nil, pinned: Bool = false) {
+         avatar: String? = nil, links: [SavedTabContent]? = nil, history: [SavedTabContent]? = nil, pinned: Bool = false,
+         standalone: Bool = false) {
         self.id = id ?? url; self.kind = kind; self.title = title; self.url = url
         self.category = category; self.cur = cur; self.paneView = paneView; self.reviewView = reviewView
         self.pageClosed = pageClosed; self.login = login; self.avatar = avatar; self.links = links; self.history = history
-        self.pinned = pinned
+        self.pinned = pinned; self.standalone = standalone
     }
+
+    /// Whether one of `sessionURLs` is a session started from this tab.
+    func isOwned(by sessionURLs: Set<String>) -> Bool { !standalone && sessionURLs.contains(url) }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -84,6 +91,7 @@ struct SavedTab: Codable, Identifiable, Equatable, Sendable {
         links = try values.decodeIfPresent([SavedTabContent].self, forKey: .links)
         history = try values.decodeIfPresent([SavedTabContent].self, forKey: .history)
         pinned = try values.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        standalone = try values.decodeIfPresent(Bool.self, forKey: .standalone) ?? false
     }
 }
 
@@ -191,7 +199,7 @@ struct SidebarEntry: Equatable {
             .init(id: "overview", title: "Dashboard", symbol: "dashboard", destination: .overview)
         ]
         let taskURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
-        let unownedTabs = tabs.filter { !taskURLs.contains($0.url) }
+        let unownedTabs = tabs.filter { !$0.isOwned(by: taskURLs) }
         func icon(_ tab: SavedTab) -> SidebarTabIcon {
             tabIcons[tab.id] ?? SidebarTabIcon(kind: tab.kind, login: tab.login, avatar: tab.avatar, url: tab.url)
         }

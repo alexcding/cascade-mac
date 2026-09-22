@@ -295,6 +295,14 @@ impl Database {
         self.tabs()
     }
 
+    /// A tab a session was just started from is the session's own from now on: it leaves the
+    /// Tabs list under that address, whatever it was opened as.
+    pub fn adopt_tab(&self, id: &str) -> rusqlite::Result<Value> {
+        self.durable()
+            .execute("UPDATE tabs SET standalone=0 WHERE id=?1", [id])?;
+        self.tabs()
+    }
+
     /// Places the listed tabs first, in the given order; tabs not listed keep their relative
     /// order after them. Unknown ids are ignored.
     pub fn reorder_tabs(&self, order: &[&str]) -> rusqlite::Result<Value> {
@@ -763,6 +771,7 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tabs ADD COLUMN diff_pos INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE tabs ADD COLUMN page_closed INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE tabs ADD COLUMN history TEXT NOT NULL DEFAULT '[]'",
+        "ALTER TABLE tabs ADD COLUMN standalone INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN forward_webhooks INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE projects ADD COLUMN fix_version_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN fix_version_prefix TEXT NOT NULL DEFAULT ''",
@@ -809,7 +818,7 @@ fn migrate_tabs_to_ids(conn: &Connection) -> rusqlite::Result<()> {
            category TEXT NOT NULL DEFAULT '', login TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '',
            links TEXT NOT NULL DEFAULT '[]', cur TEXT NOT NULL DEFAULT '', history TEXT NOT NULL DEFAULT '[]',
            position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0,
-           pinned INTEGER NOT NULL DEFAULT 0
+           pinned INTEGER NOT NULL DEFAULT 0, standalone INTEGER NOT NULL DEFAULT 0
          );
          INSERT INTO tabs_with_ids(id,url,kind,title,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,cur,history,position,active,pinned)
            SELECT lower(hex(randomblob(16))),url,kind,title,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,cur,history,position,active,pinned FROM tabs;
@@ -872,6 +881,7 @@ fn tab_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         "category": text(row,"category")?, "login": text(row,"login")?, "avatar": text(row,"avatar")?,
         "links": parse_json(&text(row,"links")?,json!([])), "_active": row.get::<_,i64>("active")? != 0,
         "pinned": row.get::<_,i64>("pinned")? != 0,
+        "standalone": row.get::<_,i64>("standalone")? != 0,
     }))
 }
 
@@ -915,8 +925,8 @@ fn insert_tab(
         .cloned()
         .unwrap_or_else(|| json!([]))
         .to_string();
-    conn.execute("INSERT INTO tabs(id,url,kind,title,cur,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,history,position,active,pinned) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
-        params![id,url,kind,title,get("cur"),get("repo"),get("branch"),pane,bool_int(tab.get("diffOpen"),false),bool_int(tab.get("pageClosed"),false),tab.get("diffIdx").and_then(Value::as_i64).unwrap_or(0).max(0),get("category"),get("login"),get("avatar"),links,history,position,i64::from(active),bool_int(tab.get("pinned"),false)])?;
+    conn.execute("INSERT INTO tabs(id,url,kind,title,cur,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,history,position,active,pinned,standalone) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+        params![id,url,kind,title,get("cur"),get("repo"),get("branch"),pane,bool_int(tab.get("diffOpen"),false),bool_int(tab.get("pageClosed"),false),tab.get("diffIdx").and_then(Value::as_i64).unwrap_or(0).max(0),get("category"),get("login"),get("avatar"),links,history,position,i64::from(active),bool_int(tab.get("pinned"),false),bool_int(tab.get("standalone"),false)])?;
     Ok(())
 }
 
@@ -983,6 +993,38 @@ pub fn project_identity(project: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tabs_keyed_by_url_gain_ids_and_keep_every_current_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tabs (url TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT, repo TEXT, branch TEXT,
+               position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO tabs(url, kind, title) VALUES ('https://example.test/a', 'web', 'A');",
+        )
+        .unwrap();
+        initialize_durable(&conn).unwrap();
+        // The rebuilt table is read by `tab_from_row`, which names every column the schema has.
+        let tab = conn
+            .query_row("SELECT * FROM tabs", [], tab_from_row)
+            .unwrap();
+        assert_eq!(tab["url"], "https://example.test/a");
+        assert_eq!(tab["standalone"], false);
+        assert!(!tab["id"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_standalone_tab_is_saved_as_one_and_adopted_back() {
+        let opened = Database::open(tempfile::tempdir().unwrap().path()).unwrap();
+        let mut standalone = Map::new();
+        standalone.insert("url".into(), json!("https://example.test/a"));
+        standalone.insert("kind".into(), json!("web"));
+        standalone.insert("standalone".into(), json!(true));
+        let saved = opened.open_tab(&standalone).unwrap();
+        let id = saved["tabs"][0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(saved["tabs"][0]["standalone"], true);
+        assert_eq!(opened.adopt_tab(&id).unwrap()["tabs"][0]["standalone"], false);
+    }
 
     #[test]
     fn a_database_under_an_earlier_name_is_carried_to_the_current_one() {
