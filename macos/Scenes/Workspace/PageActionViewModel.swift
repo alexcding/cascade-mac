@@ -37,6 +37,7 @@ import Observation
             }
         }
     }
+    func pageSession(_ request: OpenPageRequest) -> PageSessionMark? { service.pageSession(request) }
     func cancel() { generation = UUID(); task = nil; opening = nil }
     func reject(_ message: String) { cancel(); feedbackGeneration = UUID(); error = message }
     func waitForOpen() async { await task?.value }

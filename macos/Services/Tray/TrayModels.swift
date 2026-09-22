@@ -16,6 +16,9 @@ struct TrayPR: Decodable, Identifiable, Equatable, Sendable {
     var reviewPending: Bool?
     var requestedAt: String? = nil
     let projectName: String?
+    var projectId: String? = nil
+    var headRefName: String? = nil
+    var jiraKeys: [String]? = nil
     let ci: CI?
     var author: Author? = nil
     var id: String { "\(repo)#\(number)" }

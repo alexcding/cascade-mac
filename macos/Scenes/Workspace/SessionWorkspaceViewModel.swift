@@ -38,7 +38,7 @@ import Observation
 }
 
 enum WorkspaceOperation: Equatable {
-    case openEditor, createSession, openFile
+    case openEditor, createSession(agent: SessionAgent?), openFile
     case changes, openTerminal, hookSettings, prepareChanges, toggleEditorPreview
 }
 
@@ -244,7 +244,8 @@ extension WorkspaceServing {
     }
     func prepareChanges() { if active && showsChanges { perform(.prepareChanges) } }
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
-    func createSession() { if canCreateSession { perform(.createSession) } }
+    /// `agent` nil starts the default agent — the button's click; the dropdown names one.
+    func createSession(agent: SessionAgent? = nil) { if canCreateSession { perform(.createSession(agent: agent)) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
     func selectMode(_ mode: WorkspaceMode) {

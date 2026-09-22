@@ -82,7 +82,7 @@ extension AppViewModel: WorkspaceCoordinating {
             if let session = state.session {
                 Task { await workspaceLaunch.openEditor(session: session, project: state.project) }
             }
-        case .createSession: perform(.newSession)
+        case .createSession(let agent): newSession(agent: agent)
         case .openFile: viewer.openFile(in: context, directory: state.session?.worktree)
         case .changes: if let session = state.session { showChanges(for: session, context: context) }
         case .openTerminal: openTerminal()

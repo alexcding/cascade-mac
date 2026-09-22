@@ -18,9 +18,10 @@ import Testing
     let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }))
     var creations = 0
     func project(_ project: Project, services: ProjectFeatureServices,
-                 openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel {
+                 openPage: @escaping (OpenPageRequest) async throws -> Void,
+                 session: @escaping (OpenPageRequest) -> PageSessionMark?) -> ProjectPageViewModel {
         creations += 1
-        return native.project(project, services: services, openPage: openPage)
+        return native.project(project, services: services, openPage: openPage, session: session)
     }
 }
 

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class DashboardViewModel {
-    enum Action: Equatable { case open(String), session(String) }
+    enum Action: Equatable { case open(String), session(String, agent: SessionAgent?) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -84,18 +84,22 @@ import Observation
     }
 
     func open(_ row: DashboardRow) { if !retired { onAction(.open(row.id)) } }
-    func openSession(_ row: DashboardRow) { if !retired { onAction(.session(row.id)) } }
+    func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { if !retired { onAction(.session(row.id, agent: agent)) } }
+    func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
+    static func sessionRequest(_ row: DashboardRow, agent: SessionAgent? = nil) -> OpenPageRequest {
+        var request = row.openPageRequest
+        request.inSession = true; request.projectID = row.projectID; request.agent = agent
+        return request
+    }
     func perform(_ action: Action) {
         guard !retired else { return }
         let id: String
-        switch action { case .open(let value), .session(let value): id = value }
+        switch action { case .open(let value), .session(let value, _): id = value }
         guard let row = visibleRows.first(where: { $0.id == id }) else { return }
+        guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
         switch action {
-        case .open, .session:
-            guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
-            var request = row.openPageRequest
-            if case .session = action { request.inSession = true; request.projectID = row.projectID }
-            navigation.open(request)
+        case .open: navigation.open(row.openPageRequest)
+        case .session(_, let agent): navigation.open(Self.sessionRequest(row, agent: agent))
         }
     }
     func cancelActions() { navigation.cancel() }

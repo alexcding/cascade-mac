@@ -23,10 +23,13 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     while model.loading { try await Task.sleep(for: .milliseconds(10)) }
     let row = try #require(model.mine.first)
     model.open(row); await model.navigation.waitForOpen()
-    #expect(actions.opened.last?.inSession == false && actions.opened.last?.projectID == nil)
+    #expect(actions.opened.last?.inSession == false && actions.opened.last?.projectID == "p", "A tab open names the row's project too, so its session lookup matches the badge's")
     model.openSession(row); await model.navigation.waitForOpen()
     let opened = try #require(actions.opened.last)
     #expect(opened.inSession && opened.projectID == "p" && opened.branch == "feature/one" && opened.url == row.url.absoluteString)
+    #expect(opened.agent == nil, "Go to Session names no agent: the default starts one if needed")
+    model.openSession(row, agent: .codex); await model.navigation.waitForOpen()
+    #expect(actions.opened.last?.agent == .codex)
     // A session start already says what failed; a tab open keeps the dashboard's words.
     actions.failOpen = true
     model.openSession(row); await model.navigation.waitForOpen()
@@ -62,7 +65,7 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     request.id = "draft"
     let sent = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
     let fields = Set(Mirror(reflecting: request).children.compactMap(\.label))
-    #expect(Set(sent.keys) == fields.subtracting(["inSession", "projectID"]))
+    #expect(Set(sent.keys) == fields.subtracting(["inSession", "projectID", "jiraKeys", "agent"]))
 }
 
 @MainActor @Test func aPageFindsTheSessionItAlreadyHas() {
@@ -85,6 +88,11 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     // A row with no branch matches nothing by branch.
     request = OpenPageRequest(url: pr, kind: "github", title: "#7")
     #expect(find(request, [session("blank", branch: "")]) == nil)
+    // A PR pushed from a branch named differently from its ticket's session still belongs to that session.
+    request.branch = "me/fix/WID-3-thing"; request.jiraKeys = ["WID-3"]
+    #expect(find(request, [session("ticket", branch: "WID-3-thing", jiraKey: "wid-3")]) == "ticket")
+    #expect(find(request, [session("other", branch: "WID-4-thing", jiraKey: "WID-4")]) == nil)
+    #expect(find(request, [session("nokey", branch: "WID-3-thing")]) == nil)
     // A JQL project lists tickets no key prefix would find: the row's own project decides.
     var jira = OpenPageRequest(url: ticket, kind: "jira", title: "OPS-12")
     #expect(AppViewModel.pageSessionProject(for: jira, in: projects) == nil)
@@ -93,4 +101,33 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     #expect(find(jira, [session("other", project: "w", jiraKey: "OPS-12"), session("ticket", project: "j", jiraKey: "ops-12")]) == "ticket")
     // Not a PR or ticket page: nothing to match.
     #expect(find(OpenPageRequest(url: "https://example.com", kind: "web", title: ""), [session("any", url: "https://example.com")]) == nil)
+}
+
+@MainActor @Test func aTicketAndItsPullRequestResolveToTheSameSession() {
+    let widgets = Project(id: "w", name: "Widgets", repo: "acme/widgets", color: nil, workspace: "/tmp/widgets", jiraProjectKey: "WID")
+    let prURL = "https://github.com/acme/widgets/pull/9", ticketURL = "https://acme.atlassian.net/browse/WID-3"
+    let prs = [SessionResolver.PullRequest(projectID: "w", url: prURL, branch: "me/fix/WID-3-thing", jiraKeys: ["WID-3"])]
+    func find(_ request: OpenPageRequest, _ sessions: [WorkspaceSession]) -> String? {
+        AppViewModel.pageSession(for: request, sessions: sessions, projects: [widgets], pullRequests: prs)?.id
+    }
+    var pr = OpenPageRequest(url: prURL, kind: "github", title: "#9", branch: "me/fix/WID-3-thing")
+    pr.jiraKeys = ["WID-3"]
+    let ticket = OpenPageRequest(url: ticketURL, kind: "jira", title: "WID-3")
+    // The ticket's session pushed the PR from its worktree: both rows land on it, even beside a
+    // second session that only carries the key.
+    let worked = session("worked", branch: "me/fix/WID-3-thing", url: ticketURL, jiraKey: "WID-3")
+    let keyOnly = session("key-only", branch: "WID-3-other", url: "session:key-only", jiraKey: "WID-3")
+    #expect(find(pr, [keyOnly, worked]) == "worked" && find(ticket, [keyOnly, worked]) == "worked")
+    // A session started from the PR, with no key recorded, is still the ticket's through the PR.
+    let fromPR = session("from-pr", branch: "me/fix/WID-3-thing", url: prURL)
+    #expect(find(ticket, [fromPR]) == "from-pr" && find(pr, [fromPR]) == "from-pr")
+    // Started from the PR versus started from the ticket with a different branch: the PR's worktree wins.
+    #expect(find(ticket, [keyOnly, fromPR]) == "from-pr")
+    // Only a shared key, no PR: the ticket's session is found; a stranger is not.
+    #expect(find(ticket, [keyOnly]) == "key-only")
+    #expect(find(pr, [session("stranger", branch: "other", jiraKey: "WID-9")]) == nil)
+    // Equal evidence: the newest session wins.
+    let older = WorkspaceSession(id: "older", projectId: "w", workspace: "/tmp/widgets", worktree: "/tmp/a", title: "a", branch: "", url: ticketURL, createdAt: "2026-01-01T00:00:00Z", pinned: false, jiraKey: "WID-3")
+    let newer = WorkspaceSession(id: "newer", projectId: "w", workspace: "/tmp/widgets", worktree: "/tmp/b", title: "b", branch: "", url: ticketURL, createdAt: "2026-02-01T00:00:00Z", pinned: false, jiraKey: "WID-3")
+    #expect(find(ticket, [older, newer]) == "newer")
 }

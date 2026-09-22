@@ -178,3 +178,23 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(controller.menu.items.contains { $0 === replacement })
     controller.menuDidClose(controller.menu)
 }
+
+@MainActor @Test func trayReviewsCarryWhatTheSessionLookupNeeds() async {
+    let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
+    var review = trayReview(3)
+    review = TrayPR(url: review.url, repo: review.repo, number: 3, title: review.title, state: "OPEN", category: "review",
+                    awaitingMyReview: true, reviewPending: true, projectName: "Widgets", projectId: "w",
+                    headRefName: "me/fix/WID-3-thing", jiraKeys: ["WID-3"], ci: nil)
+    runtime.state.pendingReviews = [review]
+    let model = TrayViewModel(service: runtime, shell: trayShell())
+    let coordinator = TrayCoordinator(model: model, runtime: runtime, presentation: window.presentation)
+    coordinator.setActive(true)
+    model.openReview(review); await settle()
+    let opened = runtime.opened.last
+    #expect(opened?.projectID == "w" && opened?.branch == "me/fix/WID-3-thing" && opened?.jiraKeys == ["WID-3"])
+    #expect(opened?.inSession == false, "The app decides between the session and a tab, not the tray")
+    // A review the snapshot knows nothing more about still opens, with nothing to match on.
+    runtime.state.pendingReviews = [trayReview(4)]
+    coordinator.setActive(true); model.openReview(trayReview(4)); await settle()
+    #expect(runtime.opened.last?.projectID == nil && runtime.opened.last?.branch == "" && runtime.opened.last?.jiraKeys == [])
+}

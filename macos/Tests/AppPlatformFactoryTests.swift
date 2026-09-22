@@ -33,8 +33,9 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
         try await native.workflowTerminal(terminal, cli: cli, sessionID: sessionID)
     }
     func resources(api: APIClient?) -> any ResourceUsageService { native.resources(api: api) }
-    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
-        actionCreations += 1; return native.pageActions(open: open)
+    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
+                     session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing {
+        actionCreations += 1; return native.pageActions(open: open, session: session)
     }
 }
 

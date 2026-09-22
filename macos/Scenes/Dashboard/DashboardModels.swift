@@ -44,7 +44,8 @@ struct DashboardRow: Identifiable, Equatable {
     var openPageRequest: OpenPageRequest {
         OpenPageRequest(url: url.absoluteString, kind: "github", title: "\(number) \(title)",
             repo: pr.repo ?? "", branch: pr.headRefName ?? "",
-            category: isMine ? "mine" : inReviewGroup ? "review" : "other", login: pr.author?.login ?? "")
+            category: isMine ? "mine" : inReviewGroup ? "review" : "other", login: pr.author?.login ?? "",
+            projectID: projectID, jiraKeys: pr.jiraKeys ?? [])
     }
     var ciRunning: Bool { ["queued", "in_progress"].contains(pr.ci?.status ?? "") }
     var ciLabel: String {
@@ -94,9 +95,14 @@ struct OpenPageRequest: Encodable, Sendable {
     var category: String = ""
     var login: String = ""
     /// Open the page's session instead of a tab: the one it already has, else a new one.
-    /// Routing only — the backend never sees it, nor the project of the row it was asked from.
+    /// Routing only — the backend never sees it. `projectID` is the row's project, which scopes
+    /// the session lookup for a click and its badge alike; two projects can track one repository.
     var inSession = false
     var projectID: String? = nil
+    /// The Jira keys a PR references: a session started from one of those tickets is the PR's too.
+    var jiraKeys: [String] = []
+    /// The agent a New Session menu item chose; nil starts the default agent.
+    var agent: SessionAgent? = nil
 
     private enum CodingKeys: String, CodingKey { case id, url, kind, title, repo, branch, category, login }
 

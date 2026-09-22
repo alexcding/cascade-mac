@@ -666,6 +666,7 @@ enum SidebarGlyphs {
             glyph.isHidden = !status.live && !status.busy
             glyph.stringValue = status.busy ? SidebarGlyphs.frames(status.cli)[spinFrame % SidebarGlyphs.frameCount]
                 : SidebarGlyphs.resting(status.cli)
+            glyph.font = Self.glyphFont(status.cli)
             glyph.textColor = status.busy ? SidebarGlyphs.tint(status.cli) : SidebarPalette.text3
             alphaValue = status.live || status.busy ? 1 : 0.82
             accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
@@ -684,12 +685,22 @@ enum SidebarGlyphs {
 
     /// Shared by the glyph label and the slot measured for it, so the two cannot drift apart.
     private static let glyphFont = NSFont.monospacedSystemFont(ofSize: 14.7, weight: .bold)
+    /// Codex's braille dots are thin at the shared weight; it gets a heavier, larger face so its
+    /// dots carry the same weight as Claude's asterisk.
+    private static func glyphFont(_ cli: String?) -> NSFont {
+        switch cli {
+        case "codex": NSFont.monospacedSystemFont(ofSize: 16, weight: .black)
+        case "claude": NSFont.systemFont(ofSize: 14, weight: .light)
+        default: glyphFont
+        }
+    }
     /// The status glyph's slot: the widest glyph either CLI shows, fixed so a spinner frame of another
     /// width cannot nudge the title.
     private static let glyphSlot: CGFloat = {
-        let font = glyphFont
-        let glyphs = ["claude", "codex"].flatMap { SidebarGlyphs.frames($0) + [SidebarGlyphs.resting($0)] }
-        return (glyphs.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 10).rounded(.up)
+        let widths = ["claude", "codex"].flatMap { cli in
+            (SidebarGlyphs.frames(cli) + [SidebarGlyphs.resting(cli)]).map { ($0 as NSString).size(withAttributes: [.font: glyphFont(cli)]).width }
+        }
+        return (widths.max() ?? 10).rounded(.up)
     }()
     /// What a label insets its text by on each side; the glyph's frame is widened by it so nothing clips.
     private static let labelInset: CGFloat = 2

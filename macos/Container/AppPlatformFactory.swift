@@ -31,7 +31,14 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func terminalControl() -> any TerminalRuntimeControlling
     func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal
     func resources(api: APIClient?) -> any ResourceUsageService
-    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing
+    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
+                     session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing
+}
+
+extension AppPlatformFactory {
+    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
+        pageActions(open: open, session: { _ in nil })
+    }
 }
 
 @MainActor struct NativeAppPlatformFactory: AppPlatformFactory {
@@ -62,7 +69,8 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func resources(api: APIClient?) -> any ResourceUsageService {
         NativeResourceUsageService(api: api, pty: try? configuration())
     }
-    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
-        NativePageActionService(open: open)
+    func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
+                     session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing {
+        NativePageActionService(open: open, session: session)
     }
 }

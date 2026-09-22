@@ -42,6 +42,7 @@ struct JiraTicketsView: View {
                                 .buttonStyle(.link).frame(width: 100, alignment: .leading)
                                 .accessibilityIdentifier("jira-ticket-\(ticket.key)")
                                 .disabled(model.ticketURL(ticket) == nil)
+                            if let mark = model.sessionMark(ticket) { PageDestinationMark(mark: mark) }
                             if model.navigation.opening == model.ticketURL(ticket)?.absoluteString && model.navigation.opening != nil {
                                 ProgressView().controlSize(.small)
                             }
@@ -58,8 +59,7 @@ struct JiraTicketsView: View {
                                 .accessibilityIdentifier("jira-status-\(ticket.key)")
                         }.padding(.vertical, 12)
                             .contextMenu {
-                                Button("Open in Tab") { model.open(ticket) }
-                                Button("Open in Session") { model.openSession(ticket) }
+                                PageRowMenu(hasSession: model.sessionMark(ticket) != nil, open: { model.open(ticket) }, session: { model.openSession(ticket, agent: $0) })
                             }
                         Divider()
                     }

@@ -181,6 +181,7 @@ private struct BoardCard: View {
                     .buttonStyle(.plain).font(.caption.weight(.medium)).monospacedDigit()
                     .foregroundStyle(Theme.textSecondary)
                 BoardPriorityMark(priority: ticket.priority)
+                if let mark = model.sessionMark(ticket) { PageDestinationMark(mark: mark) }
                 Spacer(minLength: 4)
                 assigneeMenu
             }
@@ -196,8 +197,7 @@ private struct BoardCard: View {
             return NSItemProvider(object: ticket.key as NSString)
         }
         .contextMenu {
-            Button("Open in Tab") { model.open(ticket) }
-            Button("Open in Session") { model.openSession(ticket) }
+            PageRowMenu(hasSession: model.sessionMark(ticket) != nil, open: { model.open(ticket) }, session: { model.openSession(ticket, agent: $0) })
             Divider()
             Menu("Move To") { moveItems }
         }

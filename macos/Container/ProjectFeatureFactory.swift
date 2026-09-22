@@ -13,16 +13,25 @@ struct ProjectFeatureServices {
 
 @MainActor protocol ProjectFeatureFactory {
     func project(_ project: Project, services: ProjectFeatureServices,
-                 openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel
+                 openPage: @escaping (OpenPageRequest) async throws -> Void,
+                 session: @escaping (OpenPageRequest) -> PageSessionMark?) -> ProjectPageViewModel
+}
+
+extension ProjectFeatureFactory {
+    func project(_ project: Project, services: ProjectFeatureServices,
+                 openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel {
+        self.project(project, services: services, openPage: openPage, session: { _ in nil })
+    }
 }
 
 @MainActor struct NativeProjectFeatureFactory: ProjectFeatureFactory {
     let creation: any CreationFlowFactory
 
     func project(_ project: Project, services: ProjectFeatureServices,
-                 openPage: @escaping (OpenPageRequest) async throws -> Void) -> ProjectPageViewModel {
+                 openPage: @escaping (OpenPageRequest) async throws -> Void,
+                 session: @escaping (OpenPageRequest) -> PageSessionMark?) -> ProjectPageViewModel {
         let editor = creation.projectEditor(project: project, service: services.projects)
-        let pageActions = NativePageActionService(open: openPage)
+        let pageActions = NativePageActionService(open: openPage, session: session)
         let board = WebBoardViewModel(projectID: project.id, api: services.api, pageActions: pageActions)
         let tickets = JiraTicketsViewModel(project: project, service: services.tickets, pageActions: pageActions)
         let workflows = WorkflowEditorViewModel(project: project, service: services.workflows)

@@ -88,7 +88,7 @@ struct DashboardView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
                         DashboardCard(row: row, opening: model.navigation.opening == row.url.absoluteString,
-                            open: { model.open(row) }, session: { model.openSession(row) })
+                            open: { model.open(row) }, session: { model.openSession(row, agent: $0) }, sessionMark: model.sessionMark(row))
                         if row.id != rows.last?.id { Divider().padding(.horizontal, 10) }
                     }
                 }
@@ -132,7 +132,9 @@ private struct UsageFigure: View {
 }
 
 struct DashboardCard: View {
-    let row: DashboardRow; let opening: Bool; let open: () -> Void; let session: () -> Void
+    let row: DashboardRow; let opening: Bool; let open: () -> Void; let session: (SessionAgent?) -> Void
+    var sessionMark: PageSessionMark? = nil
+    private var hasSession: Bool { sessionMark != nil }
     @State private var hovering = false
     var body: some View {
         Button(action: open) {
@@ -142,7 +144,8 @@ struct DashboardCard: View {
                 Text(row.title).font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
                 if let status = row.reviewLabel { reviewState(status) }
                 HStack(spacing: 6) {
-                    ForEach(Array((row.pr.labels ?? []).prefix(2).enumerated()), id: \.offset) { _, value in LabelChip(label: value) }
+                    // The PR's own labels are not shown; the session's agent takes their place.
+                    if let mark = sessionMark { AgentChip(mark: mark) }
                     ForEach((row.pr.jiraKeys ?? []).prefix(2), id: \.self) { key in
                         Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(.blue)
                             .padding(.horizontal, 8).padding(.vertical, 2).background(Color.blue.opacity(0.08), in: Capsule())
@@ -161,7 +164,7 @@ struct DashboardCard: View {
                 .background(hovering ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(opening).onHover { hovering = $0 }
             .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-            .contextMenu { Button("Open in Tab", action: open); Button("Open in Session", action: session) }
+            .contextMenu { PageRowMenu(hasSession: hasSession, open: open, session: session) }
     }
     @ViewBuilder private func reviewState(_ status: String) -> some View {
         if status == "Draft" {
@@ -178,15 +181,16 @@ struct DashboardCard: View {
     }
 }
 
-private struct LabelChip: View {
-    let label: DashboardPR.Tag
+/// The session's agent as a tag: its colour as the dot, its name as the text.
+private struct AgentChip: View {
+    let mark: PageSessionMark
     var body: some View {
-        HStack(spacing: 5) { Circle().fill(labelColor).frame(width: 7, height: 7); Text(label.name).lineLimit(1) }
+        HStack(spacing: 5) {
+            Circle().fill(mark.cli.isEmpty ? Color.secondary : Theme.agentTint(mark.cli)).frame(width: 7, height: 7)
+            Text(mark.cli.isEmpty ? "Shell" : mark.agentName).lineLimit(1)
+        }
             .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
             .padding(.horizontal, 8).padding(.vertical, 2).background(.quaternary.opacity(0.45), in: Capsule())
-    }
-    private var labelColor: Color {
-        guard let hex = label.color, hex.count == 6, let value = Int(hex, radix: 16) else { return .secondary }
-        return Color(red: Double((value >> 16) & 255) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
+            .help(mark.label).accessibilityLabel(mark.label)
     }
 }

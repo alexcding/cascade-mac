@@ -145,7 +145,7 @@ struct APIBoardService: BoardService {
 }
 
 @MainActor @Observable final class WebBoardViewModel {
-    enum Action: Equatable { case openTicket(BoardTicketLink), openSession(BoardTicketLink) }
+    enum Action: Equatable { case openTicket(BoardTicketLink), openSession(BoardTicketLink, agent: SessionAgent?) }
     static let unassigned = "__unassigned__"
     static let unmappedDrop = "Can’t tell which status this column maps to — use the move menu."
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
@@ -453,10 +453,18 @@ struct APIBoardService: BoardService {
         }
     }
     func open(_ ticket: JiraTicket) { link(ticket).map { onAction(.openTicket($0)) } }
-    func openSession(_ ticket: JiraTicket) { link(ticket).map { onAction(.openSession($0)) } }
+    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { link(ticket).map { onAction(.openSession($0, agent: agent)) } }
+    func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
+        guard !retired, let url = ticketURL(ticket) else { return nil }
+        var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
+        request.inSession = true; request.projectID = projectID
+        return navigation.pageSession(request)
+    }
+    private func ticketURL(_ ticket: JiraTicket) -> String? {
+        siteURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key).absoluteString
+    }
     private func link(_ ticket: JiraTicket) -> BoardTicketLink? {
-        guard let base = siteURL else { error = "Configure the Jira site before opening a ticket."; return nil }
-        let url = base.appendingPathComponent("browse").appendingPathComponent(ticket.key).absoluteString
+        guard let url = ticketURL(ticket) else { error = "Configure the Jira site before opening a ticket."; return nil }
         return .init(type: "openTicket", url: url, title: ticket.key, external: false)
     }
     func perform(_ action: Action) {
@@ -465,11 +473,13 @@ struct APIBoardService: BoardService {
         case .openTicket(let link):
             // Every ticket opens in a Craft tab; `external` stays in the link's shape only.
             guard safeWebURL(link.url) != nil else { return }
-            navigation.open(OpenPageRequest(url: link.url, kind: "jira", title: link.title))
-        case .openSession(let link):
+            var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
+            request.projectID = projectID
+            navigation.open(request)
+        case .openSession(let link, let agent):
             guard safeWebURL(link.url) != nil else { return }
             var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
-            request.inSession = true; request.projectID = projectID
+            request.inSession = true; request.projectID = projectID; request.agent = agent
             navigation.open(request)
         }
     }

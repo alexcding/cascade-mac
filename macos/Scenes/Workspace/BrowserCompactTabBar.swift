@@ -27,7 +27,7 @@ struct BrowserCompactTabBar: View {
             // Create Session takes the end of the row, where New Tab sits in a panel that has one.
             // A sidebar tab offers the session and no New Tab; a session's panel, the other way round.
             if model.offersPageSession, model.fillsTitleBar {
-                Button("Create Session", systemImage: "terminal", action: model.createSession)
+                CreateSessionButton(model: model)
                     .disabled(!model.canCreateSession)
                     .help("Start an agent session for this page in its project")
                     .padding(.horizontal, 12)

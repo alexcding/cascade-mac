@@ -153,7 +153,8 @@ struct ProjectPageView: View {
                         }
                         ForEach(model.rows) { row in
                             DashboardCard(row: row, opening: model.opening.contains(row.id),
-                                          open: { model.open(row) }, session: { model.openSession(row) })
+                                          open: { model.open(row) }, session: { model.openSession(row, agent: $0) },
+                                          sessionMark: model.sessionMark(row))
                             Divider()
                         }
                     }

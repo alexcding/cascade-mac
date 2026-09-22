@@ -69,10 +69,12 @@ enum PageSessionStart {
         case failed(String)
     }
 
-    static func run(url: String, project: Project, agent: SessionAgent, operations: any SessionCreating) async -> Outcome {
+    /// `jiraKey` is the ticket a PR page references, recorded on the session so the ticket's row finds it too.
+    static func run(url: String, project: Project, agent: SessionAgent, jiraKey: String = "", operations: any SessionCreating) async -> Outcome {
         do {
             var draft = SessionDraft(); draft.agent = agent
             draft = try await operations.resolvePage(url, project: project, draft: draft, workflow: false)
+            if draft.jiraKey.isEmpty { draft.jiraKey = jiraKey.uppercased() }
             if draft.createBranch && draft.reuseWorktree == nil { draft.base = try await operations.references(project).sessionBase }
             return .created(try await operations.create(project: project, draft: draft, requireExactBranch: false))
         } catch is PullRequestBranchUnknown {

@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class ProjectPageViewModel {
-    enum PullRequestAction: Equatable { case open(String), session(String) }
+    enum PullRequestAction: Equatable { case open(String), session(String, agent: SessionAgent?) }
     enum Action: Equatable {
         case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
@@ -111,7 +111,8 @@ import Observation
         tickets?.cancelActions(); board?.cancelActions()
     }
     func open(_ row: DashboardRow) { request(.open(row.id)) }
-    func openSession(_ row: DashboardRow) { request(.session(row.id)) }
+    func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { request(.session(row.id, agent: agent)) }
+    func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : pageActions?.pageSession(DashboardViewModel.sessionRequest(row)) }
     private func request(_ action: PullRequestAction) {
         guard !retired, pageActions != nil else { return }
         onAction(.pullRequest(action))
@@ -119,12 +120,12 @@ import Observation
     func performPullRequestAction(_ action: PullRequestAction) {
         guard !retired, let pageActions else { return }
         let id: String
-        switch action { case .open(let value), .session(let value): id = value }
+        switch action { case .open(let value), .session(let value, _): id = value }
         guard let row = rows.first(where: { $0.id == id }) else { return }
         switch action {
         case .open, .session:
             var request = row.openPageRequest
-            if case .session = action { request.inSession = true; request.projectID = row.projectID }
+            if case .session(_, let agent) = action { request.inSession = true; request.projectID = row.projectID; request.agent = agent }
             // The same row asked the other way — tab, then session — is a new request, not a repeat.
             guard !opening.contains(id) || openingInSession != request.inSession else { return }
             openingInSession = request.inSession

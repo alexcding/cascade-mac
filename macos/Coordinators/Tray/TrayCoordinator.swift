@@ -55,8 +55,9 @@ import Observation
             // so the panel never sits on a slow open while the user has moved on.
             guard opening?.id != id, let review = model.review(for: id), let url = review.webURL else { return }
             opening?.task.cancel()
-            let request = OpenPageRequest(url: url.absoluteString, kind: "github", title: "PR #\(review.number) \(review.title)",
-                                          repo: review.repo, category: review.category)
+            var request = OpenPageRequest(url: url.absoluteString, kind: "github", title: "PR #\(review.number) \(review.title)",
+                                          repo: review.repo, branch: review.headRefName ?? "", category: review.category)
+            request.projectID = review.projectId; request.jiraKeys = review.jiraKeys ?? []
             let task = Task { [weak self, weak runtime] in
                 var opened = false
                 do { try await runtime?.openTrayReview(request); opened = runtime != nil } catch {}

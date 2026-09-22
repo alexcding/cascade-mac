@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class JiraTicketsViewModel {
-    enum Action: Equatable { case open(String), session(String) }
+    enum Action: Equatable { case open(String), session(String, agent: SessionAgent?) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -272,19 +272,29 @@ import Observation
         return baseURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key)
     }
     func open(_ ticket: JiraTicket) { if !retired { onAction(.open(ticket.key)) } }
-    func openSession(_ ticket: JiraTicket) { if !retired { onAction(.session(ticket.key)) } }
+    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { if !retired { onAction(.session(ticket.key, agent: agent)) } }
     func perform(_ action: Action) {
         guard !retired, service != nil else { return }
         let key: String
-        switch action { case .open(let value), .session(let value): key = value }
+        switch action { case .open(let value), .session(let value, _): key = value }
         guard let ticket = rows.first(where: { $0.key == key }) else { return }
         guard let url = ticketURL(ticket) else { siteError = "Configure the Jira site to open ticket links."; return }
         switch action {
         case .open, .session:
-            var request = OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")")
-            if case .session = action { request.inSession = true; request.projectID = project.id }
+            var request = pageRequest(ticket, url: url)
+            request.projectID = project.id
+            if case .session(_, let agent) = action { request.inSession = true; request.agent = agent }
             navigation.open(request)
         }
+    }
+    func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
+        guard !retired, let url = ticketURL(ticket) else { return nil }
+        var request = pageRequest(ticket, url: url)
+        request.inSession = true; request.projectID = project.id
+        return navigation.pageSession(request)
+    }
+    private func pageRequest(_ ticket: JiraTicket, url: URL) -> OpenPageRequest {
+        OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")")
     }
     func cancelActions() { navigation.cancel() }
     func retire() { retired = true; onAction = { _ in }; disconnect() }

@@ -22,9 +22,10 @@ extension AppCoordinator {
 
     func prepareProject(_ project: Project, services: ProjectFeatureServices, factory: any ProjectFeatureFactory,
                         runtime: any ProjectCoordinating,
-                        openPage: @escaping (OpenPageRequest) async throws -> Void) {
+                        openPage: @escaping (OpenPageRequest) async throws -> Void,
+                        session: @escaping (OpenPageRequest) -> PageSessionMark? = { _ in nil }) {
         if let existing = projectCoordinators[project.id] { existing.model.update(project); return }
-        let model = factory.project(project, services: services, openPage: openPage)
+        let model = factory.project(project, services: services, openPage: openPage, session: session)
         installProject(model, runtime: runtime)
     }
 

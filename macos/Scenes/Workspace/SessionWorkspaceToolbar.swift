@@ -33,7 +33,7 @@ struct SessionWorkspaceToolbar: ToolbarContent {
         if model.offersPageSession, !model.fillsTitleBar {
             if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
             ToolbarItem(placement: .primaryAction) {
-                Button("Create Session", systemImage: "terminal", action: model.createSession)
+                CreateSessionButton(model: model)
                     .labelStyle(.titleAndIcon)
                     .disabled(!model.canCreateSession)
                     .help("Start an agent session for this page in its project")
@@ -61,6 +61,18 @@ struct SessionWorkspaceToolbar: ToolbarContent {
         if model.showsTerminal {
             if #available(macOS 26.0, *) { ToolbarSpacer(.fixed) }
             ToolbarItem(placement: .primaryAction) { SessionWorkspaceContextToggle(model: model) }
+        }
+    }
+}
+
+/// Create Session as a dropdown: every click asks which agent runs the session.
+struct CreateSessionButton: View {
+    let model: SessionWorkspaceViewModel
+    var body: some View {
+        Menu {
+            ForEach(PageRowMenu.agents) { agent in Button(agent.label) { model.createSession(agent: agent) } }
+        } label: {
+            Label("Create Session", systemImage: "terminal")
         }
     }
 }
