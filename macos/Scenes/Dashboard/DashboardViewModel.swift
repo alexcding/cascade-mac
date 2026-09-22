@@ -36,6 +36,55 @@ import Observation
     var ticketsAvailable: Bool { service is DashboardTicketService }
     @ObservationIgnored private var ticketTask: Task<Void, Never>?
 
+    /// The dashboard's filter bar. The segments are pull-request shaped, so anything but `all`
+    /// hides the Jira section rather than pretending a ticket can have failing checks.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all, failing
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: return "All"
+            case .failing: return "Failing"
+            }
+        }
+    }
+    var query = ""
+    var filter: Filter = .all
+    private var needle: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var filtering: Bool { filter != .all || !needle.isEmpty }
+
+    private func matches(_ row: DashboardRow) -> Bool {
+        let needle = needle
+        if !needle.isEmpty, !row.searchText.localizedCaseInsensitiveContains(needle) { return false }
+        switch filter {
+        case .all: return true
+        case .failing: return row.checks == .failing
+        }
+    }
+    var visibleMine: [DashboardRow] { mine.filter(matches) }
+    var visibleReviews: [DashboardRow] { reviews.filter(matches) }
+    var visibleTickets: [DashboardTicketRow] {
+        guard filter == .all else { return [] }
+        let needle = needle
+        guard !needle.isEmpty else { return tickets }
+        return tickets.filter {
+            $0.ticket.key.localizedCaseInsensitiveContains(needle) || $0.title.localizedCaseInsensitiveContains(needle)
+        }
+    }
+    func clearFilter() { guard !retired else { return }; query = ""; filter = .all }
+
+    /// Every Jira key a shown pull request references, against that pull request's number. The
+    /// Jira section's Pull Request column reads it; the lowest number wins when two PRs name one
+    /// ticket, so the column does not flip between them as the snapshot reorders.
+    var linkedPRs: [String: String] {
+        var value: [String: Int] = [:]
+        for row in visibleRows {
+            guard let number = row.pr.number else { continue }
+            for key in row.pr.jiraKeys ?? [] where number < value[key] ?? .max { value[key] = number }
+        }
+        return value.mapValues { "#\($0)" }
+    }
+
     /// Load the snapshot and its display lists together before notifying the coordinator.
     private func load(from service: any DashboardService, generation: UUID) async throws {
         let projects = try await service.snapshot()

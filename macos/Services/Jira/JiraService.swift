@@ -11,6 +11,11 @@ struct JiraTicket: Decodable, Identifiable, Equatable, Sendable {
     var statusId: String?
     var statusCategory: String?
     var assigneeEmail: String?
+    /// The ticket's own Jira labels, and who raised it. `acli` allows only a fixed set of fields
+    /// on a search — key, summary, status, issuetype, priority, assignee, labels, reporter — and
+    /// rejects anything else, `updated` included.
+    var labels: [String]?
+    var reporter: String?
     var id: String { key }
     var projectKey: String { String(key.split(separator: "-").first ?? "") }
 }

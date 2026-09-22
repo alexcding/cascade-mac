@@ -29,6 +29,17 @@ struct ThemeColor: Sendable {
     }
 }
 
+extension Theme {
+    /// A GitHub label colour as `gh` gives it — six hex digits, no hash — as a drawable colour.
+    /// Anything unparseable falls back to the secondary text tone rather than to a wrong colour.
+    /// Label colours run to very pale values, so draw this as a mark, never behind or as text.
+    static func tagTint(_ hex: String?) -> Color {
+        let digits = (hex ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "# "))
+        guard digits.count == 6, let rgb = UInt32(digits, radix: 16) else { return Theme.textSecondary }
+        return Color(nsColor: NSColor(themeRGB: rgb, alpha: 1))
+    }
+}
+
 extension NSColor {
     fileprivate convenience init(themeRGB rgb: UInt32, alpha: Double) {
         self.init(srgbRed: Double((rgb >> 16) & 0xFF) / 255,

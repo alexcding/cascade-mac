@@ -31,11 +31,25 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     let syncError: String?
 }
 
+/// How long ago, in one cell's worth of text: 12m, 4h, 3d. Empty when the date is unknown,
+/// so a column of a field the backend did not send reads as blank rather than as "now".
+func compactAge(_ date: Date?) -> String {
+    guard let date else { return "" }
+    let seconds = max(0, Int(Date.now.timeIntervalSince(date)))
+    if seconds < 3_600 { return "\(max(1, seconds / 60))m" }
+    if seconds < 86_400 { return "\(seconds / 3_600)h" }
+    return "\(seconds / 86_400)d"
+}
+
 struct DashboardRow: Identifiable, Equatable {
     let projectID: String
     let projectName: String
     let pr: DashboardPR
     let url: URL
+    /// The Session column's sort key. A row cannot know its own session — the lookup lives on the
+    /// view model — and `Table` can only order by a key path, so the table fills this in before
+    /// sorting. Empty means no session, which sorts first.
+    var sessionName = ""
     var id: String { "\(projectID):\(url.absoluteString)" }
     var title: String { pr.title ?? "Pull request" }
     var number: String { pr.number.map { "#\($0)" } ?? "PR" }
@@ -65,6 +79,32 @@ struct DashboardRow: Identifiable, Equatable {
         default: return "circle.dashed"
         }
     }
+    /// The Checks column's state. A 7px dot could not separate "running" from "no checks", so the
+    /// column names the state instead; `ciLabel` stays the longer phrasing for help and VoiceOver.
+    enum Checks: Equatable { case passing, failing, running, unknown }
+    var checks: Checks {
+        if ciRunning { return .running }
+        switch pr.ci?.conclusion {
+        case "success": return .passing
+        case "failure": return .failing
+        default: return .unknown
+        }
+    }
+    var checksTitle: String {
+        switch checks {
+        case .passing: return "Passing"
+        case .failing: return "Failing"
+        case .running: return "Running"
+        case .unknown: return "No checks"
+        }
+    }
+    var author: String { pr.author?.login ?? "" }
+    /// The pull request's own GitHub labels. `github.rs` already queries `labels(first:20)` and
+    /// `lean()` copies them through, so the column has real data without touching the query.
+    var tags: [DashboardPR.Tag] { pr.labels ?? [] }
+    var sortTags: String { tags.map(\.name).joined(separator: " ") }
+    /// Compact age for the table's last column: 12m, 4h, 3d.
+    var ageLabel: String { compactAge(pr.createdAt.flatMap(backendTimestamp)) }
     var reviewLabel: String? {
         if pr.isDraft == true { return "Draft" }
         switch pr.reviewDecision {
@@ -84,6 +124,9 @@ struct DashboardRow: Identifiable, Equatable {
     var sortRepo: String { (pr.repo ?? projectName).split(separator: "/").last.map(String.init) ?? projectName }
     var sortBranch: String { pr.headRefName ?? "" }
     var sortDate: Date { pr.createdAt.flatMap(backendTimestamp) ?? .distantPast }
+    /// The Age column sorts by age, not by date: ascending has to put the youngest first, or the
+    /// arrow points the opposite way to the numbers under it. A row with no date is oldest.
+    var sortAge: TimeInterval { -sortDate.timeIntervalSinceReferenceDate }
     var sortJira: String { (pr.jiraKeys ?? []).joined(separator: " ") }
     /// Failing first, then running, passing, and unknown.
     var ciRank: Int {
@@ -131,11 +174,26 @@ struct OpenPageRequest: Encodable, Sendable {
 struct DashboardTicketRow: Identifiable, Equatable {
     let ticket: JiraTicket
     let url: URL
+    /// Filled by the table before sorting, as on `DashboardRow`.
+    var sessionName = ""
+    /// The number of the pull request that references this ticket, `#123`, or empty for none.
+    /// Also filled by the table: the link is drawn from the dashboard's rows, not from Jira.
+    var pullRequest = ""
     var id: String { ticket.key }
     var title: String { ticket.summary ?? ticket.key }
     var status: String { ticket.status ?? "" }
     var type: String { ticket.type ?? "" }
     var priority: String { ticket.priority ?? "" }
+    /// Jira's own words, kept out of the view: which statuses read as moving, and which
+    /// priorities the dashboard is allowed to shout about.
+    var inProgress: Bool { status.localizedCaseInsensitiveContains("progress") }
+    var urgent: Bool { ["highest", "blocker", "critical"].contains(priority.lowercased()) }
+    /// The key's project prefix — the Project column, which earns its place only once the
+    /// dashboard tracks more than one Jira project, so it opens hidden.
+    var project: String { ticket.projectKey }
+    var labels: [String] { ticket.labels ?? [] }
+    var sortLabels: String { labels.joined(separator: " ") }
+    var reporter: String { ticket.reporter ?? "" }
     /// The project is resolved from the key when the page opens, so none is fixed here.
     var openPageRequest: OpenPageRequest {
         OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")", jiraKeys: [ticket.key])

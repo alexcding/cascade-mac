@@ -548,7 +548,7 @@ pub async fn search_jira(jql: &str, limit: usize) -> Result<Vec<Value>> {
             "--limit",
             &limit.to_string(),
             "--fields",
-            "key,summary,status,issuetype,priority,assignee",
+            "key,summary,status,issuetype,priority,assignee,labels,reporter",
             "--json",
         ],
         Duration::from_secs(30),
@@ -558,7 +558,7 @@ pub async fn search_jira(jql: &str, limit: usize) -> Result<Vec<Value>> {
     let array = items
         .as_array()
         .ok_or_else(|| anyhow!("unexpected acli search response"))?;
-    Ok(array.iter().map(|item|{let fields=&item["fields"];json!({"key":item["key"],"summary":fields["summary"].as_str().unwrap_or(""),"status":fields.pointer("/status/name").and_then(Value::as_str).unwrap_or(""),"statusCategory":fields.pointer("/status/statusCategory/key").and_then(Value::as_str).unwrap_or(""),"statusId":fields.pointer("/status/id").and_then(Value::as_str).unwrap_or(""),"type":fields.pointer("/issuetype/name").and_then(Value::as_str).unwrap_or(""),"priority":fields.pointer("/priority/name").and_then(Value::as_str).unwrap_or(""),"assignee":fields.pointer("/assignee/displayName").or_else(||fields.pointer("/assignee/emailAddress")).and_then(Value::as_str).unwrap_or(""),"assigneeId":fields.pointer("/assignee/accountId").and_then(Value::as_str).unwrap_or(""),"assigneeEmail":fields.pointer("/assignee/emailAddress").and_then(Value::as_str).unwrap_or("")})}).collect())
+    Ok(array.iter().map(|item|{let fields=&item["fields"];json!({"key":item["key"],"summary":fields["summary"].as_str().unwrap_or(""),"status":fields.pointer("/status/name").and_then(Value::as_str).unwrap_or(""),"statusCategory":fields.pointer("/status/statusCategory/key").and_then(Value::as_str).unwrap_or(""),"statusId":fields.pointer("/status/id").and_then(Value::as_str).unwrap_or(""),"type":fields.pointer("/issuetype/name").and_then(Value::as_str).unwrap_or(""),"priority":fields.pointer("/priority/name").and_then(Value::as_str).unwrap_or(""),"assignee":fields.pointer("/assignee/displayName").or_else(||fields.pointer("/assignee/emailAddress")).and_then(Value::as_str).unwrap_or(""),"assigneeId":fields.pointer("/assignee/accountId").and_then(Value::as_str).unwrap_or(""),"assigneeEmail":fields.pointer("/assignee/emailAddress").and_then(Value::as_str).unwrap_or(""),"labels":fields["labels"].as_array().map(|v|v.iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_default(),"reporter":fields.pointer("/reporter/displayName").or_else(||fields.pointer("/reporter/emailAddress")).and_then(Value::as_str).unwrap_or("")})}).collect())
 }
 async fn active_sprint(key: &str) -> Result<Value> {
     if key.is_empty() {
