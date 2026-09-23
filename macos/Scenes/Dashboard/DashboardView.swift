@@ -13,6 +13,13 @@ struct DashboardView: View {
     /// Below this width the side column drops under the main one and the tiles pair up.
     private static let splitWidth: CGFloat = 900
     @State private var width: CGFloat = 1200
+    /// What each tile last showed, kept here rather than in the tile so returning to Overview picks
+    /// up where it left off instead of rolling up from zero again.
+    @State private var tileValues: [String: Double] = [:]
+
+    private func shown(_ key: String) -> Binding<Double> {
+        Binding { tileValues[key, default: 0] } set: { tileValues[key] = $0 }
+    }
 
     var body: some View {
         ScrollView {
@@ -122,7 +129,7 @@ struct DashboardView: View {
         let failing = mine.filter { $0.checks == .failing }.count
         let drafts = mine.filter { $0.pr.isDraft == true }.count
         let approved = mine.filter { $0.pr.reviewDecision == "APPROVED" }.count
-        return DashboardStatTile(title: "Open pull requests", value: "\(mine.count)",
+        return DashboardStatTile(title: "Open pull requests", value: Double(mine.count), shown: shown("prs"),
                                  footnote: "\(drafts) draft\(drafts == 1 ? "" : "s") · \(approved) approved",
                                  open: { model.selectTab(.pullRequests) }) {
             if failing > 0 { DashboardBadge("\(failing) failing", tone: .danger) }
@@ -138,7 +145,7 @@ struct DashboardView: View {
         let repos = Set(reviews.map { $0.pr.repo ?? $0.projectName }).count
         var authors: [String] = []
         for login in reviews.map(\.author) where !login.isEmpty && !authors.contains(login) { authors.append(login) }
-        return DashboardStatTile(title: "Waiting on you", value: "\(reviews.count)",
+        return DashboardStatTile(title: "Waiting on you", value: Double(reviews.count), shown: shown("reviews"),
                                  footnote: reviews.isEmpty ? "No review requests" : "across \(repos) repo\(repos == 1 ? "" : "s")",
                                  open: { model.selectTab(.reviews) }) {
             if let oldest { DashboardBadge("oldest \(oldest.ageLabel)", tone: .warn) }
@@ -154,7 +161,7 @@ struct DashboardView: View {
         let urgent = tickets.filter(\.urgent).count
         let loading = model.ticketsLoading && tickets.isEmpty
         let counts = TicketStage.allCases.map { stage in (stage, tickets.filter { $0.stage == stage }.count) }
-        return DashboardStatTile(title: "Tickets assigned", value: loading ? "–" : "\(tickets.count)",
+        return DashboardStatTile(title: "Tickets assigned", value: loading ? 0 : Double(tickets.count), shown: shown("tickets"),
                                  footnote: counts.map { "\($0.1) \($0.0.title.lowercased())" }.joined(separator: " · "),
                                  open: { model.showTickets() }) {
             if urgent > 0 {
@@ -178,7 +185,7 @@ struct DashboardView: View {
         let month = agents.flatMap(\.history).reduce(0) { $0 + $1.cost }
         let tokens = agents.flatMap(\.history).reduce(0) { $0 + $1.tokens }
         let split = agents.map { "\($0.title) \(UsageStats.money($0.history.reduce(0) { $0 + $1.cost }, whole: true))" }
-        return DashboardStatTile(title: "AI spend · 30 days", value: month > 0 ? UsageStats.money(month, whole: true) : "–",
+        return DashboardStatTile(title: "AI spend · 30 days", value: month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
                                  footnote: split.isEmpty ? "No usage yet" : split.joined(separator: " · ")) {
             if tokens > 0 { DashboardBadge("\(UsageStats.compact(tokens)) tokens", tone: .outline) }
         } visual: {
@@ -469,7 +476,11 @@ struct DashboardFilterTags<Value: Hashable>: View {
 /// face with a small visual beside it, then one quiet line.
 private struct DashboardStatTile<Badge: View, Visual: View>: View {
     let title: String
-    let value: String
+    /// The count or amount; the tile starts at zero and rolls up to it once the data is in.
+    let value: Double
+    /// The number on screen, which follows `value` with a roll.
+    @Binding var shown: Double
+    var format: (Double) -> String = { "\(Int($0))" }
     let footnote: String
     /// Where a click on the tile goes: the tab that lists what it counts. Controls inside the tile,
     /// such as the urgent badge, keep their own clicks.
@@ -487,9 +498,14 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
             }
             .frame(minHeight: 22)
             HStack(alignment: .center, spacing: 8) {
-                Text(value).font(.system(size: 30, weight: .semibold).monospacedDigit())
+                Text(format(shown)).font(.system(size: 30, weight: .semibold).monospacedDigit())
                     // No scaling, so every tile's number is the same size; the visual gives way instead.
                     .tracking(-0.6).lineLimit(1).fixedSize().layoutPriority(1)
+                    .contentTransition(.numericText(value: shown))
+                    .onChange(of: value, initial: true) {
+                        guard shown != value else { return }
+                        withAnimation(reduceMotion ? nil : .snappy) { shown = value }
+                    }
                 Spacer(minLength: 0)
                 visual
             }
@@ -507,6 +523,7 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
         .accessibilityElement(children: .contain)
         .modifier(DashboardTileAction(open: open))
     }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 }
 
 /// Makes a tile a VoiceOver button only when it has somewhere to go, so the spend tile offers no
