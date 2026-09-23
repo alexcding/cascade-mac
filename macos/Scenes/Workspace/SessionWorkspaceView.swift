@@ -505,8 +505,11 @@ struct SessionWorkspaceBuildTitle: View {
                     if model.warmup.running || model.warmup.failed {
                         SessionWorkspaceWarmupLine(state: model.warmup)
                     } else {
+                        // Capped well short of the scheme's width: a long session title
+                        // otherwise stretches the whole activity view across the toolbar.
                         Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
                             .lineLimit(1).truncationMode(.tail)
+                            .frame(maxWidth: 180, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: 320, alignment: .leading)
