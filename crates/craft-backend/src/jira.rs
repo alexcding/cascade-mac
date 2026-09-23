@@ -1,4 +1,4 @@
-use crate::{cli, github, http_client, integrations::render_version_template, poller, AppState};
+use crate::{cli, http_client, AppState};
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 use std::{collections::HashMap, time::Duration};
@@ -42,7 +42,7 @@ pub async fn rest(app: &AppState, method: &str, path: &str, body: Option<&Value>
     .await
 }
 
-fn segment(value: &str) -> String {
+pub(crate) fn segment(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes())
         .collect::<String>()
         .replace('+', "%20")
@@ -108,137 +108,44 @@ fn event(app: &AppState, kind: &str, payload: Value) {
     }
 }
 
-pub async fn apply_merge(app: &AppState, project: &Value, pr: &Value) {
-    let repo = project["repo"].as_str().unwrap_or("");
-    let number = pr["number"].as_i64().unwrap_or(0);
-    let project_key = project["jiraProjectKey"].as_str().unwrap_or("");
-    let mut keys = github::jira_keys(
-        pr["title"].as_str().unwrap_or(""),
-        pr["body"].as_str().unwrap_or(""),
-        project_key,
-    );
-    for link in app.db.links(None).unwrap_or_default() {
-        if link["pr_number"] == number
-            && link["pr_repo"]
-                .as_str()
-                .is_some_and(|r| r.eq_ignore_ascii_case(repo))
-        {
-            if let Some(key) = link["jira_key"].as_str().filter(|v| !v.is_empty()) {
-                if !keys.iter().any(|v| v == key) {
-                    keys.push(key.into());
-                }
-            }
-        }
-    }
-    if keys.is_empty() {
-        return;
-    }
-    let transition = project["mergeTransition"].as_str().unwrap_or("");
-    let trigger = format!("PR #{number} merged");
-    let version = if project["fixVersionEnabled"] == true && !project_key.is_empty() {
-        match prepare_version(app, project, pr).await {
-            Ok(version) => Some(version),
-            Err(error) => {
-                event(
-                    app,
-                    "jira_fixversion_failed",
-                    json!({"error":error.to_string(),"trigger":trigger}),
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
-    for key in keys {
-        let mut applied = None;
-        if let Some(version) = &version {
-            match rest(
-                app,
-                "PUT",
-                &format!("/rest/api/3/issue/{}", segment(&key)),
-                Some(&json!({"update":{"fixVersions":[{"add":{"name":version}}]}})),
-            )
-            .await
-            {
-                Ok(_) => {
-                    applied = Some(version);
-                    if transition.is_empty() {
-                        event(
-                            app,
-                            "jira_fixversion_set",
-                            json!({"key":key,"version":version,"trigger":trigger}),
-                        );
-                    }
-                }
-                Err(error) => event(
-                    app,
-                    "jira_fixversion_failed",
-                    json!({"key":key,"version":version,"error":error.to_string()}),
-                ),
-            }
-        }
-        if !transition.is_empty() {
-            match poller::transition(&key, transition).await {
-                Ok(_) => event(
-                    app,
-                    "jira_transitioned",
-                    json!({"key":key,"transition":transition,"version":applied,"trigger":trigger}),
-                ),
-                Err(error) => event(
-                    app,
-                    "jira_transition_failed",
-                    json!({"key":key,"transition":transition,"error":error.to_string()}),
-                ),
-            }
-        }
-    }
-    app.poller.sync_project_jira(app, project).await;
-    app.poller.sync_board(app, project).await;
-}
-
-async fn prepare_version(app: &AppState, project: &Value, pr: &Value) -> Result<String> {
-    let key = project["jiraProjectKey"].as_str().unwrap_or("");
-    let version = render_version_template(
-        project["fixVersionScript"].as_str().unwrap_or(""),
-        pr["number"].as_i64().unwrap_or(0),
-    )
-    .map_err(|error| anyhow::anyhow!(error.to_string()))?;
+/// Make sure `project` has a release named `version`, creating it when missing.
+pub async fn ensure_version(app: &AppState, project: &str, version: &str, trigger: &str) -> Result<()> {
     ensure!(
         !version.is_empty() && version.len() <= 255,
         "Invalid Jira version name"
     );
-    if !versions(key).await?.contains(&version) {
-        let project = rest(
-            app,
-            "GET",
-            &format!("/rest/api/3/project/{}", segment(key)),
-            None,
-        )
-        .await?;
-        let id = project["id"]
-            .as_i64()
-            .or_else(|| project["id"].as_str()?.parse().ok())
-            .context("Missing Jira project ID")?;
-        let created = rest(
-            app,
-            "POST",
-            "/rest/api/3/version",
-            Some(&json!({"name":version,"projectId":id})),
-        )
-        .await;
-        // Concurrent PRs may create the same release; accept only a confirmed match.
-        if let Err(error) = created {
-            if !versions(key).await?.contains(&version) {
-                return Err(error);
-            }
-        } else {
-            event(
-                app,
-                "jira_version_created",
-                json!({"version":version,"project":key,"trigger":format!("PR #{} merged",pr["number"])}),
-            );
-        }
+    if versions(project).await?.iter().any(|v| v == version) {
+        return Ok(());
     }
-    Ok(version)
+    let found = rest(
+        app,
+        "GET",
+        &format!("/rest/api/3/project/{}", segment(project)),
+        None,
+    )
+    .await?;
+    let id = found["id"]
+        .as_i64()
+        .or_else(|| found["id"].as_str()?.parse().ok())
+        .context("Missing Jira project ID")?;
+    let created = rest(
+        app,
+        "POST",
+        "/rest/api/3/version",
+        Some(&json!({"name":version,"projectId":id})),
+    )
+    .await;
+    // Concurrent PRs may create the same release; accept only a confirmed match.
+    if let Err(error) = created {
+        if !versions(project).await?.iter().any(|v| v == version) {
+            return Err(error);
+        }
+    } else {
+        event(
+            app,
+            "jira_version_created",
+            json!({"version":version,"project":project,"trigger":trigger}),
+        );
+    }
+    Ok(())
 }

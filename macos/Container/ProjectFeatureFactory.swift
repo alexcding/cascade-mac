@@ -1,12 +1,11 @@
 import Foundation
 
-enum ProjectSaveSource: Equatable { case configuration, workflows, automation }
+enum ProjectSaveSource: Equatable { case configuration, workflows }
 
 struct ProjectFeatureServices {
     let projects: any ProjectService
     let tickets: any JiraService
     let workflows: any WorkflowService
-    let automation: any AutomationService
     let api: APIClient
     let baseURL: URL
 }
@@ -35,9 +34,8 @@ extension ProjectFeatureFactory {
         let board = WebBoardViewModel(projectID: project.id, api: services.api, pageActions: pageActions)
         let tickets = JiraTicketsViewModel(project: project, service: services.tickets, pageActions: pageActions)
         let workflows = WorkflowEditorViewModel(project: project, service: services.workflows)
-        let automation = AutomationViewModel(project: project, service: services.automation)
         return ProjectPageViewModel(project: project, service: services.projects, editor: editor, board: board,
-                                    tickets: tickets, workflows: workflows, automation: automation,
+                                    tickets: tickets, workflows: workflows,
                                     pageActions: pageActions)
     }
 }

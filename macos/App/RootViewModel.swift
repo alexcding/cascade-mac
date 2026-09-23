@@ -56,6 +56,7 @@ import Observation
         let state = self.state
         switch state.selection {
         case .overview: return "Overview"
+        case .automation: return "Automation"
         case .terminal: return "Terminal"
         case .project(let id): return state.projects.first { $0.id == id }?.name ?? "Project"
         case .session(let id): return state.sessions.first { $0.id == id }?.label ?? "Session"

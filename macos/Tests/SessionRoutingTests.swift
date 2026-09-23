@@ -150,7 +150,7 @@ private struct RoutingRows: DashboardService {
     let factory = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
     var asked: [OpenPageRequest] = []
     let model = factory.project(project, services: .init(projects: ProjectPageService(), tickets: service,
-        workflows: APIWorkflowService(api: api), automation: APIAutomationService(api: api), api: api, baseURL: base),
+        workflows: APIWorkflowService(api: api), api: api, baseURL: base),
         openPage: { _ in }, session: { asked.append($0); return $0.url.hasSuffix("REC-1") ? PageSessionMark(cli: "") : nil })
     let tickets = try #require(model.tickets)
     tickets.refresh()

@@ -5,7 +5,7 @@ private func diagnosticsFixture(_ name: String = "Fixture") throws -> Diagnostic
     let object: [String: Any] = [
         "config": ["jira_api_token": "must-not-be-retained"],
         "counts": ["projects": 1, "links": 2, "events": 1000],
-        "projects": [["id": "p", "name": name, "repo": "org/repo", "mergeTransition": "Done"]],
+        "projects": [["id": "p", "name": name, "repo": "org/repo"]],
         "snapshots": ["p": ["open": 4, "lastSynced": "2026-09-12T12:00:00Z", "error": "Sync failed"]],
         "jiraSnapshots": ["board:p": ["tickets": 3, "lastSynced": NSNull(), "error": NSNull()]],
         "ghStats": ["calls": 10, "errors": 1, "avgMs": 42, "maxMs": 900, "inflight": 2, "coalesced": 7,
@@ -51,7 +51,6 @@ actor DiagnosticsFixture: DiagnosticsService {
     #expect(model.projects.first?.caches.map(\.count) == ["4 open PRs", "No snapshot", "3 tickets"])
     #expect(model.projects.first?.caches.first?.error == "Sync failed")
     #expect(model.projects.first?.caches.last?.lastSync == "Never synced")
-    #expect(model.projects.first?.automation == "On merge: Done")
     #expect(!String(reflecting: model.snapshot).contains("must-not-be-retained"))
     #expect(!String(reflecting: model.snapshot).contains("not-part-of-native-diagnostics"))
     await service.complete(2, with: .failure(BackendError.operation("Inspector offline")))

@@ -29,7 +29,7 @@ import Testing
     let baseURL = URL(string: "http://127.0.0.1:12345")!
     let api = try APIClient(baseURL: baseURL)
     return ProjectFeatureServices(projects: APIProjectService(api: api), tickets: APIJiraService(api: api),
-        workflows: APIWorkflowService(api: api), automation: APIAutomationService(api: api), api: api, baseURL: baseURL)
+        workflows: APIWorkflowService(api: api), api: api, baseURL: baseURL)
 }
 
 @MainActor @Test func projectCoordinatorFactoryRetainsDraftsAndSharesSectionRoutes() async throws {
@@ -43,7 +43,7 @@ import Testing
     model.selectSection(.settings)
     #expect(root.projectCoordinator?.model === model && model.section == .settings)
     #expect(model.board?.projectID == "p")
-    #expect(model.tickets != nil && model.workflows != nil && model.automation != nil)
+    #expect(model.tickets != nil && model.workflows != nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"
@@ -57,9 +57,8 @@ import Testing
     #expect(root.projectCoordinator?.navigate(to: DeepLink(.projectSection(.workflows))) == true)
     #expect(model.section == .workflows)
     model.workflows?.onAction(.saved(project))
-    model.automation?.onAction(.saved(project))
     model.editor.onAction(.saved(project))
-    #expect(runtime.saves.map(\.1) == [.workflows, .automation, .configuration])
+    #expect(runtime.saves.map(\.1) == [.workflows, .configuration])
     #expect(model.editor.draft.name == "Keep this draft")
 }
 
@@ -94,13 +93,13 @@ import Testing
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
     var model: ProjectPageViewModel? = factory.project(project, services: services, openPage: { _ in })
     weak var released = model
-    let editor = try #require(model?.editor), workflows = try #require(model?.workflows), automation = try #require(model?.automation)
+    let editor = try #require(model?.editor), workflows = try #require(model?.workflows)
     var first = 0, actions: [ProjectPageViewModel.Action] = []
     model?.onAction = { _ in first += 1 }
     editor.onAction(.saved(project))
     model?.onAction = { actions.append($0) }
-    editor.onAction(.saved(project)); workflows.onAction(.saved(project)); automation.onAction(.saved(project))
-    #expect(first == 1 && actions == [.saved(project, .configuration), .saved(project, .workflows), .saved(project, .automation)])
+    editor.onAction(.saved(project)); workflows.onAction(.saved(project))
+    #expect(first == 1 && actions == [.saved(project, .configuration), .saved(project, .workflows)])
     model = nil
     #expect(released == nil)
 }

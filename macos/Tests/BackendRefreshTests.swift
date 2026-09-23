@@ -104,9 +104,9 @@ private actor RefreshTransport: BackendTransport {
             print("First sidebar layout: \(path.path)")
         }
     }
-    #expect(initial.map(\.id) == ["overview", "label:projects", "label:tabs"])
+    #expect(initial.map(\.id) == ["overview", "automation", "label:projects", "label:tabs"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 3)
+    #expect(list.numberOfRows == 4)
     #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "overview")
 }
 

@@ -105,19 +105,8 @@ impl ForwarderManager {
         });
     }
     async fn sync(&self, app: &AppState, port: u16) {
-        let desired: HashSet<String> = app
-            .db
-            .projects()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|project| project["forwardWebhooks"].as_bool() == Some(true))
-            .filter_map(|project| {
-                project["repo"]
-                    .as_str()
-                    .filter(|repo| !repo.is_empty())
-                    .map(str::to_owned)
-            })
-            .collect();
+        // Only repos an armed PR pipeline covers: polling already catches everything else.
+        let desired: HashSet<String> = crate::automation::forward_repos(app);
         let mut children = self.children.lock().await;
         let mut backoff = self.backoff.lock().await;
         backoff.retain(|repo, _| desired.contains(repo));
@@ -374,39 +363,6 @@ mod version_template_tests {
         assert!(render("{year}.{").is_err());
         assert!(render("   ").is_err());
     }
-}
-
-pub async fn fix_version_preview(
-    State(app): State<AppState>,
-    Path(id): Path<String>,
-    Json(body): Json<Value>,
-) -> ApiResult<Value> {
-    let project = app
-        .db
-        .project(&id)?
-        .ok_or_else(|| ApiError::not_found("project not found"))?;
-    let version = render_version_template(body["script"].as_str().unwrap_or(""), 0)?;
-    let key = project["jiraProjectKey"].as_str().unwrap_or("");
-    let existing = if key.is_empty() {
-        vec![]
-    } else {
-        cli::run(
-            "acli",
-            ["jira", "project", "view", "--key", key, "--json"],
-            Duration::from_secs(30),
-        )
-        .await
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|value| value["versions"].as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|item| item["name"].as_str().map(String::from))
-        .collect::<Vec<_>>()
-    };
-    Ok(Json(
-        json!({"version":version,"exists":existing.contains(&version)}),
-    ))
 }
 
 /// Whether `gh extension list` names the webhook extension the forwarders run (`gh webhook

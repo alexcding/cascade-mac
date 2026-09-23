@@ -435,7 +435,7 @@ final class CraftUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeAutomationPreviewSaveAndDraftRecovery() throws {
+    func testNativeAutomationTemplateSaveAndDraftRecovery() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CRAFT_UI_BACKEND_URL"],
               let path = environment["CRAFT_UI_DATA_DIR"], let socket = environment["CRAFT_UI_PTY_SOCKET"] else {
@@ -445,34 +445,32 @@ final class CraftUITests: XCTestCase {
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
+        let entry = app.outlines["workspace-sidebar"].staticTexts["Automation"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10)); entry.click()
+        XCTAssertTrue(app.descendants(matching: .any)["automation-screen"].firstMatch.waitForExistence(timeout: 5))
+        // The project page no longer carries its own automation tab.
         let project = app.outlines["workspace-sidebar"].staticTexts["Native integration fixture"]
         XCTAssertTrue(project.waitForExistence(timeout: 10)); project.click()
-        app.radioButtons["Automation"].click()
-        XCTAssertTrue(app.staticTexts["Add a GitHub repository in Settings to forward events."].waitForExistence(timeout: 5))
-        app.descendants(matching: .any)["automation-fix-version"].firstMatch.click()
-        let script = app.textFields["automation-script"]
-        XCTAssertTrue(script.waitForExistence(timeout: 5))
-        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("ios-{nope}")
-        app.scrollViews["automation-form"].scroll(byDeltaX: 0, deltaY: -300)
-        app.buttons["Preview Version"].click()
-        XCTAssertTrue(app.staticTexts["Unknown version-template placeholder {nope}"].waitForExistence(timeout: 5), app.debugDescription)
-        script.click(); app.typeKey("a", modifierFlags: .command); app.typeText("ios-1.2.3")
-        app.buttons["Preview Version"].click()
-        XCTAssertTrue(app.staticTexts["Preview: ios-1.2.3 (already exists)"].waitForExistence(timeout: 5))
-        let transition = app.textFields["automation-transition"]
-        transition.click(); app.typeText("Ready for QA")
-        app.buttons["Save Automation"].click()
-        XCTAssertTrue(app.staticTexts["Automation saved"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.radioButtons["Automation"].exists)
+        entry.click()
+        app.descendants(matching: .any)["automation-new"].firstMatch.click()
+        app.menuItems["Auto-approve trusted authors"].click()
+        let name = app.textFields["automation-name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.click(); app.typeKey("a", modifierFlags: .command); app.typeText("Approve fixture bots")
+        app.buttons["automation-save"].click()
+        XCTAssertTrue(app.staticTexts["Saved"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.outlines["automation-list"].staticTexts["Approve fixture bots"].waitForExistence(timeout: 5))
         let screenshot = app.screenshot()
         let screenshotURL = FileManager.default.temporaryDirectory.appendingPathComponent("craft-automation.png")
         try screenshot.pngRepresentation.write(to: screenshotURL)
         print("Automation screenshot: " + screenshotURL.path)
         let attachment = XCTAttachment(screenshot: screenshot); attachment.lifetime = .keepAlways; add(attachment)
-        transition.click(); app.typeKey("a", modifierFlags: .command); app.typeText("Done")
-        app.typeKey("1", modifierFlags: .command); project.click()
-        XCTAssertEqual(transition.value as? String, "Done")
-        app.buttons["Revert Automation"].click()
-        XCTAssertEqual(transition.value as? String, "Ready for QA")
+        name.click(); app.typeKey("a", modifierFlags: .command); app.typeText("Unsaved name")
+        project.click(); entry.click()
+        XCTAssertEqual(name.value as? String, "Unsaved name")
+        app.buttons["Revert"].click()
+        XCTAssertEqual(name.value as? String, "Approve fixture bots")
         XCTAssertFalse(app.webViews.firstMatch.exists)
     }
 

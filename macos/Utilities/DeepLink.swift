@@ -64,7 +64,7 @@ struct CraftRouter: DeepLinkRouting {
 }
 
 struct RootRouteHandler: DeepLinkRouteHandling {
-    private let routes: [String: SidebarDestination] = ["overview": .overview, "terminal": .terminal]
+    private let routes: [String: SidebarDestination] = ["overview": .overview, "automation": .automation, "terminal": .terminal]
     func parse(_ components: [String]) -> DeepLink? {
         guard components.count == 1, let destination = routes[components[0]] else { return nil }
         return DeepLink(.destination(destination))
@@ -78,7 +78,7 @@ struct RootRouteHandler: DeepLinkRouteHandling {
 
 struct ProjectRouteHandler: DeepLinkRouteHandling {
     private let sections: [String: ProjectSection] = ["prs": .prs, "tickets": .tickets, "board": .board,
-                                                     "workflows": .workflows, "automation": .automation, "settings": .settings]
+                                                     "workflows": .workflows, "settings": .settings]
     func parse(_ components: [String]) -> DeepLink? {
         guard (2...3).contains(components.count), components[0] == "projects" else { return nil }
         let root = Route.destination(.project(components[1]))

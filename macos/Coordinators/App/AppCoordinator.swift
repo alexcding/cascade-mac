@@ -88,6 +88,7 @@ import Observation
         didSet { if oldValue != appearance { projectModels.values.forEach { $0.appearance = appearance } } }
     }
     var dashboardCoordinator: DashboardCoordinator?
+    var automationCoordinator: AutomationCoordinator?
     var logsCoordinator: LogsCoordinator?
     var settingsCoordinator: SettingsCoordinator?
     /// Whether the Settings window is on screen. Settings is its own window, not a selection,
@@ -181,6 +182,8 @@ import Observation
         switch destination {
         case .overview:
             return dashboardCoordinator.map(Destination.dashboardCoordinator) ?? .unavailable(title: "Overview", message: "Connect to load the dashboard.")
+        case .automation:
+            return automationCoordinator.map(Destination.automationCoordinator) ?? .unavailable(title: "Automation", message: "Connect to load automations.")
         case .project(let id):
             return projectCoordinators[id].map(Destination.projectCoordinator) ?? .unavailable(title: rootModel?.title ?? "Project", message: "Connect to load this project.")
         // A workspace selection shows its coordinator once the viewer has activated the

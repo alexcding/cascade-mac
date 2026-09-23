@@ -14,3 +14,8 @@ CREATE TABLE IF NOT EXISTS pr_scope_snapshots (
 CREATE TABLE IF NOT EXISTS xcode_answers (
   key TEXT PRIMARY KEY, stamp TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS automation_pr_state (key TEXT PRIMARY KEY, repo TEXT NOT NULL, state TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS automation_jira_state (
+  automation_id TEXT NOT NULL, key TEXT NOT NULL, status TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (automation_id, key)
+);

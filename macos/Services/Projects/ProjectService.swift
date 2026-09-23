@@ -91,16 +91,15 @@ struct APIProjectService: ProjectService {
 }
 
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case prs = "Pull Requests", tickets = "Tickets", board = "Sprint Board", workflows = "Workflows", automation = "Automation", settings = "Settings"
+    case prs = "Pull Requests", tickets = "Tickets", board = "Sprint Board", workflows = "Workflows", settings = "Settings"
     var id: String { rawValue }
 
-    /// The sections a project can show. Pull Requests and Automation (webhook
-    /// forwarding) need GitHub, Tickets and Sprint Board need Jira. Workflows and
-    /// Settings always apply. Automation's Jira merge actions hide on their own.
+    /// The sections a project can show. Pull Requests need GitHub, Tickets and Sprint Board
+    /// need Jira. Workflows and Settings always apply. Automation is its own screen now.
     static func available(for project: Project) -> [ProjectSection] {
         allCases.filter { section in
             switch section {
-            case .prs, .automation: project.hasGitHub
+            case .prs: project.hasGitHub
             case .tickets, .board: project.hasJira
             case .workflows, .settings: true
             }

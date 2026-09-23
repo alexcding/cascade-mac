@@ -37,13 +37,13 @@ impl Database {
         Ok(result)
     }
 
-    fn durable(&self) -> MutexGuard<'_, Connection> {
+    pub(crate) fn durable(&self) -> MutexGuard<'_, Connection> {
         self.durable.lock().expect("durable db mutex poisoned")
     }
-    fn cache(&self) -> MutexGuard<'_, Connection> {
+    pub(crate) fn cache(&self) -> MutexGuard<'_, Connection> {
         self.cache.lock().expect("cache db mutex poisoned")
     }
-    fn logs_conn(&self) -> MutexGuard<'_, Connection> {
+    pub(crate) fn logs_conn(&self) -> MutexGuard<'_, Connection> {
         self.logs.lock().expect("logs db mutex poisoned")
     }
 

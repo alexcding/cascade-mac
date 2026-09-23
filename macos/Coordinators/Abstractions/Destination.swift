@@ -6,6 +6,7 @@ enum Destination: Hashable {
     // MARK: App-level destinations (child coordinators)
 
     case dashboardCoordinator(DashboardCoordinator)
+    case automationCoordinator(AutomationCoordinator)
     case projectCoordinator(ProjectCoordinator)
     case sessionWorkspaceCoordinator(SessionWorkspaceCoordinator)
 
@@ -13,6 +14,7 @@ enum Destination: Hashable {
 
     case dashboard(DashboardViewModel, ShellStore)
     case dashboardTickets(DashboardViewModel)
+    case automation(AutomationViewModel)
     case logs(LogsViewModel)
     case project(ProjectPageViewModel)
     case sessionWorkspace(SessionWorkspaceViewModel, WorkspaceContext)
@@ -32,6 +34,7 @@ enum Destination: Hashable {
     @MainActor var visibleDestination: Destination {
         switch self {
         case .dashboardCoordinator(let child): child.visibleDestination
+        case .automationCoordinator(let child): child.visibleDestination
         case .projectCoordinator(let child): child.visibleDestination
         case .sessionWorkspaceCoordinator(let child): child.visibleDestination
         default: self
@@ -49,6 +52,8 @@ extension Destination {
         // Child coordinators
         case .dashboardCoordinator(let coordinator):
             DashboardCoordinatorView(coordinator: coordinator)
+        case .automationCoordinator(let coordinator):
+            AutomationCoordinatorView(coordinator: coordinator)
         case .projectCoordinator(let coordinator):
             ProjectCoordinatorView(coordinator: coordinator).id(coordinator.model.project.id)
         case .sessionWorkspaceCoordinator(let coordinator):
@@ -59,6 +64,8 @@ extension Destination {
             DashboardView(model: viewModel, shell: shell)
         case .dashboardTickets(let viewModel):
             DashboardTicketsView(model: viewModel)
+        case .automation(let viewModel):
+            AutomationView(model: viewModel)
         case .logs(let viewModel):
             LogsView(model: viewModel)
         case .project(let viewModel):
@@ -90,6 +97,7 @@ extension Destination {
 
 // Destinations compare their payloads by identity, never by state.
 extension DashboardViewModel: HashableObject {}
+extension AutomationViewModel: HashableObject {}
 extension LogsViewModel: HashableObject {}
 extension ProjectPageViewModel: HashableObject {}
 extension SessionWorkspaceViewModel: HashableObject {}

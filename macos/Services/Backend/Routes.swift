@@ -47,10 +47,6 @@ public enum Routes {
     public static func projectBoard(_ value: String) -> String {
         "/api/projects/\(value)/board"
     }
-    public static let PROJECT_FIXVERSION_PREVIEW = "/api/projects/:id/fixversion-preview"
-    public static func projectFixversionPreview(_ value: String) -> String {
-        "/api/projects/\(value)/fixversion-preview"
-    }
     public static let DETECT_REPO = "/api/detect-repo"
     public static let WORKTREE = "/api/worktree"
     public static let WORKTREES = "/api/worktrees"
@@ -95,6 +91,20 @@ public enum Routes {
     public static let DB = "/api/db"
     public static let STREAM = "/api/stream"
     public static let FORWARDERS = "/api/forwarders"
+    public static let AUTOMATIONS = "/api/automations"
+    public static let AUTOMATIONS_CATALOG = "/api/automations/catalog"
+    public static let AUTOMATIONS_SAMPLES = "/api/automations/samples"
+    public static let AUTOMATIONS_DRY_RUN = "/api/automations/dry-run"
+    public static let AUTOMATIONS_RUNS = "/api/automations/runs"
+    public static let AUTOMATIONS_SETTINGS = "/api/automations/settings"
+    public static let AUTOMATION = "/api/automations/:id"
+    public static func automation(_ value: String) -> String {
+        "/api/automations/\(encodeComponent(value))"
+    }
+    public static let AUTOMATION_RUN = "/api/automations/:id/run"
+    public static func automationRun(_ value: String) -> String {
+        "/api/automations/\(encodeComponent(value))/run"
+    }
     public static let WEBHOOK_GITHUB = "/webhook/github"
     public static let CLI_TOOLS = "/api/cli-tools"
     public static let AGENT_HOOKS = "/api/agent-hooks"

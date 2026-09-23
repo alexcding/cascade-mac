@@ -70,6 +70,7 @@ impl Poller {
         if self.running.swap(true, Ordering::SeqCst) {
             return;
         }
+        crate::automation::start(&app);
         let pr_app = app.clone();
         tokio::spawn(async move {
             loop {
@@ -88,6 +89,7 @@ impl Poller {
         tokio::spawn(async move {
             loop {
                 app.poller.sync_all_jira(&app).await;
+                crate::automation::poll_jira(&app).await;
                 let seconds = app
                     .db
                     .config_value("jira_poll_interval")
@@ -162,7 +164,7 @@ impl Poller {
             return;
         }
         match result {
-            (Ok(open), Ok(closed)) => {
+            (Ok(mut open), Ok(closed)) => {
                 let me = github::current_user().await;
                 let timeline = if open
                     .iter()
@@ -182,10 +184,8 @@ impl Poller {
                     self.leave(&key);
                     return;
                 }
-                self.record_lifecycle(app, &project, &open, &closed);
-                let mut lean = Vec::new();
                 let mut numbers = Vec::new();
-                for mut pr in open {
+                for pr in &mut open {
                     let number = pr.get("number").and_then(Value::as_i64).unwrap_or(0);
                     numbers.push(number);
                     if let Some(timestamp) = timeline.get(&number) {
@@ -196,8 +196,11 @@ impl Poller {
                             .db
                             .mark_review_requested(&format!("{repo}#{number}"), timestamp);
                     }
-                    lean.push(github::lean(&pr, &repo));
                 }
+                self.record_lifecycle(app, &project, &open, &closed);
+                // After `requestedAt` is merged in: a re-request is a new event by its time.
+                crate::automation::observe_prs(app, &project, &open, &closed, me.as_deref());
+                let lean: Vec<Value> = open.iter().map(|pr| github::lean(pr, &repo)).collect();
                 let _ = app.db.prune_review_state(&repo, &numbers);
                 let _ = app
                     .db
@@ -472,10 +475,7 @@ impl Poller {
 
     fn dispatch_merge(&self, app: &AppState, project: &Value, pr: &Value) {
         self.event(app, "pr_merged", json!({"repo":project["repo"],"pr":{"number":pr["number"],"title":pr["title"],"url":pr["url"]}}));
-        let (app, project, pr) = (app.clone(), project.clone(), pr.clone());
-        tokio::spawn(async move {
-            crate::jira::apply_merge(&app, &project, &pr).await;
-        });
+        crate::automation::merged(app, project, pr);
     }
     fn event(&self, app: &AppState, kind: &str, payload: Value) {
         if let Ok(event) = app.db.add_event(kind, &payload) {

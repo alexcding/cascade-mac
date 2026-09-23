@@ -2,108 +2,183 @@ import Foundation
 import Testing
 
 private actor AutomationFixture: AutomationService {
-    var project: Project
-    var fails = false
-    private(set) var saves = 0
-    private(set) var previews = 0
-    init(_ project: Project) { self.project = project }
-    func fail(_ value: Bool) { fails = value }
-    /// A held save stays in flight until `release()`, so a test can act while it is out
-    /// however slowly the machine runs, rather than racing a fixed delay.
-    private var holding = false
-    private var held: CheckedContinuation<Void, Never>?
-    func hold() { holding = true }
-    func release() { holding = false; held?.resume(); held = nil }
-    func save(projectID: String, draft: AutomationDraft) async throws -> Project {
-        saves += 1
-        if holding { await withCheckedContinuation { held = $0 } }
-        try await Task.sleep(for: .milliseconds(60))
-        if fails { throw BackendError.operation("Fixture automation save failed") }
-        project.forwardWebhooks = draft.forwardWebhooks; project.mergeTransition = draft.mergeTransition
-        project.fixVersionEnabled = draft.fixVersionEnabled
-        project.fixVersionScript = draft.fixVersionScript
-        return project
+    var automations: [Automation]
+    let catalogValue: AutomationCatalog
+    var settingsValue = AutomationSettings(paused: false, forwardWebhooks: false, forwarding: [], forwardable: [])
+    var saveCalls: [Automation] = []
+    var deleteCalls: [String] = []
+    var dryRunCalls: [Automation] = []
+    var runCalls: [String] = []
+    private var nextID = 1
+
+    init(automations: [Automation], catalog: AutomationCatalog) {
+        self.automations = automations
+        self.catalogValue = catalog
     }
-    func preview(projectID: String, script: String) async throws -> FixVersionPreview {
-        previews += 1
-        // Deliberately ignores cancellation to exercise generation checks.
-        try? await Task.sleep(for: .milliseconds(60))
-        if fails { throw BackendError.operation("Fixture script error") }
-        return .init(version: script, exists: true)
+
+    func list() async throws -> [Automation] { automations }
+    func catalog() async throws -> AutomationCatalog { catalogValue }
+    func save(_ automation: Automation) async throws -> Automation {
+        saveCalls.append(automation)
+        var stored = automation
+        if stored.id.isEmpty { stored.id = "saved-\(nextID)"; nextID += 1 }
+        if let index = automations.firstIndex(where: { $0.id == stored.id }) { automations[index] = stored }
+        else { automations.append(stored) }
+        return stored
     }
-    func forwarders() async throws -> [String] { [project.repo] }
+    func delete(id: String) async throws {
+        deleteCalls.append(id)
+        automations.removeAll { $0.id == id }
+    }
+    func samples(kind: String, projects: [String], jql: String) async throws -> [AutomationSample] { [] }
+    func dryRun(_ automation: Automation, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
+        dryRunCalls.append(automation)
+        return AutomationTrace(automationId: automation.id, automationName: automation.name, eventKind: "pr",
+                               eventKey: sample.id, subject: sample.label, mode: "shadow", triggerMatched: true,
+                               triggerDetail: "matched", status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
+    }
+    func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
+        runCalls.append(id)
+        return AutomationTrace(automationId: id, automationName: "", eventKind: "pr", eventKey: sample.id,
+                               subject: sample.label, mode: "live", triggerMatched: true, triggerDetail: "matched",
+                               status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
+    }
+    func runs(id: String?) async throws -> [AutomationTrace] { [] }
+    func settings() async throws -> AutomationSettings { settingsValue }
+    func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings { settingsValue }
 }
 
-@MainActor @Test func automationDraftKeepsExternalChangesSeparateAndSavesOnlyOwnedFields() async throws {
-    var project = Project(id: "p", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
-    let service = AutomationFixture(project)
-    var received: [Project] = []
-    let model = AutomationViewModel(project: project, service: service)
-    model.onAction = { if case .saved(let project) = $0 { received.append(project) } }
-    #expect(model.draft.forwardWebhooks && !model.dirty)
-    await model.refreshStatus()
-    #expect(model.forwardingStatus == "Active — forwarding o/r")
-    model.draft.mergeTransition = "Local"
-    project.mergeTransition = "External"; model.update(project)
-    #expect(model.changedElsewhere && model.draft.mergeTransition == "Local")
+private func fixtureCatalog() -> AutomationCatalog {
+    let openedTrigger = AutomationCatalog.Node(kind: "trigger", type: "pr.opened", group: "PR", label: "PR opened",
+                                               summary: "Fires when a PR opens", subject: "pr", params: [])
+    let authorParam = AutomationCatalog.Param(key: "users", label: "Authors", kind: "list", options: nil,
+                                              placeholder: nil, help: nil, `default`: .list(["octocat"]))
+    let authorFilter = AutomationCatalog.Node(kind: "filter", type: "pr.author", group: "PR", label: "Author is",
+                                              summary: "Matches the PR author", subject: "pr", params: [authorParam])
+    let bodyParam = AutomationCatalog.Param(key: "body", label: "Comment", kind: "template", options: nil,
+                                            placeholder: nil, help: nil, `default`: .text("LGTM"))
+    let approveAction = AutomationCatalog.Node(kind: "action", type: "github.approve", group: "GitHub",
+                                               label: "Approve PR", summary: "Approves the pull request", subject: "pr",
+                                               params: [bodyParam])
+    let template = AutomationCatalog.Template(id: "tpl-1", name: "Auto approve", summary: "Approves trusted authors",
+                                              automation: Automation(name: "Auto approve", mode: .off,
+                                                                     trigger: .init(types: ["pr.opened"])))
+    return AutomationCatalog(triggers: [openedTrigger], filters: [authorFilter], actions: [approveAction],
+                             templates: [template], variables: [])
+}
+
+private func fixtureAutomation(id: String, name: String) -> Automation {
+    var automation = Automation(name: name, mode: .live, trigger: .init(types: ["pr.opened"]))
+    automation.id = id
+    return automation
+}
+
+@MainActor private func connectedAutomation(_ service: AutomationFixture) async -> AutomationViewModel {
+    let model = AutomationViewModel()
+    model.setVisible(true)
+    model.connect(service)
+    while model.loading { await Task.yield() }
+    return model
+}
+
+@MainActor @Test func automationConnectLoadsListCatalogAndSettingsThenSelectsTheFirstAutomation() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First"),
+                                                  fixtureAutomation(id: "a2", name: "Second")],
+                                    catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    #expect(model.automations.map(\.id) == ["a1", "a2"])
+    #expect(model.catalog != nil && model.settings != nil)
+    #expect(model.draft?.id == "a1" && model.baseline?.id == "a1")
+    await model.stop()
+}
+
+@MainActor @Test func automationEditingTheDraftNameMarksDirtyAndRevertRestoresBaseline() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    let baseline = try #require(model.baseline)
+    var edited = try #require(model.draft)
+    edited.name = "Renamed"
+    model.draft = edited
+    #expect(model.dirty)
     model.revert()
-    #expect(model.draft.mergeTransition == "External" && !model.dirty)
-    model.draft.mergeTransition = "  Done  "
-    model.draft.fixVersionScript = " return '1'; "
-    let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(model.draft.payload)) as? [String: Any])
-    #expect(Set(wire.keys) == ["forwardWebhooks", "mergeTransition", "fixVersionEnabled", "fixVersionScript"])
-    #expect(wire["fixVersionScript"] as? String == " return '1'; ")
-    await service.fail(true); await model.save()
-    #expect(model.dirty && model.error == "Fixture automation save failed" && received.isEmpty)
-    await service.fail(false)
-    async let one: Void = model.save()
-    async let two: Void = model.save()
-    await one; await two
-    #expect(await service.saves == 2)
-    #expect(model.saved && !model.dirty && received.count == 1)
-    #expect(model.draft.mergeTransition == "Done")
-    #expect(model.forwardingStatus.contains("Forwarding enabled"))
+    #expect(model.draft == baseline && !model.dirty)
+    await model.stop()
 }
 
-@MainActor @Test func automationPreviewRejectsEditedHiddenAndDisconnectedResults() async throws {
-    let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "")
-    let service = AutomationFixture(project)
-    let model = AutomationViewModel(project: project, service: service)
-    model.draft.fixVersionScript = "old"
-    let pending = Task { await model.previewVersion() }
-    for _ in 0..<100 { if await service.previews == 1 { break }; try await Task.sleep(for: .milliseconds(2)) }
-    model.draft.fixVersionScript = "new"
-    await pending.value
-    #expect(model.preview == nil && !model.previewing)
-    await model.previewVersion()
-    #expect(model.preview?.version == "new")
-    model.pause()
-    #expect(model.preview == nil)
-    await service.fail(true); await model.previewVersion()
-    #expect(model.previewError == "Fixture script error")
-    model.connect(nil)
-    #expect(model.previewError == nil && !model.canPreview && model.dirty)
+@MainActor @Test func automationCreateFromTemplateYieldsAnUnsavedDraftAndSaveStoresIt() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    var received: [AutomationViewModel.Action] = []
+    model.onAction = { received.append($0) }
+    let template = try #require(model.catalog?.templates.first)
+    model.create(from: template)
+    #expect(model.draft?.id == "" && model.draft?.mode == .off && model.canSave)
+    await model.save()
+    #expect(await service.saveCalls.count == 1)
+    #expect(model.draft?.id.isEmpty == false && !model.dirty)
+    #expect(received == [.saved(try #require(model.draft))])
+    await model.stop()
 }
 
-@MainActor @Test func automationSaveRejectsOldConnectionAndStopDrainsWrite() async throws {
-    let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "")
-    let service = AutomationFixture(project)
-    var received = 0
-    let model = AutomationViewModel(project: project, service: service)
-    model.onAction = { _ in received += 1 }
-    model.draft.mergeTransition = "Done"
-    await service.hold()
-    let pending = Task { await model.save() }
-    let deadline = ContinuousClock.now + .seconds(5)
-    while await service.saves == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-    // The write is out and cannot land until released: stop changes the connection under it,
-    // then waits for it to drain.
-    let stopping = Task { await model.stop() }
-    while model.error == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
-    await service.release()
-    await stopping.value; await pending.value
-    #expect(received == 0 && model.dirty && !model.busy && !model.canSave)
-    #expect(model.error?.contains("connection changed") == true)
-    model.connect(service); await model.save()
-    #expect(received == 1 && model.saved)
+@MainActor @Test func automationAddRemoveAndMoveStepsUseCatalogueDefaultsAndReorderWithinKind() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.create(from: nil)
+    model.addStep(.filter, type: "pr.author")
+    model.addStep(.filter, type: "pr.author")
+    let steps = try #require(model.draft?.steps)
+    #expect(steps.count == 2 && steps.allSatisfy { $0.kind == .filter && $0.type == "pr.author" })
+    #expect(steps[0].params["users"] == .list(["octocat"]))
+    let firstID = steps[0].id, secondID = steps[1].id
+    model.moveStep(firstID, by: 1)
+    #expect(model.draft?.steps.map(\.id) == [secondID, firstID])
+    model.removeStep(secondID)
+    #expect(model.draft?.steps.map(\.id) == [firstID])
+    await model.stop()
+}
+
+@MainActor @Test func automationDryRunSendsTheUnsavedDraftAndNeverCallsRun() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.create(from: nil)
+    model.sample = AutomationSample(id: "s1", kind: "pr", projectId: nil, number: 1, key: nil, label: "PR #1")
+    await model.dryRun()
+    #expect(await service.dryRunCalls.count == 1)
+    #expect(await service.dryRunCalls.first?.id == "")
+    #expect(await service.runCalls.isEmpty)
+    #expect(model.trace != nil)
+    await model.stop()
+}
+
+@MainActor @Test func automationRetiredModelIgnoresEveryEntryPoint() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    let draftBefore = model.draft
+    model.retire()
+    let saveCallsBefore = await service.saveCalls.count
+    let dryRunCallsBefore = await service.dryRunCalls.count
+    model.select("a1")
+    model.create(from: nil)
+    model.addStep(.filter, type: "pr.author")
+    await model.save()
+    model.sample = AutomationSample(id: "s1", kind: "pr", projectId: nil, number: 1, key: nil, label: "PR #1")
+    await model.dryRun()
+    #expect(model.draft == draftBefore)
+    #expect(await service.saveCalls.count == saveCallsBefore)
+    #expect(await service.dryRunCalls.count == dryRunCallsBefore)
+    #expect(model.retired)
+}
+
+@MainActor @Test func automationCoordinatorPresentsOnlyWhenAutomationIsTheCurrentSelection() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First")], catalog: fixtureCatalog())
+    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    root.navigate(to: .automation)
+    let model = root.makeAutomation(factory: NativeAutomationFeatureFactory())
+    model.connect(service)
+    #expect(root.automationCoordinator?.model === model)
+    #expect(root.automationCoordinator?.canPresent() == true)
+    root.navigate(to: .overview)
+    #expect(root.automationCoordinator?.canPresent() == false)
+    root.automationCoordinator?.retire()
+    await model.stop()
 }

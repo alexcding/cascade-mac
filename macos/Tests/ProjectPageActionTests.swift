@@ -161,7 +161,7 @@ func projectPageActionsCancelPendingNavigationWhenTheirContextChanges(change: St
     let project = try actionProject(actions)
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!)
     let services = ProjectFeatureServices(projects: ProjectPageService(), tickets: APIJiraService(api: api),
-        workflows: APIWorkflowService(api: api), automation: APIAutomationService(api: api), api: api, baseURL: URL(string: "http://127.0.0.1:12345")!)
+        workflows: APIWorkflowService(api: api), api: api, baseURL: URL(string: "http://127.0.0.1:12345")!)
     let model = native.project(project.project, services: services, openPage: actions.openPage)
     model.update(project.project, snapshot: project.prs)
     let coordinator = ProjectCoordinator(model: model)

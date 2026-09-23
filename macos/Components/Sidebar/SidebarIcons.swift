@@ -7,6 +7,7 @@ import AppKit
     private static let symbols: [String: [String]] = [
         // The first name this system has: text.rectangle.page arrived with macOS 15, and the app runs on 14.
         "dashboard": ["text.rectangle.page", "doc.text"],
+        "automation": ["point.3.connected.trianglepath.dotted", "bolt"],
         "folder": ["folder"],
         "close": [Theme.Symbol.close],
         "plus": ["plus"],

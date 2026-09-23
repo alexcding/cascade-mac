@@ -16,7 +16,7 @@ import Testing
         let bare = Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp")
         #expect(ProjectSection.available(for: bare) == [.workflows, .settings])
         let github = Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp")
-        #expect(ProjectSection.available(for: github) == [.prs, .workflows, .automation, .settings])
+        #expect(ProjectSection.available(for: github) == [.prs, .workflows, .settings])
         let jiraKey = Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
         #expect(ProjectSection.available(for: jiraKey) == [.tickets, .board, .workflows, .settings])
         let jql = Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp", jql: "project = APP")
@@ -34,7 +34,7 @@ import Testing
         #expect(page.section == .board)
         // Removing Jira in Settings moves the selection off the now-hidden board.
         page.update(Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp"))
-        #expect(page.availableSections == [.prs, .workflows, .automation, .settings])
+        #expect(page.availableSections == [.prs, .workflows, .settings])
         #expect(page.section == .prs)
         page.setSection(.settings)
         page.update(Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp"))

@@ -21,6 +21,7 @@ public final class AppViewModel {
     @ObservationIgnored private let trayFactory: any TrayFeatureFactory
     @ObservationIgnored private let copy: (String) -> Void
     var dashboard: DashboardViewModel? { coordinator.dashboardCoordinator?.model }
+    var automation: AutomationViewModel? { coordinator.automationCoordinator?.model }
     var logs: LogsViewModel? { coordinator.logsCoordinator?.model }
     var settings: SettingsViewModel? { coordinator.settingsCoordinator?.model }
     let workspaceLaunch: WorkspaceLaunchViewModel
@@ -35,7 +36,7 @@ public final class AppViewModel {
     let todayActivity = TodayActivityViewModel()
     @ObservationIgnored private let platformFactory: any AppPlatformFactory
     @ObservationIgnored private let terminalControl: any TerminalRuntimeControlling
-    public private(set) var projects: [Project] = []
+    public private(set) var projects: [Project] = [] { didSet { if oldValue != projects { automation?.updateProjects(projects) } } }
     /// The sidebar's dragged order for projects and sessions; see `SidebarOrder`.
     private(set) var sidebarOrder: SidebarOrder { didSet { if oldValue != sidebarOrder { orderStore.save(sidebarOrder) } } }
     @ObservationIgnored private let orderStore: any SidebarOrderPersisting
@@ -158,6 +159,7 @@ public final class AppViewModel {
             guard let self else { throw BackendError.operation("The workspace has closed.") }
             try await self.openPage(request)
         }, session: { [weak self] request in self?.pageSessionMark(request) }), shell: shell)
+        _ = coordinator.makeAutomation(factory: NativeAutomationFeatureFactory())
         _ = coordinator.makeLogs(factory: logsFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation("The workspace has closed.") }
             try await self.openPage(request)
@@ -342,7 +344,7 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire(); model.board?.suspend()
-        Task { await model.automation?.stop(); await model.workflows?.stop(); await model.tickets?.stop() }
+        Task { await model.workflows?.stop(); await model.tickets?.stop() }
     }
 
     private func savedProject(_ project: Project) {
@@ -1328,8 +1330,8 @@ public final class AppViewModel {
                 model.connect(backendFactory.projects(api: api)); model.board?.connect(api: api)
                 model.tickets?.connect(backendFactory.tickets(api: api))
                 model.workflows?.connect(backendFactory.workflows(api: api))
-                model.automation?.connect(backendFactory.automation(api: api))
             } }
+            if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
             if let api { for model in historyModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.history(api: api)) } }
             if let api { for model in diffModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.diff(api: api)); model.actions?.connect(backendFactory.changes(api: api)) } }
@@ -1542,6 +1544,7 @@ public final class AppViewModel {
         }
         ideWarmup.receive(event)
         if event.type == "settings" { shell.loadSettings() }
+        if event.type == "automations" { automation?.receive(scope: event.scope) }
         if event.type == "config" { settings?.refresh() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
         if ["sync", "jira-sync", "tabs", "tasks", "reviews", "reload"].contains(event.type) { queueRefresh(event) }
@@ -1593,11 +1596,11 @@ public final class AppViewModel {
         refreshPending.removeAll()
         await shell.stop()
         await dashboard?.stop()
+        await automation?.stop()
         await logs?.stop()
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            await model.automation?.stop()
             await model.workflows?.stop()
             model.connect(nil); model.board?.pause(); await model.tickets?.stop()
         }

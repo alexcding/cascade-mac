@@ -56,6 +56,6 @@ extension BackendFeatureFactory {
     }
     func projectServices(api: APIClient) -> ProjectFeatureServices {
         ProjectFeatureServices(projects: projects(api: api), tickets: tickets(api: api),
-            workflows: workflows(api: api), automation: automation(api: api), api: api, baseURL: api.baseURL)
+            workflows: workflows(api: api), api: api, baseURL: api.baseURL)
     }
 }

@@ -8,7 +8,6 @@ struct DiagnosticsSnapshot: Decodable, Sendable {
         let id: String
         let name: String
         let repo: String
-        let mergeTransition: String?
     }
     struct Cache: Decodable, Sendable {
         let open: Int?

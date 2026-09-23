@@ -16,7 +16,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
                 SavedTab(kind: "web", title: "Docs", url: "https://example.com/docs")]
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs)
     // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans, Tabs.
-    #expect(entries.map(\.id) == ["overview", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
+    #expect(entries.map(\.id) == ["overview", "automation", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
                                    "session:orphan", "label:tabs", "tab:https://example.com/docs"])
     let project = entries.first { $0.id == "project:p1" }
     #expect(project?.children.map(\.id) == ["session:old"])
@@ -96,7 +96,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
                 SavedTab(id: "b", kind: "github", title: "PR", url: "https://github.com/o/r/pull/1", login: "octocat", pinned: true),
                 SavedTab(id: "c", kind: "web", title: "", url: "https://plain.example")]
     let entries = SidebarEntry.make(projects: [], sessions: [], tabs: tabs)
-    #expect(entries.map(\.id) == ["overview", "pinned-tabs", "label:projects", "label:tabs", "tab:c"])
+    #expect(entries.map(\.id) == ["overview", "automation", "pinned-tabs", "label:projects", "label:tabs", "tab:c"])
     let grid = entries.first { $0.id == "pinned-tabs" }
     #expect(grid?.destination == nil)
     #expect(grid?.role == .pinnedTabs([

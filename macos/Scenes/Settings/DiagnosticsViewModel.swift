@@ -20,7 +20,6 @@ import Observation
         let id: String
         let name: String
         let repository: String
-        let automation: String
         let caches: [CacheRow]
     }
 
@@ -73,8 +72,6 @@ import Observation
                 projects = result.projects.map { project in
                     ProjectRow(id: project.id, name: project.name,
                         repository: project.repo.isEmpty ? "No GitHub repository" : project.repo,
-                        automation: project.mergeTransition.flatMap { $0.isEmpty ? nil : $0 }
-                            .map { "On merge: \($0)" } ?? "No merge transition",
                         caches: [
                             CacheRow(id: "github", title: "GitHub", cache: result.snapshots[project.id], unit: "open PRs"),
                             CacheRow(id: "jira", title: "Jira tickets", cache: result.jiraSnapshots[project.id], unit: "tickets"),

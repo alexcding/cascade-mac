@@ -1,4 +1,5 @@
 mod agents;
+mod automation;
 pub mod cli;
 mod db;
 mod error;
@@ -104,10 +105,6 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/projects/{id}/prs", get(routes::project_prs))
         .route("/api/projects/{id}/jira", get(routes::project_jira))
         .route("/api/projects/{id}/board", get(routes::project_board))
-        .route(
-            "/api/projects/{id}/fixversion-preview",
-            post(integrations::fix_version_preview),
-        )
         .route("/api/detect-repo", get(routes::detect_repo))
         .route("/api/file", get(local::get_file).put(local::put_file))
         .route("/api/files", get(local::list_files))
@@ -166,6 +163,25 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/status", get(agents::status))
         .route("/api/agent/conversation", get(agents::conversation))
         .route("/api/forwarders", get(integrations::forwarders))
+        .route(
+            "/api/automations",
+            get(automation::routes::list).post(automation::routes::create),
+        )
+        .route("/api/automations/catalog", get(automation::routes::get_catalog))
+        .route("/api/automations/samples", get(automation::routes::samples))
+        .route("/api/automations/dry-run", post(automation::routes::dry_run))
+        .route("/api/automations/runs", get(automation::routes::runs))
+        .route(
+            "/api/automations/settings",
+            get(automation::routes::get_settings).put(automation::routes::put_settings),
+        )
+        .route(
+            "/api/automations/{id}",
+            get(automation::routes::get)
+                .put(automation::routes::update)
+                .delete(automation::routes::remove),
+        )
+        .route("/api/automations/{id}/run", post(automation::routes::run_now))
         .route("/api/cli-tools", get(integrations::cli_tools))
         .route("/api/agent-hooks", get(integrations::agent_hooks))
         .route(

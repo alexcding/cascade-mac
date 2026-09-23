@@ -25,9 +25,6 @@ import Observation
             workflows?.onAction = { [onAction] action in
                 if case .saved(let project) = action { onAction(.saved(project, .workflows)) }
             }
-            automation?.onAction = { [onAction] action in
-                if case .saved(let project) = action { onAction(.saved(project, .automation)) }
-            }
             tickets?.onAction = { [onAction] in onAction(.jiraTicket($0)) }
             board?.onAction = { [onAction] in onAction(.boardTicket($0)) }
         }
@@ -37,7 +34,6 @@ import Observation
     let board: WebBoardViewModel?
     let tickets: JiraTicketsViewModel?
     let workflows: WorkflowEditorViewModel?
-    let automation: AutomationViewModel?
     private(set) var section = ProjectSection.prs {
         didSet { if oldValue != section { cancelActions(); updateBoardPresentation() } }
     }
@@ -63,10 +59,10 @@ import Observation
     @ObservationIgnored private var stateTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private var actionTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     init(project: Project, service: any ProjectService, editor: ProjectEditorViewModel, board: WebBoardViewModel? = nil, tickets: JiraTicketsViewModel? = nil,
-         workflows: WorkflowEditorViewModel? = nil, automation: AutomationViewModel? = nil,
+         workflows: WorkflowEditorViewModel? = nil,
          pageActions: (any PageActionServing)? = nil) {
         self.project = project; self.service = service; self.editor = editor; self.board = board; self.tickets = tickets
-        self.workflows = workflows; self.automation = automation
+        self.workflows = workflows
         self.pageActions = pageActions
         section = Self.resolve(section, for: project)
     }
@@ -197,7 +193,7 @@ import Observation
             cancelRefresh(); cancelActions(); prs = []; loadedState = nil; error = nil
         }
         self.project = project; editor.update(project); tickets?.update(project)
-        workflows?.update(project); automation?.update(project)
+        workflows?.update(project)
         section = Self.resolve(section, for: project)
         if state == "open", let snapshot { prs = snapshot; loadedState = "open" }
         prepareRows()

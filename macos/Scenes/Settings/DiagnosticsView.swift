@@ -31,7 +31,6 @@ struct DiagnosticsView: View {
                     GroupBox {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(project.repository).foregroundStyle(Theme.textSecondary)
-                            Text(project.automation).foregroundStyle(Theme.textSecondary)
                             ForEach(project.caches) { cache in
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack {

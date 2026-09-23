@@ -6,8 +6,9 @@ use serde_json::{json, Map, Value};
 
 use crate::cli;
 
-const CORE_FIELDS: &str = r#"number title state url headRefName baseRefName mergedAt isDraft createdAt updatedAt reviewDecision body
-author{ login ... on User{ name } }
+const CORE_FIELDS: &str = r#"number title state url headRefName baseRefName headRefOid mergedAt isDraft createdAt updatedAt reviewDecision body
+mergeable additions deletions changedFiles
+author{ login __typename ... on User{ name } }
 labels(first:20){ nodes{ name color description } }
 reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } } } }
 latestReviews(first:20){ nodes{ state author{ login } } }"#;
@@ -340,6 +341,12 @@ pub fn lean(pr: &Value, repo: &str) -> Value {
         "awaitingMyReview",
         "reviewDecision",
         "requestedAt",
+        "updatedAt",
+        "headRefOid",
+        "mergeable",
+        "additions",
+        "deletions",
+        "changedFiles",
     ] {
         if let Some(value) = pr.get(key) {
             out.insert(key.into(), value.clone());

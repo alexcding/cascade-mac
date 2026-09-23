@@ -29,6 +29,12 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         let project: String?
         let error: String?
         let detail: String?
+        var title: String? = nil
+        var body: String? = nil
+        var url: String? = nil
+        var automation: String? = nil
+        var subject: String? = nil
+        var mode: String? = nil
     }
     let type: String
     let payload: Payload?
@@ -52,6 +58,12 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case "jira_transition_failed": title = "Failed to transition \(p?.key ?? "ticket")"; body = p?.error ?? ""
         case "jira_fixversion_failed": title = "Failed to set Fix Version"; body = p?.error ?? ""
         case "sync_failed": title = "Sync failed for \(repo)"; body = p?.error ?? ""
+        case "automation_notify":
+            title = p?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Automation"; body = p?.body ?? ""; url = p?.url
+        case "automation_run":
+            title = p?.mode == "shadow" ? "\(p?.automation ?? "Automation") would have run" : "\(p?.automation ?? "Automation") ran"
+            body = p?.subject ?? ""
+        case "automation_failed": title = "\(p?.automation ?? "Automation") failed"; body = p?.subject ?? ""
         default: title = type.isEmpty ? "Activity" : type.replacingOccurrences(of: "_", with: " ").capitalized
             body = p?.error ?? p?.detail ?? ""
         }

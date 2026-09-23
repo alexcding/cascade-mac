@@ -198,3 +198,94 @@ async fn invalid_project_and_tab_inputs_match_node_errors() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn automations_round_trip_and_reject_invalid_pipelines() {
+    let (app, _directory) = app();
+    let (status, catalog) = json_request(&app, "GET", "/api/automations/catalog", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(catalog["triggers"].as_array().is_some_and(|v| v.iter().any(|t| t["type"] == "pr.merged")));
+    assert!(catalog["actions"].as_array().is_some_and(|v| v.iter().any(|t| t["type"] == "github.approve")));
+
+    let pipeline = json!({"name":"Approve alice","mode":"shadow",
+        "trigger":{"types":["pr.opened"],"projects":[]},
+        "steps":[{"kind":"filter","type":"pr.author","params":{"mode":"in","users":["alice"]}},
+                 {"kind":"action","type":"github.approve","params":{}}]});
+    let (status, created) = json_request(&app, "POST", "/api/automations", pipeline).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let id = created["id"].as_str().unwrap().to_owned();
+    assert!(created["armedAt"].is_string(), "leaving off arms the pipeline");
+    assert!(created["steps"][0]["id"].as_str().is_some_and(|v| !v.is_empty()));
+
+    let mut changed = created.clone();
+    changed["mode"] = json!("off");
+    let (status, updated) = json_request(&app, "PUT", &format!("/api/automations/{id}"), changed).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(updated["armedAt"].is_null());
+
+    let (_, list) = json_request(&app, "GET", "/api/automations", Value::Null).await;
+    assert_eq!(list.as_array().map(Vec::len), Some(1));
+
+    for bad in [
+        json!({"name":"No trigger","trigger":{"types":[]}}),
+        json!({"name":"Bad regex","trigger":{"types":["pr.opened"]},"steps":[{"kind":"filter","type":"pr.title","params":{"regex":"("}}]}),
+        json!({"name":"Unknown","trigger":{"types":["pr.opened"]},"steps":[{"kind":"action","type":"github.nuke"}]}),
+        json!({"name":"Jira without JQL","trigger":{"types":["jira.entered"]}}),
+    ] {
+        let (status, _) = json_request(&app, "POST", "/api/automations", bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    let (status, _) = json_request(&app, "DELETE", &format!("/api/automations/{id}"), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, list) = json_request(&app, "GET", "/api/automations", Value::Null).await;
+    assert_eq!(list, json!([]));
+}
+
+#[tokio::test]
+async fn dry_run_plans_against_a_synced_pr_without_acting() {
+    std::env::set_var("CRAFT_AUTOMATION_LOGIN", "me");
+    let directory = tempfile::tempdir().unwrap();
+    let db = Database::open(directory.path()).unwrap();
+    let project = db
+        .add_project(json!({"name":"Craft","repo":"example/craft"}).as_object().unwrap())
+        .unwrap();
+    let id = project["id"].as_str().unwrap().to_owned();
+    db.set_pr_snapshot(&id, &json!({"prs":[
+        {"number":7,"title":"Bump deps","author":{"login":"alice"},"baseRefName":"main","isDraft":false,
+         "ci":{"status":"completed","conclusion":"success"},"labels":[{"name":"deps"}],"repo":"example/craft"},
+        {"number":8,"title":"Mine","author":{"login":"me"},"baseRefName":"main","isDraft":false,"ci":null,"repo":"example/craft"}
+    ],"lastSynced":chrono::Utc::now().to_rfc3339(),"error":null})).unwrap();
+    let app = build_app(AppState::new(db, None));
+    let pipeline = json!({"name":"Approve alice","mode":"off",
+        "trigger":{"types":["pr.ci_passed"],"projects":[id]},
+        "steps":[{"kind":"filter","type":"pr.author","params":{"mode":"in","users":"alice, bob"}},
+                 {"kind":"filter","type":"pr.ci","params":{"is":"passing"}},
+                 {"kind":"action","type":"github.approve","params":{"body":"Auto-approved {{pr.title}}"}},
+                 {"kind":"action","type":"github.add_label","params":{"labels":["auto-approved"]}}]});
+
+    let (_, samples) = json_request(&app, "GET", &format!("/api/automations/samples?kind=pr&projects={id}"), Value::Null).await;
+    assert_eq!(samples.as_array().map(Vec::len), Some(2));
+
+    let (status, trace) = json_request(&app, "POST", "/api/automations/dry-run",
+        json!({"automation":pipeline,"sample":{"kind":"pr","projectId":id,"number":7}})).await;
+    assert_eq!(status, StatusCode::OK, "{trace}");
+    assert_eq!(trace["mode"], "dry");
+    assert_eq!(trace["triggerMatched"], true);
+    assert_eq!(trace["status"], "completed");
+    let statuses: Vec<&str> = trace["steps"].as_array().unwrap().iter().map(|s| s["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, vec!["passed", "passed", "planned", "planned"]);
+    assert_eq!(trace["steps"][2]["commands"][0], "gh pr review 7 -R example/craft --approve -b 'Auto-approved Bump deps'");
+    assert_eq!(trace["steps"][3]["commands"][0], "gh pr edit 7 -R example/craft --add-label auto-approved");
+
+    // Your own PR stops at the author filter; nothing after it is planned.
+    let (_, trace) = json_request(&app, "POST", "/api/automations/dry-run",
+        json!({"automation":pipeline,"sample":{"kind":"pr","projectId":id,"number":8}})).await;
+    assert_eq!(trace["status"], "filtered");
+    let statuses: Vec<&str> = trace["steps"].as_array().unwrap().iter().map(|s| s["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, vec!["failed", "skipped", "skipped", "skipped"]);
+
+    // Dry runs are never recorded.
+    let (_, runs) = json_request(&app, "GET", "/api/automations/runs", Value::Null).await;
+    assert_eq!(runs, json!([]));
+}

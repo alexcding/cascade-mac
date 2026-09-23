@@ -817,7 +817,6 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
         "name",
         "jql",
         "workspace",
-        "mergeTransition",
         "ide",
         "ideCmd",
         "runScheme",
@@ -838,17 +837,9 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
         );
     }
     // Scripts and patterns are kept as typed: their whitespace and line breaks are content.
-    for key in ["fixVersionScript", "worktreeSetup", "worktreeInclude"] {
+    for key in ["worktreeSetup", "worktreeInclude"] {
         if let Some(value) = body.get(key) {
             patch.insert(key.into(), Value::String(value.as_str().unwrap_or_default().into()));
-        }
-    }
-    for key in ["forwardWebhooks", "fixVersionEnabled"] {
-        if let Some(value) = body.get(key) {
-            patch.insert(
-                key.into(),
-                Value::Bool(value.as_bool().unwrap_or(!value.is_null())),
-            );
         }
     }
     if let Some(value) = body.get("ideTarget") {

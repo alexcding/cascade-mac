@@ -7,7 +7,7 @@ import Testing
     let base = URL(string: "http://127.0.0.1:1")!, api = try APIClient(baseURL: base)
     let factory = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
     let model = factory.project(project, services: .init(projects: ProjectPageService(), tickets: service,
-        workflows: APIWorkflowService(api: api), automation: APIAutomationService(api: api), api: api, baseURL: base), openPage: actions.openPage)
+        workflows: APIWorkflowService(api: api), api: api, baseURL: base), openPage: actions.openPage)
     let tickets = try #require(model.tickets)
     tickets.refresh()
     while tickets.baseURL == nil || tickets.loading { await Task.yield() }

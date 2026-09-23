@@ -103,14 +103,14 @@ struct SavedTabs: Decodable, Sendable {
 }
 
 enum SidebarDestination: Hashable, Codable {
-    case overview, terminal, project(String), session(String), tab(String)
+    case overview, automation, terminal, project(String), session(String), tab(String)
 
     var tabID: String? { if case .tab(let id) = self { id } else { nil } }
     /// True for destinations that exist only while the sidebar lists them.
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session, .tab: true
-        case .overview, .terminal: false
+        case .overview, .automation, .terminal: false
         }
     }
 }
@@ -196,7 +196,8 @@ struct SidebarEntry: Equatable {
         }
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
         var result: [Self] = [
-            .init(id: "overview", title: "Dashboard", symbol: "dashboard", destination: .overview)
+            .init(id: "overview", title: "Dashboard", symbol: "dashboard", destination: .overview),
+            .init(id: "automation", title: "Automation", symbol: "automation", destination: .automation)
         ]
         let taskURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
         let unownedTabs = tabs.filter { !$0.isOwned(by: taskURLs) }
