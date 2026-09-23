@@ -121,7 +121,10 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   failed warm-up never blocks a session.
 - **Worktree creation never touches the network.** It adds from what the checkout has and
   only fetches when adopting a branch that is not local yet — a fetch on the create path
-  cannot succeed and once froze New Session for a minute.
+  cannot succeed and once froze New Session for a minute. The one opt-in exception is
+  Settings → Worktrees → "Always fetch before creating worktrees" (`worktree_fetch`, off by
+  default): it fetches only the base branch, capped at 8 seconds, and falls back to the local
+  ref (`worktrees.rs` `fetch_base`).
 - **Child processes get their own process group** (`cli.rs`). The backend runs inside the
   app, so a child left in the app's group can take the app down with it, and a timeout
   kills the whole group rather than leaving a helper holding the output pipe.

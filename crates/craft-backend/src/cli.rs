@@ -535,7 +535,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let stdout = output_of(program, args, duration, cwd, env, None).await?;
+    let stdout = output_of(program, args, duration, cwd, env, None, &[]).await?;
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
@@ -550,34 +550,38 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let stdout = output_of(program, args, duration, cwd, &[], Some(input.to_vec())).await?;
+    let stdout = output_of(program, args, duration, cwd, &[], Some(input.to_vec()), &[]).await?;
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
-/// The NUL-separated records of a `-z` command, untrimmed: a trim would eat the leading space
-/// of a path that sorts first.
+/// The NUL-separated records of a `-z` command as raw bytes: untrimmed, since a trim would eat
+/// the leading space of a path that sorts first, and undecoded, since a path need not be UTF-8.
+/// `accept` names exit codes besides 0 that are answers rather than failures.
 pub async fn run_nul<I, S>(
     program: &str,
     args: I,
     input: Option<&[u8]>,
     duration: Duration,
     cwd: Option<&Path>,
-) -> Result<Vec<String>>
+    accept: &[i32],
+) -> Result<Vec<Vec<u8>>>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let stdout = output_of(program, args, duration, cwd, &[], input.map(<[u8]>::to_vec)).await?;
+    let input = input.map(<[u8]>::to_vec);
+    let stdout = output_of(program, args, duration, cwd, &[], input, accept).await?;
     Ok(stdout
         .split(|b| *b == 0)
         .filter(|record| !record.is_empty())
-        .map(|record| String::from_utf8_lossy(record).into_owned())
+        .map(<[u8]>::to_vec)
         .collect())
 }
 
-/// Stdout of a command that must exit 0. Input is written from its own task, alongside the wait:
-/// a child that answers while it reads (`check-ignore --stdin`) fills its stdout pipe and stops
-/// reading, and a write finished before the wait began would then never finish at all.
+/// Stdout of a command that must exit 0 (or with a code in `accept`). Input is written from its
+/// own task, alongside the wait: a child that answers while it reads (`check-ignore --stdin`)
+/// fills its stdout pipe and stops reading, and a write finished before the wait began would then
+/// never finish at all.
 async fn output_of<I, S>(
     program: &str,
     args: I,
@@ -585,6 +589,7 @@ async fn output_of<I, S>(
     cwd: Option<&Path>,
     env: &[(&str, &str)],
     input: Option<Vec<u8>>,
+    accept: &[i32],
 ) -> Result<Vec<u8>>
 where
     I: IntoIterator<Item = S>,
@@ -612,7 +617,8 @@ where
         });
     }
     let output = wait_or_kill(program, child, duration).await?;
-    if !output.status.success() {
+    let accepted = output.status.code().is_some_and(|code| accept.contains(&code));
+    if !output.status.success() && !accepted {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
         return Err(anyhow!(if stderr.is_empty() {
             format!("{program} exited {}", output.status)

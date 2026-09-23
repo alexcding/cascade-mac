@@ -5,6 +5,7 @@
 
 use std::{
     fs, io,
+    os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -133,9 +134,12 @@ pub(crate) fn parse_patterns(text: &str) -> Vec<String> {
 /// itself ignores. Git answers both halves, so the patterns mean exactly what they would in a
 /// `.gitignore` (negation, anchors, `**`, directories) and a tracked or merely untracked file
 /// can never be picked up, however broad a pattern is.
-async fn included_files(source: &Path, patterns: &[String]) -> Vec<String> {
+///
+/// Paths stay raw bytes end to end: a name that is not UTF-8 is still a file git reports, and
+/// a lossy decode would ask `check-ignore` about, and copy, some other path.
+async fn included_files(source: &Path, patterns: &[String]) -> anyhow::Result<Vec<PathBuf>> {
     if patterns.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
     // `-x` patterns keep their order, and the last match wins, so a later `!` re-includes as it
     // does in a `.gitignore`.
@@ -146,23 +150,29 @@ async fn included_files(source: &Path, patterns: &[String]) -> Vec<String> {
         args.push("-x".into());
         args.push(pattern.clone());
     }
-    let matching = cli::run_nul("git", args, None, Duration::from_secs(60), Some(source))
-        .await
-        .unwrap_or_default();
+    let matching =
+        cli::run_nul("git", args, None, Duration::from_secs(60), Some(source), &[]).await?;
     if matching.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
-    let input: Vec<u8> = matching.iter().flat_map(|path| path.bytes().chain([0])).collect();
-    // Exits 1 when none of them are ignored; that is an empty answer, not a failure worth telling.
-    cli::run_nul(
+    let input: Vec<u8> = matching
+        .iter()
+        .flat_map(|path| path.iter().copied().chain([0]))
+        .collect();
+    // Exits 1 when none of them are ignored: an empty answer, not a failure worth telling.
+    let ignored = cli::run_nul(
         "git",
         ["check-ignore", "--stdin", "-z"],
         Some(&input),
         Duration::from_secs(60),
         Some(source),
+        &[1],
     )
-    .await
-    .unwrap_or_default()
+    .await?;
+    Ok(ignored
+        .into_iter()
+        .map(|path| PathBuf::from(std::ffi::OsString::from_vec(path)))
+        .collect())
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -176,7 +186,17 @@ pub(crate) struct Copied {
 /// Copies the included ignored files from `source` into the new worktree at `destination`.
 pub(crate) async fn copy_included(app: &AppState, source: &Path, destination: &Path) -> Copied {
     let patterns = include_patterns(app, source);
-    let files = included_files(source, &patterns).await;
+    // Git failing to answer is reported like a file that failed to copy, so Activity says why a
+    // worktree came up without its .env instead of the create looking as though nothing matched.
+    let files = match included_files(source, &patterns).await {
+        Ok(files) => files,
+        Err(error) => {
+            return Copied {
+                failed: vec![format!("listing files to copy: {}", crate::local::error_line(&error.to_string()))],
+                ..Copied::default()
+            }
+        }
+    };
     if files.is_empty() {
         return Copied::default();
     }
@@ -186,21 +206,22 @@ pub(crate) async fn copy_included(app: &AppState, source: &Path, destination: &P
         .unwrap_or_default()
 }
 
-fn copy_files(source: &Path, destination: &Path, files: &[String]) -> Copied {
+fn copy_files(source: &Path, destination: &Path, files: &[PathBuf]) -> Copied {
     let mut result = Copied::default();
     for rel in files {
         // Git reports paths inside the checkout; anything else is not ours to write.
-        if Path::new(rel)
+        if rel
             .components()
             .any(|c| !matches!(c, std::path::Component::Normal(_)))
         {
             continue;
         }
         let (from, to) = (source.join(rel), destination.join(rel));
+        let name = rel.display();
         // A tracked symlink in the new checkout (`config -> /etc`) would carry the copy outside
         // the worktree; the file is left behind instead.
-        if linked_parent(destination, Path::new(rel)) {
-            result.failed.push(format!("{rel}: a folder on its path is a symlink"));
+        if linked_parent(destination, rel) {
+            result.failed.push(format!("{name}: a folder on its path is a symlink"));
             continue;
         }
         if to.symlink_metadata().is_ok() {
@@ -209,7 +230,7 @@ fn copy_files(source: &Path, destination: &Path, files: &[String]) -> Copied {
         }
         match copy_one(&from, &to) {
             Ok(()) => result.copied += 1,
-            Err(error) => result.failed.push(format!("{rel}: {error}")),
+            Err(error) => result.failed.push(format!("{name}: {error}")),
         }
     }
     result
@@ -359,6 +380,20 @@ mod tests {
         // Same folder name, different checkout: never the same root.
         assert_ne!(work, root("/oss/app", &custom));
         assert_eq!(work, root("/work/app/", &custom));
+    }
+
+    #[tokio::test]
+    async fn listing_tells_nothing_ignored_apart_from_git_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let patterns = vec!["*.env".to_owned()];
+        // Not a checkout: git fails, and that must not read as "nothing to copy".
+        assert!(included_files(dir.path(), &patterns).await.is_err());
+        cli::run("git", ["-C", dir.path().to_str().unwrap(), "init", "-q"], Duration::from_secs(20))
+            .await
+            .unwrap();
+        // Matches the pattern but no .gitignore names it: check-ignore exits 1, an empty answer.
+        fs::write(dir.path().join("notes.env"), "").unwrap();
+        assert_eq!(included_files(dir.path(), &patterns).await.unwrap(), Vec::<PathBuf>::new());
     }
 
     #[test]
