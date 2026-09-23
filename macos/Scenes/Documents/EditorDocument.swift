@@ -99,6 +99,9 @@ extension EditorSurface {
     @ObservationIgnored private var style = EditorStyle()
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var pendingLocation: DocumentLocation?
+    @ObservationIgnored private var revalidating: Task<Void, Never>?
+    /// The last jump asked for since a revalidation began, applied again to a rebuilt surface.
+    @ObservationIgnored private var jump: DocumentLocation?
 
     init(record: FileDocumentRecord, service: (any FileDocumentService)? = nil,
          makeSurface: (() -> any EditorSurface)? = nil) {
@@ -114,6 +117,8 @@ extension EditorSurface {
         self.appearance = appearance
         if loaded {
             surface?.setAppearance(appearance)
+            // Before the jump, so a rebuild it causes lands on the line asked for too.
+            revalidate()
             if let location = pendingLocation { focus(line: location.line, column: location.column) }
             return
         }
@@ -139,7 +144,6 @@ extension EditorSurface {
                 editor.setFont(self.font)
                 editor.setStyle(self.style)
                 if visible, let location = pendingLocation { focus(line: location.line, column: location.column) }
-                if !visible { hide() }
             } catch {
                 if !Task.isCancelled, self.generation == generation {
                     self.error = error.localizedDescription
@@ -154,15 +158,53 @@ extension EditorSurface {
         editor.failed = { [weak self] message in self?.error = message }
         editor.saveRequested = { [weak self] in Task { await self?.save() } }
     }
+    /// Off screen, the editor stays, so showing its tab or its session again is immediate. It
+    /// can fall behind its file meanwhile, which `revalidate` settles when it comes back.
     func hide() {
         visible = false
+        // The buffer's own word on unsaved edits, in case a change notification went missing.
         guard loaded, !saving, !closing, error == nil, let surface else { return }
         let generation = generation
         Task {
-            guard let buffer = try? await surface.snapshot(freeze: true), self.generation == generation else { return }
+            guard let buffer = try? await surface.snapshot(freeze: false),
+                  self.generation == generation, self.surface === surface else { return }
             dirty = buffer.dirty
-            if !visible, !saving, !closing, !dirty { dispose() }
-            else if !closing { try? await surface.unfreeze() }
+        }
+    }
+    /// A kept editor may be behind its file: an agent writes to the worktree while the tab is
+    /// hidden. When the file changed, a clean buffer is rebuilt from it; a dirty one keeps the
+    /// user's edits, and saving them meets the revision check like any stale save. The old
+    /// surface stays on screen until the new one has loaded, so the pane never goes blank.
+    private func revalidate() {
+        guard revalidating == nil, !saving, !closing, error == nil, let service, let makeSurface,
+              let current = surface, let known = revision else { return }
+        let generation = generation, path = record.path
+        jump = nil
+        revalidating = Task {
+            defer { if self.generation == generation { revalidating = nil } }
+            guard let value = try? await service.load(path: path), self.generation == generation,
+                  value.revision != known, surface === current, !saving, !closing,
+                  (try? Self.validate(content: value.content, revision: value.revision)) != nil else { return }
+            // Freeze before asking, as closing does: a keystroke after a clean answer would be lost.
+            guard let buffer = try? await current.snapshot(freeze: true) else { return }
+            guard self.generation == generation, surface === current else { return }
+            guard !buffer.dirty, !saving, !closing else {
+                dirty = buffer.dirty
+                if !closing { try? await current.unfreeze() }
+                return
+            }
+            let editor = makeSurface()
+            let loadedNew = (try? await editor.load(value, path: path)) != nil
+            // A save or close that began meanwhile wins: they hold the buffer they asked about.
+            guard loadedNew, self.generation == generation, surface === current, !saving, !closing else {
+                editor.dispose()
+                if self.generation == generation, surface === current, !closing { try? await current.unfreeze() }
+                return
+            }
+            surface = editor; wire(editor); current.dispose()
+            revision = value.revision; readOnly = value.readOnly; dirty = false
+            editor.setAppearance(appearance); editor.setFont(font); editor.setStyle(style)
+            if visible, let jump { editor.focus(line: jump.line, column: jump.column) }
         }
     }
     @discardableResult func save() async -> Bool {
@@ -222,10 +264,11 @@ extension EditorSurface {
     func setStyle(_ value: EditorStyle) { style = value; surface?.setStyle(value) }
     func focus(line: Int = 1, column: Int = 1) {
         pendingLocation = .init(path: record.path, line: line, column: column)
+        jump = pendingLocation
         if loaded, visible { surface?.focus(line: line, column: column); pendingLocation = nil }
     }
     func dispose() {
-        generation = UUID(); loadingTask?.cancel(); loadingTask = nil
+        generation = UUID(); loadingTask?.cancel(); loadingTask = nil; revalidating?.cancel(); revalidating = nil
         surface?.dispose(); surface = nil; loaded = false; loading = false
     }
     private static func validate(content: String, revision: String) throws {

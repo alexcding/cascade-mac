@@ -4,13 +4,17 @@ import Testing
 actor DiffFixture: DiffService {
     var calls = 0
     var fails = false
+    /// Marks later replies, so a stale one landing is told apart from the snapshot it would replace.
+    var edits = 0
     func fail(_ value: Bool) { fails = value }
+    func edit() { edits += 1 }
     func load(worktree: String) async throws -> DiffSnapshot {
         calls += 1
+        let edits = edits
         // Deliberately finish even after cancellation to exercise stale responses.
         try? await Task.sleep(for: .milliseconds(60))
         if fails { throw BackendError.operation("Repository unavailable") }
-        return .init(diff: "diff for \(worktree)", untracked: ["new.swift"], branch: "feature")
+        return .init(diff: "diff for \(worktree)" + (edits > 0 ? " edit \(edits)" : ""), untracked: ["new.swift"], branch: "feature")
     }
 }
 
@@ -25,13 +29,14 @@ actor DiffFixture: DiffService {
     model.refresh(); await model.waitForRefresh()
     #expect(model.error == "Repository unavailable")
     #expect(model.snapshot?.branch == "feature")
-    await service.fail(false)
+    await service.fail(false); await service.edit()
     model.refresh()
+    // Hidden, the model keeps what it showed and drops the reply still in flight.
     model.hide()
     try await Task.sleep(for: .milliseconds(100))
-    #expect(model.snapshot == nil && !model.loading)
+    #expect(model.snapshot?.diff == "diff for /tmp/diff-test" && !model.loading)
     model.refresh(); await model.waitForRefresh()
-    #expect(model.snapshot != nil && model.error == nil)
+    #expect(model.snapshot?.diff == "diff for /tmp/diff-test edit 1" && model.error == nil)
     model.disconnect(); model.refresh()
     #expect(model.error == "Connect to the backend to load changes.")
 }
@@ -105,6 +110,40 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(paths == "Sources/App.swift|fä.png")
     #expect(try await view.evaluateJavaScript("document.documentElement.dataset.theme") as? String == "dark")
     #expect(model.error == nil)
+    // Hidden, the page and its render stay for the next show; disconnecting lets them go.
     model.hide()
+    #expect(model.webView === view && model.isPageReady)
+    model.disconnect()
     #expect(model.webView == nil && !model.isPageReady)
+}
+
+@MainActor @Test func diffContentProcessTerminationWhileHiddenReloadsSilentlyOnNextShow() async throws {
+    useSourceTreeDiffPage()
+    let model = DiffViewModel(worktree: "/tmp/diff-terminate", baseURL: URL(string: "http://127.0.0.1:3000")!, service: PatchFixture())
+    model.show(appearance: .dark)
+    await model.waitForRefresh()
+    for _ in 0..<100 where !model.isPageReady { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.isPageReady, "the page never posted ready: \(model.error ?? "no error")")
+    let view = try #require(model.webView)
+    model.hide()
+    model.webViewWebContentProcessDidTerminate(view)
+    #expect(model.error == nil && !model.isPageReady)
+    model.show(appearance: .dark)
+    await model.waitForRefresh()
+    for _ in 0..<100 where !model.isPageReady { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.isPageReady && model.error == nil)
+    model.disconnect()
+}
+
+@MainActor @Test func diffContentProcessTerminationWhileShownReportsAnError() async throws {
+    useSourceTreeDiffPage()
+    let model = DiffViewModel(worktree: "/tmp/diff-terminate-shown", baseURL: URL(string: "http://127.0.0.1:3000")!, service: PatchFixture())
+    model.show(appearance: .dark)
+    await model.waitForRefresh()
+    for _ in 0..<100 where !model.isPageReady { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.isPageReady, "the page never posted ready: \(model.error ?? "no error")")
+    let view = try #require(model.webView)
+    model.webViewWebContentProcessDidTerminate(view)
+    #expect(model.error == "The changes view stopped. Reload to restore it.")
+    model.disconnect()
 }

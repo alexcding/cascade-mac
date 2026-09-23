@@ -64,6 +64,8 @@ struct APIDiffService: DiffService {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var documentScript: String?
     @ObservationIgnored private var loaded = false
+    /// The page's content process ended while it was hidden: `show` loads it again.
+    @ObservationIgnored private var contentProcessEnded = false
     @ObservationIgnored private var active = false
     @ObservationIgnored private var appearance = AppAppearance.system
     @ObservationIgnored private var font = CodeFont(size: 12)
@@ -105,6 +107,11 @@ struct APIDiffService: DiffService {
             view.setAccessibilityIdentifier("working-diff-webview")
             webView = view
             view.load(URLRequest(url: DiffPageAssets.pageURL))
+        } else if contentProcessEnded || documentError != nil {
+            // macOS reclaimed the page while it was hidden, or it broke: showing it again starts it
+            // afresh, as it did when every show built a new page.
+            contentProcessEnded = false
+            reload(); return
         }
         refresh()
     }
@@ -153,15 +160,21 @@ struct APIDiffService: DiffService {
             self.documentError = "Could not render changes: \(details)"
         }
     }
+    /// Off screen: stop asking for changes, but keep the page and its last render, so showing it
+    /// again — this pane or its session — is immediate. `show` then looks for newer changes.
     func hide() {
-        active = false; loaded = false; onAction(.hide); actions?.cancelDiscard(); task?.cancel(); task = nil
+        active = false; onAction(.hide); actions?.cancelDiscard(); task?.cancel(); task = nil
         generation = UUID(); loading = false
+    }
+    /// The model is going away, and its page and content process with it.
+    func disconnect() {
+        presentation.active = false; hide(); service = nil; showsActions = false
         webView?.stopLoading(); webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "diff")
         webView?.removeFromSuperview(); webView = nil
+        loaded = false; contentProcessEnded = false
         snapshot = nil; documentScript = nil; documentError = nil; loadError = nil
     }
-    func disconnect() { presentation.active = false; hide(); service = nil; showsActions = false }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
@@ -170,7 +183,9 @@ struct APIDiffService: DiffService {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        loaded = false; documentError = "The changes view stopped. Reload to restore it."
+        loaded = false
+        // A hidden page is loaded again when it comes back; only one on screen has to say so.
+        if active { documentError = "The changes view stopped. Reload to restore it." } else { contentProcessEnded = true }
     }
     private func failed(_ error: Error) {
         if (error as NSError).code != NSURLErrorCancelled { documentError = error.localizedDescription }

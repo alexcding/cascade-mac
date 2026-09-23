@@ -137,7 +137,9 @@ extension WorkspaceServing {
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
     /// A page-only context (a sidebar tab) draws its compact tab bar in the title-bar zone: the
     /// window toolbar loses its background, icon and title, and the bar takes the toolbar's row.
-    var fillsTitleBar: Bool { !showsTerminal && mode == .browser }
+    /// Only a sidebar tab: a session's workspace lives in the deck below the toolbar
+    /// (`SessionWorkspaceDeck`), even while it has no session record to show a terminal for.
+    var fillsTitleBar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
     var showsFiles: Bool { showsPage && !showsChanges && mode == .files }
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }
@@ -250,13 +252,16 @@ extension WorkspaceServing {
                                          appearance: state.appearance, font: state.documentFont)
         state.history?.presentation = .init(active: reviewing && context?.reviewSection == .history,
                                             appearance: state.appearance, font: state.documentFont)
+        // Once each, not per page or document: every one of these rebuilds the workspace state.
+        let shownPage = visible && showsBrowser ? context?.activePage : nil
+        let shownDocument = visible && showsFiles ? context?.activeDocument : nil
         for page in context?.pages ?? [] {
-            let activePage = visible && showsBrowser && page === context?.activePage
+            let activePage = page === shownPage
             page.controls.active = activePage
             page.dialogs.active = activePage
         }
         for document in context?.documents ?? [] {
-            document.presentation = .init(active: visible && showsFiles && document === context?.activeDocument,
+            document.presentation = .init(active: document === shownDocument,
                                            appearance: state.appearance, font: state.documentFont, editor: state.editorStyle)
         }
     }

@@ -206,8 +206,9 @@ import Testing
     await fresh.waitForRefresh()
     #expect(!old.presentation.active && old.snapshot == nil)
     #expect(fresh.presentation.active && fresh.snapshot?.diff == "diff for /tmp/fresh")
+    // Offline, the diff stops refreshing but keeps showing the last changes it loaded.
     runtime.state.connected = false; model.reviewStateChanged()
-    #expect(!fresh.presentation.active && fresh.snapshot == nil)
+    #expect(!fresh.presentation.active && fresh.snapshot?.diff == "diff for /tmp/fresh")
     runtime.state.connected = true; model.reviewStateChanged(); await fresh.waitForRefresh()
     #expect(fresh.presentation.active && fresh.snapshot != nil)
     viewer.deactivate(); old.disconnect(); fresh.disconnect()

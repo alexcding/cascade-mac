@@ -150,7 +150,9 @@ actor FileFixture: FileDocumentService {
     #expect(surface.disposed)
 }
 
-@MainActor @Test func nativeEditorHiddenCleanBuffersEvictAndDirtyBuffersSurvive() async throws {
+// A hidden editor stays loaded, clean or dirty, so its tab or session comes back instantly;
+// hiding still asks the buffer whether it holds unsaved edits.
+@MainActor @Test func nativeEditorHiddenBuffersStayLoadedAndReportDirty() async throws {
     let service = FileFixture(), surface = BufferFixture()
     let model = EditorDocumentViewModel(record: .init(path: "/tmp/cache.swift"), service: service, makeSurface: { surface })
     model.show(appearance: .system); await model.waitForLoad()
@@ -162,7 +164,8 @@ actor FileFixture: FileDocumentService {
     #expect(await model.save())
     model.hide()
     for _ in 0..<10 { await Task.yield() }
-    #expect(!model.loaded && surface.disposed)
+    #expect(model.loaded && !model.dirty && !surface.disposed && !surface.frozen)
+    model.dispose()
 }
 
 @MainActor @Test func fileAndWebTabsShareOrderHistoryAndRestoreActiveFiles() throws {
@@ -278,4 +281,74 @@ private extension NSView {
     let snapshot = context.snapshot
     let restored = WorkspaceContext(id: context.id, sourceURL: "session:modes", title: "", snapshot: snapshot)
     #expect(restored.pane == .term && restored.activePage?.id == docs.id)
+}
+
+private actor RevisableFileFixture: FileDocumentService {
+    var content = "original"
+    var revision = String(repeating: "a", count: 64)
+    var reads = 0
+    func change() { revision = String(repeating: "b", count: 64); content = "changed on disk" }
+    func load(path: String) async throws -> FileDocumentSnapshot {
+        reads += 1
+        return .init(content: content, readOnly: false, revision: revision)
+    }
+    func save(path: String, content: String, revision: String) async throws -> String { revision }
+}
+
+@MainActor @Test func editorRevalidateRebuildsTheSurfaceWhenTheFileChangedAndTheBufferIsClean() async throws {
+    let service = RevisableFileFixture()
+    var surfaces: [BufferFixture] = []
+    let model = EditorDocumentViewModel(record: .init(path: "/tmp/revalidate.swift"), service: service,
+                                        makeSurface: { let surface = BufferFixture(); surfaces.append(surface); return surface })
+    model.show(appearance: .system); await model.waitForLoad()
+    let first = try #require(surfaces.first)
+    #expect(surfaces.count == 1)
+    model.hide()
+    await service.change()
+    model.show(appearance: .system)
+    let deadline = Date().addingTimeInterval(3)
+    while !first.disposed && Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(first.disposed)
+    #expect(surfaces.count == 2)
+    #expect(model.loaded && !model.dirty)
+    let second = try #require(surfaces.last)
+    #expect(!second.disposed)
+    model.focus(line: 7, column: 2)
+    #expect(second.location?.0 == 7 && second.location?.1 == 2)
+    #expect(first.location == nil)
+    model.dispose()
+}
+
+@MainActor @Test func editorRevalidateKeepsADirtySurfaceWhenTheFileChanged() async throws {
+    let service = RevisableFileFixture()
+    let surface = BufferFixture()
+    let model = EditorDocumentViewModel(record: .init(path: "/tmp/dirty-revalidate.swift"), service: service, makeSurface: { surface })
+    model.show(appearance: .system); await model.waitForLoad()
+    surface.edit("dirty edit")
+    model.hide()
+    await service.change()
+    model.show(appearance: .system)
+    let deadline = Date().addingTimeInterval(3)
+    while await service.reads < 2 && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    for _ in 0..<20 { await Task.yield() }
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(!surface.disposed && !surface.frozen)
+    #expect(surface.content == "dirty edit")
+    model.dispose()
+}
+
+@MainActor @Test func editorRevalidateKeepsTheSurfaceWhenTheFileIsUnchanged() async throws {
+    let service = RevisableFileFixture()
+    var surfaces: [BufferFixture] = []
+    let model = EditorDocumentViewModel(record: .init(path: "/tmp/unchanged.swift"), service: service,
+                                        makeSurface: { let surface = BufferFixture(); surfaces.append(surface); return surface })
+    model.show(appearance: .system); await model.waitForLoad()
+    model.hide()
+    model.show(appearance: .system)
+    let deadline = Date().addingTimeInterval(3)
+    while await service.reads < 2 && Date() < deadline { try await Task.sleep(for: .milliseconds(20)) }
+    for _ in 0..<20 { await Task.yield() }
+    #expect(surfaces.count == 1)
+    #expect(!surfaces[0].disposed)
+    model.dispose()
 }

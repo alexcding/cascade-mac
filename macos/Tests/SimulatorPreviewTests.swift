@@ -261,3 +261,42 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     await waitFor(model) { $0 == .live(url) }
     #expect(model.state == .live(url))
 }
+
+@MainActor @Test func simulatorPreviewPageIsOneWebViewUntilRetired() {
+    let service = SimulatorPreviewFixture()
+    let model = SimulatorPreviewModel(service: service)
+    let url = URL(string: "http://127.0.0.1:3200")!
+    let page = model.page(for: url)
+    #expect(page.accessibilityIdentifier() == "simulator-preview-webview")
+    #expect(model.page(for: url) === page)
+    let otherPort = URL(string: "http://127.0.0.1:3201")!
+    #expect(model.page(for: otherPort) === page)
+    model.retire()
+    #expect(model.page(for: url) !== page)
+}
+
+// A panel that left live must load its page again when live comes back, even at the same address:
+// after the backend reports a failure, a new helper can take the dead one's port. A different path
+// on the same port stands in for the new page, since the model loads exactly what it is handed.
+@MainActor @Test func simulatorPageLoadsAgainAfterTheBackendFailsAtTheSameAddress() async {
+    let service = SimulatorPreviewFixture()
+    let first = URL(string: "http://127.0.0.1:3104/first")!, second = URL(string: "http://127.0.0.1:3104/second")!
+    service.results["udid-port"] = .success(first)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-port")
+    await waitFor(model) { $0 == .live(first) }
+    #expect(model.state == .live(first))
+    let page = model.page(for: first)
+    #expect(page.url == first)
+    service.results["udid-port"] = .failure(BackendError.operation("The device shut down."))
+    model.retry()
+    await waitFor(model) { if case .failed = $0 { true } else { false } }
+    #expect(model.state == .failed("The device shut down."))
+    service.results["udid-port"] = .success(second)
+    model.retry()
+    await waitFor(model) { $0 == .live(second) }
+    #expect(model.state == .live(second))
+    #expect(model.page(for: second) === page)
+    #expect(page.url == second)
+    model.retire()
+}

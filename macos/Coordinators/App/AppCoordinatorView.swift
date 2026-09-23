@@ -11,18 +11,22 @@ struct AppCoordinatorView: View {
         NavigationSplitView {
             if let viewModel = coordinator.rootModel { SidebarView(viewModel: viewModel) }
         } detail: {
-            coordinator.root.view()
-                .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
-                    if let error = coordinator.connectionError {
-                        HStack(spacing: 12) {
-                            Label(error, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange).textSelection(.enabled)
-                            Button("Reconnect", action: coordinator.reconnect)
-                        }
-                        .padding(.horizontal, 28).padding(.top, 16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            ZStack {
+                // Every open session's workspace, kept alive beneath whatever the selection shows.
+                SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.shownDeckWorkspace)
+                coordinator.root.view()
+            }
+            .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
+                if let error = coordinator.connectionError {
+                    HStack(spacing: 12) {
+                        Label(error, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange).textSelection(.enabled)
+                        Button("Reconnect", action: coordinator.reconnect)
                     }
+                    .padding(.horizontal, 28).padding(.top, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            }
         }
         .sheet(item: Binding(get: { coordinator.sheet }, set: { value in
             if value == nil, let sheet = coordinator.sheet { coordinator.dismissSheet(id: sheet.id) }
