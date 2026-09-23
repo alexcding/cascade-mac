@@ -3,7 +3,7 @@ name = "craft-backend"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.88"
-license = "ISC"
+license = "MIT"
 
 # The native app links the crate as a static library (src/ffi.rs); the binary
 # remains the server for the web client and CLI tooling.

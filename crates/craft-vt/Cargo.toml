@@ -2,7 +2,7 @@
 name = "craft-vt"
 version = "0.1.0"
 edition = "2021"
-license = "ISC"
+license = "MIT"
 build = "build.rs"
 
 [dependencies]
