@@ -132,6 +132,10 @@ fn shell_ssh_auth_sock() -> Option<&'static str> {
 }
 
 static SHELL_SOCKET: OnceLock<Option<String>> = OnceLock::new();
+/// `PATH` as the user's interactive login shell sets it. However a tool was installed —
+/// Homebrew, a vendor installer, `npm -g`, or a version manager (nvm, fnm, Volta, asdf,
+/// mise) — the user's terminal finds it through this, so the backend searches it too.
+static SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 
 /// Start the shell probe on its own thread. Called once at backend start: the probe sources
 /// the user's rc files, which can take seconds, and nothing on the request path may block on
@@ -149,27 +153,42 @@ pub fn prime_shell_environment() {
         std::thread::Builder::new()
             .name("craft-shell-probe".into())
             .spawn(move || {
-                let socket = shell
+                let output = shell
                     .filter(|shell| shell.starts_with('/'))
                     .and_then(|shell| {
                         run_briefly(&shell, &["-ilc", SOCKET_PROBE], Duration::from_secs(5))
                     })
-                    .and_then(|output| {
-                        choose_socket(
-                            &String::from_utf8_lossy(&output),
-                            inherited.as_deref(),
-                            |path| is_socket(Path::new(path)),
-                        )
-                    });
+                    .map(|output| String::from_utf8_lossy(&output).into_owned());
+                let _ = SHELL_PATH.set(output.as_deref().and_then(path_from_probe));
+                let socket = output.and_then(|output| {
+                    choose_socket(&output, inherited.as_deref(), |path| {
+                        is_socket(Path::new(path))
+                    })
+                });
                 let _ = SHELL_SOCKET.set(socket);
             })
             .ok();
     });
 }
 
-/// Markers, because an rc file may print anything before the value.
-const SOCKET_PROBE: &str = "printf '\\n<craft-ssh>%s</craft-ssh>\\n' \"$SSH_AUTH_SOCK\"";
+/// Markers, because an rc file may print anything before the value. The socket comes last:
+/// its closing marker is what ends the read.
+const SOCKET_PROBE: &str =
+    "printf '\\n<craft-path>%s</craft-path>\\n<craft-ssh>%s</craft-ssh>\\n' \"$PATH\" \"$SSH_AUTH_SOCK\"";
 const PROBE_END: &str = "</craft-ssh>";
+
+/// The shell's PATH, keeping only absolute entries: a relative one would resolve against
+/// whatever directory a command runs in.
+fn path_from_probe(output: &str) -> Option<String> {
+    let start = output.rfind("<craft-path>")? + "<craft-path>".len();
+    let end = output[start..].find("</craft-path>")? + start;
+    let entries: Vec<&str> = output[start..end]
+        .trim()
+        .split(':')
+        .filter(|entry| entry.starts_with('/'))
+        .collect();
+    (!entries.is_empty()).then(|| entries.join(":"))
+}
 
 /// The socket to export, or nothing when the shell agrees with the inherited value or names a
 /// path that is not a live socket.
@@ -298,14 +317,108 @@ fn end_group(child: &mut std::process::Child, pid: i32) {
     }
 }
 
+/// The login shell's PATH ahead of the inherited one once the probe has answered, then the
+/// usual install locations, then version managers' directories for a shell that set none.
+/// Until the probe answers — or when it cannot — the fallbacks alone.
 fn search_path() -> &'static str {
-    static PATH: OnceLock<String> = OnceLock::new();
-    PATH.get_or_init(|| {
-        with_install_locations(
-            &std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()),
-            std::env::var("HOME").ok().as_deref(),
-        )
-    })
+    static BASE: OnceLock<String> = OnceLock::new();
+    static WITH_SHELL: OnceLock<String> = OnceLock::new();
+    let build = |shell: Option<&str>| {
+        let inherited = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
+        let path = match shell {
+            Some(shell) => format!("{shell}:{inherited}"),
+            None => inherited,
+        };
+        let home = std::env::var("HOME").ok();
+        let path = with_install_locations(&path, home.as_deref());
+        with_version_managers(&path, home.as_deref(), &|dir| {
+            std::fs::read_dir(dir)
+                .map(|entries| {
+                    entries
+                        .flatten()
+                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        })
+    };
+    match SHELL_PATH.get() {
+        Some(Some(shell)) => WITH_SHELL.get_or_init(|| build(Some(shell))),
+        _ => BASE.get_or_init(|| build(None)),
+    }
+}
+
+/// Where version managers keep the tools they install, for a login shell that never set them
+/// up on PATH (or did not answer in time). Each is appended only when missing, behind
+/// everything else. nvm and a keg-only Homebrew Node have one directory per version: the
+/// newest installed one is used, which is what `nvm install node` would leave as default.
+fn with_version_managers(
+    path: &str,
+    home: Option<&str>,
+    list: &dyn Fn(&str) -> Vec<String>,
+) -> String {
+    let mut entries: Vec<String> = path.split(':').map(String::from).collect();
+    let mut extras = Vec::new();
+    if let Some(home) = home.filter(|home| !home.is_empty()) {
+        let home = home.trim_end_matches('/');
+        extras.extend(
+            [
+                ".volta/bin",
+                ".asdf/shims",
+                ".local/share/mise/shims",
+                ".nodenv/shims",
+                "Library/Application Support/fnm/aliases/default/bin",
+                ".fnm/aliases/default/bin",
+            ]
+            .iter()
+            .map(|dir| format!("{home}/{dir}")),
+        );
+        let nvm = format!("{home}/.nvm/versions/node");
+        if let Some(version) = newest_version(list(&nvm), "v") {
+            extras.push(format!("{nvm}/{version}/bin"));
+        }
+    }
+    for prefix in ["/opt/homebrew/opt", "/usr/local/opt"] {
+        if let Some(keg) = newest_version(list(prefix), "node@") {
+            extras.push(format!("{prefix}/{keg}/bin"));
+        }
+    }
+    for extra in extras {
+        if !entries.iter().any(|entry| entry.trim_end_matches('/') == extra) {
+            entries.push(extra);
+        }
+    }
+    entries.join(":")
+}
+
+/// The name in `names` with the highest numeric version after `prefix`: `v22.1.0` over
+/// `v9.0.0`, `node@22` over `node@20`.
+fn newest_version(names: Vec<String>, prefix: &str) -> Option<String> {
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let version: Vec<u32> = name
+                .strip_prefix(prefix)?
+                .split('.')
+                .map(|part| part.parse().ok())
+                .collect::<Option<_>>()?;
+            Some((version, name))
+        })
+        .max()
+        .map(|(_, name)| name)
+}
+
+/// The executable `program` resolves to on the search path, if there is one.
+pub(crate) fn locate(program: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let path = std::path::PathBuf::from(resolve(program, search_path()));
+    std::fs::metadata(&path)
+        .is_ok_and(|data| data.is_file() && data.permissions().mode() & 0o111 != 0)
+        .then_some(path)
+}
+
+pub(crate) fn installed(program: &str) -> bool {
+    locate(program).is_some()
 }
 
 /// Homebrew, plus the per-user directories the agent CLIs install into: the Claude Code
@@ -557,6 +670,44 @@ mod tests {
             with_install_locations("/Users/me/.local/bin/:/usr/bin", Some("/Users/me")),
             "/Users/me/.local/bin/:/usr/bin:/Users/me/.bun/bin:/Users/me/.cargo/bin:/opt/homebrew/bin:/usr/local/bin"
         );
+    }
+
+    #[test]
+    fn the_login_shell_path_is_read_past_rc_noise_and_keeps_absolute_entries() {
+        let output = "motd\n<craft-path>/Users/me/.nvm/versions/node/v22.1.0/bin:bin:/usr/bin</craft-path>\n<craft-ssh></craft-ssh>\n";
+        assert_eq!(
+            path_from_probe(output).as_deref(),
+            Some("/Users/me/.nvm/versions/node/v22.1.0/bin:/usr/bin")
+        );
+        assert_eq!(path_from_probe("<craft-path></craft-path>"), None);
+        assert_eq!(path_from_probe("no marker"), None);
+        // The socket still reads from the same output.
+        assert_eq!(
+            socket_from_probe("<craft-path>/usr/bin</craft-path>\n<craft-ssh>/tmp/a.sock</craft-ssh>\n").as_deref(),
+            Some("/tmp/a.sock")
+        );
+    }
+
+    #[test]
+    fn version_managers_are_appended_after_everything_else() {
+        let list = |dir: &str| -> Vec<String> {
+            match dir {
+                "/Users/me/.nvm/versions/node" => vec!["v9.11.2".into(), "v22.1.0".into(), "v20.18.0".into(), "junk".into()],
+                "/opt/homebrew/opt" => vec!["node@20".into(), "node@22".into(), "openssl@3".into()],
+                _ => vec![],
+            }
+        };
+        let path = with_version_managers("/Users/me/.volta/bin:/usr/bin", Some("/Users/me"), &list);
+        let entries: Vec<&str> = path.split(':').collect();
+        assert_eq!(&entries[..2], ["/Users/me/.volta/bin", "/usr/bin"], "the shell's order wins");
+        assert_eq!(entries.iter().filter(|e| **e == "/Users/me/.volta/bin").count(), 1);
+        assert!(entries.contains(&"/Users/me/.asdf/shims"));
+        assert!(entries.contains(&"/Users/me/.local/share/mise/shims"));
+        assert!(entries.contains(&"/Users/me/.nvm/versions/node/v22.1.0/bin"), "{path}");
+        assert!(entries.contains(&"/opt/homebrew/opt/node@22/bin"), "{path}");
+        assert!(!path.contains("v9.11.2") && !path.contains("node@20"));
+        // No home: only the Homebrew kegs.
+        assert_eq!(with_version_managers("/usr/bin", None, &|_| vec![]), "/usr/bin");
     }
 
     // A program is resolved to its file before the spawn, so std never reaches for fork().

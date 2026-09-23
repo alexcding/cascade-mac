@@ -149,6 +149,7 @@ struct SettingsView: View {
             CLIIntegrationSection(model: model.clis)
             WorkflowHooksSection(model: model.clis)
             AgentStatusLineSection(model: model.clis)
+            SimulatorPreviewSection(model: model.clis)
             Section("Polling") {
                 Text("The GitHub and Jira CLIs poll on independent loops.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)

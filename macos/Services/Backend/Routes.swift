@@ -29,6 +29,7 @@ public enum Routes {
     public static let XCODE_SCHEMES = "/api/xcode/schemes"
     public static let XCODE_DESTINATIONS = "/api/xcode/destinations"
     public static let XCODE_BUILD_SETTINGS = "/api/xcode/build-settings"
+    public static let SIM_PREVIEW = "/api/sim-preview"
     public static let PROJECTS = "/api/projects"
     public static let PROJECT = "/api/projects/:id"
     public static func project(_ value: String) -> String {

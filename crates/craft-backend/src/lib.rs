@@ -11,6 +11,7 @@ mod local;
 mod poller;
 pub mod recovery;
 mod routes;
+mod sim_preview;
 mod usage;
 mod warmup;
 mod xcode;
@@ -131,6 +132,10 @@ pub fn build_app(state: AppState) -> Router {
         .route(
             "/api/xcode/build-settings",
             get(xcode::build_settings),
+        )
+        .route(
+            "/api/sim-preview",
+            post(sim_preview::start).delete(sim_preview::stop),
         )
         .route(
             "/api/ide/warmup",

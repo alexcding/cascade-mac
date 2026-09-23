@@ -108,6 +108,12 @@ import Observation
     }
     func copyLogin(_ cli: ManagedCLI) { if !retired { onAction(.copyLogin(cli)) } }
     func copyInstall(_ cli: ManagedCLI) { if !retired { onAction(.copyInstall(cli)) } }
+    /// The install line for `cli` as this Mac stands: Node's goes through Homebrew only when the
+    /// probe found Homebrew.
+    func installCommand(_ cli: ManagedCLI) -> String? {
+        guard let state = availability[cli.rawValue] else { return cli.installCommand }
+        return state.installCommand(for: cli, homebrew: availability["brew"]?.present == true)
+    }
     func openGuide(_ cli: ManagedCLI) { if !retired { onAction(.openGuide(cli)) } }
     /// Presenting is the coordinator's: the welcome is a sheet on the main window, not on Settings.
     func showWelcome() { if !retired { onAction(.showWelcome) } }
@@ -118,7 +124,7 @@ import Observation
         case .copyLogin(let cli):
             if let command = cli.loginCommand { copy(command); actionError = nil }
         case .copyInstall(let cli):
-            if let command = cli.installCommand { copy(command); actionError = nil }
+            if let command = installCommand(cli) { copy(command); actionError = nil }
         case .openGuide(let cli):
             actionError = openBrowser(cli.installationGuide) ? nil : "macOS could not open the installation guide."
         case .toggleHook(let cli):

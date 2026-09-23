@@ -45,7 +45,7 @@ import Observation
     /// What the last page reports as still open. Empty means everything the app can see is set up.
     var remaining: [String] {
         var items: [String] = []
-        for cli in ManagedCLI.allCases {
+        for cli in ManagedCLI.required {
             guard let state = clis.availability[cli.rawValue] else { continue }
             if !state.present { items.append("\(cli.title) is not installed.") }
             else if state.authed == false { items.append("\(cli.title) is not signed in.") }

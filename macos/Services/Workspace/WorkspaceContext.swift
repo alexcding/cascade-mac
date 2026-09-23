@@ -8,17 +8,24 @@ enum ReviewSection: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum WorkspacePane: String, Codable, CaseIterable { case off, term, diff, files }
+/// `simulator` is never saved: the stream it shows belongs to this launch, so a restored
+/// workspace opens on its browser instead.
+enum WorkspacePane: String, Codable, CaseIterable { case off, term, diff, files, simulator }
 
 enum WorkspaceMode: String, CaseIterable, Identifiable {
-    // Declaration order is the order of the toolbar picker: Browser, Files, Diff.
-    case browser, files, diff
+    // Declaration order is the order of the toolbar picker: Browser, Files, Diff, Simulator.
+    case browser, files, diff, simulator
     var id: String { rawValue }
-    var pane: WorkspacePane { switch self { case .browser: .term; case .diff: .diff; case .files: .files } }
-    var title: String { switch self { case .browser: "Browser"; case .diff: "Diff"; case .files: "Files" } }
-    var symbol: String { switch self { case .browser: "globe"; case .diff: "plus.forwardslash.minus"; case .files: "doc.text" } }
+    var pane: WorkspacePane { switch self { case .browser: .term; case .diff: .diff; case .files: .files; case .simulator: .simulator } }
+    var title: String { switch self { case .browser: "Browser"; case .diff: "Diff"; case .files: "Files"; case .simulator: "Simulator" } }
+    var symbol: String {
+        switch self { case .browser: "globe"; case .diff: "plus.forwardslash.minus"; case .files: "doc.text"; case .simulator: "iphone" }
+    }
     init?(pane: WorkspacePane) {
-        switch pane { case .term: self = .browser; case .diff: self = .diff; case .files: self = .files; default: return nil }
+        switch pane {
+        case .term: self = .browser; case .diff: self = .diff; case .files: self = .files; case .simulator: self = .simulator
+        default: return nil
+        }
     }
 }
 
@@ -258,7 +265,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     var activePage: BrowserPage? { pages.first { $0.id == activeID } }
     var snapshot: ContextSnapshot {
-        .init(pages: pages.map(\.record), activeID: activeID, history: history, pane: pane.rawValue,
+        .init(pages: pages.map(\.record), activeID: activeID, history: history,
+              pane: pane == .simulator ? WorkspacePane.term.rawValue : pane.rawValue,
               reviewSection: reviewSection, documents: documents.map(\.record), tabOrder: tabOrder, fileHistory: fileHistory, historyOrder: historyOrder,
               legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory,
               paneFraction: paneFraction)

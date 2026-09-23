@@ -74,6 +74,10 @@ protocol BuildServing: Sendable {
     /// so Stop reaches it; only the spinner ends.
     private(set) var launched = false
     private(set) var error: String?
+    /// The session's Simulator panel; a run on a simulator points it at that device.
+    let preview: SimulatorPreviewModel?
+    /// A run on a simulator started: the workspace brings its Simulator panel forward.
+    @ObservationIgnored var onSimulatorRun: (() -> Void)?
     private let service: any BuildServing
     private var project: Project
     private let session: WorkspaceSession
@@ -86,8 +90,8 @@ protocol BuildServing: Sendable {
     private var valid = true
 
     init(service: any BuildServing, project: Project, session: WorkspaceSession,
-         terminalFactory: @escaping () throws -> any BuildTerminal) {
-        self.service = service; self.project = project; self.session = session
+         preview: SimulatorPreviewModel? = nil, terminalFactory: @escaping () throws -> any BuildTerminal) {
+        self.service = service; self.project = project; self.session = session; self.preview = preview
         self.terminalFactory = terminalFactory
         let own = (session.runScheme ?? "", session.runSim ?? "")
         let owns = !own.0.isEmpty && !own.1.isEmpty
@@ -196,6 +200,13 @@ protocol BuildServing: Sendable {
             guard isCurrent(id) else { return false }
             if atShell { try await terminal.submit(command) }
             guard isCurrent(id) else { return false }
+            // The same default `command` launches by: a destination with no platform is a simulator.
+            // Only for a command this Run sent: an adopted build runs to whatever destination it
+            // was started for, which need not be the one picked now.
+            if atShell, (settings.platform ?? "iphonesimulator").hasSuffix("simulator"), let preview {
+                preview.show(udid: simulator)
+                onSimulatorRun?()
+            }
             // A detached build already running is adopted without injecting a
             // second command. Only this build PTY is polled or interrupted.
             running = true; launched = false
@@ -242,6 +253,7 @@ protocol BuildServing: Sendable {
     func disconnect() {
         valid = false; presentationID = nil; loadGeneration = UUID(); monitorGeneration = UUID()
         monitor = nil; terminal?.close(); terminal = nil; running = false; launched = false; loading = false
+        preview?.retire(); onSimulatorRun = nil
     }
 }
 

@@ -9,20 +9,7 @@ struct CLIIntegrationSection: View {
         Section {
             Text("Craft uses your installed tools and their existing sign-in sessions.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
-            ForEach(ManagedCLI.allCases) { cli in
-                SettingsStatusRow(title: cli.title, status: model.label(cli), tone: tone(cli),
-                                  statusIdentifier: "cli-status-\(cli.rawValue)") {
-                    if model.availability[cli.rawValue]?.present == false {
-                        Button("Install") { model.openGuide(cli) }
-                        if cli.installCommand != nil {
-                            Button("Copy Install Command") { model.copyInstall(cli) }.help(cli.installCommand ?? "")
-                        }
-                    }
-                    if cli.loginCommand != nil {
-                        Button("Copy Login Command") { model.copyLogin(cli) }.help(cli.loginCommand ?? "")
-                    }
-                }
-            }
+            ForEach(ManagedCLI.required) { cli in CLIStatusRow(model: model, cli: cli) }
             if let error = model.probeError { Text(error).foregroundStyle(Theme.danger) }
             if let error = model.actionError { Text(error).foregroundStyle(Theme.danger) }
         } header: {
@@ -32,17 +19,54 @@ struct CLIIntegrationSection: View {
             }
         }
     }
+}
 
+/// The Integrations tab's "Simulator preview" card: what the workspace's Simulator panel needs.
+/// Optional, so it stays out of first-run setup.
+struct SimulatorPreviewSection: View {
+    let model: CLISettingsViewModel
+    var body: some View {
+        Section("Simulator preview") {
+            Text("Run on an iOS simulator to see it in the session's Simulator panel. Craft streams it with Expo's serve-sim, fetched automatically, which needs Node.js 20 or later. Any Node your terminal finds works: Homebrew, the Node.js installer, nvm, fnm, Volta, asdf or mise.")
+                .font(.caption).foregroundStyle(Theme.textSecondary)
+            ForEach(ManagedCLI.simulatorPreview) { cli in CLIStatusRow(model: model, cli: cli) }
+        }
+    }
+}
+
+private struct CLIStatusRow: View {
+    let model: CLISettingsViewModel
+    let cli: ManagedCLI
+    var body: some View {
+        let state = model.availability[cli.rawValue]
+        SettingsStatusRow(title: cli.title, status: model.label(cli), tone: tone(state),
+                          statusIdentifier: "cli-status-\(cli.rawValue)") {
+            let outdated = state?.outdated(for: cli) == true
+            // serve-sim is fetched on use: what it lacks is Node, which has its own row.
+            if cli != .serveSim, state?.present == false || outdated {
+                Button(outdated ? "Update" : "Install") { model.openGuide(cli) }
+                if let command = model.installCommand(cli) {
+                    Button(command.hasPrefix("brew ") ? "Copy Homebrew Command" : "Copy Install Command") {
+                        model.copyInstall(cli)
+                    }.help(command)
+                }
+            }
+            if cli.loginCommand != nil {
+                Button("Copy Login Command") { model.copyLogin(cli) }.help(cli.loginCommand ?? "")
+            }
+        }
+    }
 
     /// Mirrors `CLIAvailability.label(for:)`. `authed` is only probed for CLIs that have a
     /// sign-in check (gh/acli), so nil means "not applicable" or "couldn't tell" — a warning tint
     /// there would contradict the "Installed" label sitting next to it.
-    private func tone(_ cli: ManagedCLI) -> ThemeTone {
-        guard let state = model.availability[cli.rawValue], state.present else { return .neutral }
+    private func tone(_ state: CLIAvailability?) -> ThemeTone {
+        guard let state, state.present else { return .neutral }
+        if state.outdated(for: cli) { return .warning }
         switch state.authed {
         case true: return .success
         case false: return .warning
-        default: return cli.supportsHooks || cli.isExtension ? .success : .neutral
+        default: return cli.supportsHooks || cli.isExtension || cli.isSimulatorPreview ? .success : .neutral
         }
     }
 }

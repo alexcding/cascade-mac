@@ -22,6 +22,56 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+/// `XCODE_BUILD_SETTINGS` with an explicit `platform`, to drive `onSimulatorRun`.
+private final class BuildHTTPFixtureSimulator: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        let body: String
+        switch path {
+        case Routes.XCODE_SCHEMES: body = #"{"target":"/tmp/Fixture.xcodeproj","schemes":["Dependency","Fixture"]}"#
+        case Routes.XCODE_DESTINATIONS: body = #"[{"udid":"12345678-1234-1234-1234-123456789abc","name":"Fixture device","runtime":"iOS fixture"}]"#
+        case Routes.XCODE_BUILD_SETTINGS:
+            body = #"{"appPath":"/tmp/Fixture.app","bundleId":"fixture.app","target":"/tmp/Fixture.xcodeproj","configuration":"Debug","platform":"iphonesimulator"}"#
+        default: body = #"{"id":"fixture","name":"Fixture","repo":"","workspace":"/tmp","ide":"xcode"}"#
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                                           headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// `XCODE_BUILD_SETTINGS` reporting a Mac destination, which must not raise the Simulator panel.
+private final class BuildHTTPFixtureMac: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        let body: String
+        switch path {
+        case Routes.XCODE_SCHEMES: body = #"{"target":"/tmp/Fixture.xcodeproj","schemes":["Dependency","Fixture"]}"#
+        case Routes.XCODE_DESTINATIONS: body = #"[{"udid":"this-mac","name":"This Mac","runtime":"","kind":"mac"}]"#
+        case Routes.XCODE_BUILD_SETTINGS:
+            body = #"{"appPath":"/tmp/Fixture.app","bundleId":"fixture.app","target":"/tmp/Fixture.xcodeproj","configuration":"Debug","platform":"macosx"}"#
+        default: body = #"{"id":"fixture","name":"Fixture","repo":"","workspace":"/tmp","ide":"xcode"}"#
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                                           headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// A `SimulatorPreviewing` fake that answers immediately, for tests that only care whether it was asked.
+private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked Sendable {
+    func start(udid: String) async throws -> URL { URL(string: "http://127.0.0.1:3100")! }
+    func stopAll() async {}
+}
+
 @MainActor private final class BuildTerminalRecorder: BuildTerminal {
     var commands: [String] = []
     var interrupts = 0
@@ -101,6 +151,81 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(coordinator.sheet?.id == sheet.id && sheet.canDismiss)
     coordinator.dismissSheet(id: sheet.id)
     #expect(coordinator.sheet == nil)
+}
+
+@MainActor @Test func buildRunOnSimulatorPlatformShowsPreviewAndFiresCallback() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [BuildHTTPFixtureSimulator.self]
+    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
+    let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
+    let build = BuildTerminalRecorder()
+    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
+    var simulatorRuns = 0
+    let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
+        preview: preview, terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns += 1 }
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.presentBuild { model }
+    let presentation = try #require(coordinator.sheet)
+    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    await destination.load()
+    #expect(destination.canRun)
+    await destination.run()
+    #expect(simulatorRuns == 1)
+    #expect(preview.udid == "12345678-1234-1234-1234-123456789abc")
+    model.disconnect()
+}
+
+@MainActor @Test func buildRunAdoptingARunningBuildLeavesThePreviewAlone() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [BuildHTTPFixtureSimulator.self]
+    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
+    let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
+    // A build from before a reconnect still holds the terminal: Run adopts it and sends nothing,
+    // so the destination picked now says nothing about what is running.
+    let build = BuildTerminalRecorder()
+    build.shell = false; build.process = "xcodebuild"; build.subshell = true
+    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
+    var simulatorRuns = 0
+    let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
+        preview: preview, terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns += 1 }
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.presentBuild { model }
+    let presentation = try #require(coordinator.sheet)
+    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    await destination.load()
+    await destination.run()
+    #expect(build.commands.isEmpty, "the running build is adopted, not joined by a second command")
+    #expect(simulatorRuns == 0)
+    #expect(preview.state == .idle && preview.udid == nil)
+    model.disconnect()
+}
+
+@MainActor @Test func buildRunOnMacPlatformDoesNotShowPreview() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [BuildHTTPFixtureMac.self]
+    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
+    let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
+    let build = BuildTerminalRecorder()
+    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
+    var simulatorRuns = 0
+    let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
+        preview: preview, terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns += 1 }
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.presentBuild { model }
+    let presentation = try #require(coordinator.sheet)
+    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    await destination.load()
+    #expect(destination.canRun)
+    await destination.run()
+    #expect(simulatorRuns == 0)
+    #expect(preview.state == .idle && preview.udid == nil)
+    model.disconnect()
 }
 
 @Test func buildCommandKeepsOneForegroundGroupAndQuotesDestinationValues() throws {

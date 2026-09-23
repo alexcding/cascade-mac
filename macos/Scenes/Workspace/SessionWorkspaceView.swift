@@ -289,6 +289,8 @@ private struct SessionWorkspaceContextContent: View {
         } else if model.mode == .browser, let page = context.activePage {
             // Not keyed by page: a new identity would rebuild the surface and re-parent the web views.
             BrowserPane(page: page, context: context, model: page.controls)
+        } else if model.mode == .simulator, let preview = model.simulatorPreview {
+            SimulatorPanelView(model: preview, openIntegrations: model.openHookSettings)
         } else {
             BlankPane(context: context, model: model)
         }
@@ -332,7 +334,7 @@ struct SessionWorkspaceModePicker: View {
 
     var body: some View {
         Picker("Panel", selection: Binding(get: { model.mode }, set: model.selectMode)) {
-            ForEach(WorkspaceMode.allCases.filter { $0 != .diff || model.session != nil }) { mode in
+            ForEach(model.modes.filter { $0 != .diff || model.session != nil }) { mode in
                 Image(systemName: mode.symbol).help(mode.title).tag(mode)
                     .disabled(!model.canSelectMode(mode))
             }
@@ -353,7 +355,7 @@ struct BlankPane: View {
     private var hint: Text {
         switch model.mode {
         case .files: return Text("Search this worktree from the tab above, or use the folder to browse it.").foregroundColor(Theme.textTertiary)
-        case .diff, .browser: return Text("Use ＋ to open a web page.").foregroundColor(Theme.textTertiary)
+        case .diff, .browser, .simulator: return Text("Use ＋ to open a web page.").foregroundColor(Theme.textTertiary)
         }
     }
     private var root: String? {

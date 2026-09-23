@@ -404,6 +404,32 @@ fn lists_gh_webhook(extensions: &str) -> bool {
     })
 }
 
+/// Which installer put `path` there, for Settings to name: Homebrew's links point into its
+/// Cellar, so the link is followed first.
+fn install_source(path: &std::path::Path) -> &'static str {
+    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    source_of(&real.to_string_lossy())
+}
+
+fn source_of(path: &str) -> &'static str {
+    const KNOWN: [(&str, &str); 9] = [
+        ("/Cellar/", "Homebrew"),
+        ("/opt/homebrew/", "Homebrew"),
+        ("/.nvm/", "nvm"),
+        ("/fnm/", "fnm"),
+        ("/.fnm/", "fnm"),
+        ("/.volta/", "Volta"),
+        ("/.asdf/", "asdf"),
+        ("/mise/", "mise"),
+        ("/.nodenv/", "nodenv"),
+    ];
+    KNOWN
+        .iter()
+        .find(|(marker, _)| path.contains(marker))
+        .map(|(_, name)| *name)
+        .unwrap_or(if path.starts_with("/usr/local/") { "installer" } else { "other" })
+}
+
 pub async fn cli_tools() -> ApiResult<Value> {
     async fn probe(program: &str, auth: Option<Vec<&str>>) -> Value {
         let present = cli::run(program, ["--version"], Duration::from_secs(4))
@@ -434,15 +460,40 @@ pub async fn cli_tools() -> ApiResult<Value> {
             .await
             .is_ok_and(|list| lists_gh_webhook(&list))
     };
-    let (claude, codex, gh, acli, gh_webhook) = tokio::join!(
+    // The simulator preview runs on Node, which must be recent enough for serve-sim. Found the
+    // way the user's terminal finds it, whichever way it was installed.
+    let node = async {
+        match cli::run("node", ["--version"], Duration::from_secs(4)).await {
+            Ok(version) => {
+                let supported = crate::sim_preview::node_supported(&version).unwrap_or(false);
+                let source = cli::locate("node").map(|path| install_source(&path));
+                json!({"present":true,"version":version.trim(),"supported":supported,"source":source})
+            }
+            Err(_) => json!({"present":false}),
+        }
+    };
+    let (claude, codex, gh, acli, gh_webhook, node) = tokio::join!(
         probe("claude", None),
         probe("codex", None),
         probe("gh", Some(vec!["auth", "status"])),
         probe("acli", Some(vec!["jira", "auth", "status"])),
-        gh_webhook
+        gh_webhook,
+        node
     );
+    // An installed serve-sim is used as is; without one, `npx` fetches it on first use. Either
+    // runs on Node, so `needs` names what is actually missing: Node first, then npx.
+    let installed = cli::installed("serve-sim");
+    let needs = if node["supported"] != json!(true) {
+        Some("node")
+    } else if !installed && !cli::installed("npx") {
+        Some("npx")
+    } else {
+        None
+    };
+    let serve_sim = json!({"present":needs.is_none(),"source":if installed { "installed" } else { "npx" },"needs":needs});
     Ok(Json(
-        json!({"claude":claude,"codex":codex,"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook}}),
+        json!({"claude":claude,"codex":codex,"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook},
+               "node":node,"serveSim":serve_sim,"brew":{"present":cli::installed("brew")}}),
     ))
 }
 
@@ -827,6 +878,19 @@ mod forwarder_tests {
         assert!(lists_gh_webhook("gh webhook\t\t\n")); // installed from a local checkout
         assert!(!lists_gh_webhook("gh dash\tdlvhdr/gh-dash\tv4\n"));
         assert!(!lists_gh_webhook(""));
+    }
+
+    #[test]
+    fn node_is_named_by_whichever_installer_put_it_there() {
+        assert_eq!(source_of("/opt/homebrew/Cellar/node/22.1.0/bin/node"), "Homebrew");
+        assert_eq!(source_of("/usr/local/Cellar/node@20/20.18.0/bin/node"), "Homebrew");
+        assert_eq!(source_of("/usr/local/bin/node"), "installer");
+        assert_eq!(source_of("/Users/me/.nvm/versions/node/v22.1.0/bin/node"), "nvm");
+        assert_eq!(source_of("/Users/me/Library/Application Support/fnm/node-versions/v22/installation/bin/node"), "fnm");
+        assert_eq!(source_of("/Users/me/.volta/tools/image/node/22.1.0/bin/node"), "Volta");
+        assert_eq!(source_of("/Users/me/.asdf/installs/nodejs/22.1.0/bin/node"), "asdf");
+        assert_eq!(source_of("/Users/me/.local/share/mise/installs/node/22/bin/node"), "mise");
+        assert_eq!(source_of("/somewhere/else/node"), "other");
     }
 
     #[test]

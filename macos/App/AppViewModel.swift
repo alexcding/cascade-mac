@@ -1030,6 +1030,7 @@ public final class AppViewModel {
             shell = created
             return created
         })
+        model.onSimulatorRun = { [weak context] in context?.setPane(.simulator) }
         buildModels[context.id] = model
         return model
     }
@@ -1281,6 +1282,9 @@ public final class AppViewModel {
         for terminal in terminals.values { await terminal.stopConnecting() }
         try await terminalControl.stopExisting()
         for terminal in terminals.values { terminal.disconnect() }
+        // Simulator streams go with the shells. serve-sim cannot tell ours from a stream started in
+        // a terminal, so Quit stops those too.
+        if let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
         // A page visited just before quitting would otherwise miss the debounced write.
         await viewer.browserHistory.flush()
         await viewer.browserBookmarks.flush()

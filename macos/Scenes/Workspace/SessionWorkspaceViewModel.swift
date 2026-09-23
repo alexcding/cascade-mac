@@ -117,13 +117,23 @@ extension WorkspaceServing {
     var showsTerminal: Bool { session != nil || context?.id == "scratch" }
     var showsChanges: Bool { session != nil && context?.pane == .diff }
     var showsPage: Bool {
-        !showsTerminal || showsChanges || context?.pane == .term || context?.pane == .files
+        !showsTerminal || showsChanges || context?.pane == .term || context?.pane == .files || context?.pane == .simulator
     }
     var mode: WorkspaceMode {
         guard let context else { return .browser }
-        if let mode = WorkspaceMode(pane: context.pane), mode != .diff || session != nil { return mode }
-        return context.lastMode == .diff && session == nil ? .browser : context.lastMode
+        if let mode = WorkspaceMode(pane: context.pane), offers(mode) { return mode }
+        return offers(context.lastMode) ? context.lastMode : .browser
     }
+    /// Diff needs a session, and Simulator an Xcode session's preview.
+    private func offers(_ mode: WorkspaceMode) -> Bool {
+        switch mode {
+        case .diff: session != nil
+        case .simulator: simulatorPreview != nil
+        case .browser, .files: true
+        }
+    }
+    /// The Simulator panel's model, owned by the session's build.
+    var simulatorPreview: SimulatorPreviewModel? { build?.preview }
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
     /// A page-only context (a sidebar tab) draws its compact tab bar in the title-bar zone: the
     /// window toolbar loses its background, icon and title, and the bar takes the toolbar's row.
@@ -173,7 +183,15 @@ extension WorkspaceServing {
         }
     }
     var showsModePicker: Bool { showsTerminal || context?.documents.isEmpty == false }
-    func canSelectMode(_ mode: WorkspaceMode) -> Bool { mode != .diff || canShowChanges }
+    func canSelectMode(_ mode: WorkspaceMode) -> Bool {
+        switch mode {
+        case .diff: canShowChanges
+        case .simulator: simulatorPreview != nil
+        case .browser, .files: true
+        }
+    }
+    /// The picker lists Simulator only where it can show one.
+    var modes: [WorkspaceMode] { WorkspaceMode.allCases.filter { $0 != .simulator || simulatorPreview != nil } }
     var showsBuildActions: Bool { session != nil && state.project?.ide == "xcode" }
     /// What this worktree's IDE is still preparing, if anything. `ready` for every IDE that
     /// prepares nothing, so the toolbar can ask without knowing which ones do.
@@ -252,7 +270,7 @@ extension WorkspaceServing {
         guard let context, canSelectMode(mode) else { return }
         switch mode {
         case .diff: if context.pane != .diff { perform(.changes) }
-        case .browser, .files: context.setPane(mode.pane)
+        case .browser, .files, .simulator: context.setPane(mode.pane)
         }
     }
     func run() { if canRun { onAction(.run) } }
