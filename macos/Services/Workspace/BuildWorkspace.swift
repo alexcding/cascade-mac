@@ -148,16 +148,24 @@ protocol BuildServing: Sendable {
         if loadFailed { error = nil; loadFailed = false }
         loading = cached == nil
         defer { if loadGeneration == generation { loading = false } }
-        do {
-            // The sheet is where a destination is chosen, so it is worth one fresh look; the
-            // cached list is already on screen meanwhile.
-            let values = try await service.destinations(project: project, session: session, scheme: wanted, refresh: true)
-            try Task.checkCancellation()
-            guard isCurrent(id), loadGeneration == generation else { return }
-            // Under the asked-for scheme too, or a session with none saved never hits the cache.
-            for key in [wanted, values.0.resolve(wanted, project: project)] { Self.cachedDestinations[cacheKey(key)] = values }
-            apply(values)
-        } catch { if isCurrent(id) && loadGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription; loadFailed = true } }
+        // With nothing on screen, the list the backend keeps comes first, so the sheet is usable
+        // at once. Then one fresh look, since the sheet is where a destination is chosen and a
+        // device plugged in since is not in the kept list; it only updates what is shown.
+        for refresh in cached == nil ? [false, true] : [true] {
+            do {
+                let values = try await service.destinations(project: project, session: session, scheme: wanted, refresh: refresh)
+                try Task.checkCancellation()
+                guard isCurrent(id), loadGeneration == generation else { return }
+                // Under the asked-for scheme too, or a session with none saved never hits the cache.
+                for key in [wanted, values.0.resolve(wanted, project: project)] { Self.cachedDestinations[cacheKey(key)] = values }
+                // A run already on its way keeps the destination it was started with.
+                if !starting { apply(values) }
+                loading = false
+            } catch {
+                if isCurrent(id) && loadGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription; loadFailed = true }
+                return
+            }
+        }
     }
     private var loadFailed = false
     func warmDestinations() {

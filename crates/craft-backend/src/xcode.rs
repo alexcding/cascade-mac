@@ -45,6 +45,11 @@ const ANSWER_WAIT: Duration = Duration::from_secs(480);
 const STILL_RESOLVING: &str =
     "Swift packages are still resolving in this worktree. Try again when that finishes.";
 
+/// How recent an answer must be to count as fresh when one is asked for. It is short: it only
+/// spares running xcodebuild twice in a row, as when the sheet asks for what it has on file
+/// and then for a fresh look, and the first of those had to fetch.
+const FRESH_FOR: i64 = 10;
+
 #[derive(Default, Deserialize)]
 pub struct XcodeQuery {
     path: Option<String>,
@@ -579,6 +584,17 @@ fn fingerprint(root: &Path, target: &Path, devices: bool, context: &str, folders
     digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
+/// Which kept answers a question takes.
+#[derive(Clone, Copy, PartialEq)]
+enum Kept {
+    /// Any whose fingerprint still matches.
+    Any,
+    /// Only one xcodebuild gave within the last `FRESH_FOR` seconds: a fresh look.
+    Recent,
+    /// None: something the answer depends on could not be read.
+    Never,
+}
+
 /// One question put to `xcodebuild` about a worktree, and what its answer depends on.
 struct Question<'a> {
     root: &'a Path,
@@ -589,7 +605,7 @@ struct Question<'a> {
     devices: bool,
     /// Anything else the answer depends on, such as where derived data lives.
     context: String,
-    refresh: bool,
+    kept: Kept,
     /// Past this, waiting for the worktree's gate gives up.
     deadline: tokio::time::Instant,
 }
@@ -619,20 +635,23 @@ pub(crate) fn forget_answers(app: &AppState, worktree: &Path) {
     }
 }
 
-/// Answers from `data.db` while the fingerprint still matches. Otherwise runs `fetch` on the
-/// worktree's gate and keeps what it returns. Failures are never kept. `refresh` skips the
-/// kept answer.
+/// Answers from `data.db` while the fingerprint still matches and `kept` allows it. Otherwise runs
+/// `fetch` on the worktree's gate and keeps what it returns. Failures are never kept.
 async fn remembered<F, Fut>(app: &AppState, question: Question<'_>, fetch: F) -> Result<Value, ApiError>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Value, ApiError>>,
 {
     let key = format!("{}{}", answer_prefix(question.root), question.key);
-    if !question.refresh {
-        let stamp = question.fingerprint().await;
-        if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp) {
-            return Ok(value);
-        }
+    // A fresh look still takes an answer xcodebuild gave moments ago.
+    let since = match question.kept {
+        Kept::Any => 0,
+        Kept::Recent => chrono::Utc::now().timestamp() - FRESH_FOR,
+        Kept::Never => i64::MAX,
+    };
+    let stamp = question.fingerprint().await;
+    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since) {
+        return Ok(value);
     }
     let gate = app.warmup.gate(&question.root.to_string_lossy());
     let Ok(_turn) = tokio::time::timeout_at(question.deadline, gate.lock()).await else {
@@ -642,10 +661,8 @@ where
     // answer; a file edited meanwhile is caught. The fingerprint kept is the one the fetch
     // started from, so an edit during the fetch is caught next time.
     let stamp = question.fingerprint().await;
-    if !question.refresh {
-        if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp) {
-            return Ok(value);
-        }
+    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since) {
+        return Ok(value);
     }
     let value = fetch().await?;
     if let Err(error) = app.db.set_xcode_answer(&key, &stamp, &value) {
@@ -654,8 +671,9 @@ where
     Ok(value)
 }
 
-fn refreshing(query: &XcodeQuery) -> bool {
-    query.refresh.as_deref() == Some("1")
+/// `refresh=1` asks for a fresh look.
+fn kept(query: &XcodeQuery) -> Kept {
+    if query.refresh.as_deref() == Some("1") { Kept::Recent } else { Kept::Any }
 }
 
 pub async fn schemes(
@@ -673,7 +691,7 @@ pub async fn schemes(
         key: format!("schemes\n{}", target.display()),
         devices: false,
         context: String::new(),
-        refresh: refreshing(&query),
+        kept: kept(&query),
         deadline: tokio::time::Instant::now() + ANSWER_WAIT,
     };
     let value = remembered(&app, question, || async {
@@ -802,7 +820,7 @@ pub async fn destinations(
         key: format!("destinations\n{}\n{scheme}", target.display()),
         devices: true,
         context: String::new(),
-        refresh: refreshing(&query),
+        kept: kept(&query),
         deadline: tokio::time::Instant::now() + ANSWER_WAIT,
     };
     let value = remembered(&app, question, || async {
@@ -865,7 +883,7 @@ pub async fn build_settings(
         // The app path is under derived data, or a build location, which the user can move in
         // Xcode's settings. Unread settings could hide such a move, so nothing kept is used.
         context: locations.settings,
-        refresh: refreshing(&query) || !locations.readable,
+        kept: if locations.readable { kept(&query) } else { Kept::Never },
         deadline,
     };
     let value = remembered(&app, question, || async {
@@ -1235,7 +1253,7 @@ mod tests {
             key: "schemes\nApp".into(),
             devices: false,
             context: String::new(),
-            refresh: false,
+            kept: Kept::Any,
             deadline: tokio::time::Instant::now() + Duration::from_millis(wait),
         };
 
@@ -1256,5 +1274,26 @@ mod tests {
         forget_answers(&app, &root.path().join(""));
         let forgotten = remembered(&app, question(1000), || async { Ok(json!(["third"])) }).await;
         assert_eq!(forgotten.ok(), Some(json!(["third"])), "a removed worktree keeps nothing");
+
+        // A fresh look right after a fetch takes that fetch instead of running xcodebuild again.
+        let fresh = Question { kept: Kept::Recent, ..question(1000) };
+        assert_eq!(remembered(&app, fresh, never).await.ok(), Some(json!(["third"])));
+        // Nothing kept counts when what the answer depends on could not be read.
+        let unread = Question { kept: Kept::Never, ..question(1000) };
+        let fetched = remembered(&app, unread, || async { Ok(json!(["fourth"])) }).await;
+        assert_eq!(fetched.ok(), Some(json!(["fourth"])));
+    }
+
+    /// `refresh` reads only answers given since a moment; older ones are fetched again.
+    #[test]
+    fn a_kept_answer_carries_when_xcodebuild_gave_it() {
+        let data = tempfile::tempdir().unwrap();
+        let db = crate::Database::open(data.path()).unwrap();
+        db.set_xcode_answer("wt\nschemes", "stamp", &json!(["kept"])).unwrap();
+        let now = chrono::Utc::now().timestamp();
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", 0).unwrap(), Some(json!(["kept"])));
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now - 60).unwrap(), Some(json!(["kept"])));
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now + 60).unwrap(), None);
+        assert_eq!(db.xcode_answer("wt\nschemes", "other", 0).unwrap(), None);
     }
 }

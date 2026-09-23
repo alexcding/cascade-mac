@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS pr_scope_snapshots (
   last_synced TEXT, error TEXT, PRIMARY KEY (id, state)
 );
 -- What xcodebuild said about a worktree (schemes, destinations, build settings), kept against a
--- fingerprint of the project files. Key: "<worktree>\n<kind>\n...".
+-- fingerprint of the project files. Key: "<worktree>\n<kind>\n...". `at`: when xcodebuild
+-- answered, in Unix seconds.
 CREATE TABLE IF NOT EXISTS xcode_answers (
-  key TEXT PRIMARY KEY, stamp TEXT NOT NULL, value TEXT NOT NULL
+  key TEXT PRIMARY KEY, stamp TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL DEFAULT 0
 );

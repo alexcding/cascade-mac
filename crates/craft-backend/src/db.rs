@@ -500,13 +500,14 @@ impl Database {
         Ok(())
     }
 
-    /// What `xcodebuild` answered for `key`, if it was kept against the same `stamp`.
-    pub fn xcode_answer(&self, key: &str, stamp: &str) -> rusqlite::Result<Option<Value>> {
+    /// What `xcodebuild` answered for `key`, if it was kept against the same `stamp` and
+    /// answered at `since` (Unix seconds) or later.
+    pub fn xcode_answer(&self, key: &str, stamp: &str, since: i64) -> rusqlite::Result<Option<Value>> {
         let raw: Option<String> = self
             .cache()
             .query_row(
-                "SELECT value FROM xcode_answers WHERE key=?1 AND stamp=?2",
-                params![key, stamp],
+                "SELECT value FROM xcode_answers WHERE key=?1 AND stamp=?2 AND at>=?3",
+                params![key, stamp, since],
                 |row| row.get(0),
             )
             .optional()?;
@@ -515,8 +516,8 @@ impl Database {
 
     pub fn set_xcode_answer(&self, key: &str, stamp: &str, value: &Value) -> rusqlite::Result<()> {
         self.cache().execute(
-            "INSERT INTO xcode_answers(key,stamp,value) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET stamp=excluded.stamp,value=excluded.value",
-            params![key, stamp, value.to_string()],
+            "INSERT INTO xcode_answers(key,stamp,value,at) VALUES (?1,?2,?3,?4) ON CONFLICT(key) DO UPDATE SET stamp=excluded.stamp,value=excluded.value,at=excluded.at",
+            params![key, stamp, value.to_string(), Utc::now().timestamp()],
         )?;
         Ok(())
     }
@@ -861,6 +862,7 @@ fn migrate_tabs_to_ids(conn: &Connection) -> rusqlite::Result<()> {
 fn initialize_cache(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(include_str!("schema_cache.sql"))?;
     let _ = conn.execute("ALTER TABLE jira_snapshots ADD COLUMN meta TEXT", []);
+    let _ = conn.execute("ALTER TABLE xcode_answers ADD COLUMN at INTEGER NOT NULL DEFAULT 0", []);
     Ok(())
 }
 

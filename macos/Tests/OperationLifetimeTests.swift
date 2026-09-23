@@ -29,14 +29,18 @@ private let operationSettings = BuildSettings(appPath: "/tmp/Fixture.app", bundl
 private actor OperationBuildService: BuildServing {
     var loads = 0, settingsReads = 0, saves = 0
     var destinationsGate: OperationGate<(BuildSchemes, [BuildSimulator])>?
+    /// Holds only a fresh look, so a test can see what the sheet shows meanwhile.
+    var freshGate: OperationGate<(BuildSchemes, [BuildSimulator])>?
     let settingsGate: OperationGate<BuildSettings>?
-    init(destinations: OperationGate<(BuildSchemes, [BuildSimulator])>? = nil, settings: OperationGate<BuildSettings>? = nil) {
-        destinationsGate = destinations; settingsGate = settings
+    init(destinations: OperationGate<(BuildSchemes, [BuildSimulator])>? = nil, fresh: OperationGate<(BuildSchemes, [BuildSimulator])>? = nil,
+         settings: OperationGate<BuildSettings>? = nil) {
+        destinationsGate = destinations; freshGate = fresh; settingsGate = settings
     }
     var wantedSchemes: [String] = []
     var refreshes: [Bool] = []
     func destinations(project: Project, session: WorkspaceSession, scheme: String, refresh: Bool) async throws -> (BuildSchemes, [BuildSimulator]) {
         loads += 1; wantedSchemes.append(scheme); refreshes.append(refresh)
+        if refresh, let gate = freshGate { freshGate = nil; return try await gate.value() }
         if let gate = destinationsGate { destinationsGate = nil; return try await gate.value() }
         return operationDestinations
     }
@@ -69,7 +73,10 @@ private actor OperationBuildService: BuildServing {
 @MainActor @Test(.timeLimit(.minutes(1))) func operationLifetimeBuildReplacementRejectsOldLoadAndActions() async throws {
     let gate = OperationGate<(BuildSchemes, [BuildSimulator])>(), service = OperationBuildService(destinations: gate)
     var factories = 0
-    let runtime = BuildWorkspaceViewModel(service: service, project: operationProject, session: operationSession,
+    // A project of its own: the destinations cache is shared, and what it holds decides how many
+    // loads a sheet makes.
+    let project = Project(id: "operation-replacement", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project, session: operationSession,
         terminalFactory: { factories += 1; return OperationBuildTerminal() })
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     coordinator.presentBuild { runtime }
@@ -89,7 +96,9 @@ private actor OperationBuildService: BuildServing {
     await loading.value
     #expect(old.retired && !old.canRun && !old.loading && current.canRun && current.scheme == "Fixture")
     #expect(coordinator.sheet?.id == second.id && factories == 0)
-    #expect(await service.loads == 2)
+    // The old sheet's one load, held until it no longer counted; the new sheet's kept list and
+    // its fresh look. Nothing from the retired sheet after that.
+    #expect(await service.loads == 3)
     #expect(await service.settingsReads == 0)
     coordinator.dismissSheet(id: second.id); runtime.disconnect()
 }
@@ -268,7 +277,29 @@ func operationLifetimeRemovalRetriesOnceAndCoordinatorPreservesUnrelatedNavigati
     while await service.loads < 1 { try await Task.sleep(for: .milliseconds(10)) }
     let destination = BuildDestinationViewModel(runtime: runtime, purpose: .configure)
     await destination.load()
+    // The sheet may also ask for the kept list, if it opens before selection's answer is cached.
+    let refreshes = await service.refreshes
+    #expect(refreshes.first == false && refreshes.last == true && refreshes.filter { $0 }.count == 1)
+    destination.retire(); runtime.disconnect()
+}
+
+/// With nothing cached in the app, the sheet shows what the backend keeps at once and stays
+/// usable while the fresh look runs.
+@MainActor @Test(.timeLimit(.minutes(1))) func theDestinationSheetShowsTheKeptListBeforeTheFreshLook() async throws {
+    let fresh = OperationGate<(BuildSchemes, [BuildSimulator])>()
+    let service = OperationBuildService(fresh: fresh)
+    let project = Project(id: "operation-kept", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("kept", scheme: "Fixture", simulator: "fixture-simulator"),
+        terminalFactory: { OperationBuildTerminal() })
+    let destination = BuildDestinationViewModel(runtime: runtime, purpose: .configure)
+    let loading = Task { await destination.load() }
+    await fresh.waitForStart()
+    #expect(!destination.loading && destination.simulators.count == 1 && destination.canRun)
     #expect(await service.refreshes == [false, true])
+    await fresh.finish(.success(operationDestinations))
+    await loading.value
+    #expect(destination.canRun)
     destination.retire(); runtime.disconnect()
 }
 
@@ -384,8 +415,10 @@ private func operationSession(_ id: String, scheme: String? = nil, simulator: St
     await destination.load()
     #expect(destination.scheme == "Fixture" && destination.simulators.count == 1)
     destination.scheme = "Other"
-    while await service.loads < 2 { try await Task.sleep(for: .milliseconds(20)) }
-    #expect(await service.wantedSchemes == ["", "Other"])
+    while await !service.wantedSchemes.contains("Other") { try await Task.sleep(for: .milliseconds(20)) }
+    // Each load may ask twice, for the kept list and a fresh look; what matters is what it asked for.
+    let asked = await service.wantedSchemes.reduce(into: [String]()) { if $0.last != $1 { $0.append($1) } }
+    #expect(asked == ["", "Other"])
     while destination.loading { try await Task.sleep(for: .milliseconds(20)) }
     #expect(destination.scheme == "Fixture" && destination.canRun, "an unknown scheme resolves back to a real one")
     destination.retire(); runtime.disconnect()
