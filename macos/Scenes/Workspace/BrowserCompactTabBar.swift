@@ -78,7 +78,9 @@ struct BrowserCompactTabBar: View {
 
     private func tabPill(_ available: CGFloat) -> some View {
         CompactTabPill(ids: pages.map(\.id), activeID: context.activeID, available: available, maxTabWidth: CompactTabMetrics.maxWebTabWidth,
-                       select: { id in pages.first { $0.id == id }.map { model.selectTab(.page($0)) } }, move: model.moveTab) { id, iconOnly in
+                       select: { id in pages.first { $0.id == id }.map { model.selectTab(.page($0)) } }, move: model.moveTab,
+                       // A drag in the address field selects its text: the tab being edited stays put.
+                       canMove: { !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive,
                            autoFocus: page.id != context.fillerPageID,
