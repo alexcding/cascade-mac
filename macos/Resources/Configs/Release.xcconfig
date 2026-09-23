@@ -8,3 +8,8 @@ INFOPLIST_FILE = Resources/Configs/App-Info.plist
 // Direct distribution. Developer ID identity is supplied at packaging time.
 ENABLE_HARDENED_RUNTIME = YES
 SWIFT_OPTIMIZATION_LEVEL = -O
+
+// Sparkle's update-signing public key. Public by design: it only lets the app verify
+// updates. The private half lives only in the release Mac's keychain, under
+// `generate_keys --account craft`. Never put `//` in a value here: it starts a comment.
+CRAFT_UPDATE_PUBLIC_KEY = pwIuhQnkxw+lij59nDQ5pzexj9YvyD2vFAF9/cjGuIA=

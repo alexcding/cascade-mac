@@ -371,7 +371,8 @@ update installation, or clean-machine acceptance.
 ### Native updates and launch at login
 
 Sparkle configuration uses `CRAFT_UPDATE_FEED_URL` and `CRAFT_UPDATE_PUBLIC_KEY`,
-mapped to `SUFeedURL` and `SUPublicEDKey` in the app's Info.plist. The updater
+mapped to `SUFeedURL` and `SUPublicEDKey` in the app's Info.plist. The public key is
+committed in `Release.xcconfig`; the release pipeline supplies the feed URL. The updater
 requires a Release app, a valid HTTPS feed, and a base64-encoded 32-byte Ed25519
 public key. Private signing keys stay outside the repository. Publishing an
 appcast and signing update archives are separate release steps.
