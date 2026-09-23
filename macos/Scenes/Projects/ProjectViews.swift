@@ -31,6 +31,21 @@ struct ProjectEditorView: View {
                     TextField("Relative launch target", text: $model.draft.ideTarget)
                     Text("For example, App/App.xcworkspace. Leave blank to detect the Xcode target.").font(.caption).foregroundStyle(.secondary)
                 }
+                Section("New session worktrees") {
+                    HStack(alignment: .top) {
+                        TextField("Setup script", text: $model.draft.worktreeSetup, prompt: Text("./scripts/setup.sh or npm ci"), axis: .vertical)
+                            .lineLimit(1...6).font(.system(.body, design: .monospaced))
+                            .accessibilityIdentifier("project-worktree-setup")
+                        Button("Choose…") { Task { await model.pickSetupScript() } }.disabled(model.draft.workspace.isEmpty)
+                    }
+                    Text("Runs inside each new worktree once it is created, in the background. A script from the repository runs the copy on the session's branch. $CRAFT_ROOT_PATH is the project folder, $CRAFT_WORKTREE_PATH the new worktree. Failures show in Activity.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    TextField("Copy ignored files", text: $model.draft.worktreeInclude, prompt: Text(".env*  (the default)"), axis: .vertical)
+                        .lineLimit(1...6).font(.system(.body, design: .monospaced))
+                        .accessibilityIdentifier("project-worktree-include")
+                    Text("A new worktree only gets the files git tracks, so git-ignored ones like .env or local config are missing. List the ones sessions need, one per line (.env, config/*.local), and they are copied in from the project folder before the setup script runs. Leave blank for the default in Settings → Worktrees.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }.formStyle(.grouped).disabled(model.busy)
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled)

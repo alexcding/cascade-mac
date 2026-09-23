@@ -5,16 +5,12 @@ struct AutomationDraft: Encodable, Equatable, Sendable {
     var mergeTransition: String
     var fixVersionEnabled: Bool
     var fixVersionScript: String
-    var worktreeSetup: String
-    var worktreeInclude: String
 
     init(_ project: Project) {
         forwardWebhooks = project.forwardWebhooks ?? true
         mergeTransition = project.mergeTransition ?? ""
         fixVersionEnabled = project.fixVersionEnabled ?? false
         fixVersionScript = project.fixVersionScript ?? ""
-        worktreeSetup = project.worktreeSetup ?? ""
-        worktreeInclude = project.worktreeInclude ?? ""
     }
     var payload: Self {
         var value = self

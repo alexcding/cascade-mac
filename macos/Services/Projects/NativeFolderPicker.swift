@@ -12,4 +12,19 @@ import AppKit
         let response = await panel.beginSheetModal(for: window)
         return response == .OK ? panel.url?.path : nil
     }
+
+    /// A file, starting in `folder`: the project's setup script.
+    static func chooseFile(in folder: String) async -> String? {
+        guard let window = NSApp.keyWindow else { return nil }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = URL(fileURLWithPath: folder, isDirectory: true)
+        panel.prompt = "Choose Script"
+        let response = await panel.beginSheetModal(for: window)
+        return response == .OK ? panel.url?.path : nil
+    }
 }

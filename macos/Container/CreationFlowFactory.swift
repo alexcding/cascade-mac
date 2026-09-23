@@ -16,9 +16,10 @@ struct SessionCreationRequest {
 
 @MainActor struct NativeCreationFlowFactory: CreationFlowFactory {
     var chooseFolder: () async -> String? = NativeFolderPicker.choose
+    var chooseFile: (String) async -> String? = NativeFolderPicker.chooseFile(in:)
 
     func projectEditor(project: Project?, service: any ProjectService) -> ProjectEditorViewModel {
-        ProjectEditorViewModel(project: project, service: service, chooseFolder: chooseFolder)
+        ProjectEditorViewModel(project: project, service: service, chooseFolder: chooseFolder, chooseFile: chooseFile)
     }
 
     func newSession(request: SessionCreationRequest, operations: (any SessionCreating)?) -> NewSessionViewModel {

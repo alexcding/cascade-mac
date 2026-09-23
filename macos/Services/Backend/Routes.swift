@@ -61,6 +61,7 @@ public enum Routes {
     public static let GIT_PUSH = "/api/git/push"
     public static let GIT_LOG = "/api/git/log"
     public static let GIT_REFS = "/api/git/refs"
+    public static let GIT_TRACKED = "/api/git/tracked"
     public static let GIT_SWITCH = "/api/git/switch"
     public static let GIT_COMMIT_AVATARS = "/api/git/commit-avatars"
     public static let GIT_SHOW = "/api/git/show"

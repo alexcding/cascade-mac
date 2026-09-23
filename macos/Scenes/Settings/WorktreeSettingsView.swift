@@ -33,8 +33,8 @@ struct WorktreeSettingsView<SaveRow: View>: View {
                         .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-fetch")
                 }
             }
-            Section("Default files to copy") {
-                Text("Ignored files a new worktree doesn't get from git, such as .env. Patterns use .gitignore syntax, and only files git ignores are copied. Files already in the worktree are never overwritten. A project's own patterns (in its settings) or a .worktreeinclude file at the repository root take the place of these. The setup script is set per project.")
+            Section("Copy ignored files") {
+                Text("A new worktree only gets the files git tracks, so git-ignored ones like .env are missing. Files matching these patterns (one per line, .gitignore syntax) are copied in from the project folder. Only ignored files are copied, and nothing already in the worktree is overwritten. This is the default: a project can set its own in its Settings, and a .worktreeinclude file in the repository wins over both. The setup script is set per project.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
                 TextEditor(text: $model.draft.worktreeInclude)
                     .font(.system(.body, design: .monospaced))

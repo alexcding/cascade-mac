@@ -137,6 +137,37 @@ async fn fetch_before_create_is_opt_in_and_cuts_from_the_fetched_tip() {
 }
 
 #[tokio::test]
+async fn tracked_reports_what_a_new_worktree_will_check_out() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    fs::create_dir_all(dir.join("scripts")).unwrap();
+    for name in ["run.sh", "plain.sh", "new.sh"] {
+        fs::write(dir.join("scripts").join(name), "echo hi\n").unwrap();
+    }
+    git(&dir, &["add", "scripts/run.sh", "scripts/plain.sh"]);
+    git(&dir, &["update-index", "--chmod=+x", "scripts/run.sh"]);
+    git(&dir, &["commit", "-qm", "scripts"]);
+    // Executable on disk only: git still records 644, and that is what a worktree gets.
+    let mut mode = fs::metadata(dir.join("scripts/plain.sh")).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    fs::set_permissions(dir.join("scripts/plain.sh"), mode).unwrap();
+    let get = |rel: &str| {
+        let uri = format!("/api/git/tracked?path={}&rel={rel}", dir.display());
+        let app = app.clone();
+        async move {
+            let response = app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap()).await.unwrap();
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<Value>(&bytes).unwrap()
+        }
+    };
+    assert_eq!(get("scripts/run.sh").await, json!({"tracked":true,"executable":true}));
+    assert_eq!(get("scripts/plain.sh").await, json!({"tracked":true,"executable":false}));
+    assert_eq!(get("scripts/new.sh").await, json!({"tracked":false,"executable":false}));
+}
+
+#[tokio::test]
 async fn project_patterns_beat_the_default_and_a_worktreeinclude_beats_both() {
     let (app, _data) = app();
     let parent = tempfile::tempdir().unwrap();

@@ -16,24 +16,6 @@ struct AutomationView: View {
                         Button("Refresh Status") { Task { await model.refreshStatus() } }
                     }
                 }
-                Section("When a worktree is created") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Setup script")
-                        TextField("npm ci", text: $model.draft.worktreeSetup, axis: .vertical)
-                            .labelsHidden().multilineTextAlignment(.leading).lineLimit(2...8)
-                            .font(.system(.body, design: .monospaced)).accessibilityIdentifier("automation-worktree-setup")
-                    }
-                    Text("Runs in each new session worktree after its files are copied, without holding up the session. $CRAFT_ROOT_PATH is the project checkout, $CRAFT_WORKTREE_PATH the new worktree and $CRAFT_BRANCH its branch. Failures show in Activity.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Files to copy")
-                        TextField("Default from Settings → Worktrees", text: $model.draft.worktreeInclude, axis: .vertical)
-                            .labelsHidden().multilineTextAlignment(.leading).lineLimit(2...8)
-                            .font(.system(.body, design: .monospaced)).accessibilityIdentifier("automation-worktree-include")
-                    }
-                    Text("Ignored files to copy from the checkout, one .gitignore pattern per line, such as .env or config/*.local. Leave blank to use the default. A .worktreeinclude file in the repository takes the place of both.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
                 if model.project.hasJira { Section("On GitHub PR merge") {
                     Text("Apply these optional actions in order to each linked Jira ticket.")
                         .font(.callout).foregroundStyle(.secondary)

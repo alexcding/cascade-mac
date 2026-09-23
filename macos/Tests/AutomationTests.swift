@@ -15,7 +15,6 @@ private actor AutomationFixture: AutomationService {
         project.forwardWebhooks = draft.forwardWebhooks; project.mergeTransition = draft.mergeTransition
         project.fixVersionEnabled = draft.fixVersionEnabled
         project.fixVersionScript = draft.fixVersionScript
-        project.worktreeSetup = draft.worktreeSetup; project.worktreeInclude = draft.worktreeInclude
         return project
     }
     func preview(projectID: String, script: String) async throws -> FixVersionPreview {
@@ -45,7 +44,7 @@ private actor AutomationFixture: AutomationService {
     model.draft.mergeTransition = "  Done  "
     model.draft.fixVersionScript = " return '1'; "
     let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(model.draft.payload)) as? [String: Any])
-    #expect(Set(wire.keys) == ["forwardWebhooks", "mergeTransition", "fixVersionEnabled", "fixVersionScript", "worktreeSetup", "worktreeInclude"])
+    #expect(Set(wire.keys) == ["forwardWebhooks", "mergeTransition", "fixVersionEnabled", "fixVersionScript"])
     #expect(wire["fixVersionScript"] as? String == " return '1'; ")
     await service.fail(true); await model.save()
     #expect(model.dirty && model.error == "Fixture automation save failed" && received.isEmpty)

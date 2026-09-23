@@ -1050,6 +1050,21 @@ fn default_branch_from_refs(branches: &[Value]) -> String {
     String::new()
 }
 
+/// What git records for one file: whether it is tracked, and whether its recorded mode is
+/// executable. A new worktree is checked out from exactly this, so it, not the file's state in
+/// the project folder, says whether the file will be there and whether `./file` can run.
+pub async fn git_tracked(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
+    let (Some(dir), Some(rel)) = (query.path, query.rel.filter(|v| !v.is_empty())) else {
+        return Err(ApiError::bad_request("path and rel required"));
+    };
+    let out = git(&dir, vec!["ls-files".into(), "-s".into(), "--".into(), rel], 15)
+        .await
+        .map_err(|e| ApiError::bad_request(error_line(&e.to_string())))?;
+    // `<mode> <object> <stage>\t<path>`, or nothing for a file git does not track.
+    let mode = out.split_whitespace().next().unwrap_or("");
+    Ok(Json(json!({"tracked": !mode.is_empty(), "executable": mode == "100755"})))
+}
+
 pub async fn git_refs(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
     let dir = query
         .path

@@ -22,10 +22,12 @@ import Observation
     private var generation = UUID()
     private var service: (any ProjectService)?
     private let chooseFolder: () async -> String?
+    private let chooseFile: (String) async -> String?
 
-    init(project: Project?, service: any ProjectService, chooseFolder: @escaping () async -> String?) {
+    init(project: Project?, service: any ProjectService, chooseFolder: @escaping () async -> String?,
+         chooseFile: @escaping (String) async -> String? = { _ in nil }) {
         id = project?.id; draft = ProjectDraft(project); baseline = ProjectDraft(project)
-        self.service = service; self.chooseFolder = chooseFolder
+        self.service = service; self.chooseFolder = chooseFolder; self.chooseFile = chooseFile
     }
     var dirty: Bool { draft != baseline }
     private var active: Bool { !retired && !completedCreation }
@@ -72,6 +74,40 @@ import Observation
         if let path = await chooseFolder(), active, !Task.isCancelled, self.generation == generation {
             draft.workspace = path; saved = false
         }
+    }
+    /// The setup script's Choose…: a file inside the project, kept as a path relative to it. The
+    /// script runs with the NEW worktree as its folder, so the path names that worktree's copy —
+    /// the version on the session's branch, not the one in the project checkout.
+    func pickSetupScript() async {
+        let workspace = (draft.workspace as NSString).standardizingPath
+        guard active, !Task.isCancelled, !busy, !workspace.isEmpty else { return }
+        let generation = generation
+        busy = true; error = nil
+        defer { busy = false }
+        guard let path = await chooseFile(workspace), active, !Task.isCancelled, self.generation == generation else { return }
+        let file = (path as NSString).standardizingPath
+        guard file.hasPrefix(workspace + "/") else {
+            error = "Choose a script inside the project folder, so each worktree has its own copy."
+            return
+        }
+        let relative = String(file.dropFirst(workspace.count + 1))
+        // What git records decides it, since that is what the worktree checks out: a file made
+        // executable only on disk still arrives without the bit. Unknown falls back to the disk.
+        let recorded: TrackedFile? = (try? await service?.trackedFile(workspace: workspace, rel: relative)) ?? nil
+        guard active, !Task.isCancelled, self.generation == generation else { return }
+        let executable = recorded?.executable ?? FileManager.default.isExecutableFile(atPath: file)
+        draft.worktreeSetup = Self.setupCommand(relative: relative, executable: executable)
+        saved = false
+        if recorded?.tracked == false {
+            error = "\(relative) isn't committed, so new worktrees won't have it. Commit it, or list it under Copy ignored files if git ignores it."
+        }
+    }
+    /// `./path` for an executable, which then runs with its own shebang; `sh ./path` otherwise.
+    /// Quoted when the path holds anything a shell would read.
+    static func setupCommand(relative: String, executable: Bool) -> String {
+        let plain = relative.allSatisfy { $0.isLetter || $0.isNumber || "._-/".contains($0) }
+        let path = plain ? "./\(relative)" : AgentDrivers.quote("./\(relative)")
+        return executable ? path : "sh \(path)"
     }
     /// The New Project sheet's Choose…: pick the checkout, then read its GitHub repo from the git
     /// origin (the web modal's chooseModalWorkspace) — the repo is derived, never typed there.

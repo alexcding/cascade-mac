@@ -195,6 +195,11 @@ private actor ProjectFixture: ProjectService {
     #expect(draft.validationError == nil)
     let body = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
     #expect(body["runScheme"] == nil && body["workflows"] == nil && body["forwardWebhooks"] == nil)
+    // The worktree fields are the project's own and save with it, text kept as typed.
+    draft.worktreeSetup = "npm ci\n"; draft.worktreeInclude = ".env\n!.env.example"
+    let saved = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
+    #expect(saved["worktreeSetup"] as? String == "npm ci\n" && saved["worktreeInclude"] as? String == ".env\n!.env.example")
+    #expect(ProjectDraft(Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp/repo", worktreeSetup: "make", worktreeInclude: ".env")).worktreeSetup == "make")
 }
 
 @MainActor @Test func newProjectChooseDetectsTheRepositoryAndCancelledPickKeepsTheDraft() async {
@@ -213,4 +218,60 @@ private actor ProjectFixture: ProjectService {
     cancelled.draft.workspace = "/tmp/typed"
     await cancelled.chooseWorkspace()
     #expect(cancelled.draft.workspace == "/tmp/typed" && cancelled.draft.repo.isEmpty)
+}
+
+@MainActor @Test func setupScriptPickKeepsAPathInsideTheProjectAndRunsItTheWayItCan() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try FileManager.default.createDirectory(at: folder.appendingPathComponent("scripts"), withIntermediateDirectories: true)
+    let runnable = folder.appendingPathComponent("scripts/setup.sh"), plain = folder.appendingPathComponent("scripts/plain.sh")
+    for file in [runnable, plain] { try "echo hi\n".write(to: file, atomically: true, encoding: .utf8) }
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: runnable.path)
+    var picked = runnable.path
+    let model = ProjectEditorViewModel(project: nil, service: ProjectFixture(), chooseFolder: { nil }, chooseFile: { _ in picked })
+    model.draft.workspace = folder.path
+    await model.pickSetupScript()
+    #expect(model.draft.worktreeSetup == "./scripts/setup.sh")
+    picked = plain.path; await model.pickSetupScript()
+    #expect(model.draft.worktreeSetup == "sh ./scripts/plain.sh")
+    // Outside the project there is no copy in the worktree to run: refused, the draft kept.
+    picked = "/usr/bin/true"; await model.pickSetupScript()
+    #expect(model.draft.worktreeSetup == "sh ./scripts/plain.sh" && model.error != nil)
+    #expect(ProjectEditorViewModel.setupCommand(relative: "my scripts/it's.sh", executable: true) == "'./my scripts/it'\"'\"'s.sh'")
+    // A cancelled pick clears what an earlier one said and keeps the draft.
+    let cancelling = ProjectEditorViewModel(project: nil, service: ProjectFixture(), chooseFolder: { nil }, chooseFile: { _ in nil })
+    cancelling.draft.workspace = "/usr"
+    await cancelling.pickSetupScript()
+    #expect(cancelling.error == nil)
+}
+
+/// Git's record decides, not the disk: the worktree is checked out from it.
+private struct TrackedFixture: ProjectService {
+    let answer: TrackedFile
+    func load(_ id: String) -> Project { Project(id: id, name: "P", repo: "", color: nil, workspace: "") }
+    func save(_ draft: ProjectDraft, id: String?) -> Project { load(id ?? "p") }
+    func delete(_ id: String) {}
+    func detectRepository(_ path: String) -> String { "" }
+    func pullRequests(_ id: String, state: String, force: Bool) -> ProjectPRSnapshot { ProjectPRSnapshot() }
+    func trackedFile(workspace: String, rel: String) -> TrackedFile? { answer }
+}
+
+@MainActor @Test func setupScriptPickGoesByWhatGitRecordsAndWarnsWhenItIsNotCommitted() async throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let script = folder.appendingPathComponent("setup.sh")
+    try "echo hi\n".write(to: script, atomically: true, encoding: .utf8)
+    // Executable on disk, but git records 644: the worktree's copy will not run as ./setup.sh.
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+    let recorded = ProjectEditorViewModel(project: nil, service: TrackedFixture(answer: .init(tracked: true, executable: false)),
+                                          chooseFolder: { nil }, chooseFile: { _ in script.path })
+    recorded.draft.workspace = folder.path
+    await recorded.pickSetupScript()
+    #expect(recorded.draft.worktreeSetup == "sh ./setup.sh" && recorded.error == nil)
+    let untracked = ProjectEditorViewModel(project: nil, service: TrackedFixture(answer: .init(tracked: false, executable: false)),
+                                           chooseFolder: { nil }, chooseFile: { _ in script.path })
+    untracked.draft.workspace = folder.path
+    await untracked.pickSetupScript()
+    #expect(untracked.draft.worktreeSetup == "sh ./setup.sh" && untracked.error?.contains("isn't committed") == true)
 }

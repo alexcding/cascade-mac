@@ -9,12 +9,15 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var ide = ""
     var ideCmd = ""
     var ideTarget = ""
+    var worktreeSetup = ""
+    var worktreeInclude = ""
 
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
         jiraProjectKey = project.jiraProjectKey ?? ""; jql = project.jql ?? ""
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
+        worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
     }
     var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a project name." }
@@ -51,11 +54,26 @@ protocol ProjectService: Sendable {
     func delete(_ id: String) async throws
     func detectRepository(_ path: String) async throws -> String
     func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot
+    /// What git records for `rel` in `workspace`, which is what a new worktree checks out.
+    func trackedFile(workspace: String, rel: String) async throws -> TrackedFile?
+}
+
+struct TrackedFile: Decodable, Equatable, Sendable {
+    let tracked: Bool
+    let executable: Bool
+}
+
+extension ProjectService {
+    /// Unknown by default: the setup script pick then goes by the file as it is on disk.
+    func trackedFile(workspace: String, rel: String) async throws -> TrackedFile? { nil }
 }
 
 struct APIProjectService: ProjectService {
     let api: APIClient
     func load(_ id: String) async throws -> Project { try await api.get(Routes.project(id)) }
+    func trackedFile(workspace: String, rel: String) async throws -> TrackedFile? {
+        try await api.get(APIClient.query(Routes.GIT_TRACKED, ["path": workspace, "rel": rel]))
+    }
     func save(_ draft: ProjectDraft, id: String?) async throws -> Project {
         try await api.request(id.map(Routes.project) ?? Routes.PROJECTS, method: id == nil ? "POST" : "PUT", body: draft)
     }

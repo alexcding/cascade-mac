@@ -124,6 +124,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/git/push", post(local::git_push))
         .route("/api/git/log", get(local::git_log))
         .route("/api/git/refs", get(local::git_refs))
+        .route("/api/git/tracked", get(local::git_tracked))
         .route("/api/git/commit-avatars", get(local::commit_avatars))
         .route("/api/git/show", get(local::git_show))
         .route("/api/git/discard", post(local::git_discard))
