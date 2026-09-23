@@ -14,7 +14,12 @@ import Observation
     private(set) var syncing = false
     private(set) var updated: Date?
     private(set) var error: String?
-    @ObservationIgnored private var service: (any DashboardService)?
+    @ObservationIgnored private var service: (any DashboardService)? {
+        didSet {
+            let available = service is DashboardTicketService
+            if ticketsAvailable != available { ticketsAvailable = available }
+        }
+    }
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
@@ -38,7 +43,9 @@ import Observation
     private(set) var tickets: [DashboardTicketRow] = []
     private(set) var ticketsError: String?
     private(set) var ticketsLoading = false
-    var ticketsAvailable: Bool { service is DashboardTicketService }
+    /// Mirrors the service, which is not observed, so the toolbar's Tickets tab appears the moment a
+    /// Jira-capable service connects and goes when it is dropped.
+    private(set) var ticketsAvailable = false
     @ObservationIgnored private var ticketTask: Task<Void, Never>?
 
     var query = ""
@@ -86,6 +93,58 @@ import Observation
         }
     }
     var ticketFilter: TicketFilter = .all
+
+    /// The Dashboard's tabs. Overview, Pull Requests and Reviews swap the home screen's body;
+    /// Tickets is My Tickets, pushed over it, with its own search; any other tab, or Command-[,
+    /// pops back.
+    enum Tab: String, CaseIterable, Identifiable {
+        case overview, pullRequests, reviews, tickets
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .overview: return "Overview"
+            case .pullRequests: return "Pull Requests"
+            case .reviews: return "Reviews"
+            case .tickets: return "Tickets"
+            }
+        }
+    }
+    var tab: Tab = .overview
+    func selectTab(_ value: Tab) {
+        guard !retired else { return }
+        if value == .tickets { showTickets(); return }
+        tab = value
+        closeTickets()
+        // Back on the overview with no tickets yet (Jira was slow or failed at connect): try again.
+        if value == .overview, ticketsAvailable, tickets.isEmpty, !ticketsLoading { refreshTickets() }
+    }
+
+    /// The Pull Requests tab's tags, each a check state or review state of the user's own.
+    enum PRFilter: String, CaseIterable, Identifiable {
+        case all, failing, running, changesRequested, approved, drafts
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all: return "All"
+            case .failing: return "Failing"
+            case .running: return "Running"
+            case .changesRequested: return "Changes requested"
+            case .approved: return "Approved"
+            case .drafts: return "Drafts"
+            }
+        }
+        func matches(_ row: DashboardRow) -> Bool {
+            switch self {
+            case .all: return true
+            case .failing: return row.checks == .failing
+            case .running: return row.checks == .running
+            case .changesRequested: return row.pr.reviewDecision == "CHANGES_REQUESTED"
+            case .approved: return row.pr.reviewDecision == "APPROVED"
+            case .drafts: return row.pr.isDraft == true
+            }
+        }
+    }
+    var prFilter: PRFilter = .all
     /// The My Tickets screen's rows from the searched tickets: the tag, then urgent first, each
     /// half in Jira's own order.
     func screenTickets(from rows: [DashboardTicketRow]) -> [DashboardTicketRow] {

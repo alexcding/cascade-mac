@@ -11,23 +11,19 @@ struct DashboardTicketsView: View {
         let rows = model.screenTickets(from: visible)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("My tickets").font(.system(size: 28, weight: .semibold)).tracking(-0.6)
-                    Text("\(visible.count) assigned to you, urgent first")
-                        .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
-                    Spacer(minLength: 12)
+                DashboardPageHeader(caption: "\(visible.count) assigned to you, urgent first", title: "My tickets") {
                     DashboardRefreshButton(name: "tickets", id: "tickets", busy: model.ticketsLoading, action: model.refreshTickets)
-                        .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                        .padding(.bottom, 6)
                 }
-                .padding(.top, 8).padding(.bottom, 22)
+                .padding(.top, 12).padding(.bottom, 24)
                 if let error = model.navigation.error { warning(error) }
                 if let error = model.ticketsError { warning(error) }
                 if !visible.isEmpty {
                     TicketStageBar(tickets: visible) { model.ticketFilter = .stage($0) }
                 }
-                tags(counts).padding(.top, 24).padding(.bottom, 18)
+                tags(counts).padding(.top, visible.isEmpty ? 0 : 24).padding(.bottom, 24)
                 if rows.isEmpty {
-                    Text(model.ticketsLoading ? "Loading tickets…" : "No tickets match.")
+                    Text(!model.ticketsAvailable ? "Jira isn’t connected, so there are no tickets to show." : model.ticketsLoading ? "Loading tickets…" : "No tickets match.")
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
                 } else {
                     DashboardTicketTable(rows: rows, opening: model.navigation.opening,
@@ -36,7 +32,7 @@ struct DashboardTicketsView: View {
                         linkedPRs: model.linkedPRs)
                 }
             }
-            .padding(.bottom, 28).padding(.trailing, 16)
+            .padding(.bottom, 40).padding(.trailing, 16)
         }
         .accessibilityIdentifier("dashboard-tickets")
         .searchable(text: $model.query, placement: .toolbar, prompt: "Search tickets")

@@ -96,19 +96,15 @@ struct DashboardRefreshButton: View {
 
 // MARK: - AI usage
 
-/// The agents the user has a plan with, as chips in the Dashboard's summary row: each shows the
-/// agent's session window as the tray's bar. Clicking one opens the menu bar tray's usage panel for
-/// that agent in a popover over the page. Until the first real snapshot lands the chips hold their
-/// place as breathing placeholders, so the row never jumps. An agent with no plan is left out.
-struct DashboardUsageChips: View {
-    let shell: ShellStore
-
+/// The agents the user has a plan with, each with its quota windows and usage, for the Dashboard's
+/// usage rows. An agent with no plan is left out.
+@MainActor enum DashboardUsage {
     struct Plan: Identifiable {
         let key: String, title: String
         let limits: UsageSnapshot.Limits
         let agent: UsageSnapshot.Agent?
         var id: String { key }
-        /// Session leads for every agent, so the chips read alike; failing that, the first window.
+        /// Session leads for every agent, so the rows read alike; failing that, the first window.
         var lead: (title: String, window: UsageSnapshot.Window, duration: TimeInterval)? {
             if let session = limits.session { return ("Session", session, UsageWindowMath.session) }
             if let weekly = limits.weekly { return ("Weekly", weekly, UsageWindowMath.week) }
@@ -130,77 +126,104 @@ struct DashboardUsageChips: View {
     static func loading(_ shell: ShellStore) -> Bool {
         plans(shell.usage).isEmpty && shell.usage?.asOf == nil && shell.usageError == nil
     }
+}
+
+/// Each agent's quota as ruled rows: a ring of the lead window's use, then when it resets and the
+/// weekly figure. A row opens the tray's usage panel for that agent in a popover.
+struct DashboardUsageRows: View {
+    let shell: ShellStore
 
     var body: some View {
-        let plans = Self.plans(shell.usage)
-        let loading = Self.loading(shell)
-        HStack(spacing: 10) {
-            if loading {
-                ForEach(Theme.usageAgents, id: \.key) { UsageChipPlaceholder(tint: Theme.agentTint($0.key)) }
-                    .transition(.opacity)
+        let plans = DashboardUsage.plans(shell.usage)
+        VStack(alignment: .leading, spacing: 0) {
+            Rectangle().fill(DashboardPalette.hairline).frame(height: 1).accessibilityHidden(true)
+            if DashboardUsage.loading(shell) {
+                Text("Loading usage…").font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
+                    .padding(.horizontal, 8).frame(height: 44)
+                    .accessibilityIdentifier("dashboard-usage-loading")
             } else {
-                ForEach(plans) { AgentUsageChip(plan: $0).transition(.opacity) }
+                ForEach(plans) { AgentUsageRow(plan: $0) }
             }
         }
-        .animation(.easeOut(duration: 0.35), value: loading)
     }
 }
 
-/// The capsule every summary chip shares, so work counts and agents read as one row.
-struct DashboardChip<Content: View>: View {
-    var active = false
-    /// Only a chip that does something answers the pointer; a plain count stays still.
-    var interactive = true
-    @ViewBuilder let content: Content
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 8) { content }
-            .padding(.horizontal, 16).frame(height: 40)
-            .background(active || hovering ? Color.primary.opacity(0.06) : Color.clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
-            .contentShape(Capsule())
-            .onHover { hovering = interactive && $0 }
-    }
-}
-
-private struct AgentUsageChip: View {
-    let plan: DashboardUsageChips.Plan
+private struct AgentUsageRow: View {
+    let plan: DashboardUsage.Plan
     @State private var showing = false
+    @State private var hovering = false
 
     var body: some View {
         let accent = Theme.agentTint(plan.key)
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let lead = plan.lead
-            let left = lead?.window.remaining ?? 0
-            let pace = lead.flatMap { $0.window.paceRemaining(duration: $0.duration, now: context.date) }
-            let overPace = pace.map { left < $0 } ?? false
+            let used = 100 - (lead?.window.remaining ?? 100)
             Button { showing.toggle() } label: {
-                DashboardChip(active: showing) {
-                    AgentMark(key: plan.key, size: 14)
-                    Text(plan.title).font(.system(size: 13, weight: .medium))
-                    UsageTrack(left: left, pace: pace, accent: accent).frame(width: 56)
-                    Text("\(Int(left.rounded()))%").font(.system(size: 13, weight: .bold).monospacedDigit())
-                        .foregroundStyle(overPace ? Color.orange : Color.primary)
+                HStack(spacing: 14) {
+                    UsageRing(used: used, accent: accent)
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            AgentMark(key: plan.key, size: 13)
+                            Text(plan.title).font(.system(size: 13.5, weight: .semibold))
+                        }
+                        Text(line(lead?.title ?? "Usage", lead?.window, now: context.date))
+                            .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
+                        if lead?.title == "Session", let weekly = plan.limits.weekly {
+                            Text(line("Weekly", weekly, now: context.date))
+                                .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
+                        }
+                    }
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 8).padding(.vertical, 12)
+                .background(hovering || showing ? Color.primary.opacity(0.04) : .clear)
+                .overlay(alignment: .bottom) {
+                    Rectangle().fill(DashboardPalette.hairline).frame(height: 1).accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("\(plan.title) \(lead?.title.lowercased() ?? "usage")\(overPace ? ", over pace" : "")")
+            .onHover { hovering = $0 }
+            .accessibilityElement(children: .combine)
             .accessibilityLabel("\(plan.title) \(lead?.title ?? "usage")")
-            .accessibilityValue("\(Int(left.rounded())) percent left\(overPace ? ", over pace" : "")")
+            .accessibilityValue("\(Int(used.rounded())) percent used")
             .accessibilityHint("Shows every quota window and the month's cost")
             .accessibilityIdentifier("dashboard-usage-\(plan.key)")
         }
-        .popover(isPresented: $showing, arrowEdge: .bottom) {
+        .popover(isPresented: $showing, arrowEdge: .leading) {
             AgentUsageDetails(plan: plan).padding(16).frame(width: 320)
         }
+    }
+
+    /// "Session 62% · resets in 2h 07m"; the reset is left off once it has passed.
+    private func line(_ title: String, _ window: UsageSnapshot.Window?, now: Date) -> String {
+        guard let window else { return title }
+        let used = "\(title) \(Int((100 - window.remaining).rounded()))%"
+        return UsageWindowMath.until(window.resetsAt, now: now).map { "\(used) · resets in \($0)" } ?? used
+    }
+}
+
+/// A quota as a ring: the used share in the agent's colour over a faint track, the figure inside.
+private struct UsageRing: View {
+    let used: Double
+    let accent: Color
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.primary.opacity(0.07), lineWidth: 6)
+            Circle().trim(from: 0, to: max(0, min(1, used / 100)))
+                .stroke(accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Text("\(Int(used.rounded()))%").font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+        }
+        .frame(width: 48, height: 48)
+        .accessibilityHidden(true)
     }
 }
 
 /// The menu bar tray's usage panel for one agent: a bar per quota window, then the day and month
 /// figures and the daily cost chart.
 private struct AgentUsageDetails: View {
-    let plan: DashboardUsageChips.Plan
+    let plan: DashboardUsage.Plan
     var body: some View {
         let accent = Theme.agentTint(plan.key)
         VStack(alignment: .leading, spacing: 14) {
@@ -231,32 +254,6 @@ struct AgentMark: View {
             Image(asset).renderingMode(.template).resizable().scaledToFit()
                 .frame(width: size, height: size).foregroundStyle(Theme.agentTint(key)).accessibilityHidden(true)
         }
-    }
-}
-
-/// An agent chip's stand-in while usage loads: the same capsule, a faint mark, and a bar breathing
-/// in the agent's colour. With Reduce Motion on it holds still.
-private struct UsageChipPlaceholder: View {
-    let tint: Color
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(paused: reduceMotion)) { context in
-            let breath = reduceMotion ? 0.5 : (sin(context.date.timeIntervalSinceReferenceDate * .pi) + 1) / 2
-            DashboardChip {
-                Circle().fill(tint.opacity(0.25 + 0.2 * breath)).frame(width: 14, height: 14)
-                Capsule().fill(Color.primary.opacity(0.08)).frame(width: 44, height: 9)
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.primary.opacity(0.08))
-                    Capsule().fill(tint.opacity(0.3 + 0.35 * breath)).frame(width: 14 + 36 * breath)
-                }
-                .frame(width: 56, height: 6)
-                Capsule().fill(Color.primary.opacity(0.08)).frame(width: 30, height: 9)
-            }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Loading AI usage")
-        .accessibilityIdentifier("dashboard-usage-loading")
     }
 }
 

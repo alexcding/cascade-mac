@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Hosts the dashboard and owns its toolbar: the page title, with the dashboard's own
-/// `.searchable` field filling the trailing side. My Tickets pushes over the home screen and
-/// takes the title, with a back button to return.
+/// Hosts the dashboard and owns its toolbar: the tabs where a page title would sit, with the
+/// dashboard's own `.searchable` field filling the trailing side. My Tickets pushes over the home
+/// screen as the Tickets tab.
 struct DashboardCoordinatorView: View {
     @Bindable var coordinator: DashboardCoordinator
 
@@ -11,16 +11,22 @@ struct DashboardCoordinatorView: View {
         (pushed ?? coordinator.root).view()
             .padding(.horizontal, 28).padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .toolbar {
+            // The tabs replaced the back button; its Command-[ stays, from a button nobody sees.
+            .background {
                 if pushed != nil {
-                    ToolbarItem(placement: .navigation) {
-                        Button { coordinator.model.closeTickets() } label: { Image(systemName: "chevron.left") }
-                            .help("Back to Dashboard").accessibilityLabel("Back to Dashboard")
-                            .accessibilityIdentifier("dashboard-back")
-                            .keyboardShortcut("[", modifiers: .command)
-                    }
+                    Button("Back to Dashboard") { coordinator.model.closeTickets() }
+                        .keyboardShortcut("[", modifiers: .command)
+                        .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
+                        .accessibilityIdentifier("dashboard-back")
                 }
-                PageTitleToolbarItem(title: pushed == nil ? "Dashboard" : "My Tickets")
+            }
+            .toolbar {
+                // The tabs stand in for the page title. Tickets is My Tickets, pushed over the home
+                // screen, so choosing any other tab from there pops back to it.
+                ToolbarItem(placement: .navigation) {
+                    DashboardTabBar(selection: pushed == nil ? coordinator.model.tab : .tickets,
+                                    tickets: coordinator.model.ticketsAvailable, select: coordinator.model.selectTab)
+                }
                 if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
             }
     }
