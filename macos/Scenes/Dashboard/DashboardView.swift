@@ -10,7 +10,11 @@ struct DashboardView: View {
     let shell: ShellStore
     /// Below this width the side column drops under the main one and the tiles pair up.
     private static let splitWidth: CGFloat = 900
+    /// The side column's width, unless the tile above it is wider.
+    private static let sideWidth: CGFloat = 340
     @State private var width: CGFloat = 1200
+    /// The tiles share their row equally; the side column lines up with them once they outgrow it.
+    @State private var tileWidth: CGFloat = 0
     /// What each tile last showed lives on the model, not in this view: My Tickets replaces this
     /// view while it is pushed, and view state would come back at zero and roll up again.
     private func shown(_ key: String) -> Binding<Double> {
@@ -83,7 +87,7 @@ struct DashboardView: View {
                         if !reviews.isEmpty { reviewRequests(reviews) }
                         usage
                     }
-                    .frame(width: 340)
+                    .frame(width: max(Self.sideWidth, tileWidth))
                 }
             } else {
                 VStack(alignment: .leading, spacing: 52) {
@@ -166,6 +170,7 @@ struct DashboardView: View {
         } visual: {
             DashboardSpendLines(lines: tile.lines, peak: tile.peak)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tileWidth = $0 }
         .accessibilityIdentifier("dashboard-tile-spend")
     }
 
@@ -477,6 +482,8 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
+        // A visual drawn wider than the room a narrow tile leaves it stops at the card's edge.
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         // A tap rather than a Button, so the tile's own buttons stay separate controls.
