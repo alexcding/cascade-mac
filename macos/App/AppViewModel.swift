@@ -186,7 +186,7 @@ public final class AppViewModel {
             if let model = context.workspaceViewModel { coordinator.bindWorkspace(model, context: context, runtime: self) }
         }
         root = coordinator.makeRoot(factory: rootFactory, runtime: self, shell: shell, viewer: viewer)
-        coordinator.installNotifications(shell.notifications, runtime: self, desktop: desktop)
+        coordinator.installNotifications(shell.notifications, runtime: self)
         todayActivity.openPage = { [weak self] entry in
             guard let self else { throw CancellationError() }
             try await openActivityEntry(entry)
@@ -784,6 +784,8 @@ public final class AppViewModel {
 
     func activateRootDestination() { showSelectedContext() }
     func openRootBrowser(_ url: URL) { _ = desktop.openBrowser(url) }
+    /// For the area extensions: `desktop` is private to this file.
+    func openInBrowser(_ url: URL) -> Bool { desktop.openBrowser(url) }
     /// For the area extensions: `error` is only settable from this file.
     func reportRootError(_ message: String) { error = message }
 

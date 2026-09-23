@@ -442,6 +442,11 @@ struct CocoaSidebar: NSViewRepresentable {
             } else if case .tab = destination {
                 add("Pin Tab", action: #selector(pinTab(_:)))
                 add("Close Tab", action: #selector(closeTab(_:)))
+                // A new tab has no address until one is entered.
+                if safeWebURL(node.entry.detail) != nil {
+                    menu.addItem(.separator())
+                    add("Copy Link", action: #selector(copyLink(_:)))
+                }
             }
             // The session and its worktree go together (one unit); the sheet spells out what is
             // stopped and removed, so the menu item only asks for it.
@@ -472,6 +477,10 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func closeTab(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .tab(let url) = node.entry.destination else { return }
             parent.onCloseTab(url)
+        }
+        @objc private func copyLink(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, case .tab = node.entry.destination else { return }
+            NativeClipboard.copy(node.entry.detail)
         }
         @objc private func reveal(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node else { return }

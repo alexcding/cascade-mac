@@ -91,6 +91,8 @@ private struct SidebarPinnedTabTile: View {
         .contextMenu {
             Button("Unpin Tab", action: unpin)
             Button("Close Tab", action: close)
+            Divider()
+            Button("Copy Link") { NativeClipboard.copy(tab.url) }
         }
     }
 }

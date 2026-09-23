@@ -3,8 +3,16 @@ import Testing
 
 @MainActor private final class NotificationRuntime: NotificationCoordinating, RootCoordinating {
     var acknowledged: [String] = []
+    var pages: [OpenPageRequest] = []
+    var pageSucceeds = true
+    var pageInApp = true
     var activations = 0
     func acknowledgeNotificationReview(repo: String, number: Int) { acknowledged.append("\(repo)#\(number)") }
+    func openNotificationPage(_ request: OpenPageRequest) async throws -> Bool {
+        pages.append(request)
+        if !pageSucceeds { throw BackendError.operation("offline") }
+        return pageInApp
+    }
     func rootState() -> RootState { RootState() }
     func activateRootDestination() { activations += 1 }
     func performRootCommand(_ command: ShellCommand) {}
@@ -46,13 +54,13 @@ import Testing
 
 @MainActor @Test(.timeLimit(.minutes(1)))
 func notificationPermissionAndPreviewRequireCoordinatorOwnershipAndCoalesce() async {
-    let model = NotificationStore(), delivery = HeldNotificationDelivery(), desktop = ProjectPageActions()
+    let model = NotificationStore(), delivery = HeldNotificationDelivery()
     let runtime = NotificationRuntime()
     model.configure(delivery); await model.waitForDelivery()
     model.enable(); model.previewSound("system")
     await model.waitForDelivery()
     #expect(delivery.requests == 0 && delivery.sounds.isEmpty) // Unwired intents do nothing.
-    let child = NotificationCoordinator(model: model, runtime: runtime, desktop: desktop)
+    let child = NotificationCoordinator(model: model, runtime: runtime)
     model.enable(); model.previewSound("system")
     #expect(delivery.requests == 0 && delivery.sounds.isEmpty)
     child.canUsePreferences = { true }; child.isOwned = { false }
@@ -75,32 +83,42 @@ func notificationPermissionAndPreviewRequireCoordinatorOwnershipAndCoalesce() as
     #expect(delivery.requests == 1 && delivery.sounds.count == 1 && model.toast == nil && !model.accepts(delivery))
 }
 
-@MainActor @Test func notificationClicksResolveCurrentRowsAndAcknowledgeOnlySuccessfulReviewOpens() {
-    let model = NotificationStore(), runtime = NotificationRuntime(), desktop = ProjectPageActions()
-    let child = NotificationCoordinator(model: model, runtime: runtime, desktop: desktop)
+@MainActor @Test(.timeLimit(.minutes(1)))
+func notificationClicksOpenCurrentRowsInTabsAndAcknowledgeOnlySuccessfulReviewOpens() async {
+    let model = NotificationStore(), runtime = NotificationRuntime()
+    let child = NotificationCoordinator(model: model, runtime: runtime)
     var activities = 0, windows = 0
     child.openActivity = { activities += 1 }; child.showWindow = { windows += 1 }
-    let first = NativeNotice(id: "one", kind: .review, title: "Review", body: "", url: "https://example.test/1", repo: "a/b", number: 1)
-    var current = first; current.url = "https://example.test/current"
+    let first = NativeNotice(id: "one", kind: .review, title: "Review", body: "", url: "https://github.com/a/b/pull/1", repo: "a/b", number: 1)
+    var current = first; current.url = "https://github.com/a/b/pull/2"
     model.showToast(current)
-    desktop.browserSucceeds = false
-    model.open(first)
-    #expect(desktop.browsers == [URL(string: current.url!)!] && runtime.acknowledged.isEmpty)
+    runtime.pageSucceeds = false
+    model.open(first); await child.waitForOpen()
+    #expect(runtime.pages.map(\.url) == [current.url!] && runtime.acknowledged.isEmpty && windows == 1)
+    #expect(runtime.pages.first?.kind == "github" && runtime.pages.first?.repo == "a/b" && runtime.pages.first?.title == "Review")
     #expect(model.toast == current && model.actionError != nil)
-    desktop.browserSucceeds = true
-    model.open(first)
-    #expect(runtime.acknowledged == ["a/b#1"] && model.toast == nil && model.actionError == nil)
-    model.open(first) // An old view callback no longer owns a current row.
-    #expect(desktop.browsers.count == 2)
+    runtime.pageSucceeds = true
+    model.open(first); await child.waitForOpen()
+    #expect(runtime.acknowledged == ["a/b#1"] && model.toast == nil && model.actionError == nil && windows == 2)
+    model.open(first); await child.waitForOpen() // An old view callback no longer owns a current row.
+    #expect(runtime.pages.count == 2)
     var unsafe = first; unsafe.url = "file:///tmp/private"
-    model.openDelivered(unsafe)
-    #expect(model.actionError != nil && desktop.browsers.count == 2 && activities == 0)
+    model.openDelivered(unsafe); await child.waitForOpen()
+    #expect(model.actionError != nil && runtime.pages.count == 2 && activities == 0)
+    let web = NativeNotice(kind: .activity, title: "Page", body: "", url: "https://notgithub.com/page")
+    model.openDelivered(web); await child.waitForOpen()
+    #expect(runtime.pages.last?.kind == "web" && runtime.acknowledged.count == 1 && windows == 3)
+    var upper = web; upper.url = "https://GitHub.com/a/b"
+    runtime.pageInApp = false // Opened in the browser: Craft's window stays behind it.
+    model.openDelivered(upper); await child.waitForOpen()
+    #expect(runtime.pages.last?.kind == "github" && model.actionError == nil && windows == 3)
+    runtime.pageInApp = true
     let newer = NativeNotice(kind: .activity, title: "New", body: "")
     model.showToast(newer)
-    model.openDelivered(first) // OS clicks remain valid after bounded history eviction.
+    model.openDelivered(first); await child.waitForOpen() // OS clicks remain valid after bounded history eviction.
     #expect(runtime.acknowledged.count == 2 && model.toast == newer)
     model.open(newer)
-    #expect(activities == 1 && windows == 1 && model.toast == nil)
+    #expect(activities == 1 && windows == 5 && model.toast == nil)
     child.retire()
 }
 
@@ -145,11 +163,11 @@ func notificationReplacementSuppressesLateDeliveryErrorsAndChimes(fail: Bool) as
 @MainActor @Test(.timeLimit(.minutes(1)))
 func notificationActivityNavigationUsesRootQueueAndRetiredCallbacksCannotNavigate() async throws {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let runtime = NotificationRuntime(), desktop = ProjectPageActions(), model = NativeNotificationFeatureFactory().notifications()
+    let runtime = NotificationRuntime(), model = NativeNotificationFeatureFactory().notifications()
     root.rootRuntime = runtime
     let settingsRuntime = SettingsRuntimeFixture()
     let settingsChild = root.installSettings(settingsFixtureModel(), runtime: settingsRuntime)
-    let child = root.installNotifications(model, runtime: runtime, desktop: desktop)
+    let child = root.installNotifications(model, runtime: runtime)
     var windows = 0; child.showWindow = { windows += 1 }
     var opens = 0; root.presentSettingsWindow = { opens += 1 }
     let notice = NativeNotice(kind: .activity, title: "Sync failed", body: "Offline")
@@ -157,23 +175,24 @@ func notificationActivityNavigationUsesRootQueueAndRetiredCallbacksCannotNavigat
     #expect(windows == 1 && opens == 1 && root.settingsCoordinator?.model.section == .activity)
     let callback = model.onAction
     let replacement = NotificationStore()
-    root.installNotifications(replacement, runtime: runtime, desktop: desktop)
+    root.installNotifications(replacement, runtime: runtime)
     callback(.openDelivered(notice))
     #expect(model.retired && child.retired && windows == 1 && opens == 1)
     root.notificationCoordinator?.retire(); settingsChild.retire()
 }
 
 @MainActor @Test func notificationCallbacksCannotActAfterRuntimeRelease() async {
-    let model = NotificationStore(), desktop = ProjectPageActions(), delivery = RecordingNotifications()
+    let model = NotificationStore(), delivery = RecordingNotifications()
     var runtime: NotificationRuntime? = NotificationRuntime()
     weak var released = runtime
-    let child = NotificationCoordinator(model: model, runtime: runtime!, desktop: desktop)
+    let child = NotificationCoordinator(model: model, runtime: runtime!)
     child.canUsePreferences = { true }
     model.configure(delivery); await model.waitForDelivery()
     runtime = nil
     model.previewSound("system")
     model.openDelivered(NativeNotice(kind: .activity, title: "Click", body: "", url: "https://example.test"))
-    #expect(released == nil && desktop.browsers.isEmpty && delivery.sounds.isEmpty)
+    await child.waitForOpen()
+    #expect(released == nil && delivery.sounds.isEmpty)
     child.retire()
 }
 
@@ -196,11 +215,11 @@ func notificationLatePermissionReadCannotOverwriteNewDeliveryState() async {
 
 @MainActor @Test func notificationPreferencesFollowSettingsSectionAndRootPresentation() async {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let runtime = NotificationRuntime(), desktop = ProjectPageActions(), model = NotificationStore(), delivery = RecordingNotifications()
+    let runtime = NotificationRuntime(), model = NotificationStore(), delivery = RecordingNotifications()
     let settingsRuntime = SettingsRuntimeFixture()
     let settings = settingsFixtureModel()
     root.installSettings(settings, runtime: settingsRuntime)
-    let child = root.installNotifications(model, runtime: runtime, desktop: desktop)
+    let child = root.installNotifications(model, runtime: runtime)
     model.configure(delivery); await model.waitForDelivery()
     model.previewSound("system")
     #expect(delivery.sounds.isEmpty)
