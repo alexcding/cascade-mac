@@ -66,8 +66,8 @@ struct ProjectEditorView: View {
 }
 
 /// The web New Project modal (index.html #modal + components/modal.js): a name, the local
-/// checkout with its detected GitHub repo as a hint, and the Jira key. Everything else is set
-/// later in the project's own Settings tab.
+/// checkout with its detected GitHub repo as a hint, the Jira key and the IDE. Everything else
+/// is set later in the project's own Settings tab.
 struct NewProjectSheet: View {
     @Bindable var model: ProjectEditorViewModel
     let cancel: () -> Void
@@ -102,6 +102,25 @@ struct NewProjectSheet: View {
                         .textFieldStyle(.roundedBorder)
                         .accessibilityLabel("Project Key")
                     SheetHint(Text("Drives this project's **Jira** tab (Board, Tickets). Narrow both with the tab's filter clause (e.g. \(sheetCode("component = iOS")))."))
+                }
+            }
+            .padding(.top, 14)
+            SheetSection("Editor") {
+                SheetField("IDE", last: model.draft.ide != "custom") {
+                    Picker("IDE", selection: $model.draft.ide) {
+                        ForEach(model.ideChoices) { Text($0.title).tag($0.id) }
+                    }
+                    .labelsHidden().fixedSize()
+                    .accessibilityIdentifier("project-ide")
+                    SheetHint(Text("The editor a session opens its worktree in. Set a launch target later in Settings."))
+                }
+                if model.draft.ide == "custom" {
+                    SheetField("Command Template", last: true) {
+                        TextField("", text: $model.draft.ideCmd)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Command Template")
+                        SheetHint(Text("Use \(sheetCode("{path}")) for the checkout location."))
+                    }
                 }
             }
             .padding(.top, 14)
