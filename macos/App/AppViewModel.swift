@@ -1595,8 +1595,12 @@ public final class AppViewModel {
         }
         await viewer.stop()
         ideWarmup.connect(nil)
+        // A backend switch leaves no handle on this backend's streams, so they go with it. Only
+        // when a panel asked for one: stopping runs serve-sim, which a Mac without it pays for.
+        let streamed = buildModels.values.contains { $0.preview?.udid != nil }
         for model in buildModels.values { model.disconnect() }
         buildModels.removeAll()
+        if streamed, let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
         for model in diffModels.values { model.disconnect() }
         diffModels.removeAll()
         for model in historyModels.values { model.hide() }
