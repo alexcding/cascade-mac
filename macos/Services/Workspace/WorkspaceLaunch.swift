@@ -76,8 +76,10 @@ struct APIWorkspaceTargetService: WorkspaceTargetService {
     let api: APIClient
     func target(directory: String, relative: String, kind: String) async throws -> String {
         struct Result: Decodable, Sendable { let path: String }
+        // Opening Xcode waits for a warm-up still resolving the worktree (up to two minutes,
+        // on the backend's side): Xcode would clone into the same package checkouts.
         let result: Result = try await api.get(APIClient.query(Routes.LAUNCH_TARGET,
-            ["path": directory, "rel": relative, "kind": kind]))
+            ["path": directory, "rel": relative, "kind": kind]), timeout: kind == "xcode" ? 130 : 10)
         return result.path
     }
 }

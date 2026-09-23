@@ -234,8 +234,11 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let command = try settings.command(scheme: "App's scheme; echo injected", simulator: "12345678-1234-1234-1234-123456789abc")
     #expect(command.hasPrefix("(cd "))
     #expect(command.hasSuffix("; })"))
-    #expect(command.contains("&& /usr/bin/xcrun simctl install"))
-    #expect(command.contains("&& exec /usr/bin/xcrun simctl launch --console-pty --terminate-running-process"))
+    // Boot, then Simulator, alongside the build; the install waits for both.
+    #expect(command.contains("{ { /usr/bin/xcrun simctl boot '12345678-1234-1234-1234-123456789abc'; /usr/bin/open "))
+    #expect(command.contains("/usr/bin/open -a Simulator; } >/dev/null 2>&1 & /usr/bin/xcodebuild"))
+    #expect(command.contains(" -hideShellScriptEnvironment build && { wait; /usr/bin/xcrun simctl install"))
+    #expect(command.contains("; } && exec /usr/bin/xcrun simctl launch --console-pty --terminate-running-process"))
     #expect(command.contains("'App'\"'\"'s scheme; echo injected'"))
     #expect(!command.contains("\n"))
     let shell = Process()

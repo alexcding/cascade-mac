@@ -500,6 +500,36 @@ impl Database {
         Ok(())
     }
 
+    /// What `xcodebuild` answered for `key`, if it was kept against the same `stamp`.
+    pub fn xcode_answer(&self, key: &str, stamp: &str) -> rusqlite::Result<Option<Value>> {
+        let raw: Option<String> = self
+            .cache()
+            .query_row(
+                "SELECT value FROM xcode_answers WHERE key=?1 AND stamp=?2",
+                params![key, stamp],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(raw.and_then(|raw| serde_json::from_str(&raw).ok()))
+    }
+
+    pub fn set_xcode_answer(&self, key: &str, stamp: &str, value: &Value) -> rusqlite::Result<()> {
+        self.cache().execute(
+            "INSERT INTO xcode_answers(key,stamp,value) VALUES (?1,?2,?3) ON CONFLICT(key) DO UPDATE SET stamp=excluded.stamp,value=excluded.value",
+            params![key, stamp, value.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// Drops every answer whose key starts with `prefix`: one worktree's.
+    pub fn forget_xcode_answers(&self, prefix: &str) -> rusqlite::Result<()> {
+        self.cache().execute(
+            "DELETE FROM xcode_answers WHERE substr(key,1,length(?1))=?1",
+            [prefix],
+        )?;
+        Ok(())
+    }
+
     pub fn jira_snapshot(&self, id: &str) -> rusqlite::Result<Option<Value>> {
         self.cache()
             .query_row(

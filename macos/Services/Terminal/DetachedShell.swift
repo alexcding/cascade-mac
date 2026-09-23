@@ -56,6 +56,10 @@ import AppKit
             let terminals: [PtyInfo] = try await client.request(.init(op: "list"))
             if let existing = terminals.first(where: { $0.pairKey == pairKey && $0.paired }) {
                 termID = existing.id
+                // Created moments ago by a start that was then cancelled: it gets the rest of the
+                // second a new shell waits for below. `created` is the daemon's epoch milliseconds.
+                let age = Date().timeIntervalSince1970 * 1000 - Double(existing.created)
+                if age >= 0, age < 1000 { try await Task.sleep(for: .milliseconds(Int(1000 - age))) }
             } else {
                 try hello.validateIdentityResponseOwner()
                 try hello.validateShellIntegration()
@@ -66,6 +70,10 @@ import AppKit
                     stateResponseOwner: PtyHello.identityResponseOwnerVersion, terminalProfile: try .current())))
                 let _: Bool? = try await client.request(.init(op: "resize", term: info.id, cols: grid.cols, rows: grid.rows))
                 termID = info.id
+                // A shell that just started is still reading its startup files, and a line typed
+                // now can be dropped by one that clears pending input. An adopted shell is
+                // already at its prompt, so only this path waits.
+                try await Task.sleep(for: .seconds(1))
             }
             guard self.generation == generation else { throw PtyError.closed }
             self.client = client

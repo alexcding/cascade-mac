@@ -54,8 +54,9 @@ struct BuildSettings: Decodable, Sendable {
 
 protocol BuildServing: Sendable {
     /// The schemes, and the destinations of `scheme` — or of the scheme `resolve` picks
-    /// when that one does not exist.
-    func destinations(project: Project, session: WorkspaceSession, scheme: String) async throws -> (BuildSchemes, [BuildSimulator])
+    /// when that one does not exist. `refresh` asks for the destinations afresh instead of the
+    /// answer the backend keeps: a device plugged in since is not in that answer.
+    func destinations(project: Project, session: WorkspaceSession, scheme: String, refresh: Bool) async throws -> (BuildSchemes, [BuildSimulator])
     func settings(project: Project, session: WorkspaceSession, scheme: String, simulator: String) async throws -> BuildSettings
     /// The destination belongs to the session; `seedingProject` also makes it the
     /// default for a project that has none yet.
@@ -148,7 +149,9 @@ protocol BuildServing: Sendable {
         loading = cached == nil
         defer { if loadGeneration == generation { loading = false } }
         do {
-            let values = try await service.destinations(project: project, session: session, scheme: wanted)
+            // The sheet is where a destination is chosen, so it is worth one fresh look; the
+            // cached list is already on screen meanwhile.
+            let values = try await service.destinations(project: project, session: session, scheme: wanted, refresh: true)
             try Task.checkCancellation()
             guard isCurrent(id), loadGeneration == generation else { return }
             // Under the asked-for scheme too, or a session with none saved never hits the cache.
@@ -162,7 +165,7 @@ protocol BuildServing: Sendable {
         guard valid, Self.cachedDestinations[cacheKey(wanted)] == nil, warming == nil else { return }
         warming = Task { [service, project, session] in
             defer { warming = nil }
-            guard let values = try? await service.destinations(project: project, session: session, scheme: wanted), valid else { return }
+            guard let values = try? await service.destinations(project: project, session: session, scheme: wanted, refresh: false), valid else { return }
             for key in [wanted, values.0.resolve(wanted, project: project)].map(cacheKey) where Self.cachedDestinations[key] == nil {
                 Self.cachedDestinations[key] = values
             }
@@ -193,7 +196,6 @@ protocol BuildServing: Sendable {
             let terminal = try terminalFactory()
             self.terminal = terminal
             try await terminal.waitUntilReady()
-            try await Task.sleep(for: .seconds(1))
             guard isCurrent(id) else { return false }
             let atShell = try await terminal.atShell()
             try Task.checkCancellation()

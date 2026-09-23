@@ -34,8 +34,9 @@ private actor OperationBuildService: BuildServing {
         destinationsGate = destinations; settingsGate = settings
     }
     var wantedSchemes: [String] = []
-    func destinations(project: Project, session: WorkspaceSession, scheme: String) async throws -> (BuildSchemes, [BuildSimulator]) {
-        loads += 1; wantedSchemes.append(scheme)
+    var refreshes: [Bool] = []
+    func destinations(project: Project, session: WorkspaceSession, scheme: String, refresh: Bool) async throws -> (BuildSchemes, [BuildSimulator]) {
+        loads += 1; wantedSchemes.append(scheme); refreshes.append(refresh)
         if let gate = destinationsGate { destinationsGate = nil; return try await gate.value() }
         return operationDestinations
     }
@@ -254,6 +255,21 @@ func operationLifetimeRemovalRetriesOnceAndCoordinatorPreservesUnrelatedNavigati
     if case .saved = actions.first {} else { Issue.record("configure must report .saved, got \(actions)") }
     #expect(await service.saves == 1)
     #expect(await service.settingsReads == 0)
+}
+
+/// Selecting a session takes the backend's cached destinations. The sheet, where one is
+/// chosen, asks afresh, because a device plugged in since is not in the cached answer.
+@MainActor @Test(.timeLimit(.minutes(1))) func onlyTheDestinationSheetAsksForDestinationsAfresh() async throws {
+    let service = OperationBuildService()
+    let runtime = BuildWorkspaceViewModel(service: service, project: operationProject,
+        session: operationSession("fresh", scheme: "Fresh", simulator: "fixture-simulator"),
+        terminalFactory: { OperationBuildTerminal() })
+    runtime.warmDestinations()
+    while await service.loads < 1 { try await Task.sleep(for: .milliseconds(10)) }
+    let destination = BuildDestinationViewModel(runtime: runtime, purpose: .configure)
+    await destination.load()
+    #expect(await service.refreshes == [false, true])
+    destination.retire(); runtime.disconnect()
 }
 
 @MainActor @Test func idleBuildModelAdoptsProjectDestinationButABusyOneKeepsItsOwn() async {

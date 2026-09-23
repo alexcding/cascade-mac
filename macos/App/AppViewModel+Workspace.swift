@@ -19,6 +19,10 @@ extension AppViewModel: WorkspaceCoordinating {
     /// The backend coalesces, so selecting it again costs nothing.
     func warmIDE(for session: WorkspaceSession) {
         guard let project = projects.first(where: { $0.id == session.projectId }) else { return }
+        // This is asked again on every inventory refresh. A build that is starting or running
+        // resolves the packages itself, and a warm-up started under it would clone into the same
+        // checkouts.
+        if let build = buildModels["task:\(session.id)"], build.starting || build.running { return }
         ideWarmup.warm(worktree: session.worktree, ide: project.ide ?? "", target: project.ideTarget ?? "")
     }
 

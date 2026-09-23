@@ -6,14 +6,18 @@ use std::{
     time::Duration,
 };
 
-use axum::{extract::Query, http::HeaderMap, Json};
+use axum::{
+    extract::{Query, State},
+    http::HeaderMap,
+    Json,
+};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{cli, error::ApiError};
+use crate::{cli, error::ApiError, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
@@ -291,20 +295,23 @@ pub async fn put_file(headers: HeaderMap, Json(body): Json<Value>) -> ApiResult<
     ))
 }
 
+/// Folders that hold dependencies or build output, never the project itself. Both the Xcode
+/// project probe and the Xcode project fingerprint walk past them.
+pub(crate) const PROJECT_WALK_SKIP: &[&str] = &[
+    ".git",
+    "node_modules",
+    "Pods",
+    "Carthage",
+    "DerivedData",
+    "build",
+    ".build",
+    "vendor",
+    "fastlane",
+    ".gradle",
+    "dist",
+];
+
 fn xcode_target(root: &Path) -> Option<PathBuf> {
-    const SKIP: &[&str] = &[
-        ".git",
-        "node_modules",
-        "Pods",
-        "Carthage",
-        "DerivedData",
-        "build",
-        ".build",
-        "vendor",
-        "fastlane",
-        ".gradle",
-        "dist",
-    ];
     let mut level = vec![root.to_path_buf()];
     for _ in 0..=2 {
         let mut next = Vec::new();
@@ -324,7 +331,9 @@ fn xcode_target(root: &Path) -> Option<PathBuf> {
                     projects.push(path);
                 } else if name == "Package.swift" && path.is_file() {
                     packages.push(path);
-                } else if path.is_dir() && !name.starts_with('.') && !SKIP.contains(&name.as_str())
+                } else if path.is_dir()
+                    && !name.starts_with('.')
+                    && !PROJECT_WALK_SKIP.contains(&name.as_str())
                 {
                     next.push(path);
                 }
@@ -377,8 +386,14 @@ pub(crate) fn resolve_launch(root: &Path, rel: &str, kind: &str) -> Result<(Path
     Ok((root.to_path_buf(), "folder"))
 }
 
+/// How long opening Xcode waits for a warm-up still resolving the worktree. Past it Xcode opens
+/// anyway: it was asked for, and it resolves on its own. Inside the app's 130-second timeout
+/// for the launch target.
+const IDE_SETTLE: Duration = Duration::from_secs(120);
+
 pub async fn launch_target(
     headers: HeaderMap,
+    State(app): State<AppState>,
     Query(query): Query<LocalQuery>,
 ) -> ApiResult<Value> {
     if foreign_origin(&headers) {
@@ -388,11 +403,15 @@ pub async fn launch_target(
         .path
         .filter(|v| !v.is_empty())
         .ok_or_else(|| ApiError::bad_request("path required"))?;
-    let (path, source) = resolve_launch(
-        &resolve_path(&raw),
-        query.rel.as_deref().unwrap_or(""),
-        query.kind.as_deref().unwrap_or(""),
-    )?;
+    let root = resolve_path(&raw);
+    let kind = query.kind.as_deref().unwrap_or("");
+    if kind == "xcode" {
+        // Xcode resolves the package graph as soon as it opens the project. If a warm-up is
+        // still cloning into the same checkouts, the two collide and the worktree breaks.
+        let deadline = tokio::time::Instant::now() + IDE_SETTLE;
+        app.warmup.settle(&root.to_string_lossy(), deadline).await;
+    }
+    let (path, source) = resolve_launch(&root, query.rel.as_deref().unwrap_or(""), kind)?;
     Ok(Json(json!({"path":path,"source":source})))
 }
 
@@ -769,7 +788,10 @@ async fn default_branch(dir: &str) -> String {
     "main".to_owned()
 }
 
-pub async fn remove_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
+pub async fn remove_worktree(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
     let dir = body["path"]
         .as_str()
         .filter(|v| !v.is_empty())
@@ -798,7 +820,11 @@ pub async fn remove_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
     }
     args.push(target.into());
     match git(dir, args, 60).await {
-        Ok(_) => Ok(Json(json!({"ok":true}))),
+        Ok(_) => {
+            // What xcodebuild said about the worktree is kept by its path; nothing asks again.
+            crate::xcode::forget_answers(&app, &resolve_path(target));
+            Ok(Json(json!({"ok":true})))
+        }
         Err(e) => Ok(Json(json!({"error":e.to_string()}))),
     }
 }
