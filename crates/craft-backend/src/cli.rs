@@ -578,6 +578,51 @@ where
         .collect())
 }
 
+/// The first stdout line `answer` accepts, from a CLI that serves requests over stdio
+/// (`codex app-server`). Such a server quits the moment its stdin closes, before it has
+/// answered, so stdin stays open until the answer arrives; and it never exits on its own, so the
+/// whole group is killed once there is one, or once `duration` runs out.
+pub async fn first_line<I, S>(
+    program: &str,
+    args: I,
+    input: &[u8],
+    duration: Duration,
+    answer: impl Fn(&str) -> bool,
+) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let mut command = command(program);
+    command
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("start {program}"))?;
+    // Declared after `child`, so it drops first: the group goes before the leader is reaped.
+    let _group = GroupKill(leader_group(&child));
+    let mut stdin = child.stdin.take().context("no stdin")?;
+    let stdout = child.stdout.take().context("no stdout")?;
+    let read = async {
+        stdin.write_all(input).await?;
+        let mut lines = BufReader::new(stdout).lines();
+        while let Some(line) = lines.next_line().await? {
+            if answer(&line) {
+                return Ok(line);
+            }
+        }
+        Err(anyhow!("{program} exited without answering"))
+    };
+    tokio::time::timeout(duration, read)
+        .await
+        .map_err(|_| anyhow!("{program} timed out after {}s", duration.as_secs()))?
+}
+
 /// Stdout of a command that must exit 0 (or with a code in `accept`). Input is written from its
 /// own task, alongside the wait: a child that answers while it reads (`check-ignore --stdin`)
 /// fills its stdout pipe and stops reading, and a write finished before the wait began would then
@@ -877,5 +922,27 @@ mod tests {
             !marker.exists(),
             "the grandchild outlived the timeout and kept running"
         );
+    }
+
+    // A stdio server answers and then waits for more; the call returns on the answer and takes
+    // the server down with it rather than leaving it waiting on a pipe nobody reads.
+    #[tokio::test]
+    async fn first_line_returns_the_answer_and_stops_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("server-survived");
+        let script = format!(
+            "read request; echo noise; echo \"re:$request\"; sleep 1; touch {}",
+            marker.display()
+        );
+        let started = std::time::Instant::now();
+        let line = first_line("sh", ["-c", script.as_str()], b"ping\n", Duration::from_secs(5), |line| {
+            line.starts_with("re:")
+        })
+        .await
+        .unwrap();
+        assert_eq!(line, "re:ping");
+        assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(!marker.exists(), "the server outlived its answer");
     }
 }

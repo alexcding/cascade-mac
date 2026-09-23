@@ -36,7 +36,7 @@ pub async fn get(State(app): State<AppState>) -> Json<Value> {
                 agent_stats("codex"),
                 active_block(),
                 claude_limits(),
-                tokio::task::spawn_blocking(codex_limits)
+                codex_limits()
             );
             let mut state = app.usage.state.lock().unwrap();
             let mut value = state.value.take().unwrap_or_else(empty);
@@ -45,7 +45,7 @@ pub async fn get(State(app): State<AppState>) -> Json<Value> {
                 ("codex", codex),
                 ("block", block),
                 ("limits", limits),
-                ("codexLimits", codex_limits.ok().flatten()),
+                ("codexLimits", codex_limits),
             ] {
                 if let Some(result) = result {
                     value[name] = result;
@@ -217,54 +217,139 @@ fn find_limits(value: &Value) -> Option<Value> {
     }
 }
 
-fn codex_limits() -> Option<Value> {
-    let mut directory = home()?.join(".codex/sessions");
-    for _ in 0..3 {
-        directory = fs::read_dir(&directory)
-            .ok()?
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry.file_type().is_ok_and(|t| t.is_dir())
-                    && entry
-                        .file_name()
-                        .to_string_lossy()
-                        .bytes()
-                        .all(|b| b.is_ascii_digit())
-            })
-            .max_by_key(|entry| entry.file_name())?
-            .path();
+/// Codex's rate limits: live from its CLI, or failing that (no `codex`, signed out, offline) the
+/// last ones a session log recorded.
+async fn codex_limits() -> Option<Value> {
+    match codex_live_limits().await {
+        Some(limits) => Some(limits),
+        None => tokio::task::spawn_blocking(codex_logged_limits).await.ok().flatten(),
     }
-    let path = fs::read_dir(directory)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|e| e == "jsonl"))
-        .max_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok())?
-        .path();
-    let mut latest = None;
-    for line in BufReader::new(fs::File::open(path).ok()?)
-        .lines()
-        .map_while(Result::ok)
-    {
-        if !line.contains("\"rate_limits\"") {
-            continue;
-        }
-        if let Ok(value) = serde_json::from_str::<Value>(&line) {
-            if let Some(value) = find_limits(&value) {
-                latest = Some(value);
-            }
+}
+
+/// The limits as `codex app-server` reports them over JSON-RPC right now, the way Codex's own
+/// apps read them. The CLI owns the sign-in, so nothing here touches its credentials.
+async fn codex_live_limits() -> Option<Value> {
+    let requests = concat!(
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"craft","version":"1"}}}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","method":"initialized"}"#,
+        "\n",
+        r#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#,
+        "\n",
+    );
+    let is_reply = |line: &str| serde_json::from_str::<Value>(line).is_ok_and(|v| v["id"] == 2);
+    let line = cli::first_line(
+        "codex",
+        ["-s", "read-only", "-a", "never", "app-server"],
+        requests.as_bytes(),
+        Duration::from_secs(15),
+        is_reply,
+    )
+    .await
+    .ok()?;
+    let reply: Value = serde_json::from_str(&line).ok()?;
+    let limits = &reply["result"]["rateLimits"];
+    codex_windows([&limits["primary"], &limits["secondary"]], "usedPercent", "windowDurationMins", "resetsAt")
+}
+
+/// The last limits a session log recorded, from the newest log that has any. A session just
+/// opened has none until its first turn, so this walks back through older logs rather than
+/// report nothing.
+fn codex_logged_limits() -> Option<Value> {
+    let root = home()?.join(".codex/sessions");
+    let logs = numbered(&root)
+        .into_iter()
+        .flat_map(|year| numbered(&year))
+        .flat_map(|month| numbered(&month))
+        .flat_map(|day| {
+            let mut files: Vec<_> = fs::read_dir(day)
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|e| e == "jsonl"))
+                .map(|entry| (entry.metadata().and_then(|m| m.modified()).ok(), entry.path()))
+                .collect();
+            files.sort_by(|a, b| b.0.cmp(&a.0));
+            files.into_iter().map(|(_, path)| path)
+        });
+    let value = logs.take(20).find_map(|path| latest_limits(&path))?;
+    codex_windows([&value["primary"], &value["secondary"]], "used_percent", "window_minutes", "resets_at")
+}
+
+/// Codex's windows as session and weekly. Codex names them primary and secondary, and which is
+/// weekly depends on the plan, so each goes by its length; one that gives no length goes by its
+/// place. The log and the RPC spell the same fields differently, hence the keys.
+fn codex_windows(windows: [&Value; 2], used: &str, minutes: &str, resets: &str) -> Option<Value> {
+    let mut session = None;
+    let mut weekly = None;
+    for (index, window) in windows.into_iter().enumerate() {
+        let Some(pct) = window[used].as_f64() else { continue };
+        let entry = json!({"usedPct":pct.round().clamp(0.0,100.0),"resetsAt":window[resets].as_i64()
+            .and_then(|seconds|chrono::DateTime::from_timestamp(seconds,0)).map(|date|date.to_rfc3339())});
+        if window[minutes].as_i64().map_or(index == 1, |length| length >= 24 * 60) {
+            weekly.get_or_insert(entry);
+        } else {
+            session.get_or_insert(entry);
         }
     }
-    let value = latest?;
-    let window = |v: &Value| {
-        v["used_percent"].as_f64().map(|pct|
-        json!({"usedPct":pct.round().clamp(0.0,100.0),"resetsAt":v["resets_at"].as_i64()
-            .and_then(|seconds|chrono::DateTime::from_timestamp(seconds,0)).map(|date|date.to_rfc3339())}))
-    };
-    let session = window(&value["primary"]);
-    let weekly = window(&value["secondary"]);
     if session.is_none() && weekly.is_none() {
         None
     } else {
         Some(json!({"session":session,"weekly":weekly}))
+    }
+}
+
+/// The digit-named directories under `directory`, newest first.
+fn numbered(directory: &std::path::Path) -> Vec<PathBuf> {
+    let mut entries: Vec<_> = fs::read_dir(directory)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|t| t.is_dir())
+                && entry.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit())
+        })
+        .map(|entry| entry.path())
+        .collect();
+    entries.sort_by(|a, b| b.cmp(a));
+    entries
+}
+
+/// The last `rate_limits` a session log recorded.
+fn latest_limits(path: &std::path::Path) -> Option<Value> {
+    BufReader::new(fs::File::open(path).ok()?)
+        .lines()
+        .map_while(Result::ok)
+        .filter(|line| line.contains("\"rate_limits\""))
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .filter_map(|value| find_limits(&value))
+        .last()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Both spellings land in the same lanes, by window length: a lone seven-day window is
+    // weekly even when Codex calls it primary.
+    #[test]
+    fn codex_windows_go_by_length() {
+        let live = json!({"primary":{"usedPercent":20,"windowDurationMins":10080,"resetsAt":1790551472},"secondary":null});
+        let limits = codex_windows([&live["primary"], &live["secondary"]], "usedPercent", "windowDurationMins", "resetsAt").unwrap();
+        assert!(limits["session"].is_null());
+        assert_eq!(limits["weekly"]["usedPct"], 20.0);
+        assert_eq!(limits["weekly"]["resetsAt"], "2026-09-27T23:24:32+00:00");
+
+        let logged = json!({"primary":{"used_percent":41.6,"window_minutes":300},"secondary":{"used_percent":7,"window_minutes":10080}});
+        let limits = codex_windows([&logged["primary"], &logged["secondary"]], "used_percent", "window_minutes", "resets_at").unwrap();
+        assert_eq!(limits["session"]["usedPct"], 42.0);
+        assert_eq!(limits["weekly"]["usedPct"], 7.0);
+
+        let lengthless = json!({"primary":{"usedPercent":40,"windowDurationMins":null},"secondary":{"usedPercent":7}});
+        let limits = codex_windows([&lengthless["primary"], &lengthless["secondary"]], "usedPercent", "windowDurationMins", "resetsAt").unwrap();
+        assert_eq!(limits["session"]["usedPct"], 40.0);
+        assert_eq!(limits["weekly"]["usedPct"], 7.0);
+
+        assert!(codex_windows([&Value::Null, &Value::Null], "usedPercent", "windowDurationMins", "resetsAt").is_none());
     }
 }
