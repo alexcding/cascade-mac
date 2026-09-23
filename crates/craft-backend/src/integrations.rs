@@ -40,13 +40,25 @@ pub struct ForwarderManager {
 struct Forwarder {
     child: Child,
     since: Instant,
-    /// The tail of the child's stderr. A reader task drains the pipe for as long as the forwarder
-    /// runs: an undrained pipe fills and blocks `gh` mid-run, which `try_wait` would never see.
+    /// The head and tail of the child's stderr. A reader task drains the pipe for as long as the
+    /// forwarder runs: an undrained pipe fills and blocks `gh` mid-run, which `try_wait` would never see.
     stderr: Arc<Mutex<String>>,
 }
 
-/// Keep the last of a forwarder's stderr, for the failure it is about to report.
+/// Keep the first and last of a forwarder's stderr, for the failure it is about to report: `gh`
+/// prints why it failed to start at the top, and why a running forwarder died at the bottom.
+const STDERR_HEAD: usize = 512;
 const STDERR_TAIL: usize = 2048;
+
+/// Drop the middle of a forwarder's stderr once it outgrows what is kept.
+fn trim_stderr(text: &mut String) {
+    if text.len() <= STDERR_HEAD + STDERR_TAIL {
+        return;
+    }
+    let start = (0..=STDERR_HEAD).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
+    let end = (text.len() - STDERR_TAIL..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
+    text.replace_range(start..end, "\n…\n");
+}
 
 struct Backoff {
     failures: u32,
@@ -61,6 +73,15 @@ const MAX_BACKOFF: Duration = Duration::from_secs(15 * 60);
 /// How long to wait before starting a repo's forwarder again after `failures` quick exits in a row.
 fn backoff_delay(failures: u32) -> Duration {
     Duration::from_secs(10u64.saturating_mul(1u64 << failures.min(10))).min(MAX_BACKOFF)
+}
+
+/// Why a forwarder that died on start failed, from its stderr. `gh` prints the error first and its
+/// usage after it, so the usage — a wall of flags that pushed the error out of the log — is dropped.
+fn failure_reason(stderr: &str) -> String {
+    let usage = if stderr.starts_with("Usage:") { Some(0) } else { stderr.find("\nUsage:") };
+    let error = usage.map_or(stderr, |at| &stderr[..at]).trim();
+    let reason = if error.is_empty() { stderr.trim() } else { error };
+    reason.chars().rev().take(500).collect::<Vec<_>>().into_iter().rev().collect()
 }
 
 impl ForwarderManager {
@@ -122,7 +143,7 @@ impl ForwarderManager {
                 // a start/exit pair every sync.
                 let failures = backoff.get(&repo).map_or(0, |b| b.failures) + 1;
                 if failures == 1 {
-                    let reason: String = tail.trim().chars().rev().take(500).collect::<Vec<_>>().into_iter().rev().collect();
+                    let reason = failure_reason(&tail);
                     let _ = app.db.add_log(
                         "webhook",
                         "error",
@@ -166,11 +187,7 @@ impl ForwarderManager {
                                 }
                                 let mut text = sink.lock().await;
                                 text.push_str(&String::from_utf8_lossy(&buffer[..read]));
-                                if text.len() > STDERR_TAIL {
-                                    let cut = text.len() - STDERR_TAIL;
-                                    let cut = (cut..text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
-                                    *text = text[cut..].to_owned();
-                                }
+                                trim_stderr(&mut text);
                             }
                         });
                     }
@@ -900,5 +917,32 @@ mod forwarder_tests {
         assert_eq!(backoff_delay(6), Duration::from_secs(640));
         assert_eq!(backoff_delay(7), MAX_BACKOFF);
         assert_eq!(backoff_delay(u32::MAX), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn a_failed_start_reports_the_error_and_not_the_usage_after_it() {
+        let usage = "Usage:\n  gh webhook forward [flags]\n\nFlags:\n  -U, --url string   Address of the local server\n";
+        assert_eq!(failure_reason(&format!("Error: HTTP 403: Must have admin rights\n{usage}")), "Error: HTTP 403: Must have admin rights");
+        assert_eq!(failure_reason("unknown command \"webhook\" for \"gh\"\n"), "unknown command \"webhook\" for \"gh\"");
+        assert_eq!(failure_reason(usage), usage.trim());
+        assert_eq!(failure_reason(&"x".repeat(900)).len(), 500);
+        let inline = "Error: bad flags, see Usage: gh webhook forward --help";
+        assert_eq!(failure_reason(&format!("{inline}\n{usage}")), inline);
+    }
+
+    #[test]
+    fn long_stderr_keeps_the_error_at_the_top_and_the_last_words_at_the_bottom() {
+        let mut text = format!("Error: HTTP 403\n{}", "é".repeat(STDERR_TAIL));
+        text.push_str("last line");
+        trim_stderr(&mut text);
+        assert!(text.starts_with("Error: HTTP 403\n") && text.ends_with("last line") && text.contains("\n…\n"));
+        assert!(text.len() <= STDERR_HEAD + STDERR_TAIL + "\n…\n".len());
+        let mut again = text.clone();
+        again.push_str(&"x".repeat(STDERR_TAIL));
+        trim_stderr(&mut again);
+        assert!(again.starts_with("Error: HTTP 403\n") && again.matches('…').count() == 1);
+        let mut short = "Error: HTTP 403".to_owned();
+        trim_stderr(&mut short);
+        assert_eq!(short, "Error: HTTP 403");
     }
 }
