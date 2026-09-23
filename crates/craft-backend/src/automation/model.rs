@@ -32,10 +32,11 @@ pub struct Automation {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
+    /// A pipeline saved in the retired watch-only mode reads as off: it never acted, so it does
+    /// not start acting now. Dry runs are how a pipeline is tried before it is switched on.
     #[default]
+    #[serde(alias = "shadow")]
     Off,
-    /// Runs on live events but only plans its actions, so a pipeline can be watched first.
-    Shadow,
     Live,
 }
 
@@ -43,13 +44,11 @@ impl Mode {
     pub fn as_str(self) -> &'static str {
         match self {
             Mode::Off => "off",
-            Mode::Shadow => "shadow",
             Mode::Live => "live",
         }
     }
     pub fn parse(value: &str) -> Self {
         match value {
-            "shadow" => Mode::Shadow,
             "live" => Mode::Live,
             _ => Mode::Off,
         }
@@ -104,6 +103,15 @@ impl Step {
             Some(Value::Number(n)) => n.as_i64(),
             Some(Value::String(s)) => s.trim().parse().ok(),
             _ => None,
+        }
+    }
+    /// Where a Fix Version step takes its version from: `next` (the project's next unreleased
+    /// version) or `template`. Steps from before the choice existed named a template.
+    pub fn version_source(&self) -> &str {
+        match self.text("source") {
+            "" if !self.text("template").is_empty() => "template",
+            "" => "next",
+            other => other,
         }
     }
     /// A list param, accepting either a JSON array or a comma/newline separated string.
@@ -173,7 +181,6 @@ impl Event {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunMode {
     Dry,
-    Shadow,
     Live,
 }
 
@@ -181,7 +188,6 @@ impl RunMode {
     pub fn as_str(self) -> &'static str {
         match self {
             RunMode::Dry => "dry",
-            RunMode::Shadow => "shadow",
             RunMode::Live => "live",
         }
     }

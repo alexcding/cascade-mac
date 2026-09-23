@@ -228,6 +228,7 @@ pub async fn poll_jira(app: &AppState) {
             continue;
         };
         let previous = store::jira_state(&app.db, &automation.id).unwrap_or_default();
+        let had_baseline = !previous.is_empty();
         // The seed row records the query it was taken with: a baseline from another JQL is none.
         let seeded = previous.iter().any(|(key, seed)| key == "__seeded__" && *seed == jql);
         let now = Utc::now();
@@ -262,13 +263,12 @@ pub async fn poll_jira(app: &AppState) {
             let returned: HashSet<String> = current.iter().map(|(k, _)| k.clone()).collect();
             current.extend(previous.into_iter().filter(|(k, _)| !returned.contains(k)));
         }
-        // The search can take a while. A pipeline saved meanwhile has had its baseline cleared
-        // (store::save), and writing this one would undo that.
-        let unchanged = store::get(&app.db, &automation.id)
-            .ok()
-            .flatten()
-            .is_some_and(|now| now.updated_at == automation.updated_at);
-        if unchanged {
+        // A save that re-seeds (switched on, new query) clears the baseline, and writing this one
+        // would undo that. Any other save, a rename say, leaves it: skipping the write then would
+        // have the next poll fire again for every ticket this one just fired for.
+        let exists = store::get(&app.db, &automation.id).ok().flatten().is_some();
+        let reset = had_baseline && store::jira_state(&app.db, &automation.id).is_ok_and(|now| now.is_empty());
+        if exists && !reset {
             let _ = store::set_jira_state(&app.db, &automation.id, &current);
         }
     }

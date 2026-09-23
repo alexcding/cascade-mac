@@ -162,9 +162,21 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
             "jira.fix_version",
             "Jira",
             "Set Fix Version",
-            "Add a Fix Version to each ticket, creating the release if it is missing. Needs a Jira API token.",
+            "Record which Jira release each ticket ships in. Needs a Jira API token.",
             "any",
-            vec![with(param("template", "Version template", "text"), json!({"placeholder":"{year}.{isoWeek}","help":"Placeholders: {year} {month} {day} {isoWeek} {prNumber}, with offsets such as {year-2000}."}))],
+            vec![
+                with(
+                    param("source", "Version", "enum"),
+                    json!({"default":"next","options":[
+                        {"value":"next","label":"Next unreleased version"},
+                        {"value":"template","label":"Name from a template"}
+                    ],"help":"Next unreleased: the first release in the Jira project that is not yet released, whatever it is called. A template builds the name, and the release is created if Jira does not have it."}),
+                ),
+                with(
+                    param("template", "Version name", "text"),
+                    json!({"when":{"source":"template"},"placeholder":"{year}.{isoWeek}","help":"Dates: {year} {month} {day} {isoWeek}, unpadded {y} {m} {d} {w}, offsets like {year-2000}; also {prNumber} and any {{variable}} below. {year}.{isoWeek} is 2026.39 in week 39."}),
+                ),
+            ],
         ),
         node("action", "jira.comment", "Jira", "Comment on ticket", "Post a comment on each ticket.", "any", vec![with(param("body", "Comment", "template"), json!({"placeholder":"PR {{pr.url}} is {{event}}"}))]),
         node("action", "jira.assign", "Jira", "Assign ticket", "Assign each ticket. @me is you; empty unassigns.", "any", vec![with(param("assignee", "Assignee", "text"), json!({"placeholder":"@me or someone@company.com"}))]),
@@ -242,7 +254,7 @@ fn templates() -> Value {
             json!({}),
             vec![
                 filter("jira.has_key", json!({})),
-                action("jira.fix_version", json!({"template":"{year}.{isoWeek}"})),
+                action("jira.fix_version", json!({"source":"next"})),
                 action("jira.transition", json!({"status":"Done"})),
             ],
         ),

@@ -6,7 +6,7 @@ use rusqlite::{params, OptionalExtension, Row};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::model::{Automation, Mode, Trace};
+use super::model::{Automation, Mode, Step, Trace};
 use crate::Database;
 
 fn now() -> String {
@@ -17,13 +17,18 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Automation> {
     let trigger: String = row.get("trigger")?;
     let steps: String = row.get("steps")?;
     let mode: String = row.get("mode")?;
+    let mut steps: Vec<Step> = serde_json::from_str(&steps).unwrap_or_default();
+    for step in steps.iter_mut().filter(|s| s.node == "jira.fix_version" && !s.params.contains_key("source")) {
+        let source = step.version_source().to_owned();
+        step.params.insert("source".into(), Value::String(source));
+    }
     Ok(Automation {
         id: row.get("id")?,
         name: row.get("name")?,
         mode: Mode::parse(&mode),
         armed_at: row.get("armed_at")?,
         trigger: serde_json::from_str(&trigger).unwrap_or_default(),
-        steps: serde_json::from_str(&steps).unwrap_or_default(),
+        steps,
         position: row.get("position")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -128,6 +133,13 @@ pub fn claim(db: &Database, automation: &str, key: &str) -> rusqlite::Result<boo
             .execute("DELETE FROM automation_fired WHERE fired_at < ?1", [cutoff])?;
     }
     Ok(inserted > 0)
+}
+
+/// Undo a `claim` whose action failed, so the next event may try again.
+pub fn release(db: &Database, automation: &str, key: &str) -> rusqlite::Result<()> {
+    db.durable()
+        .execute("DELETE FROM automation_fired WHERE automation_id = ?1 AND event_key = ?2", params![automation, key])?;
+    Ok(())
 }
 
 pub fn record_run(db: &Database, trace: &Trace) -> rusqlite::Result<()> {
@@ -277,6 +289,12 @@ mod tests {
     }
 
     #[test]
+    fn the_retired_watch_only_mode_reads_as_off() {
+        assert_eq!(Mode::parse("shadow"), Mode::Off);
+        assert_eq!(serde_json::from_value::<Mode>(json!("shadow")).unwrap(), Mode::Off);
+    }
+
+    #[test]
     fn a_jira_baseline_is_dropped_when_rearmed_or_requeried() {
         let directory = tempfile::tempdir().unwrap();
         let db = Database::open(directory.path()).unwrap();
@@ -293,7 +311,17 @@ mod tests {
         set_jira_state(&db, "a", &seeded).unwrap();
         save(&db, jira_pipeline("project = B", Mode::Off)).unwrap();
         set_jira_state(&db, "a", &seeded).unwrap();
-        save(&db, jira_pipeline("project = B", Mode::Shadow)).unwrap();
+        save(&db, jira_pipeline("project = B", Mode::Live)).unwrap();
         assert!(jira_state(&db, "a").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_released_claim_can_be_taken_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        assert!(claim(&db, "github.approve", "a/b#1@s").unwrap());
+        assert!(!claim(&db, "github.approve", "a/b#1@s").unwrap());
+        release(&db, "github.approve", "a/b#1@s").unwrap();
+        assert!(claim(&db, "github.approve", "a/b#1@s").unwrap());
     }
 }

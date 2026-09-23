@@ -3,12 +3,14 @@ import Foundation
 enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     /// `ghWebhook` is not a program of its own: it is gh's `cli/gh-webhook` extension, which the
     /// backend's webhook forwarders run. The backend reports it beside the CLIs.
+    /// `ghWebhook` is optional too: polling catches every change without it, so it sits in the
+    /// GitHub webhooks card rather than the CLI list.
     /// `node` and `serveSim` are the Simulator panel's: optional, so first-run setup never asks for them.
     case claude, codex, gh, ghWebhook, acli, node, serveSim
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .claude: "Claude Code"; case .codex: "Codex"; case .gh: "GitHub CLI"; case .ghWebhook: "GitHub webhooks (gh extension)"
+        case .claude: "Claude Code"; case .codex: "Codex"; case .gh: "GitHub CLI"; case .ghWebhook: "gh webhook extension"
         case .acli: "Atlassian CLI"; case .node: "Node.js 20 or later"; case .serveSim: "serve-sim"
         }
     }
@@ -16,8 +18,9 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     /// An extension is only ever installed or not: it has no sign-in of its own to report.
     var isExtension: Bool { self == .ghWebhook }
     var isSimulatorPreview: Bool { self == .node || self == .serveSim }
-    static var required: [ManagedCLI] { allCases.filter { !$0.isSimulatorPreview } }
+    static var required: [ManagedCLI] { allCases.filter { !$0.isSimulatorPreview && !$0.isExtension } }
     static var simulatorPreview: [ManagedCLI] { allCases.filter(\.isSimulatorPreview) }
+    static var webhooks: [ManagedCLI] { allCases.filter(\.isExtension) }
     var loginCommand: String? { switch self { case .gh: "gh auth login"; case .acli: "acli jira auth login"; default: nil } }
     /// A one-line install, for tools that have one worth copying whatever else is installed.
     /// Node's depends on Homebrew: `CLIAvailability.installCommand(for:homebrew:)`. serve-sim

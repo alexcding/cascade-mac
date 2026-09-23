@@ -1338,6 +1338,7 @@ public final class AppViewModel {
             if let api {
                 settings?.connect(backendFactory.settings(api: api))
                 settings?.clis.connect(backendFactory.cliSettings(api: api))
+                settings?.webhooks.connect(backendFactory.automation(api: api))
                 settings?.diagnostics.connect(backendFactory.diagnostics(api: api))
                 settings?.resources.connect(platformFactory.resources(api: api))
                 workspaceLaunch.connect(backendFactory.workspaceTargets(api: api))

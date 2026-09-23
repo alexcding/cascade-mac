@@ -28,6 +28,13 @@ import Observation
         didSet { if draft != oldValue { saved = false; if draft?.trigger != oldValue?.trigger { invalidateSamples() } } }
     }
     private(set) var baseline: Automation?
+    /// Which list row the editor shows: a saved pipeline's id, or a `new:` key for one not yet saved.
+    private(set) var openKey: String?
+    /// Unsaved work on the rows not open right now, by row key: edits to saved pipelines and every
+    /// new one. Moving to another row keeps it here, so nothing typed is lost by looking elsewhere.
+    private(set) var unsaved: [String: Automation] = [:]
+    /// New pipelines in the order they were started; the list shows them after the saved ones.
+    private(set) var newKeys: [String] = []
     private(set) var loading = false
     private(set) var saving = false
     private(set) var saved = false
@@ -63,6 +70,12 @@ import Observation
     var isNew: Bool { draft?.id.isEmpty == true }
     var canSave: Bool { service != nil && draft != nil && (dirty || isNew) && !saving }
     var selectedID: String? { draft?.id.isEmpty == false ? draft?.id : nil }
+    /// The new, unsaved pipelines as the list shows them, the open one as it is being typed.
+    var newDrafts: [(key: String, draft: Automation)] {
+        newKeys.compactMap { key in (key == openKey ? draft : unsaved[key]).map { (key, $0) } }
+    }
+    /// Whether a saved pipeline has edits that are not saved yet, open or set aside.
+    func hasUnsavedEdits(_ id: String) -> Bool { unsaved[id] != nil || (openKey == id && dirty) }
     var sampleKind: String { draft?.trigger.types.contains { $0.hasPrefix("jira.") } == true ? "jira" : "pr" }
 
     // MARK: Connection and loading
@@ -129,13 +142,25 @@ import Observation
     }
 
     private func reconcileDraft() {
+        // Edits set aside on a pipeline deleted elsewhere stay, as a new one.
+        for (key, value) in unsaved where !key.hasPrefix("new:") && !automations.contains(where: { $0.id == key }) {
+            unsaved[key] = nil
+            var orphan = value; orphan.id = ""
+            let newKey = Self.newKey(); unsaved[newKey] = orphan; newKeys.append(newKey)
+        }
         guard let draft, !draft.id.isEmpty else {
             if draft == nil, let first = automations.first { select(first.id) }
             return
         }
         guard let stored = automations.first(where: { $0.id == draft.id }) else {
             // Deleted elsewhere: an untouched draft goes with it, an edited one stays as new.
-            if dirty { self.draft?.id = ""; baseline = nil } else { self.draft = nil; baseline = nil; if let first = automations.first { select(first.id) } }
+            if dirty {
+                self.draft?.id = ""; baseline = nil
+                let key = Self.newKey(); openKey = key; newKeys.append(key)
+            } else {
+                self.draft = nil; baseline = nil; openKey = nil
+                if let first = automations.first { select(first.id) }
+            }
             return
         }
         let edited = dirty
@@ -145,10 +170,21 @@ import Observation
 
     // MARK: Selection
 
-    func select(_ id: String) {
-        guard !retired, let item = automations.first(where: { $0.id == id }) else { return }
-        draft = item; baseline = item; error = nil; trace = nil; dryRunError = nil; saved = false
-        runs = []
+    /// Open a row: a saved pipeline by id, or a new one by its `new:` key. Whatever was open and
+    /// unsaved is set aside first and comes back when its row is chosen again.
+    func select(_ key: String) {
+        guard !retired, key != openKey || draft == nil else { return }
+        if key.hasPrefix("new:") {
+            guard let value = unsaved[key] else { return }
+            setAside()
+            unsaved[key] = nil
+            open(value, baseline: nil, key: key)
+            panel = .editor
+            return
+        }
+        guard let item = automations.first(where: { $0.id == key }) else { return }
+        setAside()
+        open(unsaved.removeValue(forKey: key) ?? item, baseline: item, key: key)
         if panel == .runs { loadRuns() }
     }
 
@@ -156,14 +192,41 @@ import Observation
         guard !retired else { return }
         var automation = template?.automation ?? Automation(name: "New automation", trigger: .init(types: ["pr.opened"]))
         automation.id = ""; automation.mode = .off
-        draft = automation; baseline = nil; error = nil; trace = nil; panel = .editor; runs = []
+        setAside()
+        let key = Self.newKey()
+        newKeys.append(key)
+        open(automation, baseline: nil, key: key)
+        panel = .editor
     }
 
+    /// Back to the saved copy; a new pipeline is discarded, and the next row opens.
     func revert() {
         guard !retired, !saving else { return }
-        if let baseline { draft = baseline } else if let first = automations.first { select(first.id) } else { draft = nil }
         error = nil
+        if let baseline { draft = baseline; return }
+        discardOpenDraft()
     }
+
+    private func open(_ value: Automation, baseline: Automation?, key: String) {
+        draft = value; self.baseline = baseline; openKey = key
+        error = nil; trace = nil; dryRunError = nil; saved = false; runs = []
+    }
+
+    /// Keep the open row's unsaved work: a new pipeline always, a saved one only if edited.
+    private func setAside() {
+        guard let key = openKey, let draft else { return }
+        if baseline == nil || draft != baseline { unsaved[key] = draft } else { unsaved[key] = nil }
+    }
+
+    /// Drop the open new pipeline and open whichever row is left: another new one, else the first saved.
+    private func discardOpenDraft() {
+        if let key = openKey { newKeys.removeAll { $0 == key }; unsaved[key] = nil }
+        draft = nil; baseline = nil; openKey = nil
+        if let first = automations.first { select(first.id) }
+        else if let key = newKeys.last { select(key) }
+    }
+
+    private static func newKey() -> String { "new:\(UUID().uuidString)" }
 
     // MARK: Editing
 
@@ -261,7 +324,8 @@ import Observation
             guard !retired, generation == token else { return }
             if let index = automations.firstIndex(where: { $0.id == stored.id }) { automations[index] = stored }
             else { automations.append(stored) }
-            draft = stored; baseline = stored; saved = true
+            if let key = openKey, key.hasPrefix("new:") { newKeys.removeAll { $0 == key } }
+            draft = stored; baseline = stored; openKey = stored.id; saved = true
             onAction(.saved(stored))
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
@@ -283,14 +347,15 @@ import Observation
 
     func delete() async {
         guard !retired, let service, let draft else { return }
-        if draft.id.isEmpty { self.draft = nil; baseline = nil; if let first = automations.first { select(first.id) }; return }
+        if draft.id.isEmpty { discardOpenDraft(); return }
         let token = generation
         do {
             try await service.delete(id: draft.id)
             guard !retired, generation == token else { return }
             automations.removeAll { $0.id == draft.id }
-            self.draft = nil; baseline = nil
-            if let first = automations.first { select(first.id) }
+            unsaved[draft.id] = nil
+            self.draft = nil; baseline = nil; openKey = nil
+            if let first = automations.first { select(first.id) } else if let key = newKeys.last { select(key) }
             onAction(.deleted(draft.id))
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
@@ -300,7 +365,6 @@ import Observation
     // MARK: Settings
 
     func setPaused(_ paused: Bool) async { await updateSettings(paused: paused, forward: nil) }
-    func setForwarding(_ forward: Bool) async { await updateSettings(paused: nil, forward: forward) }
 
     private func updateSettings(paused: Bool?, forward: Bool?) async {
         guard !retired, let service else { return }

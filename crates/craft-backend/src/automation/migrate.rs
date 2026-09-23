@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 
 use super::{
     model::{Automation, Mode, Step, StepKind, Trigger},
-    store, FORWARD_WEBHOOKS,
+    store,
 };
 use crate::AppState;
 
@@ -39,7 +39,7 @@ pub fn legacy_pipeline(project: &Value) -> Option<Automation> {
             "s3",
             StepKind::Action,
             "jira.fix_version",
-            json!({"template":project["fixVersionScript"].as_str().unwrap_or("")}),
+            json!({"source":"template","template":project["fixVersionScript"].as_str().unwrap_or("")}),
         );
         version.continue_on_error = true;
         steps.push(version);
@@ -67,18 +67,26 @@ pub fn run(app: &AppState) {
         return;
     }
     let projects = app.db.projects().unwrap_or_default();
+    let mut complete = true;
     for project in &projects {
-        if let Some(automation) = legacy_pipeline(project) {
-            if let Err(error) = store::save(&app.db, automation) {
-                tracing::warn!(%error, "could not migrate a project's merge automation");
-                return;
-            }
+        let Some(automation) = legacy_pipeline(project) else { continue };
+        // Migrated by an earlier, interrupted run: it may have been edited since, so leave it be.
+        if store::get(&app.db, &automation.id).ok().flatten().is_some() {
+            continue;
+        }
+        if let Err(error) = store::save(&app.db, automation) {
+            tracing::warn!(%error, "could not migrate a project's merge automation");
+            complete = false;
         }
     }
-    let forwarded = projects.iter().any(|p| p["forwardWebhooks"] == true && !p["repo"].as_str().unwrap_or("").is_empty());
+    // Retried on the next start for the projects that failed.
+    if !complete {
+        return;
+    }
+    // Webhook forwarding is left unset, so it takes its default (on) rather than each project's old
+    // opt-in: it only runs for repos a pipeline covers, and polling covers any it cannot forward.
     let mut values = Map::new();
     values.insert(DONE.into(), json!("1"));
-    values.insert(FORWARD_WEBHOOKS.into(), json!(if forwarded { "true" } else { "false" }));
     let _ = app.db.set_config(&values);
 }
 
@@ -114,6 +122,25 @@ mod tests {
     }
 
     #[test]
+    fn a_retried_migration_leaves_a_pipeline_it_already_made() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::Database::open(directory.path()).unwrap();
+        let project = db
+            .add_project(json!({"name":"Craft","repo":"a/b","jiraProjectKey":"CRAFT","mergeTransition":"Done"}).as_object().unwrap())
+            .unwrap();
+        // An earlier run migrated it and stopped short; since then it was switched off.
+        let mut edited = legacy_pipeline(&project).unwrap();
+        edited.mode = Mode::Off;
+        store::save(&db, edited).unwrap();
+        let app = AppState::new(db, None);
+        run(&app);
+        let pipelines = store::list(&app.db).unwrap();
+        assert_eq!(pipelines.len(), 1);
+        assert_eq!(pipelines[0].mode, Mode::Off);
+        assert!(app.db.config_value(DONE).unwrap().is_some());
+    }
+
+    #[test]
     fn projects_without_merge_settings_migrate_nothing() {
         assert!(legacy_pipeline(&json!({"id":"p","mergeTransition":"","fixVersionEnabled":false})).is_none());
         // Fix Version without a Jira project key never ran, so it does not migrate either.
@@ -121,16 +148,18 @@ mod tests {
     }
 
     #[test]
-    fn migration_runs_once_and_records_forwarding() {
+    fn migration_runs_once_and_leaves_forwarding_on() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        db.add_project(json!({"name":"Craft","repo":"a/b","jiraProjectKey":"CRAFT","mergeTransition":"Done"}).as_object().unwrap()).unwrap();
+        db.add_project(json!({"name":"Craft","repo":"a/b","jiraProjectKey":"CRAFT","mergeTransition":"Done","forwardWebhooks":false}).as_object().unwrap()).unwrap();
         let app = AppState::new(db, None);
         run(&app);
         run(&app);
         let pipelines = store::list(&app.db).unwrap();
         assert_eq!(pipelines.len(), 1);
         assert!(pipelines[0].armed_at.is_some());
-        assert_eq!(app.db.config_value(FORWARD_WEBHOOKS).unwrap().as_deref(), Some("true"));
+        // A project that had forwarding off does not turn it off for every pipeline.
+        assert_eq!(app.db.config_value(super::super::FORWARD_WEBHOOKS).unwrap(), None);
+        assert!(super::super::forwarding(&app));
     }
 }

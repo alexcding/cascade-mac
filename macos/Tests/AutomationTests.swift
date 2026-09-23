@@ -34,7 +34,7 @@ private actor AutomationFixture: AutomationService {
     func dryRun(_ automation: Automation, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
         dryRunCalls.append(automation)
         return AutomationTrace(automationId: automation.id, automationName: automation.name, eventKind: "pr",
-                               eventKey: sample.id, subject: sample.label, mode: "shadow", triggerMatched: true,
+                               eventKey: sample.id, subject: sample.label, mode: "dry", triggerMatched: true,
                                triggerDetail: "matched", status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
     }
     func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
@@ -45,7 +45,13 @@ private actor AutomationFixture: AutomationService {
     }
     func runs(id: String?) async throws -> [AutomationTrace] { [] }
     func settings() async throws -> AutomationSettings { settingsValue }
-    func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings { settingsValue }
+    var settingsUpdates = 0
+    func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings {
+        settingsUpdates += 1
+        if let paused { settingsValue.paused = paused }
+        if let forwardWebhooks { settingsValue.forwardWebhooks = forwardWebhooks }
+        return settingsValue
+    }
 }
 
 private func fixtureCatalog() -> AutomationCatalog {
@@ -180,5 +186,58 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     root.navigate(to: .overview)
     #expect(root.automationCoordinator?.canPresent() == false)
     root.automationCoordinator?.retire()
+    await model.stop()
+}
+
+@MainActor @Test func webhookForwardingRowReadsWritesAndStopsWhenRetired() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let model = WebhookForwardingViewModel()
+    // Unknown until read, it shows the default: on.
+    #expect(model.enabled && model.status == nil)
+    model.connect(service)
+    model.refresh()
+    for _ in 0..<200 where model.settings == nil { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(model.settings != nil && !model.enabled)
+    #expect(model.status?.hasPrefix("Polling only") == true)
+    await model.setEnabled(true)
+    #expect(model.enabled && !model.saving)
+    // On, but the extension the forwarders run is missing: the card says to install it.
+    #expect(model.status(extensionInstalled: false)?.hasPrefix("Install the gh webhook extension") == true)
+    #expect(model.status(extensionInstalled: true)?.hasPrefix("Install") == false)
+    #expect(await service.settingsUpdates == 1)
+    model.retire()
+    await model.setEnabled(false)
+    #expect(await service.settingsUpdates == 1 && model.enabled)
+}
+
+@MainActor @Test func automationUnsavedWorkSurvivesOpeningAnotherPipeline() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First"), fixtureAutomation(id: "a2", name: "Second")],
+                                    catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    // A new pipeline, named, then a saved one opened: the new one stays listed and comes back as typed.
+    model.create(from: nil)
+    model.draft?.name = "Not saved yet"
+    let newKey = try #require(model.openKey)
+    model.select("a1")
+    #expect(model.draft?.id == "a1" && !model.dirty)
+    #expect(model.newDrafts.map(\.draft.name) == ["Not saved yet"])
+    // An edit to a saved pipeline is set aside the same way, and marked in the list.
+    model.draft?.name = "First, edited"
+    model.select("a2")
+    #expect(model.hasUnsavedEdits("a1") && !model.hasUnsavedEdits("a2"))
+    model.select(newKey)
+    #expect(model.isNew && model.draft?.name == "Not saved yet")
+    model.select("a1")
+    #expect(model.draft?.name == "First, edited" && model.dirty)
+    model.revert()
+    #expect(!model.hasUnsavedEdits("a1") && model.draft?.name == "First")
+    // Saving the new one takes it out of the unsaved rows; discarding one opens the next row.
+    model.select(newKey)
+    await model.save()
+    #expect(model.newDrafts.isEmpty && model.openKey == model.draft?.id && model.automations.count == 3)
+    model.create(from: nil)
+    model.revert()
+    #expect(model.newDrafts.isEmpty && model.draft?.id == "a1")
+    #expect(await service.saveCalls.count == 1)
     await model.stop()
 }

@@ -11,7 +11,7 @@ mergeable additions deletions changedFiles
 author{ login __typename ... on User{ name } }
 labels(first:20){ nodes{ name color description } }
 reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } } } }
-latestReviews(first:20){ nodes{ state author{ login } } }"#;
+latestReviews(first:20){ nodes{ state author{ login } commit{ oid } } }"#;
 const CI_FIELDS: &str = r#"commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:100){ nodes{
 ... on CheckRun{ status conclusion }
 ... on StatusContext{ state }
@@ -298,6 +298,7 @@ fn enrich(mut pr: Value, me: Option<&str>, project_key: &str, with_ci: bool) -> 
         "other"
     };
     let awaiting = me.is_some() && !mine && !draft && (requested || reviewed);
+    let my_review = my_review(&pr, me);
     let keys = jira_keys(
         pr.get("title").and_then(Value::as_str).unwrap_or(""),
         pr.get("body").and_then(Value::as_str).unwrap_or(""),
@@ -312,6 +313,9 @@ fn enrich(mut pr: Value, me: Option<&str>, project_key: &str, with_ci: bool) -> 
         object.insert("jiraKeys".into(), json!(keys));
         object.insert("category".into(), json!(category));
         object.insert("awaitingMyReview".into(), json!(awaiting));
+        if let Some(review) = my_review {
+            object.insert("myReview".into(), review);
+        }
         if with_ci {
             object.insert("ci".into(), ci);
             object.remove("statusCheckRollup");
@@ -339,6 +343,7 @@ pub fn lean(pr: &Value, repo: &str) -> Value {
         "ci",
         "category",
         "awaitingMyReview",
+        "myReview",
         "reviewDecision",
         "requestedAt",
         "updatedAt",
@@ -354,6 +359,20 @@ pub fn lean(pr: &Value, repo: &str) -> Value {
     }
     out.insert("repo".into(), json!(repo));
     Value::Object(out)
+}
+
+/// My latest review, as `{state, commit}`: what the approve action reads so a commit is approved once.
+fn my_review(pr: &Value, me: Option<&str>) -> Option<Value> {
+    let me = me?;
+    let review = pr
+        .get("latestReviews")?
+        .as_array()?
+        .iter()
+        .find(|review| review.pointer("/author/login").and_then(Value::as_str) == Some(me))?;
+    Some(json!({
+        "state": review["state"],
+        "commit": review.pointer("/commit/oid").cloned().unwrap_or(Value::Null),
+    }))
 }
 
 fn reviewers(pr: &Value, key: &str) -> Vec<String> {
@@ -483,4 +502,24 @@ pub async fn review_requested_at(repo: &str, me: &str) -> Result<HashMap<i64, St
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn my_latest_review_and_its_commit_reach_the_snapshot() {
+        let pr = json!({
+            "number": 4, "author": {"login": "alice"},
+            "latestReviews": [
+                {"state": "COMMENTED", "author": {"login": "bob"}, "commit": {"oid": "a1"}},
+                {"state": "APPROVED", "author": {"login": "me"}, "commit": {"oid": "b2"}},
+            ],
+        });
+        let out = enrich(pr.clone(), Some("me"), "", false);
+        assert_eq!(out["myReview"], json!({"state": "APPROVED", "commit": "b2"}));
+        assert_eq!(lean(&out, "a/b")["myReview"], out["myReview"]);
+        assert!(enrich(pr, Some("carol"), "", false).get("myReview").is_none());
+    }
 }

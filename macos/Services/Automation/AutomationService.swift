@@ -2,15 +2,10 @@ import Foundation
 
 /// A pipeline as the backend stores it: one trigger, then filters and actions in order.
 struct Automation: Codable, Equatable, Identifiable, Sendable {
+    /// On or off. "live" is the stored name for on; try a pipeline with Dry Run before switching it on.
     enum Mode: String, Codable, CaseIterable, Sendable {
-        case off, shadow, live
-        var label: String {
-            switch self {
-            case .off: "Off"
-            case .shadow: "Shadow"
-            case .live: "Live"
-            }
-        }
+        case off, live
+        var label: String { self == .live ? "On" : "Off" }
     }
     struct Trigger: Codable, Equatable, Sendable {
         var types: [String] = []
@@ -51,7 +46,8 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         id = try values.decodeIfPresent(String.self, forKey: .id) ?? ""
         name = try values.decodeIfPresent(String.self, forKey: .name) ?? ""
-        mode = try values.decodeIfPresent(Mode.self, forKey: .mode) ?? .off
+        // An unknown mode, such as the retired watch-only one, reads as off.
+        mode = (try? values.decodeIfPresent(Mode.self, forKey: .mode)) ?? .off
         armedAt = try values.decodeIfPresent(String.self, forKey: .armedAt)
         trigger = try values.decodeIfPresent(Trigger.self, forKey: .trigger) ?? Trigger()
         steps = try values.decodeIfPresent([AutomationStep].self, forKey: .steps) ?? []
@@ -134,6 +130,17 @@ enum ParamValue: Codable, Equatable, Sendable {
 
 /// Every node the editor can place, served by the backend.
 struct AutomationCatalog: Decodable, Equatable, Sendable {
+    /// The params a node shows for these values: those whose `when` holds, an unset sibling
+    /// counting as its default.
+    static func visible(_ params: [Param], values: [String: ParamValue]) -> [Param] {
+        params.filter { param in
+            (param.when ?? [:]).allSatisfy { key, expected in
+                let current = values[key] ?? params.first { $0.key == key }?.default
+                return current?.text == expected
+            }
+        }
+    }
+
     struct Option: Decodable, Equatable, Sendable { let value: String; let label: String }
     struct Param: Decodable, Equatable, Identifiable, Sendable {
         let key: String
@@ -143,6 +150,9 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
         var placeholder: String? = nil
         var help: String? = nil
         var `default`: ParamValue? = nil
+        /// Shown only while each named sibling param holds the given value, such as the Fix
+        /// Version name, which only a template needs.
+        var when: [String: String]? = nil
         var id: String { key }
     }
     struct Node: Decodable, Equatable, Identifiable, Sendable {

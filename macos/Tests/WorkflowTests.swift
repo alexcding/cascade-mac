@@ -22,10 +22,16 @@ private actor WorkflowFixture: WorkflowService {
     var fails = false
     private(set) var calls = 0
     private(set) var payloads: [[WorkflowRecipe]] = []
+    private var holding = false
+    private var held: CheckedContinuation<Void, Never>?
     init(_ project: Project) { self.project = project }
     func fail(_ value: Bool) { fails = value }
+    /// Saves wait until `release()`, so a test can act while one is in flight however slow the machine.
+    func hold() { holding = true }
+    func release() { holding = false; held?.resume(); held = nil }
     func save(projectID: String, workflows: [WorkflowRecipe]) async throws -> Project {
         calls += 1; payloads.append(workflows)
+        if holding { await withCheckedContinuation { held = $0 } }
         try await Task.sleep(for: .milliseconds(60))
         if fails { throw BackendError.operation("Workflow save failed") }
         project.workflows = workflows
@@ -93,9 +99,12 @@ private actor WorkflowFixture: WorkflowService {
     #expect(model.draft.map(\.id) == rows && !model.dirty)
     let id = try #require(model.draft.first?.id)
     model.setName(id, "Changed")
+    await old.hold()
     let saving = Task { await model.save() }
-    for _ in 0..<100 { if await old.calls == 1 { break }; try await Task.sleep(for: .milliseconds(2)) }
+    for _ in 0..<1000 { if await old.calls == 1 { break }; try await Task.sleep(for: .milliseconds(2)) }
+    #expect(await old.calls == 1)
     model.connect(replacement)
+    await old.release()
     await saving.value
     #expect(saves == 0 && model.dirty && model.error?.contains("connection changed") == true)
     await model.save()

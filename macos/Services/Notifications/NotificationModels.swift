@@ -61,7 +61,7 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case "automation_notify":
             title = p?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Automation"; body = p?.body ?? ""; url = p?.url
         case "automation_run":
-            title = p?.mode == "shadow" ? "\(p?.automation ?? "Automation") would have run" : "\(p?.automation ?? "Automation") ran"
+            title = "\(p?.automation ?? "Automation") ran"
             body = p?.subject ?? ""
         case "automation_failed": title = "\(p?.automation ?? "Automation") failed"; body = p?.subject ?? ""
         default: title = type.isEmpty ? "Activity" : type.replacingOccurrences(of: "_", with: " ").capitalized

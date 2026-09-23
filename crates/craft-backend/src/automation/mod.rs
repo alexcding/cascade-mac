@@ -80,10 +80,9 @@ pub fn fire(app: &AppState, automation: &Automation, event: Event) {
     if !store::claim(&app.db, &automation.id, &event.key).unwrap_or(false) {
         return;
     }
-    let mode = if automation.mode == Mode::Live { RunMode::Live } else { RunMode::Shadow };
     let (app, automation) = (app.clone(), automation.clone());
     tokio::spawn(async move {
-        runner::run_and_record(&app, &automation, &event, mode).await;
+        runner::run_and_record(&app, &automation, &event, RunMode::Live).await;
     });
 }
 

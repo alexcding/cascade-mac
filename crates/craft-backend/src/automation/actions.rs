@@ -1,5 +1,5 @@
 //! Actions plan first and execute second. A plan is the exact command or request, so a dry run
-//! and a shadow run show precisely what a live run would do. Planning may read (look up failed
+//! shows precisely what a live run would do. Planning may read (look up failed
 //! runs, check a Jira version exists) but never writes.
 
 use std::{collections::BTreeMap, path::Path, time::Duration};
@@ -7,12 +7,14 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 use anyhow::{anyhow, bail, ensure, Result};
 use serde_json::{json, Value};
 
-use super::{context::Ctx, model::Step};
+use super::{context::Ctx, model::Step, store};
 use crate::{cli, http_client, integrations::render_version_template, jira, poller, AppState};
 
 #[derive(Clone, Debug)]
 pub enum Plan {
     Gh(Vec<String>),
+    /// `gh pr review --approve`, at most once per commit: `claim` is `repo#number@sha`.
+    Approve { args: Vec<String>, claim: String },
     Transition { key: String, status: String },
     Assign { key: String, assignee: String },
     JiraComment { key: String, body: String },
@@ -23,6 +25,18 @@ pub enum Plan {
     Webhook { url: String, body: Value },
     /// Nothing to do, with the reason (no linked ticket, no failed runs).
     Skip(String),
+}
+
+/// The ledger namespace approvals are claimed under; not an automation id, which is a UUID.
+const APPROVALS: &str = "github.approve";
+
+/// Whether my latest review, as the snapshot has it, approves commit `sha`.
+fn approved_at(pr: &Value, sha: &str) -> bool {
+    !sha.is_empty() && pr["myReview"]["state"] == "APPROVED" && pr["myReview"]["commit"] == sha
+}
+
+fn short(sha: &str) -> &str {
+    &sha[..sha.len().min(7)]
 }
 
 pub fn known(node: &str) -> bool {
@@ -70,12 +84,18 @@ pub fn validate(step: &Step) -> Result<()> {
         "github.request_reviewers" => need_list("reviewers", "Request reviewers"),
         "github.assign" => need_list("assignees", "Assign"),
         "jira.transition" => need("status", "Transition ticket: the status"),
-        "jira.fix_version" => {
-            need("template", "Set Fix Version: the version template")?;
-            render_version_template(step.text("template"), 1)
-                .map(|_| ())
-                .map_err(|e| anyhow!("Set Fix Version: {e}"))
-        }
+        "jira.fix_version" => match step.version_source() {
+            "next" => Ok(()),
+            "template" => {
+                need("template", "Set Fix Version: the version name")?;
+                // `{{variables}}` are filled in per event; only the date placeholders can be checked now.
+                let dates = VARIABLE.get_or_init(|| regex::Regex::new(r"\{\{[^}]*\}\}").expect("valid variable regex"));
+                render_version_template(&dates.replace_all(step.text("template"), "x"), 1)
+                    .map(|_| ())
+                    .map_err(|e| anyhow!("Set Fix Version: {e}"))
+            }
+            other => bail!("Set Fix Version: unknown version source {other}"),
+        },
         "jira.comment" => need("body", "Comment on ticket: the comment"),
         "jira.add_label" => need_list("labels", "Add ticket labels"),
         "craft.shell" => need("script", "Run shell script: the script"),
@@ -136,12 +156,17 @@ async fn github(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>> {
             if ctx.me.as_deref().is_some_and(|me| me.eq_ignore_ascii_case(&author)) {
                 bail!("won't approve your own PR");
             }
+            let sha = head_sha(ctx, &number, &repo).await?;
+            if approved_at(ctx.pr()?, &sha) {
+                return Ok(vec![Plan::Skip(format!("you already approved {}", short(&sha)))]);
+            }
             let mut args = pr("review");
             args.push("--approve".into());
             if !body.is_empty() {
                 args.extend(["-b".into(), body]);
             }
-            args
+            let claim = format!("{}#{number}@{sha}", repo.to_ascii_lowercase());
+            return Ok(vec![Plan::Approve { args, claim }]);
         }
         "request_changes" => {
             let mut args = pr("review");
@@ -202,16 +227,24 @@ async fn github(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>> {
     Ok(vec![Plan::Gh(args)])
 }
 
+/// The PR's head commit: the snapshot's, or GitHub's when the event came without one.
+async fn head_sha(ctx: &Ctx<'_>, number: &str, repo: &str) -> Result<String> {
+    if let Some(sha) = ctx.pr()?["headRefOid"].as_str().filter(|v| !v.is_empty()) {
+        return Ok(sha.to_owned());
+    }
+    let sha = cli::run(
+        "gh",
+        ["pr", "view", number, "-R", repo, "--json", "headRefOid", "--jq", ".headRefOid"],
+        Duration::from_secs(60),
+    )
+    .await?;
+    let sha = sha.trim().to_owned();
+    ensure!(!sha.is_empty(), "could not read the head commit of {repo}#{number}");
+    Ok(sha)
+}
+
 async fn rerun_plans(ctx: &Ctx<'_>, number: &str, repo: &str) -> Result<Vec<Plan>> {
-    let sha = match ctx.pr()?["headRefOid"].as_str().filter(|v| !v.is_empty()) {
-        Some(sha) => sha.to_owned(),
-        None => cli::run(
-            "gh",
-            ["pr", "view", number, "-R", repo, "--json", "headRefOid", "--jq", ".headRefOid"],
-            Duration::from_secs(60),
-        )
-        .await?,
-    };
+    let sha = head_sha(ctx, number, repo).await?;
     let raw = cli::run(
         "gh",
         ["run", "list", "-R", repo, "--commit", &sha, "--status", "failure", "--json", "databaseId", "--jq", ".[].databaseId"],
@@ -224,7 +257,7 @@ async fn rerun_plans(ctx: &Ctx<'_>, number: &str, repo: &str) -> Result<Vec<Plan
         .map(|id| Plan::Gh(vec!["run".into(), "rerun".into(), id.trim().into(), "-R".into(), repo.into(), "--failed".into()]))
         .collect();
     if plans.is_empty() {
-        Ok(vec![Plan::Skip(format!("no failed runs on {}", &sha[..sha.len().min(7)]))])
+        Ok(vec![Plan::Skip(format!("no failed runs on {}", short(&sha)))])
     } else {
         Ok(plans)
     }
@@ -253,8 +286,6 @@ async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>
             keys.into_iter().map(|key| Plan::JiraLabels { key, labels: labels.clone() }).collect()
         }
         "fix_version" => {
-            let number = ctx.event.pr.as_ref().and_then(|pr| pr["number"].as_i64()).unwrap_or(0);
-            let version = render_version_template(step.text("template"), number).map_err(|e| anyhow!(e.to_string()))?;
             let mut projects: BTreeMap<String, Vec<String>> = BTreeMap::new();
             for key in keys {
                 if let Some((prefix, _)) = key.split_once('-') {
@@ -262,6 +293,20 @@ async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>
                 }
             }
             let mut plans = Vec::new();
+            if step.version_source() == "next" {
+                // Each Jira project has its own releases, so each gets its own next one, looked up together.
+                let found = futures_util::future::join_all(projects.keys().map(|project| jira::next_unreleased(project))).await;
+                for ((project, keys), next) in projects.into_iter().zip(found) {
+                    match next {
+                        Ok(Some(version)) => plans.push(Plan::FixVersion { project, version, keys, exists: Some(true) }),
+                        Ok(None) => plans.push(Plan::Skip(format!("{project} has no unreleased version to set"))),
+                        Err(error) => bail!("Could not read {project}'s versions: {error}"),
+                    }
+                }
+                return Ok(plans);
+            }
+            let number = ctx.event.pr.as_ref().and_then(|pr| pr["number"].as_i64()).unwrap_or(0);
+            let version = version_name(step.text("template"), number, |variable| ctx.render(variable))?;
             for (project, keys) in projects {
                 let exists = jira::versions(&project).await.ok().map(|v| v.contains(&version));
                 plans.push(Plan::FixVersion { project, version: version.clone(), keys, exists });
@@ -270,6 +315,29 @@ async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>
         }
         other => bail!("unknown action jira.{other}"),
     })
+}
+
+static VARIABLE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+
+/// A Fix Version name from its template. The date placeholders are filled in first, with each
+/// `{{variable}}` held out of the way, and the variables go in last: a ticket summary such as
+/// "Handle {bug} case" is then kept as text rather than read as an unknown date placeholder.
+fn version_name(template: &str, pr_number: i64, render: impl Fn(&str) -> String) -> Result<String> {
+    let variables = VARIABLE.get_or_init(|| regex::Regex::new(r"\{\{[^}]*\}\}").expect("valid variable regex"));
+    let mut values = Vec::new();
+    // A private-use character marks each slot: not a brace, not a control character, not typed.
+    let held = variables.replace_all(template, |caps: &regex::Captures| {
+        values.push(render(&caps[0]));
+        format!("\u{E000}{}\u{E000}", values.len() - 1)
+    });
+    let mut name = render_version_template(&held, pr_number).map_err(|e| anyhow!(e.to_string()))?;
+    for (index, value) in values.iter().enumerate() {
+        let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        name = name.replace(&format!("\u{E000}{index}\u{E000}"), &value);
+    }
+    let name = name.trim().to_owned();
+    ensure!(!name.is_empty() && name.chars().count() <= 128, "Set Fix Version: the name must be 1–128 characters, got {:?}", name);
+    Ok(name)
 }
 
 fn quote(arg: &str) -> String {
@@ -291,7 +359,7 @@ impl Plan {
             std::iter::once(program.to_owned()).chain(args.iter().map(|a| quote(a))).collect::<Vec<_>>().join(" ")
         };
         match self {
-            Plan::Gh(args) => command("gh", &args.iter().map(String::as_str).collect::<Vec<_>>()),
+            Plan::Gh(args) | Plan::Approve { args, .. } => command("gh", &args.iter().map(String::as_str).collect::<Vec<_>>()),
             Plan::Transition { key, status } => {
                 command("acli", &["jira", "workitem", "transition", "--key", key, "--status", status, "--yes"])
             }
@@ -328,6 +396,18 @@ impl Plan {
     pub async fn execute(&self, app: &AppState, trigger: &str) -> Result<String> {
         match self {
             Plan::Gh(args) => cli::run("gh", args, Duration::from_secs(60)).await,
+            Plan::Approve { args, claim } => {
+                // Two events from one poll (a new commit, then its green CI) both reach here with the
+                // same snapshot; the claim lets only the first approve.
+                if !store::claim(&app.db, APPROVALS, claim)? {
+                    return Ok(format!("already approved {}", claim.rsplit('@').next().map(short).unwrap_or_default()));
+                }
+                let result = cli::run("gh", args, Duration::from_secs(60)).await;
+                if result.is_err() {
+                    let _ = store::release(&app.db, APPROVALS, claim);
+                }
+                result
+            }
             Plan::Transition { key, status } => {
                 poller::transition(key, status).await?;
                 activity(app, "jira_transitioned", json!({"key":key,"transition":status,"trigger":trigger}));
@@ -357,8 +437,11 @@ impl Plan {
                 .await?;
                 Ok(format!("{key} labelled"))
             }
-            Plan::FixVersion { project, version, keys, .. } => {
-                jira::ensure_version(app, project, version, trigger).await?;
+            Plan::FixVersion { project, version, keys, exists } => {
+                // Planning already found the release; only an unconfirmed one needs checking or creating.
+                if *exists != Some(true) {
+                    jira::ensure_version(app, project, version, trigger).await?;
+                }
                 let (mut set, mut failed) = (Vec::new(), Vec::new());
                 for key in keys {
                     match jira::rest(
@@ -428,6 +511,34 @@ mod tests {
         assert!(validate(&step("craft.webhook", json!({"url":"http://x"}))).is_err());
         assert!(validate(&step("jira.fix_version", json!({"template":"{year}.{isoWeek}"}))).is_ok());
         assert!(validate(&step("jira.fix_version", json!({"template":"{nope}"}))).is_err());
+        // A name built from the event's variables is checked for its date placeholders only.
+        assert!(validate(&step("jira.fix_version", json!({"source":"template","template":"{{pr.base}}-{year}"}))).is_ok());
+        assert!(validate(&step("jira.fix_version", json!({"source":"next"}))).is_ok());
+        assert!(validate(&step("jira.fix_version", json!({"source":"template"}))).is_err());
         assert!(validate(&step("github.approve", json!({}))).is_ok());
+    }
+
+    #[test]
+    fn a_version_name_keeps_braces_a_variable_brings_in() {
+        let render = |variable: &str| match variable {
+            "{{jira.summary}}" => "Handle {bug} case".to_owned(),
+            "{{pr.base}}" => "release/2.4".to_owned(),
+            other => other.to_owned(),
+        };
+        assert_eq!(version_name("{{jira.summary}}", 7, render).unwrap(), "Handle {bug} case");
+        assert_eq!(version_name("{{pr.base}} #{prNumber}", 7, render).unwrap(), "release/2.4 #7");
+        assert!(version_name("{nope}", 7, render).is_err(), "a typed placeholder is still checked");
+        assert!(version_name("{{missing}}", 7, |_| String::new()).is_err(), "an empty name is refused");
+    }
+
+    #[test]
+    fn an_approval_counts_only_for_the_commit_it_was_left_on() {
+        let pr = json!({"headRefOid": "b2", "myReview": {"state": "APPROVED", "commit": "b2"}});
+        assert!(approved_at(&pr, "b2"));
+        assert!(!approved_at(&pr, "c3"), "a new commit needs a new approval");
+        assert!(!approved_at(&json!({"myReview": {"state": "COMMENTED", "commit": "b2"}}), "b2"));
+        assert!(!approved_at(&json!({}), ""));
+        let plan = Plan::Approve { args: vec!["pr".into(), "review".into(), "3".into(), "--approve".into()], claim: "a/b#3@b2".into() };
+        assert_eq!(plan.describe(), "gh pr review 3 --approve");
     }
 }

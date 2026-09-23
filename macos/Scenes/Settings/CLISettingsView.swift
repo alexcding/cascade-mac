@@ -21,6 +21,33 @@ struct CLIIntegrationSection: View {
     }
 }
 
+/// The Integrations tab's "GitHub webhooks" card: pull request events delivered to automations
+/// as they happen, not on the next poll. It holds the gh extension the forwarders run, so what
+/// forwarding needs and whether it is on are read in one place.
+struct WebhookForwardingSection: View {
+    let model: WebhookForwardingViewModel
+    let clis: CLISettingsViewModel
+    var body: some View {
+        Section("GitHub webhooks") {
+            ForEach(ManagedCLI.webhooks) { cli in CLIStatusRow(model: clis, cli: cli) }
+            SettingsRow(title: "Forward webhooks to automations",
+                        caption: "Pull request events reach automations as they happen. Off, or without the extension, polling still catches every change.") {
+                Toggle("Forward webhooks to automations", isOn: Binding(get: { model.enabled },
+                                                                        set: { value in Task { await model.setEnabled(value) } }))
+                    .toggleStyle(.switch).labelsHidden()
+                    .disabled(model.settings == nil || model.saving)
+                    .accessibilityIdentifier("settings-forward-webhooks")
+            }
+            if let status = model.status(extensionInstalled: clis.availability[ManagedCLI.ghWebhook.rawValue]?.present) {
+                Text(status).font(.caption).foregroundStyle(Theme.textSecondary)
+            }
+            if let error = model.error {
+                Text(error).font(.caption).foregroundStyle(Theme.warn).textSelection(.enabled)
+            }
+        }
+    }
+}
+
 /// The Integrations tab's "Simulator preview" card: what the workspace's Simulator panel needs.
 /// Optional, so it stays out of first-run setup.
 struct SimulatorPreviewSection: View {

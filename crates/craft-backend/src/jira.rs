@@ -48,7 +48,8 @@ pub(crate) fn segment(value: &str) -> String {
         .replace('+', "%20")
 }
 
-pub async fn versions(key: &str) -> Result<Vec<String>> {
+/// A project's versions (releases) as Jira orders them, each with `name`, `released`, `archived`.
+async fn version_list(key: &str) -> Result<Vec<Value>> {
     let raw = cli::run(
         "acli",
         ["jira", "project", "view", "--key", key, "--json"],
@@ -56,12 +57,35 @@ pub async fn versions(key: &str) -> Result<Vec<String>> {
     )
     .await?;
     let value: Value = serde_json::from_str(&raw)?;
-    Ok(value["versions"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    Ok(match value {
+        Value::Object(mut project) => match project.remove("versions") {
+            Some(Value::Array(versions)) => versions,
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    })
+}
+
+pub async fn versions(key: &str) -> Result<Vec<String>> {
+    Ok(version_list(key)
+        .await?
+        .iter()
         .filter_map(|v| v["name"].as_str().map(str::to_owned))
         .collect())
+}
+
+/// The release a ticket merged today ships in: the first version, in the project's own order,
+/// that is neither released nor archived.
+pub async fn next_unreleased(key: &str) -> Result<Option<String>> {
+    Ok(next_unreleased_in(&version_list(key).await?))
+}
+
+fn next_unreleased_in(versions: &[Value]) -> Option<String> {
+    versions
+        .iter()
+        .filter(|v| v["released"] != true && v["archived"] != true)
+        .find_map(|v| v["name"].as_str().map(str::trim).filter(|name| !name.is_empty()))
+        .map(str::to_owned)
 }
 
 pub async fn board_columns(app: &AppState, board: i64) -> Result<Value> {
@@ -148,4 +172,23 @@ pub async fn ensure_version(app: &AppState, project: &str, version: &str, trigge
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_next_release_is_the_first_open_one_in_jira_order() {
+        let versions = vec![
+            json!({"name":"1.0","released":true,"archived":false}),
+            json!({"name":"1.1","released":false,"archived":true}),
+            json!({"name":"1.2","released":false,"archived":false}),
+            json!({"name":"2.0","released":false,"archived":false}),
+        ];
+        assert_eq!(next_unreleased_in(&versions).as_deref(), Some("1.2"));
+        assert_eq!(next_unreleased_in(&versions[..2]), None);
+        let blank_first = vec![json!({"name":" ","released":false}), json!({"name":"3.0","released":false})];
+        assert_eq!(next_unreleased_in(&blank_first).as_deref(), Some("3.0"));
+    }
 }

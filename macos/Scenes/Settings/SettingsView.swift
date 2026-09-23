@@ -148,6 +148,7 @@ struct SettingsView: View {
     @ViewBuilder private var clis: some View {
             SetupAssistantSection(model: model.clis)
             CLIIntegrationSection(model: model.clis)
+            WebhookForwardingSection(model: model.webhooks, clis: model.clis)
             WorkflowHooksSection(model: model.clis)
             AgentStatusLineSection(model: model.clis)
             SimulatorPreviewSection(model: model.clis)

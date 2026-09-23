@@ -1,4 +1,4 @@
-//! Running a pipeline against one event, in dry, shadow or live mode.
+//! Running a pipeline against one event, as a dry run or for real.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -121,7 +121,7 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
                                 Err(error) => failures.push(error.to_string()),
                             }
                         }
-                        touched_jira |= step.node.starts_with("jira.");
+                        touched_jira |= step.node.starts_with("jira.") && !outputs.is_empty();
                         if !failures.is_empty() {
                             result.status = "error".into();
                             outputs.retain(|o| !o.is_empty());
@@ -156,7 +156,7 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
     trace
 }
 
-/// Run and record: the path for shadow, live and manual runs (dry runs are never recorded).
+/// Run and record: the path for automatic and manual runs (dry runs are never recorded).
 pub async fn run_and_record(app: &AppState, automation: &Automation, event: &Event, mode: RunMode) -> Trace {
     let trace = run(app, automation, event, mode).await;
     let _ = store::record_run(&app.db, &trace);

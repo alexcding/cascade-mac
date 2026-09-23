@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// Automation: pipelines on the left, the open one on the right.
+/// Automation: the defined pipelines down the left, the open one on the right as a page in the
+/// Dashboard's style. New sits on the toolbar's leading side and the switch for every automation
+/// on its trailing side, so the list holds pipelines and nothing else. Webhook forwarding is under
+/// Settings → Integrations.
 struct AutomationView: View {
     @Bindable var model: AutomationViewModel
 
     var body: some View {
         HStack(spacing: 0) {
             AutomationListPane(model: model)
-                .frame(width: 290)
+                .frame(width: 280)
             Divider()
             Group {
                 if model.draft != nil {
@@ -21,17 +24,41 @@ struct AutomationView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.paneBackground)
         .accessibilityIdentifier("automation-screen")
         .toolbar {
-            PageTitleToolbarItem(title: "Automation")
-            ToolbarItem(placement: .primaryAction) { AutomationNewMenu(model: model) }
+            // New sits where a page title would, over the list it adds to; the page carries its own title.
+            ToolbarItem(placement: .navigation) { AutomationNewMenu(model: model) }
+            if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
+            ToolbarItem(placement: .primaryAction) { AutomationMasterSwitch(model: model) }
         }
         .onAppear { model.setVisible(true) }
         .onDisappear { model.setVisible(false) }
     }
 }
 
-/// "+" in the toolbar: a blank pipeline or one of the catalogue's templates.
+/// Every automation on or paused at once; the one switch that outranks each pipeline's own mode.
+private struct AutomationMasterSwitch: View {
+    let model: AutomationViewModel
+    private var on: Bool { !(model.settings?.paused ?? false) }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(on ? "Automations on" : "Automations paused")
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(on ? Color.primary : Theme.warn)
+            Toggle("All automations", isOn: Binding(get: { on }, set: { value in Task { await model.setPaused(!value) } }))
+                .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                .accessibilityIdentifier("automation-pause")
+        }
+        .padding(.horizontal, 10)
+        .disabled(model.settings == nil)
+        .help(on ? "Pause every automation. Pipelines keep their modes and resume where they were."
+                 : "Paused: no pipeline runs until you switch automations back on.")
+    }
+}
+
+/// "+" at the toolbar's leading edge: a blank pipeline or one of the catalogue's templates.
 struct AutomationNewMenu: View {
     let model: AutomationViewModel
     var body: some View {
@@ -48,147 +75,178 @@ struct AutomationNewMenu: View {
         } label: {
             Label("New Automation", systemImage: "plus")
         }
+        .menuIndicator(.hidden)
         .help("New automation")
         .accessibilityIdentifier("automation-new")
     }
 }
 
+/// The defined pipelines, and a new one at the bottom while it is being written.
 private struct AutomationListPane: View {
-    @Bindable var model: AutomationViewModel
+    let model: AutomationViewModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            AutomationStatusHeader(model: model)
-            Divider()
-            if model.automations.isEmpty && !model.loading {
-                Text("No automations yet. Use + to start from a template.")
-                    .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textSecondary)
-                    .multilineTextAlignment(.center).padding(20)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List(selection: Binding(get: { model.selectedID }, set: { if let id = $0 { model.select(id) } })) {
-                    ForEach(model.automations) { automation in
-                        AutomationRow(automation: automation, catalog: model.catalog).tag(automation.id)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(model.automations) { automation in
+                    let selected = model.selectedID == automation.id
+                    // The open pipeline's row follows its draft, so a rename shows as it is typed.
+                    let shown = selected ? (model.draft ?? automation) : automation
+                    AutomationListRow(name: shown.name, summary: shown.summary(model.catalog),
+                                      pill: (shown.mode.label, AutomationStatus.tone(shown.mode)),
+                                      lastRun: automation.lastRun, selected: selected,
+                                      edited: model.hasUnsavedEdits(automation.id)) {
+                        model.select(automation.id)
                     }
+                    .accessibilityIdentifier("automation-row-\(automation.id)")
                 }
-                .listStyle(.sidebar)
-                .accessibilityIdentifier("automation-list")
+                // Last, where they land once saved: a new pipeline takes the next position.
+                ForEach(model.newDrafts, id: \.key) { item in
+                    AutomationListRow(name: item.draft.name, summary: item.draft.summary(model.catalog),
+                                      pill: ("Unsaved", .accent), lastRun: nil, selected: model.openKey == item.key) {
+                        model.select(item.key)
+                    }
+                    .accessibilityIdentifier("automation-row-\(item.key)")
+                }
+                if model.automations.isEmpty && model.newKeys.isEmpty && !model.loading {
+                    Text("No automations yet. Use + to start one.")
+                        .font(Theme.Typography.emptyHint).foregroundStyle(DashboardPalette.ink3)
+                        .padding(.horizontal, 10).padding(.vertical, 14)
+                }
             }
+            .padding(10)
         }
+        .accessibilityIdentifier("automation-list")
     }
 }
 
-private struct AutomationStatusHeader: View {
-    @Bindable var model: AutomationViewModel
+private struct AutomationListRow: View {
+    let name: String
+    let summary: String
+    let pill: (text: String, tone: ThemeTone)
+    let lastRun: Automation.RunSummary?
+    let selected: Bool
+    var edited = false
+    let select: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Pause all automations", isOn: Binding(
-                get: { model.settings?.paused ?? false },
-                set: { value in Task { await model.setPaused(value) } }))
-                .toggleStyle(.switch).controlSize(.small)
-                .accessibilityIdentifier("automation-pause")
-            Toggle("Forward GitHub webhooks", isOn: Binding(
-                get: { model.settings?.forwardWebhooks ?? true },
-                set: { value in Task { await model.setForwarding(value) } }))
-                .toggleStyle(.switch).controlSize(.small)
-                .help("Deliver PR events the moment they happen instead of on the next poll. Needs the gh webhook extension.")
-            if let settings = model.settings {
-                Text(forwardingText(settings)).font(.caption).foregroundStyle(Theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        Button(action: select) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(name.isEmpty ? "Untitled automation" : name)
+                        .font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.tail)
+                    if edited {
+                        Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                            .help("Edited, not saved").accessibilityLabel("Edited, not saved")
+                    }
+                    Spacer(minLength: 6)
+                    StatusPill(text: pill.text, tone: pill.tone)
+                }
+                Text(summary).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if let run = lastRun {
+                    Label(AutomationStatus.lastRun(run), systemImage: AutomationStatus.symbol(run.status))
+                        .font(.system(size: 11.5)).foregroundStyle(AutomationStatus.tint(run.status)).lineLimit(1)
+                }
             }
+            .padding(.horizontal, 10).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private func forwardingText(_ settings: AutomationSettings) -> String {
-        if settings.paused { return "Paused: no pipeline runs until you resume." }
-        guard settings.forwardWebhooks else { return "Polling only." }
-        if settings.forwardable.isEmpty { return "No live PR pipeline needs forwarding." }
-        let running = settings.forwardable.filter(settings.forwarding.contains)
-        return running.count == settings.forwardable.count
-            ? "Forwarding \(running.count) repo\(running.count == 1 ? "" : "s")."
-            : "Forwarding \(running.count) of \(settings.forwardable.count) repos. Polling covers the rest."
-    }
-}
-
-private struct AutomationRow: View {
-    let automation: Automation
-    let catalog: AutomationCatalog?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(automation.name.isEmpty ? "Untitled automation" : automation.name).lineLimit(1)
-                Spacer(minLength: 4)
-                AutomationModeBadge(mode: automation.mode)
-            }
-            Text(automation.summary(catalog)).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(2)
-            if let run = automation.lastRun {
-                Label(AutomationStatus.lastRun(run), systemImage: AutomationStatus.symbol(run.status))
-                    .font(.caption2).foregroundStyle(AutomationStatus.tint(run.status)).lineLimit(1)
-            }
-        }
-        .padding(.vertical, 3)
-    }
-}
-
-struct AutomationModeBadge: View {
-    let mode: Automation.Mode
-    var body: some View {
-        Text(mode.label)
-            .font(Theme.Typography.pill).padding(.horizontal, 6).padding(.vertical, 1)
-            .foregroundStyle(tint)
-            .background(background, in: Capsule())
-    }
-    private var tint: Color {
-        switch mode {
-        case .off: Theme.textTertiary
-        case .shadow: Theme.warn
-        case .live: Theme.success
-        }
-    }
     private var background: Color {
-        switch mode {
-        case .off: Theme.surfaceHover
-        case .shadow: Theme.warnBackground
-        case .live: Theme.successBackground
-        }
+        selected ? Color.primary.opacity(0.08) : hovering ? Color.primary.opacity(0.04) : .clear
     }
 }
 
+/// Nothing open: what a pipeline is, and the templates as tiles to start from.
 private struct AutomationEmptyState: View {
     let model: AutomationViewModel
+
     var body: some View {
-        VStack(spacing: 14) {
-            Text("Automate across projects").font(Theme.Typography.emptyTitle)
-            Text("A pipeline waits for a GitHub or Jira event, checks your filters, then acts. Start one from a template, dry-run it on a real PR, then switch it to Shadow or Live.")
-                .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textSecondary)
-                .multilineTextAlignment(.center).frame(maxWidth: 420)
-            if let templates = model.catalog?.templates {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(templates.prefix(6)) { template in
-                        Button { model.create(from: template) } label: {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(template.name)
-                                Text(template.summary).font(.caption).foregroundStyle(Theme.textSecondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                DashboardPageHeader(caption: "Pipelines across your projects", title: "Automation")
+                    .padding(.top, 12).padding(.bottom, 12)
+                Text("A pipeline waits for a GitHub or Jira event, checks its filters, then acts. Dry-run it on a real pull request to see exactly what it would do, then switch it on.")
+                    .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 36)
+                if let error = model.error {
+                    Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.warn).textSelection(.enabled).padding(.bottom, 20)
+                }
+                DashboardSectionHeader(title: "Start from", detail: "Every template starts Off")
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], alignment: .leading, spacing: 14) {
+                    AutomationTemplateTile(name: "Blank automation", summary: "A trigger and nothing else; add the filters and actions you need.",
+                                           symbol: "plus") { model.create() }
+                    ForEach(model.catalog?.templates ?? []) { template in
+                        AutomationTemplateTile(name: template.name, summary: template.summary, symbol: "bolt") {
+                            model.create(from: template)
                         }
-                        .buttonStyle(.borderless)
                     }
                 }
-                .frame(maxWidth: 420)
             }
-            if let error = model.error { Text(error).foregroundStyle(Theme.warn).textSelection(.enabled) }
+            .frame(maxWidth: Theme.Size.readableColumn + 200, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
-        .padding(28)
     }
 }
 
-/// How run and step statuses read and look, shared by the list, the dry run and history.
+private struct AutomationTemplateTile: View {
+    let name: String
+    let summary: String
+    let symbol: String
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 10) {
+                AutomationGlyph(symbol: symbol, tone: .accent)
+                Text(name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                Text(summary).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, minHeight: 138, alignment: .topLeading)
+            .background(hovering ? Color.primary.opacity(0.03) : .clear, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// A node's kind as a small tinted square: the trigger, a filter or an action.
+struct AutomationGlyph: View {
+    let symbol: String
+    let tone: ThemeTone
+    var body: some View {
+        Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tone.foreground)
+            .frame(width: 26, height: 26)
+            .background(tone.background, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// How modes, run and step statuses read and look, shared by the list, the dry run and history.
 enum AutomationStatus {
+    static func tone(_ mode: Automation.Mode) -> ThemeTone {
+        switch mode {
+        case .off: .neutral
+        case .live: .success
+        }
+    }
     static func symbol(_ status: String) -> String {
         switch status {
         case "passed", "completed": "checkmark.circle.fill"
@@ -204,7 +262,7 @@ enum AutomationStatus {
         switch status {
         case "passed", "completed", "done": Theme.success
         case "planned": Theme.accent
-        case "failed", "filtered", "skipped": Theme.textSecondary
+        case "failed", "filtered", "skipped": DashboardPalette.ink3
         default: Theme.warn
         }
     }
@@ -222,9 +280,7 @@ enum AutomationStatus {
         }
     }
     static func lastRun(_ run: Automation.RunSummary) -> String {
-        let when = relative(run.finishedAt)
-        let mode = run.mode == "shadow" ? " (shadow)" : ""
-        return "\(title(run.status))\(mode) \(when)"
+        "\(title(run.status)) \(relative(run.finishedAt))"
     }
     static func relative(_ timestamp: String) -> String {
         let parser = ISO8601DateFormatter()

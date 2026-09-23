@@ -228,6 +228,7 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
 @Test func managedCLIRequiredExcludesSimulatorPreviewTools() {
     #expect(!ManagedCLI.required.contains(.node))
     #expect(!ManagedCLI.required.contains(.serveSim))
+    #expect(!ManagedCLI.required.contains(.ghWebhook) && ManagedCLI.webhooks == [.ghWebhook])
     #expect(ManagedCLI.simulatorPreview.contains(.node) && ManagedCLI.simulatorPreview.contains(.serveSim))
 }
 

@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// One pipeline as a chain of node cards: When → Only if → Then.
+/// One pipeline as a page in the Dashboard's style: the name as the page title with its mode
+/// beside it, then When → Only if → Then as outlined cards joined by a rule, and a bar that
+/// saves, reverts and dry-runs.
 struct AutomationEditorView: View {
     @Bindable var model: AutomationViewModel
     @State private var showDryRun = false
@@ -8,25 +10,27 @@ struct AutomationEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
-            switch model.panel {
-            case .editor:
-                ScrollView {
-                    if let catalog = model.catalog, let draft = model.draft {
-                        AutomationChain(model: model, catalog: catalog, draft: draft)
-                            .padding(20)
-                            .frame(maxWidth: 760, alignment: .leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        ProgressView().padding(40)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header.padding(.top, 12).padding(.bottom, 20)
+                    if !model.isNew { AutomationPanelTabs(selection: $model.panel).padding(.bottom, 32) }
+                    switch model.panel {
+                    case .editor:
+                        if let catalog = model.catalog, let draft = model.draft {
+                            AutomationChain(model: model, catalog: catalog, draft: draft)
+                        } else {
+                            ProgressView().padding(40)
+                        }
+                    case .runs:
+                        AutomationRunsView(model: model)
                     }
                 }
-                Divider()
-                footer
-            case .runs:
-                AutomationRunsView(model: model)
+                .frame(maxWidth: Theme.Size.readableColumn, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                // The page inset lives inside the scroll view, so its scroller runs down the pane's edge.
+                .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
             }
+            if model.panel == .editor { footer }
         }
         .sheet(isPresented: $showDryRun) { AutomationDryRunSheet(model: model) }
         .confirmationDialog("Delete this automation?", isPresented: $confirmDelete) {
@@ -36,42 +40,63 @@ struct AutomationEditorView: View {
         }
     }
 
+    /// The Dashboard's page header, with the name editable in the title's place.
     private var header: some View {
-        HStack(spacing: 12) {
-            TextField("Name", text: Binding(get: { model.draft?.name ?? "" }, set: { model.draft?.name = $0 }))
-                .textFieldStyle(.plain).font(.title3)
-                .accessibilityIdentifier("automation-name")
-            Spacer()
-            Picker("Mode", selection: Binding(
-                get: { model.draft?.mode ?? .off },
-                set: { mode in Task { await model.setMode(mode) } })) {
-                ForEach(Automation.Mode.allCases, id: \.self) { Text($0.label).tag($0) }
+        HStack(alignment: .bottom, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(caption).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink3)
+                    .lineLimit(1)
+                TextField("Name", text: Binding(get: { model.draft?.name ?? "" }, set: { model.draft?.name = $0 }))
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 28, weight: .bold)).tracking(-0.6)
+                    .accessibilityIdentifier("automation-name")
             }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .help("Off: never runs. Shadow: runs on real events but only records what it would do. Live: acts.")
+            Spacer(minLength: 12)
+            HStack(spacing: 8) {
+                Text(model.draft?.mode == .live ? "On" : "Off").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(model.draft?.mode == .live ? Theme.success : DashboardPalette.ink3)
+                Toggle("On", isOn: Binding(
+                    get: { model.draft?.mode == .live },
+                    set: { on in Task { await model.setMode(on ? .live : .off) } }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+            .padding(.bottom, 6)
+            .help("On: runs and acts on real events. Try it with Dry Run first.")
             .accessibilityIdentifier("automation-mode")
-            Picker("View", selection: $model.panel) {
-                ForEach(AutomationViewModel.Panel.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .disabled(model.isNew)
         }
-        .padding(.horizontal, 20).padding(.vertical, 12)
+    }
+
+    private var caption: String {
+        guard let draft = model.draft else { return "" }
+        if model.isNew { return "New automation · not saved" }
+        let mode = draft.mode == .live ? "On — acts on real events" : "Off — never runs"
+
+        let stored = model.automations.first { $0.id == draft.id }
+        return stored?.lastRun.map { "\(mode) · \(AutomationStatus.lastRun($0))" } ?? mode
     }
 
     private var footer: some View {
         HStack(spacing: 10) {
             if let error = model.error {
-                Text(error).foregroundStyle(Theme.warn).textSelection(.enabled).lineLimit(2)
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.warn).textSelection(.enabled).lineLimit(2)
             } else if model.saved && !model.dirty {
-                Text("Saved").foregroundStyle(Theme.textSecondary)
+                Label("Saved", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.success)
+                    .accessibilityIdentifier("automation-saved")
             } else if model.isNew {
-                Text("Not saved yet").foregroundStyle(Theme.textSecondary)
+                Text("Not saved yet").font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink3)
+            } else if model.dirty {
+                Text("Unsaved changes").font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink3)
             }
             Spacer()
-            Button("Delete…", role: .destructive) { confirmDelete = true }
-                .disabled(model.saving)
-            Button("Revert", action: model.revert).disabled(!model.dirty || model.saving)
+            Button(model.isNew ? "Discard" : "Delete…", role: .destructive) {
+                if model.isNew { model.revert() } else { confirmDelete = true }
+            }
+            .disabled(model.saving)
+            if !model.isNew {
+                Button("Revert", action: model.revert).disabled(!model.dirty || model.saving)
+            }
             Button("Dry Run…") { showDryRun = true; model.loadSamples() }
                 .disabled(model.draft?.trigger.types.isEmpty != false)
                 .accessibilityIdentifier("automation-dry-run")
@@ -81,7 +106,34 @@ struct AutomationEditorView: View {
                 .disabled(!model.canSave)
                 .accessibilityIdentifier("automation-save")
         }
-        .padding(.horizontal, 20).padding(.vertical, 10)
+        .controlSize(.large)
+        .padding(.horizontal, 28).padding(.vertical, 12)
+        .overlay(alignment: .top) { Rectangle().fill(DashboardPalette.hairline).frame(height: 1) }
+    }
+}
+
+/// Pipeline and Runs as the Dashboard's filter tags: outlined, the chosen one filled.
+private struct AutomationPanelTabs: View {
+    @Binding var selection: AutomationViewModel.Panel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(AutomationViewModel.Panel.allCases) { panel in
+                let active = panel == selection
+                Button { selection = panel } label: {
+                    Text(panel.rawValue).font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+                        .padding(.horizontal, 12).frame(height: 30)
+                        .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("automation-panel-\(panel.id)")
+                .accessibilityAddTraits(active ? .isSelected : [])
+            }
+        }
     }
 }
 
@@ -96,68 +148,100 @@ private struct AutomationChain: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ChainSection(title: "When", detail: "Any of these starts a run.") {
-                TriggerCard(model: model, catalog: catalog, draft: draft, jira: jiraTrigger)
-            }
+            DashboardSectionHeader(title: "When", detail: "Any of these starts a run")
+            TriggerCard(model: model, catalog: catalog, draft: draft, jira: jiraTrigger)
             ChainConnector()
-            ChainSection(title: "Only if", detail: filters.isEmpty ? "No filters: every event continues." : "Every filter must pass, top to bottom.") {
+            DashboardSectionHeader(title: "Only if", detail: filters.isEmpty ? "No filters: every event continues" : "Every filter must pass, top to bottom")
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(filters) { step in
-                    StepCard(model: model, step: step, node: catalog.filter(step.type), tint: Theme.warn)
+                    StepCard(model: model, step: step, node: catalog.filter(step.type), glyph: "line.3.horizontal.decrease", tone: .warning)
                 }
                 AddNodeMenu(title: "Add Filter", nodes: catalog.filters) { model.addStep(.filter, type: $0) }
                     .accessibilityIdentifier("automation-add-filter")
             }
             ChainConnector()
-            ChainSection(title: "Then", detail: actions.isEmpty ? "Add at least one action." : "Actions run in order; an error stops the rest.") {
+            DashboardSectionHeader(title: "Then", detail: actions.isEmpty ? "Add at least one action" : "In order; an error stops the rest")
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(actions) { step in
-                    StepCard(model: model, step: step, node: catalog.action(step.type), tint: Theme.success)
+                    StepCard(model: model, step: step, node: catalog.action(step.type), glyph: "arrow.right", tone: .success)
                 }
                 AddNodeMenu(title: "Add Action", nodes: catalog.actions) { model.addStep(.action, type: $0) }
                     .accessibilityIdentifier("automation-add-action")
             }
             if !catalog.variables.isEmpty {
-                Text("Text fields accept \(catalog.variables.map { "{{\($0)}}" }.joined(separator: " ")).")
-                    .font(.caption).foregroundStyle(Theme.textTertiary).padding(.top, 16)
-                    .textSelection(.enabled)
+                Text("Text fields accept \(catalog.variables.map { "{{\($0)}}" }.joined(separator: " "))")
+                    .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    .padding(.top, 28)
             }
         }
     }
 }
 
-private struct ChainSection<Content: View>: View {
-    let title: String
-    let detail: String
-    @ViewBuilder let content: () -> Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title).font(.headline)
-                Text(detail).font(.caption).foregroundStyle(Theme.textSecondary)
-            }
-            content()
-        }
-    }
-}
-
-/// The line that joins one section's cards to the next.
+/// The rule that carries one section down into the next.
 private struct ChainConnector: View {
     var body: some View {
-        Rectangle().fill(Theme.border).frame(width: 2, height: 22).padding(.leading, 18).padding(.vertical, 4)
+        Rectangle().fill(DashboardPalette.hairline).frame(width: 1, height: 32)
+            .padding(.leading, 30).padding(.vertical, 6)
+            .accessibilityHidden(true)
     }
 }
 
+/// An outlined card, like the Dashboard's tiles at a smaller radius for the denser content.
 private struct NodeCard<Content: View>: View {
-    let tint: Color
     @ViewBuilder let content: () -> Content
     var body: some View {
-        HStack(spacing: 0) {
-            Rectangle().fill(tint).frame(width: 3)
-            VStack(alignment: .leading, spacing: 10) { content() }
-                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 14) { content() }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
+    }
+}
+
+/// A node's name line: its glyph, label and summary, then the card's own controls far right.
+private struct NodeTitle<Trailing: View>: View {
+    let glyph: String
+    let tone: ThemeTone
+    let title: String
+    let summary: String?
+    @ViewBuilder let trailing: () -> Trailing
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            AutomationGlyph(symbol: glyph, tone: tone)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13.5, weight: .semibold))
+                if let summary, !summary.isEmpty {
+                    Text(summary).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            trailing()
         }
-        .background(Theme.surfaceHover.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
+    }
+}
+
+/// The Dashboard's outlined square icon button.
+private struct AutomationIconButton: View {
+    let symbol: String
+    let help: String
+    var disabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                .frame(width: 26, height: 26)
+                .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(DashboardPalette.ink2)
+        .opacity(disabled ? 0.4 : 1)
+        .disabled(disabled)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -175,63 +259,78 @@ private struct TriggerCard: View {
     }
 
     var body: some View {
-        NodeCard(tint: Theme.accent) {
+        NodeCard {
             if selected.isEmpty {
-                Text("Choose what starts this automation.").foregroundStyle(Theme.textSecondary)
+                NodeTitle(glyph: "bolt.fill", tone: .accent, title: "No trigger yet", summary: "Choose what starts this automation.") { EmptyView() }
             }
             ForEach(selected) { node in
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(node.label).fontWeight(.medium)
-                        Text(node.summary).font(.caption).foregroundStyle(Theme.textSecondary)
-                    }
-                    Spacer()
-                    Button { model.toggleTrigger(node.type) } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.borderless).help("Remove trigger")
+                NodeTitle(glyph: "bolt.fill", tone: .accent, title: node.label, summary: node.summary) {
+                    AutomationIconButton(symbol: "xmark", help: "Remove trigger") { model.toggleTrigger(node.type) }
                 }
             }
-            ForEach(params) { param in
+            ForEach(AutomationCatalog.visible(params, values: draft.trigger.params)) { param in
                 ParamField(param: param, value: draft.trigger.params[param.key]) { model.setTriggerParam(param.key, $0) }
             }
-            HStack {
-                Menu("Add Trigger") {
-                    ForEach(AutomationCatalog.grouped(catalog.triggers), id: \.group) { group in
-                        Section(group.group) {
-                            ForEach(group.nodes) { node in
-                                Toggle(node.label, isOn: Binding(get: { draft.trigger.types.contains(node.type) },
-                                                                 set: { _ in model.toggleTrigger(node.type) }))
-                            }
+            Menu {
+                ForEach(AutomationCatalog.grouped(catalog.triggers), id: \.group) { group in
+                    Section(group.group) {
+                        ForEach(group.nodes) { node in
+                            Toggle(node.label, isOn: Binding(get: { draft.trigger.types.contains(node.type) },
+                                                             set: { _ in model.toggleTrigger(node.type) }))
                         }
                     }
                 }
-                .fixedSize()
-                .accessibilityIdentifier("automation-add-trigger")
-                Spacer()
+            } label: {
+                OutlinedButtonLabel(title: "Add Trigger", symbol: "plus")
             }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .accessibilityIdentifier("automation-add-trigger")
             if !jira { ProjectScope(model: model, draft: draft) }
         }
     }
 }
 
+/// Which projects' pull requests the trigger listens to, as the Dashboard's filter tags.
 private struct ProjectScope: View {
     let model: AutomationViewModel
     let draft: Automation
     private var all: Bool { draft.trigger.projects.isEmpty }
+    private var projects: [AutomationViewModel.ProjectOption] { model.projects.filter(\.hasGitHub) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("All projects", isOn: Binding(get: { all }, set: { model.setAllProjects($0) }))
-            if !all {
-                ForEach(model.projects.filter(\.hasGitHub)) { project in
-                    Toggle(project.name, isOn: Binding(get: { draft.trigger.projects.contains(project.id) },
-                                                       set: { _ in model.toggleProject(project.id) }))
-                        .padding(.leading, 18)
-                }
-                if model.projects.allSatisfy({ !$0.hasGitHub }) {
-                    Text("No project has a GitHub repository yet.").font(.caption).foregroundStyle(Theme.textSecondary)
+        VStack(alignment: .leading, spacing: 8) {
+            FieldLabel(text: "Projects")
+            FlowRow(spacing: 8, lineSpacing: 8) {
+                ScopeTag(title: "All projects", active: all) { model.setAllProjects(!all) }
+                ForEach(projects) { project in
+                    ScopeTag(title: project.name, active: !all && draft.trigger.projects.contains(project.id)) {
+                        model.toggleProject(project.id)
+                    }
                 }
             }
+            if projects.isEmpty {
+                Text("No project has a GitHub repository yet.").font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+            }
         }
+    }
+}
+
+private struct ScopeTag: View {
+    let title: String
+    let active: Bool
+    let toggle: () -> Void
+    var body: some View {
+        Button(action: toggle) {
+            Text(title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+                .padding(.horizontal, 12).frame(height: 28)
+                .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
@@ -239,34 +338,35 @@ private struct StepCard: View {
     let model: AutomationViewModel
     let step: AutomationStep
     let node: AutomationCatalog.Node?
-    let tint: Color
+    let glyph: String
+    let tone: ThemeTone
 
     var body: some View {
-        NodeCard(tint: tint) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(node?.label ?? step.type).fontWeight(.medium)
-                    if let summary = node?.summary { Text(summary).font(.caption).foregroundStyle(Theme.textSecondary) }
+        NodeCard {
+            NodeTitle(glyph: glyph, tone: tone, title: node?.label ?? step.type, summary: node?.summary) {
+                HStack(spacing: 6) {
+                    AutomationIconButton(symbol: "chevron.up", help: "Move up", disabled: !model.canMove(step.id, by: -1)) {
+                        model.moveStep(step.id, by: -1)
+                    }
+                    AutomationIconButton(symbol: "chevron.down", help: "Move down", disabled: !model.canMove(step.id, by: 1)) {
+                        model.moveStep(step.id, by: 1)
+                    }
+                    AutomationIconButton(symbol: "trash", help: "Remove") { model.removeStep(step.id) }
                 }
-                Spacer()
-                Button { model.moveStep(step.id, by: -1) } label: { Image(systemName: "chevron.up") }
-                    .buttonStyle(.borderless).disabled(!model.canMove(step.id, by: -1)).help("Move up")
-                Button { model.moveStep(step.id, by: 1) } label: { Image(systemName: "chevron.down") }
-                    .buttonStyle(.borderless).disabled(!model.canMove(step.id, by: 1)).help("Move down")
-                Button { model.removeStep(step.id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).help("Remove")
             }
             if node == nil {
-                Text("This app does not know this step. It may come from a newer version.").font(.caption).foregroundStyle(Theme.warn)
+                Text("This app does not know this step. It may come from a newer version.")
+                    .font(.system(size: 12)).foregroundStyle(Theme.warn)
             }
-            ForEach(node?.params ?? []) { param in
+            ForEach(AutomationCatalog.visible(node?.params ?? [], values: step.params)) { param in
                 ParamField(param: param, value: step.params[param.key]) { model.setParam(step: step.id, key: param.key, value: $0) }
             }
             if step.kind == .action {
-                Toggle("Continue if this fails", isOn: Binding(get: { step.continueOnError },
-                                                              set: { model.setContinueOnError(step: step.id, $0) }))
-                    .font(.caption).controlSize(.small)
-                    .help("Record the failure and still run the actions after this one.")
+                Toggle(isOn: Binding(get: { step.continueOnError }, set: { model.setContinueOnError(step: step.id, $0) })) {
+                    Text("Continue if this fails").font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink2)
+                }
+                .toggleStyle(.switch).controlSize(.mini)
+                .help("Record the failure and still run the actions after this one.")
             }
         }
     }
@@ -284,9 +384,29 @@ private struct AddNodeMenu: View {
                 }
             }
         } label: {
-            Label(title, systemImage: "plus")
+            OutlinedButtonLabel(title: title, symbol: "plus")
         }
-        .fixedSize()
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    }
+}
+
+/// The Dashboard's outlined button face, for menus that add to the chain.
+private struct OutlinedButtonLabel: View {
+    let title: String
+    let symbol: String
+    var body: some View {
+        Label(title, systemImage: symbol)
+            .font(.system(size: 12.5, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
+            .padding(.horizontal, 12).frame(height: 30)
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
+            .contentShape(Rectangle())
+    }
+}
+
+private struct FieldLabel: View {
+    let text: String
+    var body: some View {
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
     }
 }
 
@@ -301,34 +421,42 @@ private struct ParamField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             switch param.kind {
             case "bool":
-                Toggle(param.label, isOn: Binding(get: { value?.flag ?? false }, set: { set(.flag($0)) }))
+                Toggle(isOn: Binding(get: { value?.flag ?? false }, set: { set(.flag($0)) })) {
+                    Text(param.label).font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink2)
+                }
+                .toggleStyle(.switch).controlSize(.mini)
             case "enum":
-                Picker(param.label, selection: Binding(get: { value?.text ?? param.options?.first?.value ?? "" },
+                FieldLabel(text: param.label)
+                Picker(param.label, selection: Binding(get: { value?.text ?? param.default?.text ?? param.options?.first?.value ?? "" },
                                                        set: { set(.text($0)) })) {
                     ForEach(param.options ?? [], id: \.value) { Text($0.label).tag($0.value) }
                 }
-                .fixedSize()
+                .labelsHidden().fixedSize()
             case "number":
-                LabeledContent(param.label) {
-                    TextField(param.placeholder ?? "", text: Binding(
-                        get: { value?.text ?? "" },
-                        set: { set(Double($0).map(ParamValue.number) ?? ($0.isEmpty ? .null : .text($0))) }))
-                        .frame(width: 90)
-                }
+                FieldLabel(text: param.label)
+                TextField(param.placeholder ?? "", text: Binding(
+                    get: { value?.text ?? "" },
+                    set: { set(Double($0).map(ParamValue.number) ?? ($0.isEmpty ? .null : .text($0))) }))
+                    .textFieldStyle(.roundedBorder).frame(width: 110)
             case "template", "script":
-                Text(param.label).font(.callout)
+                FieldLabel(text: param.label)
                 TextField(param.placeholder ?? "", text: text, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
                     .lineLimit(param.kind == "script" ? 3...10 : 1...5)
-                    .font(param.kind == "script" ? .system(.body, design: .monospaced) : .body)
+                    .font(param.kind == "script" ? .system(size: 12, design: .monospaced) : .system(size: 13))
             default:
-                Text(param.label).font(.callout)
+                FieldLabel(text: param.label)
                 TextField(param.placeholder ?? "", text: text)
-                    .font(param.kind == "jql" ? .system(.body, design: .monospaced) : .body)
+                    .textFieldStyle(.roundedBorder)
+                    .font(param.kind == "jql" ? .system(size: 12, design: .monospaced) : .system(size: 13))
             }
-            if let help = param.help { Text(help).font(.caption).foregroundStyle(Theme.textSecondary) }
+            if let help = param.help {
+                Text(help).font(.system(size: 11.5)).foregroundStyle(DashboardPalette.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

@@ -207,7 +207,7 @@ async fn automations_round_trip_and_reject_invalid_pipelines() {
     assert!(catalog["triggers"].as_array().is_some_and(|v| v.iter().any(|t| t["type"] == "pr.merged")));
     assert!(catalog["actions"].as_array().is_some_and(|v| v.iter().any(|t| t["type"] == "github.approve")));
 
-    let pipeline = json!({"name":"Approve alice","mode":"shadow",
+    let pipeline = json!({"name":"Approve alice","mode":"live",
         "trigger":{"types":["pr.opened"],"projects":[]},
         "steps":[{"kind":"filter","type":"pr.author","params":{"mode":"in","users":["alice"]}},
                  {"kind":"action","type":"github.approve","params":{}}]});
@@ -252,9 +252,12 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
         .unwrap();
     let id = project["id"].as_str().unwrap().to_owned();
     db.set_pr_snapshot(&id, &json!({"prs":[
-        {"number":7,"title":"Bump deps","author":{"login":"alice"},"baseRefName":"main","isDraft":false,
+        {"number":7,"title":"Bump deps","author":{"login":"alice"},"baseRefName":"main","isDraft":false,"headRefOid":"a1b2c3d4e5",
          "ci":{"status":"completed","conclusion":"success"},"labels":[{"name":"deps"}],"repo":"example/craft"},
-        {"number":8,"title":"Mine","author":{"login":"me"},"baseRefName":"main","isDraft":false,"ci":null,"repo":"example/craft"}
+        {"number":8,"title":"Mine","author":{"login":"me"},"baseRefName":"main","isDraft":false,"headRefOid":"f6e5d4","ci":null,"repo":"example/craft"},
+        {"number":9,"title":"Approved","author":{"login":"alice"},"baseRefName":"main","isDraft":false,"headRefOid":"9a8b7c6d5e",
+         "myReview":{"state":"APPROVED","commit":"9a8b7c6d5e"},
+         "ci":{"status":"completed","conclusion":"success"},"labels":[],"repo":"example/craft"}
     ],"lastSynced":chrono::Utc::now().to_rfc3339(),"error":null})).unwrap();
     let app = build_app(AppState::new(db, None));
     let pipeline = json!({"name":"Approve alice","mode":"off",
@@ -265,7 +268,7 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
                  {"kind":"action","type":"github.add_label","params":{"labels":["auto-approved"]}}]});
 
     let (_, samples) = json_request(&app, "GET", &format!("/api/automations/samples?kind=pr&projects={id}"), Value::Null).await;
-    assert_eq!(samples.as_array().map(Vec::len), Some(2));
+    assert_eq!(samples.as_array().map(Vec::len), Some(3));
 
     let (status, trace) = json_request(&app, "POST", "/api/automations/dry-run",
         json!({"automation":pipeline,"sample":{"kind":"pr","projectId":id,"number":7}})).await;
@@ -284,6 +287,13 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
     assert_eq!(trace["status"], "filtered");
     let statuses: Vec<&str> = trace["steps"].as_array().unwrap().iter().map(|s| s["status"].as_str().unwrap()).collect();
     assert_eq!(statuses, vec!["failed", "skipped", "skipped", "skipped"]);
+
+    // Already approved at its head commit: the approval is not sent again; the rest still runs.
+    let (_, trace) = json_request(&app, "POST", "/api/automations/dry-run",
+        json!({"automation":pipeline,"sample":{"kind":"pr","projectId":id,"number":9}})).await;
+    let statuses: Vec<&str> = trace["steps"].as_array().unwrap().iter().map(|s| s["status"].as_str().unwrap()).collect();
+    assert_eq!(statuses, vec!["passed", "passed", "skipped", "planned"], "{trace}");
+    assert_eq!(trace["steps"][2]["detail"], "you already approved 9a8b7c6");
 
     // Dry runs are never recorded.
     let (_, runs) = json_request(&app, "GET", "/api/automations/runs", Value::Null).await;

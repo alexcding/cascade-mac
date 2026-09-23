@@ -24,6 +24,7 @@ import Observation
         }
     }
     let clis: CLISettingsViewModel
+    let webhooks: WebhookForwardingViewModel
     let diagnostics: DiagnosticsViewModel
     let loginItem: LoginItemViewModel
     let microphone: MicrophoneAccessViewModel
@@ -52,8 +53,9 @@ import Observation
     @ObservationIgnored private var readGeneration = UUID()
 
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
-         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, microphone: MicrophoneAccessViewModel) {
-        self.clis = clis; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
+         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, microphone: MicrophoneAccessViewModel,
+         webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel()) {
+        self.clis = clis; self.webhooks = webhooks; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
         self.resources = resources; self.adBlock = adBlock
     }
@@ -93,7 +95,7 @@ import Observation
         if active && (section == .editor || section == .terminal) { fonts.refresh() } else { _ = fonts.cancelRead() }
         // The app may have been installed or removed since the last look.
         if active && section == .browser { adBlock.refresh() }
-        if active && section == .clis { clis.refresh() } else { clis.cancelReads() }
+        if active && section == .clis { clis.refresh(); webhooks.refresh() } else { clis.cancelReads() }
     }
     func applicationActiveChanged(_ value: Bool) {
         guard !retired else { return }
@@ -159,11 +161,12 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()
         let cliReads = clis.disconnect()
+        webhooks.disconnect()
         microphone.setActive(false)
         let loginMutation = loginItem.cancelRead(), fontRead = fonts.cancelRead(), microphoneRead = microphone.cancelRead()
         await loginMutation?.value
