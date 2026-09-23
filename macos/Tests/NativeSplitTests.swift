@@ -63,31 +63,40 @@ import Testing
 /// collapse; once the toggle has hidden it, nothing offers a grab band over the space it left.
 @MainActor @Test(.timeLimit(.minutes(1))) func nativeSplitLetsOnlyTheToggleCollapseThePane() async {
     let (controller, window) = splitFixture(width: 560)
-    #expect(!controller.splitViewItems[1].canCollapse)
+    let pane = controller.splitViewItems[1]
+    #expect(!pane.canCollapse)
     #expect(controller.splitView(controller.splitView, additionalEffectiveRectOfDividerAt: 0).width > 1)
+    // Hiding and showing are animated; wait for the pane to settle rather than for a fixed time,
+    // which a busy parallel test run can outlast.
     controller.show(false, fraction: fraction(560, in: controller))
-    // Hiding is animated, so wait past the animation before reading the result.
-    try? await Task.sleep(for: .milliseconds(500))
-    window.layoutIfNeeded()
-    #expect(controller.splitViewItems[1].isCollapsed)
+    await settle(window) { pane.isCollapsed }
+    #expect(pane.isCollapsed)
     #expect(controller.splitView(controller.splitView, additionalEffectiveRectOfDividerAt: 0) == .zero)
     // Reopening restores the pane, its width, its grab band and its refusal to be dragged shut.
     controller.show(true, fraction: fraction(560, in: controller))
-    try? await Task.sleep(for: .milliseconds(500))
-    window.layoutIfNeeded()
-    #expect(!controller.splitViewItems[1].isCollapsed)
-    #expect(!controller.splitViewItems[1].canCollapse)
+    await settle(window) { !pane.isCollapsed && !pane.canCollapse && abs(controller.trailingHost.view.frame.width - 560) < 1 }
+    #expect(!pane.isCollapsed)
+    #expect(!pane.canCollapse)
     #expect(abs(controller.trailingHost.view.frame.width - 560) < 1)
     #expect(controller.splitView(controller.splitView, additionalEffectiveRectOfDividerAt: 0).width > 1)
     // And it survives the round trip a second time, from a width the user dragged to.
     controller.show(false, fraction: fraction(560, in: controller))
-    try? await Task.sleep(for: .milliseconds(500))
+    await settle(window) { pane.isCollapsed }
     controller.show(true, fraction: fraction(420, in: controller))
-    try? await Task.sleep(for: .milliseconds(500))
-    window.layoutIfNeeded()
-    #expect(!controller.splitViewItems[1].isCollapsed)
+    await settle(window) { !pane.isCollapsed && !pane.canCollapse && abs(controller.trailingHost.view.frame.width - 420) < 1 }
+    #expect(!pane.isCollapsed)
     #expect(abs(controller.trailingHost.view.frame.width - 420) < 1, "pane \(controller.trailingHost.view.frame.width) of \(controller.splitView.frame.width)")
     window.close()
+}
+
+/// Lays the window out until `condition` holds or five seconds pass; the caller's expectations
+/// then report what it settled on.
+@MainActor private func settle(_ window: NSWindow, _ condition: () -> Bool) async {
+    let deadline = Date().addingTimeInterval(5)
+    repeat {
+        try? await Task.sleep(for: .milliseconds(20))
+        window.layoutIfNeeded()
+    } while !condition() && Date() < deadline
 }
 
 /// The other half of the write-back: a width the controller did not ask for is the user's, and it

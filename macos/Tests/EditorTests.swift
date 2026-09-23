@@ -75,10 +75,10 @@ actor FileFixture: FileDocumentService {
     #expect(model.loaded && model.error == nil)
     surface.edit("first")
     let first = Task { await model.save() }
-    for _ in 0..<100 {
-        if await service.writes.count == 1 { break }
-        try await Task.sleep(for: .milliseconds(5))
-    }
+    // Wait until the first write has begun, by a deadline rather than a fixed count: a busy
+    // parallel test run can take longer than a few hundred milliseconds to get there.
+    let deadline = Date().addingTimeInterval(3)
+    while await service.writes.count != 1 && Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
     surface.edit("new edit during save")
     let second = Task { await model.save() }
     #expect(await first.value)

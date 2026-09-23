@@ -81,8 +81,15 @@ actor JiraFixture: JiraService {
     try await waitForJira { model.baseURL != nil }
     #expect(model.filters["project"] == "REC" && model.rows.map(\.key) == ["REC-2"])
     #expect(model.options(.status) == ["Done", "To Do"])
-    let saved = await service.saved
-    #expect(JiraTicketsViewModel.parseFilters(try #require(saved.last)) == ["project": "REC", "status": "Done"])
+    // The preference is written asynchronously; wait for the latest write rather than reading once.
+    let expected = ["project": "REC", "status": "Done"]
+    let deadline = Date().addingTimeInterval(3)
+    var saved = await service.saved
+    while saved.last.map(JiraTicketsViewModel.parseFilters) != expected && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+        saved = await service.saved
+    }
+    #expect(JiraTicketsViewModel.parseFilters(try #require(saved.last)) == expected)
     await service.fail(true)
     model.refresh()
     try await waitForJira { !model.loading }
