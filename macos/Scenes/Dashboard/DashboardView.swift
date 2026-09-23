@@ -31,8 +31,9 @@ struct DashboardView: View {
                     }
                 }
             }
-            .padding(.bottom, 40).padding(.trailing, 16)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            // The page inset lives inside the scroll view, so its scroller runs down the window's edge.
+            .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("native-dashboard")
         .searchable(text: $model.query, placement: .toolbar,
@@ -122,7 +123,8 @@ struct DashboardView: View {
         let drafts = mine.filter { $0.pr.isDraft == true }.count
         let approved = mine.filter { $0.pr.reviewDecision == "APPROVED" }.count
         return DashboardStatTile(title: "Open pull requests", value: "\(mine.count)",
-                                 footnote: "\(drafts) draft\(drafts == 1 ? "" : "s") · \(approved) approved") {
+                                 footnote: "\(drafts) draft\(drafts == 1 ? "" : "s") · \(approved) approved",
+                                 open: { model.selectTab(.pullRequests) }) {
             if failing > 0 { DashboardBadge("\(failing) failing", tone: .danger) }
         } visual: {
             DashboardChecksBars(rows: mine)
@@ -137,7 +139,8 @@ struct DashboardView: View {
         var authors: [String] = []
         for login in reviews.map(\.author) where !login.isEmpty && !authors.contains(login) { authors.append(login) }
         return DashboardStatTile(title: "Waiting on you", value: "\(reviews.count)",
-                                 footnote: reviews.isEmpty ? "No review requests" : "across \(repos) repo\(repos == 1 ? "" : "s")") {
+                                 footnote: reviews.isEmpty ? "No review requests" : "across \(repos) repo\(repos == 1 ? "" : "s")",
+                                 open: { model.selectTab(.reviews) }) {
             if let oldest { DashboardBadge("oldest \(oldest.ageLabel)", tone: .warn) }
         } visual: {
             DashboardAvatarStack(logins: Array(authors.prefix(3)))
@@ -152,7 +155,8 @@ struct DashboardView: View {
         let loading = model.ticketsLoading && tickets.isEmpty
         let counts = TicketStage.allCases.map { stage in (stage, tickets.filter { $0.stage == stage }.count) }
         return DashboardStatTile(title: "Tickets assigned", value: loading ? "–" : "\(tickets.count)",
-                                 footnote: counts.map { "\($0.1) \($0.0.title.lowercased())" }.joined(separator: " · ")) {
+                                 footnote: counts.map { "\($0.1) \($0.0.title.lowercased())" }.joined(separator: " · "),
+                                 open: { model.showTickets() }) {
             if urgent > 0 {
                 Button { model.showTickets(.urgent) } label: { DashboardBadge("\(urgent) urgent", tone: .danger) }
                     .buttonStyle(.plain)
@@ -468,6 +472,9 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
     let title: String
     let value: String
     let footnote: String
+    /// Where a click on the tile goes: the tab that lists what it counts. Controls inside the tile,
+    /// such as the urgent badge, keep their own clicks.
+    var open: (() -> Void)? = nil
     @ViewBuilder let badge: Badge
     @ViewBuilder let visual: Visual
 
@@ -491,7 +498,25 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
         .padding(.horizontal, 20).padding(.vertical, 18)
         .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        // A tap rather than a Button, so the tile's own buttons stay separate controls.
+        .onTapGesture { open?() }
         .accessibilityElement(children: .contain)
+        .modifier(DashboardTileAction(open: open))
+    }
+}
+
+/// Makes a tile a VoiceOver button only when it has somewhere to go, so the spend tile offers no
+/// action that does nothing.
+private struct DashboardTileAction: ViewModifier {
+    let open: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let open {
+            content.accessibilityAddTraits(.isButton).accessibilityAction { open() }
+        } else {
+            content
+        }
     }
 }
 

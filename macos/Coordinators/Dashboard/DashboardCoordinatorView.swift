@@ -9,7 +9,6 @@ struct DashboardCoordinatorView: View {
     var body: some View {
         let pushed = coordinator.path.last
         (pushed ?? coordinator.root).view()
-            .padding(.horizontal, 28).padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             // The tabs replaced the back button; its Command-[ stays, from a button nobody sees.
             .background {

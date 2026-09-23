@@ -32,7 +32,7 @@ struct DashboardTicketsView: View {
                         linkedPRs: model.linkedPRs)
                 }
             }
-            .padding(.bottom, 40).padding(.trailing, 16)
+            .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("dashboard-tickets")
         .searchable(text: $model.query, placement: .toolbar, prompt: "Search tickets")
