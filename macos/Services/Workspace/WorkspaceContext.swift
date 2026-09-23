@@ -626,8 +626,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         }
     }
     private func workspace(id: String, url: String, title: String, legacy: SavedTab?) -> WorkspaceContext {
-        let context = contexts[id] ?? WorkspaceContext(id: id, sourceURL: url, title: title,
-                                                       snapshot: saved[id] ?? legacy.map(ContextSnapshot.importing), pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
+        // An open context is already wired. Writing `contexts` or its observed properties again
+        // would invalidate every view of the workspace on screen, on every sidebar switch.
+        if let existing = contexts[id] { prepareContext(existing); return existing }
+        let context = WorkspaceContext(id: id, sourceURL: url, title: title,
+                                       snapshot: saved[id] ?? legacy.map(ContextSnapshot.importing), pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
         contexts[id] = context
         context.globalHistory = browserHistory
         context.bookmarks = browserBookmarks

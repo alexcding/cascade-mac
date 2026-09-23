@@ -189,3 +189,31 @@ private struct InertRemovalService: SessionRemoving {
     coordinator.cancelRemoval(id: request.id)
     #expect(coordinator.removal == nil && coordinator.removalFailure == nil && coordinator.canPresent)
 }
+
+/// Switching back to a session that is already open is what the sidebar does all day. It must
+/// not write anything the workspace views read — each write redraws the whole workspace, its
+/// toolbar and the menus — while a context the viewer really let go of is still pruned.
+@MainActor @Test func reselectingAnOpenSessionWritesNothingItsViewsRead() async throws {
+    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                                     selectionStore: TransientSidebarSelectionStore(.overview))
+    let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
+    _ = coordinator.makeRoot(factory: RecordingRootFactory(), runtime: runtime, shell: shell, viewer: viewer)
+    // The same wiring as AppViewModel: every context gets a workspace model bound to a coordinator.
+    viewer.prepareContext = { [weak coordinator] context in
+        context.configureWorkspace(factory: NativeWorkspaceFeatureFactory(), service: runtime)
+        if let model = context.workspaceViewModel { coordinator?.bindWorkspace(model, context: context, runtime: runtime) }
+    }
+    let one = viewer.select(id: "task:one", url: "", title: "One")
+    let two = viewer.select(id: "task:two", url: "", title: "Two")
+    let bound = try #require(coordinator.workspaceCoordinator(for: one))
+    #expect(coordinator.workspaceCoordinator(for: two) != nil && coordinator.workspaceCoordinators.count == 2)
+    var again: WorkspaceContext?
+    #expect(!invalidates({ _ = viewer.contexts; _ = one.restoring; _ = coordinator.workspaceCoordinators },
+                         by: { again = viewer.select(id: "task:one", url: "", title: "One") }))
+    #expect(again === one && viewer.active === one && coordinator.workspaceCoordinator(for: one) === bound)
+    // Letting a context go prunes its coordinator on the way out (contextRemoved -> refreshRoot).
+    await viewer.remove(id: "task:two")
+    #expect(coordinator.workspaceCoordinator(for: two) == nil && coordinator.workspaceCoordinators.count == 1)
+}

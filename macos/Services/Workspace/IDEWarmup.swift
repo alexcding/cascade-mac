@@ -89,7 +89,10 @@ struct APIIDEWarmupService: IDEWarmupServing {
 
     private func apply(_ state: IDEWarmupState) {
         guard !state.worktree.isEmpty else { return }
-        if state.status == "ready" && state.label.isEmpty { states[state.worktree] = nil; return }
-        states[state.worktree] = state
+        // Every workspace view reads `states`, and each sidebar switch asks again, so an answer
+        // that changes nothing — `ready` for a worktree that already was — must not write.
+        let next = state.status == "ready" && state.label.isEmpty ? nil : state
+        guard states[state.worktree] != next else { return }
+        states[state.worktree] = next
     }
 }

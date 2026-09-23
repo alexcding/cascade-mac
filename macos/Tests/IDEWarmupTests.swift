@@ -55,6 +55,22 @@ private actor WarmupFixture: IDEWarmupServing {
     #expect(store.state(for: "/w/three").failed)
 }
 
+/// Every sidebar switch asks for a warm-up again and every workspace view reads the store, so an
+/// answer that changes nothing must not redraw them. One that does change something still must.
+@MainActor @Test func anUnchangedWarmUpAnswerDoesNotInvalidateTheStore() {
+    let store = IDEWarmupStore()
+    let read = { _ = store.state(for: "/w/six") }
+    let ready = ServerEvent(type: "ide-warmup", projectId: nil, id: nil, worktree: "/w/six",
+                            status: "ready", label: "", message: "")
+    let running = ServerEvent(type: "ide-warmup", projectId: nil, id: nil, worktree: "/w/six",
+                              status: "running", label: "Resolving Swift packages", message: "")
+    #expect(!invalidates(read, by: { store.receive(ready) }))
+    #expect(invalidates(read, by: { store.receive(running) }))
+    #expect(!invalidates(read, by: { store.receive(running) }))
+    #expect(invalidates(read, by: { store.receive(ready) }))
+    #expect(store.state(for: "/w/six").status == "ready" && !store.state(for: "/w/six").running)
+}
+
 /// A backend that restarted has no warm-up running, so a state left from the old one would
 /// claim work nobody is doing.
 @MainActor @Test func reconnectingDropsWhatTheOldBackendReported() async {

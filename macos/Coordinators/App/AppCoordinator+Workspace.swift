@@ -31,7 +31,11 @@ extension AppCoordinator {
     func pruneWorkspaces() {
         guard let viewer = rootModel?.viewer else { return }
         let live = viewer.contexts.values
-        workspaceCoordinators.removeAll { child in !live.contains { $0 === child.context } }
+        func stale(_ child: SessionWorkspaceCoordinator) -> Bool { !live.contains { $0 === child.context } }
+        // `removeAll` writes even when it removes nothing, and this runs several times per sidebar
+        // switch; the Product menu reads this list, so only a real removal may touch it.
+        guard workspaceCoordinators.contains(where: stale) else { return }
+        workspaceCoordinators.removeAll(where: stale)
     }
 
     func handleWorkspace(_ action: SessionWorkspaceViewModel.Action, in context: WorkspaceContext) {
