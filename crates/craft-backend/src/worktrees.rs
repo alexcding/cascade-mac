@@ -18,7 +18,9 @@ use crate::{cli, local::resolve_path, AppState};
 pub(crate) const LOCATION: &str = "worktree_location";
 pub(crate) const ROOT: &str = "worktree_root";
 pub(crate) const INCLUDE: &str = "worktree_include";
-pub(crate) const SETUP: &str = "worktree_setup";
+/// The project fields (as the project JSON names them) for its own patterns and setup script.
+const PROJECT_INCLUDE: &str = "worktreeInclude";
+const PROJECT_SETUP: &str = "worktreeSetup";
 pub(crate) const DELETE_BRANCH: &str = "worktree_delete_branch";
 pub(crate) const FETCH: &str = "worktree_fetch";
 
@@ -111,12 +113,30 @@ pub(crate) async fn exclude_inside_root(dir: &str) -> io::Result<()> {
     fs::write(&file, format!("{current}{separator}/.worktrees/\n"))
 }
 
-/// Include patterns in gitignore syntax: the repo's `.worktreeinclude` when it has one, else the
-/// ones from Settings, else `.env*`. Comments and blank lines are dropped here, since each
-/// pattern goes to git as its own `-x`.
+/// A field of the project whose workspace is `dir`, when it holds more than whitespace. Worktree
+/// requests carry the checkout path, not a project id; one repo per project makes that the key.
+fn project_field(app: &AppState, dir: &Path, field: &str) -> Option<String> {
+    let dir = resolve_path(&dir.to_string_lossy());
+    app.db
+        .projects()
+        .ok()?
+        .into_iter()
+        .find(|project| {
+            project["workspace"]
+                .as_str()
+                .is_some_and(|workspace| !workspace.is_empty() && resolve_path(workspace.trim_end_matches('/')) == dir)
+        })
+        .and_then(|project| project[field].as_str().map(str::to_owned))
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// Include patterns in gitignore syntax, from the first of: the repo's `.worktreeinclude`, the
+/// project's own patterns, the default in Settings, `.env*`. Comments and blank lines are dropped
+/// here, since each pattern goes to git as its own `-x`.
 fn include_patterns(app: &AppState, source: &Path) -> Vec<String> {
     let text = fs::read_to_string(source.join(INCLUDE_FILE))
         .ok()
+        .or_else(|| project_field(app, source, PROJECT_INCLUDE))
         .or_else(|| config(app, INCLUDE))
         .unwrap_or_else(|| DEFAULT_INCLUDE.to_owned());
     parse_patterns(&text)
@@ -268,10 +288,11 @@ fn copy_one(from: &Path, to: &Path) -> io::Result<()> {
     }
 }
 
-/// Runs Settings' setup command in the new worktree, in the background. It never blocks or fails
-/// New Session: the outcome goes to Activity, and a `worktree-setup` event says when it is done.
+/// Runs the project's setup script in the new worktree, in the background. It never blocks or
+/// fails New Session: the outcome goes to Activity, and a `worktree-setup` event says when it is
+/// done. The script is per project only, since one command rarely suits every repo.
 pub(crate) fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch: &str) {
-    let Some(command) = config(app, SETUP).filter(|v| !v.trim().is_empty()) else {
+    let Some(command) = project_field(app, Path::new(source), PROJECT_SETUP) else {
         return;
     };
     let app = app.clone();

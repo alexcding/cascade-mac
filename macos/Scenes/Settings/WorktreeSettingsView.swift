@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Settings → Worktrees: where a session's new worktree is made, what it gets before the agent
-/// starts, and what removing it also removes. Every field is a config key the backend reads when
-/// the next worktree is made (`crates/craft-backend/src/worktrees.rs`), so nothing here touches
-/// a worktree that already exists.
+/// Settings → Worktrees: the options that are about the machine rather than the repo — where a
+/// session's new worktree is made, whether it fetches first, the default files it gets, and what
+/// removing it also removes. A project's setup script and its own patterns live in its settings.
+/// Every field is a config key the backend reads when the next worktree is made
+/// (`crates/craft-backend/src/worktrees.rs`), so nothing here touches a worktree that already exists.
 struct WorktreeSettingsView<SaveRow: View>: View {
     @Bindable var model: SettingsViewModel
     @ViewBuilder var saveRow: SaveRow
@@ -32,21 +33,13 @@ struct WorktreeSettingsView<SaveRow: View>: View {
                         .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-fetch")
                 }
             }
-            Section("Files to copy") {
-                Text("Ignored files a new worktree doesn't get from git, such as .env. Patterns use .gitignore syntax, and only files git ignores are copied. Files already in the worktree are never overwritten. A .worktreeinclude file at the repository root takes the place of these patterns.")
+            Section("Default files to copy") {
+                Text("Ignored files a new worktree doesn't get from git, such as .env. Patterns use .gitignore syntax, and only files git ignores are copied. Files already in the worktree are never overwritten. A project's own patterns (in its settings) or a .worktreeinclude file at the repository root take the place of these. The setup script is set per project.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
                 TextEditor(text: $model.draft.worktreeInclude)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 72)
                     .accessibilityIdentifier("settings-worktree-include")
-            }
-            Section("Setup") {
-                SettingsRow(title: "Setup command",
-                            caption: "Runs in each new worktree after the files are copied, without holding up the session. $CRAFT_ROOT_PATH is the project checkout and $CRAFT_WORKTREE_PATH is the new worktree. Failures show in Activity.") {
-                    TextField("npm ci", text: $model.draft.worktreeSetup)
-                        .font(.system(.body, design: .monospaced))
-                        .accessibilityIdentifier("settings-worktree-setup")
-                }
             }
             Section("Cleanup") {
                 SettingsRow(title: "Delete the branch when removing a worktree",
@@ -54,8 +47,9 @@ struct WorktreeSettingsView<SaveRow: View>: View {
                     Toggle("Delete merged branch", isOn: $model.draft.worktreeDeleteBranch)
                         .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-delete-branch")
                 }
-                saveRow
             }
+            // The whole page's Save, not Cleanup's: its own group, so it reads as the form's footer.
+            Section { saveRow }
         }.disabled(!model.loaded || model.saving)
     }
 

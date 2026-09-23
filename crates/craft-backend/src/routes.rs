@@ -837,11 +837,11 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
             Value::String(value.as_str().unwrap_or_default().trim().to_uppercase()),
         );
     }
-    if let Some(value) = body.get("fixVersionScript") {
-        patch.insert(
-            "fixVersionScript".into(),
-            Value::String(value.as_str().unwrap_or_default().into()),
-        );
+    // Scripts and patterns are kept as typed: their whitespace and line breaks are content.
+    for key in ["fixVersionScript", "worktreeSetup", "worktreeInclude"] {
+        if let Some(value) = body.get(key) {
+            patch.insert(key.into(), Value::String(value.as_str().unwrap_or_default().into()));
+        }
     }
     for key in ["forwardWebhooks", "fixVersionEnabled"] {
         if let Some(value) = body.get(key) {

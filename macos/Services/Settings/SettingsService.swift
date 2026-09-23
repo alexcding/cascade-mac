@@ -9,7 +9,6 @@ struct AppConfigDraft: Equatable, Sendable {
     var worktreeLocation = WorktreeLocation.sibling
     var worktreeRoot = ""
     var worktreeInclude = WorktreeLocation.defaultInclude
-    var worktreeSetup = ""
     var worktreeDeleteBranch = false
     var worktreeFetch = false
 
@@ -22,7 +21,6 @@ struct AppConfigDraft: Equatable, Sendable {
         worktreeLocation = values["worktree_location"].flatMap(WorktreeLocation.init(rawValue:)) ?? .sibling
         worktreeRoot = values["worktree_root"] ?? ""
         worktreeInclude = values["worktree_include"] ?? WorktreeLocation.defaultInclude
-        worktreeSetup = values["worktree_setup"] ?? ""
         worktreeDeleteBranch = values["worktree_delete_branch"] == "true"
         worktreeFetch = values["worktree_fetch"] == "true"
     }
@@ -33,7 +31,6 @@ struct AppConfigDraft: Equatable, Sendable {
          "worktree_location": worktreeLocation.rawValue,
          "worktree_root": worktreeRoot.trimmingCharacters(in: .whitespacesAndNewlines),
          "worktree_include": worktreeInclude,
-         "worktree_setup": worktreeSetup.trimmingCharacters(in: .whitespacesAndNewlines),
          "worktree_delete_branch": worktreeDeleteBranch ? "true" : "false",
          "worktree_fetch": worktreeFetch ? "true" : "false"]
     }
@@ -106,7 +103,7 @@ struct APISettingsService: SettingsService {
 /// including Jira; System is the read-only diagnostics; Activity is the event log, which has its
 /// own coordinator and is not a form.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General", browser = "Browser", terminal = "Terminal", editor = "Text Editor", worktrees = "Worktrees", clis = "Integrations", shortcuts = "Shortcuts", system = "System", activity = "Activity"
+    case general = "General", browser = "Browser", worktrees = "Worktrees", terminal = "Terminal", editor = "Text Editor", clis = "Integrations", shortcuts = "Shortcuts", system = "System", activity = "Activity"
     var id: String { rawValue }
 }
 

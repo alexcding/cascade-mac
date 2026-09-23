@@ -136,6 +136,31 @@ async fn fetch_before_create_is_opt_in_and_cuts_from_the_fetched_tip() {
     assert_eq!(git(Path::new(made["path"].as_str().unwrap()), &["rev-parse", "HEAD"]), tip);
 }
 
+#[tokio::test]
+async fn project_patterns_beat_the_default_and_a_worktreeinclude_beats_both() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    let path = dir.to_str().unwrap();
+    post(&app, "/api/config", json!({"worktree_include":".env"})).await;
+    let (status, _) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":path,"worktreeInclude":"config/*.local"})).await;
+    assert_eq!(status, StatusCode::OK);
+    // Another project's patterns never apply here.
+    post(&app, "/api/projects", json!({"name":"Other","repo":"example/other","workspace":root.join("other").to_str().unwrap(),"worktreeInclude":".env.local"})).await;
+
+    let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"project","create":true})).await;
+    let tree = PathBuf::from(made["path"].as_str().unwrap());
+    assert!(tree.join("config/app.local").exists());
+    assert!(!tree.join(".env").exists() && !tree.join(".env.local").exists());
+
+    fs::write(dir.join(".worktreeinclude"), ".env.local\n").unwrap();
+    let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"repo-file","create":true})).await;
+    let tree = PathBuf::from(made["path"].as_str().unwrap());
+    assert!(tree.join(".env.local").exists());
+    assert!(!tree.join("config/app.local").exists());
+}
+
 /// Enough paths to fill both pipes of `check-ignore --stdin` many times over: a write that has
 /// to finish before the output is read would hang New Session here.
 #[tokio::test]
@@ -185,7 +210,10 @@ async fn setup_runs_in_the_new_worktree_and_removal_deletes_only_merged_branches
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
     let path = dir.to_str().unwrap();
-    post(&app, "/api/config", json!({"worktree_setup":"printf %s \"$CRAFT_ROOT_PATH\" > setup-ran","worktree_delete_branch":"true"})).await;
+    // The setup script is the project's own; the branch cleanup is global.
+    let (status, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":format!("{path}/"),"worktreeSetup":"printf %s \"$CRAFT_ROOT_PATH\" > setup-ran"})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    post(&app, "/api/config", json!({"worktree_delete_branch":"true"})).await;
 
     let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"merged","create":true})).await;
     let merged = PathBuf::from(made["path"].as_str().unwrap());

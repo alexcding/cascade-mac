@@ -64,6 +64,10 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var mergeTransition: String? = nil
     var fixVersionEnabled: Bool? = nil
     var fixVersionScript: String? = nil
+    /// Run in each new worktree after its files are copied; empty runs nothing.
+    var worktreeSetup: String? = nil
+    /// This project's files-to-copy patterns; empty uses the default in Settings → Worktrees.
+    var worktreeInclude: String? = nil
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots

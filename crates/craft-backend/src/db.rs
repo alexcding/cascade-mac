@@ -110,13 +110,14 @@ impl Database {
             .unwrap_or_else(|| json!([]))
             .to_string();
         self.durable().execute(
-            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,workflows,ide,ide_cmd,ide_target,run_scheme,run_sim,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,workflows,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
             params![
                 id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"), get("jql"),
                 get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
                 bool_int(patch.get("fixVersionEnabled"), false), get("fixVersionPrefix"),
                 get("fixVersionScript"), workflows, get("ide"), get("ideCmd"), get("ideTarget"),
-                get("runScheme"), get("runSim"), created_at,
+                get("runScheme"), get("runSim"), get("worktreeSetup"), get("worktreeInclude"),
+                created_at,
             ],
         )?;
         self.project(&id)?
@@ -148,6 +149,8 @@ impl Database {
             ("ideTarget", "ide_target", FieldKind::String),
             ("runScheme", "run_scheme", FieldKind::String),
             ("runSim", "run_sim", FieldKind::String),
+            ("worktreeSetup", "worktree_setup", FieldKind::String),
+            ("worktreeInclude", "worktree_include", FieldKind::String),
         ];
         let mut sets = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
@@ -811,6 +814,8 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE projects ADD COLUMN ide TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN ide_cmd TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN ide_target TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE projects ADD COLUMN worktree_setup TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE projects ADD COLUMN worktree_include TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN run_scheme TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN run_sim TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
@@ -893,6 +898,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         "fixVersionScript": text(row,"fix_version_script")?, "workflows": parse_json(&text(row,"workflows")?, json!([])),
         "ide": text(row,"ide")?, "ideCmd": text(row,"ide_cmd")?, "ideTarget": text(row,"ide_target")?,
         "runScheme": text(row,"run_scheme")?, "runSim": text(row,"run_sim")?,
+        "worktreeSetup": text(row,"worktree_setup")?, "worktreeInclude": text(row,"worktree_include")?,
     }))
 }
 
