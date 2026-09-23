@@ -358,6 +358,10 @@ python3 macos/scripts/package-direct.py \
   --notary-profile CRAFT_NOTARY
 ```
 
+Instead of a Keychain profile, `--notary-key AuthKey_ID.p8 --notary-key-id ID
+--notary-issuer ISSUER` submits with an App Store Connect API key directly. It
+never touches the Keychain, so it suits a runner with no one to answer a prompt.
+
 The script stages the input bundle and produces `Craft.app`, `Craft.zip`,
 `Craft.dmg`, and `release.json` with checksums. Signed mode signs embedded code,
 submits for notarization, and staples the app and disk image. It does not install

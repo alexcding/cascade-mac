@@ -62,9 +62,9 @@ def archive(app, target):
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", app, target)
 
 
-def notarize(artifact, profile):
-    response = subprocess.check_output(["xcrun", "notarytool", "submit", str(artifact),
-                                        "--keychain-profile", profile, "--wait", "--output-format", "json"], text=True)
+def notarize(artifact, credentials):
+    response = subprocess.check_output(["xcrun", "notarytool", "submit", str(artifact), *credentials,
+                                        "--wait", "--output-format", "json"], text=True)
     result = json.loads(response)
     if result.get("status") != "Accepted":
         raise RuntimeError(f"Notarization {result.get('id', '')}: {result.get('status', 'unknown')}")
@@ -82,14 +82,28 @@ def main():
     signing = parser.add_mutually_exclusive_group(required=True)
     signing.add_argument("--local", action="store_true", help="Ad-hoc app for local review; no Apple submission")
     signing.add_argument("--identity", help="Developer ID Application signing identity")
-    parser.add_argument("--notary-profile", help="Existing notarytool Keychain profile; required for distribution")
+    parser.add_argument("--notary-profile", help="Existing notarytool Keychain profile")
+    # An App Store Connect API key, used as is: nothing is read from or written to the Keychain,
+    # so a noninteractive session cannot be refused.
+    parser.add_argument("--notary-key", type=Path, help="App Store Connect API key (.p8); instead of a profile")
+    parser.add_argument("--notary-key-id", help="The API key's ID")
+    parser.add_argument("--notary-issuer", help="The API key's issuer ID")
     args = parser.parse_args()
     app = args.app.resolve()
     destination = args.output.resolve()
-    if args.local and args.notary_profile:
+    key = (args.notary_key, args.notary_key_id, args.notary_issuer)
+    if any(key) and not all(key):
+        parser.error("--notary-key, --notary-key-id and --notary-issuer go together")
+    if all(key) and args.notary_profile:
+        parser.error("Choose a notary Keychain profile or an API key, not both")
+    if all(key) and not args.notary_key.is_file():
+        parser.error(f"No API key at {args.notary_key}")
+    credentials = (["--key", str(args.notary_key), "--key-id", args.notary_key_id, "--issuer", args.notary_issuer]
+                   if all(key) else ["--keychain-profile", args.notary_profile] if args.notary_profile else None)
+    if args.local and credentials:
         parser.error("Local packaging does not submit to Apple")
-    if not args.local and (not args.identity.startswith("Developer ID Application:") or not args.notary_profile):
-        parser.error("Distribution needs a Developer ID Application identity and a notary Keychain profile")
+    if not args.local and (not args.identity.startswith("Developer ID Application:") or not credentials):
+        parser.error("Distribution needs a Developer ID Application identity and a notary Keychain profile or API key")
     if destination == app or app in destination.parents:
         parser.error("Output must be outside the input app")
     if destination.exists():
@@ -131,7 +145,7 @@ def main():
         zip_path = result / "Craft.zip"
         archive(staged_app, zip_path)
         if not args.local:
-            notarize(zip_path, args.notary_profile)
+            notarize(zip_path, credentials)
             run("xcrun", "stapler", "staple", staged_app)
             run("xcrun", "stapler", "validate", staged_app)
             zip_path.unlink()
@@ -145,7 +159,7 @@ def main():
             "-format", "UDZO", "-ov", dmg)
         if not args.local:
             run("codesign", "--sign", args.identity, "--timestamp", dmg)
-            notarize(dmg, args.notary_profile)
+            notarize(dmg, credentials)
             run("xcrun", "stapler", "staple", dmg)
             run("xcrun", "stapler", "validate", dmg)
         manifest = {"bundleID": info["CFBundleIdentifier"],
