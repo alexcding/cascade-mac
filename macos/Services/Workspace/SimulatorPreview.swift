@@ -69,6 +69,15 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         start(quietly: false)
     }
 
+    /// Craft came back to the front, perhaps from a terminal that just installed Node: a preview
+    /// that was not set up asks again. Quietly, so a check that still finds nothing leaves the
+    /// panel as it was; one that gets further than that check shows that it is starting.
+    func applicationBecameActive() {
+        // Not while a check is still out: that one answers for this activation too.
+        guard !retired, udid != nil, state == .unavailable, answered == generation else { return }
+        start(quietly: true, revealAfter: .milliseconds(400))
+    }
+
     /// The page itself failed to load or went away: the stream is gone, so offer Try Again.
     func pageFailed(_ message: String) {
         guard !retired, case .live = state else { return }
@@ -81,19 +90,31 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         retired = true; generation = UUID(); state = .idle
     }
 
-    /// `quietly` keeps a live page on screen while the backend confirms it.
-    private func start(quietly: Bool) {
+    /// `quietly` keeps what is on screen while the backend answers: a live page it confirms, or
+    /// a "not set up" it may only confirm again. `revealAfter` shows the spinner after all when
+    /// the answer takes that long, since then something is really starting.
+    private func start(quietly: Bool, revealAfter delay: Duration? = nil) {
         guard let udid else { return }
         let generation = UUID(); self.generation = generation
         if !quietly { state = .starting }
+        if let delay {
+            Task { [weak self] in
+                try? await Task.sleep(for: delay)
+                guard let self, !self.retired, self.generation == generation, self.answered != generation else { return }
+                self.state = .starting
+            }
+        }
         Task { [weak self, service] in
             let result: State
             do { result = .live(try await service.start(udid: udid)) }
             catch { result = Self.state(for: error) }
             guard let self, !self.retired, self.generation == generation else { return }
+            self.answered = generation
             self.state = result
         }
     }
+    /// The start the backend has answered, so a late spinner does not cover its answer.
+    private var answered: UUID?
 
     /// The backend reports a missing Node with this wording (`sim_preview.rs`, `MISSING`).
     nonisolated static func state(for error: Error) -> State {

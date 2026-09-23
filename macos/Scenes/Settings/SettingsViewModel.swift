@@ -100,6 +100,8 @@ import Observation
         resources.setForeground(value)
         if value && active && section == .general { loginItem.refresh(); microphone.refresh() }
         if value && active && section == .browser { adBlock.refresh() }
+        // A tool installed from a terminal shows up on return, without pressing Refresh.
+        if value && active && section == .clis { clis.refresh() }
     }
     var canSave: Bool { !retired && loaded && dirty && !saving && service != nil && draft.validationError == nil }
     func connect(_ service: any SettingsService) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WebKit
 
@@ -25,9 +26,10 @@ struct SimulatorPanelView: View {
                 ContentUnavailableView {
                     Label("Simulator preview is not set up", systemImage: "iphone.slash")
                 } description: {
-                    Text("It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager.")
+                    Text("It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Craft checks again when you come back to it.")
                 } actions: {
                     Button("Open Integrations", action: openIntegrations)
+                    Button("Try Again", action: model.retry)
                 }
             case .failed(let message):
                 ContentUnavailableView {
@@ -42,6 +44,9 @@ struct SimulatorPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)
         .accessibilityIdentifier("workspace-simulator-panel")
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.applicationBecameActive()
+        }
     }
 }
 

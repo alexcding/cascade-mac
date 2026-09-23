@@ -47,6 +47,85 @@ private final class SimulatorPreviewFixture: SimulatorPreviewing, @unchecked Sen
     #expect(model.state == .unavailable)
 }
 
+private let noNode = BackendError.operation("The simulator preview needs Node.js 20 or later. See Settings → Integrations.")
+
+/// Node installed from a terminal while the panel said "not set up": coming back to Craft is
+/// enough, with no new Run.
+@MainActor @Test func anUnavailablePreviewTriesAgainWhenCraftComesBack() async {
+    let service = SimulatorPreviewFixture()
+    service.results["udid-node"] = .failure(noNode)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-node")
+    await waitFor(model) { $0 == .unavailable }
+    let url = URL(string: "http://127.0.0.1:3101")!
+    service.results["udid-node"] = .success(url)
+    model.applicationBecameActive()
+    await waitFor(model) { $0 == .live(url) }
+    #expect(model.state == .live(url) && service.starts == ["udid-node", "udid-node"])
+}
+
+/// Still missing: the quiet check leaves "not set up" on screen and never flashes a spinner.
+@MainActor @Test func aQuietCheckThatStillFindsNothingLeavesThePanelAlone() async throws {
+    let service = SimulatorPreviewFixture()
+    service.results["udid-quiet"] = .failure(noNode)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-quiet")
+    await waitFor(model) { $0 == .unavailable }
+    model.applicationBecameActive()
+    for _ in 0..<60 {
+        #expect(model.state == .unavailable)
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(model.state == .unavailable && service.starts.count == 2)
+}
+
+/// A check that gets past "is Node there" is really starting, and the panel says so.
+@MainActor @Test func aSlowCheckShowsThatThePreviewIsStarting() async {
+    let service = SimulatorPreviewFixture()
+    service.results["udid-slow"] = .failure(noNode)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-slow")
+    await waitFor(model) { $0 == .unavailable }
+    let url = URL(string: "http://127.0.0.1:3102")!
+    service.results["udid-slow"] = .success(url)
+    service.delays["udid-slow"] = 900_000_000
+    model.applicationBecameActive()
+    #expect(model.state == .unavailable)
+    await waitFor(model) { $0 == .starting }
+    #expect(model.state == .starting)
+    await waitFor(model) { $0 == .live(url) }
+    #expect(model.state == .live(url))
+}
+
+/// Two activations in a row, as from two panels or a quick switch away and back, send one check.
+@MainActor @Test func comingBackTwiceSendsOneCheck() async {
+    let service = SimulatorPreviewFixture()
+    service.results["udid-twice"] = .failure(noNode)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-twice")
+    await waitFor(model) { $0 == .unavailable }
+    service.delays["udid-twice"] = 200_000_000
+    model.applicationBecameActive(); model.applicationBecameActive()
+    try? await Task.sleep(for: .milliseconds(400))
+    #expect(service.starts.count == 2 && model.state == .unavailable)
+    model.applicationBecameActive()
+    try? await Task.sleep(for: .milliseconds(300))
+    #expect(service.starts.count == 3, "an answered check does not hold back the next activation")
+}
+
+/// Coming back asks again only for "not set up"; every other state belongs to the Run behind it.
+@MainActor @Test func comingBackLeavesOtherPreviewStatesAlone() async {
+    let service = SimulatorPreviewFixture()
+    let model = SimulatorPreviewModel(service: service)
+    model.applicationBecameActive()
+    #expect(model.state == .idle && service.starts.isEmpty)
+    service.results["udid-live"] = .success(URL(string: "http://127.0.0.1:3103")!)
+    model.show(udid: "udid-live")
+    await waitFor(model) { if case .live = $0 { true } else { false } }
+    model.applicationBecameActive()
+    #expect(service.starts == ["udid-live"])
+}
+
 @MainActor @Test func simulatorPreviewOtherErrorReportsFailedMessage() async {
     let service = SimulatorPreviewFixture()
     service.results["udid-3"] = .failure(BackendError.operation("Xcode is busy booting another device."))

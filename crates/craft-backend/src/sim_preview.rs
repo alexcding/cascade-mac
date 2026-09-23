@@ -60,12 +60,19 @@ async fn run_serve_sim(args: &[&str], fetch: bool, timeout: Duration) -> anyhow:
     cli::run(program, args, timeout).await
 }
 
-/// serve-sim runs on Node 20 or later; an older one fails in ways that say nothing useful.
+/// serve-sim runs on Node 20 or later, through `npx` unless it is installed itself; an older
+/// Node fails in ways that say nothing useful. Node installed since Craft started may sit in a
+/// directory only a version manager knows, so a miss rebuilds the search path and looks again.
 async fn node_ready() -> bool {
-    match cli::run("node", ["--version"], Duration::from_secs(5)).await {
+    launcher_ready().await || (cli::refresh_search_path() && launcher_ready().await)
+}
+
+async fn launcher_ready() -> bool {
+    let supported = match cli::run("node", ["--version"], Duration::from_secs(5)).await {
         Ok(version) => node_supported(&version) == Some(true),
         Err(_) => false,
-    }
+    };
+    supported && (cli::installed("serve-sim") || cli::installed("npx"))
 }
 
 /// No `npx`, or no `node` for the launcher's `#!/usr/bin/env node`.
@@ -137,6 +144,12 @@ pub async fn start(headers: HeaderMap, Json(request): Json<PreviewRequest>) -> A
         .filter(|v| valid_udid(v))
         .ok_or_else(|| ApiError::bad_request("udid (a simulator id) required"))?
         .to_owned();
+    // Nothing streams without Node, so that is checked before anything is booted: the app asks
+    // again whenever it comes back to the front, and while Node is still missing that must cost
+    // a version check and nothing more.
+    if !node_ready().await {
+        return Err(ApiError::precondition(MISSING));
+    }
     // The stream needs a booted device, and the build that follows boots it anyway. Booting
     // first lets the panel go live while the build runs. "Already booted" is an error to simctl.
     let _ = cli::run(
@@ -149,9 +162,6 @@ pub async fn start(headers: HeaderMap, Json(request): Json<PreviewRequest>) -> A
     let _turn = device.lock().await;
     let _spawning = SPAWNING.read().await;
     let stops = STOPS.load(Ordering::SeqCst);
-    if !node_ready().await {
-        return Err(ApiError::precondition(MISSING));
-    }
     // A first `npx` run downloads the package before it starts anything.
     let raw = run_serve_sim(
         &["--detach", "-q", udid.as_str()],

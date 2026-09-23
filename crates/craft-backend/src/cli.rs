@@ -320,32 +320,59 @@ fn end_group(child: &mut std::process::Child, pid: i32) {
 /// The login shell's PATH ahead of the inherited one once the probe has answered, then the
 /// usual install locations, then version managers' directories for a shell that set none.
 /// Until the probe answers — or when it cannot — the fallbacks alone.
-fn search_path() -> &'static str {
-    static BASE: OnceLock<String> = OnceLock::new();
-    static WITH_SHELL: OnceLock<String> = OnceLock::new();
-    let build = |shell: Option<&str>| {
-        let inherited = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
-        let path = match shell {
-            Some(shell) => format!("{shell}:{inherited}"),
-            None => inherited,
-        };
-        let home = std::env::var("HOME").ok();
-        let path = with_install_locations(&path, home.as_deref());
-        with_version_managers(&path, home.as_deref(), &|dir| {
-            std::fs::read_dir(dir)
-                .map(|entries| {
-                    entries
-                        .flatten()
-                        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                        .collect()
-                })
-                .unwrap_or_default()
-        })
+fn build_search_path(shell: Option<&str>) -> String {
+    let inherited = std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into());
+    let path = match shell {
+        Some(shell) => format!("{shell}:{inherited}"),
+        None => inherited,
     };
-    match SHELL_PATH.get() {
-        Some(Some(shell)) => WITH_SHELL.get_or_init(|| build(Some(shell))),
-        _ => BASE.get_or_init(|| build(None)),
+    let home = std::env::var("HOME").ok();
+    let path = with_install_locations(&path, home.as_deref());
+    with_version_managers(&path, home.as_deref(), &|dir| {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// The search path as last built, and whether the shell probe had answered by then. Each value
+/// is leaked once so that callers can hold a `&'static str`: at start, when the probe answers,
+/// and whenever `refresh_search_path` finds that an install changed it.
+static SEARCH_PATH: std::sync::RwLock<Option<(bool, &'static str)>> = std::sync::RwLock::new(None);
+
+fn probed_shell_path() -> Option<&'static str> {
+    SHELL_PATH.get().and_then(|shell| shell.as_deref())
+}
+
+fn search_path() -> &'static str {
+    let shell = probed_shell_path();
+    if let Some((probed, path)) = *SEARCH_PATH.read().unwrap() {
+        if probed == shell.is_some() {
+            return path;
+        }
     }
+    let path: &'static str = Box::leak(build_search_path(shell).into_boxed_str());
+    *SEARCH_PATH.write().unwrap() = Some((shell.is_some(), path));
+    path
+}
+
+/// Builds the search path again, for a tool installed since it was built into a directory that
+/// only a version manager knows: nvm and a keg-only Homebrew Node add one per version. True
+/// when that changed it. The login shell is not asked again; its PATH is read once at start.
+pub(crate) fn refresh_search_path() -> bool {
+    let shell = probed_shell_path();
+    let fresh = build_search_path(shell);
+    let mut current = SEARCH_PATH.write().unwrap();
+    if current.is_some_and(|(probed, path)| probed == shell.is_some() && path == fresh) {
+        return false;
+    }
+    *current = Some((shell.is_some(), Box::leak(fresh.into_boxed_str())));
+    true
 }
 
 /// Where version managers keep the tools they install, for a login shell that never set them
@@ -708,6 +735,15 @@ mod tests {
         assert!(!path.contains("v9.11.2") && !path.contains("node@20"));
         // No home: only the Homebrew kegs.
         assert_eq!(with_version_managers("/usr/bin", None, &|_| vec![]), "/usr/bin");
+    }
+
+    /// A rebuild that finds nothing new keeps the very path callers already hold.
+    #[test]
+    fn rebuilding_an_unchanged_search_path_keeps_it() {
+        let _ = refresh_search_path();
+        let held = search_path();
+        assert!(!refresh_search_path(), "nothing was installed, so nothing changed");
+        assert!(std::ptr::eq(search_path(), held));
     }
 
     // A program is resolved to its file before the spawn, so std never reaches for fork().

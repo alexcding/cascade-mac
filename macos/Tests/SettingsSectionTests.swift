@@ -73,6 +73,10 @@ private actor SectionFontCatalog: CodeFontCatalog {
     while model.clis.probing || model.clis.loadingHooks { await Task.yield() }
     #expect(await clis.probes == 1)
     #expect(runtime.activations == 2)
+    // Back from a terminal that installed a tool: Integrations checks again without Refresh.
+    model.applicationActiveChanged(true)
+    while model.clis.probing { await Task.yield() }
+    #expect(await clis.probes == 2)
     // Re-entering System started a second inspector read; resume it so retire() leaves nothing
     // suspended. Diagnostics is hidden by now, so the failure is discarded.
     await diagnostics.complete(2, with: .failure(BackendError.operation("Discarded response")))
