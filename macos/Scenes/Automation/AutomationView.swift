@@ -86,37 +86,50 @@ private struct AutomationListPane: View {
     let model: AutomationViewModel
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(model.automations) { automation in
-                    let selected = model.selectedID == automation.id
-                    // The open pipeline's row follows its draft, so a rename shows as it is typed.
-                    let shown = selected ? (model.draft ?? automation) : automation
-                    AutomationListRow(name: shown.name, summary: shown.summary(model.catalog),
-                                      pill: (shown.mode.label, AutomationStatus.tone(shown.mode)),
-                                      lastRun: automation.lastRun, selected: selected,
-                                      edited: model.hasUnsavedEdits(automation.id)) {
-                        model.select(automation.id)
-                    }
-                    .accessibilityIdentifier("automation-row-\(automation.id)")
+        // A List for the system's own separators between pipelines; each row still draws its
+        // own selection, since the editor, not the list, owns which pipeline is open.
+        List {
+            ForEach(model.automations) { automation in
+                let selected = model.selectedID == automation.id
+                // The open pipeline's row follows its draft, so a rename shows as it is typed.
+                let shown = selected ? (model.draft ?? automation) : automation
+                AutomationListRow(name: shown.name, summary: shown.summary(model.catalog),
+                                  pill: (shown.mode.label, AutomationStatus.tone(shown.mode)),
+                                  lastRun: automation.lastRun, selected: selected,
+                                  edited: model.hasUnsavedEdits(automation.id)) {
+                    model.select(automation.id)
                 }
-                // Last, where they land once saved: a new pipeline takes the next position.
-                ForEach(model.newDrafts, id: \.key) { item in
-                    AutomationListRow(name: item.draft.name, summary: item.draft.summary(model.catalog),
-                                      pill: ("Unsaved", .accent), lastRun: nil, selected: model.openKey == item.key) {
-                        model.select(item.key)
-                    }
-                    .accessibilityIdentifier("automation-row-\(item.key)")
-                }
-                if model.automations.isEmpty && model.newKeys.isEmpty && !model.loading {
-                    Text("No automations yet. Use + to start one.")
-                        .font(Theme.Typography.emptyHint).foregroundStyle(DashboardPalette.ink3)
-                        .padding(.horizontal, 10).padding(.vertical, 14)
-                }
+                .accessibilityIdentifier("automation-row-\(automation.id)")
+                .automationListRow()
             }
-            .padding(10)
+            // Last, where they land once saved: a new pipeline takes the next position.
+            ForEach(model.newDrafts, id: \.key) { item in
+                AutomationListRow(name: item.draft.name, summary: item.draft.summary(model.catalog),
+                                  pill: ("Unsaved", .accent), lastRun: nil, selected: model.openKey == item.key) {
+                    model.select(item.key)
+                }
+                .accessibilityIdentifier("automation-row-\(item.key)")
+                .automationListRow()
+            }
+            if model.automations.isEmpty && model.newKeys.isEmpty && !model.loading {
+                Text("No automations yet. Use + to start one.")
+                    .font(Theme.Typography.emptyHint).foregroundStyle(DashboardPalette.ink3)
+                    .padding(.horizontal, 10).padding(.vertical, 14)
+                    .listRowSeparator(.hidden)
+            }
         }
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
         .accessibilityIdentifier("automation-list")
+    }
+}
+
+private extension View {
+    /// A pipeline's row in the list: the row keeps its own padding, and asks for the separators.
+    func automationListRow() -> some View {
+        listRowInsets(EdgeInsets(top: 3, leading: 6, bottom: 3, trailing: 6))
+            .listRowSeparator(.visible)
+            .listRowBackground(Color.clear)
     }
 }
 
