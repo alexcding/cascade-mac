@@ -37,7 +37,7 @@
 // The daemon exits by itself once it holds no terminals and no client for IDLE_EXIT.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::DirBuilderExt;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::os::unix::io::RawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -420,6 +420,8 @@ struct Daemon {
   client_seq: AtomicU64,
   boot: u64,
   idle_since: Mutex<Option<Instant>>,
+  // The BROWSER every shell is given, when it could be installed (see install_browser).
+  browser: Option<PathBuf>,
 }
 
 fn now_ms() -> u64 {
@@ -740,6 +742,9 @@ impl Daemon {
     cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".into()));
     // CRAFT_RUN_ID lets an installed Claude/Codex hook ping back tagged with THIS terminal's id.
     cmd.env("CRAFT_RUN_ID", &id);
+    if let Some(browser) = &self.browser {
+      cmd.env("BROWSER", browser);
+    }
 
     let child = pair
       .slave
@@ -1311,6 +1316,44 @@ impl Daemon {
   }
 }
 
+// A link clicked in a CLI (Claude Code, `gh --web`) runs $BROWSER, or `open` without one, which is
+// the system browser. This helper hands the URL to the app with the shell's CRAFT_RUN_ID instead,
+// so it opens in the panel beside that terminal, and falls back to `open` when no app is there to
+// take it: the port is gone, the backend is unreachable, or it answers that no app is listening.
+// The backend's `.server-port` sits in the data directory, the parent of `dir`. The helper itself
+// sits beside the socket: that directory is private and has no spaces, and `gh` and Python split
+// BROWSER on them, while the data directory is under `Application Support`.
+fn install_browser(dir: &Path, sock: &Path) -> Option<PathBuf> {
+  let port = dir.parent()?.join(".server-port");
+  let quoted = format!("'{}'", port.to_str()?.replace('\'', "'\\''"));
+  let script = r#"#!/bin/sh
+# Installed by craft-ptyd as BROWSER: opens a web URL in Craft beside the terminal that asked.
+case "$1" in
+  http://*|https://*)
+    port=$(cat PORT_FILE 2>/dev/null)
+    if [ -n "$port" ] && [ -n "$CRAFT_RUN_ID" ] &&
+      /usr/bin/curl -fs -m 2 -o /dev/null -G -X POST --data-urlencode "url=$1" --data-urlencode "runId=$CRAFT_RUN_ID" \
+        "http://127.0.0.1:$port/api/hooks/open-url"; then
+      exit 0
+    fi;;
+esac
+exec /usr/bin/open "$@"
+"#.replace("PORT_FILE", &quoted);
+  let path = sock.with_extension("browser");
+  let staged = sock.with_extension("browser.tmp");
+  let written = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o700).open(&staged)
+    .and_then(|mut file| file.write_all(script.as_bytes()))
+    .and_then(|_| std::fs::rename(&staged, &path));
+  match written {
+    Ok(()) => Some(path),
+    Err(e) => {
+      log(&format!("install browser helper {}: {e}", path.display()));
+      let _ = std::fs::remove_file(&staged);
+      None
+    }
+  }
+}
+
 // Entry point for `craft __ptyd__ <dir>`. Never returns.
 pub fn main(dir: PathBuf) -> ! {
   let _ = std::fs::create_dir_all(dir.join("terms"));
@@ -1352,6 +1395,7 @@ pub fn main(dir: PathBuf) -> ! {
     client_seq: AtomicU64::new(0),
     boot: now_ms() % 100_000_000,
     idle_since: Mutex::new(Some(Instant::now())),
+    browser: install_browser(&dir, &sock),
   });
 
   // Also enforce client delivery deadlines when no PTY thread is polling (for
@@ -1382,4 +1426,43 @@ pub fn main(dir: PathBuf) -> ! {
     }
   }
   std::process::exit(0)
+}
+
+#[cfg(test)]
+mod browser_tests {
+  use super::*;
+  use std::net::TcpListener;
+
+  #[test]
+  fn browser_helper_hands_web_urls_to_the_app_with_the_terminal_id() {
+    // A space and a quote in the data directory, as `Application Support` and a user's own name have.
+    let root = std::env::temp_dir().join(format!("ptyd browser 'test-{}", std::process::id()));
+    let dir = root.join("ptyd");
+    std::fs::create_dir_all(&dir).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    std::fs::write(root.join(".server-port"), listener.local_addr().unwrap().port().to_string()).unwrap();
+    let helper = install_browser(&dir, &root.join("ptyd.sock")).unwrap();
+    let server = std::thread::spawn(move || {
+      let (mut stream, _) = listener.accept().unwrap();
+      let mut reader = BufReader::new(stream.try_clone().unwrap());
+      let mut request = String::new();
+      reader.read_line(&mut request).unwrap();
+      // Read the headers out, or closing early could fail curl into the `open` fallback.
+      let mut header = String::new();
+      while reader.read_line(&mut header).unwrap() > 0 && header != "\r\n" { header.clear(); }
+      stream.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n").unwrap();
+      request
+    });
+    let status = std::process::Command::new(&helper)
+      .arg("https://example.com/a b?x=1&y=2")
+      .env("CRAFT_RUN_ID", "pty1-2")
+      .status()
+      .unwrap();
+    let request = server.join().unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    assert!(status.success());
+    assert!(request.starts_with("POST /api/hooks/open-url?"), "{request}");
+    assert!(request.contains("url=https%3a%2f%2fexample.com%2fa+b%3fx%3d1%26y%3d2"), "{request}");
+    assert!(request.contains("runId=pty1-2"), "{request}");
+  }
 }

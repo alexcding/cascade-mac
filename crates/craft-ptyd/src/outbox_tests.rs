@@ -18,7 +18,7 @@ impl Fixture {
     let daemon = Arc::new(Daemon {
       dir, terms: Mutex::new(HashMap::new()), clients: Mutex::new(Vec::new()),
       seq: AtomicU64::new(0), client_seq: AtomicU64::new(0), boot: now_ms(),
-      idle_since: Mutex::new(None),
+      idle_since: Mutex::new(None), browser: None,
     });
     Self { daemon, peers: Vec::new(), servers: Vec::new() }
   }

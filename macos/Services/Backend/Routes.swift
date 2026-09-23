@@ -105,6 +105,7 @@ public enum Routes {
     public static let HOOK_TURN_START = "/api/hooks/turn-start"
     public static let HOOK_TURN_DONE = "/api/hooks/turn-done"
     public static let HOOK_SESSION_START = "/api/hooks/session-start"
+    public static let HOOK_OPEN_URL = "/api/hooks/open-url"
     public static let AGENT_ANALYZE = "/api/agent-analyze"
 
     private static func encodeComponent(_ value: String) -> String {

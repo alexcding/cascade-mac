@@ -721,6 +721,24 @@ async fn relay(app: AppState, query: HookQuery, body: Value, kind: &str) -> Stat
     app.broadcast(json!({"type":kind,"cli":query.cli.unwrap_or_default(),"runId":query.run_id.unwrap_or_default(),"sessionId":session,"source":body["source"].as_str().unwrap_or(""),"payload":body}));
     StatusCode::NO_CONTENT
 }
+#[derive(Deserialize)]
+pub struct OpenUrlQuery {
+    url: String,
+    #[serde(rename = "runId")]
+    run_id: String,
+}
+/// A terminal's BROWSER (the helper craft-ptyd installs) asking for a URL to open in the panel
+/// beside it. Only the app subscribes to events, so a send nobody receives means no app is there
+/// to take the link: that answers 503, and the helper opens it with `open` instead.
+pub async fn open_url(State(app): State<AppState>, Query(query): Query<OpenUrlQuery>) -> StatusCode {
+    if query.url.is_empty() || query.run_id.is_empty() {
+        return StatusCode::BAD_REQUEST;
+    }
+    match app.events.send(json!({"type":"terminal-open-url","runId":query.run_id,"url":query.url})) {
+        Ok(_) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
 pub async fn turn_start(
     State(app): State<AppState>,
     Query(query): Query<HookQuery>,

@@ -16,6 +16,8 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var status: String? = nil
     public var label: String? = nil
     public var message: String? = nil
+    /// `terminal-open-url` only: the web address a terminal's BROWSER asked to open.
+    public var url: String? = nil
 }
 
 // Byte framing preserves empty lines, CRLF and UTF-8 split between network reads.

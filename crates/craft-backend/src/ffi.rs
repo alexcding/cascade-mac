@@ -579,6 +579,38 @@ mod tests {
         assert_released(&receiver, drops + 1);
     }
 
+    #[test]
+    fn a_terminal_browser_request_is_relayed_as_the_terminal_that_asked() {
+        let (backend, _dir) = start_temp();
+        let (sender, receiver) = mpsc::channel::<String>();
+        let ctx = Box::into_raw(Box::new(sender)) as *mut c_void;
+        let id = unsafe { craft_backend_subscribe(backend, ctx, Some(on_event), Some(on_dropped)) };
+        std::thread::sleep(Duration::from_millis(50));
+        // As craft-ptyd's helper sends it: curl's form encoding, `+` for a space.
+        let reply = call(backend, "POST", "/api/hooks/open-url?url=https%3a%2f%2fexample.com%2fa+b%3fx%3d1%26y%3d2&runId=pty1-2", "");
+        assert_eq!(reply.status, 204);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let event = loop {
+            let raw = receiver.recv_timeout(deadline - std::time::Instant::now()).expect("open-url event");
+            let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            if event["type"] == "terminal-open-url" { break event; }
+        };
+        assert_eq!(event["url"], "https://example.com/a b?x=1&y=2");
+        assert_eq!(event["runId"], "pty1-2");
+        assert_eq!(call(backend, "POST", "/api/hooks/open-url?url=&runId=pty1-2", "").status, 400);
+        unsafe { craft_backend_unsubscribe(backend, id) };
+        // With no app listening, the helper is told to open the link itself.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut status = 0;
+        while std::time::Instant::now() < deadline {
+            status = call(backend, "POST", "/api/hooks/open-url?url=https%3a%2f%2fexample.com&runId=pty1-2", "").status;
+            if status == 503 { break; }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(status, 503);
+        unsafe { craft_backend_stop(backend) };
+    }
+
     // The release is the drop callback firing (it runs on a runtime thread);
     // pollers and forwarders may still broadcast while shutting down.
     fn assert_released(receiver: &mpsc::Receiver<String>, expected: usize) {
