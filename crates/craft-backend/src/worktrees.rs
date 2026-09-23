@@ -23,7 +23,6 @@ const PROJECT_INCLUDE: &str = "worktreeInclude";
 const PROJECT_SETUP: &str = "worktreeSetup";
 pub(crate) const DELETE_BRANCH: &str = "worktree_delete_branch";
 pub(crate) const FETCH: &str = "worktree_fetch";
-
 /// What a checkout with no `.worktreeinclude` copies when Settings never named its own patterns.
 pub(crate) const DEFAULT_INCLUDE: &str = ".env*";
 /// The file a repo commits to name its own patterns. It wins over Settings outright, as it does in
@@ -361,6 +360,39 @@ pub(crate) async fn fetch_base(app: &AppState, dir: &str, base: &str) {
             &json!({"base":base,"reason":crate::local::error_line(&error.to_string())}),
         );
     }
+}
+
+/// Deletes a removed worktree's Xcode derived data in the background: a large build takes a
+/// while to delete, and the removal it follows has already succeeded. Not a setting: the folders
+/// are named after a path that no longer exists, so nothing can reuse them, and not tied to the
+/// project's IDE, since a terminal `xcodebuild` or an agent's build fills them just the same.
+pub(crate) fn spawn_derived_data_removal(app: &AppState, worktree: &str, folders: Vec<PathBuf>) {
+    if folders.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    let worktree = worktree.to_owned();
+    tokio::spawn(async move {
+        let outcome = tokio::task::spawn_blocking(move || {
+            folders
+                .into_iter()
+                .map(|folder| (fs::remove_dir_all(&folder).err().map(|e| e.to_string()), folder))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_default();
+        let deleted: Vec<_> = outcome.iter().filter(|(e, _)| e.is_none()).map(|(_, f)| f).collect();
+        let failed: Vec<_> = outcome
+            .iter()
+            .filter_map(|(e, f)| e.as_ref().map(|e| format!("{}: {e}", f.display())))
+            .collect();
+        let _ = app.db.add_log(
+            "worktree",
+            if failed.is_empty() { "info" } else { "error" },
+            if failed.is_empty() { "worktree_derived_data_deleted" } else { "worktree_derived_data_failed" },
+            &json!({"worktree":worktree,"deleted":deleted,"failed":failed}),
+        );
+    });
 }
 
 /// Whether removing a session's worktree also removes its branch.

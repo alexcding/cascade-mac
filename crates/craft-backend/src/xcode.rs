@@ -372,9 +372,6 @@ fn derived_data_folder(workspace: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
     }
     let prefix = format!("{}-", workspace.file_stem()?.to_str()?.replace(' ', "_"));
     let spelled = xcode_spelling(workspace);
-    let path = spelled.to_string_lossy();
-    let escaped = path.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-    let recorded = format!("<string>{escaped}</string>");
     roots.iter().find_map(|root| {
         fs::read_dir(root).ok()?.flatten().find_map(|entry| {
             let name = entry.file_name();
@@ -384,7 +381,7 @@ fn derived_data_folder(workspace: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
             }
             let folder = entry.path();
             let plist = fs::read_to_string(folder.join("info.plist")).ok()?;
-            plist.contains(&recorded).then_some(folder)
+            (recorded_workspace(&plist)? == spelled).then_some(folder)
         })
     })
 }
@@ -620,6 +617,82 @@ impl Question<'_> {
         .await
         .unwrap_or_default()
     }
+}
+
+/// How deep under a worktree to look for projects whose derived data it owns: deep enough for
+/// `ios/App.xcodeproj` or `apps/ios/App.xcworkspace`, never a walk of the whole tree.
+const DERIVED_DATA_DEPTH: usize = 3;
+
+/// The derived data folders Xcode keeps for what is inside `worktree`. Xcode names each after
+/// a project's path, so a worktree's are its own and nothing else will ever reuse them once the
+/// path is gone. Found two ways, as `derived_data_folder` finds one: by the name each project or
+/// workspace in the worktree would get (a warm-up writes no info.plist), and by the path an
+/// info.plist records. Read BEFORE the worktree is removed, since the names come from its files.
+pub(crate) async fn derived_data_of(worktree: &Path) -> Vec<PathBuf> {
+    let roots = xcode_locations().await.roots;
+    let worktree = worktree.to_owned();
+    tokio::task::spawn_blocking(move || derived_data_in(&worktree, &roots))
+        .await
+        .unwrap_or_default()
+}
+
+fn derived_data_in(worktree: &Path, roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut found = std::collections::BTreeSet::new();
+    let mut targets = vec![];
+    // A Swift package opened as a folder is named after the folder itself.
+    if worktree.join("Package.swift").is_file() {
+        targets.push(worktree.to_owned());
+    }
+    let mut level = vec![worktree.to_owned()];
+    for _ in 0..DERIVED_DATA_DEPTH {
+        let mut next = vec![];
+        for dir in level {
+            for entry in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) || name.starts_with('.') {
+                    continue;
+                }
+                if name.ends_with(".xcodeproj") || name.ends_with(".xcworkspace") {
+                    targets.push(path);
+                } else if !PROJECT_WALK_SKIP.contains(&name.as_ref()) {
+                    next.push(path);
+                }
+            }
+        }
+        level = next;
+    }
+    for name in targets.iter().filter_map(|target| derived_data_name(target)) {
+        found.extend(roots.iter().map(|root| root.join(&name)).filter(|folder| folder.is_dir()));
+    }
+    let spellings = [worktree.to_owned(), xcode_spelling(worktree)];
+    for root in roots {
+        for entry in fs::read_dir(root).into_iter().flatten().flatten() {
+            let Ok(plist) = fs::read_to_string(entry.path().join("info.plist")) else {
+                continue;
+            };
+            // Component-wise: `…/fix` never claims `…/fix2`, nor the main checkout it sits beside.
+            if recorded_workspace(&plist).is_some_and(|path| spellings.iter().any(|w| path.starts_with(w))) {
+                found.insert(entry.path());
+            }
+        }
+    }
+    found.into_iter().collect()
+}
+
+/// The `WorkspacePath` an info.plist records, unescaped.
+fn recorded_workspace(plist: &str) -> Option<PathBuf> {
+    let value = plist
+        .split("<key>WorkspacePath</key>")
+        .nth(1)?
+        .split("<string>")
+        .nth(1)?
+        .split("</string>")
+        .next()?;
+    Some(PathBuf::from(
+        value.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"),
+    ))
 }
 
 /// Where a worktree's answers are kept: its path without stray separators, then a newline, so
@@ -1113,6 +1186,33 @@ mod tests {
         let name = |path: &str| derived_data_name(Path::new(path)).unwrap();
         assert_eq!(name("/Users/chen/Workspace/craft-mac/macos/Craft.xcodeproj"), "Craft-fzidscgpprcwypbzmzmgubqwsvlr");
         assert_eq!(name("/tmp/worktrees/feature/App.xcodeproj"), "App-frmzzoohvmzijudjgdkmnbaiecav");
+    }
+
+    #[test]
+    fn a_worktrees_derived_data_is_found_by_name_and_by_record_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let (worktree, root) = (base.join("app.worktrees/fix"), base.join("DerivedData"));
+        fs::create_dir_all(worktree.join("ios/App.xcodeproj")).unwrap();
+        fs::create_dir_all(worktree.join("node_modules/dep/Dep.xcodeproj")).unwrap();
+        let by_name = root.join(derived_data_name(&worktree.join("ios/App.xcodeproj")).unwrap());
+        fs::create_dir_all(&by_name).unwrap();
+        let record = |folder: &str, workspace: &Path| {
+            let folder = root.join(folder);
+            fs::create_dir_all(&folder).unwrap();
+            let plist = format!("<dict><key>WorkspacePath</key><string>{}</string></dict>", workspace.display());
+            fs::write(folder.join("info.plist"), plist).unwrap();
+            folder
+        };
+        let by_record = record("Other-a", &worktree.join("tools/Other.xcworkspace"));
+        record("Main-b", &base.join("app/App.xcodeproj"));
+        record("Sibling-c", &base.join("app.worktrees/fix2/App.xcodeproj"));
+        let skipped = root.join(derived_data_name(&worktree.join("node_modules/dep/Dep.xcodeproj")).unwrap());
+        fs::create_dir_all(&skipped).unwrap();
+
+        let mut expected = vec![by_name, by_record];
+        expected.sort();
+        assert_eq!(derived_data_in(&worktree, &[root]), expected);
     }
 
     /// Xcode hashes the standardized path, so a checkout reached through "/private" is named

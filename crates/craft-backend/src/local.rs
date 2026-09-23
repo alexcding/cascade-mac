@@ -851,6 +851,8 @@ pub async fn remove_worktree(
             json!({"error":"refusing to remove the main checkout"}),
         ));
     }
+    // Collected before the removal: the folders are named after the worktree's projects.
+    let derived = crate::xcode::derived_data_of(&resolve_path(target)).await;
     let mut args = vec!["worktree".into(), "remove".into()];
     if body["force"].as_bool().unwrap_or(false) {
         args.push("--force".into())
@@ -860,6 +862,7 @@ pub async fn remove_worktree(
         Ok(_) => {
             // What xcodebuild said about the worktree is kept by its path; nothing asks again.
             crate::xcode::forget_answers(&app, &resolve_path(target));
+            worktrees::spawn_derived_data_removal(&app, target, derived);
             // A detached worktree has no branch to delete.
             let deleted = !tree.branch.is_empty()
                 && worktrees::delete_branch(&app)
