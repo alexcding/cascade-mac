@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use crate::{cli, error::ApiError, AppState};
+use crate::{cli, error::ApiError, worktrees, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024;
@@ -535,7 +535,10 @@ fn valid_branch(value: &str) -> bool {
         && !value.contains("@{")
 }
 
-pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
+pub async fn create_worktree(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
     let dir = body["path"]
         .as_str()
         .filter(|v| !v.is_empty())
@@ -549,9 +552,9 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
             json!({"error":format!("\"{branch}\" is not a valid branch name")}),
         ));
     }
-    let workspace = dir.trim_end_matches('/');
     let folder = branch.rsplit('/').next().unwrap_or(branch);
-    let root = PathBuf::from(format!("{workspace}.worktrees"));
+    let location = worktrees::location(&app);
+    let root = worktrees::root(dir, &location);
     let destination = root.join(folder);
     if list_worktrees(dir)
         .await
@@ -564,6 +567,22 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
         return Ok(Json(
             json!({"error":format!("A folder already exists at {}",destination.display()),"folderConflict":true,"path":destination,"disposable":false}),
         ));
+    }
+    if location == worktrees::Location::Inside {
+        // A `.worktrees` the repo itself commits as a symlink would put the worktree wherever
+        // the link points; that is the repo choosing the location, not Settings.
+        if root
+            .symlink_metadata()
+            .is_ok_and(|meta| meta.file_type().is_symlink())
+        {
+            return Ok(Json(
+                json!({"error":format!("{} is a symlink; choose another worktree location in Settings", root.display())}),
+            ));
+        }
+        // Before the folder exists, so `git status` in the checkout never lists it.
+        worktrees::exclude_inside_root(dir)
+            .await
+            .map_err(ApiError::internal)?;
     }
     fs::create_dir_all(&root).map_err(ApiError::internal)?;
     // Clear stale admin entries, then add. Adding an EXISTING branch is the first move and
@@ -579,7 +598,7 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
         branch.into(),
     ];
     let mut failure = match git(dir, add.clone(), 90).await {
-        Ok(_) => return Ok(Json(json!({"ok":true,"path":destination}))),
+        Ok(_) => return Ok(Json(prepared(&app, dir, &destination, branch).await)),
         Err(error) => error.to_string(),
     };
     // The one place a fetch earns its cost: adopting a branch that exists only on origin, which
@@ -595,7 +614,7 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
         )
         .await;
         match git(dir, add, 90).await {
-            Ok(_) => return Ok(Json(json!({"ok":true,"path":destination}))),
+            Ok(_) => return Ok(Json(prepared(&app, dir, &destination, branch).await)),
             Err(error) => failure = error.to_string(),
         }
     }
@@ -614,9 +633,10 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
             json!({"error":format!("\"{base}\" is not a valid base branch name")}),
         ));
     }
-    // No fetch for the base either: a new branch is cut from what this checkout already has, so
-    // creating one never waits on the network. `origin/<base>` is still preferred when it is
-    // present locally, so the start point is the newest tip the checkout knows about.
+    // No fetch for the base either, unless Settings opted in: a new branch is cut from what this
+    // checkout already has, so creating one never waits on the network. `origin/<base>` is still
+    // preferred when it is present locally, so the start point is the newest tip the checkout knows about.
+    worktrees::fetch_base(&app, dir, &base).await;
     // origin/<base> when it resolves — the freshest tip this checkout has — else the local branch
     // (a base that was never pushed). An EXPLICIT base resolving nowhere is an error: never
     // fork off whatever HEAD the main checkout happens to be on.
@@ -643,9 +663,26 @@ pub async fn create_worktree(Json(body): Json<Value>) -> ApiResult<Value> {
         args.push(start);
     }
     match git(dir, args, 90).await {
-        Ok(_) => Ok(Json(json!({"ok":true,"path":destination}))),
+        Ok(_) => Ok(Json(prepared(&app, dir, &destination, branch).await)),
         Err(e) => Ok(Json(json!({"error": worktree_failure(branch, e.to_string())}))),
     }
+}
+
+/// What a worktree `git worktree add` just made gets before the session opens it: the ignored
+/// files it needs copied in, then the setup command started. Neither fails the create; a
+/// worktree that already existed gets neither, since it was prepared when it was made.
+async fn prepared(app: &AppState, dir: &str, destination: &Path, branch: &str) -> Value {
+    let copied = worktrees::copy_included(app, Path::new(dir), destination).await;
+    if !copied.failed.is_empty() {
+        let _ = app.db.add_log(
+            "worktree",
+            "error",
+            "worktree_copy_failed",
+            &json!({"worktree":destination,"failed":copied.failed}),
+        );
+    }
+    worktrees::spawn_setup(app, dir, destination, branch);
+    json!({"ok":true,"path":destination,"copied":copied.copied})
 }
 
 /// Moves a checkout to another branch. A branch can only be checked out once, so the main repo
@@ -823,7 +860,11 @@ pub async fn remove_worktree(
         Ok(_) => {
             // What xcodebuild said about the worktree is kept by its path; nothing asks again.
             crate::xcode::forget_answers(&app, &resolve_path(target));
-            Ok(Json(json!({"ok":true})))
+            // A detached worktree has no branch to delete.
+            let deleted = !tree.branch.is_empty()
+                && worktrees::delete_branch(&app)
+                && worktrees::remove_branch(&app, dir, &tree.branch).await;
+            Ok(Json(json!({"ok":true,"branchDeleted":deleted})))
         }
         Err(e) => Ok(Json(json!({"error":e.to_string()}))),
     }

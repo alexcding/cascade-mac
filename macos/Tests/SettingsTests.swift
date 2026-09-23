@@ -96,3 +96,21 @@ actor SettingsFixture: SettingsService {
     draft.jiraBaseURL = "https://jira.test/jira"
     #expect(draft.validationError == nil && draft.values["unrelated"] == nil)
 }
+
+@Test func worktreeSettingsDefaultToTheSiblingLocationAndRequireAFolderForCustom() {
+    // Absent keys read as the backend's defaults, so an untouched draft round-trips unchanged.
+    let untouched = AppConfigDraft([:])
+    #expect(untouched.worktreeLocation == .sibling && untouched.worktreeInclude == ".env*")
+    #expect(!untouched.worktreeFetch && !untouched.worktreeDeleteBranch)
+    #expect(AppConfigDraft(untouched.values) == untouched)
+
+    var draft = AppConfigDraft(["worktree_location": "custom"])
+    #expect(draft.worktreeLocation == .custom && draft.validationError != nil)
+    draft.worktreeRoot = "relative/path"
+    #expect(draft.validationError != nil)
+    draft.worktreeRoot = "~/worktrees"
+    #expect(draft.validationError == nil)
+    draft.worktreeFetch = true; draft.worktreeDeleteBranch = true
+    #expect(draft.values["worktree_fetch"] == "true" && draft.values["worktree_delete_branch"] == "true")
+    #expect(AppConfigDraft(["worktree_location": "nowhere"]).worktreeLocation == .sibling)
+}

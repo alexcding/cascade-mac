@@ -14,6 +14,7 @@ mod routes;
 mod sim_preview;
 mod usage;
 mod warmup;
+mod worktrees;
 mod xcode;
 
 use std::sync::Arc;

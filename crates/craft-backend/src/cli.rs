@@ -109,17 +109,31 @@ async fn wait_or_kill(program: &str, child: Child, duration: Duration) -> Result
     // the leader's pid being recycled between its reaping and this signal; that window is the
     // same one `tokio::time::timeout` had here, and it cannot touch the app, whose group is
     // never this pid.
+    // Dropped before the command finished (its request went away, the backend is stopping):
+    // `kill_on_drop` reaches only the leader, so the rest of the group goes too, rather than a
+    // setup's `npm ci` running on in a worktree nobody is waiting for.
+    let mut guard = GroupKill(group);
     let wait = std::pin::pin!(child.wait_with_output());
     tokio::select! {
         // `timeout` polled the wait first; `select!` is otherwise random, and a tie would
         // report a command that actually finished as timed out.
         biased;
-        result = wait => result.with_context(|| format!("wait for {program}")),
+        result = wait => {
+            guard.0 = None;
+            result.with_context(|| format!("wait for {program}"))
+        }
         _ = tokio::time::sleep(duration) => {
-            if let Some(group) = group {
-                unsafe { libc::killpg(group, libc::SIGKILL) };
-            }
             Err(anyhow!("{program} timed out after {}s", duration.as_secs()))
+        }
+    }
+}
+
+/// Kills a process group when dropped while still armed.
+struct GroupKill(Option<i32>);
+impl Drop for GroupKill {
+    fn drop(&mut self) {
+        if let Some(group) = self.0 {
+            unsafe { libc::killpg(group, libc::SIGKILL) };
         }
     }
 }
@@ -506,29 +520,23 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = command(program);
-    command
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let child = command
-        .spawn()
-        .with_context(|| format!("start {program}"))?;
-    let output = wait_or_kill(program, child, duration).await?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Err(anyhow!(if stderr.is_empty() {
-            format!("{program} exited {}", output.status)
-        } else {
-            stderr
-        }));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    run_in_env(program, args, duration, cwd, &[]).await
+}
+
+/// `run_in`, with extra environment variables for the child.
+pub async fn run_in_env<I, S>(
+    program: &str,
+    args: I,
+    duration: Duration,
+    cwd: Option<&Path>,
+    env: &[(&str, &str)],
+) -> Result<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let stdout = output_of(program, args, duration, cwd, env, None).await?;
+    Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
 }
 
 pub async fn run_with_input<I, S>(
@@ -542,11 +550,52 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let stdout = output_of(program, args, duration, cwd, &[], Some(input.to_vec())).await?;
+    Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
+}
+
+/// The NUL-separated records of a `-z` command, untrimmed: a trim would eat the leading space
+/// of a path that sorts first.
+pub async fn run_nul<I, S>(
+    program: &str,
+    args: I,
+    input: Option<&[u8]>,
+    duration: Duration,
+    cwd: Option<&Path>,
+) -> Result<Vec<String>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let stdout = output_of(program, args, duration, cwd, &[], input.map(<[u8]>::to_vec)).await?;
+    Ok(stdout
+        .split(|b| *b == 0)
+        .filter(|record| !record.is_empty())
+        .map(|record| String::from_utf8_lossy(record).into_owned())
+        .collect())
+}
+
+/// Stdout of a command that must exit 0. Input is written from its own task, alongside the wait:
+/// a child that answers while it reads (`check-ignore --stdin`) fills its stdout pipe and stops
+/// reading, and a write finished before the wait began would then never finish at all.
+async fn output_of<I, S>(
+    program: &str,
+    args: I,
+    duration: Duration,
+    cwd: Option<&Path>,
+    env: &[(&str, &str)],
+    input: Option<Vec<u8>>,
+) -> Result<Vec<u8>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     use tokio::io::AsyncWriteExt;
     let mut command = command(program);
     command
+        .envs(env.iter().copied())
         .args(args)
-        .stdin(Stdio::piped())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -556,8 +605,11 @@ where
     let mut child = command
         .spawn()
         .with_context(|| format!("start {program}"))?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(input).await?;
+    if let (Some(mut stdin), Some(input)) = (child.stdin.take(), input) {
+        // A child that exits without reading it all breaks the pipe; its exit status says more.
+        tokio::spawn(async move {
+            let _ = stdin.write_all(&input).await;
+        });
     }
     let output = wait_or_kill(program, child, duration).await?;
     if !output.status.success() {
@@ -568,7 +620,7 @@ where
             stderr
         }));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    Ok(output.stdout)
 }
 
 #[cfg(test)]

@@ -1,0 +1,71 @@
+import AppKit
+import SwiftUI
+
+/// Settings → Worktrees: where a session's new worktree is made, what it gets before the agent
+/// starts, and what removing it also removes. Every field is a config key the backend reads when
+/// the next worktree is made (`crates/craft-backend/src/worktrees.rs`), so nothing here touches
+/// a worktree that already exists.
+struct WorktreeSettingsView<SaveRow: View>: View {
+    @Bindable var model: SettingsViewModel
+    @ViewBuilder var saveRow: SaveRow
+
+    var body: some View {
+        Group {
+            Section("Location") {
+                SettingsRow(title: "New worktrees", caption: model.draft.worktreeLocation.example) {
+                    Picker("Worktree location", selection: $model.draft.worktreeLocation) {
+                        ForEach(WorktreeLocation.allCases) { Text($0.title).tag($0) }
+                    }.labelsHidden().accessibilityIdentifier("settings-worktree-location")
+                }
+                if model.draft.worktreeLocation == .custom {
+                    SettingsRow(title: "Folder", caption: "Each project gets its own folder inside it.") {
+                        HStack {
+                            TextField("~/worktrees", text: $model.draft.worktreeRoot)
+                                .accessibilityIdentifier("settings-worktree-root")
+                            Button("Choose…", action: chooseRoot)
+                        }
+                    }
+                }
+                SettingsRow(title: "Always fetch before creating worktrees",
+                            caption: "New branches are normally cut from the tip this checkout already has. This fetches the base branch first, for at most a few seconds.") {
+                    Toggle("Fetch before creating", isOn: $model.draft.worktreeFetch)
+                        .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-fetch")
+                }
+            }
+            Section("Files to copy") {
+                Text("Ignored files a new worktree doesn't get from git, such as .env. Patterns use .gitignore syntax, and only files git ignores are copied. Files already in the worktree are never overwritten. A .worktreeinclude file at the repository root takes the place of these patterns.")
+                    .font(.caption).foregroundStyle(Theme.textSecondary)
+                TextEditor(text: $model.draft.worktreeInclude)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 72)
+                    .accessibilityIdentifier("settings-worktree-include")
+            }
+            Section("Setup") {
+                SettingsRow(title: "Setup command",
+                            caption: "Runs in each new worktree after the files are copied, without holding up the session. $CRAFT_ROOT_PATH is the project checkout and $CRAFT_WORKTREE_PATH is the new worktree. Failures show in Activity.") {
+                    TextField("npm ci", text: $model.draft.worktreeSetup)
+                        .font(.system(.body, design: .monospaced))
+                        .accessibilityIdentifier("settings-worktree-setup")
+                }
+            }
+            Section("Cleanup") {
+                SettingsRow(title: "Delete the branch when removing a worktree",
+                            caption: "Only a branch that is fully merged. Unmerged work keeps its branch.") {
+                    Toggle("Delete merged branch", isOn: $model.draft.worktreeDeleteBranch)
+                        .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-delete-branch")
+                }
+                saveRow
+            }
+        }.disabled(!model.loaded || model.saving)
+    }
+
+    private func chooseRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        model.draft.worktreeRoot = url.path
+    }
+}

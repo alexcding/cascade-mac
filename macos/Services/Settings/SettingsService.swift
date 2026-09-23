@@ -6,6 +6,12 @@ struct AppConfigDraft: Equatable, Sendable {
     var jiraLimit = "100"
     var jiraBaseURL = ""
     var jiraAPIToken = ""
+    var worktreeLocation = WorktreeLocation.sibling
+    var worktreeRoot = ""
+    var worktreeInclude = WorktreeLocation.defaultInclude
+    var worktreeSetup = ""
+    var worktreeDeleteBranch = false
+    var worktreeFetch = false
 
     init(_ values: [String: String] = [:]) {
         pollInterval = values["poll_interval"] ?? "60"
@@ -13,11 +19,23 @@ struct AppConfigDraft: Equatable, Sendable {
         jiraLimit = values["jira_limit"] ?? "100"
         jiraBaseURL = values["jira_base_url"] ?? ""
         jiraAPIToken = values["jira_api_token"] ?? ""
+        worktreeLocation = values["worktree_location"].flatMap(WorktreeLocation.init(rawValue:)) ?? .sibling
+        worktreeRoot = values["worktree_root"] ?? ""
+        worktreeInclude = values["worktree_include"] ?? WorktreeLocation.defaultInclude
+        worktreeSetup = values["worktree_setup"] ?? ""
+        worktreeDeleteBranch = values["worktree_delete_branch"] == "true"
+        worktreeFetch = values["worktree_fetch"] == "true"
     }
     var values: [String: String] {
         ["poll_interval": pollInterval, "jira_poll_interval": jiraPollInterval, "jira_limit": jiraLimit,
          "jira_base_url": jiraBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-         "jira_api_token": jiraAPIToken.trimmingCharacters(in: .whitespacesAndNewlines)]
+         "jira_api_token": jiraAPIToken.trimmingCharacters(in: .whitespacesAndNewlines),
+         "worktree_location": worktreeLocation.rawValue,
+         "worktree_root": worktreeRoot.trimmingCharacters(in: .whitespacesAndNewlines),
+         "worktree_include": worktreeInclude,
+         "worktree_setup": worktreeSetup.trimmingCharacters(in: .whitespacesAndNewlines),
+         "worktree_delete_branch": worktreeDeleteBranch ? "true" : "false",
+         "worktree_fetch": worktreeFetch ? "true" : "false"]
     }
     var validationError: String? {
         guard let interval = Int(pollInterval), (15...86400).contains(interval) else { return "PR polling must be between 15 and 86400 seconds." }
@@ -28,7 +46,34 @@ struct AppConfigDraft: Equatable, Sendable {
             guard let url = safeWebURL(raw), let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   parts.query == nil, parts.fragment == nil else { return "Enter a Jira HTTP or HTTPS site URL without credentials, query, or fragment." }
         }
+        if worktreeLocation == .custom {
+            let root = worktreeRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard root.hasPrefix("/") || root == "~" || root.hasPrefix("~/") else { return "Choose a folder for new worktrees." }
+        }
         return nil
+    }
+}
+
+/// Where the backend makes a session's new worktree (`crates/craft-backend/src/worktrees.rs`).
+/// Existing worktrees stay where they are: git's own worktree list is what finds them.
+enum WorktreeLocation: String, CaseIterable, Identifiable, Sendable {
+    case sibling, inside, custom
+    /// What the backend copies when neither Settings nor the repo's `.worktreeinclude` names patterns.
+    static let defaultInclude = ".env*"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .sibling: "Next to the project"
+        case .inside: "Inside the project"
+        case .custom: "Custom folder"
+        }
+    }
+    var example: String {
+        switch self {
+        case .sibling: "<project>.worktrees/<branch>"
+        case .inside: "<project>/.worktrees/<branch>, hidden from git through .git/info/exclude."
+        case .custom: "<folder>/<project folder>-<id>/<branch>"
+        }
     }
 }
 
@@ -56,11 +101,12 @@ struct APISettingsService: SettingsService {
 /// General holds the app appearance, startup and behaviour preferences; Browser is the embedded
 /// browser's data and ad blocking; Terminal is
 /// everything the Ghostty surface is configured from, including its own font; Text Editor is the
-/// code font, the code themes and the editor's preview; CLIs carries every tool connection
+/// code font, the code themes and the editor's preview; Worktrees is where a session's worktree
+/// is made and what it gets on the way; CLIs carries every tool connection
 /// including Jira; System is the read-only diagnostics; Activity is the event log, which has its
 /// own coordinator and is not a form.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "General", browser = "Browser", terminal = "Terminal", editor = "Text Editor", clis = "Integrations", shortcuts = "Shortcuts", system = "System", activity = "Activity"
+    case general = "General", browser = "Browser", terminal = "Terminal", editor = "Text Editor", worktrees = "Worktrees", clis = "Integrations", shortcuts = "Shortcuts", system = "System", activity = "Activity"
     var id: String { rawValue }
 }
 

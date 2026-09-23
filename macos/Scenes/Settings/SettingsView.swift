@@ -46,6 +46,7 @@ struct SettingsView: View {
                 BrowserAdBlockSection(model: model.adBlock)
             case .terminal: TerminalSettingsView(fonts: model.fonts, shell: shell)
             case .editor: EditorSettingsView(fonts: model.fonts, shell: shell)
+            case .worktrees: WorktreeSettingsView(model: model) { saveRow }
             case .shortcuts: ShortcutsSettingsView(registry: .shared)
             case .clis: clis
             case .system: system
@@ -186,8 +187,8 @@ struct SettingsView: View {
 
     // MARK: - Shared save row
 
-    /// Integrations → Polling and Jira both edit one `AppConfigDraft` and share one Save: a save sends
-    /// every changed key from both groups.
+    /// Integrations → Polling and Jira, and Worktrees, all edit one `AppConfigDraft` and share one
+    /// Save: a save sends every changed key from every group.
     @ViewBuilder private var saveRow: some View {
         if let message = model.draft.validationError { Text(message).foregroundStyle(Theme.danger) }
         HStack {
@@ -210,6 +211,7 @@ private extension SettingsSection {
         case .browser: "globe"
         case .terminal: "terminal"
         case .editor: "doc.plaintext"
+        case .worktrees: "arrow.triangle.branch"
         case .shortcuts: "keyboard"
         case .clis: "puzzlepiece.extension"
         case .system: "cpu"
