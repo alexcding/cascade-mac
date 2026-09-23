@@ -6,10 +6,13 @@ private final class SimulatorPreviewFixture: SimulatorPreviewing, @unchecked Sen
     var results: [String: Result] = [:]
     var delays: [String: UInt64] = [:]
     var starts: [String] = []
+    /// Starts that have returned or thrown: an answer is on its way back to the model.
+    var finished = 0
     var stops = 0
 
     func start(udid: String) async throws -> URL {
         starts.append(udid)
+        defer { finished += 1 }
         if let nanoseconds = delays[udid] { try await Task.sleep(nanoseconds: nanoseconds) }
         switch results[udid] {
         case .success(let url): return url
@@ -106,11 +109,22 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     await waitFor(model) { $0 == .unavailable }
     service.delays["udid-twice"] = 200_000_000
     model.applicationBecameActive(); model.applicationBecameActive()
-    try? await Task.sleep(for: .milliseconds(400))
+    // On signals, not fixed sleeps: the first check answering, then the model taking it.
+    await until { service.finished == 2 }
+    await waitFor(model) { $0 == .unavailable }
     #expect(service.starts.count == 2 && model.state == .unavailable)
-    model.applicationBecameActive()
-    try? await Task.sleep(for: .milliseconds(300))
+    // The answer reaches the model on its own task; until it has, an activation is still
+    // (rightly) covered by the check in flight. Coming back again until one goes out is what a
+    // user does, and any check sent while one was out would show as a fourth start.
+    await until { model.applicationBecameActive(); return service.starts.count >= 3 }
+    await until { service.finished == 3 }
     #expect(service.starts.count == 3, "an answered check does not hold back the next activation")
+}
+
+/// Polls `condition` for up to 5s: long enough for a loaded machine, and a failure still ends.
+@MainActor private func until(_ condition: () -> Bool) async {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
 }
 
 /// Coming back asks again only for "not set up"; every other state belongs to the Run behind it.

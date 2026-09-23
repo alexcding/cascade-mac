@@ -8,8 +8,15 @@ private actor AutomationFixture: AutomationService {
     private(set) var previews = 0
     init(_ project: Project) { self.project = project }
     func fail(_ value: Bool) { fails = value }
+    /// A held save stays in flight until `release()`, so a test can act while it is out
+    /// however slowly the machine runs, rather than racing a fixed delay.
+    private var holding = false
+    private var held: CheckedContinuation<Void, Never>?
+    func hold() { holding = true }
+    func release() { holding = false; held?.resume(); held = nil }
     func save(projectID: String, draft: AutomationDraft) async throws -> Project {
         saves += 1
+        if holding { await withCheckedContinuation { held = $0 } }
         try await Task.sleep(for: .milliseconds(60))
         if fails { throw BackendError.operation("Fixture automation save failed") }
         project.forwardWebhooks = draft.forwardWebhooks; project.mergeTransition = draft.mergeTransition
@@ -85,9 +92,16 @@ private actor AutomationFixture: AutomationService {
     let model = AutomationViewModel(project: project, service: service)
     model.onAction = { _ in received += 1 }
     model.draft.mergeTransition = "Done"
+    await service.hold()
     let pending = Task { await model.save() }
-    for _ in 0..<100 { if await service.saves == 1 { break }; try await Task.sleep(for: .milliseconds(2)) }
-    await model.stop(); await pending.value
+    let deadline = ContinuousClock.now + .seconds(5)
+    while await service.saves == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    // The write is out and cannot land until released: stop changes the connection under it,
+    // then waits for it to drain.
+    let stopping = Task { await model.stop() }
+    while model.error == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    await service.release()
+    await stopping.value; await pending.value
     #expect(received == 0 && model.dirty && !model.busy && !model.canSave)
     #expect(model.error?.contains("connection changed") == true)
     model.connect(service); await model.save()
