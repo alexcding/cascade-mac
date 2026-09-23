@@ -36,13 +36,13 @@ import Observation
     func handle(_ action: DashboardViewModel.Action) {
         guard !retired, isOwned(), canPresent() else { return }
         switch action {
+        case .open(let request): model.navigation.open(request)
         case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
         case .closeTickets: leaveTickets()
-        default: model.perform(action)
         }
     }
-    /// Back to the home screen, dropping the search typed on My Tickets: the two screens share one
-    /// query, and a ticket key left in it would read as "None match" over the pull requests.
+    /// Back to the home screen, ending any search: going back is navigation, and a search left
+    /// running would keep its results over the page the user asked for.
     func leaveTickets() {
         guard !path.isEmpty else { return }
         popToRoot()

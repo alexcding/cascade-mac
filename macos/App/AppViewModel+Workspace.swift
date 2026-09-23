@@ -26,7 +26,7 @@ extension AppViewModel: WorkspaceCoordinating {
         guard viewer.contexts[context.id] === context else { return SessionWorkspaceState() }
         let session = sessions.first { "task:\($0.id)" == context.id }
         let project = session.flatMap { session in projects.first { $0.id == session.projectId } }
-        let base = session.flatMap { session in dashboard?.projects.flatMap(\.prs).first { $0.url == session.url }?.baseRefName }
+        let base = session.flatMap { session in dashboard?.prs.projects.flatMap(\.prs).first { $0.url == session.url }?.baseRefName }
         let title: String
         if context.id == "scratch" { title = "Terminal" }
         else if let session { title = session.label }

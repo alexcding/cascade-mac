@@ -41,11 +41,29 @@ func compactAge(_ date: Date?) -> String {
     return "\(seconds / 86_400)d"
 }
 
-struct DashboardRow: Identifiable, Equatable {
+struct DashboardRow: Identifiable, Equatable, Sendable {
     let projectID: String
     let projectName: String
     let pr: DashboardPR
     let url: URL
+    /// Worked out once, when the row is built: the views and the search read these on every render
+    /// and every keystroke, and each would otherwise re-parse the date or re-join the strings.
+    let created: Date?
+    let detail: String
+    let dateLabel: String?
+    let searchText: String
+
+    init(projectID: String, projectName: String, pr: DashboardPR, url: URL) {
+        self.projectID = projectID
+        self.projectName = projectName
+        self.pr = pr
+        self.url = url
+        created = pr.createdAt.flatMap(backendTimestamp)
+        detail = [pr.repo ?? projectName, pr.headRefName, pr.author?.login].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        dateLabel = created?.formatted(date: .abbreviated, time: .omitted)
+        searchText = ([pr.title ?? "Pull request", pr.number.map { "#\($0)" } ?? "PR", projectName, detail]
+            + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
+    }
     var id: String { "\(projectID):\(url.absoluteString)" }
     var title: String { pr.title ?? "Pull request" }
     var number: String { pr.number.map { "#\($0)" } ?? "PR" }
@@ -86,8 +104,8 @@ struct DashboardRow: Identifiable, Equatable {
         }
     }
     var author: String { pr.author?.login ?? "" }
-    /// Compact age at the row's trailing edge: 12m, 4h, 3d.
-    var ageLabel: String { compactAge(pr.createdAt.flatMap(backendTimestamp)) }
+    /// Compact age at the row's trailing edge: 12m, 4h, 3d. Relative to now, so not stored.
+    var ageLabel: String { compactAge(created) }
     var reviewLabel: String? {
         if pr.isDraft == true { return "Draft" }
         switch pr.reviewDecision {
@@ -96,20 +114,11 @@ struct DashboardRow: Identifiable, Equatable {
         default: return nil
         }
     }
-    var detail: String {
-        [pr.repo ?? projectName, pr.headRefName, pr.author?.login].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-    var dateLabel: String? {
-        pr.createdAt.flatMap(backendTimestamp)?.formatted(date: .abbreviated, time: .omitted)
-    }
-    /// The home screen lists oldest first; a row with no date counts as oldest.
-    var sortDate: Date { pr.createdAt.flatMap(backendTimestamp) ?? .distantPast }
-    var searchText: String {
-        ([title, number, projectName, detail] + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
-    }
+    /// Lists run newest first; a row with no date counts as oldest, so it sorts last.
+    var sortDate: Date { created ?? .distantPast }
 }
 
-struct OpenPageRequest: Encodable, Sendable {
+struct OpenPageRequest: Encodable, Equatable, Sendable {
     /// Reuses a draft tab's id; nil lets the backend mint one.
     var id: String? = nil
     let url: String
@@ -142,7 +151,7 @@ struct OpenPageRequest: Encodable, Sendable {
 }
 
 /// A Jira ticket assigned to the user, as the home screen's Tickets section and My Tickets show it.
-struct DashboardTicketRow: Identifiable, Equatable {
+struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     let ticket: JiraTicket
     let url: URL
     /// My Tickets' Session column sort key. A row cannot know its own session — the lookup lives on
@@ -160,12 +169,20 @@ struct DashboardTicketRow: Identifiable, Equatable {
     /// on every comparison, and each would otherwise redo the string matching.
     let stage: TicketStage
     let level: TicketPriority
+    /// The labels as one string, the table's sort key for that column.
+    let sortLabels: String
+    /// What the dashboard's search reads: the key, words and people a ticket is known by.
+    let searchText: String
 
     init(ticket: JiraTicket, url: URL) {
         self.ticket = ticket
         self.url = url
         stage = TicketStage(status: ticket.status ?? "", category: ticket.statusCategory)
         level = TicketPriority(ticket.priority ?? "")
+        let labels = ticket.labels ?? []
+        sortLabels = labels.joined(separator: " ")
+        searchText = ([ticket.key, ticket.summary ?? ticket.key, ticket.status, ticket.type, ticket.priority, ticket.reporter]
+            .compactMap { $0 } + labels).joined(separator: " ")
     }
     /// One list of Jira's priority names decides both the Urgent tag and the row's urgent glyph.
     var urgent: Bool { level == .urgent }
@@ -183,7 +200,6 @@ struct DashboardTicketRow: Identifiable, Equatable {
     /// dashboard tracks more than one Jira project, so it opens hidden.
     var project: String { ticket.projectKey }
     var labels: [String] { ticket.labels ?? [] }
-    var sortLabels: String { labels.joined(separator: " ") }
     var reporter: String { ticket.reporter ?? "" }
     /// The project is resolved from the key when the page opens, so none is fixed here.
     var openPageRequest: OpenPageRequest {

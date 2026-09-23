@@ -8,28 +8,24 @@ import SwiftUI
 struct DashboardView: View {
     @Bindable var model: DashboardViewModel
     let shell: ShellStore
-    /// How many tickets the home screen lists before View All takes over.
-    static let ticketPreview = 5
     /// Below this width the side column drops under the main one and the tiles pair up.
     private static let splitWidth: CGFloat = 900
     @State private var width: CGFloat = 1200
-    /// What each tile last showed, kept here rather than in the tile so returning to Overview picks
-    /// up where it left off instead of rolling up from zero again.
-    @State private var tileValues: [String: Double] = [:]
-
+    /// What each tile last showed lives on the model, not in this view: My Tickets replaces this
+    /// view while it is pushed, and view state would come back at zero and roll up again.
     private func shown(_ key: String) -> Binding<Double> {
-        Binding { tileValues[key, default: 0] } set: { tileValues[key] = $0 }
+        Binding { model.tileValues[key, default: 0] } set: { model.tileValues[key] = $0 }
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header.padding(.top, 12).padding(.bottom, 24)
-                if let error = model.error { warning(error, retry: true) }
+                if let error = model.prs.error { warning(error, retry: true) }
                 if let error = model.navigation.error { warning(error) }
-                ForEach(Array(model.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
-                if model.updated == nil {
-                    Text(model.loading ? "Loading pull requests…" : "Connect to load pull requests.").foregroundStyle(.secondary)
+                ForEach(Array(model.prs.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
+                if model.prs.updated == nil {
+                    Text(model.prs.loading ? "Loading pull requests…" : "Connect to load pull requests.").foregroundStyle(.secondary)
                 } else {
                     switch model.tab {
                     case .pullRequests: pullRequestsPage
@@ -43,9 +39,8 @@ struct DashboardView: View {
             .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("native-dashboard")
-        .searchable(text: $model.query, placement: .toolbar,
-                    prompt: "Search pull requests and tickets")
         .task { await shell.watchUsage() }
+        .onChange(of: shell.usage, initial: true) { _, usage in model.usage.update(usage) }
         .onDisappear(perform: model.cancelActions)
     }
 
@@ -54,8 +49,8 @@ struct DashboardView: View {
     /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
     private var header: some View {
         switch model.tab {
-        case .pullRequests: DashboardPageHeader(caption: "Yours, oldest first", title: "Pull requests")
-        case .reviews: DashboardPageHeader(caption: "Waiting on you, longest first", title: "Review requested")
+        case .pullRequests: DashboardPageHeader(caption: "Yours, newest first", title: "Pull requests")
+        case .reviews: DashboardPageHeader(caption: "Waiting on you, newest first", title: "Review requested")
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
         }
@@ -72,35 +67,30 @@ struct DashboardView: View {
     private var overview: some View {
         VStack(alignment: .leading, spacing: 0) {
             summary.padding(.bottom, 44)
-            // Each list is filtered and sorted once here and passed down.
-            let mine = model.visibleMine.sorted { $0.sortDate < $1.sortDate }
-            let reviews = model.visibleReviews.sorted { $0.sortDate < $1.sortDate }
-            let tickets = model.visibleTickets
-            if model.filtering && mine.isEmpty && reviews.isEmpty && tickets.isEmpty {
-                noMatches
-            } else {
-                let attention = model.attentionTickets(from: tickets, limit: Self.ticketPreview)
-                // The side column only when it has something in it; otherwise the lists take the width.
-                if width >= Self.splitWidth && (!reviews.isEmpty || showsUsage) {
-                    HStack(alignment: .top, spacing: 48) {
-                        VStack(alignment: .leading, spacing: 52) {
-                            myPullRequests(mine)
-                            ticketSummary(tickets, attention: attention)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        VStack(alignment: .leading, spacing: 52) {
-                            if !reviews.isEmpty { reviewRequests(reviews) }
-                            usage
-                        }
-                        .frame(width: 340)
-                    }
-                } else {
+            let mine = model.prs.mine
+            let reviews = model.prs.reviews
+            let tickets = model.tickets.rows
+            let attention = model.tickets.attention
+            // The side column only when it has something in it; otherwise the lists take the width.
+            if width >= Self.splitWidth && (!reviews.isEmpty || showsUsage) {
+                HStack(alignment: .top, spacing: 48) {
                     VStack(alignment: .leading, spacing: 52) {
                         myPullRequests(mine)
-                        if !reviews.isEmpty { reviewRequests(reviews) }
                         ticketSummary(tickets, attention: attention)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 52) {
+                        if !reviews.isEmpty { reviewRequests(reviews) }
                         usage
                     }
+                    .frame(width: 340)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 52) {
+                    myPullRequests(mine)
+                    if !reviews.isEmpty { reviewRequests(reviews) }
+                    ticketSummary(tickets, attention: attention)
+                    usage
                 }
             }
         }
@@ -113,98 +103,83 @@ struct DashboardView: View {
     /// search; the sections under them leave their counts to these tiles. One row when wide, sized
     /// to the tiles shown so none leaves an empty slot; pairs when narrow.
     private var summary: some View {
-        let tiles = model.ticketsAvailable ? 4 : 3
+        let tiles = model.tickets.available ? 4 : 3
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
                             count: width >= Self.splitWidth ? tiles : 2)
         return LazyVGrid(columns: columns, spacing: 12) {
             pullRequestTile
             reviewTile
-            if model.ticketsAvailable { ticketTile }
+            if model.tickets.available { ticketTile }
             spendTile
         }
     }
 
     private var pullRequestTile: some View {
-        let mine = model.mine
-        let failing = mine.filter { $0.checks == .failing }.count
-        let drafts = mine.filter { $0.pr.isDraft == true }.count
-        let approved = mine.filter { $0.pr.reviewDecision == "APPROVED" }.count
-        return DashboardStatTile(title: "Open pull requests", value: Double(mine.count), shown: shown("prs"),
-                                 footnote: "\(drafts) draft\(drafts == 1 ? "" : "s") · \(approved) approved",
+        let tile = model.prs.tile
+        return DashboardStatTile(title: "Open pull requests", value: Double(tile.count), shown: shown("prs"),
+                                 footnote: tile.footnote,
                                  open: { model.selectTab(.pullRequests) }) {
-            if failing > 0 { DashboardBadge("\(failing) failing", tone: .danger) }
+            if tile.failing > 0 { DashboardBadge("\(tile.failing) failing", tone: .danger) }
         } visual: {
-            DashboardChecksBars(rows: mine)
+            DashboardChecksMatrix(rows: tile.dots)
         }
         .accessibilityIdentifier("dashboard-tile-prs")
     }
 
     private var reviewTile: some View {
-        let reviews = model.reviews
-        let oldest = reviews.min { $0.sortDate < $1.sortDate }
-        let repos = Set(reviews.map { $0.pr.repo ?? $0.projectName }).count
-        var authors: [String] = []
-        for login in reviews.map(\.author) where !login.isEmpty && !authors.contains(login) { authors.append(login) }
-        return DashboardStatTile(title: "Waiting on you", value: Double(reviews.count), shown: shown("reviews"),
-                                 footnote: reviews.isEmpty ? "No review requests" : "across \(repos) repo\(repos == 1 ? "" : "s")",
+        let tile = model.prs.reviewTile
+        return DashboardStatTile(title: "Waiting on you", value: Double(tile.count), shown: shown("reviews"),
+                                 footnote: tile.footnote,
                                  open: { model.selectTab(.reviews) }) {
-            if let oldest { DashboardBadge("oldest \(oldest.ageLabel)", tone: .warn) }
+            if let age = tile.oldestAge { DashboardBadge("oldest \(age)", tone: .warn) }
         } visual: {
-            DashboardAvatarStack(logins: Array(authors.prefix(3)))
+            DashboardAvatarStack(logins: tile.authors, avatars: model.prs.avatars)
         }
         .accessibilityIdentifier("dashboard-tile-reviews")
     }
 
     /// Urgent opens My Tickets on its tag; a segment of the strip opens it on that stage.
     private var ticketTile: some View {
-        let tickets = model.tickets
-        let urgent = tickets.filter(\.urgent).count
-        let loading = model.ticketsLoading && tickets.isEmpty
-        let counts = TicketStage.allCases.map { stage in (stage, tickets.filter { $0.stage == stage }.count) }
-        return DashboardStatTile(title: "Tickets assigned", value: loading ? 0 : Double(tickets.count), shown: shown("tickets"),
-                                 footnote: counts.map { "\($0.1) \($0.0.title.lowercased())" }.joined(separator: " · "),
+        let tile = model.tickets.tile
+        let loading = model.tickets.loading && tile.count == 0
+        return DashboardStatTile(title: "Tickets assigned", value: loading ? 0 : Double(tile.count), shown: shown("tickets"),
+                                 footnote: tile.footnote,
                                  open: { model.showTickets() }) {
-            if urgent > 0 {
-                Button { model.showTickets(.urgent) } label: { DashboardBadge("\(urgent) urgent", tone: .danger) }
+            if tile.urgent > 0 {
+                Button { model.showTickets(.urgent) } label: { DashboardBadge("\(tile.urgent) urgent", tone: .danger) }
                     .buttonStyle(.plain)
                     .help("Show urgent tickets")
                     .accessibilityIdentifier("dashboard-urgent-tickets")
             }
         } visual: {
-            DashboardStageStrip(tickets: tickets) { model.showTickets(.stage($0)) }
+            DashboardStageStrip(stages: model.tickets.stages) { model.showTickets(.stage($0)) }
                 .frame(minWidth: 40, maxWidth: 110)
         }
         .accessibilityIdentifier("dashboard-tile-tickets")
     }
 
     private var spendTile: some View {
-        let agents = Theme.usageAgents.compactMap { agent -> (key: String, title: String, history: [UsageSnapshot.Day])? in
-            let history = agent.key == "codex" ? shell.usage?.codex?.history : shell.usage?.claude?.history
-            return history.map { (agent.key, agent.title, $0) }
-        }
-        let month = agents.flatMap(\.history).reduce(0) { $0 + $1.cost }
-        let tokens = agents.flatMap(\.history).reduce(0) { $0 + $1.tokens }
-        let split = agents.map { "\($0.title) \(UsageStats.money($0.history.reduce(0) { $0 + $1.cost }, whole: true))" }
-        return DashboardStatTile(title: "AI spend · 30 days", value: month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
-                                 footnote: split.isEmpty ? "No usage yet" : split.joined(separator: " · ")) {
-            if tokens > 0 { DashboardBadge("\(UsageStats.compact(tokens)) tokens", tone: .outline) }
+        let tile = model.usage.tile
+        return DashboardStatTile(title: "AI spend · 30 days", value: tile.month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
+                                 footnote: tile.footnote) {
+            if let label = tile.tokensLabel { DashboardBadge(label, tone: .outline) }
         } visual: {
-            DashboardSpendLines(series: agents.map { ($0.key, $0.history.map(\.cost)) })
+            DashboardSpendLines(lines: tile.lines, peak: tile.peak)
         }
         .accessibilityIdentifier("dashboard-tile-spend")
     }
 
     // MARK: Pull requests
 
-    /// Yours oldest first. The refresh here syncs every pull request, review requests included.
+    /// Yours newest first. The refresh here syncs every pull request, review requests included.
     private func myPullRequests(_ rows: [DashboardRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             DashboardSectionHeader(title: "My pull requests", detail: "",
-                                   refresh: { model.syncPRs() }, busy: model.loading || model.syncing, id: "prs")
-            if model.projects.isEmpty {
+                                   refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "prs")
+            if model.prs.projects.isEmpty {
                 noProjects
             } else {
-                if rows.isEmpty { placeholder(model.filtering ? "None match the search." : "No open pull requests you authored.") }
+                if rows.isEmpty { placeholder("No open pull requests you authored.") }
                 prRows(rows)
             }
         }
@@ -255,29 +230,24 @@ struct DashboardView: View {
 
     /// Every pull request of the user's, one ruled section per project, narrowed by a tag.
     private var pullRequestsPage: some View {
-        let mine = model.visibleMine.sorted { $0.sortDate < $1.sortDate }
-        let shown = mine.filter(model.prFilter.matches)
-        let groups = model.projects.compactMap { project -> (DashboardProject, [DashboardRow])? in
-            let rows = shown.filter { $0.projectID == project.id }
-            return rows.isEmpty ? nil : (project, rows)
-        }
+        let groups = model.prs.groups
         return VStack(alignment: .leading, spacing: 0) {
-            DashboardFilterTags(values: DashboardViewModel.PRFilter.allCases, selection: model.prFilter,
-                                title: \.title, count: { value in mine.filter(value.matches).count },
-                                id: { "dashboard-pr-filter-\($0.id)" }) { model.prFilter = $0 }
+            DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
+                                title: \.title, count: { model.prs.counts[$0] ?? 0 },
+                                id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
                 .padding(.bottom, 24)
-            if model.projects.isEmpty {
+            if model.prs.projects.isEmpty {
                 noProjects
             } else if groups.isEmpty {
-                placeholder(model.filtering ? "None match the search." : "No pull requests here.")
+                placeholder("No pull requests here.")
             } else {
                 VStack(alignment: .leading, spacing: 44) {
-                    ForEach(Array(groups.enumerated()), id: \.element.0.id) { index, group in
+                    ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
                         VStack(alignment: .leading, spacing: 0) {
-                            DashboardSectionHeader(title: group.0.name, detail: group.0.repo,
-                                                   refresh: index == 0 ? { model.syncPRs() } : nil,
-                                                   busy: model.loading || model.syncing, id: "prs")
-                            prRows(group.1)
+                            DashboardSectionHeader(title: group.project.name, detail: group.project.repo,
+                                                   refresh: index == 0 ? { model.prs.sync() } : nil,
+                                                   busy: model.prs.loading || model.prs.syncing, id: "prs")
+                            prRows(group.rows)
                         }
                     }
                 }
@@ -289,12 +259,12 @@ struct DashboardView: View {
 
     /// Every review request, longest waiting first, with who asked.
     private var reviewsPage: some View {
-        let reviews = model.visibleReviews.sorted { $0.sortDate < $1.sortDate }
+        let reviews = model.prs.reviews
         return VStack(alignment: .leading, spacing: 0) {
             DashboardSectionHeader(title: "Waiting on you", detail: "",
-                                   refresh: { model.syncPRs() }, busy: model.loading || model.syncing, id: "reviews")
+                                   refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "reviews")
             if reviews.isEmpty {
-                placeholder(model.filtering ? "None match the search." : "No review requests.")
+                placeholder("No review requests.")
             }
             prRows(reviews, author: true)
         }
@@ -305,14 +275,14 @@ struct DashboardView: View {
     /// The few tickets that need attention; the tile above already splits them by stage, and the
     /// full list lives on My Tickets, one click away.
     @ViewBuilder private func ticketSummary(_ rows: [DashboardTicketRow], attention: [DashboardTicketRow]) -> some View {
-        if model.ticketsAvailable {
+        if model.tickets.available {
             VStack(alignment: .leading, spacing: 0) {
                 DashboardSectionHeader(title: "Tickets", detail: "",
-                                       refresh: { model.refreshTickets() }, busy: model.ticketsLoading, id: "tickets")
-                if rows.isEmpty && model.ticketsLoading {
+                                       refresh: { model.tickets.refresh() }, busy: model.tickets.loading, id: "tickets")
+                if rows.isEmpty && model.tickets.loading {
                     placeholder("Loading tickets…")
                 } else if rows.isEmpty {
-                    placeholder(model.ticketsError ?? (model.filtering ? "None match the search." : "No tickets assigned to you."))
+                    placeholder(model.tickets.error ?? "No tickets assigned to you.")
                 } else {
                     if attention.isEmpty { placeholder("Nothing in progress or urgent.") }
                     ForEach(Array(attention.enumerated()), id: \.element.id) { index, row in
@@ -371,19 +341,10 @@ struct DashboardView: View {
         Text(text).font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.vertical, 12)
     }
 
-    private var noMatches: some View {
-        VStack(spacing: 5) {
-            Text("Nothing matches the search").font(.system(size: 13, weight: .semibold)).foregroundStyle(DashboardPalette.ink2)
-            Button("Clear the search", action: model.clearFilter).buttonStyle(.link).font(.system(size: 12))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 24)
-    }
-
     private func warning(_ text: String, retry: Bool = false) -> some View {
         HStack(spacing: 8) {
             Label(text, systemImage: "exclamationmark.triangle.fill"); Spacer()
-            if retry { Button("Retry", action: model.refresh) }
+            if retry { Button("Retry", action: model.prs.refresh) }
         }.font(.callout).foregroundStyle(.orange).padding(10)
             .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).padding(.bottom, 12)
     }
@@ -540,7 +501,8 @@ private struct DashboardTileAction: ViewModifier {
     }
 }
 
-/// A capsule label tinted by what it says.
+/// An outlined capsule label; only its text is tinted by what it says, so every tile's badge
+/// shares one quiet style.
 private struct DashboardBadge: View {
     enum Tone { case danger, warn, outline }
     let text: String
@@ -551,8 +513,7 @@ private struct DashboardBadge: View {
         Text(text).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
             .foregroundStyle(foreground)
             .padding(.horizontal, 9).frame(height: 22)
-            .background(fill, in: Capsule())
-            .overlay(Capsule().strokeBorder(tone == .outline ? DashboardPalette.hairline : .clear, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(DashboardPalette.hairline, lineWidth: 1))
     }
     private var foreground: Color {
         switch tone {
@@ -561,33 +522,31 @@ private struct DashboardBadge: View {
         case .outline: DashboardPalette.ink2
         }
     }
-    private var fill: Color {
-        switch tone {
-        case .danger: DashboardPalette.pill(.blocked).fill
-        case .warn: DashboardPalette.pill(.inProgress).fill
-        case .outline: .clear
-        }
-    }
 }
 
-/// One bar per open pull request, coloured and sized by its check state.
-private struct DashboardChecksBars: View {
+/// One rounded square per open pull request, coloured by its check state, in a GitHub-style
+/// matrix two high that fills column by column. In a narrow tile it drops whole columns from the
+/// end rather than push past the tile's edge; failing ones come first, so they are never dropped.
+private struct DashboardChecksMatrix: View {
     let rows: [DashboardRow]
+    private static let cell: CGFloat = 8
+    private static let gap: CGFloat = 3
+    private static let columns = [10, 8, 6, 4, 2]
     var body: some View {
-        let shown = rows.sorted { rank($0.checks) < rank($1.checks) }.prefix(16)
-        HStack(alignment: .bottom, spacing: 4) {
-            ForEach(shown) { row in
-                Capsule().fill(tint(row.checks)).frame(width: 6, height: height(row.checks))
-            }
+        ViewThatFits(in: .horizontal) {
+            ForEach(Self.columns, id: \.self) { count in grid(Array(rows.prefix(count * 2))) }
         }
-        .frame(height: 34, alignment: .bottom)
+        .frame(height: 34)
         .accessibilityHidden(true)
     }
-    private func rank(_ checks: DashboardRow.Checks) -> Int {
-        switch checks { case .passing: 0; case .unknown: 1; case .running: 2; case .failing: 3 }
-    }
-    private func height(_ checks: DashboardRow.Checks) -> CGFloat {
-        switch checks { case .failing: 34; case .passing: 26; case .running: 17; case .unknown: 10 }
+    private func grid(_ rows: [DashboardRow]) -> some View {
+        LazyHGrid(rows: Array(repeating: GridItem(.fixed(Self.cell), spacing: Self.gap), count: 2), spacing: Self.gap) {
+            ForEach(rows) { row in
+                RoundedRectangle(cornerRadius: 2, style: .continuous).fill(tint(row.checks))
+                    .frame(width: Self.cell, height: Self.cell)
+            }
+        }
+        .fixedSize()
     }
     private func tint(_ checks: DashboardRow.Checks) -> Color {
         switch checks {
@@ -602,17 +561,27 @@ private struct DashboardChecksBars: View {
 /// Up to three authors as overlapping initials.
 private struct DashboardAvatarStack: View {
     let logins: [String]
+    /// GitHub faces by login; a login missing here shows its initials.
+    var avatars: [String: NSImage] = [:]
     private static let tints: [ThemeTone] = [.accent, .merged, .success]
     var body: some View {
         HStack(spacing: -8) {
             ForEach(Array(logins.enumerated()), id: \.offset) { index, login in
                 let tone = Self.tints[index % Self.tints.count]
-                Text(String(login.prefix(2)).uppercased()).font(.system(size: 10.5, weight: .bold))
-                    .foregroundStyle(tone.foreground)
-                    .frame(width: 30, height: 30)
-                    .background(tone.background, in: Circle())
-                    .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 2))
-                    .help(login)
+                Group {
+                    if let avatar = avatars[login] {
+                        Image(nsImage: avatar).resizable().scaledToFill()
+                    } else {
+                        Text(String(login.prefix(2)).uppercased()).font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(tone.foreground)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(tone.background)
+                    }
+                }
+                .frame(width: 30, height: 30)
+                .clipShape(Circle())
+                .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 2))
+                .help(login)
             }
         }
         .accessibilityLabel(logins.joined(separator: ", "))
@@ -621,11 +590,11 @@ private struct DashboardAvatarStack: View {
 
 /// The month's daily cost as one line per agent, each in its colour, on a shared scale.
 private struct DashboardSpendLines: View {
-    let series: [(key: String, costs: [Double])]
+    let lines: [DashboardUsageModel.Line]
+    let peak: Double
     var body: some View {
-        let peak = max(0.01, series.flatMap(\.costs).max() ?? 0)
         ZStack {
-            ForEach(series, id: \.key) { line in
+            ForEach(lines) { line in
                 Path { path in
                     let points = line.costs
                     guard points.count > 1 else { return }
@@ -644,23 +613,22 @@ private struct DashboardSpendLines: View {
 
 /// The tickets by stage as one short strip.
 private struct DashboardStageStrip: View {
-    let tickets: [DashboardTicketRow]
+    let stages: DashboardTicketsModel.StageSummary
     let select: (TicketStage) -> Void
     var body: some View {
-        let counts = TicketStage.allCases.map { stage in (stage, tickets.filter { $0.stage == stage }.count) }.filter { $0.1 > 0 }
-        let total = CGFloat(max(1, tickets.count))
+        let total = CGFloat(max(1, stages.total))
         GeometryReader { geometry in
-            let gaps = CGFloat(max(0, counts.count - 1)) * 3
+            let gaps = CGFloat(max(0, stages.live.count - 1)) * 3
             HStack(spacing: 3) {
-                ForEach(counts, id: \.0) { stage, count in
-                    Button { select(stage) } label: {
-                        Capsule().fill(DashboardPalette.stage(stage))
-                            .frame(width: max(6, (geometry.size.width - gaps) * CGFloat(count) / total), height: 8)
+                ForEach(stages.live) { entry in
+                    Button { select(entry.stage) } label: {
+                        Capsule().fill(DashboardPalette.stage(entry.stage))
+                            .frame(width: max(6, (geometry.size.width - gaps) * CGFloat(entry.count) / total), height: 8)
                             .contentShape(Rectangle().inset(by: -6))
                     }
                     .buttonStyle(.plain)
-                    .help("\(stage.title): \(count)")
-                    .accessibilityLabel("\(stage.title): \(count)")
+                    .help("\(entry.stage.title): \(entry.count)")
+                    .accessibilityLabel("\(entry.stage.title): \(entry.count)")
                 }
             }
         }
@@ -671,7 +639,7 @@ private struct DashboardStageStrip: View {
 /// A list row's resting and hover state, as tall as My Tickets' rows: full-width hairlines above
 /// a group's first row and under every row, so each group reads as one ruled list; a square wash
 /// under the pointer that fills the band between the rules.
-private struct DashboardHoverRow: ViewModifier {
+struct DashboardHoverRow: ViewModifier {
     var first = false
     @State private var hovering = false
     func body(content: Content) -> some View {
@@ -691,7 +659,7 @@ private struct DashboardHoverRow: ViewModifier {
 
 /// One pull request: checks, number, title, then the ticket it names, its review state, the agent
 /// working on it and its age. The side column's compact form keeps checks, number, title and age.
-private struct DashboardPRRow: View {
+struct DashboardPRRow: View {
     let row: DashboardRow
     let mark: PageSessionMark?
     let opening: Bool

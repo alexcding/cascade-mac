@@ -121,8 +121,8 @@ private struct RoutingRows: DashboardService {
     actions.sessionURLs = [prURL]
     let model = DashboardViewModel(pageActions: actions), coordinator = DashboardCoordinator(model: model)
     model.connect(RoutingRows())
-    while model.loading { try await Task.sleep(for: .milliseconds(10)) }
-    let worked = try #require(model.mine.first { $0.pr.number == 9 }), fresh = try #require(model.mine.first { $0.pr.number == 5 })
+    while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
+    let worked = try #require(model.prs.mine.first { $0.pr.number == 9 }), fresh = try #require(model.prs.mine.first { $0.pr.number == 5 })
     #expect(model.sessionMark(worked)?.cli == "claude" && model.sessionMark(fresh) == nil)
     // The lookup is asked exactly what Open in Session would send: the row's project, branch and keys.
     let asked = try #require(actions.asked.first)

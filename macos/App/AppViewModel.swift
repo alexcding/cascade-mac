@@ -240,7 +240,7 @@ public final class AppViewModel {
             let busy = terminal?.agentBusy == true || workflowRuns[session.id]?.running == true
             status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli?.rawValue ?? session.cli)
         }
-        let prs = Dictionary((dashboard?.projects ?? []).flatMap(\.prs).compactMap { pr in pr.url.map { ($0, pr) } },
+        let prs = Dictionary((dashboard?.prs.projects ?? []).flatMap(\.prs).compactMap { pr in pr.url.map { ($0, pr) } },
                              uniquingKeysWith: { first, _ in first })
         var tabIcons: [String: SidebarTabIcon] = [:]
         for tab in tabs where tab.kind == "github" {
@@ -311,7 +311,7 @@ public final class AppViewModel {
     func prepareChanges(for session: WorkspaceSession, context: WorkspaceContext) {
         defer { context.workspaceViewModel?.documentStateChanged() }
         if context.reviewSection == .history, let api {
-            let base = dashboard?.projects.flatMap(\.prs).first(where: { $0.url == session.url })?.baseRefName
+            let base = dashboard?.prs.projects.flatMap(\.prs).first(where: { $0.url == session.url })?.baseRefName
             if let history = historyModels[context.id] { if let base { history.updateBase(base) } }
             else {
                 historyModels[context.id] = documentFactory.history(worktree: session.worktree, baseURL: api.baseURL, base: base ?? "",
@@ -442,7 +442,7 @@ public final class AppViewModel {
     /// Rebuilt when the dashboard snapshot changes: rows ask for their mark on every render.
     private var resolverPullRequests: [SessionResolver.PullRequest] {
         if let cached = cachedResolverPullRequests { return cached }
-        let built = SessionResolver.pullRequests(dashboard?.projects ?? [])
+        let built = SessionResolver.pullRequests(dashboard?.prs.projects ?? [])
         cachedResolverPullRequests = built
         return built
     }
@@ -1354,7 +1354,7 @@ public final class AppViewModel {
         pendingRefreshEvents.removeAll()
         shell.refresh()
         shell.refreshUsage()
-        dashboard?.refresh(); dashboard?.refreshTickets()
+        dashboard?.reload()
         if coordinator.activityVisible { logs?.refresh() }
         if case .project(let id) = selection, let model = projectModels[id], model.section == .board {
             model.board?.refresh()
@@ -1452,7 +1452,7 @@ public final class AppViewModel {
         if events.contains(where: { $0.type == "tasks" }) { inventory.insert(.sessions) }
         if !inventory.isEmpty { refreshInventory(inventory) }
         let prs = events.filter { $0.type == "sync" && $0.scope == "prs" }
-        if !prs.isEmpty { dashboard?.refresh() }
+        if !prs.isEmpty { dashboard?.prs.refresh() }
         if !prs.isEmpty || events.contains(where: { $0.type == "reviews" }) { shell.refresh() }
         if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
         guard case .project(let id) = selection, let model = projectModels[id] else { return }

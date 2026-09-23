@@ -931,7 +931,8 @@ enum SidebarGlyphs {
         // reconfigures the row), and not never (a transient error must not stick for the process).
         if let failed = failures[login], Date().timeIntervalSince(failed) < 60 { return nil }
         guard let encoded = login.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://github.com/\(encoded).png?size=40"),
+              // 80px: sharp for the sidebar's 20pt rows and the dashboard's 30pt faces on Retina.
+              let url = URL(string: "https://github.com/\(encoded).png?size=80"),
               pending.insert(login).inserted else { return nil }
         Task {
             defer { pending.remove(login) }

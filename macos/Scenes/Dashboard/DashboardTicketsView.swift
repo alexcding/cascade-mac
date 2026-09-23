@@ -6,61 +6,37 @@ struct DashboardTicketsView: View {
     @Bindable var model: DashboardViewModel
 
     var body: some View {
-        let visible = model.visibleTickets
-        let counts = model.ticketCounts(of: visible)
-        let rows = model.screenTickets(from: visible)
+        let rows = model.tickets.screenRows
+        let counts = model.tickets.counts
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardPageHeader(caption: "\(visible.count) assigned to you, urgent first", title: "My tickets") {
-                    DashboardRefreshButton(name: "tickets", id: "tickets", busy: model.ticketsLoading, action: model.refreshTickets)
+                DashboardPageHeader(caption: "\(model.tickets.tile.count) assigned to you, urgent first", title: "My tickets") {
+                    DashboardRefreshButton(name: "tickets", id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
                         .padding(.bottom, 6)
                 }
                 .padding(.top, 12).padding(.bottom, 24)
                 if let error = model.navigation.error { warning(error) }
-                if let error = model.ticketsError { warning(error) }
-                if !visible.isEmpty {
-                    TicketStageBar(tickets: visible) { model.ticketFilter = .stage($0) }
+                if let error = model.tickets.error { warning(error) }
+                if model.tickets.stages.total > 0 {
+                    TicketStageBar(stages: model.tickets.stages) { model.tickets.filter = .stage($0) }
                 }
-                tags(counts).padding(.top, visible.isEmpty ? 0 : 24).padding(.bottom, 24)
+                DashboardFilterTags(values: DashboardTicketsModel.Filter.allCases, selection: model.tickets.filter,
+                                    title: \.title, count: { counts[$0] ?? 0 },
+                                    id: { "dashboard-ticket-filter-\($0.id)" }) { model.tickets.filter = $0 }
+                    .padding(.top, model.tickets.tile.count == 0 ? 0 : 24).padding(.bottom, 24)
                 if rows.isEmpty {
-                    Text(!model.ticketsAvailable ? "Jira isn’t connected, so there are no tickets to show." : model.ticketsLoading ? "Loading tickets…" : "No tickets match.")
+                    Text(!model.tickets.available ? "Jira isn’t connected, so there are no tickets to show." : model.tickets.loading ? "Loading tickets…" : "No tickets match.")
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
                 } else {
                     DashboardTicketTable(rows: rows, opening: model.navigation.opening,
                         open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
-                        session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark,
-                        linkedPRs: model.linkedPRs)
+                        session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark)
                 }
             }
             .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("dashboard-tickets")
-        .searchable(text: $model.query, placement: .toolbar, prompt: "Search tickets")
         .onDisappear(perform: model.cancelActions)
-    }
-
-    private func tags(_ counts: [DashboardViewModel.TicketFilter: Int]) -> some View {
-        FlowRow(spacing: 8, lineSpacing: 8) {
-            ForEach(DashboardViewModel.TicketFilter.allCases) { value in
-                let active = model.ticketFilter == value
-                Button { model.ticketFilter = value } label: {
-                    HStack(spacing: 7) {
-                        Text(value.title).fontWeight(.semibold)
-                        Text("\(counts[value] ?? 0)").monospacedDigit().opacity(0.7)
-                    }
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-                    .padding(.horizontal, 12).frame(height: 30)
-                    .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("dashboard-ticket-filter-\(value.id)")
-                .accessibilityAddTraits(active ? .isSelected : [])
-            }
-        }
     }
 
     private func warning(_ text: String) -> some View {
@@ -78,9 +54,6 @@ struct DashboardTicketTable: View {
     let openTab: (DashboardTicketRow) -> Void
     let session: (DashboardTicketRow, SessionAgent?) -> Void
     let sessionMark: (DashboardTicketRow) -> PageSessionMark?
-    /// Each Jira key a pull request on this dashboard references, against that pull request's
-    /// number. The PR column reads it, so a ticket already being worked on says where.
-    let linkedPRs: [String: String]
     @State private var sortOrder: [KeyPathComparator<DashboardTicketRow>] = []
     @State private var selection: DashboardTicketRow.ID?
     /// Right-click the header to show, hide or reorder; drag a divider to resize.
@@ -104,7 +77,6 @@ struct DashboardTicketTable: View {
         rows.map { row in
             var row = row
             row.sessionName = sessionMark(row)?.shortName ?? ""
-            row.pullRequest = linkedPRs[row.ticket.key] ?? ""
             return row
         }.sorted(using: sortOrder)
     }

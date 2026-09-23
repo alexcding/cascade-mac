@@ -20,8 +20,8 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
     let actions = ProjectPageActions()
     let model = DashboardViewModel(pageActions: actions), coordinator = DashboardCoordinator(model: model)
     model.connect(SessionRowService())
-    while model.loading { try await Task.sleep(for: .milliseconds(10)) }
-    let row = try #require(model.mine.first)
+    while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
+    let row = try #require(model.prs.mine.first)
     model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.last?.inSession == false && actions.opened.last?.projectID == "p", "A tab open names the row's project too, so its session lookup matches the badge's")
     #expect(actions.opened.last?.inTab == false, "A click keeps the page's session routing")

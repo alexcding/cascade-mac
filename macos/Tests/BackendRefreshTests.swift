@@ -117,7 +117,7 @@ private actor RefreshTransport: BackendTransport {
     let runtime = RefreshRuntime(), transport = runtime.transport
     let model = refreshApp(runtime, preferences: preferences)
     await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
+    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
     await transport.reset()
 
     for _ in 0..<20 {
@@ -186,7 +186,7 @@ private actor RefreshTransport: BackendTransport {
     let runtime = RefreshRuntime(), transport = runtime.transport
     let model = refreshApp(runtime, preferences: preferences)
     await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
+    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
     model.select(.project("p"))
     let project = try #require(model.projectModels["p"])
     project.setSection(.tickets)
@@ -233,7 +233,7 @@ private actor RefreshTransport: BackendTransport {
     let model = refreshApp(runtime, preferences: preferences)
     await transport.addTab()
     await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
+    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
     await transport.reset()
     await transport.removeTab()
     await transport.holdNextTabs()

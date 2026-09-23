@@ -262,21 +262,19 @@ struct AgentMark: View {
 /// The tickets split by workflow stage as one bar, 2pt gaps between segments, with a legend that
 /// names and counts each stage. A legend entry opens My Tickets on that stage.
 struct TicketStageBar: View {
-    let tickets: [DashboardTicketRow]
+    let stages: DashboardTicketsModel.StageSummary
     var select: ((TicketStage) -> Void)? = nil
 
     var body: some View {
-        let counts = TicketStage.allCases.map { stage in (stage, tickets.filter { $0.stage == stage }.count) }
-        let live = counts.filter { $0.1 > 0 }
-        let total = max(1, tickets.count)
+        let total = max(1, stages.total)
         VStack(alignment: .leading, spacing: 10) {
             GeometryReader { geometry in
-                let gaps = CGFloat(max(0, live.count - 1)) * 2
+                let gaps = CGFloat(max(0, stages.live.count - 1)) * 2
                 HStack(spacing: 2) {
-                    ForEach(live, id: \.0) { entry in
-                        Rectangle().fill(DashboardPalette.stage(entry.0))
-                            .frame(width: max(2, (geometry.size.width - gaps) * CGFloat(entry.1) / CGFloat(total)))
-                            .help("\(entry.0.title): \(entry.1)")
+                    ForEach(stages.live) { entry in
+                        Rectangle().fill(DashboardPalette.stage(entry.stage))
+                            .frame(width: max(2, (geometry.size.width - gaps) * CGFloat(entry.count) / CGFloat(total)))
+                            .help("\(entry.stage.title): \(entry.count)")
                     }
                 }
                 .clipShape(Capsule())
@@ -284,24 +282,24 @@ struct TicketStageBar: View {
             .frame(height: 6)
             .accessibilityHidden(true)
             FlowRow(spacing: 18, lineSpacing: 8) {
-                ForEach(counts, id: \.0) { stage, count in
-                    Button { select?(stage) } label: {
+                ForEach(stages.all) { entry in
+                    Button { select?(entry.stage) } label: {
                         HStack(spacing: 6) {
-                            if stage == .blocked {
+                            if entry.stage == .blocked {
                                 Image(systemName: "nosign").font(.system(size: 10.5, weight: .bold)).foregroundStyle(DashboardPalette.critical)
                             } else {
-                                RoundedRectangle(cornerRadius: 2).fill(DashboardPalette.stage(stage)).frame(width: 10, height: 10)
+                                RoundedRectangle(cornerRadius: 2).fill(DashboardPalette.stage(entry.stage)).frame(width: 10, height: 10)
                             }
-                            Text(stage.title).foregroundStyle(DashboardPalette.ink2)
-                            Text("\(count)").fontWeight(.semibold).monospacedDigit()
+                            Text(entry.stage.title).foregroundStyle(DashboardPalette.ink2)
+                            Text("\(entry.count)").fontWeight(.semibold).monospacedDigit()
                         }
                         .font(.system(size: 12))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .disabled(select == nil)
-                    .accessibilityLabel("\(stage.title): \(count)")
-                    .accessibilityIdentifier("dashboard-stage-\(stage.rawValue)")
+                    .accessibilityLabel("\(entry.stage.title): \(entry.count)")
+                    .accessibilityIdentifier("dashboard-stage-\(entry.stage.rawValue)")
                 }
             }
         }
