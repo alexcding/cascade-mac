@@ -165,8 +165,7 @@ struct DashboardView: View {
             }
         } visual: {
             DashboardStageStrip(tickets: tickets) { model.showTickets(.stage($0)) }
-                .frame(width: 110)
-                .padding(.bottom, 6)
+                .frame(minWidth: 40, maxWidth: 110)
         }
         .accessibilityIdentifier("dashboard-tile-tickets")
     }
@@ -480,23 +479,27 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
+            // Baseline-aligned, so the title and the badge's text sit on one line.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink2).lineLimit(1)
                 Spacer(minLength: 0)
                 badge
             }
             .frame(minHeight: 22)
-            HStack(alignment: .bottom, spacing: 8) {
-                Text(value).font(.system(size: 34, weight: .semibold).monospacedDigit())
-                    .tracking(-0.6).lineLimit(1).minimumScaleFactor(0.6)
+            HStack(alignment: .center, spacing: 8) {
+                Text(value).font(.system(size: 30, weight: .semibold).monospacedDigit())
+                    // No scaling, so every tile's number is the same size; the visual gives way instead.
+                    .tracking(-0.6).lineLimit(1).fixedSize().layoutPriority(1)
                 Spacer(minLength: 0)
                 visual
             }
+            // A fixed row height keeps every tile the same height whatever its visual.
+            .frame(height: 42)
             Text(footnote).font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
                 .lineLimit(1).truncationMode(.tail)
         }
-        .padding(.horizontal, 20).padding(.vertical, 18)
-        .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         // A tap rather than a Button, so the tile's own buttons stay separate controls.
@@ -617,7 +620,7 @@ private struct DashboardSpendLines: View {
                 .stroke(Theme.agentTint(line.key), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
         }
-        .frame(width: 100, height: 34)
+        .frame(minWidth: 40, maxWidth: 100, minHeight: 34, maxHeight: 34)
         .accessibilityHidden(true)
     }
 }

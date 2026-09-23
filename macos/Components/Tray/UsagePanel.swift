@@ -158,7 +158,8 @@ struct UsageStats: View {
     }
 
     static func money(_ value: Double, whole: Bool = false) -> String {
-        value.formatted(.currency(code: "USD").precision(.fractionLength(whole ? 0 : 2)))
+        // Narrow, so locales outside the US show "$" rather than "US$".
+        value.formatted(.currency(code: "USD").presentation(.narrow).precision(.fractionLength(whole ? 0 : 2)))
     }
     /// "20M", "3.2B", "850K": one decimal only when the leading figure is a single digit.
     static func compact(_ value: Double) -> String {
