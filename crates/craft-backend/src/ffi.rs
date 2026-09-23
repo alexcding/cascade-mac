@@ -598,6 +598,16 @@ mod tests {
         assert_eq!(event["url"], "https://example.com/a b?x=1&y=2");
         assert_eq!(event["runId"], "pty1-2");
         assert_eq!(call(backend, "POST", "/api/hooks/open-url?url=&runId=pty1-2", "").status, 400);
+        // Only a web address: the helper sends nothing else, and a page must not open a file.
+        assert_eq!(call(backend, "POST", "/api/hooks/open-url?url=file%3a%2f%2f%2fetc%2fpasswd&runId=pty1-2", "").status, 400);
+        // A web page may send this POST without a preflight; its origin is refused.
+        let port = unsafe { craft_backend_port(backend) };
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        use std::io::{Read, Write};
+        write!(stream, "POST /api/hooks/open-url?url=https%3a%2f%2fexample.com&runId=pty1-2 HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://evil.example\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
         unsafe { craft_backend_unsubscribe(backend, id) };
         // With no app listening, the helper is told to open the link itself.
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

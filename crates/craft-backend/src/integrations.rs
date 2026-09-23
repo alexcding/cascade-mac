@@ -686,8 +686,19 @@ pub struct OpenUrlQuery {
 /// A terminal's BROWSER (the helper craft-ptyd installs) asking for a URL to open in the panel
 /// beside it. Only the app subscribes to events, so a send nobody receives means no app is there
 /// to take the link: that answers 503, and the helper opens it with `open` instead.
-pub async fn open_url(State(app): State<AppState>, Query(query): Query<OpenUrlQuery>) -> StatusCode {
-    if query.url.is_empty() || query.run_id.is_empty() {
+///
+/// Its query-only POST is one a web page may send without a preflight, so a page's origin is
+/// refused, and only a web address is relayed: the helper sends nothing else.
+pub async fn open_url(
+    State(app): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<OpenUrlQuery>,
+) -> StatusCode {
+    if crate::local::foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN;
+    }
+    let web = url::Url::parse(&query.url).is_ok_and(|url| matches!(url.scheme(), "http" | "https"));
+    if !web || query.run_id.is_empty() {
         return StatusCode::BAD_REQUEST;
     }
     match app.events.send(json!({"type":"terminal-open-url","runId":query.run_id,"url":query.url})) {

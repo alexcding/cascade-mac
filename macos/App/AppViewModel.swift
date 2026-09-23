@@ -1517,9 +1517,12 @@ public final class AppViewModel {
     private func received(_ event: ServerEvent) {
         // A CLI in a terminal opening a link runs the BROWSER craft-ptyd gave it, which lands here:
         // the link opens as a click in that terminal would, in the panel beside it.
-        if event.type == "terminal-open-url", let runID = event.runId, let url = event.url,
-           let terminal = terminals.values.first(where: { $0.termID == runID }) {
-            terminal.openLink(url, terminal.cwd, false)
+        if event.type == "terminal-open-url", let runID = event.runId, let url = event.url {
+            // A shell that outlived a relaunch, in a session not opened since, has no terminal
+            // here to open beside: its link goes to the default browser, as it would have
+            // without Craft, rather than nowhere.
+            if let terminal = terminals.values.first(where: { $0.termID == runID }) { terminal.openLink(url, terminal.cwd, false) }
+            else if let web = safeWebURL(url) { desktop.openBrowser(web) }
         }
         if ["agent-turn-start", "agent-turn-done"].contains(event.type), let runID = event.runId,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
