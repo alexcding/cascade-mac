@@ -52,15 +52,15 @@ import Observation
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
             model.cancelActions()
             deletionConfirmation = request
-        case .pullRequest(let action):
+        case .pullRequest(let request):
             guard !isPresenting, canPresent(), model.section == .prs else { return }
-            model.performPullRequestAction(action)
-        case .jiraTicket(let action):
+            model.openPage(request)
+        case .jiraTicket(.open(let request)):
             guard !isPresenting, canPresent(), model.section == .tickets else { return }
-            model.tickets?.perform(action)
-        case .boardTicket(let action):
+            model.tickets?.navigation.open(request)
+        case .boardTicket(.open(let request)):
             guard !isPresenting, canPresent(), model.section == .board else { return }
-            model.board?.perform(action)
+            model.board?.navigation.open(request)
         }
     }
 

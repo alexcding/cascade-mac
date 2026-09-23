@@ -3,14 +3,13 @@ import Observation
 
 @MainActor @Observable final class SettingsViewModel {
     enum Action: Equatable {
-        case saved([String: String]), cli(CLISettingsViewModel.Action), loginItem(LoginItemViewModel.Action)
+        case saved([String: String]), cli(CLISettingsViewModel.Action)
         case clearBrowsingData(BrowsingDataScope)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
             let callback = onAction
             clis.onAction = { callback(.cli($0)) }
-            loginItem.onAction = { callback(.loginItem($0)) }
         }
     }
     private(set) var retired = false

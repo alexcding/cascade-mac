@@ -45,24 +45,23 @@ private struct LoginActionFonts: CodeFontCatalog {
     let service = LoginActionService(), model = loginSettings(service), runtime = SettingsRuntimeFixture()
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let child = root.installSettings(model, runtime: runtime), login = model.loginItem
-    let callback = login.onAction
-    callback(.setEnabled(true)); callback(.openSystemSettings)
+    login.setEnabled(true); login.openSystemSettings()
     #expect(await service.writes.isEmpty)
     #expect(await service.opens == 0)
     root.setSettingsPresented(true); model.section = .general
     while login.loading { await Task.yield() }
     #expect(login.canToggle && !login.registered && !login.canOpenSystemSettings)
     model.section = .editor
-    callback(.setEnabled(true)); callback(.openSystemSettings)
+    login.setEnabled(true); login.openSystemSettings()
     #expect(await service.writes.isEmpty)
     model.section = .general
     while login.loading { await Task.yield() }
     root.presentNewProject(service: ProjectPageService(), didSave: { _ in })
-    callback(.setEnabled(true))
+    login.setEnabled(true)
     #expect(await service.writes.isEmpty)
     root.dismissSheet(id: try #require(root.sheet).id)
     let ownership = child.isOwned; child.isOwned = { false }
-    callback(.setEnabled(true)); #expect(await service.writes.isEmpty)
+    login.setEnabled(true); #expect(await service.writes.isEmpty)
     child.isOwned = ownership
     let gate = ProjectPageGate(); await service.holdWrite(gate)
     login.setEnabled(true); login.setEnabled(true)
@@ -83,7 +82,7 @@ private struct LoginActionFonts: CodeFontCatalog {
     while await service.cancelledOpens == 0 { await Task.yield() }
     #expect(await service.opens == 0)
     root.dismissSheet(id: try #require(root.sheet).id)
-    child.retire(); callback(.setEnabled(false)); callback(.openSystemSettings)
+    child.retire(); login.setEnabled(false); login.openSystemSettings()
     login.setActive(true); login.refresh(); login.setEnabled(false); login.openSystemSettings()
     #expect(login.retired && !login.active && !login.loading && !login.canToggle)
     #expect(await service.writes == [true])
@@ -100,7 +99,6 @@ func loginItemAcceptedMutationDrainsOnStopOrRetirementWithoutAcceptingStaleCallb
     let gate = ProjectPageGate(); await service.holdWrite(gate)
     if retire { await service.fail("Fixture approval required") }
     login.setEnabled(true); await gate.waitForStart()
-    let oldAction = login.onAction
     if retire {
         root.installSettings(loginSettings(service), runtime: runtime)
         #expect(root.settingsCoordinator?.model.loginItem.changing == true)
@@ -108,7 +106,7 @@ func loginItemAcceptedMutationDrainsOnStopOrRetirementWithoutAcceptingStaleCallb
     }
     let stop = Task { await login.stop() }
     while login.active { await Task.yield() }
-    oldAction(.setEnabled(false))
+    login.setEnabled(false)
     #expect(login.changing)
     await gate.finish(); await stop.value
     #expect(await service.writes == [true])
@@ -119,7 +117,7 @@ func loginItemAcceptedMutationDrainsOnStopOrRetirementWithoutAcceptingStaleCallb
         #expect(old.retired && login.retired && login.state?.status == .notRegistered)
         #expect(root.settingsCoordinator?.model.loginItem.needsApproval == true)
         #expect(root.settingsCoordinator?.model.loginItem.error == "Fixture approval required")
-        oldAction(.setEnabled(false)); login.setActive(true); login.perform(.setEnabled(false))
+        login.setEnabled(false); login.setActive(true); login.setEnabled(false)
         #expect(await service.writes == [true])
     } else { #expect(login.registered && login.needsApproval) }
     root.settingsCoordinator?.retire()

@@ -37,7 +37,6 @@ import Observation
         case .requestClear:
             guard let request = model.makeClearRequest() else { return }
             model.cancelActions(); confirmation = request
-        default: model.perform(action)
         }
     }
     func confirm(id: UUID) async {
@@ -73,6 +72,10 @@ extension AppCoordinator {
             self?.activityVisible == true && self?.canPresent == true && self?.canOpenExternalRoute() == true
         }
         child.presentationEnded = { [weak self] in self?.schedulePendingDeepLink() }
+        model.canAct = { [weak child] in
+            guard let child, !child.retired, child.isOwned(), !child.isPresenting, child.canPresent() else { return false }
+            return true
+        }
         logsCoordinator = child; schedulePendingDeepLink()
         return child
     }

@@ -2,8 +2,9 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class CLISettingsViewModel {
-    enum Action: Equatable { case copyLogin(ManagedCLI), copyInstall(ManagedCLI), openGuide(ManagedCLI), toggleHook(ManagedCLI), toggleStatusLine, showWelcome }
+    enum Action: Equatable { case showWelcome }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
+    @ObservationIgnored var canAct: () -> Bool = { true }
     private(set) var retired = false
     private(set) var actionError: String?
     private(set) var availability: [String: CLIAvailability] = [:]
@@ -73,7 +74,11 @@ import Observation
         return statusLine == "installed" ? "Installed" : "Not installed"
     }
     var canChangeStatusLine: Bool { !retired && service != nil && changing == nil && !changingStatusLine && statusLine != nil }
-    func requestToggleStatusLine() { if canChangeStatusLine { onAction(.toggleStatusLine) } }
+    func requestToggleStatusLine() {
+        guard canChangeStatusLine, canAct(), mutationTask == nil else { return }
+        let started = generation
+        mutationTask = Task { await toggleStatusLine(); mutationTask = nil; reloadIfReconnected(since: started) }
+    }
     func toggleStatusLine() async {
         guard canChangeStatusLine, let service else { return }
         let installed = !statusLineInstalled
@@ -106,37 +111,30 @@ import Observation
             message = "\(cli.title) hooks \(installed ? "installed" : "removed")."
         } catch { if requestGeneration == generation { hookError = error.localizedDescription } }
     }
-    func copyLogin(_ cli: ManagedCLI) { if !retired { onAction(.copyLogin(cli)) } }
-    func copyInstall(_ cli: ManagedCLI) { if !retired { onAction(.copyInstall(cli)) } }
+    func copyLogin(_ cli: ManagedCLI) {
+        guard !retired, canAct(), let command = cli.loginCommand else { return }
+        copy(command); actionError = nil
+    }
+    func copyInstall(_ cli: ManagedCLI) {
+        guard !retired, canAct(), let command = installCommand(cli) else { return }
+        copy(command); actionError = nil
+    }
     /// The install line for `cli` as this Mac stands: Node's goes through Homebrew only when the
     /// probe found Homebrew.
     func installCommand(_ cli: ManagedCLI) -> String? {
         guard let state = availability[cli.rawValue] else { return cli.installCommand }
         return state.installCommand(for: cli, homebrew: availability["brew"]?.present == true)
     }
-    func openGuide(_ cli: ManagedCLI) { if !retired { onAction(.openGuide(cli)) } }
+    func openGuide(_ cli: ManagedCLI) {
+        guard !retired, canAct() else { return }
+        actionError = openBrowser(cli.installationGuide) ? nil : "macOS could not open the installation guide."
+    }
     /// Presenting is the coordinator's: the welcome is a sheet on the main window, not on Settings.
     func showWelcome() { if !retired { onAction(.showWelcome) } }
-    func requestToggleHook(_ cli: ManagedCLI) { if canChange(cli) { onAction(.toggleHook(cli)) } }
-    func perform(_ action: Action) {
-        guard !retired else { return }
-        switch action {
-        case .copyLogin(let cli):
-            if let command = cli.loginCommand { copy(command); actionError = nil }
-        case .copyInstall(let cli):
-            if let command = installCommand(cli) { copy(command); actionError = nil }
-        case .openGuide(let cli):
-            actionError = openBrowser(cli.installationGuide) ? nil : "macOS could not open the installation guide."
-        case .toggleHook(let cli):
-            guard canChange(cli), mutationTask == nil else { return }
-            let started = generation
-            mutationTask = Task { await toggleHook(cli); mutationTask = nil; reloadIfReconnected(since: started) }
-        case .toggleStatusLine:
-            guard canChangeStatusLine, mutationTask == nil else { return }
-            let started = generation
-            mutationTask = Task { await toggleStatusLine(); mutationTask = nil; reloadIfReconnected(since: started) }
-        case .showWelcome: break
-        }
+    func requestToggleHook(_ cli: ManagedCLI) {
+        guard canChange(cli), canAct(), mutationTask == nil else { return }
+        let started = generation
+        mutationTask = Task { await toggleHook(cli); mutationTask = nil; reloadIfReconnected(since: started) }
     }
     /// A backend that reconnects mid-edit drops the edit's returned status, and the refresh that
     /// came with the reconnect skipped the hooks because the edit was still running.
@@ -152,7 +150,7 @@ import Observation
         generation = UUID(); service = nil
         return cancelReads() + [mutationTask].compactMap { $0 }
     }
-    func retire() { retired = true; onAction = { _ in }; _ = disconnect() }
+    func retire() { retired = true; onAction = { _ in }; canAct = { false }; _ = disconnect() }
     func stop() async {
         for task in disconnect() { await task.value }
     }

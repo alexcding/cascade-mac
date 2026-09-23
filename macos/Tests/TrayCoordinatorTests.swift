@@ -128,10 +128,9 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     weak var retainedRoot = root
     let old = root!.makeTray(factory: factory, runtime: runtime!, shell: shell, presentation: window.presentation)
     old.setActive(true)
-    let stale = old.model.onAction
     let fresh = root!.makeTray(factory: factory, runtime: runtime!, shell: shell, presentation: window.presentation)
     #expect(factory.models.count == 2 && fresh.model.shell === shell && old.retired && old.model.retired)
-    old.setActive(true); old.model.refresh(); stale(.refresh)
+    old.setActive(true); old.model.refresh()
     #expect(runtime?.refreshes == 1 && window.events.isEmpty && !old.model.active)
     fresh.setActive(true)
     #expect(runtime?.refreshes == 2)
@@ -140,7 +139,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     fresh.model.refresh()
     root = nil
     #expect(retainedRoot == nil)
-    fresh.handle(.refresh)
+    fresh.model.refresh()
     #expect(window.events.isEmpty)
 }
 

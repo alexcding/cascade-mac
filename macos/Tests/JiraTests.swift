@@ -208,7 +208,7 @@ actor JiraFixture: JiraService {
     try await waitForJira { !model.loading && model.baseURL != nil }
     #expect(model.items.first?.status == "To Do")
     model.setFilter(.project, "")
-    model.onAction = { [weak model] in model?.perform($0) }
+    model.onAction = { [weak model] in if case .open(let request) = $0 { model?.navigation.open(request) } }
     model.open(ticket); await model.navigation.waitForOpen()
     #expect(opened?.url == "https://jira.example.test/browse/REC-1")
     #expect(model.ticketURL(JiraTicket(key: "../secret")) == nil)

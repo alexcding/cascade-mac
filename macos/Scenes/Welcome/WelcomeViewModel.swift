@@ -6,7 +6,7 @@ import Observation
 /// the optional Simulator preview for iOS projects.
 @MainActor @Observable final class WelcomeViewModel {
     enum Page: Int, CaseIterable { case welcome, tools, hooks, simulator, done }
-    enum Action: Equatable { case cli(CLISettingsViewModel.Action), finished }
+    enum Action: Equatable { case finished }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let clis: CLISettingsViewModel
     private(set) var page: Page = .welcome
@@ -14,7 +14,8 @@ import Observation
 
     init(clis: CLISettingsViewModel) {
         self.clis = clis
-        clis.onAction = { [weak self] in self?.onAction(.cli($0)) }
+        // Showing the welcome again has no meaning from inside the welcome flow: ignored, as before.
+        clis.onAction = { _ in }
     }
 
     /// A hook or status-line edit is rewriting the agent's configuration; the sheet stays until it lands.

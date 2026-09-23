@@ -2,7 +2,9 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class JiraTicketsViewModel {
-    enum Action: Equatable { case open(String, inTab: Bool = false), session(String, agent: SessionAgent?) }
+    /// What the screen asks its coordinator to do. The flow is one way: `open` already carries the
+    /// resolved request, and the coordinator never calls back into this model to resolve one.
+    enum Action: Equatable { case open(OpenPageRequest) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -271,22 +273,18 @@ import Observation
         guard ticket.key.range(of: #"^[A-Z][A-Z0-9_]*-\d+$"#, options: [.regularExpression, .caseInsensitive]) != nil else { return nil }
         return baseURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key)
     }
-    func open(_ ticket: JiraTicket, inTab: Bool = false) { if !retired { onAction(.open(ticket.key, inTab: inTab)) } }
-    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { if !retired { onAction(.session(ticket.key, agent: agent)) } }
-    func perform(_ action: Action) {
+    func open(_ ticket: JiraTicket, inTab: Bool = false) { emit(ticket) { $0.inTab = inTab } }
+    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { emit(ticket) { $0.inSession = true; $0.agent = agent } }
+    /// Only a ticket this page still shows opens, resolved against its current row: a stale key
+    /// emits nothing, and a missing site sets `siteError` rather than opening nothing silently.
+    private func emit(_ ticket: JiraTicket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired, service != nil else { return }
-        let key: String
-        switch action { case .open(let value, _), .session(let value, _): key = value }
-        guard let ticket = rows.first(where: { $0.key == key }) else { return }
-        guard let url = ticketURL(ticket) else { siteError = "Configure the Jira site to open ticket links."; return }
-        switch action {
-        case .open, .session:
-            var request = pageRequest(ticket, url: url)
-            request.projectID = project.id
-            if case .session(_, let agent) = action { request.inSession = true; request.agent = agent }
-            if case .open(_, let inTab) = action { request.inTab = inTab }
-            navigation.open(request)
-        }
+        guard let current = rows.first(where: { $0.key == ticket.key }) else { return }
+        guard let url = ticketURL(current) else { siteError = "Configure the Jira site to open ticket links."; return }
+        var request = pageRequest(current, url: url)
+        request.projectID = project.id
+        configure(&request)
+        onAction(.open(request))
     }
     func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }

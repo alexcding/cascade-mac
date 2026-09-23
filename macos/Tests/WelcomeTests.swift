@@ -108,12 +108,16 @@ actor WelcomeCLIFixture: CLISettingsService {
     #expect(actions.isEmpty && model.page == .welcome && model.clis.retired)
 }
 
-@MainActor @Test func welcomeCLIActionArrivesWrappedOnWelcomesOnAction() {
-    let model = makeWelcomeModel()
+@MainActor @Test func welcomeCLIWorkStaysLocalAndShowWelcomeIsIgnoredFromInsideTheFlow() {
+    var copied: String?
+    let clis = CLISettingsViewModel(copy: { copied = $0 }, openBrowser: { _ in true })
+    let model = WelcomeViewModel(clis: clis)
     var actions: [WelcomeViewModel.Action] = []
     model.onAction = { actions.append($0) }
     model.clis.copyLogin(.gh)
-    #expect(actions == [.cli(.copyLogin(.gh))])
+    #expect(copied == "gh auth login" && actions.isEmpty)
+    model.clis.showWelcome()
+    #expect(actions.isEmpty)
 }
 
 @MainActor @Test func welcomeStoresDefaultAndRoundTripThroughUserDefaults() {

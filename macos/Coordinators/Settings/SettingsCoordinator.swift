@@ -52,13 +52,9 @@ import Observation
     func handle(_ action: SettingsViewModel.Action) {
         guard !retired, isOwned(), runtime != nil else { return }
         switch action {
-        case .loginItem(let action):
-            guard model.active, model.section == .general, canPresent() else { return }
-            model.loginItem.perform(action)
         case .cli(let action):
             guard model.active, model.section == .clis, canPresent() else { return }
-            if action == .showWelcome { runtime?.presentWelcome(); return }
-            model.clis.perform(action)
+            if action == .showWelcome { runtime?.presentWelcome() }
         case .clearBrowsingData(let scope):
             guard model.active, model.section == .browser, canPresent() else { model.browsingDataClearCancelled(scope); return }
             let previous = completion
@@ -107,6 +103,14 @@ extension AppCoordinator {
         }
         child.canPresent = { [weak self] in
             self?.settingsPresented == true && self?.canPresent == true && self?.canOpenExternalRoute() == true
+        }
+        model.loginItem.canAct = { [weak child] in
+            guard let child, !child.retired, child.isOwned() else { return false }
+            return child.canPresent()
+        }
+        model.clis.canAct = { [weak child] in
+            guard let child, !child.retired, child.isOwned(), child.model.active, child.model.section == .clis else { return false }
+            return child.canPresent()
         }
         settingsCoordinator = child
         child.setActive(settingsPresented)

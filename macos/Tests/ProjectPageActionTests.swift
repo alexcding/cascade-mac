@@ -139,6 +139,22 @@ func projectPageActionsCancelPendingNavigationWhenTheirContextChanges(change: St
     #expect(model.retired && actions.opened.count == 1 && model.opening.isEmpty)
 }
 
+@MainActor @Test(.timeLimit(.minutes(1))) func projectPageOpenEmitsTheResolvedRequestAndSkipsRowsNoLongerShown() async throws {
+    let actions = ProjectPageActions(), model = try actionProject(actions)
+    var emitted: [ProjectPageViewModel.Action] = []
+    model.onAction = { emitted.append($0) }
+    let row = model.rows[0]
+    model.open(row, inTab: true)
+    model.openSession(row, agent: .claude)
+    var tab = row.openPageRequest; tab.inTab = true
+    #expect(emitted == [.pullRequest(tab), .pullRequest(DashboardViewModel.sessionRequest(row, agent: .claude))])
+    // A row the snapshot no longer shows resolves to nothing, so nothing reaches the coordinator.
+    emitted = []
+    model.setSearch("No such title in these fixtures")
+    model.open(row); model.openSession(row)
+    #expect(emitted.isEmpty)
+}
+
 @MainActor @Test(.timeLimit(.minutes(1))) func projectPageActionFactoryInjectsOpeningWithoutDashboard() async throws {
     let actions = ProjectPageActions()
     let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))

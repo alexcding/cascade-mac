@@ -2,8 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class LoginItemViewModel {
-    enum Action: Equatable { case setEnabled(Bool), openSystemSettings }
-    @ObservationIgnored var onAction: (Action) -> Void = { _ in }
+    @ObservationIgnored var canAct: () -> Bool = { true }
     private(set) var retired = false
     private(set) var active = false {
         didSet {
@@ -55,19 +54,12 @@ import Observation
         }
     }
     func setEnabled(_ enabled: Bool) {
-        guard canToggle, enabled != registered else { return }
-        onAction(.setEnabled(enabled))
+        guard canToggle, enabled != registered, canAct() else { return }
+        changeRegistration(enabled)
     }
     func openSystemSettings() {
-        guard canOpenSystemSettings else { return }
-        onAction(.openSystemSettings)
-    }
-    func perform(_ action: Action) {
-        guard !retired, active else { return }
-        switch action {
-        case .setEnabled(let enabled): changeRegistration(enabled)
-        case .openSystemSettings: openSettings()
-        }
+        guard canOpenSystemSettings, canAct() else { return }
+        openSettings()
     }
     private func changeRegistration(_ enabled: Bool) {
         guard canToggle, enabled != registered else { return }
@@ -122,6 +114,6 @@ import Observation
     }
     func waitForMutation() async { await mutation?.value }
     func waitForSettingsOpen() async { await settingsOpen?.value }
-    func retire() { active = false; retired = true; onAction = { _ in }; _ = cancelRead(); cancelSettingsOpen() }
+    func retire() { active = false; retired = true; canAct = { false }; _ = cancelRead(); cancelSettingsOpen() }
     func stop() async { active = false; await cancelRead()?.value }
 }

@@ -14,9 +14,10 @@ import Observation
 }
 
 @MainActor @Observable public final class TrayViewModel {
-    enum Action: Equatable { case refresh, openReview(String), openUsage, quit }
+    enum Action: Equatable { case openReview(String), openUsage, quit }
     let shell: ShellStore
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
+    @ObservationIgnored var canAct: () -> Bool = { true }
     @ObservationIgnored private weak var service: (any TrayServing)?
     private(set) var retired = false
     /// Opening the menu asks for a refresh, through the same gated path as every other request.
@@ -49,7 +50,10 @@ import Observation
     }
     func canOpen(_ review: TrayPR) -> Bool { canOpen(review, in: snapshot()) }
     func setActive(_ value: Bool) { if !retired { active = value } }
-    func refresh() { request(.refresh) }
+    func refresh() {
+        guard !retired, available, active, canAct() else { return }
+        service?.refreshTray()
+    }
     func openReview(_ review: TrayPR) { openReview(review.id) }
     /// By identity: the coordinator re-resolves and gates the row, so a click needs no lookup here.
     func openReview(_ id: String) { request(.openReview(id)) }
@@ -57,7 +61,6 @@ import Observation
     func quit() { request(.quit) }
     private func request(_ action: Action) { if available && active { onAction(action) } }
 
-    func performRefresh() { if available { service?.refreshTray() } }
     func review(for id: String) -> TrayPR? {
         guard let review = pendingReviews.first(where: { $0.id == id }), canOpen(review) else { return nil }
         return review
@@ -68,5 +71,5 @@ import Observation
         actionError = nil
         service?.acknowledgeTrayReview(review)
     }
-    func retire() { active = false; retired = true; onAction = { _ in }; service = nil }
+    func retire() { active = false; retired = true; onAction = { _ in }; canAct = { false }; service = nil }
 }

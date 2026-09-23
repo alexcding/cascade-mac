@@ -145,7 +145,9 @@ struct APIBoardService: BoardService {
 }
 
 @MainActor @Observable final class WebBoardViewModel {
-    enum Action: Equatable { case openTicket(BoardTicketLink, inTab: Bool = false), openSession(BoardTicketLink, agent: SessionAgent?) }
+    /// What the screen asks its coordinator to do. The flow is one way: `open` already carries the
+    /// resolved request, and the coordinator never calls back into this model to resolve one.
+    enum Action: Equatable { case open(OpenPageRequest) }
     static let unassigned = "__unassigned__"
     static let unmappedDrop = "Can’t tell which status this column maps to — use the move menu."
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
@@ -452,8 +454,17 @@ struct APIBoardService: BoardService {
             catch { self.error = error.localizedDescription }
         }
     }
-    func open(_ ticket: JiraTicket, inTab: Bool = false) { link(ticket).map { onAction(.openTicket($0, inTab: inTab)) } }
-    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { link(ticket).map { onAction(.openSession($0, agent: agent)) } }
+    func open(_ ticket: JiraTicket, inTab: Bool = false) { emit(ticket) { $0.inTab = inTab } }
+    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { emit(ticket) { $0.inSession = true; $0.agent = agent } }
+    /// A missing site sets `error` rather than opening nothing silently.
+    private func emit(_ ticket: JiraTicket, configure: (inout OpenPageRequest) -> Void) {
+        guard !retired else { return }
+        guard let url = ticketURL(ticket) else { error = "Configure the Jira site before opening a ticket."; return }
+        var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
+        request.projectID = projectID
+        configure(&request)
+        onAction(.open(request))
+    }
     func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
@@ -463,25 +474,12 @@ struct APIBoardService: BoardService {
     private func ticketURL(_ ticket: JiraTicket) -> String? {
         siteURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key).absoluteString
     }
-    private func link(_ ticket: JiraTicket) -> BoardTicketLink? {
-        guard let url = ticketURL(ticket) else { error = "Configure the Jira site before opening a ticket."; return nil }
-        return .init(type: "openTicket", url: url, title: ticket.key, external: false)
+    /// Bypasses `open`/`openSession`'s Action emission: a message from the board's own surface, not
+    /// a row click routed through the coordinator, so the board's own `active` gate is what guards it.
+    func request(_ link: BoardTicketLink) {
+        guard !retired, active, safeWebURL(link.url) != nil else { return }
+        var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
+        request.projectID = projectID
+        navigation.open(request)
     }
-    func perform(_ action: Action) {
-        guard !retired, active else { return }
-        switch action {
-        case .openTicket(let link, let inTab):
-            // Every ticket opens in a Craft tab; `external` stays in the link's shape only.
-            guard safeWebURL(link.url) != nil else { return }
-            var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
-            request.projectID = projectID; request.inTab = inTab
-            navigation.open(request)
-        case .openSession(let link, let agent):
-            guard safeWebURL(link.url) != nil else { return }
-            var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
-            request.inSession = true; request.projectID = projectID; request.agent = agent
-            navigation.open(request)
-        }
-    }
-    func request(_ link: BoardTicketLink) { perform(.openTicket(link)) }
 }

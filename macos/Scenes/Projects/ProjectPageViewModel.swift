@@ -2,11 +2,13 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class ProjectPageViewModel {
-    enum PullRequestAction: Equatable { case open(String, inTab: Bool = false), session(String, agent: SessionAgent?) }
+    /// What the screen asks its coordinator to do. The flow is one way: `pullRequest` already
+    /// carries the resolved request, and the coordinator never calls back into this model to
+    /// resolve one, following the Dashboard's pattern.
     enum Action: Equatable {
         case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
-        case pullRequest(PullRequestAction)
+        case pullRequest(OpenPageRequest)
         case jiraTicket(JiraTicketsViewModel.Action), boardTicket(WebBoardViewModel.Action)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
@@ -111,44 +113,53 @@ import Observation
         actionTask = nil; actionGeneration = UUID(); opening = []
         tickets?.cancelActions(); board?.cancelActions()
     }
-    func open(_ row: DashboardRow, inTab: Bool = false) { request(.open(row.id, inTab: inTab)) }
-    func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { request(.session(row.id, agent: agent)) }
+    /// Only a row this page still shows opens, in its current form: a row kept by a view that has
+    /// not redrawn since the snapshot dropped it resolves to nothing.
+    func open(_ row: DashboardRow, inTab: Bool = false) { request(currentRow(row).map { Self.tabRequest($0.openPageRequest, inTab: inTab) }) }
+    func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) { request(currentRow(row).map { DashboardViewModel.sessionRequest($0, agent: agent) }) }
     func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : pageActions?.pageSession(DashboardViewModel.sessionRequest(row)) }
-    private func request(_ action: PullRequestAction) {
-        guard !retired, pageActions != nil else { return }
-        onAction(.pullRequest(action))
+
+    private func currentRow(_ row: DashboardRow) -> DashboardRow? { rows.first { $0.id == row.id } }
+
+    /// The one way out for an open: dropped for a row no longer shown, otherwise handed to the
+    /// coordinator, which decides whether it may present and runs it through `openPage`.
+    private func request(_ value: OpenPageRequest?) {
+        guard !retired, pageActions != nil, let value else { return }
+        onAction(.pullRequest(value))
     }
-    func performPullRequestAction(_ action: PullRequestAction) {
+
+    private static func tabRequest(_ request: OpenPageRequest, inTab: Bool) -> OpenPageRequest {
+        var request = request
+        request.inTab = inTab
+        return request
+    }
+
+    /// Runs a request the coordinator has already approved. The same row asked another way —
+    /// click, Open in Tab, session — is a new request, not a repeat; a resolved id keeps the
+    /// in-flight dedupe and `opening` keyed the way `ProjectViews` reads it, by `DashboardRow.id`.
+    func openPage(_ request: OpenPageRequest) {
         guard !retired, let pageActions else { return }
-        let id: String
-        switch action { case .open(let value, _), .session(let value, _): id = value }
-        guard let row = rows.first(where: { $0.id == id }) else { return }
-        switch action {
-        case .open, .session:
-            var request = row.openPageRequest
-            if case .session(_, let agent) = action { request.inSession = true; request.projectID = row.projectID; request.agent = agent }
-            if case .open(_, let inTab) = action { request.inTab = inTab }
-            // The same row asked another way — click, Open in Tab, session — is a new request, not a repeat.
-            guard !opening.contains(id) || openingInSession != request.inSession || openingInTab != request.inTab else { return }
-            openingInSession = request.inSession; openingInTab = request.inTab
-            let generation = UUID(), errorGeneration = UUID()
-            actionGeneration = generation; actionErrorGeneration = errorGeneration
-            opening = [id]; actionError = nil
-            actionTask = Task { [weak self] in
-                defer {
-                    if self?.actionGeneration == generation { self?.opening = []; self?.actionTask = nil }
-                }
-                do {
-                    try Task.checkCancellation()
-                    try await pageActions.openPage(request)
-                } catch {
-                    if !Task.isCancelled && self?.actionGeneration == generation && self?.actionErrorGeneration == errorGeneration {
-                        self?.actionError = request.failure("Could not open pull request", error)
-                    }
+        let id = Self.rowID(request)
+        guard !opening.contains(id) || openingInSession != request.inSession || openingInTab != request.inTab else { return }
+        openingInSession = request.inSession; openingInTab = request.inTab
+        let generation = UUID(), errorGeneration = UUID()
+        actionGeneration = generation; actionErrorGeneration = errorGeneration
+        opening = [id]; actionError = nil
+        actionTask = Task { [weak self] in
+            defer {
+                if self?.actionGeneration == generation { self?.opening = []; self?.actionTask = nil }
+            }
+            do {
+                try Task.checkCancellation()
+                try await pageActions.openPage(request)
+            } catch {
+                if !Task.isCancelled && self?.actionGeneration == generation && self?.actionErrorGeneration == errorGeneration {
+                    self?.actionError = request.failure("Could not open pull request", error)
                 }
             }
         }
     }
+    private static func rowID(_ request: OpenPageRequest) -> String { "\(request.projectID ?? ""):\(request.url)" }
     private(set) var rows: [DashboardRow] = []
     private(set) var warnings: [String] = []
     @ObservationIgnored private var loadedRows: [DashboardRow] = []

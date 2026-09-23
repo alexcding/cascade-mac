@@ -445,12 +445,21 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     #expect(model.tileValues == ["mine": 5])
 }
 
-@MainActor @Test func openRejectsWhenNotConnectedAndEmitsNothing() async {
+@MainActor @Test(.timeLimit(.minutes(1))) func disconnectedOpenWarnsOnlyWhenTheDashboardCanPresent() async throws {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
-    var emitted: [DashboardViewModel.Action] = []
-    model.onAction = { emitted.append($0) }
-    model.open(rows(makeProject("p", prs: [makePR(1)]))[0])
-    #expect(model.navigation.error == "Connect to open pull requests in Craft." && emitted.isEmpty)
+    let coordinator = DashboardCoordinator(model: model)
+    model.connect(ModelFixture(projects: [makeProject("p", prs: [makePR(1)])]))
+    while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
+    let row = try #require(model.prs.visibleRows.first)
+    await model.stop()
+    // A hidden or blocked dashboard stays silent: the coordinator's gate runs before the check.
+    coordinator.canPresent = { false }
+    model.open(row)
+    #expect(model.navigation.error == nil)
+    coordinator.canPresent = { true }
+    model.open(row)
+    #expect(model.navigation.error == "Connect to open pull requests in Craft.")
+    coordinator.retire()
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func openEmitsTheResolvedRequestAndSkipsRowsNoLongerShown() async throws {

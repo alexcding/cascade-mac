@@ -266,10 +266,9 @@ import Observation
         cancelPageActions()
         let id = UUID()
         let model = makeModel()
-        model.onAction = { [weak self, weak model] action in
+        model.onAction = { [weak self] action in
             guard let self, sheet?.id == id else { return }
             switch action {
-            case .cli(let action): model?.clis.perform(action)
             case .finished: _ = complete(id)
             }
         }

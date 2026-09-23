@@ -59,7 +59,6 @@ actor CLIFixture: CLISettingsService {
     await service.holdProbe(probeGate)
     var copied: String?
     let model = CLISettingsViewModel(copy: { copied = $0 }, openBrowser: { _ in true })
-    model.onAction = { [weak model] in model?.perform($0) }
     model.connect(service)
     #expect(await service.probes == 0) // construction/reconnect does not spawn probes
     model.refresh(); model.refresh()

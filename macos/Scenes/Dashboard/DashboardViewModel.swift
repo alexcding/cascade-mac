@@ -202,12 +202,10 @@ extension DashboardViewModel {
     private func currentRow(_ row: DashboardRow) -> DashboardRow? { prs.visibleRows.first { $0.id == row.id } }
     private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? { tickets.rows.first { $0.id == row.id } }
 
-    /// The one way out for an open: refused while disconnected, dropped for a row no longer shown,
-    /// otherwise handed to the coordinator, which decides whether it may present and opens it.
+    /// The one way out for an open: dropped for a row no longer shown, otherwise handed to the
+    /// coordinator, which decides whether it may present, then opens it or says why not.
     private func request(_ value: OpenPageRequest?) {
-        guard !retired else { return }
-        guard prs.connected else { navigation.reject("Connect to open pull requests in Craft."); return }
-        guard let value else { return }
+        guard !retired, let value else { return }
         onAction(.open(value))
     }
 

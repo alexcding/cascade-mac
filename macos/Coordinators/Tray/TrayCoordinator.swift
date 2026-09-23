@@ -36,6 +36,7 @@ import Observation
     init(model: TrayViewModel, runtime: any TrayCoordinating, presentation: TrayPresentation) {
         self.model = model; self.runtime = runtime; self.presentation = presentation
         model.onAction = { [weak self] in self?.handle($0) }
+        model.canAct = { [weak self] in guard let self, !self.retired, self.isOwned() else { return false }; return true }
     }
     public func setActive(_ value: Bool) {
         guard !retired, isOwned() else { return }
@@ -44,7 +45,6 @@ import Observation
     func handle(_ action: TrayViewModel.Action) {
         guard !retired, isOwned(), model.available, model.active, let runtime, presentation != nil else { return }
         switch action {
-        case .refresh: model.performRefresh()
         case .openUsage:
             runtime.openTrayUsage()
             model.setActive(false); presentation?.dismiss(); presentation?.openWindow()

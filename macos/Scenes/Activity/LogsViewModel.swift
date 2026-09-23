@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 @MainActor @Observable final class LogsViewModel {
-    enum Action: Equatable { case open(Int), copy(Int), requestClear }
+    enum Action: Equatable { case requestClear }
     struct ClearRequest: Identifiable, Equatable {
         let id: UUID
         let category: String
@@ -11,6 +11,7 @@ import Observation
         var label: String { LogsViewModel.label(category) }
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
+    @ObservationIgnored var canAct: () -> Bool = { true }
     let navigation: PageActionViewModel
     private(set) var retired = false
     var category = "event" { didSet { if oldValue != category { cancelActions(); refresh() } } }
@@ -119,21 +120,15 @@ import Observation
             return false
         }
     }
-    func open(_ entry: LogEntry) { if !retired { onAction(.open(entry.id)) } }
-    func copyEntry(_ entry: LogEntry) { if !retired { onAction(.copy(entry.id)) } }
-    func perform(_ action: Action) {
-        guard !retired else { return }
-        let id: Int
-        switch action { case .open(let value), .copy(let value): id = value; case .requestClear: return }
-        guard let entry = rows.first(where: { $0.id == id }) else { return }
-        switch action {
-        case .open:
-            guard let raw = entry.link, safeWebURL(raw) != nil else { return }
-            guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
-            navigation.open(OpenPageRequest(url: raw, kind: "github", title: entry.title))
-        case .copy: copy("\(entry.created_at) [\(entry.category)/\(entry.level)] \(entry.title)\n\(entry.payload ?? entry.detail)")
-        case .requestClear: break
-        }
+    func open(_ entry: LogEntry) {
+        guard !retired, canAct(), rows.contains(where: { $0.id == entry.id }) else { return }
+        guard let raw = entry.link, safeWebURL(raw) != nil else { return }
+        guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
+        navigation.open(OpenPageRequest(url: raw, kind: "github", title: entry.title))
+    }
+    func copyEntry(_ entry: LogEntry) {
+        guard !retired, canAct(), rows.contains(where: { $0.id == entry.id }) else { return }
+        copy("\(entry.created_at) [\(entry.category)/\(entry.level)] \(entry.title)\n\(entry.payload ?? entry.detail)")
     }
     func cancelActions() { navigation.cancel() }
     private func cancelRead() {
@@ -143,7 +138,7 @@ import Observation
         connection = UUID(); clearGeneration = UUID(); service = nil
         cancelActions(); cancelRead()
     }
-    func retire() { retired = true; onAction = { _ in }; disconnect() }
+    func retire() { retired = true; onAction = { _ in }; canAct = { false }; disconnect() }
     func stop() async {
         let previous = task; disconnect(); await previous?.value
     }

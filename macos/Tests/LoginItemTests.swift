@@ -36,7 +36,6 @@ actor LoginItemFixture: LoginItemService {
 @MainActor @Test(.timeLimit(.minutes(1))) func loginItemReflectsApprovalFailureAndExternalChangesWithoutOptimisticState() async throws {
     let service = LoginItemFixture()
     let subject = LoginItemViewModel(service: service)
-    subject.onAction = { [weak subject] in subject?.perform($0) }
     #expect(subject.state == nil && !subject.canToggle)
     subject.setActive(true)
     try await waitForLoginItem { !subject.loading }
@@ -80,7 +79,6 @@ actor LoginItemFixture: LoginItemService {
     let service = LoginItemFixture()
     await service.configure(.notRegistered, unavailable: "Development build")
     let model = LoginItemViewModel(service: service)
-    model.onAction = { [weak model] in model?.perform($0) }
     model.setActive(true); try await waitForLoginItem { !model.loading }
     #expect(!model.canToggle)
     model.setEnabled(true)

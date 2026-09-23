@@ -36,7 +36,9 @@ import Observation
     func handle(_ action: DashboardViewModel.Action) {
         guard !retired, isOwned(), canPresent() else { return }
         switch action {
-        case .open(let request): model.navigation.open(request)
+        // Only after the gate above, so a hidden or blocked dashboard stays silent rather than warn.
+        case .open(let request):
+            if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Craft.") }
         case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
         case .closeTickets: leaveTickets()
         }

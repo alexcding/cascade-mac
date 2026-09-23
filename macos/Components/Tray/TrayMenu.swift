@@ -148,7 +148,6 @@ import SwiftUI
         case .openUsage: model.openUsage()
         case .quit: model.quit()
         case .openReview(let id): model.openReview(id)
-        case .refresh: break // Opening the menu is the refresh; no row asks for one.
         }
     }
 
