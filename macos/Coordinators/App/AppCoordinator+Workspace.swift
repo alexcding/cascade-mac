@@ -27,16 +27,6 @@ extension AppCoordinator {
         workspaceCoordinators.first { $0.context === context }
     }
 
-    /// The workspaces the detail column keeps alive (`SessionWorkspaceDeck`): every live one but a
-    /// sidebar tab's, whose page-only panel draws into the title-bar zone and stays a destination.
-    var deckWorkspaces: [SessionWorkspaceCoordinator] { workspaceCoordinators.filter { !$0.context.holdsOnePage } }
-
-    /// The one of them on screen, when the selection shows it.
-    var shownDeckWorkspace: SessionWorkspaceCoordinator? {
-        guard case .sessionWorkspaceCoordinator(let child) = root, !child.context.holdsOnePage else { return nil }
-        return child
-    }
-
     /// Drops coordinators whose contexts the viewer no longer holds.
     func pruneWorkspaces() {
         guard let viewer = rootModel?.viewer else { return }

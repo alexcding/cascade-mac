@@ -236,3 +236,24 @@ import Testing
     service.state.offersNewTab = true
     #expect(model.offersNewTab && model.canOpenTab)
 }
+
+// A page's X lets the page and its web view go. A lone page with content can be closed (the panel then
+// shows its empty state, a blank page) but a lone blank one cannot, since it is that empty state. A
+// sidebar tab's panel follows the same rule.
+@MainActor @Test func aPageOffersCloseUnlessItIsTheLoneBlankPageOfAPanel() throws {
+    let service = WorkspaceFixture()
+    let session = WorkspaceContext(id: "task:close", sourceURL: "", title: "Session")
+    let model = SessionWorkspaceViewModel(context: session, service: service)
+    let page = try #require(session.open("https://example.test/close"))
+    #expect(model.offersClose(page))
+    let blank = session.openBlankPage()
+    #expect(model.offersClose(page) && model.offersClose(blank))
+    session.close(page)
+    #expect(session.pageTabs.count == 1 && !model.offersClose(blank))
+    let tab = WorkspaceContext(id: "tab:close", sourceURL: "", title: "Tab")
+    let tabModel = SessionWorkspaceViewModel(context: tab, service: service)
+    let tabPage = try #require(tab.open("https://example.test/tab"))
+    #expect(tabModel.offersClose(tabPage))
+    tab.close(tabPage)
+    #expect(!tabModel.offersClose(tab.openBlankPage()))
+}

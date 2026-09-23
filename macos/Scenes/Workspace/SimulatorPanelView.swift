@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// The Simulator panel: the session's last simulator run, streamed by `serve-sim` to a loopback
-/// page the model keeps (`SimulatorPreviewModel.page(for:)`).
+/// page the model keeps (`SimulatorPreviewModel.webView`).
 struct SimulatorPanelView: View {
     let model: SimulatorPreviewModel
     let openIntegrations: () -> Void
@@ -10,8 +10,8 @@ struct SimulatorPanelView: View {
     var body: some View {
         Group {
             switch model.state {
-            case .live(let url):
-                BrowserSurface(webView: model.page(for: url))
+            case .live:
+                BrowserSurface(webView: model.webView)
             case .idle:
                 ContentUnavailableView("No simulator running", systemImage: "iphone",
                     description: Text("Run the app on a simulator to see it here."))

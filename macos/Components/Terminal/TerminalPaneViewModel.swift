@@ -11,12 +11,12 @@ import Observation
 
 /// Presentation policy for one pane, without owning or stopping the detached shell.
 ///
-/// A pane SwiftUI takes down leaves its window, and a Ghostty view that does stops drawing by
-/// itself. What is left here is what the package does not track — the style to draw with, a
-/// window the close button has ordered out, a session the workspace deck keeps mounted but
-/// hidden, and handing the shell focus once it is ready — applied after the current update
-/// pass, because display and focus changes can originate in AppKit layout notifications
-/// mid-update.
+/// Being on screen is SwiftUI's decision: only the selected workspace's panes are mounted,
+/// and a Ghostty view that leaves its window stops drawing by itself. What is left here is
+/// what the package does not track — the style to draw with, a window the close button has
+/// ordered out, and handing the shell focus once it is ready — applied after the current
+/// update pass, because display and focus changes can originate in AppKit layout
+/// notifications mid-update.
 @MainActor @Observable final class TerminalPaneViewModel {
     var style = TerminalStyle() {
         didSet {
@@ -79,12 +79,12 @@ extension TerminalSession: TerminalPaneServing {
         window === surface.attachedPlatformView?.window
     }
 
-    /// Occlusion and hiding are the visibility inputs the package does not track: the close
-    /// button orders the window out while the shell keeps streaming, and the workspace deck hides
-    /// the sessions it is not showing. Either way the surface should stop drawing frames nobody sees.
+    /// Occlusion is the one visibility input the package does not track: the close button
+    /// orders the window out while the shell keeps streaming, and the surface should stop
+    /// drawing frames nobody sees.
     func applyPresentation(focus: Bool) {
         let view = surface.attachedPlatformView
-        let visible = (view?.window?.occlusionState.contains(.visible) ?? true) && view?.isHiddenOrHasHiddenAncestor != true
+        let visible = view?.window?.occlusionState.contains(.visible) ?? true
         if surface.isSurfaceVisible != visible { surface.isSurfaceVisible = visible }
         // Already outside the update pass. Avoid queuing a focus request that could
         // later steal focus after this workspace is hidden.

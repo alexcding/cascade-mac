@@ -85,9 +85,7 @@ struct BrowserCompactTabBar: View {
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive,
                            autoFocus: page.id != context.fillerPageID,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
-                           // A lone tab has nothing to close to: the panel always has a page, so
-                           // closing it would only make another. Close appears once there are two.
-                           closable: pages.count > 1, iconOnly: iconOnly, editing: $editingAddress,
+                           closable: model.offersClose(page), iconOnly: iconOnly, editing: $editingAddress,
                            select: { model.selectTab(.page(page)) }, close: { model.closeTab(.page(page)) })
             }
         }

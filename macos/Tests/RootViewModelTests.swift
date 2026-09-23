@@ -246,3 +246,20 @@ private struct InertRemovalService: SessionRemoving {
     await viewer.remove(id: "task:two")
     #expect(coordinator.workspaceCoordinator(for: two) == nil && coordinator.workspaceCoordinators.count == 1)
 }
+
+// Closing a sidebar tab's last page lets the page and its web view go but keeps the tab: the panel shows
+// its empty state rather than the sidebar losing the row.
+@MainActor @Test func closingASidebarTabsLastPageKeepsTheTab() throws {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
+    coordinator.rootRuntime = runtime
+    let tab = WorkspaceContext(id: "tab:t1", sourceURL: "", title: "Tab")
+    let tabModel = SessionWorkspaceViewModel(context: tab, service: runtime)
+    coordinator.bindWorkspace(tabModel, context: tab, runtime: runtime)
+    let page = try #require(tab.open("https://example.test/tab"))
+    page.materialize(load: false)
+    #expect(page.webView != nil)
+    tabModel.closeTab(.page(page))
+    #expect(runtime.closedTabs.isEmpty)
+    #expect(tab.pages.isEmpty && page.webView == nil)
+}

@@ -156,7 +156,6 @@ import Observation
         if destination == .overview { dashboardCoordinator?.leaveTickets() }
         if selection != destination {
             projectCoordinator?.endPresentation(); dashboardCoordinator?.model.cancelActions()
-            switch destination { case .session, .terminal: WorkspaceSwitchSignpost.begin(); default: break }
         }
         routingError = nil
         selection = destination

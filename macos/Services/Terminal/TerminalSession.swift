@@ -105,10 +105,6 @@ final class TerminalSession: Identifiable {
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.openLink(raw, directory ?? self.cwd, external)
             }
-            view.visibilityChanged = { [weak self] in
-                guard let self, self.surfaceGeneration == generation else { return }
-                self.presentation?.surfaceChanged()
-            }
             self?.platformView = view
             return view
         }

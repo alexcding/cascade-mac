@@ -137,9 +137,7 @@ extension WorkspaceServing {
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
     /// A page-only context (a sidebar tab) draws its compact tab bar in the title-bar zone: the
     /// window toolbar loses its background, icon and title, and the bar takes the toolbar's row.
-    /// Only a sidebar tab: a session's workspace lives in the deck below the toolbar
-    /// (`SessionWorkspaceDeck`), even while it has no session record to show a terminal for.
-    var fillsTitleBar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
+    var fillsTitleBar: Bool { !showsTerminal && mode == .browser }
     var showsFiles: Bool { showsPage && !showsChanges && mode == .files }
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }
@@ -219,6 +217,13 @@ extension WorkspaceServing {
     /// Whether the panel shows New Tab and answers ⌘T. A sidebar tab is one page, so it shows
     /// neither; `canOpenTab` still holds, so the panel's own blank filler page is unaffected.
     var offersNewTab: Bool { state.offersNewTab }
+    /// Whether a page's tab shows its close button, which lets the page and its web view go. Closing
+    /// a panel's last page leaves its empty state, a blank page, and a sidebar tab stays in the
+    /// sidebar. A lone blank page is that empty state: closing it would only make another.
+    func offersClose(_ page: BrowserPage) -> Bool {
+        guard let context else { return false }
+        return context.pageTabs.count > 1 || !page.controls.isBlank
+    }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
     func newTab() { guard canOpenTab else { return }; onAction(.newTab) }

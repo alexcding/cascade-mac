@@ -387,20 +387,3 @@ private final class LinkMetrics: @unchecked Sendable {
     #expect(measuredSurface.submittedFrameCount == hiddenFrames,
             "Hidden output and input must not submit render frames")
 }
-
-@MainActor @Test func workspaceTerminalViewReportsVisibilityChangesFromAHiddenAncestor() {
-    _ = NSApplication.shared
-    let view = WorkspaceTerminalView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-    let container = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-    container.addSubview(view)
-    let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false; window.contentView = container
-    var calls = 0
-    view.visibilityChanged = { calls += 1 }
-    #expect(!view.isHiddenOrHasHiddenAncestor)
-    container.isHidden = true
-    #expect(calls == 1 && view.isHiddenOrHasHiddenAncestor)
-    container.isHidden = false
-    #expect(calls == 2 && !view.isHiddenOrHasHiddenAncestor)
-    window.contentView = nil; window.close()
-}

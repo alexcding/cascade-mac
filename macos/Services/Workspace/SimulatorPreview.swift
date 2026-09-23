@@ -48,12 +48,7 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         case failed(String)
     }
     private(set) var state: State = .idle {
-        // A page is only good for the stream it was loaded from: once the panel leaves live, the next
-        // live state loads afresh, even at the same address — a new helper can take the old port.
-        didSet {
-            guard pageURL != nil else { return }
-            if case .live = state {} else { pageURL = nil; pageLoad = nil; webView?.stopLoading() }
-        }
+        didSet { pageFollowsState() }
     }
     private(set) var udid: String?
     private let service: any SimulatorPreviewing
@@ -92,45 +87,52 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         generation = UUID(); state = .failed(message)
     }
 
-    /// The stream's page, made the first time the panel draws it live and kept here rather than in
-    /// the panel's view: the panel is taken down and put back as the pane and the session change,
-    /// and a new web view is a new content process and a new connection to the helper. The page is
+    /// The stream's page, made the first time the panel shows it and kept here rather than in the
+    /// panel's view: the panel is taken down and put back as the pane and the session change, and a
+    /// new web view is a new content process and a new connection to the helper. The page is
     /// serve-sim's own and drives the device itself, so it gets no bridge, no file access and no
-    /// data that outlives it. Not observed: the panel asks for it while drawing.
-    @ObservationIgnored private var webView: WKWebView?
+    /// data that outlives it. What it loads follows `state`.
+    var webView: WKWebView { page ?? makePage() }
+    @ObservationIgnored private var page: WKWebView?
     @ObservationIgnored private var pageURL: URL?
     /// The load the page is on: only its failure says the stream is gone, not a stale one's.
     @ObservationIgnored private var pageLoad: WKNavigation?
     @ObservationIgnored private var navigation: PageNavigation?
 
-    /// The live stream's page, loading `url` when it is another helper's (another device streams
-    /// on its own port) or the panel was not live since the last load.
-    func page(for url: URL) -> WKWebView {
-        let view = webView ?? {
-            let config = WKWebViewConfiguration()
-            config.websiteDataStore = .nonPersistent()
-            let view = WKWebView(frame: .zero, configuration: config)
-            let navigation = PageNavigation(owner: self)
-            view.navigationDelegate = navigation
-            self.navigation = navigation
-            view.setValue(false, forKey: "drawsBackground")
-            view.setAccessibilityIdentifier("simulator-preview-webview")
-            webView = view
-            return view
-        }()
-        if pageURL?.host != url.host || pageURL?.port != url.port {
-            pageURL = url
-            pageLoad = view.load(URLRequest(url: url))
-        }
+    private func makePage() -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        let view = WKWebView(frame: .zero, configuration: config)
+        let navigation = PageNavigation(owner: self)
+        view.navigationDelegate = navigation
+        view.setValue(false, forKey: "drawsBackground")
+        view.setAccessibilityIdentifier("simulator-preview-webview")
+        self.navigation = navigation; page = view
+        pageFollowsState()
         return view
+    }
+
+    /// Keeps the page on the stream `state` names. Another helper (another device streams on its own
+    /// port) is loaded afresh; leaving live forgets the address, so the next live state loads again
+    /// even at the same one, since a new helper can take the old port.
+    private func pageFollowsState() {
+        guard let page else { return }
+        if case .live(let url) = state {
+            if let loaded = pageURL, loaded.host == url.host, loaded.port == url.port { return }
+            pageURL = url
+            pageLoad = page.load(URLRequest(url: url))
+        } else if pageURL != nil {
+            pageURL = nil; pageLoad = nil
+            page.stopLoading()
+        }
     }
 
     /// Terminal: the session's build model went away, and this panel with it. The stream itself
     /// is left running, since another session may be showing the same device.
     func retire() {
         retired = true; generation = UUID(); state = .idle
-        webView?.stopLoading(); webView?.navigationDelegate = nil
-        webView?.removeFromSuperview(); webView = nil; navigation = nil; pageLoad = nil
+        page?.stopLoading(); page?.navigationDelegate = nil
+        page?.removeFromSuperview(); page = nil; navigation = nil
     }
 
     /// A helper that is gone refuses the connection; the panel then offers Try Again. A load that

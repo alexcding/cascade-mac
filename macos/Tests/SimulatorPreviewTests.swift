@@ -263,30 +263,27 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
 }
 
 @MainActor @Test func simulatorPreviewPageIsOneWebViewUntilRetired() {
-    let service = SimulatorPreviewFixture()
-    let model = SimulatorPreviewModel(service: service)
-    let url = URL(string: "http://127.0.0.1:3200")!
-    let page = model.page(for: url)
+    let model = SimulatorPreviewModel(service: SimulatorPreviewFixture())
+    let page = model.webView
     #expect(page.accessibilityIdentifier() == "simulator-preview-webview")
-    #expect(model.page(for: url) === page)
-    let otherPort = URL(string: "http://127.0.0.1:3201")!
-    #expect(model.page(for: otherPort) === page)
+    #expect(model.webView === page)
     model.retire()
-    #expect(model.page(for: url) !== page)
+    #expect(model.webView !== page)
 }
 
 // A panel that left live must load its page again when live comes back, even at the same address:
-// after the backend reports a failure, a new helper can take the dead one's port. A different path
-// on the same port stands in for the new page, since the model loads exactly what it is handed.
+// after the backend reports a failure, a new helper can take the dead one's port. Two fragments of one
+// address stand in for the two helpers' pages, which also keeps the test off the network.
 @MainActor @Test func simulatorPageLoadsAgainAfterTheBackendFailsAtTheSameAddress() async {
     let service = SimulatorPreviewFixture()
-    let first = URL(string: "http://127.0.0.1:3104/first")!, second = URL(string: "http://127.0.0.1:3104/second")!
+    let first = URL(string: "about:blank#first")!, second = URL(string: "about:blank#second")!
     service.results["udid-port"] = .success(first)
     let model = SimulatorPreviewModel(service: service)
     model.show(udid: "udid-port")
     await waitFor(model) { $0 == .live(first) }
     #expect(model.state == .live(first))
-    let page = model.page(for: first)
+    // Made by its first use, and loaded with the live stream.
+    let page = model.webView
     #expect(page.url == first)
     service.results["udid-port"] = .failure(BackendError.operation("The device shut down."))
     model.retry()
@@ -296,7 +293,7 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     model.retry()
     await waitFor(model) { $0 == .live(second) }
     #expect(model.state == .live(second))
-    #expect(model.page(for: second) === page)
-    #expect(page.url == second)
+    // Loaded by the state, in the same web view.
+    #expect(model.webView === page && page.url == second)
     model.retire()
 }
