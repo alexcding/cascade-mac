@@ -307,6 +307,20 @@ async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>
             }
             let number = ctx.event.pr.as_ref().and_then(|pr| pr["number"].as_i64()).unwrap_or(0);
             let version = version_name(step.text("template"), number, |variable| ctx.render(variable))?;
+            // A template version may not exist yet, and setting it creates it. That happens only in
+            // the Craft project's own Jira project: a ticket linked by hand from another team's
+            // project must not start releases there. With no project key there is no such bound.
+            let own = ctx.event.project["jiraProjectKey"].as_str().unwrap_or("").trim().to_ascii_uppercase();
+            if !own.is_empty() {
+                let (mine, others): (BTreeMap<_, _>, BTreeMap<_, _>) = projects.into_iter().partition(|(project, _)| *project == own);
+                for (project, keys) in others {
+                    plans.push(Plan::Skip(format!(
+                        "{} not given {version}: releases are only made in {own}, not {project}",
+                        keys.join(", ")
+                    )));
+                }
+                projects = mine;
+            }
             for (project, keys) in projects {
                 let exists = jira::versions(&project).await.ok().map(|v| v.contains(&version));
                 plans.push(Plan::FixVersion { project, version: version.clone(), keys, exists });
@@ -529,6 +543,20 @@ mod tests {
         assert_eq!(version_name("{{pr.base}} #{prNumber}", 7, render).unwrap(), "release/2.4 #7");
         assert!(version_name("{nope}", 7, render).is_err(), "a typed placeholder is still checked");
         assert!(version_name("{{missing}}", 7, |_| String::new()).is_err(), "an empty name is refused");
+    }
+
+    #[tokio::test]
+    async fn a_template_version_is_never_made_in_another_teams_jira_project() {
+        let event = crate::automation::model::Event {
+            kind: "pr.merged".into(), key: "pr.merged:a/b#5".into(), at: chrono::Utc::now(),
+            project: json!({"id": "p", "jiraProjectKey": "craft"}), pr: Some(json!({"number": 5})), ticket: None,
+        };
+        // Only a foreign ticket: planning it must not reach Jira at all, let alone create a release.
+        let ctx = crate::automation::context::Ctx::with_keys(&event, vec!["OPS-12".into()]);
+        let step = Step { node: "jira.fix_version".into(), params: json!({"source": "template", "template": "{year}"}).as_object().unwrap().clone(), ..Default::default() };
+        let plans = plan(&step, &ctx).await.unwrap();
+        assert_eq!(plans.len(), 1);
+        assert!(matches!(&plans[0], Plan::Skip(why) if why.contains("OPS-12") && why.contains("only made in CRAFT")), "{}", plans[0].describe());
     }
 
     #[test]

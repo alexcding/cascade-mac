@@ -64,6 +64,9 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
             title = "\(p?.automation ?? "Automation") ran"
             body = p?.subject ?? ""
         case "automation_failed": title = "\(p?.automation ?? "Automation") failed"; body = p?.subject ?? ""
+        case "automation_limited":
+            title = "\(p?.automation ?? "Automation") held back"
+            body = ["Over its hourly run limit", p?.subject].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
         default: title = type.isEmpty ? "Activity" : type.replacingOccurrences(of: "_", with: " ").capitalized
             body = p?.error ?? p?.detail ?? ""
         }

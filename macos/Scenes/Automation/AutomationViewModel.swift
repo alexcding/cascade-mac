@@ -314,8 +314,11 @@ import Observation
     // MARK: Saving
 
     func save() async {
-        guard !retired, canSave, let service, var value = draft else { return }
+        guard !retired, canSave, let service, let sent = draft else { return }
+        var value = sent
         value.name = value.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The row being saved, by its key: the editor may be on another one when the reply lands.
+        let key = openKey
         let token = generation
         saving = true; error = nil
         defer { if generation == token { saving = false } }
@@ -324,8 +327,15 @@ import Observation
             guard !retired, generation == token else { return }
             if let index = automations.firstIndex(where: { $0.id == stored.id }) { automations[index] = stored }
             else { automations.append(stored) }
-            if let key = openKey, key.hasPrefix("new:") { newKeys.removeAll { $0 == key } }
-            draft = stored; baseline = stored; openKey = stored.id; saved = true
+            if let key, key.hasPrefix("new:") { newKeys.removeAll { $0 == key } }
+            if openKey == key {
+                // Typing that went on while the save was out is kept, on top of the saved copy.
+                if draft == sent { draft = stored } else { draft?.id = stored.id }
+                baseline = stored; openKey = stored.id; saved = draft == stored
+            } else if let key, let aside = unsaved.removeValue(forKey: key), aside != sent {
+                // Set aside mid-save with more edits: they stay unsaved, now on the saved pipeline.
+                var kept = aside; kept.id = stored.id; unsaved[stored.id] = kept
+            }
             onAction(.saved(stored))
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }

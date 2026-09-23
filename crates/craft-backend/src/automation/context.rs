@@ -43,6 +43,12 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// A context with its tickets already known, for planning without `gh` or Jira.
+    #[cfg(test)]
+    pub fn with_keys(event: &'a Event, jira_keys: Vec<String>) -> Ctx<'a> {
+        Ctx { event, me: None, jira_keys, tickets: HashMap::new(), files: None }
+    }
+
     pub fn pr(&self) -> Result<&Value> {
         self.event
             .pr

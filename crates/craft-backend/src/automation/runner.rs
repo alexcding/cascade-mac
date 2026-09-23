@@ -24,6 +24,20 @@ pub const RATE_LIMIT: i64 = 30;
 /// races: one sync can spawn many runs before any of them is recorded.
 static LIVE: Mutex<Option<HashMap<String, Vec<Instant>>>> = Mutex::new(None);
 
+/// When each pipeline last told Activity it was held back: once an hour is enough to be seen, and a
+/// released event offered again on every poll would otherwise say it every time.
+static WARNED: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
+
+fn warn_limited(automation: &str) -> bool {
+    let mut guard = WARNED.lock().unwrap_or_else(|e| e.into_inner());
+    let warned = guard.get_or_insert_with(HashMap::new);
+    if warned.get(automation).is_some_and(|at| at.elapsed() < Duration::from_secs(3600)) {
+        return false;
+    }
+    warned.insert(automation.to_owned(), Instant::now());
+    true
+}
+
 /// Reserve a live run for `automation`, or refuse because it is over the hourly limit.
 fn reserve(automation: &str, recorded: i64) -> bool {
     let mut guard = LIVE.lock().unwrap_or_else(|e| e.into_inner());
@@ -58,17 +72,12 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
         started_at,
         finished_at: String::new(),
     };
-    if mode == RunMode::Live
-        && trigger_matched
-        && !reserve(&automation.id, store::recent_live_runs(&app.db, &automation.id).unwrap_or(0))
-    {
-        trace.status = "limited".into();
-        trace.finished_at = now();
-        return trace;
-    }
     let mut ctx = Ctx::new(app, event).await;
     let mut stopped = false;
     let mut touched_jira = false;
+    // The hourly limit counts runs that act, reserved at the first action that does something: a
+    // run its filters stop, or whose actions all skip, has changed nothing and is not held back.
+    let mut reserved = false;
     for step in &automation.steps {
         let section = if step.kind == StepKind::Filter { "filters" } else { "actions" };
         let mut result = StepResult {
@@ -111,7 +120,15 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
                         result.commands.clear();
                     } else if mode != RunMode::Live {
                         result.status = "planned".into();
+                    } else if !reserved
+                        && !reserve(&automation.id, store::recent_live_runs(&app.db, &automation.id).unwrap_or(0))
+                    {
+                        result.status = "limited".into();
+                        result.detail = format!("Held back: over {RATE_LIMIT} live runs in the last hour");
+                        stopped = true;
+                        trace.status = "limited".into();
                     } else {
+                        reserved = true;
                         // Each plan is one PR or ticket: one that fails does not hold back the rest.
                         let mut outputs = Vec::new();
                         let mut failures = Vec::new();
@@ -160,10 +177,18 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
 pub async fn run_and_record(app: &AppState, automation: &Automation, event: &Event, mode: RunMode) -> Trace {
     let trace = run(app, automation, event, mode).await;
     let _ = store::record_run(&app.db, &trace);
+    // Held back, the event has not had its run: its claim is let go so a later offer can fire it.
+    if trace.status == "limited" {
+        let _ = store::release(&app.db, &automation.id, &trace.event_key);
+    }
     // A filtered run is the common case (most PRs are not from the trusted author); only runs
-    // that did or planned something reach Activity.
-    if trace.status != "filtered" {
-        let kind = if trace.status == "error" { "automation_failed" } else { "automation_run" };
+    // that did or planned something reach Activity, and a held-back one once an hour.
+    if trace.status != "filtered" && (trace.status != "limited" || warn_limited(&automation.id)) {
+        let kind = match trace.status.as_str() {
+            "error" => "automation_failed",
+            "limited" => "automation_limited",
+            _ => "automation_run",
+        };
         if let Ok(event) = app.db.add_event(
             kind,
             &json!({"automation":automation.name,"subject":trace.subject,"mode":trace.mode,"status":trace.status}),
@@ -187,6 +212,13 @@ mod tests {
         for item in catalog::catalog()["actions"].as_array().unwrap() {
             assert!(actions::known(item["type"].as_str().unwrap()), "action {} has no planner", item["type"]);
         }
+    }
+
+    #[test]
+    fn a_held_back_pipeline_tells_activity_once_an_hour() {
+        assert!(warn_limited("warn-test"));
+        assert!(!warn_limited("warn-test"));
+        assert!(warn_limited("warn-other"));
     }
 
     #[test]

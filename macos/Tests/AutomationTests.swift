@@ -18,8 +18,14 @@ private actor AutomationFixture: AutomationService {
 
     func list() async throws -> [Automation] { automations }
     func catalog() async throws -> AutomationCatalog { catalogValue }
+    /// A held save stays in flight until `release()`, so a test can act while it is out.
+    private var holding = false
+    private var held: CheckedContinuation<Void, Never>?
+    func hold() { holding = true }
+    func release() { holding = false; held?.resume(); held = nil }
     func save(_ automation: Automation) async throws -> Automation {
         saveCalls.append(automation)
+        if holding { await withCheckedContinuation { held = $0 } }
         var stored = automation
         if stored.id.isEmpty { stored.id = "saved-\(nextID)"; nextID += 1 }
         if let index = automations.firstIndex(where: { $0.id == stored.id }) { automations[index] = stored }
@@ -239,5 +245,40 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     model.revert()
     #expect(model.newDrafts.isEmpty && model.draft?.id == "a1")
     #expect(await service.saveCalls.count == 1)
+    await model.stop()
+}
+
+@MainActor private func whileSaving(_ model: AutomationViewModel, _ service: AutomationFixture,
+                                   _ act: () -> Void) async throws {
+    await service.hold()
+    let saving = Task { await model.save() }
+    let deadline = ContinuousClock.now + .seconds(5)
+    while await service.saveCalls.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+    act()
+    await service.release()
+    await saving.value
+}
+
+@MainActor @Test func automationSaveLandingOnAnotherRowLeavesThatRowAndNoDuplicate() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "b", name: "B")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.create(from: nil)
+    model.draft?.name = "X"
+    // The reply comes back after the user has moved to B.
+    try await whileSaving(model, service) { model.select("b") }
+    #expect(model.selectedID == "b" && model.draft?.name == "B" && !model.dirty)
+    #expect(model.newDrafts.isEmpty, "the saved pipeline must not stay behind as an unsaved row")
+    #expect(model.automations.map(\.name).sorted() == ["B", "X"])
+    #expect(await service.saveCalls.count == 1)
+    await model.stop()
+}
+
+@MainActor @Test func automationSaveKeepsWhatWasTypedWhileItWasOut() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a", name: "First")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.draft?.name = "Second"
+    try await whileSaving(model, service) { model.draft?.name = "Third" }
+    #expect(model.draft?.name == "Third" && model.baseline?.name == "Second")
+    #expect(model.dirty && !model.saved, "the later typing is still to be saved")
     await model.stop()
 }
