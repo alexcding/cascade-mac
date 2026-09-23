@@ -267,6 +267,7 @@ pub async fn patch_task(
         "sessionId",
         "runScheme",
         "runSim",
+        "name",
     ];
     if patch.is_empty()
         || patch

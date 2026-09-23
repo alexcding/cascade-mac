@@ -28,6 +28,7 @@ import Observation
         case closeTab(String), newTab, moveTab(String, before: String?), togglePinTab(String)
         case moveProject(String, before: String?), moveSession(String, before: String?), movePinned(String, before: String?)
         case reconnect, openTerminal, openBrowser(URL), removeSession(String), openGitClient(String)
+        case renameSession(String, name: String)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -74,6 +75,8 @@ import Observation
     func togglePin(_ id: String) { onAction(.togglePin(id)) }
     /// A session row's right-click Remove Session: the confirmation sheet is the coordinator's.
     func removeSession(_ id: String) { onAction(.removeSession(id)) }
+    /// A session row's right-click Rename Session, with the name typed into the prompt.
+    func renameSession(_ id: String, to name: String) { onAction(.renameSession(id, name: name)) }
     /// "Open in Sourcetree" for a session row; nil until a git client is chosen in Settings.
     var gitClientLabel: String? { state.gitClientLabel }
     func openGitClient(_ id: String) { onAction(.openGitClient(id)) }

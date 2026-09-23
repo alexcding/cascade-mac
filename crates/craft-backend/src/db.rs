@@ -351,6 +351,7 @@ impl Database {
             "sessionId": text(row, "session_id")?, "createdAt": row.get::<_, String>("created_at")?,
             "pinned": row.get::<_, i64>("pinned")? != 0,
             "runScheme": text(row, "run_scheme")?, "runSim": text(row, "run_sim")?,
+            "name": text(row, "name")?,
         })))?.collect();
         result
     }
@@ -400,6 +401,7 @@ impl Database {
             ("sessionId", "session_id"),
             ("runScheme", "run_scheme"),
             ("runSim", "run_sim"),
+            ("name", "name"),
         ];
         let mut sets = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
@@ -821,6 +823,8 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE tasks ADD COLUMN run_scheme TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN run_sim TEXT NOT NULL DEFAULT ''",
+        // A name the user gave the session; empty means it is shown by its worktree folder.
+        "ALTER TABLE tasks ADD COLUMN name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
     ] {
         let _ = conn.execute(migration, []);
@@ -1049,6 +1053,26 @@ mod tests {
         assert_eq!(tab["url"], "https://example.test/a");
         assert_eq!(tab["standalone"], false);
         assert!(!tab["id"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_session_name_is_patched_alone_and_survives_an_upsert() {
+        let opened = Database::open(tempfile::tempdir().unwrap().path()).unwrap();
+        let mut task = Map::new();
+        for (key, value) in [("id", "t"), ("projectId", "p"), ("workspace", "/w"), ("worktree", "/w/t"), ("title", "Page")] {
+            task.insert(key.into(), json!(value));
+        }
+        assert!(opened.upsert_task(&task).unwrap());
+        assert_eq!(opened.tasks().unwrap()[0]["name"], "");
+        let mut rename = Map::new();
+        rename.insert("name".into(), json!("Checkout fix"));
+        assert!(opened.patch_task("t", &rename).unwrap());
+        // The app re-saves the whole record on other changes; that must not drop the name.
+        assert!(opened.upsert_task(&task).unwrap());
+        let saved = &opened.tasks().unwrap()[0];
+        assert_eq!(saved["name"], "Checkout fix");
+        assert_eq!(saved["title"], "Page");
+        assert_eq!(saved["worktree"], "/w/t");
     }
 
     #[test]

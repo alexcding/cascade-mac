@@ -12,6 +12,7 @@ import Testing
     var terminals = 0
     var reconnects = 0
     var removalRequests: [String] = []
+    var renames: [String] = []
     weak var coordinator: AppCoordinator?
     func rootState() -> RootState { state }
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState { SessionWorkspaceState() }
@@ -29,6 +30,7 @@ import Testing
     func performRootCommand(_ command: ShellCommand) { commands.append(command) }
     func reconnect() async { reconnects += 1 }
     func togglePin(_ id: String) { pins.append(id) }
+    func renameSession(_ id: String, to name: String) { renames.append("\(id)=\(name)") }
     func closeTab(_ url: String) { closedTabs.append(url) }
     func openTerminal() { terminals += 1 }
     func openRootBrowser(_ url: URL) { opens.append(url) }
@@ -188,6 +190,33 @@ private struct InertRemovalService: SessionRemoving {
     #expect(coordinator.removal?.id == request.id && runtime.removalRequests == ["missing", "s"])
     coordinator.cancelRemoval(id: request.id)
     #expect(coordinator.removal == nil && coordinator.removalFailure == nil && coordinator.canPresent)
+}
+
+/// A session row's right-click Rename Session hands the typed name to the runtime as is;
+/// trimming and "did it change" are the app model's.
+@MainActor @Test func sidebarRenameSessionReachesTheRuntime() throws {
+    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                                     selectionStore: TransientSidebarSelectionStore(.overview))
+    let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
+    let model = coordinator.makeRoot(factory: RecordingRootFactory(), runtime: runtime, shell: shell, viewer: viewer)
+    model.renameSession("s", to: "Checkout fix")
+    model.renameSession("s", to: "")
+    #expect(runtime.renames == ["s=Checkout fix", "s="])
+}
+
+/// A given name is what the sidebar, toolbar and window title show; without one, or with only
+/// whitespace, the session is still shown by its worktree folder, never by its page title.
+@Test func aSessionIsLabelledByItsGivenNameOrElseItsFolder() {
+    var session = WorkspaceSession(id: "s", projectId: "p", workspace: "/tmp", worktree: "/tmp/feature-x",
+        title: "Page title", branch: "feature", url: "", createdAt: nil, pinned: false)
+    #expect(session.label == "feature-x")
+    session.name = "  "
+    #expect(session.label == "feature-x")
+    session.name = "Checkout fix"
+    #expect(session.label == "Checkout fix")
+    #expect(session.worktree == "/tmp/feature-x" && session.title == "Page title")
 }
 
 /// Switching back to a session that is already open is what the sidebar does all day. It must

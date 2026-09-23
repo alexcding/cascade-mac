@@ -1198,6 +1198,25 @@ public final class AppViewModel {
         }
     }
 
+    /// Sidebar right-click Rename Session. Only the display name changes, so the worktree,
+    /// branch, agent and build settings are untouched; an empty name shows the folder again.
+    /// The row updates at once and goes back if the backend refuses.
+    func renameSession(_ id: String, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let api, let index = sessions.firstIndex(where: { $0.id == id }), (sessions[index].name ?? "") != name else { return }
+        struct Payload: Encodable, Sendable { let name: String }
+        let previous = sessions[index].name
+        sessions[index].name = name
+        Task {
+            do {
+                let _: OperationOK = try await api.request(Routes.task(id), method: "PATCH", body: Payload(name: name))
+            } catch {
+                if let index = sessions.firstIndex(where: { $0.id == id }), sessions[index].name == name { sessions[index].name = previous }
+                self.error = "Could not rename session: \(error.localizedDescription)"
+            }
+        }
+    }
+
     /// Pins a saved tab into the grid under Dashboard, or returns it to the Tabs list. A draft
     /// has no backend row yet, so it cannot be pinned. The flag is its own one-row PATCH, so a
     /// concurrent open or rename is never overwritten.

@@ -17,6 +17,7 @@ import Foundation
     func togglePinTab(_ id: String)
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel?
     func openGitClient(_ id: String)
+    func renameSession(_ id: String, to name: String)
 }
 
 extension RootCoordinating {
@@ -29,6 +30,7 @@ extension RootCoordinating {
     func togglePinTab(_ id: String) {}
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel? { nil }
     func openGitClient(_ id: String) {}
+    func renameSession(_ id: String, to name: String) {}
 }
 
 extension AppCoordinator {
@@ -69,6 +71,7 @@ extension AppCoordinator {
         case .openBrowser(let url): rootRuntime?.openRootBrowser(url)
         case .removeSession(let id): presentRemoval { rootRuntime?.makeSessionRemoval(id) }
         case .openGitClient(let id): rootRuntime?.openGitClient(id)
+        case .renameSession(let id, let name): rootRuntime?.renameSession(id, to: name)
         }
     }
 }

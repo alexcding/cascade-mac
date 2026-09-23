@@ -22,6 +22,7 @@ struct CocoaSidebar: NSViewRepresentable {
     var onMovePinned: (String, String?) -> Void = { _, _ in }
     var onTogglePinTab: (String) -> Void = { _ in }
     var onRemoveSession: (String) -> Void = { _ in }
+    var onRenameSession: (String, String) -> Void = { _, _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.craft.sidebar-row")
@@ -452,6 +453,7 @@ struct CocoaSidebar: NSViewRepresentable {
             // stopped and removed, so the menu item only asks for it.
             if case .session(let id) = destination {
                 menu.addItem(.separator())
+                add("Rename Session…", action: #selector(renameSession(_:)))
                 add(parent.pinnedIDs.contains(id) ? "Unpin Session" : "Pin Session", action: #selector(togglePin(_:)))
                 add("Remove Session…", action: #selector(removeSession(_:)))
             }
@@ -461,6 +463,27 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func togglePin(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             parent.onTogglePin(id)
+        }
+        /// The system's own text prompt, as a sheet on the sidebar's window. An empty name puts
+        /// the worktree folder back; whether anything changed is the app's to decide.
+        @objc private func renameSession(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            let alert = NSAlert()
+            alert.messageText = "Rename Session"
+            alert.informativeText = "Leave it empty to show the worktree folder's name."
+            alert.addButton(withTitle: "Rename")
+            alert.addButton(withTitle: "Cancel")
+            let field = NSTextField(string: node.entry.title)
+            field.placeholderString = "Session name"
+            field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+            alert.accessoryView = field
+            alert.window.initialFirstResponder = field
+            let rename = { [weak self] (response: NSApplication.ModalResponse) in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.parent.onRenameSession(id, field.stringValue)
+            }
+            if let window = outline?.window { alert.beginSheetModal(for: window, completionHandler: rename) }
+            else { rename(alert.runModal()) }
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }

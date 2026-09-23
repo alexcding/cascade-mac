@@ -15,6 +15,7 @@ struct SidebarView: View {
                          onNewSession: viewModel.newSession(in:), onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onMoveTab: viewModel.moveTab,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onTogglePinTab: viewModel.togglePinTab, onRemoveSession: viewModel.removeSession,
+                         onRenameSession: viewModel.renameSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)
 
             HStack(spacing: 6) {

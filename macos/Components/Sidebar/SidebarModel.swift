@@ -17,8 +17,12 @@ struct WorkspaceSession: Codable, Identifiable, Equatable, Sendable {
     /// This session's own run destination; empty means it follows the project's.
     var runScheme: String? = nil
     var runSim: String? = nil
+    /// The name the user gave it from the sidebar. Display only: the worktree, branch and page
+    /// title stay what they were. Empty means it is shown by its worktree folder.
+    var name: String? = nil
 
     var label: String {
+        if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
         let folder = (worktree as NSString).lastPathComponent
         return folder.isEmpty ? (title.isEmpty ? id : title) : folder
     }
