@@ -18,6 +18,23 @@ import Testing
     }
 }
 
+@Test func packagedBundleRequiresAnAppWithTheBundledPtyDaemon() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let app = root.appendingPathComponent("Craft.app"), helpers = app.appendingPathComponent("Contents/Helpers")
+    try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
+    #expect(!PackagedBundle.isPackaged(app))
+    let daemon = helpers.appendingPathComponent("craft-ptyd")
+    try Data().write(to: daemon)
+    #expect(!PackagedBundle.isPackaged(app))
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemon.path)
+    #expect(PackagedBundle.isPackaged(app))
+    let folder = root.appendingPathComponent("Craft")
+    try FileManager.default.createDirectory(at: folder.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+    try FileManager.default.copyItem(at: helpers, to: folder.appendingPathComponent("Contents/Helpers"))
+    #expect(!PackagedBundle.isPackaged(folder))
+}
+
 @MainActor private final class TerminationFixture {
     var reasons: [AppTerminationCoordinator.Reason] = []
     var replies: [(AppTerminationCoordinator.Reason, Bool)] = []

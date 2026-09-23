@@ -35,9 +35,7 @@ enum UpdateConfiguration {
         let debug = false
         #endif
         let bundle = Bundle.main
-        let packaged = bundle.bundleURL.pathExtension == "app"
-            && FileManager.default.isExecutableFile(atPath: bundle.bundleURL.appendingPathComponent("Contents/Helpers/craft-backend").path)
-            && FileManager.default.isExecutableFile(atPath: bundle.bundleURL.appendingPathComponent("Contents/Helpers/craft-ptyd").path)
+        let packaged = PackagedBundle.isPackaged(bundle.bundleURL)
         unavailableReason = UpdateConfiguration.unavailableReason(debug: debug, packaged: packaged, info: bundle.infoDictionary ?? [:])
         guard unavailableReason == nil else { return }
         let controller = SPUStandardUpdaterController(startingUpdater: false, updaterDelegate: self, userDriverDelegate: nil)

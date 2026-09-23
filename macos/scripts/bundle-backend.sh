@@ -18,7 +18,7 @@ cp "$ROOT/crates/craft-ptyd/target/release/craft-ptyd" "$APP/Contents/Helpers/cr
 rm -f "$APP/Contents/Helpers/craft-backend" "$APP/Contents/Helpers/craft-node" "$APP/Contents/Resources/Licenses/Node-LICENSE"
 
 # The native toolbar's provider artwork. The app is native Swift over the Rust
-# backend: no renderer code, no web assets and no JavaScript runtime ship with it.
+# backend: no JavaScript runtime ships with it, only the diff page's own scripts.
 rm -rf "$APP/Contents/Resources/CraftImages" "$APP/Contents/Resources/backend"
 mkdir -p "$APP/Contents/Resources/CraftImages"
 cp -R "$ROOT/macos/Resources/ProviderImages/." "$APP/Contents/Resources/CraftImages/"

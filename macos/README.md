@@ -335,11 +335,9 @@ The backend is linked into the app executable; `Contents/Helpers` contains
 location, set `CRAFT_GHOSTTY_PACKAGE` to its Ghostty package checkout so the script
 can find dependency licenses.
 
-**Current packaging limitation:** `package-direct.py` rejects all bundled `.js`
-and `.mjs` files, including the files required by `Resources/DiffPage`. That check
-must be reconciled with the bundled diff renderer before packaging the current
-app. Do not remove the diff assets to bypass it. The commands below describe the
-packaging interface, not a verified release of the current source.
+`package-direct.py` allows exactly one kind of bundled JavaScript: the diff page's
+scripts in `Contents/Resources`, byte-identical to `Resources/DiffPage`. Any other
+script fails packaging.
 
 For a local package, select an output directory that does not already exist:
 
@@ -378,11 +376,9 @@ requires a Release app, a valid HTTPS feed, and a base64-encoded 32-byte Ed25519
 public key. Private signing keys stay outside the repository. Publishing an
 appcast and signing update archives are separate release steps.
 
-**Current availability limitation:** `AppUpdater` and
-`LoginItemRegistrationPolicy` still check for `Contents/Helpers/craft-backend`,
-which the embedded-backend bundle deliberately omits. Those checks must be updated
-before updates and new launch-at-login registration can activate in that bundle.
-Development builds also keep these features disabled.
+Updates and launch at login activate only in a packaged Release app, meaning a
+`.app` whose `Contents/Helpers/craft-ptyd` was installed by `bundle-backend.sh`
+(`PackagedBundle`). Development builds keep both disabled.
 
 An update restart follows the same document-save and terminal-cleanup transaction
 as Quit. Cancelling a save cancels termination. See

@@ -111,8 +111,14 @@ def main():
     for relative in ["Contents/Helpers/craft-node", "Contents/Resources/backend"]:
         if (app / relative).exists():
             parser.error("Legacy Node bundle remains; rerun bundle-backend.sh: " + relative)
-    if any(path.suffix.lower() in {".js", ".mjs", ".cjs"} for path in app.rglob("*")):
-        parser.error("The native package must not contain bundled JavaScript files")
+    # The working-changes diff page is the one bundled page. Its scripts may ship, byte for byte
+    # as in Resources/DiffPage; any other JavaScript in the bundle is a regression.
+    diff_page = Path(__file__).resolve().parents[1] / "Resources" / "DiffPage"
+    for script in (p for p in app.rglob("*") if p.suffix.lower() in {".js", ".mjs", ".cjs"}):
+        source = diff_page / script.name
+        if (script.parent != app / "Contents/Resources" or not source.is_file()
+                or source.read_bytes() != script.read_bytes()):
+            parser.error("Unexpected bundled JavaScript: " + str(script.relative_to(app)))
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Publish the directory only after every packaging/signing operation succeeds.
     with tempfile.TemporaryDirectory(prefix=".craft-package-", dir=destination.parent) as temporary:

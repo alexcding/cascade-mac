@@ -27,9 +27,7 @@ enum LoginItemRegistrationPolicy {
         let debug = false
         #endif
         let configuration = try? BackendConfiguration.current()
-        let bundle = Bundle.main.bundleURL
-        let packaged = configuration?.packaged == true && bundle.pathExtension == "app"
-            && FileManager.default.isExecutableFile(atPath: bundle.appendingPathComponent("Contents/Helpers/craft-backend").path)
+        let packaged = configuration?.packaged == true && PackagedBundle.isPackaged(Bundle.main.bundleURL)
         return unavailableReason(debug: debug, packaged: packaged)
     }
 }
