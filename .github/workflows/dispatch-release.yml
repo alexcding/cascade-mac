@@ -1,7 +1,7 @@
 name: Dispatch release
 
 # A pushed version tag asks the private release pipeline to build, sign and
-# notarize it. That pipeline publishes the result back here as a draft release.
+# notarize it. That pipeline publishes the result back here as a release.
 
 on:
   push:
@@ -16,9 +16,12 @@ jobs:
       - name: Request a release build
         env:
           GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+          # The pipeline's owner/name, kept in a secret so this public repo never names it.
+          RELEASE_REPO: ${{ secrets.RELEASE_REPO }}
           TAG: ${{ github.ref_name }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG"; exit 0; }
-          gh api repos/$RELEASE_REPO/dispatches \
+          [ -n "$RELEASE_REPO" ] || { echo "::error::The RELEASE_REPO secret is not set"; exit 1; }
+          gh api "repos/$RELEASE_REPO/dispatches" \
             -f event_type=release -f "client_payload[tag]=$TAG"
           echo "Requested a release build of $TAG"
