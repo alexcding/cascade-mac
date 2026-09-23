@@ -13,6 +13,7 @@ struct WelcomeView: View {
                 case .welcome: WelcomeIntroPage()
                 case .tools: WelcomeToolsPage(model: model)
                 case .hooks: WelcomeHooksPage(model: model)
+                case .simulator: WelcomeSimulatorPage(model: model)
                 case .done: WelcomeDonePage(model: model)
                 }
             }
@@ -125,7 +126,7 @@ private struct WelcomeIntroPage: View {
             }
             .padding(.horizontal, 56).padding(.top, 20)
             Spacer(minLength: 0)
-            Text("The next two pages check your tools and install the hooks. It takes about a minute.")
+            Text("The next pages check your tools, install the hooks and set up the iOS Simulator preview. It takes about a minute.")
                 .font(.system(size: 12)).foregroundStyle(Theme.textTertiary).padding(.bottom, 16)
         }
     }
@@ -212,6 +213,28 @@ private struct WelcomeHooksPage: View {
         }
         Text("Claude Code reports its context window only to its status line. Sessions Craft launches report it already; install this so the ones you start yourself do too. Your own status line keeps drawing.")
             .font(.caption).foregroundStyle(Theme.textSecondary)
+    }
+}
+
+/// Optional, and says so: only iOS projects use it. The same card as Settings > Integrations.
+private struct WelcomeSimulatorPage: View {
+    let model: WelcomeViewModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            WelcomeHeader(title: "iOS Simulator preview",
+                          subtitle: "Optional, for iOS projects. When you run an app on a simulator, Craft shows it beside the session, where you can tap and type into it.") {
+                // A run, arriving in the app's side panel.
+                HStack(spacing: 18) {
+                    WelcomeTerminalCard(lines: ["node --version", "v22"])
+                    Image(systemName: "arrow.right").font(.system(size: 20, weight: .medium)).foregroundStyle(Theme.accent)
+                    Image(systemName: model.simulatorPreviewReady == true ? "iphone" : "iphone.slash")
+                        .font(.system(size: 52, weight: .regular)).foregroundStyle(Theme.accent)
+                }
+            }
+            Form { SimulatorPreviewSection(model: model.clis) }
+                .formStyle(.grouped).scrollContentBackground(.hidden)
+        }
     }
 }
 

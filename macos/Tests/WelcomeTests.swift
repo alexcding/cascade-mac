@@ -24,13 +24,28 @@ actor WelcomeCLIFixture: CLISettingsService {
     let model = makeWelcomeModel()
     #expect(model.page == .welcome && model.isFirst && !model.isLast)
     model.next(); model.next(); model.next()
+    #expect(model.page == .simulator && !model.isLast)
+    model.next()
     #expect(model.page == .done && model.isLast)
     model.next()
     #expect(model.page == .done)
-    model.back(); model.back(); model.back()
+    model.back(); model.back(); model.back(); model.back()
     #expect(model.page == .welcome && model.isFirst)
     model.back()
     #expect(model.page == .welcome)
+}
+
+@MainActor @Test func welcomeSimulatorPreviewIsReportedButNeverListedAsRemaining() async {
+    let model = makeWelcomeModel()
+    #expect(model.simulatorPreviewReady == nil, "unknown until the probe answers")
+    model.connect(WelcomeCLIFixture(availability: ["serveSim": CLIAvailability(present: false, needs: "node"),
+                                                   "node": CLIAvailability(present: false)]))
+    await waitForWelcomeConnect(model)
+    #expect(model.simulatorPreviewReady == false)
+    #expect(model.remaining.isEmpty, "optional: a Mac without Node is still all set")
+    model.connect(WelcomeCLIFixture(availability: ["serveSim": CLIAvailability(present: true, source: "npx")]))
+    await waitForWelcomeConnect(model)
+    #expect(model.simulatorPreviewReady == true)
 }
 
 @MainActor @Test func welcomeConnectRefreshesAvailabilityAndHooks() async {
