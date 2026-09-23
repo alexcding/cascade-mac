@@ -469,6 +469,7 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func renameSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             let alert = NSAlert()
+            alert.window.setAccessibilityIdentifier("rename-session-dialog")
             alert.messageText = "Rename Session"
             alert.informativeText = "Leave it empty to show the worktree folder's name."
             alert.addButton(withTitle: "Rename")
@@ -476,14 +477,21 @@ struct CocoaSidebar: NSViewRepresentable {
             let field = NSTextField(string: node.entry.title)
             field.placeholderString = "Session name"
             field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+            field.setAccessibilityIdentifier("rename-session-input")
+            field.setAccessibilityLabel("Session name")
             alert.accessoryView = field
-            alert.window.initialFirstResponder = field
             let rename = { [weak self] (response: NSApplication.ModalResponse) in
                 guard response == .alertFirstButtonReturn else { return }
                 self?.parent.onRenameSession(id, field.stringValue)
             }
-            if let window = outline?.window { alert.beginSheetModal(for: window, completionHandler: rename) }
-            else { rename(alert.runModal()) }
+            // NSAlert focuses its default button on show, so the field is focused after it.
+            if let window = outline?.window {
+                alert.beginSheetModal(for: window, completionHandler: rename)
+                alert.window.makeFirstResponder(field)
+            } else {
+                alert.window.initialFirstResponder = field
+                rename(alert.runModal())
+            }
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }

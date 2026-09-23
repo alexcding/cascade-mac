@@ -1207,6 +1207,9 @@ public final class AppViewModel {
         struct Payload: Encodable, Sendable { let name: String }
         let previous = sessions[index].name
         sessions[index].name = name
+        // A reload already in flight read the row before the rename and would put the old name
+        // back. Its sessions are dropped; the backend's `tasks` event reloads them once saved.
+        inventoryGenerations[.sessions] = UUID()
         Task {
             do {
                 let _: OperationOK = try await api.request(Routes.task(id), method: "PATCH", body: Payload(name: name))
