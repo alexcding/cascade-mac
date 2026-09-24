@@ -279,6 +279,7 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     let first = URL(string: "about:blank#first")!, second = URL(string: "about:blank#second")!
     service.results["udid-port"] = .success(first)
     let model = SimulatorPreviewModel(service: service)
+    model.active = true
     model.show(udid: "udid-port")
     await waitFor(model) { $0 == .live(first) }
     #expect(model.state == .live(first))
@@ -295,5 +296,26 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     #expect(model.state == .live(second))
     // Loaded by the state, in the same web view.
     #expect(model.webView === page && page.url == second)
+    model.retire()
+}
+
+// The stream plays only while its session is on screen: a hidden session's page is unloaded, since
+// its helper would go on sending frames nobody sees, and shown again the same web view loads it again.
+@MainActor @Test func simulatorPageStreamsOnlyWhileItsSessionIsOnScreen() async {
+    let service = SimulatorPreviewFixture()
+    let stream = URL(string: "about:blank#stream")!
+    service.results["udid-shown"] = .success(stream)
+    let model = SimulatorPreviewModel(service: service)
+    model.show(udid: "udid-shown")
+    await waitFor(model) { $0 == .live(stream) }
+    // Made while its session is hidden, the page loads nothing.
+    let page = model.webView
+    #expect(page.url == nil)
+    model.active = true
+    #expect(page.url == stream)
+    model.active = false
+    #expect(page.url != stream)
+    model.active = true
+    #expect(model.webView === page && page.url == stream)
     model.retire()
 }

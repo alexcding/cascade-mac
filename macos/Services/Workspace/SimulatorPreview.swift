@@ -87,11 +87,19 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         generation = UUID(); state = .failed(message)
     }
 
+    /// Whether the session is on screen, on whichever pane. The stream plays only then: a hidden
+    /// session's page is unloaded, since the helper would go on sending frames nobody sees, and it
+    /// loads again when the session is back. Switching panes within the session leaves it playing.
+    /// Nothing draws from it, so setting it redraws nothing.
+    @ObservationIgnored var active = false {
+        didSet { if !retired, oldValue != active { pageFollowsState() } }
+    }
+
     /// The stream's page, made the first time the panel shows it and kept here rather than in the
     /// panel's view: the panel is taken down and put back as the pane and the session change, and a
-    /// new web view is a new content process and a new connection to the helper. The page is
-    /// serve-sim's own and drives the device itself, so it gets no bridge, no file access and no
-    /// data that outlives it. What it loads follows `state`.
+    /// new web view is a new content process. The page is serve-sim's own and drives the device
+    /// itself, so it gets no bridge, no file access and no data that outlives it. What it loads
+    /// follows `state`, while the session is `active`.
     var webView: WKWebView { page ?? makePage() }
     @ObservationIgnored private var page: WKWebView?
     @ObservationIgnored private var pageURL: URL?
@@ -112,18 +120,20 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         return view
     }
 
-    /// Keeps the page on the stream `state` names. Another helper (another device streams on its own
-    /// port) is loaded afresh; leaving live forgets the address, so the next live state loads again
-    /// even at the same one, since a new helper can take the old port.
+    /// Keeps the page on the stream `state` names while the session is on screen. Another helper
+    /// (another device streams on its own port) is loaded afresh; leaving the stream unloads the page
+    /// and forgets the address, so the next live state loads again even at the same one, since a new
+    /// helper can take the old port.
     private func pageFollowsState() {
         guard let page else { return }
-        if case .live(let url) = state {
+        if active, case .live(let url) = state {
             if let loaded = pageURL, loaded.host == url.host, loaded.port == url.port { return }
             pageURL = url
             pageLoad = page.load(URLRequest(url: url))
         } else if pageURL != nil {
             pageURL = nil; pageLoad = nil
-            page.stopLoading()
+            // Stopping ends only a load under way: a loaded page would go on playing its stream.
+            page.loadHTMLString("", baseURL: nil)
         }
     }
 

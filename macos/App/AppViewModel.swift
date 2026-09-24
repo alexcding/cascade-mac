@@ -1055,6 +1055,8 @@ public final class AppViewModel {
         })
         model.onSimulatorRun = { [weak context] in context?.setPane(.simulator) }
         buildModels[context.id] = model
+        // Its Simulator panel streams only while the workspace says it is on screen.
+        context.workspaceViewModel?.documentStateChanged()
         return model
     }
 

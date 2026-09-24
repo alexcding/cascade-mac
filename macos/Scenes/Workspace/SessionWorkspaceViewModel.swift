@@ -259,6 +259,8 @@ extension WorkspaceServing {
                                          appearance: state.appearance, font: state.documentFont)
         state.history?.presentation = .init(active: reviewing && context?.reviewSection == .history,
                                             appearance: state.appearance, font: state.documentFont)
+        // On any pane: switching back to the Simulator is instant, and a hidden session streams nothing.
+        state.build?.preview?.active = visible
         // Once each, not per page or document: every one of these rebuilds the workspace state.
         let shownPage = visible && showsBrowser ? context?.activePage : nil
         let shownDocument = visible && showsFiles ? context?.activeDocument : nil
