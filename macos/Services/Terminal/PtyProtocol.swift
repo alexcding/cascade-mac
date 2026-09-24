@@ -169,6 +169,7 @@ struct PtyRequest: Encodable, Sendable {
     var data: String?
     var bytes: Data?
     var dataEncoding: String?
+    var eventScope: String?
     var cols: UInt16?
     var rows: UInt16?
     var pause: Bool?

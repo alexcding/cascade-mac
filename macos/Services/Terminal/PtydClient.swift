@@ -60,7 +60,9 @@ final class PtydClient: @unchecked Sendable {
             }
         }
         do {
-            let hello: PtyHello = try await request(.init(op: "hello", dataEncoding: "base64"))
+            // Hear only the terminals this connection creates, attaches to or restores. A daemon
+            // that predates event scopes sends every terminal's events; TerminalPipe drops the rest.
+            let hello: PtyHello = try await request(.init(op: "hello", dataEncoding: "base64", eventScope: "attached"))
             guard hello.protocol == 2 else { throw PtyError.protocolMismatch(hello.protocol) }
             return hello
         } catch { close(); throw error }

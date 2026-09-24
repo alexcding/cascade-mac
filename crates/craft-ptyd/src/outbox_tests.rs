@@ -38,6 +38,17 @@ impl Fixture {
     wait_until(|| self.daemon.clients.lock().unwrap().iter().any(|client| client.id == id));
     (id, BufReader::new(peer))
   }
+
+  // A terminal whose shell prints READY, then echoes its input raw. `creator` hears it.
+  fn echo_terminal(&self, creator: Option<u64>) -> TermInfo {
+    let shell = self.daemon.dir.join("echo-shell");
+    if !shell.exists() {
+      std::fs::write(&shell, "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf READY\nexec /bin/cat\n").unwrap();
+      std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let opts = serde_json::from_value(json!({"cwd":self.daemon.dir,"shell":shell})).unwrap();
+    self.daemon.create(opts, creator).unwrap()
+  }
 }
 
 impl Drop for Fixture {
@@ -67,6 +78,32 @@ fn read(peer: &mut BufReader<UnixStream>) -> Value {
   serde_json::from_str(&line).unwrap()
 }
 
+// Every frame up to and including the first that matches.
+fn read_until(peer: &mut BufReader<UnixStream>, matches: impl Fn(&Value) -> bool) -> Vec<Value> {
+  let mut frames = vec![read(peer)];
+  while !matches(frames.last().unwrap()) { frames.push(read(peer)); }
+  frames
+}
+
+fn output_of(id: &str, text: &str) -> impl Fn(&Value) -> bool {
+  let (id, text) = (id.to_string(), text.to_string());
+  move |frame| frame["ev"] == "data" && frame["id"] == id.as_str() && frame["chunk"] == text.as_str()
+}
+
+fn negotiate(peer: &mut BufReader<UnixStream>, request: Value) -> Value {
+  writeln!(peer.get_mut(), "{request}").unwrap();
+  read(peer)["ok"].clone()
+}
+
+// Reads until `peer` has seen READY from `count` terminals.
+fn read_ready(peer: &mut BufReader<UnixStream>, count: usize) {
+  let mut ready = HashSet::new();
+  while ready.len() < count {
+    let frame = read(peer);
+    if frame["chunk"] == "READY" { ready.insert(frame["id"].as_str().unwrap().to_string()); }
+  }
+}
+
 #[test]
 fn idle_socket_starts_its_delivery_deadline_with_new_work() {
   let fixture = Fixture::new();
@@ -75,14 +112,14 @@ fn idle_socket_starts_its_delivery_deadline_with_new_work() {
   // Hold the receiver without a writer: a fast socket must not conceal a
   // missing idle-clock reset by delivering the first frame between offers.
   fixture.daemon.clients.lock().unwrap().push(Client {
-    id: 1, byte_transport: false, tx, sock,
+    id: 1, byte_transport: false, hears_all: true, terminals: HashSet::new(), tx, sock,
     owed: Arc::new(AtomicUsize::new(0)),
     progress: Arc::new(Mutex::new(Instant::now() - STALL_DROP - Duration::from_secs(1))),
   });
   fixture.daemon.reap_stalled_clients();
   assert_eq!(fixture.daemon.clients.lock().unwrap().len(), 1, "idle clients have no delivery debt");
-  fixture.daemon.broadcast(&json!({"ev":"idle-ended"}));
-  fixture.daemon.broadcast(&json!({"ev":"second-frame"}));
+  fixture.daemon.broadcast("fixture", &json!({"ev":"idle-ended"}));
+  fixture.daemon.broadcast("fixture", &json!({"ev":"second-frame"}));
   assert_eq!(serde_json::from_str::<Value>(&rx.try_recv().unwrap()).unwrap()["ev"], "idle-ended");
   assert_eq!(serde_json::from_str::<Value>(&rx.try_recv().unwrap()).unwrap()["ev"], "second-frame");
   assert_eq!(fixture.daemon.clients.lock().unwrap().len(), 1);
@@ -112,11 +149,7 @@ fn unread_socket_expires(native: bool) {
     if native { BASE64.decode(event["bytes"].as_str().unwrap()).unwrap() }
     else { event["chunk"].as_str().unwrap().as_bytes().to_vec() }
   };
-  let shell = fixture.daemon.dir.join("echo-shell");
-  std::fs::write(&shell, "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf READY\nexec /bin/cat\n").unwrap();
-  std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
-  let opts = serde_json::from_value(json!({"cwd":fixture.daemon.dir,"shell":shell})).unwrap();
-  let terminal = fixture.daemon.create(opts).unwrap();
+  let terminal = fixture.echo_terminal(None);
   assert_eq!(output(&read(&mut healthy)), b"READY");
   let ring = fixture.daemon.terms.lock().unwrap()[&terminal.id].ring.clone();
 
@@ -125,7 +158,7 @@ fn unread_socket_expires(native: bool) {
   // Synthetic flood frames isolate socket backpressure from parser throughput.
   let chunk = "x".repeat(BATCH_MAX_BYTES);
   let mut sequence = 0;
-  while fixture.daemon.max_owed() <= BACKLOG_HIGH {
+  while fixture.daemon.backlog("fixture-flood") <= BACKLOG_HIGH {
     sequence += 1;
     assert!(sequence < 100, "unread socket must accumulate bounded delivery debt");
     fixture.daemon.broadcast_output("fixture-flood", sequence, sequence, chunk.as_bytes(), &chunk);
@@ -134,8 +167,8 @@ fn unread_socket_expires(native: bool) {
     assert_eq!(event["seq"], sequence);
     assert_eq!(output(&event).len(), BATCH_MAX_BYTES);
   }
-  assert!(fixture.daemon.max_owed() <= OUTBOX_MAX);
-  // Wake the real terminal so it observes the global backlog, then queue input.
+  assert!(fixture.daemon.backlog("fixture-flood") <= OUTBOX_MAX);
+  // Wake the real terminal so it observes the backlog of a client that hears it, then queue input.
   // The old implementation could stay in this state indefinitely: no output
   // means offer() never gets another chance to expire the unread client.
   fixture.daemon.flow(slow_id, &terminal.id, true);
@@ -169,4 +202,90 @@ fn unread_socket_expires(native: bool) {
   assert_eq!(read(&mut healthy)["ok"]["protocol"], PROTOCOL);
   fixture.daemon.write(&terminal.id, b"STILL-ALIVE").unwrap();
   assert_eq!(output(&read(&mut healthy)), b"STILL-ALIVE");
+}
+
+#[test]
+fn a_scoped_client_hears_only_the_terminals_it_created_or_attached() {
+  let mut fixture = Fixture::new();
+  let (scoped_id, mut scoped) = fixture.connect();
+  let (_, mut everything) = fixture.connect();
+  assert_eq!(negotiate(&mut scoped, json!({"id":1,"op":"hello","eventScope":"attached"}))["eventScope"], "attached");
+  assert_eq!(negotiate(&mut everything, json!({"id":1,"op":"hello"}))["eventScope"], "all");
+  let own = fixture.echo_terminal(Some(scoped_id));
+  let other = fixture.echo_terminal(None);
+
+  // Once the other terminal's output has gone out, the scoped client's next frames show whether
+  // it was sent any: it hears only its own.
+  read_ready(&mut everything, 2);
+  fixture.daemon.write(&own.id, b"OWN").unwrap();
+  let heard = read_until(&mut scoped, output_of(&own.id, "OWN"));
+  assert!(heard.iter().all(|frame| frame["id"] == own.id.as_str()), "{heard:?}");
+
+  // Attaching adds a terminal, and its exit takes it away again.
+  writeln!(scoped.get_mut(), "{}", json!({"id":2,"op":"attach","term":other.id})).unwrap();
+  let attached = read_until(&mut scoped, |frame| frame["id"] == 2);
+  assert_eq!(attached.last().unwrap()["ok"]["buf"], "READY");
+  fixture.daemon.write(&other.id, b"OTHER").unwrap();
+  read_until(&mut scoped, output_of(&other.id, "OTHER"));
+  assert!(fixture.daemon.kill(&other.id));
+  read_until(&mut scoped, |frame| frame["ev"] == "exit" && frame["id"] == other.id.as_str());
+  wait_until(|| {
+    let clients = fixture.daemon.clients.lock().unwrap();
+    let client = clients.iter().find(|client| client.id == scoped_id).unwrap();
+    client.terminals == HashSet::from([own.id.clone()])
+  });
+}
+
+#[test]
+fn narrowing_keeps_the_terminals_a_client_already_has() {
+  let mut fixture = Fixture::new();
+  let (id, mut narrowed) = fixture.connect();
+  let (_, mut everything) = fixture.connect();
+  let kept = fixture.echo_terminal(Some(id));
+  let other = fixture.echo_terminal(None);
+  read_ready(&mut everything, 2);
+
+  // It hears every terminal up to the hello's reply, and from there on only the one it created.
+  writeln!(narrowed.get_mut(), "{}", json!({"id":1,"op":"hello","eventScope":"attached"})).unwrap();
+  let reply = read_until(&mut narrowed, |frame| frame["id"] == 1);
+  assert_eq!(reply.last().unwrap()["ok"]["eventScope"], "attached");
+  fixture.daemon.write(&other.id, b"OTHER").unwrap();
+  read_until(&mut everything, output_of(&other.id, "OTHER"));
+  fixture.daemon.write(&kept.id, b"KEPT").unwrap();
+  let heard = read_until(&mut narrowed, output_of(&kept.id, "KEPT"));
+  assert!(heard.iter().all(|frame| frame["id"] == kept.id.as_str()), "{heard:?}");
+}
+
+#[test]
+fn a_scoped_client_that_stops_reading_holds_up_only_what_it_hears() {
+  let mut fixture = Fixture::new();
+  let (_, mut healthy) = fixture.connect();
+  let (slow_id, mut slow) = fixture.connect();
+  assert_eq!(negotiate(&mut slow, json!({"id":1,"op":"hello","eventScope":"attached"}))["eventScope"], "attached");
+  let held = fixture.echo_terminal(Some(slow_id));
+  let free = fixture.echo_terminal(None);
+  read_ready(&mut healthy, 2);
+
+  // The slow client, which never reads again, falls behind on the terminal it hears.
+  let chunk = "x".repeat(BATCH_MAX_BYTES);
+  let mut sequence = 0;
+  while fixture.daemon.backlog(&held.id) <= BACKLOG_HIGH {
+    sequence += 1;
+    assert!(sequence < 100, "unread socket must accumulate bounded delivery debt");
+    fixture.daemon.broadcast_output(&held.id, sequence, sequence, chunk.as_bytes(), &chunk);
+    assert_eq!(read(&mut healthy)["seq"], sequence);
+  }
+  assert!(fixture.daemon.backlog(&free.id) < BACKLOG_LOW, "a client does not owe what it does not hear");
+
+  // Wake both terminals so each weighs its own viewers' backlog before the input comes back.
+  let rings = [&held, &free].map(|terminal| fixture.daemon.terms.lock().unwrap()[&terminal.id].ring.clone());
+  let before = rings[0].lock().unwrap().seq;
+  for terminal in [&held, &free] { fixture.daemon.flow(slow_id, &terminal.id, true); }
+  fixture.daemon.write(&held.id, b"HELD").unwrap();
+  fixture.daemon.write(&free.id, b"FREE").unwrap();
+  std::thread::sleep(Duration::from_millis(100));
+  for terminal in [&held, &free] { fixture.daemon.flow(slow_id, &terminal.id, false); }
+  read_until(&mut healthy, output_of(&free.id, "FREE"));
+  std::thread::sleep(Duration::from_millis(100));
+  assert_eq!(rings[0].lock().unwrap().seq, before, "the slow client's debt pauses what it hears");
 }

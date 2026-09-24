@@ -8,12 +8,15 @@
 // Wire protocol: newline-delimited JSON, both directions, on one connection.
 //   request  {"id":<n>, "op":"hello"|"create"|"write"|"resize"|"kill"|"killAll"|"list"|"attach"|"flow"|"foreground", ...}
 //   response {"id":<n>, "ok":<value>}  or  {"id":<n>, "err":"..."}
-//   event    {"ev":"data", "id":"pty..", "chunk":"..", "seq":<n>}   (fanned out to EVERY client)
+//   event    {"ev":"data", "id":"pty..", "chunk":"..", "seq":<n>}   (fanned out to every client that hears "id")
 //            {"ev":"exit", "id":"pty..", "exitCode":<n>, "signal":<n>}
 // Protocol 2 extension: hello {dataEncoding:"base64"} opts one connection into
 // exact byte output/attachments via `bytes` (standard padded base64), replacing
 // `chunk`/`buf`. `write` accepts either `bytes` or legacy UTF-8 `data`, never both.
 // Output sequences are shared across encodings, including incomplete UTF-8 batches.
+// Protocol 2 extension: hello {eventScope:"attached"} narrows one connection's events to the
+// terminals it has created, attached to or begun a snapshot of; "all", the default, hears every one.
+// Hello answers with the scope in force, and a daemon that predates it omits the field.
 // A request without "id" gets no response (writes/resizes/flow are fire-and-forget).
 //
 // Performance model (borrowed from unpeel's PTY core):
@@ -25,10 +28,11 @@
 //   • Input never blocks anyone: a write copies into the terminal's bounded queue (INPUT_MAX),
 //     the poll thread drains it on POLLOUT. A program that stops reading stdin stalls only itself.
 //   • Every client has its own outbox thread + byte budget. A client above OUTBOX_MAX, or one that
-//     made no progress for STALL_DROP while owing bytes, is dropped — never waited on. While any
-//     client owes more than BACKLOG_HIGH the PTY reads pause (resuming below BACKLOG_LOW), so a slow
-//     viewer bounds memory instead of growing it. The renderer can also ask for a pause directly
-//     ("flow") when its xterm write buffer runs ahead.
+//     made no progress for STALL_DROP while owing bytes, is dropped — never waited on. While a
+//     client that hears a terminal owes more than BACKLOG_HIGH, that terminal's reads pause (resuming
+//     below BACKLOG_LOW), so a slow viewer bounds memory instead of growing it, and holds up only
+//     what it hears. The renderer can also ask for a pause directly ("flow") when its xterm write
+//     buffer runs ahead.
 //
 // On disk (for inspection / scripting; the daemon itself is the source of truth):
 //   <dir>/terms/<id>.json   manifest — cwd, title, pairKey, hasContext, shell pid, created
@@ -72,8 +76,8 @@ const READ_CHUNK: usize = 64 * 1024;
 const INPUT_MAX: usize = 1024 * 1024; // maximum queued keystrokes/paste per terminal
 const OUTBOX_MAX: usize = 8 * 1024 * 1024; // per-client unsent bytes before the client is dropped
 const STALL_DROP: Duration = Duration::from_secs(60); // owing bytes with no progress this long → drop
-const BACKLOG_HIGH: usize = 4 * 1024 * 1024; // any client owing this much pauses PTY reads…
-const BACKLOG_LOW: usize = 1024 * 1024; // …until every client is below this
+const BACKLOG_HIGH: usize = 4 * 1024 * 1024; // a client owing this much pauses the reads of what it hears…
+const BACKLOG_LOW: usize = 1024 * 1024; // …until every client that hears the terminal is below this
 
 // The socket lives in a PRIVATE per-user directory at a SHORT path: AF_UNIX paths are capped at
 // 104 bytes on macOS and "~/Library/Application Support/<bundle id>/…" overruns that for longer
@@ -389,9 +393,13 @@ impl TerminalProfile {
 
 // A connected client: lines go through `tx` to its outbox thread, which is the ONLY writer on the
 // socket (responses and events share it, so frames never interleave). `owed` is the byte budget.
+// `terminals` are those it has created, attached to or begun a snapshot of: all it hears unless
+// `hears_all`.
 struct Client {
   id: u64,
   byte_transport: bool,
+  hears_all: bool,
+  terminals: HashSet<String>,
   tx: mpsc::Sender<Arc<str>>,
   owed: Arc<AtomicUsize>,
   progress: Arc<Mutex<Instant>>,
@@ -401,6 +409,10 @@ struct Client {
 impl Client {
   fn stalled(&self) -> bool {
     self.owed.load(Ordering::Relaxed) > 0 && self.progress.lock().unwrap().elapsed() > STALL_DROP
+  }
+
+  fn hears(&self, id: &str) -> bool {
+    self.hears_all || self.terminals.contains(id)
   }
 }
 
@@ -587,12 +599,13 @@ impl Daemon {
     }
   }
 
-  // Fan one line out to every client through its outbox. Never blocks: a client over budget, or
-  // stalled while owing bytes, is dropped right here (its outbox thread then closes the socket).
-  fn broadcast(&self, v: &Value) {
+  // Fan one of terminal `id`'s events out to every client that hears it, through its outbox. Never
+  // blocks: a client over budget, or stalled while owing bytes, is dropped right here (its outbox
+  // thread then closes the socket).
+  fn broadcast(&self, id: &str, v: &Value) {
     let line: Arc<str> = Arc::from(format!("{v}\n"));
     let mut cs = self.clients.lock().unwrap();
-    cs.retain(|c| self.offer(c, &line));
+    cs.retain(|c| !c.hears(id) || self.offer(c, &line));
   }
 
   // Encode at most once per representation, regardless of viewer count. Legacy
@@ -603,6 +616,7 @@ impl Daemon {
     let mut raw_line: Option<Arc<str>> = None;
     let mut text_line: Option<Arc<str>> = None;
     cs.retain(|c| {
+      if !c.hears(id) { return true; }
       let line = if c.byte_transport {
         raw_line.get_or_insert_with(|| Arc::from(format!("{}\n",
           json!({ "ev": "data", "id": id, "bytes": BASE64.encode(bytes), "seq": seq, "stateSeq": state_seq }))))
@@ -637,27 +651,40 @@ impl Daemon {
     }
   }
 
-  fn max_owed(&self) -> usize {
-    self.reap_stalled_clients()
+  // The most that a client hearing terminal `id` owes: past BACKLOG_HIGH, that terminal's reads pause.
+  fn backlog(&self, id: &str) -> usize {
+    self.reap_stalled_clients();
+    let clients = self.clients.lock().unwrap();
+    clients.iter().filter(|c| c.hears(id)).map(|c| c.owed.load(Ordering::Relaxed)).max().unwrap_or(0)
   }
 
-  fn reap_stalled_clients(&self) -> usize {
-    // Must run independently of offer(): BACKLOG_HIGH suspends every PTY read,
+  fn reap_stalled_clients(&self) {
+    // Must run independently of offer(): BACKLOG_HIGH suspends a terminal's reads,
     // so there may never be another output event to detect a blocked writer.
-    let mut max_owed = 0;
     self.clients.lock().unwrap().retain(|c| {
-      if !c.stalled() {
-        max_owed = max_owed.max(c.owed.load(Ordering::Relaxed));
-        return true;
-      }
+      if !c.stalled() { return true; }
       log(&format!("client {} dropped: stalled with {} bytes owed", c.id, c.owed.load(Ordering::Relaxed)));
       let _ = c.sock.shutdown(std::net::Shutdown::Both);
       false
     });
-    max_owed
   }
 
-  fn create(self: &Arc<Self>, opts: CreateOpts) -> Result<TermInfo, String> {
+  // Client `cid` hears terminal `id` from now on, in either scope. Called under `terms` while the
+  // terminal is registered, so its exit, which forgets it everywhere, always comes after.
+  fn subscribe(&self, cid: u64, id: &str) {
+    if let Some(client) = self.clients.lock().unwrap().iter_mut().find(|c| c.id == cid) {
+      client.terminals.insert(id.to_string());
+    }
+  }
+
+  fn forget(&self, id: &str) {
+    for client in self.clients.lock().unwrap().iter_mut() {
+      client.terminals.remove(id);
+    }
+  }
+
+  // `creator` hears the new terminal from its first output on.
+  fn create(self: &Arc<Self>, opts: CreateOpts, creator: Option<u64>) -> Result<TermInfo, String> {
     if let Some(owner) = opts.state_response_owner.as_deref() {
       #[cfg(feature = "terminal-snapshots")]
       let supported = [craft_vt::STATE_RESPONSE_OWNER, craft_vt::IDENTITY_RESPONSE_OWNER].contains(&owner);
@@ -786,21 +813,25 @@ impl Daemon {
     let paused = Arc::new(AtomicBool::new(false));
     let killed = Arc::new(AtomicBool::new(false));
     let child = Arc::new(Mutex::new(child));
-    self.terms.lock().unwrap().insert(
-      id.clone(),
-      Term {
-        master: master.clone(),
-        resizes: resizes.clone(),
-        child: child.clone(),
-        input: input.clone(),
-        wake_w,
-        paused: paused.clone(),
-        pause_owners: HashSet::new(),
-        killed: killed.clone(),
-        info: info.clone(),
-        ring: ring.clone(),
-      },
-    );
+    {
+      let mut terms = self.terms.lock().unwrap();
+      terms.insert(
+        id.clone(),
+        Term {
+          master: master.clone(),
+          resizes: resizes.clone(),
+          child: child.clone(),
+          input: input.clone(),
+          wake_w,
+          paused: paused.clone(),
+          pause_owners: HashSet::new(),
+          killed: killed.clone(),
+          info: info.clone(),
+          ring: ring.clone(),
+        },
+      );
+      if let Some(cid) = creator { self.subscribe(cid, &id); }
+    }
     self.write_manifest(&info);
     *self.idle_since.lock().unwrap() = None;
     log(&format!("create {id} pid={pid} cwd={}", info.cwd));
@@ -829,14 +860,14 @@ impl Daemon {
           if let Some(appearance) = request.appearance {
             let result = state.set_appearance(appearance);
             if matches!(result, Ok(true)) {
-              me.broadcast(&json!({ "ev": "appearance", "id": id, "seq": state.seq,
+              me.broadcast(&id, &json!({ "ev": "appearance", "id": id, "seq": state.seq,
                 "stateSeq": state.state_seq, "appearance": state.appearance }));
             }
             let responses = std::mem::replace(&mut state.responses, Ok(Vec::new()));
             drop(state);
             let delivery = queue_responses(&mut input.lock().unwrap(), responses);
             if let Err(message) = &delivery {
-              me.broadcast(&json!({ "ev": "inputError", "id": id, "message": message }));
+              me.broadcast(&id, &json!({ "ev": "inputError", "id": id, "message": message }));
             }
             let _ = request.reply.send(result.map(|_| ()).and(delivery));
             continue;
@@ -853,18 +884,18 @@ impl Daemon {
             let mut event = json!({ "ev": "resize", "id": id, "cols": state.cols,
               "rows": state.rows, "seq": state.seq, "stateSeq": state.state_seq });
             if let Some(geometry) = state.geometry { event["geometry"] = json!(geometry); }
-            me.broadcast(&event);
+            me.broadcast(&id, &event);
           }
           let responses = std::mem::replace(&mut state.responses, Ok(Vec::new()));
           drop(state);
           let delivery = queue_responses(&mut input.lock().unwrap(), responses);
           if let Err(message) = &delivery {
-            me.broadcast(&json!({ "ev": "inputError", "id": id, "message": message }));
+            me.broadcast(&id, &json!({ "ev": "inputError", "id": id, "message": message }));
           }
           let _ = request.reply.send(result.map(|_| ()).and(delivery));
         }
         // Interest: reads unless paused (renderer flow or client backlog); writes while queued.
-        let owed = me.max_owed();
+        let owed = me.backlog(&id);
         if backlog_paused && owed < BACKLOG_LOW {
           backlog_paused = false;
         } else if !backlog_paused && owed > BACKLOG_HIGH {
@@ -897,7 +928,7 @@ impl Daemon {
         if fds[0].revents & libc::POLLOUT != 0 {
           let result = drain_input(&mut input.lock().unwrap());
           if let Err(message) = result {
-            me.broadcast(&json!({ "ev": "inputError", "id": id, "message": message }));
+            me.broadcast(&id, &json!({ "ev": "inputError", "id": id, "message": message }));
           }
         }
         if fds[0].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
@@ -954,7 +985,7 @@ impl Daemon {
                 queue_responses(&mut inp, responses)
               };
               if let Err(message) = result {
-                me.broadcast(&json!({ "ev": "inputError", "id": id, "message": message }));
+                me.broadcast(&id, &json!({ "ev": "inputError", "id": id, "message": message }));
               }
             }
           }
@@ -972,7 +1003,8 @@ impl Daemon {
       unsafe { libc::close(wake_r) };
       let _ = std::fs::remove_file(me.manifest_path(&id));
       log(&format!("exit {id} code={exit_code}"));
-      me.broadcast(&json!({ "ev": "exit", "id": id, "exitCode": exit_code, "signal": 0 }));
+      me.broadcast(&id, &json!({ "ev": "exit", "id": id, "exitCode": exit_code, "signal": 0 }));
+      me.forget(&id);
       me.note_idle();
     });
     Ok(info)
@@ -1103,12 +1135,16 @@ impl Daemon {
     json!({ "process": process, "processPath": process_path, "pgid": pgid, "atShell": at_shell, "subshell": subshell })
   }
 
-  // Attach: the ring for replay. A renderer flow pause belongs to the client that asked for it;
-  // attaching releases only that client's pause, never another viewer's backpressure.
+  // Attach: the ring for replay, and the terminal's events from then on. A renderer flow pause
+  // belongs to the client that asked for it; attaching releases only that client's pause, never
+  // another viewer's backpressure.
   fn attach(&self, cid: u64, id: &str) -> Value {
-    let byte_transport = self.clients.lock().unwrap().iter().any(|c| c.id == cid && c.byte_transport);
     match self.terms.lock().unwrap().get_mut(id) {
       Some(t) => {
+        let byte_transport = self.clients.lock().unwrap().iter().any(|c| c.id == cid && c.byte_transport);
+        // Heard before the ring is read, so every later batch follows the replay; one sent before
+        // it as well carries a seq the replay already covers.
+        self.subscribe(cid, id);
         if t.pause_owners.remove(&cid) {
           t.paused.store(!t.pause_owners.is_empty(), Ordering::Relaxed);
           poke(t.wake_w);
@@ -1155,9 +1191,17 @@ impl Daemon {
             _ => return Err("unsupported terminal data encoding".into()),
           }
         }
+        if let Some(scope) = req.get("eventScope") {
+          match scope.as_str() {
+            Some("all") => client.hears_all = true,
+            Some("attached") => client.hears_all = false,
+            _ => return Err("unsupported event scope".into()),
+          }
+        }
         let encoding = if client.byte_transport { "base64" } else { "utf8" };
+        let scope = if client.hears_all { "all" } else { "attached" };
         #[allow(unused_mut)]
-        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "acknowledgedInput": true });
+        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "eventScope": scope, "acknowledgedInput": true });
         #[cfg(feature = "terminal-snapshots")]
         {
           _session.snapshot_negotiated = false;
@@ -1179,7 +1223,7 @@ impl Daemon {
       }
       "create" => {
         let opts: CreateOpts = req.get("opts").cloned().map(serde_json::from_value).transpose().map_err(|e| e.to_string())?.unwrap_or_default();
-        self.create(opts).map(|i| serde_json::to_value(i).unwrap())
+        self.create(opts, Some(cid)).map(|i| serde_json::to_value(i).unwrap())
       }
       "write" => {
         if let Some(encoded) = req.get("bytes") {
@@ -1227,7 +1271,14 @@ impl Daemon {
         match op {
           "snapshotBegin" => {
             _session.snapshots.clear();
-            let ring = self.terms.lock().unwrap().get(&sid()).ok_or("terminal no longer exists")?.ring.clone();
+            let id = sid();
+            let ring = {
+              let terms = self.terms.lock().unwrap();
+              let ring = terms.get(&id).ok_or("terminal no longer exists")?.ring.clone();
+              // Heard before the capture, as for attach: the restore continues with every later batch.
+              self.subscribe(cid, &id);
+              ring
+            };
             let capture = ring.lock().unwrap().capture()?;
             _session.snapshots.begin(capture)
           }
@@ -1252,7 +1303,7 @@ impl Daemon {
     let (tx, rx) = mpsc::channel::<Arc<str>>();
     let owed = Arc::new(AtomicUsize::new(0));
     let progress = Arc::new(Mutex::new(Instant::now()));
-    self.clients.lock().unwrap().push(Client { id: cid, byte_transport: false, tx, owed: owed.clone(), progress: progress.clone(), sock });
+    self.clients.lock().unwrap().push(Client { id: cid, byte_transport: false, hears_all: true, terminals: HashSet::new(), tx, owed: owed.clone(), progress: progress.clone(), sock });
     *self.idle_since.lock().unwrap() = None;
     log(&format!("client {cid} connected"));
 

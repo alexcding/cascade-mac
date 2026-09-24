@@ -11,6 +11,15 @@ private final class EventLog: @unchecked Sendable {
     var events: [PtyEvent] { lock.lock(); defer { lock.unlock() }; return storage }
     var bytes: Data { events.compactMap(\.bytes).reduce(into: Data()) { $0.append($1) } }
     var text: String { String(decoding: bytes, as: UTF8.self) }
+
+    /// Whether `expected` arrives within two seconds.
+    func receives(_ expected: String) async throws -> Bool {
+        for _ in 0..<100 {
+            if text.contains(expected) { return true }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return text.contains(expected)
+    }
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func nativeWorkflowDeliversPasteThenEnterAndStopsOnlyItsForeground() async throws {
@@ -255,6 +264,43 @@ private final class EventLog: @unchecked Sendable {
     #expect(kill(secondHello.pid, 0) == -1)
     // A second Quit with only the stale socket must not start a replacement.
     try await relaunchedHost.stopExisting()
+}
+
+/// A connection hears only the terminals it created or attached to, so a pane is not woken by
+/// every other terminal's output.
+@Test(.timeLimit(.minutes(1))) func aConnectionHearsOnlyTheTerminalsItCreatedOrAttachedTo() async throws {
+    let root = TestPaths.checkout
+    let directory = URL(fileURLWithPath: "/tmp/th-pty-\(UUID().uuidString.prefix(12))")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let shell = directory.appendingPathComponent("echo-shell")
+    try "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf 'PTY_READY\\n'\nexec /bin/cat\n".write(to: shell, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+                                   directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
+    let log = EventLog(), otherLog = EventLog()
+    let client = PtydClient(onEvent: log.append), other = PtydClient(onEvent: otherLog.append)
+    let hello = try await PtydHost(configuration: config).connect(client: client)
+    defer { client.close(); other.close(); _ = kill(hello.pid, SIGTERM) }
+    _ = try await other.connect(path: config.socketPath)
+    let mine: PtyInfo = try await client.request(.init(op: "create", opts: .init(cwd: directory.path, shell: shell.path, pairKey: "mine")))
+    let theirs: PtyInfo = try await other.request(.init(op: "create", opts: .init(cwd: directory.path, shell: shell.path, pairKey: "theirs")))
+    #expect(try await log.receives("PTY_READY"))
+    #expect(try await otherLog.receives("PTY_READY"))
+
+    // Once the other terminal's output has reached its own connection, this connection's next
+    // frames show whether it was sent any: it hears only its own.
+    let _: String? = try await other.request(.init(op: "write", term: theirs.id, data: "THEIRS\n"))
+    #expect(try await otherLog.receives("THEIRS"))
+    let _: String? = try await client.request(.init(op: "write", term: mine.id, data: "MINE\n"))
+    #expect(try await log.receives("MINE"))
+    #expect(log.events.allSatisfy { $0.id == mine.id })
+
+    // Attaching adds the other terminal from then on.
+    let attached: PtyAttachment = try await client.request(.init(op: "attach", term: theirs.id))
+    #expect(String(decoding: attached.bytes, as: UTF8.self).contains("THEIRS"))
+    let _: String? = try await other.request(.init(op: "write", term: theirs.id, data: "AFTER_ATTACH\n"))
+    #expect(try await log.receives("AFTER_ATTACH"))
 }
 
 @Test(.timeLimit(.minutes(1))) func realDaemonRejectsInputOverflowAndMissingTerminalInsteadOfAcknowledgingDroppedBytes() async throws {
@@ -551,6 +597,8 @@ private final class EventLog: @unchecked Sendable {
     let hello = try await control.connect(path: config.socketPath)
     defer { control.close(); _ = kill(hello.pid, SIGTERM) }
     try hello.validateShellIntegration()
+    // Watch the shell the pane creates, which this connection never attaches to.
+    let _: PtyHello = try await control.request(.init(op: "hello", eventScope: "all"))
     func mount(_ session: TerminalSession) -> NSWindow {
         let view = WorkspaceTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 420))
         view.delegate = session.surface; view.controller = session.surface.controller
