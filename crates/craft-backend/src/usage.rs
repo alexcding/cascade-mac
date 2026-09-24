@@ -237,19 +237,24 @@ async fn codex_live_limits() -> Option<Value> {
         r#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{"excludeResetCreditDetails":true}}"#,
         "\n",
     );
-    let is_reply = |line: &str| serde_json::from_str::<Value>(line).is_ok_and(|v| v["id"] == 2);
     let line = cli::first_line(
         "codex",
         ["-s", "read-only", "-a", "never", "app-server"],
         requests.as_bytes(),
         Duration::from_secs(15),
-        is_reply,
+        |line| is_response(line, 2),
     )
     .await
     .ok()?;
     let reply: Value = serde_json::from_str(&line).ok()?;
     let limits = &reply["result"]["rateLimits"];
     codex_windows([&limits["primary"], &limits["secondary"]], "usedPercent", "windowDurationMins", "resetsAt")
+}
+
+/// Whether `line` answers request `id`. The server's own requests and notifications carry a
+/// `method`, and it numbers its requests from its own sequence, so an `id` alone can collide.
+fn is_response(line: &str, id: u64) -> bool {
+    serde_json::from_str::<Value>(line).is_ok_and(|v| v["id"] == id && v.get("method").is_none())
 }
 
 /// The last limits a session log recorded, from the newest log that has any. A session just
@@ -351,5 +356,16 @@ mod tests {
         assert_eq!(limits["weekly"]["usedPct"], 7.0);
 
         assert!(codex_windows([&Value::Null, &Value::Null], "usedPercent", "windowDurationMins", "resetsAt").is_none());
+    }
+
+    // A server request that happens to reuse the id is not the answer; an error reply is.
+    #[test]
+    fn codex_reply_is_the_response_to_its_request() {
+        assert!(is_response(r#"{"jsonrpc":"2.0","id":2,"result":{"rateLimits":{}}}"#, 2));
+        assert!(is_response(r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"signed out"}}"#, 2));
+        assert!(!is_response(r#"{"jsonrpc":"2.0","id":2,"method":"item/commandExecution/requestApproval","params":{}}"#, 2));
+        assert!(!is_response(r#"{"jsonrpc":"2.0","method":"account/rateLimits/updated","params":{}}"#, 2));
+        assert!(!is_response(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#, 2));
+        assert!(!is_response("not json", 2));
     }
 }
