@@ -72,10 +72,10 @@ def main():
             run("git", "apply", "--reverse", patch, cwd=source)
     if not (output / "lib" / "libghostty-vt.a").is_file():
         parser.error("The build did not produce the static snapshot library.")
-    (output / "taskhub-ghostty-revision").write_text(revision + "\n")
-    (output / "taskhub-ghostty-query-patch").write_bytes(query_patch.read_bytes())
-    (output / "taskhub-ghostty-glyph-patch").write_bytes(glyph_patch.read_bytes())
-    (output / "taskhub-ghostty-graphics-patch").write_bytes(graphics_patch.read_bytes())
+    (output / "craft-ghostty-revision").write_text(revision + "\n")
+    (output / "craft-ghostty-query-patch").write_bytes(query_patch.read_bytes())
+    (output / "craft-ghostty-glyph-patch").write_bytes(glyph_patch.read_bytes())
+    (output / "craft-ghostty-graphics-patch").write_bytes(graphics_patch.read_bytes())
     print(f"Pinned terminal snapshot runtime: {output}")
 
 

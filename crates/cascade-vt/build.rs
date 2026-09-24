@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
-const REVISION: &str = "82938b633ba646db38591d969c3c526332bd7e65";
+const REVISION: &str = "3c47ca159368eb4a860ffe5333abdf4a85b2767b";
 
 fn run(command: &mut Command) {
     assert!(
@@ -19,7 +19,7 @@ fn main() {
     let runtime = env::var_os("CASCADE_GHOSTTY_VT_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("../../macos/.build/ghostty-vt/runtime"));
-    let revision = runtime.join("taskhub-ghostty-revision");
+    let revision = runtime.join("craft-ghostty-revision");
     println!("cargo:rerun-if-changed={}", revision.display());
     assert_eq!(
         fs::read_to_string(revision)
@@ -29,7 +29,7 @@ fn main() {
         "The daemon and native renderer must use the same pinned Ghostty snapshot format"
     );
     let query_patch = root.join("../../macos/patches/ghostty/0003-terminal-query-validation.patch");
-    let applied_patch = runtime.join("taskhub-ghostty-query-patch");
+    let applied_patch = runtime.join("craft-ghostty-query-patch");
     println!("cargo:rerun-if-changed={}", query_patch.display());
     println!("cargo:rerun-if-changed={}", applied_patch.display());
     assert_eq!(
@@ -39,7 +39,7 @@ fn main() {
     );
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let glyph_patch = root.join("../../macos/patches/ghostty/0007-glyph-snapshot.patch");
-    let applied_glyph_patch = runtime.join("taskhub-ghostty-glyph-patch");
+    let applied_glyph_patch = runtime.join("craft-ghostty-glyph-patch");
     println!("cargo:rerun-if-changed={}", glyph_patch.display());
     println!("cargo:rerun-if-changed={}", applied_glyph_patch.display());
     assert_eq!(
@@ -48,7 +48,7 @@ fn main() {
         "The daemon and native renderer require the same glyph snapshot extension"
     );
     let graphics_patch = root.join("../../macos/patches/ghostty/0008-graphics-snapshot.patch");
-    let applied_graphics_patch = runtime.join("taskhub-ghostty-graphics-patch");
+    let applied_graphics_patch = runtime.join("craft-ghostty-graphics-patch");
     println!("cargo:rerun-if-changed={}", graphics_patch.display());
     println!("cargo:rerun-if-changed={}", applied_graphics_patch.display());
     assert_eq!(

@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/alexcding/ghostty-terminal-spm",
       "state" : {
-        "revision" : "e8f6c85f1576d63d464ba7849867aab4eed89876",
-        "version" : "1.6.20260909-taskhub.1"
+        "revision" : "bb4c53719c3ea04636186a937cbca3fe952af7b1",
+        "version" : "1.6.20260922-craft.1"
       }
     },
     {

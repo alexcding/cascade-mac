@@ -767,7 +767,7 @@
 			repositoryURL = "https://github.com/alexcding/ghostty-terminal-spm";
 			requirement = {
 				kind = exactVersion;
-				version = "1.6.20260909-taskhub.1";
+				version = "1.6.20260922-craft.1";
 			};
 		};
 		CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {

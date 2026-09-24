@@ -3,7 +3,7 @@
 //! Snapshot v3 retains glyph registrations, Kitty images, placements and transfers.
 use std::{ffi::c_void, fmt, ptr::NonNull};
 
-pub const GHOSTTY_REVISION: &str = "82938b633ba646db38591d969c3c526332bd7e65-taskhub-appearance-v3";
+pub const GHOSTTY_REVISION: &str = "3c47ca159368eb4a860ffe5333abdf4a85b2767b-craft-appearance-v3";
 pub const SNAPSHOT_LIMIT: usize = 192 * 1024 * 1024;
 pub const RESPONSE_LIMIT: usize = 256 * 1024;
 /// Fixed ownership contract; extending this set requires a new version.

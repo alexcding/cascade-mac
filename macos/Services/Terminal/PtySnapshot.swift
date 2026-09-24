@@ -1,7 +1,7 @@
 import Foundation
 
 struct PtySnapshot: Sendable {
-    static let revision = "82938b633ba646db38591d969c3c526332bd7e65-taskhub-appearance-v3"
+    static let revision = "3c47ca159368eb4a860ffe5333abdf4a85b2767b-craft-appearance-v3"
     static let limit = 192 * 1024 * 1024
     static let chunkBytes = 128 * 1024
 
