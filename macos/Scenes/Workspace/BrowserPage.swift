@@ -103,6 +103,9 @@ final class BrowserWebView: WKWebView {
     /// Set while the start page is shown over a loaded site: Back from the first real page. The
     /// site stays loaded behind it so Forward can return. WebKit never sees this entry.
     @ObservationIgnored private var parkedURL: URL?
+    /// What the page was showing when it was suspended, as WebKit saves it: its history, and where
+    /// each entry was scrolled to. Handed back when it next loads.
+    @ObservationIgnored private var suspendedState: Any?
     /// Set when the web view came from a popup configuration: its about:blank has a live document.
     private(set) var hasPopupDocument = false
     /// The page whose script opened this one as a popup. An opener handshake, such as an OAuth or
@@ -156,16 +159,23 @@ final class BrowserWebView: WKWebView {
         }, view.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
             Task { @MainActor in self?.update() }
         }]
-        if load, let address = safeWebURL(url) { view.load(URLRequest(url: address)) }
+        // A suspended page gets its history back, and WebKit loads the entry it was on. One that
+        // had not yet arrived where it was going, or never loaded at all, goes there now.
+        if let state = suspendedState { suspendedState = nil; view.interactionState = state }
+        if load, view.backForwardList.currentItem?.url.absoluteString != url, let address = safeWebURL(url) {
+            view.load(URLRequest(url: address))
+        }
         materialized()
         return view
     }
 
-    /// Suspending it would lose nothing a reload brings back: it is not making sound, recording or
-    /// downloading, and it is not a popup whose opener is waiting on it. A dialog needs no check:
+    /// Suspending it would lose nothing it cannot get back: it is not making sound, recording or
+    /// downloading, it is not a popup whose opener is waiting on it, and it is not parked on its
+    /// start page, where Forward returns to the site behind it as it was. A dialog needs no check:
     /// only the page on screen can hold one, and that page is never suspended.
     var canSuspend: Bool {
-        guard let webView, !hasPopupDocument, !playingAudio, !downloads.contains(where: \.running) else { return false }
+        guard let webView, !hasPopupDocument, parkedURL == nil, !playingAudio,
+              !downloads.contains(where: \.running) else { return false }
         return webView.cameraCaptureState == .none && webView.microphoneCaptureState == .none
     }
 
@@ -176,7 +186,21 @@ final class BrowserWebView: WKWebView {
         return "Version/\(major).0 Safari/605.1.15"
     }()
 
+    /// Closes the page's web view for good: nothing it was showing is kept.
     func evict() {
+        suspendedState = nil
+        closeWebView()
+    }
+
+    /// Ends the page's content process to free its memory. Its history, with where each entry was
+    /// scrolled to, is kept: shown again, it loads back where it was.
+    func suspend() {
+        let state = webView?.interactionState
+        closeWebView()
+        suspendedState = state
+    }
+
+    private func closeWebView() {
         dialogs.cancel()
         // The download delegate is weak: a transfer outliving its page would finish unseen.
         for download in downloads { download.cancel() }
@@ -293,6 +317,17 @@ final class BrowserWebView: WKWebView {
         let kill = NSSelectorFromString("_killWebContentProcessAndResetState")
         if webView.responds(to: kill) { _ = webView.perform(kill) }
     }
+
+    /// The content process the page runs in. WebKit names it only through a private property,
+    /// looked up at runtime: nil without a web view, before its first load, or where it is absent.
+    var contentProcess: Int32? {
+        guard let webView, webView.responds(to: Self.webProcessIdentifier),
+              let method = webView.method(for: Self.webProcessIdentifier) else { return nil }
+        typealias Getter = @convention(c) (AnyObject, Selector) -> Int32
+        let process = unsafeBitCast(method, to: Getter.self)(webView, Self.webProcessIdentifier)
+        return process > 0 ? process : nil
+    }
+    private static let webProcessIdentifier = NSSelectorFromString("_webProcessIdentifier")
 
     func navigate(_ address: String) {
         guard let destination = webAddress(address) else { error = "Enter a web address, like example.com."; return }

@@ -1231,8 +1231,10 @@ public final class AppViewModel {
     /// does that. Only the agent Craft launched goes, still in the terminal's foreground, with
     /// nothing it started still running in a group of its own: once the user quits it, what runs
     /// there is theirs, and a job it left in the background, a dev server or a build, is work in
-    /// progress. Each step can take a moment, so one opened or busy meanwhile is left running, and
-    /// one that would not stop is left to the next restore, which attaches to it again.
+    /// progress. Each step can take a moment, so one opened or busy meanwhile is attached again and
+    /// left running. One whose stop fails stays detached, as a stopped one does, and quietly: the
+    /// user asked for nothing. Attaching it again would start its agent unseen had the stop gone
+    /// through after all, and opening it attaches to whatever still runs there, or starts it.
     private func stopPooledSession(_ id: String) async -> Bool {
         let key = "task:\(id)"
         guard let terminal = terminals[key], let agent = terminal.launchedAgentForeground?.pgid,
@@ -1244,19 +1246,19 @@ public final class AppViewModel {
             return false
         }
         await terminal.stopConnecting()
-        var stopped = stillIdle()
-        if stopped {
-            do { try await terminalControl.stopPaired(keys: [id]) }
-            catch {
-                stopped = false
-                self.error = "Could not stop an idle session to free memory: \(error.localizedDescription)"
-            }
-        }
-        if terminals[key] === terminal { terminals.removeValue(forKey: key) }
+        let stopping = stillIdle()
+        if stopping { try? await terminalControl.stopPaired(keys: [id]) }
+        let owned = terminals[key] === terminal
+        if owned { terminals.removeValue(forKey: key) }
         changingSessions.remove(id)
-        // Opened meanwhile: its pane attaches to the shell left running, or starts it again.
-        if selection == .session(id) { openTerminal() }
-        return stopped
+        if selection == .session(id) {
+            // Opened meanwhile: its pane attaches to the shell left running, or starts it again.
+            openTerminal()
+        } else if !stopping, owned, let record = sessions.first(where: { $0.id == id }) {
+            // Busy meanwhile: attached again at once, so its turn is followed.
+            terminals[key] = makeTerminal(record)
+        }
+        return stopping
     }
 
     func togglePin(_ id: String) {

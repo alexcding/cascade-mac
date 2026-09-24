@@ -12,7 +12,8 @@ import Foundation
     /// One session as the app sees it when the pool runs.
     struct Session: Equatable {
         let id: String
-        /// Runs an agent, whose conversation survives a stop. A plain shell's state would not.
+        /// Runs an agent, whose conversation survives a stop. A plain shell's state would not, and
+        /// it is not the pool's: what it holds does not count toward the limit.
         let agent: Bool
         let shown: Bool
         /// May be stopped now: an agent, hidden, between turns, with nothing in progress on it.
@@ -26,7 +27,8 @@ import Foundation
     var limit: MemoryLimit { didSet { if oldValue != limit { trim() } } }
     /// The sessions as they are now.
     var sessions: () -> [Session] = { [] }
-    /// Stops one session's agent; false when it could not be stopped.
+    /// Stops one session's agent. False when it was left running, attached as it was; true once it
+    /// is detached, even where its agent would not end, so nothing starts it until it is opened.
     var stop: (String) async -> Bool = { _ in false }
     /// Sessions the pool stopped. They stay stopped until something starts them again.
     private(set) var stopped: Set<String> = []
@@ -76,13 +78,13 @@ import Foundation
 
     private func trimOnce() async {
         guard let shells = try? await control.pairedShells(), !shells.isEmpty else { return }
-        let known = Set(sessions().map(\.id))
-        let measured = await memory.footprints(of: shells.filter { known.contains($0.key) })
+        let agents = Set(sessions().filter(\.agent).map(\.id))
+        let measured = await memory.footprints(of: shells.filter { agents.contains($0.key) })
         // Measuring takes a moment, and what each session is doing may have changed meanwhile.
-        let current = sessions()
-        let agents = current.filter(\.agent).compactMap { measured[$0.id] }
-        let estimate = agents.isEmpty ? Self.agentEstimate : agents.reduce(0, +) / UInt64(agents.count)
-        let starting = current.contains { $0.shown && $0.agent && shells[$0.id] == nil }
+        let current = sessions().filter(\.agent)
+        let sizes = current.compactMap { measured[$0.id] }
+        let estimate = sizes.isEmpty ? Self.agentEstimate : sizes.reduce(0, +) / UInt64(sizes.count)
+        let starting = current.contains { $0.shown && shells[$0.id] == nil }
         let members = leastRecentFirst(current).compactMap { session in
             measured[session.id].map { MemoryPool.Member(id: session.id, bytes: $0, idle: session.idle) }
         }

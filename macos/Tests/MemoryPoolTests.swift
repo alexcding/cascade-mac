@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Network
 import Testing
 import WebKit
 
@@ -17,13 +18,11 @@ private actor FakeDaemon: TerminalRuntimeControlling {
     func pairedShells() -> [String: Int32] { shells }
 }
 
-/// Every session tree holds `session`, and WebKit holds `web`. Process groups are read for real:
-/// the processes a test runs are real.
+/// Every process tree asked about, a session's or a page's, holds `each`. Process groups are read
+/// for real: the processes a test runs are real.
 struct FixedMemory: ProcessSampling {
-    var session: UInt64 = 0
-    var web = WebFootprint()
-    func footprints(of roots: [String: Int32]) -> [String: UInt64] { roots.mapValues { _ in session } }
-    func webFootprint() -> WebFootprint { web }
+    var each: UInt64 = 0
+    func footprints(of roots: [String: Int32]) -> [String: UInt64] { roots.mapValues { _ in each } }
     func processGroups(of root: Int32) async -> Set<Int32>? { await NativeProcessResourceSampler().processGroups(of: root) }
 }
 
@@ -37,11 +36,16 @@ struct FixedMemory: ProcessSampling {
     var refusesStops = false
     private(set) var stops: [String] = []
 
-    init(_ ids: [String], running: [String]? = nil, megabytesEach: UInt64, limit: MemoryLimit) {
+    /// Those in `shellsOnly` run a plain shell, never idle to the pool as an agent is.
+    init(_ ids: [String], running: [String]? = nil, shellsOnly: Set<String> = [], megabytesEach: UInt64, limit: MemoryLimit) {
         daemon = FakeDaemon(running: running ?? ids)
-        pool = SessionPool(control: daemon, memory: FixedMemory(session: megabytesEach * megabyte), limit: limit)
+        pool = SessionPool(control: daemon, memory: FixedMemory(each: megabytesEach * megabyte), limit: limit)
         pool.sessions = { [unowned self] in
-            ids.map { .init(id: $0, agent: true, shown: $0 == shown, idle: $0 != shown && !busy.contains($0) && !stops.contains($0)) }
+            ids.map { id in
+                let agent = !shellsOnly.contains(id)
+                return .init(id: id, agent: agent, shown: id == shown,
+                             idle: agent && id != shown && !busy.contains(id) && !stops.contains(id))
+            }
         }
         pool.stop = { [unowned self] id in
             guard !refusesStops else { return false }
@@ -123,6 +127,19 @@ struct FixedMemory: ProcessSampling {
     #expect(fixture.stops == ["a", "b"])
 }
 
+@MainActor @Test func aPlainShellsMemoryIsNotTheAgentsToMakeRoomFor() async {
+    // Two agents and a shell running a job, 400 MB each: counting the shell would pass 1 GB, and
+    // only the agents count.
+    let fixture = PoolFixture(["a", "b", "shell"], shellsOnly: ["shell"], megabytesEach: 400, limit: .oneGB)
+    await fixture.switchTo("a")
+    #expect(fixture.stops.isEmpty)
+    #expect(await fixture.daemon.shells.count == 3)
+    // A third agent passes it: one agent goes, as many as the agents need, and never the shell.
+    let crowded = PoolFixture(["a", "b", "c", "shell"], shellsOnly: ["shell"], megabytesEach: 400, limit: .oneGB)
+    await crowded.switchTo("a")
+    #expect(crowded.stops == ["b"])
+}
+
 @MainActor @Test func aStopThatDoesNotHappenLeavesTheSessionUnmarked() async {
     let fixture = PoolFixture(["a", "b", "c", "d"], megabytesEach: 300, limit: .oneGB)
     fixture.refusesStops = true
@@ -130,22 +147,27 @@ struct FixedMemory: ProcessSampling {
     #expect(fixture.pool.stopped.isEmpty)
 }
 
-@MainActor @Test func aPagePoolSuspendsTheLeastRecentlyUsedHiddenIdlePages() async {
+@MainActor @Test func aPagePoolSuspendsTheLeastRecentlyUsedHiddenIdlePages() async throws {
     _ = NSApplication.shared
     let pages = (1...4).map { BrowserPage(WebPageRecord(url: "https://example.test/\($0)", title: "\($0)")) }
-    for page in pages { page.materialize(load: false) }
     // The oldest page opened a sign-in popup, which is still open.
     let popup = BrowserPage(WebPageRecord(url: "about:blank", title: "Sign in"))
     popup.materialize(configuration: WKWebViewConfiguration(), load: false)
     popup.opener = pages[0]
-    defer { (pages + [popup]).forEach { $0.evict() } }
-    // 300 MB of content a page, and 200 MB of networking and GPU they share: 1.7 GB against 1 GB.
-    let pool = PagePool(memory: FixedMemory(web: .init(total: 1700 * megabyte, content: 1500 * megabyte)))
+    // The app's own web view, as the diff's: WebKit runs it too, but it is not a page.
+    let diff = WKWebView(frame: .zero)
+    defer { (pages + [popup]).forEach { $0.evict() }; diff.stopLoading() }
+    for page in pages + [popup] { page.materialize(load: false).loadHTMLString("<p>\(page.title)</p>", baseURL: nil) }
+    diff.loadHTMLString("<p>diff</p>", baseURL: nil)
+    try await poolEventually { (pages + [popup]).allSatisfy { $0.contentProcess != nil } }
+    // Each page's own process holds 400 MB: 2 GB against 1 GB.
+    let pool = PagePool(memory: FixedMemory(each: 400 * megabyte))
     pool.pages = { pages + [popup] }
     pool.shown = { pages[3] }
     for page in [pages[0], pages[1], pages[2], popup, pages[3]] { pool.used(page) }
     #expect(pool.trim() == nil)
-    // The opener and its popup stay, as does the page on screen: the two between them go.
+    // The opener and its popup stay, as does the page on screen: the two between them go, and
+    // what they held is all the pool can give back.
     pool.limit = .oneGB
     await pool.trim()?.value
     #expect(pages.map { $0.webView != nil } == [true, false, false, true] && popup.webView != nil)
@@ -153,18 +175,77 @@ struct FixedMemory: ProcessSampling {
 
 @MainActor @Test func theViewerSuspendsAHiddenPagePastItsLimitAndLoadsItAgainWhenShown() async throws {
     _ = NSApplication.shared
-    let viewer = ViewerStore(memory: FixedMemory(web: .init(total: 1400 * megabyte, content: 1200 * megabyte)))
+    // 600 MB a page against 1 GB: one fits.
+    let viewer = ViewerStore(memory: FixedMemory(each: 600 * megabyte))
     viewer.pageMemoryLimit = .oneGB
     let first = try #require(viewer.select(id: "tab:1", url: "", title: "1").open("https://example.test/1"))
+    defer { first.evict() }
+    try await poolEventually { first.contentProcess != nil }
+    // The second page opening has no process to read yet, and is taken to hold what the first does:
+    // room is made for it, and the page left behind goes.
     let second = try #require(viewer.select(id: "tab:2", url: "", title: "2").open("https://example.test/2"))
-    defer { first.evict(); second.evict() }
-    // Two live pages at 600 MB each: the one left behind goes.
+    defer { second.evict() }
     try await poolEventually { first.webView == nil }
     #expect(second.webView != nil)
+    try await poolEventually { second.contentProcess != nil }
     // Shown again, it loads again, and the other, now hidden, goes in its place.
     viewer.select(id: "tab:1", url: "", title: "1")
     #expect(first.webView != nil)
     try await poolEventually { second.webView == nil }
+}
+
+/// A page at every path, on a loopback port of its own: WebKit keeps history only for pages it
+/// loaded, never for an HTML string, and this keeps the test off the network.
+private final class LoopbackSite: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "memory-pool-tests.loopback-site")
+
+    init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [queue] connection in
+            connection.start(queue: queue)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 16) { _, _, _, _ in
+                let body = "<!doctype html><title>page</title><body style=\"height: 4000px\">page</body>"
+                let reply = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n" + body
+                connection.send(content: Data(reply.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        listener.start(queue: queue)
+    }
+
+    /// `path` on this site, once it is listening: until then the port reads as the one asked for, any.
+    @MainActor func address(_ path: String) async throws -> String {
+        try await poolEventually { (listener.port?.rawValue ?? 0) != 0 }
+        return "http://127.0.0.1:\(listener.port?.rawValue ?? 0)\(path)"
+    }
+
+    deinit { listener.cancel() }
+}
+
+@MainActor @Test func aSuspendedPageComesBackWithItsHistoryAndAClosedOneWithout() async throws {
+    _ = NSApplication.shared
+    let site = try LoopbackSite()
+    let first = try await site.address("/a"), second = try await site.address("/b")
+    let page = BrowserPage(WebPageRecord(url: first, title: "a"))
+    defer { page.evict() }
+    let view = page.materialize()
+    try await poolEventually { !view.isLoading && view.backForwardList.currentItem?.url.absoluteString == first }
+    page.navigate(second)
+    try await poolEventually { !view.isLoading && view.backForwardList.currentItem?.url.absoluteString == second }
+    page.suspend()
+    #expect(page.webView == nil && page.contentProcess == nil)
+    // Shown again, it is back on the page it was on, and Back returns to where it was before.
+    let restored = page.materialize()
+    #expect(restored !== view && restored.backForwardList.backList.map(\.url.absoluteString) == [first])
+    try await poolEventually { !restored.isLoading && restored.url?.absoluteString == second }
+    // Closed, it keeps nothing: opened again, it starts afresh at its address.
+    page.evict()
+    let reopened = page.materialize()
+    #expect(reopened.backForwardList.backList.isEmpty)
+    try await poolEventually { !reopened.isLoading && reopened.url?.absoluteString == second }
+    withExtendedLifetime(site) {}
 }
 
 @MainActor @Test func memoryLimitsPersistLocallyAndFollowTheBackend() async throws {

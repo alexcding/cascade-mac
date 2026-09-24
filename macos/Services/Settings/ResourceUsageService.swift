@@ -118,14 +118,6 @@ extension NativeProcessResourceSampler: ProcessSampling {
         }
     }
 
-    /// The WebKit processes working for this app: all of them, and the content processes that
-    /// hold its pages, which leaves out the networking and GPU processes they share.
-    func webFootprint() -> WebFootprint {
-        let web = Self.helpers(of: getpid(), excluding: []).filter { $0.group == .web }
-        return WebFootprint(total: web.reduce(0) { $0 + $1.footprintBytes },
-            content: web.filter { $0.name.hasPrefix("com.apple.WebKit.WebContent") }.reduce(0) { $0 + $1.footprintBytes })
-    }
-
     func processGroups(of root: Int32) -> Set<Int32>? {
         // A note is something the sample could not read, which may have been the one that mattered.
         guard let sample = try? sample(roots: [ResourceRoot(pid: root, group: .terminals)]),

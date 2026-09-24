@@ -46,9 +46,18 @@ private actor PoolBackend: BackendTransport {
     func emit(_ type: String) { onEvent(.message(ServerEvent(type: type, projectId: nil, id: nil))) }
 }
 
+/// The daemon's control, but a session's stop fails as one that timed out does: its shell keeps running.
+private struct RefusedStops: TerminalRuntimeControlling {
+    let native: any TerminalRuntimeControlling
+    func stopPaired(keys: Set<String>) async throws { throw PtyError.connection("Session processes did not stop.") }
+    func stopExisting() async throws { try await native.stopExisting() }
+    func pairedShells() async throws -> [String: Int32] { try await native.pairedShells() }
+}
+
 /// Every terminal in the fixture's daemon and shell; each agent reads as 600 MB.
 @MainActor private struct PoolPlatform: AppPlatformFactory {
     let fixture: DaemonFixture
+    var refusesStops = false
     var homeDirectory: String { fixture.directory.path }
     private var native: NativeAppPlatformFactory {
         let config = fixture.config
@@ -65,8 +74,8 @@ private actor PoolBackend: BackendTransport {
         let config = fixture.config
         return DetachedShell(pairKey: request.key, cwd: request.directory, shellPath: fixture.shell, configurationProvider: { config })
     }
-    func terminalControl() -> any TerminalRuntimeControlling { native.terminalControl() }
-    func processSampler() -> any ProcessSampling { FixedMemory(session: 600 << 20) }
+    func terminalControl() -> any TerminalRuntimeControlling { refusesStops ? RefusedStops(native: native.terminalControl()) : native.terminalControl() }
+    func processSampler() -> any ProcessSampling { FixedMemory(each: 600 << 20) }
     func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
         try await native.workflowTerminal(terminal, cli: cli, sessionID: sessionID)
     }
@@ -98,7 +107,7 @@ private actor PoolBackend: BackendTransport {
     private var daemon: Int32?
     private var opened: [(TerminalSession, NSWindow)] = []
 
-    init(sessions ids: [String], backgroundJobs: [String] = []) throws {
+    init(sessions ids: [String], backgroundJobs: [String] = [], refusingStops: Bool = false) throws {
         _ = NSApplication.shared
         let preferences = try #require(UserDefaults(suiteName: suite))
         preferences.set("1", forKey: "native.sessionMemoryLimit")
@@ -108,7 +117,7 @@ private actor PoolBackend: BackendTransport {
         self.backgroundJobs = backgroundJobs
         runtime = PoolRuntime(worktree: fixture.directory.path, ids: ids)
         model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), backendRuntime: runtime,
-            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: PoolPlatform(fixture: fixture),
+            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: PoolPlatform(fixture: fixture, refusesStops: refusingStops),
             welcomeStore: TransientWelcomeStore(shown: true),
             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     }
@@ -270,5 +279,32 @@ private actor PoolBackend: BackendTransport {
     try await Task.sleep(for: .milliseconds(300))
     #expect(try await pool.shells() == ["a", "b", "c"])
     #expect(pool.live("b") == true && pool.live("c") == true && pool.live("d") == false)
+    try await pool.finish()
+}
+
+/// Two agents, room for one, and a daemon that will not stop a session. The pool's pick is left
+/// detached as a stopped one is, its agent still running: no error for a stop the user never asked
+/// for, and a refresh does not attach it again, which would start its agent anew had the stop gone
+/// through. Opened, it attaches to the agent still running rather than launching another.
+@MainActor @Test(.timeLimit(.minutes(1))) func aStopThatFailsLeavesTheSessionDetachedUntilItIsOpened() async throws {
+    let pool = try PoolHarness(sessions: ["a", "b"], refusingStops: true)
+    defer { pool.tearDown() }
+    try await pool.start()
+    try await pool.openAll()
+    try pool.hook("agent-session", "a", source: "resume")
+    try pool.hook("agent-session", "b", source: "resume")
+    pool.model.select(.session("a"))
+    try await sessionEventually { pool.terminal("b") == nil }
+    #expect(try await pool.shells() == ["a", "b"] && pool.model.error == nil)
+
+    let served = await pool.runtime.transport.paths.filter { $0 == Routes.TASKS }.count
+    pool.runtime.emit("tasks")
+    try await sessionEventually { await pool.runtime.transport.paths.filter { $0 == Routes.TASKS }.count > served }
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(pool.terminal("b") == nil)
+
+    try await pool.open("b")
+    try await sessionEventually { pool.terminal("b")?.ready == true }
+    #expect(pool.launches().count == 2 && pool.model.error == nil)
     try await pool.finish()
 }

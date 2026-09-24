@@ -2,9 +2,10 @@ import Foundation
 
 /// Keeps the web pages within Settings → Browser's memory limit. Past it, the least recently used
 /// pages that are hidden and idle are suspended, their content processes ended, and each loads
-/// again when it is next shown. A popup and the page that opened it are kept while both are open.
-/// WebKit does not say which process is whose, so every page is taken to hold an equal share of
-/// what the content processes do.
+/// again when it is next shown, back where it was. A popup and the page that opened it are kept
+/// while both are open. Each page is charged the content process it runs in, split with any page
+/// sharing it. The processes WebKit shares between pages, networking and GPU, and the app's own
+/// web views, the diff and the Simulator, are not pages and count for nothing.
 @MainActor final class PagePool {
     var limit = MemoryLimit.unlimited { didSet { if oldValue != limit { trim() } } }
     /// Every page the viewer holds, with a web view or not.
@@ -44,20 +45,34 @@ import Foundation
     }
 
     private func trimOnce() async {
-        guard pages().contains(where: { $0.webView != nil }) else { return }
-        let web = await memory.webFootprint()
+        let processes = Set(pages().compactMap(\.contentProcess))
+        guard !processes.isEmpty else { return }
+        let measured = await memory.footprints(of: Dictionary(uniqueKeysWithValues: processes.map { (String($0), $0) }))
         // Everything below runs without a suspension, so what it reads stays true while it acts.
         let live = pages().filter { $0.webView != nil }
-        guard !live.isEmpty else { return }
         let ids = Set(live.map(ObjectIdentifier.init))
         lastUse = lastUse.filter { ids.contains($0.key) }
-        let share = web.content / UInt64(live.count), onScreen = shown()
-        let openers = Set(live.compactMap(\.opener).map(ObjectIdentifier.init))
-        let members = live.sorted { (lastUse[ObjectIdentifier($0)] ?? 0) < (lastUse[ObjectIdentifier($1)] ?? 0) }.map {
-            MemoryPool.Member(id: ObjectIdentifier($0), bytes: share,
-                              idle: $0 !== onScreen && $0.canSuspend && !openers.contains(ObjectIdentifier($0)))
+        // A page whose process was not read, or that has moved to another since, is not measured.
+        let charged: [(page: BrowserPage, process: Int32, bytes: UInt64)] = live.compactMap { page in
+            guard let process = page.contentProcess, let bytes = measured[String(process)] else { return nil }
+            return (page, process, bytes)
         }
-        let suspending = Set(MemoryPool.evictions(members, used: web.total, limit: limit))
-        for page in live where suspending.contains(ObjectIdentifier(page)) { page.evict() }
+        let sharing = Dictionary(charged.map { ($0.process, UInt64(1)) }, uniquingKeysWith: +)
+        let held = Dictionary(charged.map { ($0.process, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+        let used = held.values.reduce(0, +)
+        // The page coming on screen has no process to read yet: it is taken to hold what the others
+        // do, and room is made for it.
+        let onScreen = shown()
+        let arriving = onScreen.map { page in
+            page.webView != nil && !charged.contains { $0.page === page } && safeWebURL(page.url) != nil
+        } == true
+        let incoming = arriving && !held.isEmpty ? used / UInt64(held.count) : 0
+        let openers = Set(live.compactMap(\.opener).map(ObjectIdentifier.init))
+        let members = charged.sorted { (lastUse[ObjectIdentifier($0.page)] ?? 0) < (lastUse[ObjectIdentifier($1.page)] ?? 0) }.map {
+            MemoryPool.Member(id: ObjectIdentifier($0.page), bytes: $0.bytes / sharing[$0.process, default: 1],
+                              idle: $0.page !== onScreen && $0.page.canSuspend && !openers.contains(ObjectIdentifier($0.page)))
+        }
+        let suspending = Set(MemoryPool.evictions(members, used: used, incoming: incoming, limit: limit))
+        for page in live where suspending.contains(ObjectIdentifier(page)) { page.suspend() }
     }
 }
