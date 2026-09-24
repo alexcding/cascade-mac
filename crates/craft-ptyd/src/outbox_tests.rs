@@ -116,7 +116,7 @@ fn idle_socket_starts_its_delivery_deadline_with_new_work() {
     owed: Arc::new(AtomicUsize::new(0)),
     progress: Arc::new(Mutex::new(Instant::now() - STALL_DROP - Duration::from_secs(1))),
   });
-  fixture.daemon.reap_stalled_clients();
+  fixture.daemon.reap_stalled_clients(None);
   assert_eq!(fixture.daemon.clients.lock().unwrap().len(), 1, "idle clients have no delivery debt");
   fixture.daemon.broadcast("fixture", &json!({"ev":"idle-ended"}));
   fixture.daemon.broadcast("fixture", &json!({"ev":"second-frame"}));

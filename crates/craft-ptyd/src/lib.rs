@@ -653,20 +653,24 @@ impl Daemon {
 
   // The most that a client hearing terminal `id` owes: past BACKLOG_HIGH, that terminal's reads pause.
   fn backlog(&self, id: &str) -> usize {
-    self.reap_stalled_clients();
-    let clients = self.clients.lock().unwrap();
-    clients.iter().filter(|c| c.hears(id)).map(|c| c.owed.load(Ordering::Relaxed)).max().unwrap_or(0)
+    self.reap_stalled_clients(Some(id))
   }
 
-  fn reap_stalled_clients(&self) {
+  // Returns the most owed by a remaining client that hears `heard`, in the same pass.
+  fn reap_stalled_clients(&self, heard: Option<&str>) -> usize {
     // Must run independently of offer(): BACKLOG_HIGH suspends a terminal's reads,
     // so there may never be another output event to detect a blocked writer.
+    let mut max_owed = 0;
     self.clients.lock().unwrap().retain(|c| {
-      if !c.stalled() { return true; }
+      if !c.stalled() {
+        if heard.is_some_and(|id| c.hears(id)) { max_owed = max_owed.max(c.owed.load(Ordering::Relaxed)); }
+        return true;
+      }
       log(&format!("client {} dropped: stalled with {} bytes owed", c.id, c.owed.load(Ordering::Relaxed)));
       let _ = c.sock.shutdown(std::net::Shutdown::Both);
       false
     });
+    max_owed
   }
 
   // Client `cid` hears terminal `id` from now on, in either scope. Called under `terms` while the
@@ -1455,7 +1459,7 @@ pub fn main(dir: PathBuf) -> ! {
   let sock2 = sock.clone();
   std::thread::spawn(move || loop {
     std::thread::sleep(Duration::from_secs(5));
-    d2.reap_stalled_clients();
+    d2.reap_stalled_clients(None);
     let idle = *d2.idle_since.lock().unwrap();
     if let Some(t) = idle {
       if t.elapsed() >= IDLE_EXIT && d2.terms.lock().unwrap().is_empty() && d2.clients.lock().unwrap().is_empty() {
