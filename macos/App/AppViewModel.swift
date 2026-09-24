@@ -36,6 +36,8 @@ public final class AppViewModel {
     let todayActivity = TodayActivityViewModel()
     @ObservationIgnored private let platformFactory: any AppPlatformFactory
     @ObservationIgnored private let terminalControl: any TerminalRuntimeControlling
+    @ObservationIgnored private let processes: any ProcessSampling
+    @ObservationIgnored private let sessionPool: SessionPool
     public private(set) var projects: [Project] = [] { didSet { if oldValue != projects { automation?.updateProjects(projects) } } }
     /// The sidebar's dragged order for projects and sessions; see `SidebarOrder`.
     private(set) var sidebarOrder: SidebarOrder { didSet { if oldValue != sidebarOrder { orderStore.save(sidebarOrder) } } }
@@ -123,11 +125,15 @@ public final class AppViewModel {
         self.backendRuntime = backendRuntime
         self.backendFactory = backendFactory
         self.platformFactory = platformFactory
-        self.terminalControl = platformFactory.terminalControl()
+        let terminalControl = platformFactory.terminalControl()
+        self.terminalControl = terminalControl
         self.workspaceLaunch = platformFactory.workspaceLauncher()
         self.shellFactory = shellFactory
         let shell = shellFactory.shell(notifications: notificationFactory.notifications())
         self.shell = shell
+        let processes = platformFactory.processSampler()
+        self.processes = processes
+        sessionPool = SessionPool(control: terminalControl, memory: processes, limit: shell.sessionMemoryLimit)
         self.shellCoordinator = shellFactory.coordinator(model: shell)
         self.desktop = desktop
         self.workspaceFactory = workspaceFactory
@@ -155,6 +161,14 @@ public final class AppViewModel {
             updateWorkspaceDocumentState()
         }
         shell.terminalStyleChanged = { [weak self] in self?.updateWorkspaceTerminalState() }
+        shell.memoryLimitsChanged = { [weak self] in
+            guard let self else { return }
+            sessionPool.limit = shell.sessionMemoryLimit
+            viewer.pageMemoryLimit = shell.pageMemoryLimit
+        }
+        viewer.pageMemoryLimit = shell.pageMemoryLimit
+        sessionPool.sessions = { [weak self] in self?.poolSessions() ?? [] }
+        sessionPool.stop = { [weak self] id in await self?.stopPooledSession(id) ?? false }
         _ = coordinator.makeDashboard(factory: dashboardFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation("The workspace has closed.") }
             try await self.openPage(request)
@@ -784,7 +798,11 @@ public final class AppViewModel {
         coordinator.navigate(to: destination)
     }
 
-    func activateRootDestination() { showSelectedContext() }
+    func activateRootDestination() {
+        showSelectedContext()
+        // A switch hides the session it leaves, which the pool may now stop.
+        sessionPool.trim()
+    }
     func openRootBrowser(_ url: URL) { _ = desktop.openBrowser(url) }
     /// For the area extensions: `desktop` is private to this file.
     func openInBrowser(_ url: URL) -> Bool { desktop.openBrowser(url) }
@@ -804,6 +822,7 @@ public final class AppViewModel {
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
+                sessionPool.shown(id)
                 let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url && !$0.standalone })
                 _ = workflowRunModel(for: session)
                 warmIDE(for: session)
@@ -1075,6 +1094,7 @@ public final class AppViewModel {
 
     private func makeTerminal(_ record: WorkspaceSession, fresh: Bool = false) -> TerminalSession {
         let terminal = platformFactory.terminal(.init(key: record.id, directory: record.worktree, paired: true))
+        sessionPool.started(record.id)
         terminal.agentTurns.setStreamAvailable(connection == "Connected")
         wireLinks(terminal, contextID: "task:\(record.id)")
         terminal.onCreated = { [weak self] terminal in
@@ -1086,7 +1106,7 @@ public final class AppViewModel {
 
     private func launchAgent(_ terminal: TerminalSession, record: WorkspaceSession, fresh: Bool) async throws {
         let latest = self.sessions.first { $0.id == record.id } ?? record
-        let agent = SessionAgent(rawValue: latest.cli ?? "") ?? .shell
+        let agent = latest.agent
         var id = latest.sessionId
         var firstLaunch = fresh
         if agent == .claude && (id == nil || id == "") {
@@ -1181,6 +1201,62 @@ public final class AppViewModel {
                 terminals[key] = makeTerminal(sessions.first { $0.id == record.id } ?? record)
             } catch { self.error = "Could not restart session: \(error.localizedDescription)" }
         }
+    }
+
+    /// A turn's hooks run as children of its agent, each in a group of its own, and are still
+    /// exiting when their event lands: the pool looks once they have gone, as anything the agent
+    /// still runs then is work in progress.
+    private func trimAfterTurnHooks() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.sessionPool.trim()
+        }
+    }
+
+    /// The sessions as the memory pool sees them.
+    private func poolSessions() -> [SessionPool.Session] {
+        sessions.map { record in
+            .init(id: record.id, agent: record.agent != .shell, shown: selection == .session(record.id),
+                  idle: !changingSessions.contains(record.id) && agentIdle(record))
+        }
+    }
+
+    /// Hidden, its agent at its prompt by the agent's own hooks, and nothing else under way on it.
+    private func agentIdle(_ record: WorkspaceSession) -> Bool {
+        record.agent != .shell && selection != .session(record.id) && terminals["task:\(record.id)"]?.agentIdle == true
+            && workflowRuns[record.id]?.running != true && !isRemoving(record.id)
+    }
+
+    /// Stops a session the pool picked, as Restart does, without starting it again: opening it
+    /// does that. Only the agent Craft launched goes, still in the terminal's foreground, with
+    /// nothing it started still running in a group of its own: once the user quits it, what runs
+    /// there is theirs, and a job it left in the background, a dev server or a build, is work in
+    /// progress. Each step can take a moment, so one opened or busy meanwhile is left running, and
+    /// one that would not stop is left to the next restore, which attaches to it again.
+    private func stopPooledSession(_ id: String) async -> Bool {
+        let key = "task:\(id)"
+        guard let terminal = terminals[key], let agent = terminal.launchedAgentForeground?.pgid,
+              changingSessions.insert(id).inserted else { return false }
+        func stillIdle() -> Bool { terminals[key] === terminal && sessions.first { $0.id == id }.map(agentIdle) == true }
+        guard let foreground = try? await terminal.workflowForeground(), !foreground.atShell, foreground.pgid == agent,
+              await processes.processGroups(of: agent) == [agent], stillIdle() else {
+            changingSessions.remove(id)
+            return false
+        }
+        await terminal.stopConnecting()
+        var stopped = stillIdle()
+        if stopped {
+            do { try await terminalControl.stopPaired(keys: [id]) }
+            catch {
+                stopped = false
+                self.error = "Could not stop an idle session to free memory: \(error.localizedDescription)"
+            }
+        }
+        if terminals[key] === terminal { terminals.removeValue(forKey: key) }
+        changingSessions.remove(id)
+        // Opened meanwhile: its pane attaches to the shell left running, or starts it again.
+        if selection == .session(id) { openTerminal() }
+        return stopped
     }
 
     func togglePin(_ id: String) {
@@ -1323,7 +1399,8 @@ public final class AppViewModel {
             _ = viewer.restore(id: key, url: record.url, title: record.title,
                                legacy: tabs.first { $0.url == record.url && !$0.standalone })
             _ = workflowRunModel(for: record)
-            if terminals[key] == nil { terminals[key] = makeTerminal(record) }
+            // One the memory pool stopped stays stopped until it is opened.
+            if terminals[key] == nil, !sessionPool.stopped.contains(record.id) { terminals[key] = makeTerminal(record) }
         }
     }
 
@@ -1423,6 +1500,7 @@ public final class AppViewModel {
                             await workflowRuns.removeValue(forKey: session.id)?.stop()
                         }
                         sessions = sessionSnapshot
+                        sessionPool.retain(retained)
                     }
                     if current.contains(.tabs), let tabSnapshot, tabs != tabSnapshot.tabs { tabs = tabSnapshot.tabs }
                     restoreSessionTerminals()
@@ -1551,6 +1629,8 @@ public final class AppViewModel {
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,
            terminal.agentTurns.receive(event) {
             if let id = event.sessionId, !id.isEmpty, id != session.sessionId { saveConversation(id, for: session) }
+            // An agent that finished its turn may be the one the pool has been waiting to stop.
+            if event.type == "agent-turn-done" { trimAfterTurnHooks() }
         }
         // Claude's SessionStart: the conversation changed under a running agent (`/resume`,
         // `/clear`, a compaction), or the user started one by hand, so the next resume must follow
@@ -1559,9 +1639,10 @@ public final class AppViewModel {
         if event.type == "agent-session", let runID = event.runId, let id = event.sessionId, !id.isEmpty,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,
-           !terminal.agentTurns.hasPendingStep, id != session.sessionId {
+           !terminal.agentTurns.hasPendingStep {
+            // A resume keeps its conversation, but still says the agent is up at its prompt.
             terminal.agentTurns.adopt(sessionID: id, midTurn: event.source == "compact")
-            saveConversation(id, for: session)
+            if id != session.sessionId { saveConversation(id, for: session) }
         }
         if event.type == "activity", let activity = event.event {
             shell.notifications.receiveActivity(activity, enabled: shell.activityNotify)

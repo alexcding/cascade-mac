@@ -64,7 +64,8 @@ actor JiraFixture: JiraService {
 }
 
 @MainActor private func waitForJira(_ condition: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(3)
+    // The suite starts every test at once, which can hold the main actor for seconds.
+    let deadline = Date().addingTimeInterval(10)
     while !condition() && Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
     #expect(condition())
 }

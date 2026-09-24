@@ -7,6 +7,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     var quits = 0
     func stopPaired(keys: Set<String>) { paired.append(keys) }
     func stopExisting() { quits += 1 }
+    func pairedShells() -> [String: Int32] { [:] }
 }
 
 @MainActor private final class RecordingAppPlatform: AppPlatformFactory {
@@ -29,6 +30,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     func terminal(_ request: AppTerminalRequest) -> TerminalSession { requests.append(request); return native.terminal(request) }
     func detachedShell(_ request: AppTerminalRequest) -> DetachedShell { native.detachedShell(request) }
     func terminalControl() -> any TerminalRuntimeControlling { control }
+    func processSampler() -> any ProcessSampling { native.processSampler() }
     func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
         try await native.workflowTerminal(terminal, cli: cli, sessionID: sessionID)
     }

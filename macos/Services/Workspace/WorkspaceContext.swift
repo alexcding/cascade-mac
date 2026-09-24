@@ -158,6 +158,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored var openSidebarTab: ((String, @escaping () -> Void) -> Void)?
     @ObservationIgnored var activateDocument: (EditorDocumentViewModel) -> Void = { _ in }
     @ObservationIgnored var activatePage: (BrowserPage) -> Void = { _ in }
+    /// Called when one of its pages creates its web view.
+    @ObservationIgnored var pageMaterialized: (BrowserPage) -> Void = { _ in }
     @ObservationIgnored var isOwned: () -> Bool = { true }
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
@@ -466,16 +468,22 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             guard let self, let page else { return false }
             return isOwned() && pages.contains { $0 === page }
         }
+        page.materialized = { [weak self, weak page] in
+            guard let self, let page else { return }
+            pageMaterialized(page)
+        }
         page.changed = { [weak self, weak page] in
             guard let self, let page else { return }
             noteHistory(page.record); changed()
         }
-        page.openPopup = { [weak self] url, configuration, openedLink in
+        page.openPopup = { [weak self, weak page] url, configuration, openedLink in
             guard let self else { return nil }
             // Scripted popups (window.open, OAuth and payment flows, about:blank) need the child
             // web view back so the opener handshake completes, whatever panel they are in.
             guard openedLink, url.absoluteString != "about:blank" else {
-                return open(url.absoluteString, configuration: configuration)?.webView
+                let popup = open(url.absoluteString, configuration: configuration)
+                popup?.opener = page
+                return popup?.webView
             }
             // The user opening a link into a new window is a page they asked for. A panel that
             // holds one page — a sidebar tab, pinned or not — has nowhere to put it, so it becomes
@@ -527,6 +535,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private var restoreGeneration = UUID()
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
+    @ObservationIgnored private let pagePool: PagePool
+    /// Settings → Browser: what the pages may hold before hidden, idle ones are suspended.
+    var pageMemoryLimit: MemoryLimit {
+        get { pagePool.limit }
+        set { pagePool.limit = newValue }
+    }
     /// Shared by every context: pages visited anywhere, for the start page and address bar.
     let browserHistory: BrowserHistoryStore
     /// Shared by every context: the pages bookmarked from any panel.
@@ -538,8 +552,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
          browserBookmarks: BrowserBookmarkStore = BrowserBookmarkStore(),
          pageFactory: BrowserPageFactory = BrowserPageFactory(),
          documentFactory: any DocumentFeatureFactory = NativeDocumentFeatureFactory(),
-         closeCoordinator: EditorCloseCoordinator? = nil) {
+         closeCoordinator: EditorCloseCoordinator? = nil,
+         memory: any ProcessSampling = NativeProcessResourceSampler()) {
         self.cacheURL = cacheURL
+        pagePool = PagePool(memory: memory)
         self.browserHistory = browserHistory
         self.browserBookmarks = browserBookmarks
         self.pageFactory = pageFactory
@@ -548,6 +564,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         fileOpen = documentFactory.fileOpen()
         fileOpenCoordinator = documentFactory.fileOpenCoordinator()
         fileOpenCoordinator.bind(fileOpen, activeContext: { [weak self] in self?.active })
+        pagePool.pages = { [weak self] in self?.contexts.values.flatMap(\.pages) ?? [] }
+        pagePool.shown = { [weak self] in self?.active?.activePage }
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let cache = try? JSONDecoder().decode(Cache.self, from: data) {
             saved = cache.snapshots; dirty = cache.pending; edited = cache.pending
         }
@@ -650,6 +668,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             if let context { self?.save(context) }
         }
         context.activatePage = { [weak self] in self?.activate($0) }
+        context.pageMaterialized = { [weak self] page in
+            guard let self else { return }
+            pagePool.used(page)
+            pagePool.trim()
+        }
         context.openSidebarTab = { [weak self] url, keepInPanel in self?.openSidebarTab(url, keepInPanel) }
         context.activateDocument = { [weak self] in self?.configure($0) }
         context.documents.forEach(configure)
@@ -700,11 +723,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         cache()
         if let api { try? await api.setSetting("native.context.\(id)", value: "") }
     }
-    // WKWebView owns its own memory: each page is a separate content process that macOS
-    // reclaims under pressure. The app used to evict pages itself on an LRU with a page-count
-    // budget, inherited from the web renderer where every page shared one process.
+    // Each page is its own content process. With no memory limit, the default, macOS alone
+    // reclaims them under pressure; with one, the page pool suspends the least recently used.
     private func activate(_ page: BrowserPage) {
         page.materialize()
+        pagePool.used(page)
     }
     /// Clears the shared history and every context's page visits, live or only saved, so no
     /// snapshot can seed the cleared entries back on restore.

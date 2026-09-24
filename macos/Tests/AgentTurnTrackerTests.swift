@@ -107,3 +107,26 @@ private func hook(_ type: String, terminal: String = "pty", cli: String = "claud
     #expect(tracker.hasPendingStep && tracker.sessionID == "cleared")
     tracker.cancel(ticket)
 }
+
+@MainActor @Test func agentTurnsCallAnAgentIdleOnlyOnceItsHooksSayItIsAtItsPrompt() throws {
+    let tracker = connectedTurns()
+    #expect(!tracker.idle) // Silence proves nothing: its hooks may not be installed.
+    tracker.adopt(sessionID: "conversation", midTurn: false) // SessionStart: up at its prompt.
+    #expect(tracker.idle)
+    tracker.receive(hook("agent-turn-start"))
+    #expect(!tracker.idle)
+    tracker.adopt(sessionID: "conversation", midTurn: true) // A compaction carries the turn on.
+    #expect(tracker.busy && !tracker.idle)
+    tracker.receive(hook("agent-turn-done"))
+    #expect(tracker.idle)
+    let ticket = try tracker.arm(cli: .claude, sessionID: "conversation")
+    #expect(!tracker.idle) // The step is about to start a turn.
+    tracker.cancel(ticket)
+    #expect(tracker.idle)
+    tracker.setStreamAvailable(false); tracker.setStreamAvailable(true)
+    #expect(!tracker.idle) // A turn may have started unheard.
+    tracker.receive(hook("agent-turn-done"))
+    #expect(tracker.idle)
+    tracker.bind(terminalID: "other")
+    #expect(!tracker.idle) // Another shell, not heard from yet.
+}

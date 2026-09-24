@@ -4,7 +4,7 @@ import SwiftUI
 /// Settings → Terminal: the font, the glyph rendering and the colour theme of the Ghostty
 /// surface. These settings are the whole of its configuration; nothing is read from a Ghostty
 /// config file or inherited from an installed Ghostty app. Ordered as Text Editor is: preview, font,
-/// theme, then what only this surface has.
+/// theme, then what only this surface has. Last, the memory the sessions' agents may hold.
 struct TerminalSettingsView: View {
     let fonts: FontSettingsViewModel
     let shell: ShellStore
@@ -17,6 +17,11 @@ struct TerminalSettingsView: View {
         theme
         rendering
         TerminalKeybindsSection(shell: shell)
+        Section("Memory") {
+            MemoryLimitRow(title: "Session memory",
+                           caption: "When the sessions' agents hold more than this, the least recently used idle agent is stopped, and opening its session starts it again, resuming the conversation. An agent is idle once its hooks report its turn has ended and nothing it started, such as a build, is still running. Without the hooks, no agent is stopped.",
+                           identifier: "settings-session-memory", limit: shell.sessionMemoryLimit, set: shell.setSessionMemoryLimit)
+        }
         if let error = shell.settingsError {
             Section { Text(error).foregroundStyle(Theme.danger) }
         }

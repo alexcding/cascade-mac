@@ -105,9 +105,14 @@ final class BrowserWebView: WKWebView {
     @ObservationIgnored private var parkedURL: URL?
     /// Set when the web view came from a popup configuration: its about:blank has a live document.
     private(set) var hasPopupDocument = false
+    /// The page whose script opened this one as a popup. An opener handshake, such as an OAuth or
+    /// payment flow, needs both documents alive while the popup is open.
+    @ObservationIgnored weak var opener: BrowserPage?
     let dialogs = BrowserDialogViewModel()
     @ObservationIgnored var isOwned: () -> Bool = { false }
     @ObservationIgnored var changed: () -> Void = {}
+    /// Called when this page creates its web view, and with it a content process.
+    @ObservationIgnored var materialized: () -> Void = {}
     /// `openedLink` is true where the user opened a link — a click on a target=_blank link, or the
     /// page menu's Open Link in New Window — and false for a scripted `window.open` or a popup that
     /// asked for window features, both of which need the child web view back for their opener.
@@ -152,7 +157,16 @@ final class BrowserWebView: WKWebView {
             Task { @MainActor in self?.update() }
         }]
         if load, let address = safeWebURL(url) { view.load(URLRequest(url: address)) }
+        materialized()
         return view
+    }
+
+    /// Suspending it would lose nothing a reload brings back: it is not making sound, recording or
+    /// downloading, and it is not a popup whose opener is waiting on it. A dialog needs no check:
+    /// only the page on screen can hold one, and that page is never suspended.
+    var canSuspend: Bool {
+        guard let webView, !hasPopupDocument, !playingAudio, !downloads.contains(where: \.running) else { return false }
+        return webView.cameraCaptureState == .none && webView.microphoneCaptureState == .none
     }
 
     /// The Safari suffix WebKit appends to its default user agent: the latest Safari, or this

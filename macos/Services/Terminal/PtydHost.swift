@@ -137,6 +137,18 @@ actor PtydHost {
         throw PtyError.connection("Session processes did not stop. The worktree has been kept; retry the operation.")
     }
 
+    /// The shell of each paired terminal the daemon runs, by pair key. Asking never starts a daemon:
+    /// with none running there are no shells.
+    func pairedShells() async throws -> [String: Int32] {
+        try configuration.validateSocket()
+        let client = PtydClient(onEvent: { _ in })
+        defer { client.close() }
+        do { _ = try await client.connect(path: configuration.socketPath) }
+        catch { if Self.mayStartDaemon(after: error) { return [:] }; throw error }
+        let all: [PtyInfo] = try await client.request(.init(op: "list"))
+        return Dictionary(all.filter(\.paired).map { ($0.pairKey, Int32(bitPattern: $0.pid)) }, uniquingKeysWith: { first, _ in first })
+    }
+
     // The M1 namespace is exclusively for the spike. Never invokes the daily
     // daemon's killAll. Verify the connected PID again before signalling it.
     func quit(client: PtydClient, hello: PtyHello) async {

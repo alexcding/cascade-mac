@@ -50,8 +50,19 @@ import Observation
     private(set) var editorStyle: EditorStyle {
         didSet { if oldValue != editorStyle { documentStyleChanged() } }
     }
+    /// Settings → Terminal: what the sessions' agents may hold before the least recently used idle
+    /// one is stopped.
+    private(set) var sessionMemoryLimit: MemoryLimit {
+        didSet { if oldValue != sessionMemoryLimit { memoryLimitsChanged() } }
+    }
+    /// Settings → Browser: what web pages may hold before the least recently viewed hidden one is
+    /// suspended.
+    private(set) var pageMemoryLimit: MemoryLimit {
+        didSet { if oldValue != pageMemoryLimit { memoryLimitsChanged() } }
+    }
     @ObservationIgnored var documentStyleChanged: () -> Void = {}
     @ObservationIgnored var terminalStyleChanged: () -> Void = {}
+    @ObservationIgnored var memoryLimitsChanged: () -> Void = {}
     private(set) var settingsError: String?
     private(set) var acknowledging: Set<String> = []
     @ObservationIgnored private var service: (any ShellDataServing)?
@@ -90,6 +101,8 @@ import Observation
         terminalDarkTheme = preferences.string(forKey: "native.terminalThemeDark") ?? ""
         terminalLightTheme = preferences.string(forKey: "native.terminalThemeLight") ?? ""
         terminalKeybinds = TerminalStyle.keybinds(fromSetting: preferences.string(forKey: "native.terminalKeybinds"))
+        sessionMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.sessionMemoryLimit"))
+        pageMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.pageMemoryLimit"))
         // A saved name this build has no theme for reads as Default, as it does when synced.
         func savedTheme(_ key: String, dark: Bool) -> String {
             let name = preferences.string(forKey: "native.\(key)") ?? ""
@@ -283,6 +296,18 @@ import Observation
         saveSetting("terminalKeybinds", value: value)
         return true
     }
+    func setSessionMemoryLimit(_ value: MemoryLimit) {
+        guard value != sessionMemoryLimit else { return }
+        sessionMemoryLimit = value
+        preferences.set(value.rawValue, forKey: "native.sessionMemoryLimit")
+        saveSetting("sessionMemoryLimit", value: value.rawValue)
+    }
+    func setPageMemoryLimit(_ value: MemoryLimit) {
+        guard value != pageMemoryLimit else { return }
+        pageMemoryLimit = value
+        preferences.set(value.rawValue, forKey: "native.pageMemoryLimit")
+        saveSetting("pageMemoryLimit", value: value.rawValue)
+    }
     func setTerminalFontThicken(_ enabled: Bool) {
         guard enabled != terminalFontThicken else { return }
         terminalFontThicken = enabled
@@ -398,6 +423,8 @@ import Observation
                 if pendingSettings["terminalThemeDark"] == nil { terminalDarkTheme = (settings["terminalThemeDark"] ?? nil) ?? "" }
                 if pendingSettings["terminalThemeLight"] == nil { terminalLightTheme = (settings["terminalThemeLight"] ?? nil) ?? "" }
                 if pendingSettings["terminalKeybinds"] == nil { terminalKeybinds = TerminalStyle.keybinds(fromSetting: settings["terminalKeybinds"] ?? nil) }
+                if pendingSettings["sessionMemoryLimit"] == nil { sessionMemoryLimit = MemoryLimit(setting: settings["sessionMemoryLimit"] ?? nil) }
+                if pendingSettings["pageMemoryLimit"] == nil { pageMemoryLimit = MemoryLimit(setting: settings["pageMemoryLimit"] ?? nil) }
                 // A name this build has no theme for reads as Default, so the picker always has a row for it.
                 for (key, dark) in [("editorThemeDark", true), ("editorThemeLight", false)] where pendingSettings[key] == nil {
                     let stored = (settings[key] ?? nil) ?? "", name = CodeTheme.has(stored, dark: dark) ? stored : ""
@@ -415,6 +442,8 @@ import Observation
                 preferences.set(String(terminalFontThickenStrength), forKey: "native.terminalThickenStrength")
                 preferences.set(terminalDarkTheme, forKey: "native.terminalThemeDark")
                 preferences.set(terminalLightTheme, forKey: "native.terminalThemeLight")
+                preferences.set(sessionMemoryLimit.rawValue, forKey: "native.sessionMemoryLimit")
+                preferences.set(pageMemoryLimit.rawValue, forKey: "native.pageMemoryLimit")
                 // Written only once the key exists somewhere: an untouched install keeps
                 // following the shipped defaults instead of freezing today's pair into prefs.
                 if (settings["terminalKeybinds"] ?? nil) != nil || pendingSettings["terminalKeybinds"] != nil {

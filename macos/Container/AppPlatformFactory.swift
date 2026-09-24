@@ -9,6 +9,8 @@ struct AppTerminalRequest: Equatable {
 protocol TerminalRuntimeControlling: Sendable {
     func stopPaired(keys: Set<String>) async throws
     func stopExisting() async throws
+    /// The shell of each paired terminal that is running, by pair key.
+    func pairedShells() async throws -> [String: Int32]
 }
 
 struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
@@ -18,6 +20,9 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     }
     func stopExisting() async throws {
         try await PtydHost(configuration: configuration()).stopExisting()
+    }
+    func pairedShells() async throws -> [String: Int32] {
+        try await PtydHost(configuration: configuration()).pairedShells()
     }
 }
 
@@ -29,6 +34,8 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func terminal(_ request: AppTerminalRequest) -> TerminalSession
     func detachedShell(_ request: AppTerminalRequest) -> DetachedShell
     func terminalControl() -> any TerminalRuntimeControlling
+    /// Reads the process table for the session and page memory pools.
+    func processSampler() -> any ProcessSampling
     func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal
     func resources(api: APIClient?) -> any ResourceUsageService
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
@@ -53,7 +60,7 @@ extension AppPlatformFactory {
                     browserHistory: BrowserHistoryStore(fileURL: directory?.appendingPathComponent("browser-history.json")),
                     browserBookmarks: BrowserBookmarkStore(fileURL: directory?.appendingPathComponent("browser-bookmarks.json")),
                     pageFactory: BrowserPageFactory(dialogs: dialogs, adBlocker: .shared),
-                    documentFactory: documents, closeCoordinator: close)
+                    documentFactory: documents, closeCoordinator: close, memory: processSampler())
     }
     func workspaceLauncher() -> WorkspaceLaunchViewModel { WorkspaceLaunchViewModel(launcher: launcher) }
     func terminal(_ request: AppTerminalRequest) -> TerminalSession {
@@ -63,6 +70,7 @@ extension AppPlatformFactory {
         DetachedShell(pairKey: request.key, cwd: request.directory, configurationProvider: configuration)
     }
     func terminalControl() -> any TerminalRuntimeControlling { NativeTerminalRuntimeControl(configuration: configuration) }
+    func processSampler() -> any ProcessSampling { NativeProcessResourceSampler() }
     func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
         try await NativeWorkflowTerminal(terminal: terminal, cli: cli, sessionID: sessionID)
     }

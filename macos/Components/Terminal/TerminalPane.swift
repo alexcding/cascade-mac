@@ -1,9 +1,8 @@
 import SwiftUI
 import GhosttyTerminal
 
-/// The emulator surface, full-bleed. Connection progress and failures draw *over* it
-/// rather than above it, so the terminal keeps one size — and therefore one PTY
-/// geometry — no matter what state it is in.
+/// The emulator surface, full-bleed. Failures draw *over* it rather than above it, so the
+/// terminal keeps one size — and therefore one PTY geometry — no matter what state it is in.
 struct TerminalPane: View {
     let session: TerminalSession
     private var model: TerminalPaneViewModel { session.presentation }
@@ -22,7 +21,6 @@ struct TerminalPane: View {
             .allowsHitTesting(session.ready)
             .frame(maxWidth: .infinity, minHeight: 240, maxHeight: .infinity)
             .background(.background)
-            .overlay { if session.isConnecting { connecting } }
             .overlay(alignment: .top) { if let notice { banner(notice) } }
             .onAppear(perform: model.appear)
             .onDisappear(perform: model.disappear)
@@ -30,19 +28,9 @@ struct TerminalPane: View {
             .task { await model.start() }
     }
 
-    /// Opaque, so the first attach never flashes an empty black surface.
-    private var connecting: some View {
-        VStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text(session.status).font(Theme.Typography.emptyHint).foregroundStyle(Theme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
-    }
 
     /// Dismissible: a failure that has already been read must not keep covering output.
-    /// Dismissing only hides this banner — it does not clear the underlying error, so
-    /// `isConnecting` still reflects a real disconnect rather than looking like a retry.
+    /// Dismissing only hides this banner — it does not clear the underlying error.
     private func banner(_ message: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger)

@@ -17,6 +17,9 @@ import GhosttyTerminal
     private weak var linkSurface: TerminalSurface?
     private var hoveredLink: String?
     private var optionClick: (url: String, point: NSPoint, dragged: Bool)?
+    /// Hidden or shown again, directly or with an ancestor: a session the workspace deck is not
+    /// showing keeps its terminal in the window, so this, not leaving it, says it is off screen.
+    var visibilityChanged: () -> Void = {}
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -24,6 +27,9 @@ import GhosttyTerminal
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidHide() { super.viewDidHide(); visibilityChanged() }
+    override func viewDidUnhide() { super.viewDidUnhide(); visibilityChanged() }
 
     // Ask Ghostty to hit-test the actual click position, not a stale hover. The
     // Command requests link recognition. Shift also releases TUI mouse capture

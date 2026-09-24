@@ -141,6 +141,11 @@ struct SettingsView: View {
             Text(scope == .history ? "Removes every visited page from the start page and address suggestions."
                                    : "Removes cookies, caches and site storage for the embedded browser. Open pages will be signed out.")
         }
+        Section("Memory") {
+            MemoryLimitRow(title: "Page memory",
+                           caption: "When web pages hold more than this, the least recently used hidden page is suspended, and it loads again when opened. A page playing sound, using the camera or microphone, or downloading is kept.",
+                           identifier: "settings-page-memory", limit: shell.pageMemoryLimit, set: shell.setPageMemoryLimit)
+        }
     }
 
     // MARK: - Integrations

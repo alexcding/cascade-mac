@@ -16,6 +16,11 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     static func quote(_ value: String) -> String { AgentDrivers.quote(value) }
 }
 
+extension WorkspaceSession {
+    /// The agent this session runs. A CLI this build does not know runs none.
+    var agent: SessionAgent { SessionAgent(rawValue: cli ?? "") ?? .shell }
+}
+
 /// A pull request whose head branch nothing could tell us — the only resolution failure the
 /// New Session sheet answers by asking for the branch. Every other failure is a real error.
 struct PullRequestBranchUnknown: LocalizedError, Sendable {

@@ -5,6 +5,7 @@ enum ResourceGroup: String, Sendable { case app = "App", backend = "Backend", te
 struct ResourceRoot: Sendable { let pid: Int32; let group: ResourceGroup }
 struct ProcessResourceCounter: Sendable, Identifiable {
     let pid: Int32
+    let processGroup: Int32
     let startedSeconds: UInt64
     let startedMicroseconds: UInt64
     let name: String
@@ -56,7 +57,7 @@ actor NativeProcessResourceSampler {
         guard !overflow else { return nil }
         var name = withUnsafeBytes(of: info.pbsd.pbi_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         if name.isEmpty { name = withUnsafeBytes(of: info.pbsd.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } }
-        return .init(pid: pid, startedSeconds: info.pbsd.pbi_start_tvsec,
+        return .init(pid: pid, processGroup: Int32(bitPattern: info.pbsd.pbi_pgid), startedSeconds: info.pbsd.pbi_start_tvsec,
             startedMicroseconds: info.pbsd.pbi_start_tvusec, name: name.isEmpty ? "Process" : name,
             group: group, footprintBytes: footprint(of: pid) ?? info.ptinfo.pti_resident_size,
             cpuTicks: ticks, sampledTicks: mach_absolute_time())
@@ -106,6 +107,30 @@ actor NativeProcessResourceSampler {
         if skipped > 0 { notes.append("\(skipped) process reads were unavailable or changed during sampling.") }
         if truncated { notes.append("Process sampling reached its 512-process limit; totals are partial.") }
         return .init(processes: counters, notes: notes)
+    }
+}
+
+extension NativeProcessResourceSampler: ProcessSampling {
+    func footprints(of roots: [String: Int32]) -> [String: UInt64] {
+        roots.compactMapValues { root in
+            let tree = (try? sample(roots: [ResourceRoot(pid: root, group: .terminals)]).processes) ?? []
+            return tree.isEmpty ? nil : tree.reduce(0) { $0 + $1.footprintBytes }
+        }
+    }
+
+    /// The WebKit processes working for this app: all of them, and the content processes that
+    /// hold its pages, which leaves out the networking and GPU processes they share.
+    func webFootprint() -> WebFootprint {
+        let web = Self.helpers(of: getpid(), excluding: []).filter { $0.group == .web }
+        return WebFootprint(total: web.reduce(0) { $0 + $1.footprintBytes },
+            content: web.filter { $0.name.hasPrefix("com.apple.WebKit.WebContent") }.reduce(0) { $0 + $1.footprintBytes })
+    }
+
+    func processGroups(of root: Int32) -> Set<Int32>? {
+        // A note is something the sample could not read, which may have been the one that mattered.
+        guard let sample = try? sample(roots: [ResourceRoot(pid: root, group: .terminals)]),
+              !sample.processes.isEmpty, sample.notes.isEmpty else { return nil }
+        return Set(sample.processes.map(\.processGroup))
     }
 }
 

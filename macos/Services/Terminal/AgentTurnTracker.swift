@@ -6,6 +6,10 @@ import Observation
 @MainActor @Observable final class AgentTurnTracker {
     struct Ticket: Equatable, Sendable { fileprivate let id = UUID() }
     private(set) var busy = false
+    /// The agent was heard between turns since this terminal was bound, by its Stop or its start
+    /// at the prompt, and has not begun a turn since. Silence proves nothing: without its hooks,
+    /// or after an event the stream may have missed, this stays false. Never true while `busy`.
+    private(set) var betweenTurns = false
     private(set) var revision: UInt64 = 0
     private(set) var streamAvailable = false
     private(set) var cli: WorkflowCLI?
@@ -25,25 +29,34 @@ import Observation
     func bind(terminalID: String) {
         guard self.terminalID != terminalID else { return }
         invalidate("The terminal identity changed during the workflow step.")
-        self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false
+        self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false; betweenTurns = false
     }
 
     func setStreamAvailable(_ value: Bool) {
         guard streamAvailable != value else { return }
         streamAvailable = value
-        if !value { invalidate("The agent event connection was lost. Check the terminal before restarting the workflow.") }
+        if !value {
+            betweenTurns = false
+            invalidate("The agent event connection was lost. Check the terminal before restarting the workflow.")
+        }
     }
 
     /// A workflow step owns the conversation until it settles; nothing else may re-point the
     /// session while it does, or the step's own check for a changed conversation is defeated.
     var hasPendingStep: Bool { pending != nil }
 
-    /// The agent said its conversation changed. A turn of the old one can no longer finish, so
-    /// its busy state goes with it, unless this is a compaction, which lands mid-turn and carries on.
+    /// Known to be at its prompt, with the stream that would report its next turn still up and no
+    /// workflow step about to start one.
+    var idle: Bool { streamAvailable && betweenTurns && pending == nil }
+
+    /// The agent started, or its conversation changed (Claude's SessionStart): it is at its prompt,
+    /// and a turn of the old conversation can no longer finish, so its busy state goes with it.
+    /// A compaction is the exception: it lands mid-turn and the turn carries on.
     func adopt(sessionID id: String, midTurn: Bool) {
-        guard pending == nil, sessionID != id else { return }
+        guard pending == nil else { return }
+        if !midTurn { busy = false; betweenTurns = true }
+        guard sessionID != id else { return }
         sessionID = id; revision &+= 1
-        if !midTurn { busy = false }
     }
 
     func arm(cli: WorkflowCLI, sessionID: String?) throws -> Ticket {
@@ -76,7 +89,7 @@ import Observation
         cli = incomingCLI
         if let incomingID { sessionID = incomingID }
         if event.type == "agent-turn-start" {
-            revision &+= 1; busy = true
+            revision &+= 1; busy = true; betweenTurns = false
             if pending?.started == true {
                 invalidate("Another agent turn started before the workflow step finished.")
             } else if pending != nil {
@@ -84,7 +97,7 @@ import Observation
                 if let incomingID { pending?.sessionID = incomingID }
             }
         } else {
-            busy = false
+            busy = false; betweenTurns = true
             // A startup/old Stop hook is not evidence that our submitted step ran.
             if pending?.started == true { finish(.success(revision)) }
         }

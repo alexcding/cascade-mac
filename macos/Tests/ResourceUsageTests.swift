@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 private func resourceCounter(pid: Int32 = 20, start: UInt64 = 1, cpu: UInt64, time: UInt64, name: String = "Fixture") -> ProcessResourceCounter {
-    .init(pid: pid, startedSeconds: start, startedMicroseconds: 0, name: name, group: .app,
+    .init(pid: pid, processGroup: pid, startedSeconds: start, startedMicroseconds: 0, name: name, group: .app,
           footprintBytes: 4096, cpuTicks: cpu, sampledTicks: time)
 }
 

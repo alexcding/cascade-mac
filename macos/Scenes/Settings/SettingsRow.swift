@@ -23,6 +23,24 @@ struct SettingsRow<Content: View>: View {
     }
 }
 
+/// A memory pool's limit: Unlimited, or a size in gigabytes.
+struct MemoryLimitRow: View {
+    let title: String
+    let caption: String
+    let identifier: String
+    let limit: MemoryLimit
+    let set: @MainActor (MemoryLimit) -> Void
+
+    var body: some View {
+        SettingsRow(title: title, caption: caption) {
+            Picker(title, selection: Binding(get: { limit }, set: set)) {
+                ForEach(MemoryLimit.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden().accessibilityIdentifier(identifier)
+        }
+    }
+}
+
 /// A section header carrying a trailing action — the Refresh buttons on the CLI, Resource usage
 /// and Database groups.
 struct SettingsSectionHeader<Trailing: View>: View {

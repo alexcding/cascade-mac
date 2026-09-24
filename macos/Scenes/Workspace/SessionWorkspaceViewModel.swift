@@ -137,7 +137,9 @@ extension WorkspaceServing {
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
     /// A page-only context (a sidebar tab) draws its compact tab bar in the title-bar zone: the
     /// window toolbar loses its background, icon and title, and the bar takes the toolbar's row.
-    var fillsTitleBar: Bool { !showsTerminal && mode == .browser }
+    /// Only a sidebar tab: a session's workspace lives in the deck below the toolbar
+    /// (`SessionWorkspaceDeck`), even while it has no session record to show a terminal for.
+    var fillsTitleBar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
     var showsFiles: Bool { showsPage && !showsChanges && mode == .files }
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }

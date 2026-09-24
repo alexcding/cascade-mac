@@ -156,6 +156,7 @@ import Observation
         if destination == .overview { dashboardCoordinator?.leaveTickets() }
         if selection != destination {
             projectCoordinator?.endPresentation(); dashboardCoordinator?.model.cancelActions()
+            switch destination { case .session, .terminal: WorkspaceSwitchSignpost.begin(); default: break }
         }
         routingError = nil
         selection = destination
@@ -163,6 +164,8 @@ import Observation
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()
         refreshRoot()
+        // A session with no workspace to show ends its switch here rather than in the deck.
+        if shownDeckWorkspace == nil { WorkspaceSwitchSignpost.endAfterCommit() }
     }
 
     func navigate(to route: Route) {
