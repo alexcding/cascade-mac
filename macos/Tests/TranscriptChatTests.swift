@@ -106,7 +106,7 @@ private func stamp(_ date: Date) -> String {
     return formatter.string(from: date)
 }
 
-@MainActor @Test func anInterruptTheHooksMissedStillLetsAHeldMessageGo() async {
+@MainActor @Test func anInterruptTheHooksMissedStillLetsAHeldMessageGo() async throws {
     let fixture = ChatFixture(), chat = fixture.model()
     // The turn started, and Claude sends no Stop for an interrupt: the hooks still say busy.
     chat.setAgentState(busy: true, idle: false)
@@ -116,7 +116,7 @@ private func stamp(_ date: Date) -> String {
     try? await Task.sleep(for: .milliseconds(20))
     fixture.transcript = AgentTranscript(revision: "r1", turns: [], hooks: "installed", atPrompt: stamp(Date()))
     await chat.refresh()
-    try? await Task.sleep(for: .milliseconds(50))
+    try await eventually { fixture.typed == ["try it another way"] && !chat.atPrompt }
     #expect(fixture.typed == ["try it another way"] && chat.atPrompt == false, "Typing it starts work again")
 }
 

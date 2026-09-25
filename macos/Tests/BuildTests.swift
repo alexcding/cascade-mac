@@ -76,7 +76,16 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     var commands: [String] = []
     var interrupts = 0
     var shell = true
-    func waitUntilReady() async throws {}
+    var holdReady = false
+    private var readyContinuations: [CheckedContinuation<Void, Never>] = []
+    func waitUntilReady() async throws {
+        if holdReady { await withCheckedContinuation { readyContinuations.append($0) } }
+    }
+    func releaseReady() {
+        holdReady = false
+        let waiting = readyContinuations; readyContinuations.removeAll()
+        for continuation in waiting { continuation.resume() }
+    }
     func atShell() async throws -> Bool { shell }
     var process = "zsh"
     var subshell: Bool?
@@ -93,6 +102,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
     let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
     let build = BuildTerminalRecorder()
+    build.holdReady = true // Keep startup observable even when the HTTP fixture answers immediately.
     var factories = 0
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         terminalFactory: { factories += 1; return build })
@@ -111,6 +121,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     #expect(model.starting)
     coordinator.dismissSheet(id: presentation.id)
     #expect(coordinator.sheet?.id == presentation.id)
+    build.releaseReady()
     _ = await (first, second)
     #expect(model.running && build.commands.count == 1 && factories == 1)
     #expect(coordinator.sheet == nil)

@@ -105,8 +105,8 @@ private struct RefusedStops: TerminalRuntimeControlling {
     }
 }
 
-@MainActor private func sessionEventually(_ condition: () async throws -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(15)
+@MainActor private func sessionEventually(timeout: Duration = .seconds(15), _ condition: () async throws -> Bool) async throws {
+    let deadline = ContinuousClock.now + timeout
     while !(try await condition()) {
         guard ContinuousClock.now < deadline else { throw BackendError.operation("The session pool did not settle") }
         try await Task.sleep(for: .milliseconds(20))
@@ -410,7 +410,9 @@ private struct RefusedStops: TerminalRuntimeControlling {
     defer { pool.tearDown() }
     try await pool.start()
     try await pool.open("a")
-    try await sessionEventually { pool.launches().count == 2 }
+    // Recovery first exhausts 500 foreground checks, then waits for the exited agent.
+    // Leave room for daemon round trips as well as those deliberate waits.
+    try await sessionEventually(timeout: .seconds(30)) { pool.launches().count == 2 }
     #expect(pool.launches()[0] == "claude --resume conversation-a")
     let words = pool.launches()[1].split(separator: " ").map(String.init)
     #expect(words.prefix(2) == ["claude", "--session-id"])
