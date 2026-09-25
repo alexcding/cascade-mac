@@ -265,6 +265,22 @@ private func stamp(_ date: Date) -> String {
     #expect(fixture.pasted == [["/tmp/a.txt"]])
 }
 
+@MainActor @Test func aMessageWaitsForAFileStillBeingStaged() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    let shot = ChatAttachment(path: "/tmp/shot.png", name: "shot.png")
+    var finish: CheckedContinuation<Void, Never>?
+    chat.draft = "look"
+    chat.attach {
+        await withCheckedContinuation { finish = $0 }
+        return [shot]
+    }
+    #expect(chat.staging == 1 && !chat.canSend, "Send waits for the screenshot")
+    while finish == nil { await Task.yield() }
+    finish?.resume()
+    while chat.staging > 0 { await Task.yield() }
+    #expect(chat.attachments == [shot] && chat.canSend)
+}
+
 @Test func aPasteOfEscapedPathsSplitsIntoItsFiles() {
     let files = ChatAttachmentReader.files(pasted: "/tmp/My\\ Shot.png /tmp/b\\(1\\).txt")
     #expect(files.map(\.path) == ["/tmp/My\\ Shot.png", "/tmp/b\\(1\\).txt"])

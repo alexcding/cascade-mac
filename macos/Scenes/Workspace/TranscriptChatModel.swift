@@ -150,7 +150,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     var canSend: Bool {
-        !retired && !sending && queuedPrompt == nil
+        !retired && !sending && queuedPrompt == nil && staging == 0
             && (!attachments.isEmpty || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
     /// Files can be added until a message is held; the held one keeps its own.
@@ -159,6 +159,22 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     func attach(_ files: [ChatAttachment]) {
         guard canAttach else { return }
         attachments += files.filter { file in !attachments.contains { $0.path == file.path } }
+    }
+
+    /// Files still being read or staged (a pasted screenshot, a dropped file), which the next
+    /// message waits for rather than going without them.
+    private(set) var staging = 0
+
+    /// Attaches what `files` produces once it is ready, holding Send until then.
+    func attach(when files: @escaping @MainActor () async -> [ChatAttachment]) {
+        guard canAttach else { return }
+        staging += 1
+        Task { @MainActor [weak self] in
+            let ready = await files()
+            guard let self else { return }
+            self.staging -= 1
+            self.attach(ready)
+        }
     }
 
     func removeAttachment(_ id: ChatAttachment.ID) {

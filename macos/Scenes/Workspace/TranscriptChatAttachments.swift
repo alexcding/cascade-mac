@@ -47,9 +47,7 @@ enum ChatAttachmentReader {
         }
         guard TerminalPastePayload.text(from: pasteboard) == nil,
               let pending = TerminalPastePayload.stageable(from: pasteboard) else { return false }
-        Task { @MainActor in
-            if let paths = await TerminalPastePayload.stage(pending) { chat.attach(files(pasted: paths)) }
-        }
+        chat.attach { await TerminalPastePayload.stage(pending).map { files(pasted: $0) } ?? [] }
         return true
     }
 
@@ -63,19 +61,20 @@ enum ChatAttachmentReader {
             // A file first: an image dragged off a web page also offers its web address.
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 accepted = true
-                _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in chat.attach(files([url])) }
+                chat.attach {
+                    let url: URL? = await withCheckedContinuation { done in
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in done.resume(returning: url) }
+                    }
+                    return url.map { files([$0]) } ?? []
                 }
             } else if let type = provider.registeredContentTypes.first(where: { $0.conforms(to: .image) }) {
                 accepted = true
-                provider.loadDataRepresentation(for: type) { data, _ in
-                    guard let data else { return }
-                    Task { @MainActor in
-                        if let paths = await TerminalPastePayload.stage(TerminalPastePayload.stageable(data: data, type: type)) {
-                            chat.attach(files(pasted: paths))
-                        }
+                chat.attach {
+                    let data: Data? = await withCheckedContinuation { done in
+                        _ = provider.loadDataRepresentation(for: type) { data, _ in done.resume(returning: data) }
                     }
+                    guard let data else { return [] }
+                    return await TerminalPastePayload.stage(TerminalPastePayload.stageable(data: data, type: type)).map { files(pasted: $0) } ?? []
                 }
             }
         }
@@ -126,7 +125,8 @@ struct ChatAttachmentStrip: View {
     func start(_ handle: @escaping @MainActor (NSEvent) -> Bool) {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+            // Caps Lock, Fn and the like do not make it another shortcut.
+            guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
                   event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
             return handle(event) ? nil : event
         }

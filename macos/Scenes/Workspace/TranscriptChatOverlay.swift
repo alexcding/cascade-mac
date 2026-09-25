@@ -40,9 +40,10 @@ struct TranscriptChatOverlay: View {
         .onAppear {
             chat.appear()
             if chat.coversTerminal { composing = true }
-            // Text is the field's own to paste; files and screenshots become attachments.
-            pasteMonitor.start { [chat] _ in
-                composing && chat.canAttach && ChatAttachmentReader.paste(from: .general, into: chat)
+            // Text is the field's own to paste; files and screenshots become attachments. Only a
+            // ⌘V in this chat's window: the field keeps its focus while another window has the keys.
+            pasteMonitor.start { [chat] event in
+                composing && event.window != nil && event.window === chat.page?.webView.window && chat.canAttach && ChatAttachmentReader.paste(from: .general, into: chat)
             }
         }
         .onDisappear {
