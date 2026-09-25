@@ -33,7 +33,7 @@ without replaying terminal output or emitting responses. The negotiated revision
 `82938b633ba646db38591d969c3c526332bd7e65-taskhub-glyph-v2`. Version 1 helpers are
 rejected before attachment and their shells remain running. Kitty image payloads
 and placements are still outside this extension.
-See the [pinned snapshot format source](https://github.com/ghostty-org/ghostty/blob/82938b633ba646db38591d969c3c526332bd7e65/src/terminal/snapshot/terminal.zig).
+See the [pinned snapshot format source](https://github.com/ghostty-org/ghostty/blob/3c47ca159368eb4a860ffe5333abdf4a85b2767b/src/terminal/snapshot/terminal.zig).
 
 The daemon now parses every output batch, serializes kernel/parser resizes on its
 I/O thread, and captures an atomic sequence boundary. Its connection-owned transfer
