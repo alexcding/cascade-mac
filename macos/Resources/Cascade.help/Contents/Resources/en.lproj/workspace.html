@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Terminal, browser, editor, working changes, Xcode">
+<title>The session workspace</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>The session workspace</h1>
+<p class="lede">Each session has a terminal, a browser, a file editor and a view of its working changes, side by side.</p>
+<h2>Terminal</h2>
+<ul>
+<li>Terminals are real Ghostty terminals run by a separate background process. They keep running when you close the window and survive an unexpected quit. Choosing <strong>Quit</strong> stops them.</li>
+<li>Drop files or images onto a terminal to type their paths.</li>
+<li>Links a command-line tool opens appear in the panel beside the terminal.</li>
+<li>Voice input works in terminals and agents once microphone access is allowed in Settings → General.</li>
+<li>Go to the terminal with <kbd>⌃⌘T</kbd>.</li>
+</ul>
+
+<h2>Browser</h2>
+<ul>
+<li>Tabs, bookmarks, history, downloads and <strong>Find in Page…</strong> (<kbd>⌘F</kbd>).</li>
+<li>New tab <kbd>⌘T</kbd>, new sidebar tab <kbd>⌥⌘T</kbd>, reload <kbd>⌥⌘R</kbd>, close <kbd>⌘W</kbd>.</li>
+<li>Ad blocking with uBlock Origin Lite, set in Settings → Browser.</li>
+<li>Plain <code>http</code> sites and local development servers open too.</li>
+</ul>
+
+<h2>Files and the editor</h2>
+<ul>
+<li>Search the worktree, reopen recent files and read code with syntax highlighting.</li>
+<li><strong>Open File…</strong> <kbd>⌘O</kbd>, <strong>Save File</strong> <kbd>⌘S</kbd>. Closing an edited file asks you to Save, Discard or Cancel.</li>
+<li>The editor handles UTF-8 text files up to 5 MB. Files that cannot be written safely open read-only.</li>
+<li>Turn on <em>Show code preview</em> in Settings → Text Editor for a minimap.</li>
+</ul>
+
+<h2>Working changes</h2>
+<ul>
+<li>See every change in the worktree, and discard a single change block after previewing it.</li>
+<li>Search the branch history.</li>
+<li><strong>Commit</strong> and <strong>Push</strong>, optionally including untracked files. Cascade warns you when the branch is behind its upstream.</li>
+</ul>
+
+<h2>Xcode projects and the Simulator</h2>
+<ul>
+<li>Pick a scheme and destination, then <strong>Product → Run</strong> (<kbd>⌘R</kbd>) and <strong>Stop</strong> (<kbd>⌘.</kbd>).</li>
+<li>Stream a booted iOS Simulator into the session while the agent works. This needs Node.js 20 or later; see Settings → Integrations → Simulator preview. The stream runs only while that session is on screen.</li>
+</ul>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Create, resume, rename and remove sessions">
+<title>Sessions and worktrees</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Sessions and worktrees</h1>
+<p class="lede">A session is one task: a git worktree, the agent working in it, and the page it was started from.</p>
+<h2>Start a session</h2>
+<ol>
+<li>Choose <strong>File → New Session…</strong> (<kbd>⌘N</kbd>).</li>
+<li>Type a branch name, or paste a GitHub pull request or Jira ticket URL.</li>
+<li>Pick the base branch and the agent: <strong>Claude</strong>, <strong>Codex</strong> or <strong>Shell only</strong>.</li>
+</ol>
+<p>Cascade creates a worktree for the task and opens a terminal beside its page. You can also right-click a pull request or ticket anywhere in Cascade and start a session on it.</p>
+<p class="note">Creating a worktree never waits on the network. Cascade uses what your checkout already has, unless you turn on <em>Always fetch before creating worktrees</em> in <a href="settings.html#worktrees">Settings → Worktrees</a>.</p>
+
+<h2>Working with the agent</h2>
+<ul>
+<li>Use the session toolbar to switch model and effort presets. <kbd>⌘D</kbd> cycles to the next model.</li>
+<li>Compact or clear the agent's conversation from the toolbar.</li>
+<li>Click a stopped session to resume it where it left off.</li>
+<li><strong>Restart</strong> stops the shell and resumes the saved agent conversation.</li>
+<li>Right-click a session in the sidebar to rename it.</li>
+<li>If an agent will not stop, Cascade detaches it instead of leaving the session stuck.</li>
+</ul>
+
+<h2>Moving between sessions</h2>
+<table>
+<tr><th>Action</th><th>Keys</th></tr>
+<tr><td>Show session 1–10 in the sidebar</td><td><kbd>⌘1</kbd> … <kbd>⌘9</kbd>, <kbd>⌘0</kbd></td></tr>
+<tr><td>Previous / next session</td><td><kbd>⌘[</kbd> / <kbd>⌘]</kbd></td></tr>
+<tr><td>Focus the sidebar</td><td><kbd>⌥⌘S</kbd></td></tr>
+<tr><td>Show or hide the sidebar</td><td><kbd>⌃⌘S</kbd></td></tr>
+</table>
+
+<h2>Open in another app</h2>
+<p>Open a session's worktree in Xcode, VS Code, Cursor, Windsurf, Zed, IntelliJ IDEA, WebStorm, Android Studio or your own editor command, and in Fork, Tower, Sourcetree, GitHub Desktop or your own Git client command.</p>
+<p>For Xcode, Cascade resolves Swift packages in the background before the worktree opens, so the first build does not stall. It deletes that worktree's DerivedData when the worktree is removed.</p>
+
+<h2>Remove a session</h2>
+<p>Cascade previews what would be lost before removing a session. Discarding uncommitted changes needs its own confirmation. Turn on <em>Delete merged branch</em> in Settings → Worktrees to clean up the branch as well.</p>
+</body>
+</html>

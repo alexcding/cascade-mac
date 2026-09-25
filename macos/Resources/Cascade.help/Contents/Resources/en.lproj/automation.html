@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Pipelines, triggers, actions, workflows">
+<title>Automation and workflows</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Automation and workflows</h1>
+<p class="lede">Automation pipelines react to GitHub and Jira events across all your projects. Workflows run a series of agent steps in one session.</p>
+<h2>Automation pipelines</h2>
+<p>Open <strong>Automation</strong> from the sidebar. A pipeline has a trigger, filters and actions.</p>
+<h3>Triggers</h3>
+<ul>
+<li>Pull request opened, ready for review, new commits, CI passed or failed, review requested, approved, changes requested, merge conflict, merged or closed.</li>
+<li>A Jira ticket newly matches a JQL query, or changes status.</li>
+<li>Manual run.</li>
+</ul>
+<h3>Filters</h3>
+<p>Author, branches, labels, title, draft state, CI and review status, mergeability, size, changed paths, linked Jira project, status, type and priority, and time windows.</p>
+<h3>Actions</h3>
+<table>
+<tr><th>GitHub</th><td>Approve (once per commit), request changes, comment, add or remove labels, request reviewers, assign, enable auto-merge, merge, close, update branch, rerun failed checks, mark ready for review.</td></tr>
+<tr><th>Jira</th><td>Transition, set Fix Version, comment, assign, label.</td></tr>
+</table>
+<p>Use a <strong>dry run</strong> on a sample event to check a pipeline before you turn it on. A project's older merge-transition setting is converted to a pipeline automatically.</p>
+<p class="note">Pipelines run on the regular polling cycle. Turn on <em>Forward webhooks to automations</em> in Settings → Integrations (needs the <code>gh webhook</code> extension) to react to GitHub events immediately.</p>
+
+<h2>Workflows</h2>
+<p>A workflow is an ordered list of agent steps saved on a project. Each step has a prompt for Claude Code or Codex and a goal that Cascade checks when the agent finishes its turn.</p>
+<p>Prompts can use these placeholders:</p>
+<p><code>{url}</code> <code>{key}</code> <code>{pr}</code> <code>{branch}</code> <code>{repo}</code> <code>{worktree}</code> <code>{workspace}</code></p>
+<p>Run and stop a workflow from its session and follow each step's progress. Workflows need agent hooks, installed from Settings → Integrations → Workflow hooks.</p>
+</body>
+</html>

@@ -15,6 +15,12 @@
             <string>Viewer</string>
         </dict>
     </array>
+    <!-- Help → Cascade Help opens Cascade.help in Help Viewer. The name is the help book's own
+         CFBundleIdentifier. -->
+    <key>CFBundleHelpBookFolder</key>
+    <string>Cascade.help</string>
+    <key>CFBundleHelpBookName</key>
+    <string>com.alexcding.cascade.help</string>
     <!-- The browser panel opens whatever address is typed, including plain http sites and dev
          servers. Scoped to web views and local hosts: the app's own URLSession traffic stays
          https-only. -->

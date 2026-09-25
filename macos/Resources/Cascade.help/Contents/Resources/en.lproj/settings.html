@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Every settings section">
+<title>Settings</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Settings</h1>
+<p class="lede">Open Settings from the Cascade menu. Changes to polling, Jira and worktree options take effect when you click Save.</p>
+<h2 id="general">General</h2>
+<ul>
+<li><strong>Appearance</strong>: light or dark.</li>
+<li><strong>Startup</strong>: launch Cascade at login.</li>
+<li><strong>Microphone</strong>: allow voice input in terminals and agents.</li>
+<li><strong>New session agent</strong>: the agent new sessions start with.</li>
+<li><strong>Notifications</strong>: the <em>Review sound</em>, <em>Activity notifications</em> and notification permission.</li>
+<li><strong>Open in git client</strong>: your Git app, or a custom <em>Command template</em>.</li>
+</ul>
+
+<h2 id="browser">Browser</h2>
+<ul>
+<li><strong>Block ads</strong> with uBlock Origin Lite.</li>
+<li><strong>Clear History…</strong> and <strong>Clear Cookies…</strong></li>
+<li><strong>Page memory</strong>: when pages use more than this, the least recently used hidden page is suspended.</li>
+</ul>
+
+<h2 id="worktrees">Worktrees</h2>
+<ul>
+<li><strong>New worktrees</strong>: next to the checkout, inside it, or in a folder you choose, per project.</li>
+<li><strong>Fetch before creating</strong>: fetch the base branch first (off by default; gives up after 8 seconds and uses the local branch).</li>
+<li><strong>Copy ignored files</strong> such as <code>.env</code> files, or those listed in <code>.worktreeinclude</code>, into new worktrees.</li>
+<li><strong>Delete merged branch</strong> when a worktree is removed.</li>
+</ul>
+
+<h2 id="terminal">Terminal</h2>
+<ul>
+<li><strong>Session memory</strong>: above this, the least recently used idle agent is stopped.</li>
+<li><strong>Font smoothing</strong>, color theme and font.</li>
+</ul>
+
+<h2 id="editor">Text Editor</h2>
+<ul>
+<li><strong>Show code preview</strong> (minimap), color theme and font.</li>
+</ul>
+
+<h2 id="integrations">Integrations</h2>
+<ul>
+<li><strong>Setup Assistant</strong> and the sign-in status of each command-line tool.</li>
+<li><strong>Forward webhooks to automations</strong>.</li>
+<li><strong>Simulator preview</strong>.</li>
+<li><strong>GitHub poll interval</strong> (60 seconds by default) and <strong>Jira poll interval</strong> (120 seconds).</li>
+<li><strong>Jira</strong>: site URL, result limit and API token.</li>
+<li><strong>Workflow hooks</strong> and the agent <strong>context status line</strong>.</li>
+</ul>
+
+<h2 id="shortcuts">Shortcuts</h2>
+<p>Change the key for any command, or restore its default. See <a href="shortcuts.html">Keyboard shortcuts</a>.</p>
+
+<h2 id="system">System</h2>
+<ul>
+<li><strong>Resource Usage</strong>: CPU and memory used by Cascade and its sessions.</li>
+<li><strong>Diagnostics</strong>.</li>
+</ul>
+
+<h2 id="activity">Activity</h2>
+<p>A log of everything Cascade did in the background: syncs, notifications, automations and transitions.</p>
+</body>
+</html>
