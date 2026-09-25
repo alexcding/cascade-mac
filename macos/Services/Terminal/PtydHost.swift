@@ -5,6 +5,9 @@ struct PtydConfiguration: Sendable {
     let executable: URL
     let directory: URL
     let socketPath: String
+    /// Only the app's own default socket has predecessors under the old name. A test, the stress
+    /// harness or `--pty-socket` names its own, and must never reach for anyone else's daemon.
+    var hasLegacySockets = false
 
     static func current() throws -> Self {
         let env = ProcessInfo.processInfo.environment
@@ -17,8 +20,9 @@ struct PtydConfiguration: Sendable {
             ?? LegacyIdentity.supportDirectory.path
         let executable = argument("--ptyd-path").map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cascade-ptyd")
+        let chosen = argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"]
         return Self(executable: executable, directory: URL(fileURLWithPath: data).appendingPathComponent("ptyd-native-spike"),
-                    socketPath: try argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"] ?? defaultSocket(environment: env))
+                    socketPath: try chosen ?? defaultSocket(environment: env), hasLegacySockets: chosen == nil)
     }
 
     static func defaultSocket(environment: [String: String]) throws -> String {
@@ -162,6 +166,7 @@ actor PtydHost {
     /// Where the daemon listened while the app was called Craft, and in Cascade 0.1.0: beside the
     /// current socket, or in `/tmp/craft-<uid>`.
     var legacySockets: Set<String> {
+        guard configuration.hasLegacySockets else { return [] }
         let beside = URL(fileURLWithPath: configuration.socketPath).deletingLastPathComponent()
             .appendingPathComponent("craft-native-ptyd.sock").path
         return Set([beside, "/tmp/craft-\(getuid())/craft-native-ptyd.sock"]).subtracting([configuration.socketPath])
