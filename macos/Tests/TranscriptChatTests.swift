@@ -439,16 +439,16 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     let userText = "Allow /review @src/main.swift — مرحبًا <script>literal text</script>"
     var state = ChatPageState(turns: [prompt(userText, at: .distantPast)], busy: false,
                               pending: userText, queued: true, loaded: true, permission: nil)
-    state.localization.locale = "ar-SA"
-    state.localization.language = "ar"
-    state.localization.strings["Allow"] = "سماح"
+    state.localization.locale = "fr-FR"
+    state.localization.language = "fr"
+    state.localization.strings["Allow"] = "Autoriser"
     let data = try JSONEncoder().encode(state)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let chrome = try #require(object["localization"] as? [String: Any])
-    #expect(chrome["locale"] as? String == "ar-SA")
-    #expect(chrome["language"] as? String == "ar")
+    #expect(chrome["locale"] as? String == "fr-FR")
+    #expect(chrome["language"] as? String == "fr")
     let strings = try #require(chrome["strings"] as? [String: String])
-    #expect(strings["Allow"] == "سماح")
+    #expect(strings["Allow"] == "Autoriser")
     #expect(strings["Copy Code"] != nil && strings["Worked for %@"] != nil)
     let turns = try #require(object["turns"] as? [[String: Any]])
     let blocks = try #require(turns.first?["blocks"] as? [[String: Any]])

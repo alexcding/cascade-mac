@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
-LANGUAGES = {'zh-Hans', 'zh-Hant', 'hi', 'es', 'fr', 'ar', 'bn', 'pt-BR', 'ru', 'ja', 'ko', 'sv', 'it'}
+LANGUAGES = {'zh-Hans', 'zh-Hant', 'hi', 'es', 'fr', 'bn', 'pt-BR', 'ru', 'ja', 'ko', 'sv', 'it'}
 FORMAT = re.compile(r'%(?:(\d+)\$)?(lld|ld|d|f|@)')
 
 
@@ -65,8 +65,10 @@ def validate():
     source_info = plistlib.loads((ROOT / 'Resources/Configs/App-Info.plist').read_bytes())
     require(info['sourceLanguage'] == 'en', 'English must be the InfoPlist source language')
     required_permissions = {key for key in source_info if key.endswith('UsageDescription')}
-    require(set(info['strings']) == required_permissions, 'Permission catalog must cover every usage description')
-    for key, entry in info['strings'].items():
+    # The app's name is extracted too, marked not to translate; only permission copy is translated.
+    translated = {key: entry for key, entry in info['strings'].items() if entry.get('shouldTranslate', True)}
+    require(set(translated) == required_permissions, 'Permission catalog must cover every usage description')
+    for key, entry in translated.items():
         translations = entry['localizations']
         require(set(translations) == LANGUAGES | {'en'}, f'Incomplete permission locales: {key}')
         require(translations['en']['stringUnit']['value'] == source_info[key], f'Outdated English permission copy: {key}')

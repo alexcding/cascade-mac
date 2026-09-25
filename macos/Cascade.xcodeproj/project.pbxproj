@@ -389,7 +389,6 @@
 				hi,
 				es,
 				fr,
-				ar,
 				bn,
 				"pt-BR",
 				ru,

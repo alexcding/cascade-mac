@@ -112,11 +112,11 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(model.error == nil)
     // Native translations travel with the payload; labels remain text even when they contain markup.
     var localized = try #require(model.snapshot)
-    localized.language = "ar"
-    localized.labels?["discard"] = "تجاهل <b>التغييرات</b>"
+    localized.language = "fr"
+    localized.labels?["discard"] = "Ignorer <b>les modifications</b>"
     let localizedData = try JSONEncoder().encode(localized)
     _ = try await view.evaluateJavaScript("window.nativeDiff.render(\(String(decoding: localizedData, as: UTF8.self)))")
-    #expect(try await view.evaluateJavaScript("document.querySelector('.hunk-discard').textContent") as? String == "تجاهل <b>التغييرات</b>")
+    #expect(try await view.evaluateJavaScript("document.querySelector('.hunk-discard').textContent") as? String == "Ignorer <b>les modifications</b>")
     #expect(try await count(".hunk-discard b") == 0)
     // Hidden, the page and its render stay for the next show; disconnecting lets them go.
     model.hide()

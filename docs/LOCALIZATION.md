@@ -1,7 +1,7 @@
 # UI wording, help, and localization
 
 English is the source language. The native string catalog contains translations
-for all 13 locales below. Run the validation command below for the current entry count. Translations were written directly, without Google Translate
+for all 12 locales below. Run the validation command below for the current entry count. Translations were written directly, without Google Translate
 or an external translation service. They have not had independent native-speaker review.
 
 | Locale | Language |
@@ -11,7 +11,6 @@ or an external translation service. They have not had independent native-speaker
 | hi | हिन्दी — Hindi |
 | es | Español — Spanish |
 | fr | Français — French |
-| ar | العربية — Arabic |
 | bn | বাংলা — Bengali |
 | pt-BR | Português (Brasil) — Brazilian Portuguese |
 | ru | Русский — Russian |
@@ -38,8 +37,7 @@ Chinese scripts are separate localizations; Portuguese currently uses Brazilian 
 - Translated Jira controls and automation templates, conditions, actions, and run traces.
   Stored identifiers, JQL, command text, and user-authored content retain their values.
 - Translated browser dialogs, file/editor actions, build and simulator guidance, and
-  session removal confirmations. Diff labels arrive through the native render payload;
-  Arabic interface labels use right-to-left layout while code remains left-to-right.
+  session removal confirmations. Diff labels arrive through the native render payload.
 - Chat permissions, tool summaries, composer hints, and Markdown controls use
   localized labels supplied by the native app. Conversation content stays unchanged;
   dates and durations follow the locale.
@@ -63,9 +61,9 @@ Chinese scripts are separate localizations; Portuguese currently uses Brazilian 
   checks may still be pending or unavailable.
 - Added Help → Cascade Help (Command-?) with eight searchable, offline articles.
   Help → Detailed User Guide (English) preserves access to the existing Help Book.
-  All article titles and bodies are translated into all 13 locales. Search matches
+  All article titles and bodies are translated into all 12 locales. Search matches
   localized titles and article text. The native view supports text selection,
-  accessibility headings, a localized empty state, and right-to-left Arabic layout.
+  accessibility headings, and a localized empty state.
 - Added a native string catalog for common actions, menu commands, dashboard tab
   labels, settings section names, sidebar headings and session context actions.
 - Wired known app-owned dynamic labels through localization. User content is not
@@ -123,8 +121,7 @@ backend messages, or the diff page. Review those sources separately.
 
 The check validates completeness of catalog entries, format placeholders, all eight
 help articles, and unchanged login commands. It does not measure whole-app coverage.
-Layout checks used isolated Arabic dashboard and General Settings windows, and
-French dashboard and Help windows. Sidebar mirroring and terminal liveness have
+Layout checks used isolated French dashboard and Help windows. Terminal liveness has
 regression tests. These checks are representative, not a visual review of every
 screen in every locale.
 

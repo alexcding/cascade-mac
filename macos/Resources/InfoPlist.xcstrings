@@ -31,12 +31,6 @@
       "comment" : "Explains the microphone request for terminal sessions and agents launched by Cascade. Do not imply that permission is already granted.",
       "extractionState" : "manual",
       "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "يحتاج Cascade إلى الميكروفون لتمكين الإدخال الصوتي في جلسات الطرفية والوكلاء الذين تشغّلهم هنا."
-          }
-        },
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
