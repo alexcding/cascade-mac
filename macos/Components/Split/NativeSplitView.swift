@@ -22,6 +22,9 @@ struct NativeSplitView<Leading: View, Trailing: View>: NSViewControllerRepresent
     /// A hosting controller starts a new SwiftUI hierarchy, which would otherwise begin with a
     /// blank environment. Carry the surrounding one across by hand.
     @Environment(\.self) private var environment
+    /// `\.self` only re-runs the update for the keys read here, and handing the environment on reads
+    /// none, so a system light/dark switch would never reach the panes. Depend on it by name.
+    @Environment(\.colorScheme) private var colorScheme
 
     struct Hosted<Content: View>: View {
         let environment: EnvironmentValues

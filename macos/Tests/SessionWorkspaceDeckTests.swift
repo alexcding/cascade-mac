@@ -176,3 +176,49 @@ private final class ProbeView: NSView {
     #expect(pageA.frame.size == NSSize(width: 500, height: 400))
     #expect(pageB.frame.size == NSSize(width: 600, height: 500) && pageB.isHidden)
 }
+
+/// Every appearance SwiftUI pinned on a view in this subtree, leaving out hidden pages when asked.
+@MainActor private func pinnedAppearances(in view: NSView, shownOnly: Bool = false) -> [NSAppearance.Name] {
+    guard !(shownOnly && view.isHidden) else { return [] }
+    return (view.appearance.map { [$0.name] } ?? []) + view.subviews.flatMap { pinnedAppearances(in: $0, shownOnly: shownOnly) }
+}
+
+// A system light/dark switch reaches a session's panes: the terminal, the chat and web pages take
+// their appearance from the split they sit in, whose host SwiftUI pins. The deck and the split hand
+// their environment on without reading the colour scheme, and `\.self` alone never re-ran them for
+// it, so every pin stayed in the appearance the session was built in. A page hidden through the
+// switch catches up when it is shown.
+@MainActor @Test func deckPagesFollowTheAppAppearance() async throws {
+    _ = NSApplication.shared
+    let saved = NSApp.appearance
+    defer { NSApp.appearance = saved }
+    NSApp.appearance = NSAppearance(named: .darkAqua)
+    let runtime = DeckRuntimeFixture()
+    // A scratch workspace shows the terminal split without a session behind it.
+    let a = deckCoordinator(id: "scratch", title: "A", runtime: runtime)
+    let b = deckCoordinator(id: "scratch", title: "B", runtime: runtime)
+    let hosting = NSHostingView(rootView: SessionWorkspaceDeck(workspaces: [a, b], shown: b))
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = hosting
+    defer { window.contentView = nil; window.close() }
+    func settle(until done: () -> Bool) async throws {
+        for _ in 0..<100 where !done() { try await Task.sleep(for: .milliseconds(10)) }
+    }
+    try await settle { pinnedAppearances(in: hosting).count > 1 }
+    hosting.rootView = SessionWorkspaceDeck(workspaces: [a, b], shown: a)
+    try await settle { pinnedAppearances(in: hosting, shownOnly: true).count > 1 }
+    let dark = pinnedAppearances(in: hosting, shownOnly: true)
+    #expect(dark.count > 1 && dark.allSatisfy { $0 == .darkAqua }, "\(dark)")
+
+    NSApp.appearance = NSAppearance(named: .aqua)
+    try await settle { pinnedAppearances(in: hosting, shownOnly: true).allSatisfy { $0 == .aqua } }
+    let shown = pinnedAppearances(in: hosting, shownOnly: true)
+    #expect(shown.allSatisfy { $0 == .aqua }, "\(shown)")
+
+    hosting.rootView = SessionWorkspaceDeck(workspaces: [a, b], shown: b)
+    try await settle { pinnedAppearances(in: hosting, shownOnly: true).allSatisfy { $0 == .aqua } }
+    let revealed = pinnedAppearances(in: hosting, shownOnly: true)
+    #expect(revealed.count > 1 && revealed.allSatisfy { $0 == .aqua }, "\(revealed)")
+}

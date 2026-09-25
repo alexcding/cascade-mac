@@ -13,6 +13,9 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
     /// A hosting controller starts a new SwiftUI hierarchy, which would otherwise begin with a
     /// blank environment. Each page carries the surrounding one across, as `NativeSplitView` does.
     @Environment(\.self) private var environment
+    /// `\.self` only re-runs the update for the keys read here, and handing the environment on reads
+    /// none, so a system light/dark switch would never reach the pages. Depend on it by name.
+    @Environment(\.colorScheme) private var colorScheme
 
     struct Page: View {
         let environment: EnvironmentValues
