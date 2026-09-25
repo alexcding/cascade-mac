@@ -19,9 +19,11 @@ jobs:
           # The pipeline's owner/name, kept in a secret so this public repo never names it.
           RELEASE_REPO: ${{ secrets.RELEASE_REPO }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG"; exit 0; }
           [ -n "$RELEASE_REPO" ] || { echo "::error::The RELEASE_REPO secret is not set"; exit 1; }
+          # The pipeline releases more than one app, and tells them apart by this repo's name.
           gh api "repos/$RELEASE_REPO/dispatches" \
-            -f event_type=release -f "client_payload[tag]=$TAG"
+            -f event_type=release -f "client_payload[tag]=$TAG" -f "client_payload[repo]=$REPO"
           echo "Requested a release build of $TAG"
