@@ -173,7 +173,15 @@ import Observation
         }
     }
 
-    // The view task supplies visibility/cancellation; scheduling stays in the model.
+    /// The window the menu-bar item shows for the agent the usage panel follows: the session, or the
+    /// week on a plan with no session limit (some Codex plans report only a weekly window).
+    var menuBarUsage: (window: UsageSnapshot.Window, weekly: Bool)? {
+        let limits = usageAgent == "codex" ? usage?.codexLimits : usage?.limits
+        if let session = limits?.session { return (session, false) }
+        return limits?.weekly.map { ($0, true) }
+    }
+
+    // The app's task supplies cancellation; scheduling stays in the model.
     func watchUsage() async {
         while !Task.isCancelled {
             refreshUsage()

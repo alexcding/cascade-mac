@@ -157,10 +157,10 @@ private struct AgentUsageRow: View {
         let accent = Theme.agentTint(plan.key)
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let lead = plan.lead
-            let used = 100 - (lead?.window.remaining ?? 100)
+            let left = lead?.window.remaining ?? 100
             Button { showing.toggle() } label: {
                 HStack(spacing: 14) {
-                    UsageRing(used: used, accent: accent)
+                    UsageRing(left: left, accent: accent)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
                             AgentMark(key: plan.key, size: 13)
@@ -186,7 +186,7 @@ private struct AgentUsageRow: View {
             .onHover { hovering = $0 }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(plan.title) \(lead?.title ?? String(localized: "Usage"))")
-            .accessibilityValue("\(Int(used.rounded())) percent used")
+            .accessibilityValue("\(Int(left.rounded())) percent left")
             .accessibilityHint("Shows every quota window and the month's cost")
             .accessibilityIdentifier("dashboard-usage-\(plan.key)")
         }
@@ -195,25 +195,25 @@ private struct AgentUsageRow: View {
         }
     }
 
-    /// "Session 62% · resets in 2h 07m"; the reset is left off once it has passed.
+    /// "Session: 38% left · resets in 2h 07m"; the reset is left off once it has passed.
     private func line(_ title: String, _ window: UsageSnapshot.Window?, now: Date) -> String {
         guard let window else { return title }
-        let used = String(localized: "\(title): \(Int((100 - window.remaining).rounded()))% used")
-        return UsageWindowMath.until(window.resetsAt, now: now).map { String(localized: "\(used) · resets in \($0)") } ?? used
+        let left = String(localized: "\(title): \(Int(window.remaining.rounded()))% left")
+        return UsageWindowMath.until(window.resetsAt, now: now).map { String(localized: "\(left) · resets in \($0)") } ?? left
     }
 }
 
-/// A quota as a ring: the used share in the agent's colour over a faint track, the figure inside.
+/// A quota as a ring: the share left in the agent's colour over a faint track, the figure inside.
 private struct UsageRing: View {
-    let used: Double
+    let left: Double
     let accent: Color
     var body: some View {
         ZStack {
             Circle().stroke(Color.primary.opacity(0.07), lineWidth: 6)
-            Circle().trim(from: 0, to: max(0, min(1, used / 100)))
+            Circle().trim(from: 0, to: max(0, min(1, left / 100)))
                 .stroke(accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-            Text("\(Int(used.rounded()))%").font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+            Text("\(Int(left.rounded()))%").font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
         }
         .frame(width: 48, height: 48)
         .accessibilityHidden(true)

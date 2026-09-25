@@ -90,6 +90,8 @@ public final class AppViewModel {
     @ObservationIgnored private var refreshPending: Set<Inventory> = []
     @ObservationIgnored private var inventoryGenerations: [Inventory: UUID] = [:]
     @ObservationIgnored private var eventRefreshTask: Task<Void, Never>?
+    /// Keeps the session usage fresh for the menu-bar item, which is always on screen.
+    @ObservationIgnored private var usageWatch: Task<Void, Never>?
     @ObservationIgnored private var pendingRefreshEvents: [ServerEvent] = []
     @ObservationIgnored private var started = false
     // Keep navigation visible on the first frame, before the async inventory load.
@@ -1596,7 +1598,10 @@ public final class AppViewModel {
             let connectedAPI = try await backendRuntime.start()
             guard started, startGeneration == generation else { return }
             api = connectedAPI
-            if let api { shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api)); shell.refreshUsage() }
+            if let api {
+                shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api))
+                usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
+            }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
             if let api { for model in projectModels.values {
                 model.connect(backendFactory.projects(api: api)); model.board?.connect(api: api)
@@ -1860,6 +1865,7 @@ public final class AppViewModel {
     private func finishStop() async {
         await backendRuntime.stopEvents()
         eventRefreshTask?.cancel()
+        usageWatch?.cancel(); usageWatch = nil
         await eventRefreshTask?.value
         eventRefreshTask = nil
         pendingRefreshEvents.removeAll()

@@ -43,7 +43,6 @@ struct DashboardView: View {
             .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("native-dashboard")
-        .task { await shell.watchUsage() }
         .onChange(of: shell.usage, initial: true) { _, usage in model.usage.update(usage) }
         .onDisappear(perform: model.cancelActions)
     }

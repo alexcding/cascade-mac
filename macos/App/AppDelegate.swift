@@ -14,9 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windows.first { $0.identifier?.rawValue.hasSuffix("main") == true && !($0 is NSPanel) }
     }
     @ObservationIgnored private var statusItem: NSStatusItem?
-    /// What the status glyph is currently painted with, and the menu bar thickness it was drawn
-    /// for, so it is repainted only when one of them changes.
-    @ObservationIgnored private var statusTint: NSColor?
+    /// Whether the status glyph is currently painted for a review, whether a number follows it, and
+    /// the menu bar thickness it was drawn for, so it is repainted only when one of them changes.
+    @ObservationIgnored private var statusReview = false
+    @ObservationIgnored private var statusTitled = false
     @ObservationIgnored private var statusThickness: CGFloat = 0
     @ObservationIgnored private var tray: TrayCoordinator?
     @ObservationIgnored private var trayMenu: TrayMenuController?
@@ -94,11 +95,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },
             showWindow: { [weak self] in self?.showWindow() })
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = Self.menuBarImage(tint: nil)
-        statusThickness = NSStatusBar.system.thickness
+        // Variable, not square: the share left sits beside the glyph. Unscaled, so the gap between
+        // them is the bar's own image-to-title spacing, as for the weather and every titled item.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.imageScaling = .scaleNone
+        // The menu bar's own face, as the clock and weather set theirs; only the digits are fixed
+        // width, so the item does not shift as the number changes.
+        item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
         item.button?.setAccessibilityIdentifier("cascade-status-item")
         statusItem = item
+        applyStatusImage(review: false, titled: false)
         // A display added, removed or rearranged can change the menu bar's height under the glyph.
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -151,52 +157,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The tray shortcut opens the status item's menu the way a click does.
     @objc func toggleTray() { statusItem?.button?.performClick(nil) }
 
-    static let trayBronze = NSColor(srgbRed: 0.596, green: 0.443, blue: 0.173, alpha: 1)
-
-    /// The status item carries the app's own mark, sized from the menu bar's own thickness rather
-    /// than a fixed point size, so it keeps its margin whatever height the bar is on this Mac.
-    ///
-    /// Idle is a template image and takes no tint: the bar draws it in its own black or white and
-    /// inverts it under the highlight. A status color cannot go through `contentTintColor` — the
-    /// menu bar draws its button vibrantly, and a tinted template glyph comes back a flat black
-    /// silhouette there whatever color is asked for. Bronze and blue are painted into a plain
-    /// image instead, which the bar leaves alone.
-    private static func menuBarImage(tint: NSColor?) -> NSImage? {
-        guard let base = NSImage(named: "MenuBarIcon")?.copy() as? NSImage else { return nil }
-        let side = (NSStatusBar.system.thickness * 0.72).rounded()
-        base.size = NSSize(width: side, height: side)
-        base.accessibilityDescription = "Cascade"
-        guard let tint else { base.isTemplate = true; return base }
-        let painted = NSImage(size: base.size, flipped: false) { rect in
-            base.draw(in: rect)
-            tint.set()
-            rect.fill(using: .sourceAtop)
-            return true
-        }
-        painted.accessibilityDescription = "Cascade"
-        return painted
-    }
-
-    /// Repaints the glyph, but only when something about it actually changed: its color, or the
-    /// thickness it is drawn for. Moving the bar to a display of another height is a screen-
-    /// parameter change, not a status change, so it comes through `screenParametersChanged`.
-    private func applyStatusImage(tint: NSColor?) {
+    /// Repaints the glyph, but only when something about it actually changed: its color, whether a
+    /// number follows it, or the thickness it is drawn for. Moving the bar to a display of another
+    /// height is a screen-parameter change, not a status change, so it comes through
+    /// `screenParametersChanged`.
+    private func applyStatusImage(review: Bool, titled: Bool) {
         let thickness = NSStatusBar.system.thickness
         guard let button = statusItem?.button else { return }
-        guard tint != statusTint || thickness != statusThickness || button.image == nil else { return }
-        statusTint = tint; statusThickness = thickness
-        button.image = Self.menuBarImage(tint: tint)
+        guard review != statusReview || titled != statusTitled || thickness != statusThickness || button.image == nil else { return }
+        statusReview = review; statusTitled = titled; statusThickness = thickness
+        // A little more room before the number than the bar's own image-to-title gap gives; none
+        // with the glyph alone, so it stays centred.
+        button.image = StatusGlyph.image(review: review, trailing: titled ? 2 : 0)
     }
 
-    @objc private func screenParametersChanged() { applyStatusImage(tint: statusTint) }
+    /// The share of usage left beside the glyph. A plain title, so the bar draws it in its own black or
+    /// white like the clock beside it — a brand color read poorly on a tinted bar — and inverts it
+    /// under the highlight. No usage window (signed out, or not fetched yet) leaves the glyph alone.
+    private func applyStatusTitle(left: Int?) {
+        guard let button = statusItem?.button else { return }
+        let title = left.map { "\($0)%" } ?? ""
+        guard button.title != title else { return }
+        button.title = title
+        button.imagePosition = left == nil ? .imageOnly : .imageLeading
+    }
+
+    @objc private func screenParametersChanged() { applyStatusImage(review: statusReview, titled: statusTitled) }
 
     private func observeStatus() {
         withObservationTracking {
             let reviews = model.shell.pendingReviewCount
-            // Only a review request colors the glyph. Running tasks leave it untinted, so it stays
-            // the menu bar's own black or white like every other icon up there.
-            applyStatusImage(tint: reviews > 0 ? Self.trayBronze : nil)
-            statusItem?.button?.toolTip = reviews > 0 ? String(localized: "Cascade · Pending reviews: \(reviews)") : "Cascade"
+            let agent = model.shell.usageAgent
+            let usage = model.shell.menuBarUsage
+            let left = usage.map { Int($0.window.remaining.rounded()) }
+            // Only a review request colors the glyph, so it otherwise stays the menu bar's own black or
+            // white; the share left of the session (or the week) sits beside it.
+            applyStatusImage(review: reviews > 0, titled: left != nil)
+            applyStatusTitle(left: left)
+            let name = Theme.usageAgents.first { $0.key == agent }?.title ?? agent
+            let status = reviews > 0 ? String(localized: "Cascade · Pending reviews: \(reviews)") : "Cascade"
+            statusItem?.button?.toolTip = left.map {
+                status + " · " + (usage?.weekly == true ? String(localized: "\(name) weekly: \($0)% left")
+                                                        : String(localized: "\(name) session: \($0)% left"))
+            } ?? status
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }
         }
