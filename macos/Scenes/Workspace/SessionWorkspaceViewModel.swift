@@ -402,15 +402,23 @@ extension WorkspaceServing {
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
                 },
-                deliver: { [weak self] text in
+                deliver: { [weak self] text, files in
                     guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    // Files go first, pasted as a drop onto the terminal pastes their paths, so
+                    // the agent attaches them before the message is typed after them.
+                    if !files.isEmpty {
+                        try await terminal.writeWorkflowInput(NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " "))
+                        try await Task.sleep(for: .milliseconds(600))
+                    }
                     // One line is typed like the agent controls type a command. Several need a
                     // bracketed paste, and Claude Code takes an Enter that follows a paste closely
                     // as part of it, so that Enter waits until the paste has settled.
-                    let pasted = try NativeWorkflowTerminal.paste(text)
-                    let multiline = text.contains("\n")
-                    try await terminal.writeWorkflowInput(multiline ? pasted : text)
-                    try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    if !text.isEmpty {
+                        let pasted = try NativeWorkflowTerminal.paste(text)
+                        let multiline = text.contains("\n")
+                        try await terminal.writeWorkflowInput(multiline ? pasted : text)
+                        try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    }
                     try await terminal.writeWorkflowInput("\r")
                 },
                 permissions: .init(

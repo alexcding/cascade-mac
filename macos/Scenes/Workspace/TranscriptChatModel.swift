@@ -57,6 +57,20 @@ struct AgentTranscript: Decodable, Sendable {
     var atPrompt: String? = nil
 }
 
+/// A file a message carries: pasted into the terminal ahead of the message, as a drop onto the
+/// terminal would paste it, so an agent that attaches a pasted path (Claude Code) gets the file.
+struct ChatAttachment: Equatable, Identifiable, Sendable {
+    let id = UUID()
+    /// The shell-escaped path, as `TerminalPastePayload` types it.
+    let path: String
+    let name: String
+
+    init(path: String, name: String) {
+        self.path = path
+        self.name = name
+    }
+}
+
 /// A chat view over a session's terminal (prototype). The terminal stays the source of truth: the
 /// conversation is read back from the transcript the agent writes, and a sent message is typed
 /// into the terminal exactly as a person would paste it.
@@ -83,6 +97,10 @@ struct AgentTranscript: Decodable, Sendable {
     private(set) var pendingPrompt: String?
     /// A message held until the agent is back at its prompt.
     private(set) var queuedPrompt: String?
+    /// The held message's files.
+    private(set) var queuedAttachments: [ChatAttachment] = []
+    /// Files the next message carries.
+    private(set) var attachments: [ChatAttachment] = []
     /// A tool approval the agent is waiting on; it is answered here, not in the terminal.
     private(set) var permission: AgentPermissionPrompt?
     /// The CLI's hook install, as the last read reported it.
@@ -98,7 +116,7 @@ struct AgentTranscript: Decodable, Sendable {
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private var sentAt: Date?
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
-    @ObservationIgnored private let deliver: (String) async throws -> Void
+    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
     @ObservationIgnored let openHookSettings: () -> Void
@@ -119,7 +137,7 @@ struct AgentTranscript: Decodable, Sendable {
 
     init(agentName: String,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
-         deliver: @escaping (String) async throws -> Void,
+         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void,
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
          openHookSettings: @escaping () -> Void = {}) {
@@ -132,7 +150,20 @@ struct AgentTranscript: Decodable, Sendable {
     }
 
     var canSend: Bool {
-        !retired && !sending && queuedPrompt == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !retired && !sending && queuedPrompt == nil
+            && (!attachments.isEmpty || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    /// Files can be added until a message is held; the held one keeps its own.
+    var canAttach: Bool { !retired && queuedPrompt == nil }
+
+    func attach(_ files: [ChatAttachment]) {
+        guard canAttach else { return }
+        attachments += files.filter { file in !attachments.contains { $0.path == file.path } }
+    }
+
+    func removeAttachment(_ id: ChatAttachment.ID) {
+        guard !retired else { return }
+        attachments.removeAll { $0.id == id }
     }
     /// A held message can be pushed through by hand, except while an approval card is up: the
     /// agent is stopped on that, and typed keys would land in its prompt.
@@ -221,7 +252,8 @@ struct AgentTranscript: Decodable, Sendable {
     }
 
     private func render() {
-        page?.render(ChatPageState(turns: turns, busy: busy && !returnedToPrompt, pending: pendingPrompt ?? queuedPrompt,
+        page?.render(ChatPageState(turns: turns, busy: busy && !returnedToPrompt,
+                                   pending: pendingPrompt ?? queuedPrompt.map { Self.shown($0, with: queuedAttachments) },
                                    queued: pendingPrompt == nil && queuedPrompt != nil, loaded: loaded, permission: permission))
     }
 
@@ -304,6 +336,8 @@ struct AgentTranscript: Decodable, Sendable {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         draft = ""
         queuedPrompt = text
+        queuedAttachments = attachments
+        attachments = []
         render()
         if atPrompt { await sendQueued() }
     }
@@ -318,21 +352,25 @@ struct AgentTranscript: Decodable, Sendable {
         guard !retired, !sending, let text = queuedPrompt else { return }
         queuedPrompt = nil
         if draft.isEmpty { draft = text }
+        attachments = queuedAttachments + attachments
+        queuedAttachments = []
         render()
     }
 
     private func sendQueued() async {
         guard !retired, !sending, permission == nil, let text = queuedPrompt else { return }
+        let files = queuedAttachments
         sending = true
         defer { sending = false }
         do {
-            try await deliver(text)
+            try await deliver(text, files)
             guard !retired else { return }
             queuedPrompt = nil
+            queuedAttachments = []
             sentAt = Date()
             // It is working on this now, whatever the transcript last said.
             busySince = sentAt
-            pendingPrompt = text
+            pendingPrompt = Self.shown(text, with: files)
             error = nil
             render()
             await refresh()
@@ -340,6 +378,12 @@ struct AgentTranscript: Decodable, Sendable {
             guard !retired else { return }
             self.error = error.localizedDescription
         }
+    }
+
+    /// A sent message as its bubble shows it until the transcript has it: the files by name.
+    static func shown(_ text: String, with files: [ChatAttachment]) -> String {
+        let names = files.map(\.name).joined(separator: ", ")
+        return [names, text].filter { !$0.isEmpty }.joined(separator: "\n\n")
     }
 
     func retire() {

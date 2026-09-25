@@ -4,6 +4,8 @@ import Testing
 /// What the chat hands the terminal and its hooks, recorded.
 @MainActor private final class ChatFixture {
     var typed: [String] = []
+    /// The files pasted ahead of each typed message.
+    var pasted: [[String]] = []
     var transcript = AgentTranscript(revision: "r0", turns: [], hooks: "installed")
     var runID: String? = "run-a"
     var watched: [String] = []
@@ -17,7 +19,10 @@ import Testing
         TranscriptChatModel(
             agentName: "Claude",
             load: { _ in self.transcript },
-            deliver: { text in self.typed.append(text) },
+            deliver: { text, files in
+                self.pasted.append(files.map(\.path))
+                self.typed.append(text)
+            },
             permissions: .init(
                 runID: { self.runID },
                 watch: { run, watcher in self.watched.append(run); self.watcher = watcher },
@@ -230,4 +235,39 @@ private func stamp(_ date: Date) -> String {
     let chat = ChatFixture().model()
     chat.setAgentState(busy: false, idle: false, startedAt: nil)
     #expect(chat.coversTerminal)
+}
+
+@MainActor @Test func filesGoWithTheMessageAndComeBackWithItWhenCancelled() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    let shot = ChatAttachment(path: "/tmp/image.png", name: "image.png")
+    chat.attach([shot, shot])
+    #expect(chat.attachments.count == 1, "The same file is attached once")
+    #expect(chat.canSend, "Files alone are a message")
+    await chat.send()
+    #expect(chat.attachments.isEmpty && chat.queuedAttachments == [shot] && !chat.canAttach)
+    chat.cancelQueued()
+    #expect(chat.attachments == [shot] && chat.queuedAttachments.isEmpty && fixture.typed.isEmpty)
+    chat.draft = "what is this"
+    await chat.send()
+    await chat.sendQueuedNow()
+    #expect(fixture.pasted == [["/tmp/image.png"]] && fixture.typed == ["what is this"])
+    #expect(chat.pendingPrompt == "image.png\n\nwhat is this" && chat.queuedAttachments.isEmpty)
+}
+
+@MainActor @Test func aRemovedFileIsNotPasted() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    let kept = ChatAttachment(path: "/tmp/a.txt", name: "a.txt"), dropped = ChatAttachment(path: "/tmp/b.txt", name: "b.txt")
+    chat.attach([kept, dropped])
+    chat.removeAttachment(dropped.id)
+    chat.draft = "read it"
+    await chat.send()
+    await chat.sendQueuedNow()
+    #expect(fixture.pasted == [["/tmp/a.txt"]])
+}
+
+@Test func aPasteOfEscapedPathsSplitsIntoItsFiles() {
+    let files = ChatAttachmentReader.files(pasted: "/tmp/My\\ Shot.png /tmp/b\\(1\\).txt")
+    #expect(files.map(\.path) == ["/tmp/My\\ Shot.png", "/tmp/b\\(1\\).txt"])
+    #expect(files.map(\.name) == ["My Shot.png", "b(1).txt"])
+    #expect(ChatAttachmentReader.files([URL(fileURLWithPath: "/tmp/My Shot.png")]).map(\.path) == ["/tmp/My\\ Shot.png"])
 }

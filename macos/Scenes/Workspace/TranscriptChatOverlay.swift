@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The session's conversation as a chat, drawn opaquely over its terminal (prototype). The
 /// terminal keeps running underneath at its own size, so switching back shows it unchanged.
@@ -24,6 +25,9 @@ struct TranscriptChatOverlay: View {
     /// Taken from the terminal on appear: it stays in the window underneath and would otherwise
     /// keep the keyboard.
     @FocusState private var composing: Bool
+    @State private var choosingFiles = false
+    @State private var dropTargeted = false
+    @State private var pasteMonitor = ChatPasteMonitor()
 
     private static let column: CGFloat = 740
 
@@ -36,8 +40,15 @@ struct TranscriptChatOverlay: View {
         .onAppear {
             chat.appear()
             if chat.coversTerminal { composing = true }
+            // Text is the field's own to paste; files and screenshots become attachments.
+            pasteMonitor.start { [chat] _ in
+                composing && chat.canAttach && ChatAttachmentReader.paste(from: .general, into: chat)
+            }
         }
-        .onDisappear(perform: chat.disappear)
+        .onDisappear {
+            chat.disappear()
+            pasteMonitor.stop()
+        }
         .onChange(of: AgentState(busy: busy, idle: idle, startedAt: startedAt), initial: true) { _, state in
             chat.setAgentState(busy: state.busy, idle: state.idle, startedAt: state.startedAt)
         }
@@ -128,12 +139,22 @@ struct TranscriptChatOverlay: View {
                 .padding(.horizontal, 4)
             }
             VStack(alignment: .leading, spacing: 14) {
+                if !chat.attachments.isEmpty {
+                    ChatAttachmentStrip(attachments: chat.attachments, remove: chat.removeAttachment)
+                }
                 TextField("Ask \(chat.agentName) anything", text: $chat.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1...10)
                     .focused($composing)
                     .onSubmit { Task { await chat.send() } }
                 HStack(spacing: 12) {
+                    Button { choosingFiles = true } label: {
+                        Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.textSecondary)
+                    .disabled(!chat.canAttach)
+                    .help("Attach files. They are pasted into the terminal ahead of the message.")
                     Spacer()
                     Text(modelName).font(.callout).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button {
@@ -154,7 +175,14 @@ struct TranscriptChatOverlay: View {
             .padding(.top, 14)
             .padding(.bottom, 10)
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: Theme.Size.hairline))
+            .overlay(RoundedRectangle(cornerRadius: 20)
+                .stroke(dropTargeted ? Theme.accent : Theme.border, lineWidth: dropTargeted ? 2 : Theme.Size.hairline))
+            .onDrop(of: ChatAttachmentReader.dropTypes, isTargeted: $dropTargeted) { providers in
+                chat.canAttach && ChatAttachmentReader.drop(providers, into: chat)
+            }
+            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                if case .success(let urls) = result { chat.attach(ChatAttachmentReader.files(urls)) }
+            }
             .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         }
         .padding(.horizontal, 24)
