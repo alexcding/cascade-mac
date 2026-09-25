@@ -262,6 +262,33 @@ struct AutomationSettings: Decodable, Equatable, Sendable {
     var forwarding: [String]
     /// Repos an armed PR pipeline covers, which forwarding would serve.
     var forwardable: [String]
+    /// Every project with a repo, with what its forwarder is doing.
+    var projects: [ForwardingProject] = []
+}
+
+/// A project's webhook forwarding, as Settings → Integrations lists it.
+struct ForwardingProject: Decodable, Equatable, Identifiable, Sendable {
+    enum State: String, Decodable, Sendable {
+        /// Forwarding now.
+        case running
+        /// Wanted, and about to start.
+        case starting
+        /// Failed to start, and waiting to try again.
+        case retrying
+        /// Blocked by a `gh webhook forward` hook already on the repo, which only removing clears.
+        case hookExists
+        /// No pull request automation that is on covers the project, so nothing needs forwarding.
+        case idle
+        /// Forwarding is off for every project.
+        case off
+        /// Turned off in the project's own settings.
+        case disabled
+    }
+    let id: String
+    let name: String
+    let repo: String
+    let state: State
+    var error: String? = nil
 }
 
 protocol AutomationService: Sendable {
@@ -275,6 +302,8 @@ protocol AutomationService: Sendable {
     func runs(id: String?) async throws -> [AutomationTrace]
     func settings() async throws -> AutomationSettings
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings
+    /// Remove the leftover forwarder hooks that keep a repo's forwarder from starting, and start it again.
+    func fixForwarder(repo: String) async throws
 }
 
 struct APIAutomationService: AutomationService {
@@ -322,6 +351,11 @@ struct APIAutomationService: AutomationService {
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings {
         struct Body: Encodable, Sendable { let paused: Bool?; let forwardWebhooks: Bool? }
         return try await api.request(Routes.AUTOMATIONS_SETTINGS, method: "PUT", body: Body(paused: paused, forwardWebhooks: forwardWebhooks))
+    }
+    func fixForwarder(repo: String) async throws {
+        struct Body: Encodable, Sendable { let repo: String }
+        struct Removed: Decodable, Sendable { let removed: Int }
+        let _: Removed = try await api.request(Routes.FORWARDERS_FIX, method: "POST", body: Body(repo: repo))
     }
 }
 

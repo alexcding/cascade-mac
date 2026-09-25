@@ -1,6 +1,7 @@
 //! Before pipelines, each project carried its own merge automation: a Fix Version template and a
 //! Jira transition. They become one live pipeline per project, once, so nothing a user had set up
 //! stops working. The old columns stay in `projects` (no migration framework) but are not read.
+//! `forward_webhooks` is the exception: it is read again, as each project's switch for forwarding.
 
 use serde_json::{json, Map, Value};
 
@@ -83,8 +84,7 @@ pub fn run(app: &AppState) {
     if !complete {
         return;
     }
-    // Webhook forwarding is left unset, so it takes its default (on) rather than each project's old
-    // opt-in: it only runs for repos a pipeline covers, and polling covers any it cannot forward.
+    // The global switch is left unset, so it takes its default (on); each project can still turn it off.
     let mut values = Map::new();
     values.insert(DONE.into(), json!("1"));
     let _ = app.db.set_config(&values);
@@ -161,5 +161,29 @@ mod tests {
         // A project that had forwarding off does not turn it off for every pipeline.
         assert_eq!(app.db.config_value(super::super::FORWARD_WEBHOOKS).unwrap(), None);
         assert!(super::super::forwarding(&app));
+    }
+
+    #[test]
+    fn projects_forward_unless_turned_off() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::Database::open(directory.path()).unwrap();
+        let project = db.add_project(json!({"name":"New","repo":"a/new"}).as_object().unwrap()).unwrap();
+        assert_eq!(project["forwardWebhooks"], true);
+    }
+
+    #[test]
+    fn projects_turned_off_are_not_forwarded() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::Database::open(directory.path()).unwrap();
+        let on = db.add_project(json!({"name":"On","repo":"a/on"}).as_object().unwrap()).unwrap();
+        let off = db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).unwrap();
+        let app = AppState::new(db, None);
+        for project in [&on, &off] {
+            let mut pipeline = legacy_pipeline(&json!({"id":project["id"],"name":"p","mergeTransition":"Done"})).unwrap();
+            pipeline.mode = Mode::Live;
+            store::save(&app.db, pipeline).unwrap();
+        }
+        let repos = super::super::forward_repos(&app);
+        assert_eq!(repos.into_iter().collect::<Vec<_>>(), vec!["a/on".to_owned()]);
     }
 }

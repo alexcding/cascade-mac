@@ -151,26 +151,45 @@ fn armed_for(automation: &Automation, event: &Event) -> bool {
     at >= armed
 }
 
-/// Repos whose webhooks are worth forwarding: those an armed PR pipeline covers.
+/// The projects a pull request pipeline that is on covers, by id.
+pub fn pr_covered(app: &AppState, projects: &[Value]) -> HashSet<String> {
+    let mut covered = HashSet::new();
+    for automation in store::list(&app.db).unwrap_or_default() {
+        if automation.mode == Mode::Off || !automation.trigger.types.iter().any(|t| t.starts_with("pr.")) {
+            continue;
+        }
+        for project in projects {
+            let id = project["id"].as_str().unwrap_or("");
+            if automation.trigger.projects.is_empty() || automation.trigger.projects.iter().any(|p| p == id) {
+                covered.insert(id.to_owned());
+            }
+        }
+    }
+    covered
+}
+
+/// Whether a project forwards its repo's webhooks: on unless turned off in its settings.
+pub fn forwards(project: &Value) -> bool {
+    project["forwardWebhooks"] == true && project["repo"].as_str().is_some_and(|r| !r.is_empty())
+}
+
+/// Repos whose webhooks are worth forwarding: forwarding projects an armed PR pipeline covers.
 pub fn forward_repos(app: &AppState) -> HashSet<String> {
     if !forwarding(app) {
         return HashSet::new();
     }
     let projects = app.db.projects().unwrap_or_default();
-    let mut repos = HashSet::new();
-    for automation in store::list(&app.db).unwrap_or_default() {
-        if automation.mode == Mode::Off || !automation.trigger.types.iter().any(|t| t.starts_with("pr.")) {
-            continue;
-        }
-        for project in &projects {
-            let id = project["id"].as_str().unwrap_or("");
-            let covered = automation.trigger.projects.is_empty() || automation.trigger.projects.iter().any(|p| p == id);
-            if let Some(repo) = project["repo"].as_str().filter(|r| covered && !r.is_empty()) {
-                repos.insert(repo.to_owned());
-            }
-        }
-    }
-    repos
+    let covered = pr_covered(app, &projects);
+    forwarded(&projects, &covered)
+}
+
+/// The repos of the forwarding projects among `covered`, for a caller that has both already.
+pub fn forwarded(projects: &[Value], covered: &HashSet<String>) -> HashSet<String> {
+    projects
+        .iter()
+        .filter(|p| forwards(p) && covered.contains(p["id"].as_str().unwrap_or("")))
+        .filter_map(|p| p["repo"].as_str().map(str::to_owned))
+        .collect()
 }
 
 #[cfg(test)]

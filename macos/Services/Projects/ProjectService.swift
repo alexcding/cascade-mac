@@ -11,6 +11,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var ideTarget = ""
     var worktreeSetup = ""
     var worktreeInclude = ""
+    var forwardWebhooks = true
 
     init(_ project: Project? = nil) {
         guard let project else { return }
@@ -18,6 +19,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
         jiraProjectKey = project.jiraProjectKey ?? ""; jql = project.jql ?? ""
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
+        forwardWebhooks = project.forwardWebhooks ?? true
     }
     var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Enter a project name.") }

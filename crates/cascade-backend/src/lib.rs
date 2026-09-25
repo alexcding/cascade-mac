@@ -167,6 +167,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/permission", post(agents::permission::answer))
         .route("/api/hooks/permission", post(agents::permission::request))
         .route("/api/forwarders", get(integrations::forwarders))
+        .route("/api/forwarders/fix", post(integrations::fix_forwarder))
         .route(
             "/api/automations",
             get(automation::routes::list).post(automation::routes::create),

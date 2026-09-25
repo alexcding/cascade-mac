@@ -15,6 +15,11 @@ struct ProjectEditorView: View {
                         TextField("GitHub repository", text: $model.draft.repo).help("owner/repo or a GitHub URL")
                         Button("Detect") { Task { await model.detectRepository() } }.disabled(model.draft.workspace.isEmpty)
                     }
+                    Toggle("Forward webhooks to automations", isOn: $model.draft.forwardWebhooks)
+                        .disabled(model.draft.repo.isEmpty)
+                        .accessibilityIdentifier("project-forward-webhooks")
+                    Text("Pull request events reach automations as they happen, not on the next poll. This adds a webhook to the repository while Cascade runs, and needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. Off, polling still catches every change.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Jira") {
                     TextField("Project key", text: $model.draft.jiraProjectKey)

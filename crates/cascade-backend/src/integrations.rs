@@ -63,6 +63,37 @@ fn trim_stderr(text: &mut String) {
 struct Backoff {
     failures: u32,
     retry_at: Instant,
+    /// Why the last start failed, for Settings to show beside the repo.
+    reason: String,
+    /// The repo already has a `gh webhook forward` hook, which only removing it clears.
+    hook_exists: bool,
+}
+
+/// GitHub allows one `cli` hook per repo. `gh webhook forward` never deletes the one it creates:
+/// it leaves that to GitHub's relay when the connection drops, and a crash, a sleep or an app
+/// replaced mid-run can leave one behind that blocks every later forwarder on the repo.
+fn is_hook_conflict(stderr: &str) -> bool {
+    stderr.contains("Hook already exists")
+}
+
+/// The ids of the hooks `gh webhook forward` made, from `GET repos/{repo}/hooks`.
+fn forwarder_hook_ids(hooks: &Value) -> Vec<i64> {
+    hooks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|hook| {
+            hook["name"] == "cli"
+                && hook["config"]["url"].as_str().is_some_and(|url| url.contains("webhook-forwarder.github.com"))
+        })
+        .filter_map(|hook| hook["id"].as_i64())
+        .collect()
+}
+
+/// A repo's forwarder as Settings shows it.
+pub struct ForwarderStatus {
+    pub state: &'static str,
+    pub error: Option<String>,
 }
 
 /// A forwarder that exits sooner than this failed to start (e.g. the `gh webhook` extension is
@@ -131,16 +162,16 @@ impl ForwarderManager {
                 // Died on start: wait longer each time, and log the reason once per streak — never
                 // a start/exit pair every sync.
                 let failures = backoff.get(&repo).map_or(0, |b| b.failures) + 1;
+                let reason = failure_reason(&tail);
+                let reason = if reason.is_empty() { "gh webhook forward exited immediately".to_owned() } else { reason };
                 if failures == 1 {
-                    let reason = failure_reason(&tail);
-                    let _ = app.db.add_log(
-                        "webhook",
-                        "error",
-                        "forwarder_failed",
-                        &json!({"repo":repo,"error":if reason.is_empty() { "gh webhook forward exited immediately".to_owned() } else { reason }}),
-                    );
+                    let _ = app.db.add_log("webhook", "error", "forwarder_failed", &json!({"repo":repo,"error":reason}));
                 }
-                backoff.insert(repo, Backoff { failures, retry_at: Instant::now() + backoff_delay(failures) });
+                // A leftover hook does not go away by waiting, so retry it at the slowest pace:
+                // Settings offers to remove it, and a removal retries straight away.
+                let hook_exists = is_hook_conflict(&tail);
+                let delay = if hook_exists { MAX_BACKOFF } else { backoff_delay(failures) };
+                backoff.insert(repo, Backoff { failures, retry_at: Instant::now() + delay, reason, hook_exists });
             }
         }
         for repo in desired {
@@ -197,7 +228,8 @@ impl ForwarderManager {
                             &json!({"repo":repo,"error":error.to_string()}),
                         );
                     }
-                    backoff.insert(repo, Backoff { failures, retry_at: Instant::now() + backoff_delay(failures) });
+                    let retry_at = Instant::now() + backoff_delay(failures);
+                    backoff.insert(repo, Backoff { failures, retry_at, reason: error.to_string(), hook_exists: false });
                 }
             }
         }
@@ -212,6 +244,23 @@ impl ForwarderManager {
             .collect::<Vec<_>>();
         values.sort();
         values
+    }
+    /// Each repo with a forwarder running or failing, by repo. A repo that is wanted but in
+    /// neither is about to start.
+    pub async fn statuses(&self) -> HashMap<String, ForwarderStatus> {
+        let mut statuses = HashMap::new();
+        for (repo, entry) in self.backoff.lock().await.iter() {
+            let state = if entry.hook_exists { "hookExists" } else { "retrying" };
+            statuses.insert(repo.clone(), ForwarderStatus { state, error: Some(entry.reason.clone()) });
+        }
+        for repo in self.children.lock().await.keys() {
+            statuses.insert(repo.clone(), ForwarderStatus { state: "running", error: None });
+        }
+        statuses
+    }
+    /// Start the repo's forwarder on the next sync instead of waiting out its backoff.
+    pub async fn retry(&self, repo: &str) {
+        self.backoff.lock().await.remove(repo);
     }
     pub async fn stop(&self) {
         let mut children = self.children.lock().await;
@@ -858,6 +907,48 @@ pub async fn forwarders(State(app): State<AppState>) -> ApiResult<Vec<String>> {
     Ok(Json(app.forwarders.list().await))
 }
 
+#[derive(Deserialize)]
+pub struct FixForwarderBody {
+    repo: String,
+}
+
+/// Settings' Fix for a repo whose forwarder cannot start: remove the `gh webhook forward` hooks
+/// that block it, then start it again. Only for a repo Cascade forwards, and only when asked:
+/// the hook may be a teammate's live forwarder, which Settings says before offering this.
+pub async fn fix_forwarder(State(app): State<AppState>, Json(body): Json<FixForwarderBody>) -> ApiResult<Value> {
+    let repo = body.repo.trim();
+    if !crate::automation::forward_repos(&app).contains(repo) {
+        return Err(ApiError::bad_request("Cascade does not forward this repo's webhooks"));
+    }
+    let path = format!("repos/{repo}/hooks");
+    let listed = cli::run("gh", ["api", path.as_str()], Duration::from_secs(20)).await.map_err(ApiError::internal)?;
+    let hooks: Value = serde_json::from_str(&listed).map_err(ApiError::internal)?;
+    let ids = forwarder_hook_ids(&hooks);
+    let mut failed = None;
+    for id in &ids {
+        let hook = format!("repos/{repo}/hooks/{id}");
+        match cli::run("gh", ["api", "-X", "DELETE", hook.as_str()], Duration::from_secs(20)).await {
+            // Gone already, which is what the delete was for.
+            Err(error) if !is_already_gone(&format!("{error:#}")) => failed = Some(error),
+            _ => {}
+        }
+    }
+    let _ = app.db.add_log("webhook", "info", "forwarder_hook_removed", &json!({"repo":repo,"hooks":ids}));
+    // Retry even after a failed delete: an earlier one may have been the hook in the way, and a
+    // forwarder left at its slowest backoff would not notice for fifteen minutes.
+    app.forwarders.retry(repo).await;
+    app.broadcast(json!({"type":"automations","scope":"settings"}));
+    if let Some(error) = failed {
+        return Err(ApiError::internal(format!("{error:#}")));
+    }
+    Ok(Json(json!({"removed": ids.len()})))
+}
+
+/// A hook delete that failed because the hook no longer exists.
+fn is_already_gone(error: &str) -> bool {
+    error.contains("HTTP 404")
+}
+
 pub async fn github_webhook(
     State(app): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -994,5 +1085,29 @@ mod forwarder_tests {
         let mut short = "Error: HTTP 403".to_owned();
         trim_stderr(&mut short);
         assert_eq!(short, "Error: HTTP 403");
+    }
+
+    #[test]
+    fn a_leftover_hook_is_told_apart_from_other_failures() {
+        let stderr = "Error: error creating webhook: HTTP 422: Validation Failed (https://api.github.com/repos/o/r/hooks)\nHook already exists on this repository";
+        assert!(is_hook_conflict(stderr));
+        assert!(!is_hook_conflict("Error: HTTP 403: you do not have access to this feature"));
+    }
+
+    #[test]
+    fn only_forwarder_hooks_are_picked_for_removal() {
+        let hooks = json!([
+            {"id": 1, "name": "cli", "config": {"url": "https://webhook-forwarder.github.com/hook"}},
+            {"id": 2, "name": "web", "config": {"url": "https://ci.example.com/github"}},
+            {"id": 3, "name": "cli", "config": {"url": "https://ci.example.com/cli"}},
+        ]);
+        assert_eq!(forwarder_hook_ids(&hooks), vec![1]);
+        assert!(forwarder_hook_ids(&json!({"message": "Not Found"})).is_empty());
+    }
+
+    #[test]
+    fn a_hook_that_is_already_gone_counts_as_removed() {
+        assert!(is_already_gone("gh api -X DELETE repos/o/r/hooks/1: gh: Not Found (HTTP 404)"));
+        assert!(!is_already_gone("gh: Must have admin rights to Repository. (HTTP 403)"));
     }
 }
