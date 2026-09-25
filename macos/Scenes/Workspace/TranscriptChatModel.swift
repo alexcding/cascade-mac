@@ -134,14 +134,18 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var stateReported = false
     /// Built on first show and kept while the model lives, so switching back is immediate.
     private(set) var page: TranscriptChatPage?
+    /// Where the page keeps this chat's zoom.
+    @ObservationIgnored private let zoomKey: String?
 
     init(agentName: String,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
          deliver: @escaping (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void,
          permissions: Permissions,
+         zoomKey: String? = nil,
          showTerminal: @escaping () -> Void = {},
          openHookSettings: @escaping () -> Void = {}) {
         self.agentName = agentName
+        self.zoomKey = zoomKey
         self.load = load
         self.deliver = deliver
         self.permissions = permissions
@@ -185,7 +189,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     func appear() {
         guard !retired, polling == nil else { return }
         if page == nil {
-            let page = TranscriptChatPage()
+            let page = TranscriptChatPage(zoomKey: zoomKey)
             page.onPermission = { [weak self] id, decision in Task { await self?.answerPermission(id, decision: decision) } }
             self.page = page
             render()
