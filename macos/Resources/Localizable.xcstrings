@@ -127050,6 +127050,1002 @@
           }
         }
       }
+    },
+    "%@ already has a gh webhook forward hook, left by a forwarder that quit or crashed, or a teammate forwarding it now. GitHub allows one. Fix removes it; a teammate's forwarder would stop.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已有一个 gh webhook forward 钩子，可能是已退出或崩溃的转发程序留下的，也可能是队友正在转发此仓库。GitHub 只允许一个。“修复”会将其移除；队友的转发将因此停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已有一個 gh webhook forward 掛鉤，可能是已結束或當機的轉送程式留下的，也可能是隊友正在轉送此儲存庫。GitHub 只允許一個。「修正」會將其移除；隊友的轉送將因此停止。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ पर पहले से एक gh webhook forward हुक है, जो किसी बंद या क्रैश हुए फ़ॉरवर्डर ने छोड़ा है, या कोई साथी अभी इसे भेज रहा है। GitHub केवल एक की अनुमति देता है। ठीक करें इसे हटा देता है; साथी का फ़ॉरवर्डर रुक जाएगा।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya tiene un hook de gh webhook forward, dejado por un reenviador que se cerró o falló, o por un compañero que lo está reenviando ahora. GitHub solo permite uno. Reparar lo elimina; el reenviador de un compañero se detendría."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a déjà un hook gh webhook forward, laissé par un transfert qui s’est arrêté ou a planté, ou par un coéquipier qui le transfère en ce moment. GitHub n’en autorise qu’un. Réparer le supprime ; le transfert d’un coéquipier s’arrêterait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي %@ بالفعل على خطاف gh webhook forward، تركه معيد توجيه أُغلق أو تعطّل، أو زميل يعيد توجيهه الآن. يسمح GitHub بخطاف واحد فقط. يؤدي الإصلاح إلى إزالته، وسيتوقف معيد التوجيه الخاص بالزميل."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@-এ ইতিমধ্যে একটি gh webhook forward হুক আছে, যা বন্ধ বা ক্র্যাশ হওয়া কোনো ফরোয়ার্ডার রেখে গেছে, অথবা কোনো সহকর্মী এখন এটি পাঠাচ্ছেন। GitHub কেবল একটির অনুমতি দেয়। ঠিক করুন এটি সরিয়ে দেয়; সহকর্মীর ফরোয়ার্ডার থেমে যাবে।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ já tem um hook do gh webhook forward, deixado por um encaminhador que foi fechado ou travou, ou por um colega que o está encaminhando agora. O GitHub permite apenas um. Corrigir o remove; o encaminhador de um colega pararia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В %@ уже есть хук gh webhook forward — его оставил завершившийся или упавший пересыльщик, либо коллега пересылает этот репозиторий прямо сейчас. GitHub разрешает только один. «Исправить» удалит его; пересылка коллеги остановится."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にはすでに gh webhook forward のフックがあります。終了またはクラッシュした転送プロセスが残したものか、チームメイトが今転送しているものです。GitHub では 1 つしか許可されません。「修正」でこれを削除します。チームメイトの転送は停止します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 이미 gh webhook forward 훅이 있습니다. 종료되었거나 충돌한 전달 프로세스가 남긴 것이거나, 팀원이 지금 전달 중인 것입니다. GitHub는 하나만 허용합니다. 수정하면 이 훅을 제거하며, 팀원의 전달은 중지됩니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ har redan en gh webhook forward-hook, kvarlämnad av en vidarebefordrare som avslutades eller kraschade, eller av en kollega som vidarebefordrar den just nu. GitHub tillåter en. Åtgärda tar bort den; en kollegas vidarebefordran skulle stoppas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha già un hook di gh webhook forward, lasciato da un inoltro che è stato chiuso o si è arrestato, oppure da un collega che lo sta inoltrando ora. GitHub ne consente uno solo. Correggi lo rimuove; l’inoltro di un collega si interromperebbe."
+          }
+        }
+      }
+    },
+    "Every project has forwarding turned off in its settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有项目都已在其设置中关闭转发。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有專案都已在其設定中關閉轉送。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हर प्रोजेक्ट की सेटिंग्स में भेजना बंद है।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los proyectos tienen el reenvío desactivado en sus ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert est désactivé dans les réglages de chaque projet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التوجيه معطّلة في إعدادات كل المشاريع."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "প্রতিটি প্রকল্পের সেটিংসে পাঠানো বন্ধ।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os projetos estão com o encaminhamento desativado nos ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передача вебхуков отключена в настройках каждого проекта."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプロジェクトで、設定の転送がオフになっています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 프로젝트의 설정에서 전달이 꺼져 있습니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alla projekt har vidarebefordran avstängd i sina inställningar."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’inoltro è disattivato nelle impostazioni di ogni progetto."
+          }
+        }
+      }
+    },
+    "Fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ठीक करें"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reparar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réparer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إصلاح"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ঠিক করুন"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrigir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Исправить"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åtgärda"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correggi"
+          }
+        }
+      }
+    },
+    "Forwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在转发"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在轉送"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "भेज रहा है"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reenviando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfert actif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعادة التوجيه"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "পাঠানো হচ্ছে"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encaminhando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передаётся"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달 중"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidarebefordrar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inoltro attivo"
+          }
+        }
+      }
+    },
+    "Idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空闲"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閒置"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "निष्क्रिय"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inactif"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خامل"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "নিষ্ক্রিয়"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocioso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Простаивает"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유휴"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vilande"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inattivo"
+          }
+        }
+      }
+    },
+    "No enabled pull request automation covers this project.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已启用的拉取请求自动化涵盖此项目。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有已啟用的提取要求自動化涵蓋此專案。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कोई चालू पुल रिक्वेस्ट स्वचालन इस प्रोजेक्ट को कवर नहीं करता।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna automatización de solicitudes activada cubre este proyecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune automatisation de pull requests activée ne couvre ce projet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد أتمتة مفعّلة لطلبات السحب تشمل هذا المشروع."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "কোনো চালু পুল রিকোয়েস্ট অটোমেশন এই প্রকল্পকে কভার করে না।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma automação de pull requests ativada cobre este projeto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ни одна включённая автоматизация пул-реквестов не охватывает этот проект."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロジェクトを対象とする有効なプルリクエストの自動化はありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프로젝트를 대상으로 하는 켜진 풀 리퀘스트 자동화가 없습니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen aktiverad pull request-automatisering omfattar det här projektet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna automazione attiva per le pull request copre questo progetto."
+          }
+        }
+      }
+    },
+    "Pull request events reach automations as they happen. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, automations check pull requests on the regular refresh schedule.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉取请求事件会即时送达自动化。Cascade 运行期间，这会在仓库中添加一个 Webhook，需要该仓库的管理员权限。GitHub 每个仓库只允许一个，因此同一时间只能有一人转发。关闭后，自动化会按常规刷新计划检查拉取请求。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提取要求事件會即時送達自動化。Cascade 執行期間，這會在儲存庫中加入一個 Webhook，需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個，因此同一時間只能有一人轉送。關閉後，自動化會按一般重新整理排程檢查提取要求。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पुल रिक्वेस्ट इवेंट तुरंत स्वचालन तक पहुँचते हैं। Cascade चलने के दौरान यह रिपॉज़िटरी में एक वेबहुक जोड़ता है, जिसके लिए उस पर एडमिन पहुँच चाहिए। GitHub हर रिपॉज़िटरी में केवल एक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इसे भेज सकता है। बंद होने पर स्वचालन नियमित रीफ़्रेश अंतराल पर पुल रिक्वेस्ट जाँचता है।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los eventos de solicitudes llegan a las automatizaciones al instante. Mientras Cascade está abierto, esto añade un webhook al repositorio, lo que requiere acceso de administrador. GitHub permite uno por repositorio, así que solo una persona puede reenviarlo a la vez. Si está desactivado, las automatizaciones comprueban las solicitudes con la frecuencia habitual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les événements de pull request parviennent aux automatisations dès qu’ils se produisent. Tant que Cascade est ouvert, un webhook est ajouté au dépôt, ce qui nécessite un accès administrateur. GitHub n’en autorise qu’un par dépôt : une seule personne peut donc le transférer à la fois. Désactivé, les automatisations vérifient les pull requests selon l’intervalle habituel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصل أحداث طلبات السحب إلى الأتمتة فور حدوثها. أثناء تشغيل Cascade يُضاف خطاف ويب إلى المستودع، ويتطلب ذلك صلاحية المسؤول عليه. يسمح GitHub بخطاف واحد لكل مستودع، لذا يمكن لشخص واحد فقط إعادة توجيهه في كل مرة. عند التعطيل، تتحقق الأتمتة من طلبات السحب وفق جدول التحديث المعتاد."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "পুল রিকোয়েস্টের ঘটনাগুলো সঙ্গে সঙ্গে অটোমেশনে পৌঁছায়। Cascade চলার সময় এটি রিপোজিটরিতে একটি ওয়েবহুক যোগ করে, যার জন্য অ্যাডমিন অ্যাক্সেস লাগে। GitHub প্রতি রিপোজিটরিতে একটির অনুমতি দেয়, তাই একবারে কেবল একজন এটি পাঠাতে পারেন। বন্ধ থাকলে অটোমেশন নিয়মিত রিফ্রেশের সময়সূচি অনুযায়ী পুল রিকোয়েস্ট দেখে।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os eventos de pull request chegam às automações assim que acontecem. Enquanto o Cascade está aberto, isso adiciona um webhook ao repositório, o que exige acesso de administrador. O GitHub permite um por repositório, então só uma pessoa pode encaminhá-lo por vez. Desativado, as automações verificam os pull requests no intervalo habitual."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "События пул-реквестов поступают в автоматизацию сразу. Пока Cascade запущен, в репозиторий добавляется вебхук, для чего нужны права администратора. GitHub разрешает один такой вебхук на репозиторий, поэтому пересылать его может только один человек одновременно. Когда передача выключена, автоматизация проверяет пул-реквесты по обычному расписанию обновления."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストのイベントは発生と同時に自動化に届きます。Cascade の実行中はリポジトリに Webhook が追加されるため、リポジトリの管理者権限が必要です。GitHub ではリポジトリごとに 1 つしか許可されないため、同時に転送できるのは 1 人だけです。オフの場合、自動化は通常の更新間隔でプルリクエストを確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트 이벤트가 발생하는 즉시 자동화에 전달됩니다. Cascade가 실행되는 동안 저장소에 웹훅이 추가되며, 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소마다 하나만 허용하므로 한 번에 한 사람만 전달할 수 있습니다. 끄면 자동화가 정기 새로 고침 일정에 따라 풀 리퀘스트를 확인합니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request-händelser når automatiseringarna direkt. Medan Cascade körs läggs en webhook till i kodförrådet, vilket kräver administratörsbehörighet. GitHub tillåter en per kodförråd, så bara en person i taget kan vidarebefordra den. När det är avstängt kontrollerar automatiseringarna pull requests enligt det vanliga uppdateringsschemat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli eventi delle pull request raggiungono le automazioni non appena si verificano. Mentre Cascade è in esecuzione, viene aggiunto un webhook al repository, il che richiede l’accesso da amministratore. GitHub ne consente uno per repository, quindi solo una persona alla volta può inoltrarlo. Se disattivato, le automazioni controllano le pull request secondo l’intervallo abituale."
+          }
+        }
+      }
+    },
+    "Remove the repository's gh webhook forward hook, then start forwarding again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除仓库的 gh webhook forward 钩子，然后重新开始转发。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除儲存庫的 gh webhook forward 掛鉤，然後重新開始轉送。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रिपॉज़िटरी का gh webhook forward हुक हटाएँ, फिर दोबारा भेजना शुरू करें।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina el hook de gh webhook forward del repositorio y vuelve a iniciar el reenvío."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le hook gh webhook forward du dépôt, puis relancer le transfert."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة خطاف gh webhook forward من المستودع، ثم بدء إعادة التوجيه من جديد."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "রিপোজিটরির gh webhook forward হুক সরান, তারপর আবার পাঠানো শুরু করুন।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove o hook do gh webhook forward do repositório e reinicia o encaminhamento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удалить хук gh webhook forward из репозитория и снова начать передачу."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリの gh webhook forward フックを削除して、転送を再開します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소의 gh webhook forward 훅을 제거한 다음 전달을 다시 시작합니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta bort kodförrådets gh webhook forward-hook och starta vidarebefordran igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi l’hook di gh webhook forward dal repository, poi riavvia l’inoltro."
+          }
+        }
+      }
+    },
+    "Retrying": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在重試"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "फिर कोशिश कर रहा है"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle tentative"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ إعادة المحاولة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "আবার চেষ্টা করা হচ্ছে"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentando novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторная попытка"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도 중"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Försöker igen"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo tentativo"
+          }
+        }
+      }
+    },
+    "Starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在啟動"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "शुरू हो रहा है"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrage"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ البدء"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "শুরু হচ্ছে"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запуск"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 중"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvio"
+          }
+        }
+      }
+    },
+    "The forwarder could not start.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转发程序无法启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送程式無法啟動。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "फ़ॉरवर्डर शुरू नहीं हो सका।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar el reenviador."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert n’a pas pu démarrer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء معيد التوجيه."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ফরোয়ার্ডার শুরু করা যায়নি।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível iniciar o encaminhador."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить пересылку."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送プロセスを開始できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전달 프로세스를 시작할 수 없습니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidarebefordraren kunde inte starta."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare l’inoltro."
+          }
+        }
+      }
+    },
+    "Turned off in the project's settings.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在项目设置中关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在專案設定中關閉。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "प्रोजेक्ट सेटिंग्स में बंद है।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado en los ajustes del proyecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé dans les réglages du projet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معطّلة في إعدادات المشروع."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "প্রকল্পের সেটিংসে বন্ধ।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado nos ajustes do projeto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключено в настройках проекта."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクト設定でオフになっています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 설정에서 꺼져 있습니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avstängd i projektets inställningar."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato nelle impostazioni del progetto."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

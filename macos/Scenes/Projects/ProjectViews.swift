@@ -18,7 +18,7 @@ struct ProjectEditorView: View {
                     Toggle("Forward webhooks to automations", isOn: $model.draft.forwardWebhooks)
                         .disabled(model.draft.repo.isEmpty)
                         .accessibilityIdentifier("project-forward-webhooks")
-                    Text("Pull request events reach automations as they happen, not on the next poll. This adds a webhook to the repository while Cascade runs, and needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. Off, polling still catches every change.")
+                    Text("Pull request events reach automations as they happen. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, automations check pull requests on the regular refresh schedule.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Jira") {
