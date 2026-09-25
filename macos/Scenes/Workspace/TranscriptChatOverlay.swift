@@ -237,7 +237,8 @@ struct ChatSuggestionList: View {
 }
 
 /// Takes Escape in its window for as long as it is in one; leaving the window removes the monitor.
-/// A key the field is composing with an input method is the input method's to cancel.
+/// A key the field is composing with an input method is the input method's to cancel, and a list
+/// on a session page the deck keeps hidden is not the one on screen.
 private struct EscapeCatcher: NSViewRepresentable {
     let action: () -> Void
 
@@ -246,20 +247,27 @@ private struct EscapeCatcher: NSViewRepresentable {
 
     final class CatcherView: NSView {
         var action: (() -> Void)?
-        private var monitor: Any?
+        /// Removed with the view too: a window closed under it frees the view without moving it.
+        private var monitor: Monitor?
+
+        final class Monitor: @unchecked Sendable {
+            let token: Any
+            init(_ token: Any) { self.token = token }
+            deinit { NSEvent.removeMonitor(token) }
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard let self, let window = self.window, event.window === window, event.keyCode == 53,
-                      window.attachedSheet == nil,
+                      !self.isHiddenOrHasHiddenAncestor, window.attachedSheet == nil,
                       (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
                 self.action?()
                 return nil
             }
+            monitor = token.map(Monitor.init)
         }
     }
 }

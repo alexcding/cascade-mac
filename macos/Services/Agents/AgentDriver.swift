@@ -99,7 +99,9 @@ struct ClaudeDriver: AgentDriver {
 
     /// Claude Code takes both at its prompt, mid-conversation.
     func switchInputs(to model: AgentCatalog.Model, effort: String?, in catalog: AgentCatalog) throws -> [AgentInput] {
-        [.line("/model \(model.alias)")] + (effort.map { [.line("/effort \($0)")] } ?? [])
+        // No effort is Claude's own choice again: `/model` alone would keep the level it is at.
+        let level = effort ?? (model.efforts.isEmpty ? nil : "auto")
+        return [.line("/model \(model.alias)")] + (level.map { [.line("/effort \($0)")] } ?? [])
     }
 
     /// Settings for this launch only: the user's own settings file is never written.

@@ -138,7 +138,8 @@ fn last_turn(home: &Path, worktree: &str) -> Option<Value> {
 }
 
 /// What Claude Code answers a headless SDK client's `initialize`: its model picker (`models`) and
-/// every slash command it would offer (`commands`), built-ins, skills and plugins alike. Claude
+/// the slash commands a headless session offers (`commands`), built-ins, skills and plugins alike;
+/// the few only its full-screen interface has (`/help`, `/resume`, `/status`) are not among them. Claude
 /// Code is asked rather than its files read: the list is its own, and it changes with each release.
 /// Served stale while a fresh one is asked for; a failed ask is not retried for a minute.
 pub(super) async fn initialize() -> Option<Value> {

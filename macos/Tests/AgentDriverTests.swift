@@ -31,7 +31,10 @@ import Testing
         let catalog = AgentCatalog(models: [opus])
         #expect(driver.cli == "claude")
         #expect(try driver.switchInputs(to: opus, effort: "high", in: catalog) == [.line("/model opus"), .line("/effort high")])
-        #expect(try driver.switchInputs(to: opus, effort: nil, in: catalog) == [.line("/model opus")])
+        #expect(try driver.switchInputs(to: opus, effort: nil, in: catalog) == [.line("/model opus"), .line("/effort auto")],
+                "No effort hands the level back to Claude")
+        let haiku = AgentCatalog.Model(id: "claude-haiku-4-5", alias: "haiku", name: "Haiku 4.5", efforts: [], defaultEffort: nil)
+        #expect(try driver.switchInputs(to: haiku, effort: nil, in: catalog) == [.line("/model haiku")])
     }
 
     @Test func claudeLaunchCarriesTheStatusLineWithoutTouchingUserSettings() throws {
