@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Tickets, transitions, Sprint board">
+<title>Jira and the Sprint board</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Jira and the Sprint board</h1>
+<p class="lede">Each project can follow a Jira JQL query. Cascade reads and updates tickets through acli.</p>
+<h2>Tickets</h2>
+<ul>
+<li>A project's ticket list comes from its JQL, with search and filters.</li>
+<li>Use a row's status menu to move a ticket to another status.</li>
+<li>Right-click a ticket to open it or start a session on it.</li>
+</ul>
+
+<h2>Sprint board</h2>
+<ul>
+<li>Drag cards between columns, move and reassign tickets, and filter by assignee.</li>
+<li>Board columns come from your Jira board, which needs a Jira API token.</li>
+</ul>
+
+<h2>Jira API token</h2>
+<p>Create a token at id.atlassian.com and paste it in <strong>Settings → Integrations → Jira → API token</strong>. It enables board columns and setting Fix Versions from automations. Cascade finds your <em>Jira site URL</em> from acli, and <em>Result limit</em> caps how many tickets it fetches (100 by default).</p>
+</body>
+</html>

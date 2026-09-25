@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Requirements, setup assistant, first project">
+<title>Getting started</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Getting started</h1>
+<p class="lede">Cascade is a native app for Apple silicon Macs running macOS 14 or later. It works through the command-line tools you already use.</p>
+<h2>What you need</h2>
+<table>
+<tr><th>Tool</th><th>Used for</th><th>Set up</th></tr>
+<tr><td><code>gh</code> (GitHub CLI)</td><td>Pull requests, review requests, CI status</td><td><code>gh auth login</code></td></tr>
+<tr><td>Claude Code or Codex</td><td>Agent sessions. Choose <em>Shell only</em> to work without an agent.</td><td>Install the CLI and sign in</td></tr>
+<tr><td><code>acli</code> (Atlassian CLI)</td><td>Jira tickets and transitions</td><td><code>acli jira auth login</code></td></tr>
+<tr><td>Jira API token <em>(optional)</em></td><td>Sprint board columns and Fix Version automation</td><td>Settings → Integrations → Jira</td></tr>
+<tr><td><code>gh webhook</code> extension <em>(optional)</em></td><td>Instant GitHub events for automations</td><td><code>gh extension install cli/gh-webhook</code></td></tr>
+<tr><td>Node.js 20+ <em>(optional)</em></td><td>Streaming the iOS Simulator into a session</td><td>Install from nodejs.org or Homebrew</td></tr>
+<tr><td><code>ccusage</code> <em>(automatic)</em></td><td>AI spend figures</td><td>Run for you through <code>bunx</code> or <code>npx</code></td></tr>
+</table>
+
+<h2>The setup assistant</h2>
+<p>On first launch Cascade checks each tool, shows how to sign in where needed, and offers to install agent hooks so it can follow what your agents are doing. You can run it again any time from <strong>Settings → Integrations → Setup Assistant</strong>.</p>
+
+<h2>Add a project</h2>
+<p>Choose <strong>File → New Project…</strong> (<kbd>⌘P</kbd>). A project is one GitHub repository plus its local checkout, and can optionally carry a Jira JQL query, a color and a background setup script that runs in each new worktree.</p>
+<p class="note">Removing a project keeps its workspace folders and sessions on disk.</p>
+
+<h2>Start working</h2>
+<p>Press <kbd>⌘N</kbd> to start a <a href="sessions.html">session</a>, or open the <a href="dashboard.html">Overview</a> (<kbd>⇧⌘H</kbd>) to see what needs your attention.</p>
+</body>
+</html>

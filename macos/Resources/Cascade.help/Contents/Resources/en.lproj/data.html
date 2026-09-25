@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="description" content="Updates, data files, backups, deep links, troubleshooting">
+<title>Data, updates and troubleshooting</title>
+<link rel="stylesheet" href="help.css">
+</head>
+<body>
+<nav class="crumb"><a href="index.html">Cascade Help</a></nav>
+<h1>Data, updates and troubleshooting</h1>
+<p class="lede">Cascade keeps everything on your Mac and updates itself.</p>
+<h2>Updates</h2>
+<p>Cascade checks for updates automatically. Choose <strong>Cascade → Check for Updates…</strong> to check now. Updating restarts Cascade, which stops running terminals.</p>
+
+<h2>Where your data lives</h2>
+<p>Everything is in <code>~/Library/Application Support/Cascade</code>.</p>
+<table>
+<tr><th>File</th><th>Contains</th><th>Safe to delete?</th></tr>
+<tr><td><code>cascade.db</code></td><td>Projects, sessions, tabs and settings</td><td><strong>No</strong>: back it up</td></tr>
+<tr><td><code>data.db</code></td><td>Cached GitHub and Jira data</td><td>Yes, it is rebuilt</td></tr>
+<tr><td><code>logs.db</code></td><td>The Activity log</td><td>Yes</td></tr>
+</table>
+
+<h2>Backups</h2>
+<p>Before the first launch of each new version, Cascade saves a checkpoint in <code>native-backups/</code> inside the data folder. These are not deleted automatically.</p>
+<p>To make a backup yourself, save open files, quit Cascade, then run:</p>
+<pre><code>/Applications/Cascade.app/Contents/Helpers/cascade-backend backup &lt;destination&gt;</code></pre>
+<p>The same tool has <code>verify</code> and <code>restore</code>. The destination must not already exist. To go back to an older version, restore a checkpoint taken before the upgrade and use that older app. Worktree files and agent conversations are not part of the backup.</p>
+
+<h2>Links into Cascade</h2>
+<p>Other apps and scripts can open Cascade at a specific place:</p>
+<table>
+<tr><th>Link</th><th>Opens</th></tr>
+<tr><td><code>cascade://app/overview</code></td><td>The Overview</td></tr>
+<tr><td><code>cascade://app/automation</code></td><td>Automation</td></tr>
+<tr><td><code>cascade://app/terminal</code></td><td>The terminal</td></tr>
+<tr><td><code>cascade://app/projects/&lt;id&gt;</code></td><td>A project</td></tr>
+<tr><td><code>cascade://app/projects/&lt;id&gt;/prs</code></td><td>A project's pull requests (also <code>tickets</code>, <code>board</code>, <code>workflows</code>, <code>settings</code>)</td></tr>
+<tr><td><code>cascade://app/sessions/&lt;id&gt;</code></td><td>A session</td></tr>
+</table>
+
+<h2>Troubleshooting</h2>
+<h3>Pull requests or tickets are missing</h3>
+<p>Check that <code>gh auth status</code> and <code>acli jira auth status</code> report you as signed in, or look at Settings → Integrations. Then press <kbd>⇧⌘R</kbd>. If a refresh fails, Cascade keeps the last good data and offers Retry; Settings → Activity shows what went wrong.</p>
+<h3>The Sprint board has no columns</h3>
+<p>Add a Jira API token in Settings → Integrations → Jira.</p>
+<h3>Automations are slow to react</h3>
+<p>Without webhooks they run on the polling cycle (every minute by default). Install the extension with <code>gh extension install cli/gh-webhook</code> and turn on <em>Forward webhooks to automations</em>.</p>
+<h3>My sessions kept running after I closed the window</h3>
+<p>That is intended. Closing the window leaves sessions running; <strong>Quit</strong> (<kbd>⌘Q</kbd>) stops them.</p>
+<h3>Cascade is using a lot of memory</h3>
+<p>Lower <em>Session memory</em> in Settings → Terminal and <em>Page memory</em> in Settings → Browser, and check Settings → System → Resource Usage.</p>
+<h3>Voice input does not work in a terminal</h3>
+<p>Allow microphone access in Settings → General → Microphone.</p>
+</body>
+</html>
