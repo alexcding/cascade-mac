@@ -56,12 +56,8 @@ struct ChatPageState: Encodable, Equatable {
     private var ready = false
     private var state: ChatPageState?
     private var rendered: ChatPageState?
-    /// Where this chat's zoom is kept, so it survives relaunch; nil keeps it for this page only.
-    private let zoomKey: String?
 
-    /// Each session's chat has its own zoom, kept across launches like a browser's for a site.
-    init(zoomKey: String? = nil) {
-        self.zoomKey = zoomKey
+    override init() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         config.setURLSchemeHandler(ChatPageAssets(), forURLScheme: ChatPageAssets.scheme)
@@ -71,14 +67,21 @@ struct ChatPageState: Encodable, Equatable {
         webView.navigationDelegate = self
         // The page paints its own ground; a white flash before it loads is not ours.
         webView.setValue(false, forKey: "drawsBackground")
-        if let zoomKey, let zoom = UserDefaults.standard.object(forKey: zoomKey) as? Double { webView.pageZoom = zoom }
+        if let zoom = UserDefaults.standard.object(forKey: Self.zoomKey) as? Double { webView.pageZoom = zoom }
+        Self.open.add(self)
         webView.load(URLRequest(url: ChatPageAssets.pageURL))
     }
 
-    /// ⌘+ / ⌘− step it, as a browser page's; nil (⌘0) goes back to actual size.
+    /// One size for every chat, kept across launches, as the terminal font is.
+    private static let zoomKey = "workspace.chatZoom"
+    /// The chats built so far, which a change of size reaches at once, as a terminal font change does.
+    private static let open = NSHashTable<TranscriptChatPage>.weakObjects()
+
+    /// ⌘+ / ⌘− step it, as a browser page's; nil (⌘0) goes back to actual size. Every chat follows.
     func zoom(_ delta: Double?) {
-        webView.pageZoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
-        if let zoomKey { UserDefaults.standard.set(Double(webView.pageZoom), forKey: zoomKey) }
+        let zoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
+        UserDefaults.standard.set(Double(zoom), forKey: Self.zoomKey)
+        for page in Self.open.allObjects { page.webView.pageZoom = zoom }
     }
 
     /// Whether the keyboard is in the conversation itself.
@@ -93,6 +96,7 @@ struct ChatPageState: Encodable, Equatable {
     }
 
     func close() {
+        Self.open.remove(self)
         webView.stopLoading(); webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "chat")
         webView.removeFromSuperview()

@@ -370,8 +370,6 @@ extension WorkspaceServing {
 
     /// Each session keeps the mode it was left in, across relaunches; Terminal until it is changed.
     private static func chatModeKey(_ sessionID: String) -> String { "workspace.chatMode.\(sessionID)" }
-    /// Each session's chat keeps its own zoom, across relaunches too.
-    private static func chatZoomKey(_ sessionID: String) -> String { "workspace.chatZoom.\(sessionID)" }
     /// Whether the session opens in Chat, for whoever hands it the keyboard.
     static func opensInChat(sessionID: String) -> Bool { UserDefaults.standard.bool(forKey: chatModeKey(sessionID)) }
 
@@ -432,7 +430,6 @@ extension WorkspaceServing {
                         guard let service = self?.service else { throw BackendError.operation("The workspace is closed.") }
                         try await service.answerPermission(id, decision: decision)
                     }),
-                zoomKey: Self.chatZoomKey(session.id),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
                 openHookSettings: { [weak self] in self?.openHookSettings() })
         }
