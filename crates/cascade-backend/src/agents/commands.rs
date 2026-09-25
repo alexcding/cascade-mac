@@ -1,6 +1,6 @@
-//! The slash commands a CLI offers in a worktree, for the chat's `/` suggestions. Each CLI is asked
-//! nothing: its commands are read from the files it reads itself, beside the built-ins it ships.
-//! The built-in lists are written down here, so a CLI release can add one before this list does.
+//! The slash commands a CLI offers in a worktree, for the chat's `/` suggestions: the ones read
+//! from the files the CLI reads itself, then its built-ins. Claude Code reports its built-ins when
+//! asked (`claude::initialize`); Codex has no way to, so its are written down here.
 
 use serde_json::{json, Value};
 use std::{
@@ -10,15 +10,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// One command as the chat offers it. `interactive`: sent without arguments it opens a panel in
-/// the terminal rather than answering in the conversation.
+/// One command as the chat offers it.
 struct Command {
     name: String,
     description: String,
     hint: String,
     source: &'static str,
     plugin: Option<String>,
-    interactive: bool,
 }
 
 impl Command {
@@ -29,17 +27,17 @@ impl Command {
             "hint": self.hint,
             "source": self.source,
             "plugin": self.plugin,
-            "interactive": self.interactive,
         })
     }
 }
 
 /// `{"commands":[…]}`: the worktree's own first, then the person's, their plugins', and the
-/// CLI's built-ins. A name offered twice keeps its first.
-pub fn list(home: &Path, cli: &str, worktree: &Path) -> Value {
+/// CLI's built-ins. A name offered twice keeps its first. `reported` is what Claude Code's
+/// `initialize` listed, or null when it could not be asked.
+pub fn list(home: &Path, cli: &str, worktree: &Path, reported: &Value) -> Value {
     let found = match cli {
         "codex" => codex(home),
-        _ => claude(home, worktree),
+        _ => claude(home, worktree, reported),
     };
     let mut seen = HashSet::new();
     let commands: Vec<Value> = found
@@ -50,15 +48,36 @@ pub fn list(home: &Path, cli: &str, worktree: &Path) -> Value {
     json!({ "commands": commands })
 }
 
-fn claude(home: &Path, worktree: &Path) -> Vec<Command> {
+fn claude(home: &Path, worktree: &Path, reported: &Value) -> Vec<Command> {
     let mut found = Vec::new();
     for (root, source) in [(worktree.join(".claude"), "project"), (home.join(".claude"), "user")] {
         found.extend(command_files(&root.join("commands"), source, None));
         found.extend(skills(&root.join("skills"), source, None));
     }
     found.extend(claude_plugins(home, worktree));
-    found.extend(builtins(CLAUDE_BUILTINS));
+    found.extend(claude_reported(reported));
     found
+}
+
+/// Claude Code's own list. It is asked from no worktree, so what the files above did not find is
+/// its built-ins and the skills it keeps elsewhere (claude.ai's). `__` names are its internals.
+/// Plugins are `claude_plugins`' alone: only it knows which ones this worktree turned off.
+fn claude_reported(reported: &Value) -> Vec<Command> {
+    reported
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|command| {
+            let name = command["name"].as_str().filter(|name| !name.starts_with("__") && !name.contains(':'))?;
+            Some(Command {
+                name: name.to_string(),
+                description: command["description"].as_str().unwrap_or_default().to_string(),
+                hint: command["argumentHint"].as_str().unwrap_or_default().to_string(),
+                source: if command["builtin"] == true { "builtin" } else { "user" },
+                plugin: None,
+            })
+        })
+        .collect()
 }
 
 fn codex(home: &Path) -> Vec<Command> {
@@ -85,7 +104,6 @@ fn command_files(directory: &Path, source: &'static str, plugin: Option<&str>) -
             hint: fields.get("argument-hint").cloned().unwrap_or_default(),
             source,
             plugin: plugin.map(str::to_string),
-            interactive: false,
         });
     }
     found
@@ -117,7 +135,6 @@ fn skills(directory: &Path, source: &'static str, plugin: Option<&str>) -> Vec<C
             hint: fields.get("argument-hint").cloned().unwrap_or_default(),
             source,
             plugin: plugin.map(str::to_string),
-            interactive: false,
         });
     }
     found
@@ -187,59 +204,28 @@ fn main_checkout(worktree: &Path) -> PathBuf {
         .unwrap_or_else(|| worktree.to_path_buf())
 }
 
-/// `(name, description, hint, interactive)`.
-type Builtin = (&'static str, &'static str, &'static str, bool);
-
-const CLAUDE_BUILTINS: &[Builtin] = &[
-    ("add-dir", "Add a new working directory", "<path>", false),
-    ("agents", "Manage agent configurations", "", true),
-    ("clear", "Clear conversation history and free up context", "", false),
-    ("compact", "Clear conversation history but keep a summary in context", "[instructions]", false),
-    ("config", "Open the settings panel", "", true),
-    ("context", "Show current context usage", "", false),
-    ("cost", "Show the total cost and duration of the current session", "", false),
-    ("doctor", "Check the health of your Claude Code installation", "", true),
-    ("export", "Export the current conversation", "[filename]", true),
-    ("help", "Show help and available commands", "", true),
-    ("hooks", "Manage hook configurations for tool events", "", true),
-    ("init", "Initialize a new CLAUDE.md file with codebase documentation", "", false),
-    ("mcp", "Manage MCP servers", "", true),
-    ("memory", "Edit Claude memory files", "", true),
-    ("model", "Set the AI model for Claude Code", "[model]", true),
-    ("permissions", "Manage allow and deny tool permission rules", "", true),
-    ("plugin", "Manage Claude Code plugins", "", true),
-    ("pr-comments", "Get comments from a GitHub pull request", "", false),
-    ("release-notes", "View release notes", "", true),
-    ("resume", "Resume a conversation", "", true),
-    ("review", "Review a pull request", "", false),
-    ("rewind", "Restore the code and/or conversation to a previous point", "", true),
-    ("security-review", "Complete a security review of the pending changes on the current branch", "", false),
-    ("status", "Show Claude Code status", "", true),
-    ("todos", "List current todo items", "", false),
-    ("usage", "Show plan usage limits", "", true),
-    ("vim", "Toggle between Vim and Normal editing modes", "", false),
-];
+/// `(name, description, hint)`.
+type Builtin = (&'static str, &'static str, &'static str);
 
 const CODEX_BUILTINS: &[Builtin] = &[
-    ("model", "Choose what model and reasoning effort to use", "", true),
-    ("approvals", "Choose what Codex can do without approval", "", true),
-    ("review", "Review my current changes and find issues", "", true),
-    ("new", "Start a new chat during a conversation", "", false),
-    ("init", "Create an AGENTS.md file with instructions for Codex", "", false),
-    ("compact", "Summarize the conversation to prevent hitting the context limit", "", false),
-    ("diff", "Show git diff, including untracked files", "", true),
-    ("status", "Show current session configuration and token usage", "", true),
-    ("mcp", "List configured MCP tools", "", true),
+    ("model", "Choose what model and reasoning effort to use", ""),
+    ("approvals", "Choose what Codex can do without approval", ""),
+    ("review", "Review my current changes and find issues", ""),
+    ("new", "Start a new chat during a conversation", ""),
+    ("init", "Create an AGENTS.md file with instructions for Codex", ""),
+    ("compact", "Summarize the conversation to prevent hitting the context limit", ""),
+    ("diff", "Show git diff, including untracked files", ""),
+    ("status", "Show current session configuration and token usage", ""),
+    ("mcp", "List configured MCP tools", ""),
 ];
 
 fn builtins(list: &[Builtin]) -> impl Iterator<Item = Command> + '_ {
-    list.iter().map(|&(name, description, hint, interactive)| Command {
+    list.iter().map(|&(name, description, hint)| Command {
         name: name.to_string(),
         description: description.to_string(),
         hint: hint.to_string(),
         source: "builtin",
         plugin: None,
-        interactive,
     })
 }
 
@@ -383,10 +369,16 @@ mod tests {
         );
         write(home.join(".claude/settings.json"), r#"{"enabledPlugins": {"off@market": false}}"#);
 
-        let listed = list(&home, "claude", &worktree);
+        let reported = json!([
+            {"name": "compact", "description": "Free up context", "argumentHint": "<instructions>", "builtin": true},
+            {"name": "pdf", "description": "Work with PDFs (user)", "argumentHint": ""},
+            {"name": "docs", "description": "Living docs (claude.ai sync)", "argumentHint": ""},
+            {"name": "__remote-workflow", "description": "Internal", "argumentHint": "", "builtin": true},
+            {"name": "off:hidden", "description": "Turned off here", "argumentHint": ""},
+        ]);
+        let listed = list(&home, "claude", &worktree, &reported);
         let found = names(&listed);
-        assert_eq!(&found[..4], ["ship", "standup", "pdf", "tools:deploy"]);
-        assert!(found.contains(&"compact".to_string()) && !found.contains(&"quiet".to_string()));
+        assert_eq!(found, ["ship", "standup", "pdf", "tools:deploy", "compact", "docs"]);
         assert!(!found.iter().any(|name| name.contains("hidden")), "a turned-off plugin is left out");
         let commands = listed["commands"].as_array().unwrap();
         assert_eq!(commands[0]["description"], "Ship it");
@@ -395,8 +387,10 @@ mod tests {
         assert_eq!(commands[1]["description"], "Write my standup");
         assert_eq!(commands[2]["description"], "Work with PDF files");
         assert_eq!(commands[3]["plugin"], "tools");
-        let model = commands.iter().find(|c| c["name"] == "model").unwrap();
-        assert_eq!(model["interactive"], true);
+        assert_eq!(commands[2]["source"], "user", "the file found on disk wins over the reported copy");
+        assert_eq!(commands[4]["source"], "builtin");
+        assert_eq!(commands[4]["hint"], "<instructions>");
+        assert_eq!(commands[5]["source"], "user");
     }
 
     #[test]
@@ -408,7 +402,7 @@ mod tests {
         fs::create_dir_all(&commands).unwrap();
         std::os::unix::fs::symlink(root.join("dotfiles/standup.md"), commands.join("standup.md")).unwrap();
         std::os::unix::fs::symlink(root.join("dotfiles/team"), commands.join("team")).unwrap();
-        let found = names(&list(&root.join("home"), "claude", &root.join("worktree")));
+        let found = names(&list(&root.join("home"), "claude", &root.join("worktree"), &Value::Null));
         assert!(found.contains(&"standup".to_string()) && found.contains(&"triage".to_string()));
     }
 
@@ -428,16 +422,17 @@ mod tests {
             }})
             .to_string(),
         );
-        assert!(names(&list(&home, "claude", &worktree)).contains(&"tools:deploy".to_string()));
-        assert!(names(&list(&home, "claude", &project)).contains(&"tools:deploy".to_string()));
-        assert!(!names(&list(&home, "claude", &other)).contains(&"tools:deploy".to_string()));
+        assert!(names(&list(&home, "claude", &worktree, &Value::Null)).contains(&"tools:deploy".to_string()));
+        assert!(names(&list(&home, "claude", &project, &Value::Null)).contains(&"tools:deploy".to_string()));
+        assert!(!names(&list(&home, "claude", &other, &Value::Null)).contains(&"tools:deploy".to_string()));
     }
 
     #[test]
     fn a_project_command_keeps_its_name_over_a_builtin() {
         let root = scratch("override");
         write(root.join("worktree/.claude/commands/review.md"), "Our review\n");
-        let listed = list(&root.join("home"), "claude", &root.join("worktree"));
+        let reported = json!([{"name": "review", "description": "Review a pull request", "builtin": true}]);
+        let listed = list(&root.join("home"), "claude", &root.join("worktree"), &reported);
         let reviews: Vec<&Value> =
             listed["commands"].as_array().unwrap().iter().filter(|c| c["name"] == "review").collect();
         assert_eq!(reviews.len(), 1);
@@ -448,7 +443,7 @@ mod tests {
     fn codex_offers_saved_prompts_under_prompts() {
         let root = scratch("codex");
         write(root.join(".codex/prompts/triage.md"), "---\ndescription: Triage an issue\n---\n");
-        let listed = list(&root, "codex", &root.join("worktree"));
+        let listed = list(&root, "codex", &root.join("worktree"), &json!([{"name": "add-dir", "builtin": true}]));
         let found = names(&listed);
         assert_eq!(found[0], "prompts:triage");
         assert!(found.contains(&"approvals".to_string()));

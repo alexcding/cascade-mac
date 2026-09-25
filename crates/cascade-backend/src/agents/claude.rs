@@ -1,8 +1,10 @@
 use super::{newest_jsonl, percent, tail, AgentProbe};
+use crate::cli;
 use serde_json::{json, Value};
 use std::{
     fs,
     path::{Path, PathBuf},
+    time::{Duration, Instant},
 };
 
 pub struct Claude;
@@ -11,13 +13,9 @@ pub struct Claude;
 const STATUS_DIR: &str = "Library/Application Support/Cascade/statusline";
 
 impl AgentProbe for Claude {
-    async fn catalog(home: &Path) -> Value {
-        let home = home.to_path_buf();
-        tokio::task::spawn_blocking(move || cached_catalog(&home))
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(fallback_catalog)
+    async fn catalog(_home: &Path) -> Value {
+        let models = initialize().await.map(|reply| models(&reply["models"])).unwrap_or_default();
+        json!({ "models": models })
     }
 
     fn status(home: &Path, worktree: &str, task: &str) -> Option<Value> {
@@ -139,67 +137,117 @@ fn last_turn(home: &Path, worktree: &str) -> Option<Value> {
     Some(turn.unwrap_or(Value::Null))
 }
 
-/// Claude Code has no command that lists models; it keeps the picker's contents in a cache file.
-/// That file is undocumented, so anything unexpected about it means the fallback.
-fn cached_catalog(home: &Path) -> Option<Value> {
-    let path = fs::read_dir(home.join(".claude/cache/model-catalog"))
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_name().to_string_lossy().ends_with("-cc.json"))
-        .max_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok())?
-        .path();
-    let value: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
-    if value["version"] != 2 {
-        return None;
+/// What Claude Code answers a headless SDK client's `initialize`: its model picker (`models`) and
+/// every slash command it would offer (`commands`), built-ins, skills and plugins alike. Claude
+/// Code is asked rather than its files read: the list is its own, and it changes with each release.
+/// Served stale while a fresh one is asked for; a failed ask is not retried for a minute.
+pub(super) async fn initialize() -> Option<Value> {
+    let cached = INITIALIZE.lock().unwrap().clone();
+    match cached {
+        Some((until, reply)) if Instant::now() < until => reply,
+        Some((_, reply @ Some(_))) => {
+            tokio::spawn(ask());
+            reply
+        }
+        _ => ask().await,
     }
-    let models: Vec<Value> = value
-        .pointer("/catalog/config/models")?
-        .as_array()?
-        .iter()
-        .filter_map(|model| {
-            let options = model.pointer("/thinking/effort_options").and_then(Value::as_array);
-            let efforts: Vec<Value> = options
-                .into_iter()
-                .flatten()
-                .filter_map(|o| Some(json!({"id": o["id"].as_str()?, "name": o["name"].as_str()?})))
-                .collect();
-            let default = options.into_iter().flatten().find_map(|o| {
-                (o.pointer("/badge/message") == Some(&json!("Default"))).then(|| o["id"].clone())
-            });
-            Some(json!({
-                "id": model["id"].as_str()?,
-                // `/model` is tested with the short names; the picker's short name is that alias.
-                "alias": model["short_name"].as_str()?.to_lowercase(),
-                "name": model["name"].as_str()?,
-                "efforts": efforts,
-                "defaultEffort": default,
-            }))
-        })
-        .collect();
-    (!models.is_empty()).then(|| json!({"models": models}))
 }
 
-fn fallback_catalog() -> Value {
-    let efforts: Vec<Value> = [
-        ("low", "Low"),
-        ("medium", "Medium"),
-        ("high", "High"),
-        ("xhigh", "Extra"),
-        ("max", "Max"),
-    ]
-    .iter()
-    .map(|(id, name)| json!({"id": id, "name": name}))
-    .collect();
-    let models: Vec<Value> = ["fable", "opus", "sonnet", "haiku"]
-        .iter()
-        .map(|alias| {
-            let name = format!("{}{}", alias[..1].to_uppercase(), &alias[1..]);
-            json!({"id": alias, "alias": alias, "name": name,
-                "efforts": if *alias == "haiku" { json!([]) } else { json!(efforts) },
-                "defaultEffort": if *alias == "haiku" { Value::Null } else { json!("high") }})
+/// The last answer, and until when it stands.
+static INITIALIZE: std::sync::Mutex<Option<(Instant, Option<Value>)>> = std::sync::Mutex::new(None);
+/// One ask at a time: a caller that waited on another's finds its answer.
+static ASKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn ask() -> Option<Value> {
+    let _asking = ASKING.lock().await;
+    if let Some((until, reply)) = INITIALIZE.lock().unwrap().clone() {
+        if Instant::now() < until {
+            return reply;
+        }
+    }
+    let line = cli::first_line(
+        "claude",
+        [
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--verbose",
+            "--no-session-persistence",
+            "--strict-mcp-config",
+            "--mcp-config",
+            r#"{"mcpServers":{}}"#,
+            // The person's SessionStart hooks are for their sessions, not for this question.
+            "--settings",
+            r#"{"disableAllHooks":true}"#,
+        ],
+        concat!(r#"{"type":"control_request","request_id":"cascade-init","request":{"subtype":"initialize"}}"#, "\n")
+            .as_bytes(),
+        Duration::from_secs(20),
+        is_initialize_reply,
+    )
+    .await;
+    let reply = line.ok().and_then(|line| {
+        let value: Value = serde_json::from_str(&line).ok()?;
+        (value["response"]["subtype"] == "success").then(|| value["response"]["response"].clone())
+    });
+    // A failed ask keeps the last answer, and tries again sooner.
+    let mut cached = INITIALIZE.lock().unwrap();
+    let (stands, kept) = match reply {
+        Some(reply) => (600, Some(reply)),
+        None => (60, cached.take().and_then(|(_, previous)| previous)),
+    };
+    *cached = Some((Instant::now() + Duration::from_secs(stands), kept.clone()));
+    kept
+}
+
+fn is_initialize_reply(line: &str) -> bool {
+    serde_json::from_str::<Value>(line)
+        .is_ok_and(|v| v["type"] == "control_response" && v["response"]["request_id"] == "cascade-init")
+}
+
+/// The picker's rows as the app's catalog. `value` is what `/model` takes and `resolvedModel` what
+/// the status line reports; `default` only names another row. Claude Code gives no default effort,
+/// so none is chosen for it.
+fn models(rows: &Value) -> Vec<Value> {
+    let mut seen = std::collections::HashSet::new();
+    rows.as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| row["value"] != "default" && row["disabled"] != true)
+        .filter_map(|row| {
+            let alias = row["value"].as_str()?;
+            let id = row["resolvedModel"].as_str().unwrap_or(alias);
+            seen.insert(id.to_string()).then_some(())?;
+            let efforts: Vec<Value> = row["supportedEffortLevels"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|level| {
+                    let level = level.as_str()?;
+                    Some(json!({"id": level, "name": effort_name(level)}))
+                })
+                .collect();
+            Some(json!({
+                "id": id,
+                "alias": alias,
+                "name": row["displayName"].as_str().unwrap_or(alias),
+                "efforts": efforts,
+                "defaultEffort": null,
+            }))
         })
-        .collect();
-    json!({"models": models})
+        .collect()
+}
+
+fn effort_name(level: &str) -> String {
+    match level {
+        "xhigh" => "Extra".to_string(),
+        _ => {
+            let mut letters = level.chars();
+            letters.next().map_or_else(String::new, |first| first.to_uppercase().chain(letters).collect())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -295,10 +343,31 @@ mod tests {
     }
 
     #[test]
-    fn fallback_catalog_gives_haiku_no_efforts() {
-        let catalog = fallback_catalog();
-        let models = catalog["models"].as_array().unwrap();
-        assert_eq!(models.len(), 4);
-        assert!(models[3]["efforts"].as_array().unwrap().is_empty());
+    fn the_pickers_rows_become_the_catalog() {
+        let rows = json!([
+            {"value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default"},
+            {"value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5",
+             "supportedEffortLevels": ["low", "xhigh", "max", "", "ümlaut"]},
+            {"value": "claude-fable-5-1", "resolvedModel": "claude-fable-5-1", "displayName": "Fable 5.1"},
+            {"value": "haiku", "resolvedModel": "claude-haiku-4-5-20251001", "displayName": "Haiku 4.5"},
+            {"value": "gone", "disabled": true},
+        ]);
+        let models = models(&rows);
+        let ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["claude-opus-5-5", "claude-fable-5-1", "claude-haiku-4-5-20251001"]);
+        assert_eq!(models[0]["alias"], "opus");
+        assert_eq!(models[0]["efforts"][1], json!({"id": "xhigh", "name": "Extra"}));
+        assert_eq!(models[0]["efforts"][3]["name"], "");
+        assert_eq!(models[0]["efforts"][4]["name"], "Ümlaut");
+        assert!(models[0]["defaultEffort"].is_null());
+        assert!(models[2]["efforts"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn only_the_initialize_answer_is_taken() {
+        assert!(is_initialize_reply(r#"{"type":"control_response","response":{"request_id":"cascade-init"}}"#));
+        assert!(!is_initialize_reply(r#"{"type":"system","subtype":"init"}"#));
+        assert!(!is_initialize_reply(r#"{"type":"control_response","response":{"request_id":"other"}}"#));
     }
 }
+

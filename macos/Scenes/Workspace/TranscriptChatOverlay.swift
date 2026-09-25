@@ -108,6 +108,14 @@ struct TranscriptChatOverlay: View {
                 }
                 .padding(.horizontal, 4)
             }
+            // A card of its own just above the field, as wide as it: the conversation makes room.
+            if !chat.suggestions.isEmpty {
+                ChatSuggestionList(suggestions: chat.suggestions, highlighted: chat.highlighted,
+                                   dismiss: { chat.dismissSuggestions() }) { index in
+                    Task { await chat.acceptSuggestion(index) }
+                }
+                .padding(.bottom, 4)
+            }
             VStack(alignment: .leading, spacing: 14) {
                 // Takes the keyboard from the terminal when it appears, and again when a session
                 // switched to by its shortcut asks for it: the terminal stays in the window
@@ -153,15 +161,6 @@ struct TranscriptChatOverlay: View {
                 if case .success(let urls) = result { chat.attach(ChatAttachmentReader.files(urls)) }
             }
             .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
-            // Over the conversation, just above the field, so opening it moves nothing.
-            .overlay(alignment: .topLeading) {
-                if !chat.suggestions.isEmpty {
-                    ChatSuggestionList(suggestions: chat.suggestions, highlighted: chat.highlighted) { index in
-                        Task { await chat.acceptSuggestion(index) }
-                    }
-                    .alignmentGuide(.top) { $0[.bottom] + 6 }
-                }
-            }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 18)
@@ -172,14 +171,18 @@ struct TranscriptChatOverlay: View {
 }
 
 /// The rows over the message field: what `/` or `@` is completing to. The field keeps the
-/// keyboard; the arrows move the highlight and Tab or Return take it.
+/// keyboard; the arrows move the highlight and Tab or Return take it. Escape closes it wherever
+/// the keyboard is in its window, since the field can lose it while the list stays up.
 struct ChatSuggestionList: View {
     let suggestions: [ChatSuggestion]
     let highlighted: Int
+    let dismiss: () -> Void
     let choose: (Int) -> Void
 
-    private static let rowHeight: CGFloat = 30
-    private static let visibleRows = 8
+    private static let rowHeight: CGFloat = 32
+    private static let visibleRows = 6
+
+    static func height(showing count: Int) -> CGFloat { CGFloat(min(count, visibleRows)) * rowHeight + 12 }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -191,31 +194,32 @@ struct ChatSuggestionList: View {
                             .id(row.id)
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 6)
             }
-            .frame(height: CGFloat(min(suggestions.count, Self.visibleRows)) * Self.rowHeight + 8)
+            .frame(height: Self.height(showing: suggestions.count))
             .onChange(of: highlighted) { _, index in
                 if suggestions.indices.contains(index) { proxy.scrollTo(suggestions[index].id) }
             }
         }
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: Theme.Size.hairline))
-        .shadow(color: .black.opacity(0.08), radius: 10, y: 2)
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: Theme.Size.hairline))
+        .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
+        .background(EscapeCatcher(action: dismiss))
         .accessibilityIdentifier("transcript-chat-suggestions")
     }
 
     private func label(_ row: ChatSuggestion, highlighted: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: row.kind == .command ? "command" : "doc")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.textTertiary)
-                .frame(width: 14)
+                .font(.system(size: 13))
+                .foregroundStyle(Theme.textSecondary)
+                .frame(width: 16)
             Text(row.title)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 14))
                 .lineLimit(1)
                 .layoutPriority(1)
             Text(row.detail)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(Theme.textSecondary)
                 .lineLimit(1)
                 .truncationMode(row.kind == .file ? .head : .tail)
@@ -226,8 +230,37 @@ struct ChatSuggestionList: View {
         }
         .padding(.horizontal, 12)
         .frame(height: Self.rowHeight)
-        .background(highlighted ? Theme.accentBackground : .clear, in: RoundedRectangle(cornerRadius: 6))
-        .padding(.horizontal, 4)
+        .background(highlighted ? Theme.surfaceHover : .clear, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 6)
         .contentShape(Rectangle())
     }
 }
+
+/// Takes Escape in its window for as long as it is in one; leaving the window removes the monitor.
+/// A key the field is composing with an input method is the input method's to cancel.
+private struct EscapeCatcher: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> CatcherView { CatcherView() }
+    func updateNSView(_ view: CatcherView, context: Context) { view.action = action }
+
+    final class CatcherView: NSView {
+        var action: (() -> Void)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, let window = self.window, event.window === window, event.keyCode == 53,
+                      window.attachedSheet == nil,
+                      (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return event }
+                self.action?()
+                return nil
+            }
+        }
+    }
+}
+

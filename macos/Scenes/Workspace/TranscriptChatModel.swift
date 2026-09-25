@@ -460,9 +460,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             pendingPrompt = Self.shown(text, with: files)
             error = nil
             render()
-            // A command that opens a panel does so in the terminal, which the chat covers. Files
-            // go after a command as its arguments, and one with arguments opens none.
-            if files.isEmpty, opensPanel(text) { showTerminal() }
             await refresh()
         } catch {
             guard !retired else { return }
@@ -556,13 +553,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         clearSuggestions()
         requestFocus()
         if run, row.complete { await send() }
-    }
-
-    /// `/model`, `/config` and the like, sent bare, answer in a panel of the terminal's own.
-    private func opensPanel(_ text: String) -> Bool {
-        guard text.hasPrefix("/"), !text.contains(where: \.isWhitespace) else { return false }
-        let name = String(text.dropFirst())
-        return commands?.first { $0.name == name }?.interactive == true
     }
 
     /// A sent message as its bubble shows it until the transcript has it: the files by name.

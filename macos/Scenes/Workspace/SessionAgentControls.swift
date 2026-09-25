@@ -36,7 +36,7 @@ struct AgentPresetList: RawRepresentable, Equatable {
         let listed = presets.filter { catalog.model($0.selection.model) != nil }
         if !listed.isEmpty { return listed }
         return catalog.models.prefix(2).map {
-            AgentPreset(id: "default-\($0.id)", selection: AgentSelection(model: $0.id, effort: $0.defaultEffort ?? $0.efforts.first?.id))
+            AgentPreset(id: "default-\($0.id)", selection: AgentSelection(model: $0.id, effort: $0.defaultEffort))
         }
     }
 }
@@ -261,7 +261,9 @@ private struct AgentPresetEditor: View {
                     }
                     .frame(width: 150)
                     Picker(String(localized: "Effort"), selection: Binding(get: { preset.selection.effort ?? "" },
-                                                        set: { effort in change(preset.id) { $0.selection.effort = effort } })) {
+                                                        set: { effort in change(preset.id) { $0.selection.effort = effort.isEmpty ? nil : effort } })) {
+                        // No level at all is the CLI's own default.
+                        if !efforts.isEmpty { Text(String(localized: "Default")).tag("") }
                         ForEach(efforts) { Text($0.name).tag($0.id) }
                     }
                     .frame(width: 110)
@@ -275,7 +277,7 @@ private struct AgentPresetEditor: View {
             }
             Button(String(localized: "Add Preset"), systemImage: "plus") {
                 guard let first = catalog.models.first else { return }
-                presets.append(AgentPreset(selection: AgentSelection(model: first.id, effort: first.defaultEffort ?? first.efforts.first?.id)))
+                presets.append(AgentPreset(selection: AgentSelection(model: first.id, effort: first.defaultEffort)))
             }
             .disabled(catalog.models.isEmpty)
             Text(rejection ?? String(localized: "A shortcut needs ⌘, so it never takes a key from the CLI. It works while this window is in front; one a menu command holds is refused."))
@@ -298,7 +300,7 @@ private struct AgentPresetEditor: View {
         change(id) { preset in
             preset.selection.model = chosen.id
             if !chosen.efforts.contains(where: { $0.id == preset.selection.effort }) {
-                preset.selection.effort = chosen.defaultEffort ?? chosen.efforts.first?.id
+                preset.selection.effort = chosen.defaultEffort
             }
         }
     }

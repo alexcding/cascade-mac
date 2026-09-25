@@ -71,6 +71,7 @@ impl Poller {
             return;
         }
         crate::automation::start(&app);
+        crate::agents::warm();
         let pr_app = app.clone();
         tokio::spawn(async move {
             loop {

@@ -28,6 +28,12 @@ pub trait AgentProbe {
     fn status(home: &Path, worktree: &str, task: &str) -> Option<Value>;
 }
 
+/// Asks Claude Code for its models and commands in the background at start, so the first model
+/// menu or `/` list finds the answer waiting rather than waits for it.
+pub fn warm() {
+    tokio::spawn(claude::initialize());
+}
+
 #[derive(serde::Deserialize)]
 pub struct CatalogQuery {
     cli: String,
@@ -126,12 +132,16 @@ pub struct CommandsQuery {
 
 /// The slash commands the CLI offers in this worktree, for the chat's `/` suggestions.
 pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
+    let reported = match query.cli.as_str() {
+        "codex" => Value::Null,
+        _ => claude::initialize().await.map(|reply| reply["commands"].clone()).unwrap_or_default(),
+    };
     let found = tokio::task::spawn_blocking(move || {
         let home = home()?;
         if !query.worktree.starts_with('/') {
             return None;
         }
-        Some(commands::list(&home, &query.cli, Path::new(&query.worktree)))
+        Some(commands::list(&home, &query.cli, Path::new(&query.worktree), &reported))
     })
     .await
     .ok()

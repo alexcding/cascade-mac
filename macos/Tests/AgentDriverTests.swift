@@ -12,6 +12,20 @@ import Testing
     private let older = AgentCatalog.Model(id: "gpt-5.5", alias: "gpt-5.5", name: "GPT-5.5",
                                            efforts: levels(["low", "medium", "high", "xhigh"]), defaultEffort: "medium")
 
+    @Test func aPresetWithNoEffortRunsAtAnyLevelNoOtherPresetNames() {
+        let catalog = AgentCatalog(models: [opus, astra])
+        let loose = AgentSelection(model: "opus", effort: nil), fixed = AgentSelection(model: "claude-opus-5", effort: "high")
+        let running = AgentSelection(model: "claude-opus-5", effort: "medium")
+        #expect(catalog.selection(loose, isRunning: running, among: [AgentPreset(selection: loose)]))
+        #expect(!catalog.selection(AgentSelection(model: "gpt-6-astra", effort: nil), isRunning: running, among: []),
+                "Another model is not running")
+        let both = [AgentPreset(selection: loose), AgentPreset(selection: fixed)]
+        let atHigh = AgentSelection(model: "claude-opus-5", effort: "high")
+        #expect(catalog.selection(fixed, isRunning: atHigh, among: both))
+        #expect(!catalog.selection(loose, isRunning: atHigh, among: both), "The preset that names the level is the one running")
+        #expect(catalog.selection(loose, isRunning: running, among: both))
+    }
+
     @Test func claudeSwitchesAtItsPromptByAlias() throws {
         let driver = AgentDrivers.driver(for: nil)
         let catalog = AgentCatalog(models: [opus])

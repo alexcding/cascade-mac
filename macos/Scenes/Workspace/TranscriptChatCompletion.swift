@@ -10,8 +10,6 @@ struct AgentCommand: Decodable, Equatable, Sendable {
     /// `project`, `user`, `plugin` or `builtin`.
     let source: String
     let plugin: String?
-    /// Sent without arguments it opens a panel in the terminal instead of answering in the chat.
-    let interactive: Bool
 }
 
 /// One row of the list over the message field: a command to run, or a file to mention.

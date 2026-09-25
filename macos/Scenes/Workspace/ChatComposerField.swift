@@ -106,8 +106,9 @@ struct ChatComposerField: NSViewRepresentable {
                 // A tab typed into the terminal would ask the agent to complete, so it never goes in the text.
                 if listed { Task { await chat.acceptSuggestion() } } else { textView.window?.selectNextKeyView(nil) }
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
-                // Never the system's word completion, which Escape opens in a text view.
-                if listed { chat.dismissSuggestions() }
+                // Never the system's word completion, which Escape opens in a text view. Closed
+                // even before its rows arrive, so a list still loading does not open after all.
+                chat.dismissSuggestions()
             case #selector(NSResponder.insertNewline(_:)):
                 if listed {
                     Task { await chat.acceptSuggestion(run: true) }

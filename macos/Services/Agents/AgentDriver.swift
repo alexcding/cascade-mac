@@ -24,6 +24,17 @@ struct AgentCatalog: Decodable, Equatable, Sendable {
     var models: [Model] = []
 
     func model(_ id: String?) -> Model? { models.first { $0.id == id || $0.alias == id } }
+
+    /// Whether `selection` is what the agent is running. One with no effort leaves it to the CLI,
+    /// so whatever level the CLI reports is its, unless another preset names that very level.
+    func selection(_ selection: AgentSelection, isRunning running: AgentSelection, among presets: [AgentPreset]) -> Bool {
+        let runningModel = model(running.model)?.id ?? running.model
+        func sameModel(_ other: AgentSelection) -> Bool { model(other.model)?.id == runningModel }
+        guard sameModel(selection) else { return false }
+        if selection.effort == running.effort { return true }
+        return selection.effort == nil
+            && !presets.contains { sameModel($0.selection) && $0.selection.effort == running.effort }
+    }
 }
 
 /// What the agent is running right now. Every field is the CLI's own account, or absent.

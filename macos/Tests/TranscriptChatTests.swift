@@ -15,6 +15,8 @@ import Testing
     var watcher: PermissionWatcher?
     /// What the CLI and the worktree offer the suggestion list.
     var commands: [AgentCommand] = []
+    /// How long the command list takes to arrive.
+    var commandsDelay: Duration = .zero
     var files: [String] = []
     var fileQueries: [String] = []
 
@@ -28,7 +30,7 @@ import Testing
                 self.typed.append(text)
             },
             completions: .init(
-                commands: { self.commands },
+                commands: { try? await Task.sleep(for: self.commandsDelay); return self.commands },
                 files: { query in self.fileQueries.append(query); return self.files }),
             permissions: .init(
                 runID: { self.runID },
@@ -328,9 +330,8 @@ private func stamp(_ date: Date) -> String {
     #expect(ChatCompletion.word(in: "mail me@host", caret: 12) == nil, "An @ inside a word is not a mention")
 }
 
-private func command(_ name: String, _ description: String = "", hint: String = "", source: String = "builtin",
-                     interactive: Bool = false) -> AgentCommand {
-    AgentCommand(name: name, description: description, hint: hint, source: source, plugin: nil, interactive: interactive)
+private func command(_ name: String, _ description: String = "", hint: String = "", source: String = "builtin") -> AgentCommand {
+    AgentCommand(name: name, description: description, hint: hint, source: source, plugin: nil)
 }
 
 @Test func commandsRankByNameThenByPartThenByDescription() {
@@ -368,19 +369,16 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     #expect(fixture.typed == ["/compact"] && chat.draft.isEmpty)
 }
 
-@MainActor @Test func aCommandThatOpensAPanelShowsTheTerminal() async throws {
+@MainActor @Test func aBareCommandStaysInTheChat() async throws {
     let fixture = ChatFixture()
-    fixture.commands = [command("model", hint: "[model]", interactive: true)]
+    fixture.commands = [command("model", hint: "[model]")]
     let chat = fixture.model()
     chat.setAgentState(busy: false, idle: true)
     chat.edit("/mo", files: [], caret: 3)
     try await eventually { !chat.suggestions.isEmpty }
     await chat.acceptSuggestion()
     await chat.send()
-    #expect(fixture.typed == ["/model"] && fixture.terminalShown == 1)
-    chat.edit("/model opus", files: [], caret: 11)
-    await chat.send()
-    #expect(fixture.terminalShown == 1, "With an argument it answers in the conversation")
+    #expect(fixture.typed == ["/model"] && fixture.terminalShown == 0)
 }
 
 @MainActor @Test func escapeClosesTheListForThatWordOnly() async throws {
@@ -395,6 +393,19 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     chat.edit("", files: [], caret: 0)
     chat.edit("/c", files: [], caret: 2)
     #expect(!chat.suggestions.isEmpty, "A new word opens it again")
+}
+
+@MainActor @Test func escapeBeforeTheCommandsArriveKeepsTheListClosed() async throws {
+    let fixture = ChatFixture()
+    fixture.commands = [command("compact")]
+    fixture.commandsDelay = .milliseconds(200)
+    let chat = fixture.model()
+    chat.edit("/c", files: [], caret: 2)
+    chat.dismissSuggestions()
+    try await Task.sleep(for: .milliseconds(400))
+    #expect(chat.suggestions.isEmpty, "The list that was loading stays closed")
+    chat.edit("/co", files: [], caret: 3)
+    #expect(chat.suggestions.isEmpty, "Still closed while the same word is typed")
 }
 
 @MainActor @Test func anAtListsWorktreeFilesAndTakesOne() async throws {
@@ -417,7 +428,7 @@ private func command(_ name: String, _ description: String = "", hint: String = 
 
 @MainActor @Test func aCommandWithAFileDoesNotShowTheTerminal() async throws {
     let fixture = ChatFixture()
-    fixture.commands = [command("model", hint: "[model]", interactive: true)]
+    fixture.commands = [command("model", hint: "[model]")]
     let chat = fixture.model()
     chat.setAgentState(busy: false, idle: true)
     chat.edit("/mo", files: [], caret: 3)

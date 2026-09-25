@@ -328,7 +328,7 @@ extension WorkspaceServing {
     func clearAgent() { if let driver = agentDriver { typeToAgent([.line(driver.clearCommand)]) } }
     func isRunning(_ selection: AgentSelection) -> Bool {
         guard let running = agentSelection else { return false }
-        return agentCatalog.model(selection.model)?.id == (agentCatalog.model(running.model)?.id ?? running.model) && selection.effort == running.effort
+        return agentCatalog.selection(selection, isRunning: running, among: agentPresets)
     }
     /// The model menu's presets, in menu order. The toolbar owns their storage and hands the
     /// resolved list over, so the Next Model command and the menu cannot disagree.
