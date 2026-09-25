@@ -210,7 +210,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the frame persists across launches (SwiftUI does not restore it for this scene).
     private func adoptWindow() {
         guard let window else { return }
-        if window.frameAutosaveName != "CascadeNativeMain" { window.setFrameAutosaveName("CascadeNativeMain") }
+        if window.frameAutosaveName != "CascadeNativeMain" {
+            // The frame was saved under the name the window had while the app was called Craft.
+            let defaults = UserDefaults.standard
+            if defaults.object(forKey: "NSWindow Frame CascadeNativeMain") == nil,
+               let saved = defaults.object(forKey: "NSWindow Frame CraftNativeMain") {
+                defaults.set(saved, forKey: "NSWindow Frame CascadeNativeMain")
+            }
+            window.setFrameAutosaveName("CascadeNativeMain")
+        }
         guard let close = window.standardWindowButton(.closeButton), close.target !== self else { return }
         close.target = self
         close.action = #selector(hideMainWindow)

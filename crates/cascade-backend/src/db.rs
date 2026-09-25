@@ -772,7 +772,9 @@ fn migrate_legacy_name(data_dir: &Path) {
     let Some(found) = legacy.into_iter().find(|name| data_dir.join(name).exists()) else {
         return;
     };
-    for suffix in ["", "-wal", "-shm", "-journal"] {
+    // The main file last: once it has the current name the rename is never tried again, so its
+    // log must already be beside it.
+    for suffix in ["-wal", "-shm", "-journal", ""] {
         let from = data_dir.join(format!("{found}{suffix}"));
         if from.exists() {
             let _ = fs::rename(&from, data_dir.join(format!("{current}{suffix}")));

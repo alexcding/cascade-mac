@@ -15,7 +15,9 @@ cargo_build build --locked --release --manifest-path "$ROOT/crates/cascade-ptyd/
 mkdir -p "$APP/Contents/Helpers" "$APP/Contents/Resources/Licenses"
 cp "$ROOT/crates/cascade-ptyd/target/release/cascade-ptyd" "$APP/Contents/Helpers/cascade-ptyd"
 # The backend is linked into the app binary now; drop a helper left by an older bundle.
-rm -f "$APP/Contents/Helpers/cascade-backend" "$APP/Contents/Helpers/cascade-node" "$APP/Contents/Resources/Licenses/Node-LICENSE"
+# Helpers an older build left, including the ones from when the app was called Craft.
+rm -f "$APP/Contents/Helpers/cascade-backend" "$APP/Contents/Helpers/cascade-node" "$APP/Contents/Resources/Licenses/Node-LICENSE" \
+  "$APP/Contents/Helpers/craft-ptyd" "$APP/Contents/Helpers/craft-backend" "$APP/Contents/Helpers/craft-node"
 
 # The native toolbar's provider artwork. The app is native Swift over the Rust
 # backend: no JavaScript runtime ships with it, only the diff page's own scripts.

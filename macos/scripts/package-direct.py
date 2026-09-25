@@ -120,8 +120,10 @@ def main():
     for relative in ["Contents/Helpers/cascade-ptyd"]:
         if not (app / relative).is_file():
             parser.error("Run bundle-backend.sh before packaging: missing " + relative)
-    if (app / "Contents/Helpers/cascade-backend").exists():
-        parser.error("Stale backend helper remains; rerun bundle-backend.sh: Contents/Helpers/cascade-backend")
+    # Including the helpers from when the app was called Craft.
+    for stale in ["cascade-backend", "craft-backend", "craft-ptyd", "craft-node"]:
+        if (app / "Contents/Helpers" / stale).exists():
+            parser.error(f"Stale helper remains; rerun bundle-backend.sh: Contents/Helpers/{stale}")
     for relative in ["Contents/Helpers/cascade-node", "Contents/Resources/backend"]:
         if (app / relative).exists():
             parser.error("Legacy Node bundle remains; rerun bundle-backend.sh: " + relative)
