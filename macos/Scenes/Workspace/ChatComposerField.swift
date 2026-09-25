@@ -41,8 +41,9 @@ struct ChatComposerField: NSViewRepresentable {
             coordinator.focusHandled = focusRequest
             // After this update: the pass that shows the chat unhides it, and a hidden field
             // cannot take the keyboard.
-            DispatchQueue.main.async { [weak textView = view.textView] in
-                guard let textView, let window = textView.window else { return }
+            DispatchQueue.main.async { [weak textView = view.textView, weak coordinator] in
+                // Another session may have been switched to since.
+                guard coordinator?.parent?.active == true, let textView, let window = textView.window else { return }
                 window.makeFirstResponder(textView)
             }
         }
@@ -111,17 +112,21 @@ struct ChatComposerField: NSViewRepresentable {
                 if listed {
                     Task { await chat.acceptSuggestion(run: true) }
                 } else if !(NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty ?? true) {
-                    textView.insertText("\n", replacementRange: textView.selectedRange())
+                    insertNewline(in: textView)
                 } else {
                     Task { await chat.send() }
                 }
             case #selector(NSResponder.insertLineBreak(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-                // A plain newline: a line separator would reach the terminal as a character of its own.
-                textView.insertText("\n", replacementRange: textView.selectedRange())
+                insertNewline(in: textView)
             default:
                 return false
             }
             return true
+        }
+
+        /// A plain newline: a line separator would reach the terminal as a character of its own.
+        private func insertNewline(in textView: NSTextView) {
+            textView.insertText("\n", replacementRange: textView.selectedRange())
         }
 
         /// Copied files and screenshots become chips at the caret; text pastes as plain text.
@@ -208,6 +213,10 @@ final class ComposerScrollView: NSScrollView {
         autohidesScrollers = true
         documentView = textView
         textView.configure()
+        // A scroll view stretches to whatever it is offered, so SwiftUI would share the pane's
+        // height between it and the conversation; it is only as tall as its text.
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .vertical)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -335,9 +344,10 @@ final class ChatFileAttachment: NSTextAttachment {
         super.init(data: nil, ofType: nil)
         let chip = ChatFileChip(name: file.name)
         let size = chip.size
-        // Drawn when shown, so its colours follow the appearance it is shown in.
+        // Drawn when shown, so its colours follow the appearance it is shown in. AppKit may call
+        // this off the main thread, so drawing a chip touches nothing tied to it.
         image = NSImage(size: size, flipped: false) { rect in
-            MainActor.assumeIsolated { chip.draw(in: rect) }
+            chip.draw(in: rect)
             return true
         }
         // Across the baseline, centred on the text beside it.
@@ -366,15 +376,15 @@ struct ChatFileChip: Sendable {
 
     private static var font: NSFont { NSFont.systemFont(ofSize: 12) }
 
-    @MainActor private var nameWidth: CGFloat {
+    private var nameWidth: CGFloat {
         min(ceil((name as NSString).size(withAttributes: [.font: Self.font]).width), Self.maxNameWidth)
     }
 
-    @MainActor var size: NSSize {
+    var size: NSSize {
         NSSize(width: Self.margin * 2 + 8 + Self.icon + 4 + nameWidth + 8, height: Self.height)
     }
 
-    @MainActor func draw(in frame: NSRect) {
+    func draw(in frame: NSRect) {
         let box = frame.insetBy(dx: Self.margin, dy: 1)
         let outline = NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6)
         Theme.palette.surfaceHover.nsColor.setFill()

@@ -25,7 +25,7 @@ const download = (name, blob) => {
   reader.readAsDataURL(blob);
 };
 
-// Links leave through Swift, which opens web addresses in the browser; the page never navigates.
+// Links leave through Swift, which opens web addresses in the session's browser; the page never navigates.
 document.addEventListener("click", (event) => {
   const link = event.target.closest?.("a[href]");
   if (!link) return;
@@ -147,10 +147,10 @@ function Tool({ tool }) {
   );
 }
 
-function Worked({ blocks, label, open }) {
+function Worked({ blocks, label, working }) {
   return (
-    <details className="worked" open={open}>
-      <summary>{label} <span className="chev">›</span></summary>
+    <details className="worked" open={working}>
+      <summary><span className={working ? "shimmer" : undefined}>{label}</span> <span className="chev">›</span></summary>
       <div className="steps">
         {blocks.map((block, index) => {
           if (block.type === "tool") return <Tool key={index} tool={block} />;
@@ -191,7 +191,7 @@ const Turn = memo(function Turn({ turn, working }) {
   }
   return (
     <div className="turn">
-      {(work.length > 0 || working) && <Worked blocks={work} label={label} open={working} />}
+      {(work.length > 0 || working) && <Worked blocks={work} label={label} working={working} />}
       {answer && <Markdown text={answer} />}
       {answer && !working && <Actions text={answer} at={turn.ended || turn.timestamp} />}
     </div>
@@ -284,7 +284,7 @@ function Chat({ state }) {
           {queued && <div className="actions"><span>Waiting to send</span></div>}
         </div>
       )}
-      {busy && !permission && (pending || last?.role === "user") && <div className="turn working">Working</div>}
+      {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">Working</span></div>}
       {permission && <Permission key={permission.id} permission={permission} />}
     </div>
   );

@@ -304,6 +304,12 @@ extension WorkspaceServing {
     func createSession(agent: SessionAgent? = nil) { if canCreateSession { perform(.createSession(agent: agent)) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
+    /// A link from the chat opens in this session's browser, beside the chat, and brings it in.
+    private func openInBrowser(_ url: URL) -> Bool {
+        guard let context, context.open(url.absoluteString) != nil else { return false }
+        selectMode(.browser)
+        return true
+    }
     func selectMode(_ mode: WorkspaceMode) {
         guard let context, canSelectMode(mode) else { return }
         switch mode {
@@ -453,7 +459,8 @@ extension WorkspaceServing {
                         try await service.answerPermission(id, decision: decision)
                     }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
-                openHookSettings: { [weak self] in self?.openHookSettings() })
+                openHookSettings: { [weak self] in self?.openHookSettings() },
+                openLink: { [weak self] url in self?.openInBrowser(url) ?? false })
         }
         defer {
             // Set on every call: a restarted session's terminal is a new one, and must be covered too.

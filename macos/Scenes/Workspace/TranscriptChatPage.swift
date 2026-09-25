@@ -52,6 +52,8 @@ struct ChatPageState: Encodable, Equatable {
     let webView: WKWebView
     /// A click on an approval card: the request's id, and `allow`, `deny` or `pass`.
     var onPermission: (String, String) -> Void = { _, _ in }
+    /// A link clicked in the conversation; false leaves it to the system browser.
+    var onOpen: (URL) -> Bool = { _ in false }
     private(set) var failure: String?
     private var ready = false
     private var state: ChatPageState?
@@ -136,7 +138,7 @@ struct ChatPageState: Encodable, Equatable {
         case "open":
             guard let text = body["url"] as? String, let url = URL(string: text),
                   ["http", "https"].contains(url.scheme?.lowercased()) else { return }
-            NSWorkspace.shared.open(url)
+            if !onOpen(url) { NSWorkspace.shared.open(url) }
         case "download":
             guard let name = body["name"] as? String, let text = body["data"] as? String,
                   text.utf8.count <= 64 << 20, let data = Data(base64Encoded: text) else { return }

@@ -135,6 +135,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
     @ObservationIgnored let openHookSettings: () -> Void
+    /// Opens a link from the conversation beside it; false when it cannot, and the system browser does.
+    @ObservationIgnored private let openLink: (URL) -> Bool
     @ObservationIgnored private var watchedRun: String?
     @ObservationIgnored private var polling: Task<Void, Never>?
     @ObservationIgnored private var busy = false
@@ -175,7 +177,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          completions: Completions = Completions(),
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
-         openHookSettings: @escaping () -> Void = {}) {
+         openHookSettings: @escaping () -> Void = {},
+         openLink: @escaping (URL) -> Bool = { _ in false }) {
         self.agentName = agentName
         self.load = load
         self.deliver = deliver
@@ -183,6 +186,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         self.permissions = permissions
         self.showTerminal = showTerminal
         self.openHookSettings = openHookSettings
+        self.openLink = openLink
     }
 
     var canSend: Bool {
@@ -263,6 +267,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         if page == nil {
             let page = TranscriptChatPage()
             page.onPermission = { [weak self] id, decision in Task { await self?.answerPermission(id, decision: decision) } }
+            page.onOpen = { [weak self] url in
+                guard let self, !self.retired else { return false }
+                return self.openLink(url)
+            }
             self.page = page
             render()
         }
