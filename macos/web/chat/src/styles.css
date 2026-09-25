@@ -141,6 +141,17 @@ body {
 .permission button:disabled { opacity: 0.5; }
 .empty { text-align: center; color: var(--ink-3); padding-top: 80px; }
 
+/* Back to the latest, over the bottom edge while the reader is scrolled up. */
+.to-latest {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+  width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ground) 80%, transparent); color: var(--ink);
+  border: 1px solid var(--rule); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  cursor: default;
+}
+.to-latest svg { width: 18px; height: 18px; }
+
 /* Streamdown inside our column: inherit our ink and keep code chips soft. */
 .answer { color: var(--ink); }
 .answer :not(pre) > code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
