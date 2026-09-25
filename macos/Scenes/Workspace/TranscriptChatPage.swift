@@ -49,9 +49,10 @@ struct ChatPageState: Encodable, Equatable {
 
 /// App-owned page text travels with the snapshot; transcript content remains unchanged.
 struct ChatPageLocalization: Encodable, Equatable {
-    var locale = Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
+    /// A BCP 47 tag, as `Intl` requires: `en_US@rg=cazzzz` is `en-US-u-rg-cazzzz`, and the page's
+    /// date and number formatting throws on anything else.
+    var locale = Locale.current.identifier(.bcp47)
     var language = Bundle.main.preferredLocalizations.first ?? "en"
-    var direction = Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en").characterDirection == .rightToLeft ? "rtl" : "ltr"
     var strings: [String: String] = [
         "Close": String(localized: "Close"),
         "Copied": String(localized: "Copied"),

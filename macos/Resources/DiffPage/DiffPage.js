@@ -140,7 +140,6 @@ window.nativeDiff = {
   render(snapshot) {
     labels = snapshot.labels || {};
     document.documentElement.lang = snapshot.language || "en";
-    document.documentElement.dir = snapshot.language?.startsWith("ar") ? "rtl" : "ltr";
     const key = JSON.stringify(snapshot);
     if (key === previous) return true;
     // Collapsed files and scroll position survive a refresh of the working changes: the pane is

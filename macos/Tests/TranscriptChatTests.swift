@@ -441,14 +441,12 @@ private func command(_ name: String, _ description: String = "", hint: String = 
                               pending: userText, queued: true, loaded: true, permission: nil)
     state.localization.locale = "ar-SA"
     state.localization.language = "ar"
-    state.localization.direction = "rtl"
     state.localization.strings["Allow"] = "سماح"
     let data = try JSONEncoder().encode(state)
     let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     let chrome = try #require(object["localization"] as? [String: Any])
     #expect(chrome["locale"] as? String == "ar-SA")
     #expect(chrome["language"] as? String == "ar")
-    #expect(chrome["direction"] as? String == "rtl")
     let strings = try #require(chrome["strings"] as? [String: String])
     #expect(strings["Allow"] == "سماح")
     #expect(strings["Copy Code"] != nil && strings["Worked for %@"] != nil)

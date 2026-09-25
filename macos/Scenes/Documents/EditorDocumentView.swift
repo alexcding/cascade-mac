@@ -14,7 +14,7 @@ struct EditorDocumentView: View {
                 }.padding(8)
                 Divider()
             }
-            if let view = model.editorView { NativeEditorHost(view: view).environment(\.layoutDirection, .leftToRight) }
+            if let view = model.editorView { NativeEditorHost(view: view) }
             else { Color.clear }
             Divider()
             // The same glass capsules as the tab bar above.

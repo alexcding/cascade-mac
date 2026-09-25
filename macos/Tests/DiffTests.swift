@@ -118,8 +118,6 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     _ = try await view.evaluateJavaScript("window.nativeDiff.render(\(String(decoding: localizedData, as: UTF8.self)))")
     #expect(try await view.evaluateJavaScript("document.querySelector('.hunk-discard').textContent") as? String == "تجاهل <b>التغييرات</b>")
     #expect(try await count(".hunk-discard b") == 0)
-    #expect(try await view.evaluateJavaScript("document.documentElement.dir") as? String == "rtl")
-    #expect(try await view.evaluateJavaScript("getComputedStyle(document.querySelector('.diff-table')).direction") as? String == "ltr")
     // Hidden, the page and its render stay for the next show; disconnecting lets them go.
     model.hide()
     #expect(model.webView === view && model.isPageReady)

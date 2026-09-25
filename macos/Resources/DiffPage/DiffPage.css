@@ -87,6 +87,3 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(-
 .diff-open-file:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .dg .diff-open-file { width:100%; padding:0; text-align:right; text-decoration:none; }
 .dg .diff-open-file:hover { text-decoration:underline; }
-
-/* Code and repository paths retain their logical ordering in RTL locales. */
-.diff-table, .diff-fpath, .diff-untracked, .diff-counts { direction: ltr; unicode-bidi: isolate; }

@@ -37,10 +37,6 @@ struct HelpView: View {
             .frame(maxWidth: .infinity)
         }
         .frame(minWidth: 480, minHeight: 400)
-        // Match the language used by String(localized:), even when the system's language differs.
-        .environment(\.layoutDirection,
-                     Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en")
-                        .characterDirection == .rightToLeft ? .rightToLeft : .leftToRight)
     }
 }
 

@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import { Streamdown } from "streamdown";
 import { code } from "./highlight.js";
 
-let localization = { strings: {}, locale: undefined, language: "en", direction: "ltr" };
+let localization = { strings: {}, locale: undefined, language: "en" };
 const t = (key, ...values) => {
   let index = 0;
   return (localization.strings[key] ?? key).replace(/%(?:(\d+)\$)?@/g,
@@ -79,7 +79,7 @@ const markdownTranslations = () => ({
 
 function Markdown({ text }) {
   return (
-    <Streamdown translations={markdownTranslations()} dir="auto" mode="static" className="answer" plugins={{ code }}
+    <Streamdown translations={markdownTranslations()} mode="static" className="answer" plugins={{ code }}
       shikiTheme={["github-light", "github-dark"]} linkSafety={{ enabled: false }} tableMaxHeight={0}>
       {text}
     </Streamdown>
@@ -353,7 +353,6 @@ window.nativeChat = {
   render(state) {
     localization = state.localization ?? localization;
     document.documentElement.lang = localization.language;
-    document.documentElement.dir = localization.direction;
     document.title = t("Conversation");
     root.render(<Chat state={state} />);
   },

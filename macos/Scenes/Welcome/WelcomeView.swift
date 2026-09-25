@@ -24,9 +24,6 @@ struct WelcomeView: View {
         // A fixed panel, the size of a system setup assistant: it never grows with the window.
         .frame(width: 620, height: 580)
         .interactiveDismissDisabled(model.busy)
-        .environment(\.layoutDirection,
-                     Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en")
-                        .characterDirection == .rightToLeft ? .rightToLeft : .leftToRight)
     }
 
     private var footer: some View {

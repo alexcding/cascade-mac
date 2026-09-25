@@ -196,6 +196,5 @@ struct UsageTrack: View {
         }
         .frame(height: 6)
         .clipShape(Capsule())
-        .environment(\.layoutDirection, .leftToRight)
     }
 }

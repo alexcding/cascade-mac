@@ -66,13 +66,11 @@ struct CocoaSidebar: NSViewRepresentable {
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
         scroll.documentView = outline
         context.coordinator.outline = outline
-        context.coordinator.setLayoutDirection(context.environment.layoutDirection)
         context.coordinator.update(self)
         return scroll
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
-        context.coordinator.setLayoutDirection(context.environment.layoutDirection)
         context.coordinator.update(self)
     }
 
@@ -90,7 +88,6 @@ struct CocoaSidebar: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var parent: CocoaSidebar
         weak var outline: NSOutlineView?
-        private var layoutDirection: NSUserInterfaceLayoutDirection = .leftToRight
         private var roots: [Node] = []
         private var nodes: [String: Node] = [:]
         /// Each nested row's folder, so a drag — which asks on every mouse move — never searches for it.
@@ -139,14 +136,6 @@ struct CocoaSidebar: NSViewRepresentable {
             flagsMonitor = nil
             if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
             resignObserver = nil
-        }
-
-        func setLayoutDirection(_ direction: LayoutDirection) {
-            let native: NSUserInterfaceLayoutDirection = direction == .rightToLeft ? .rightToLeft : .leftToRight
-            let changed = native != layoutDirection
-            layoutDirection = native
-            outline?.userInterfaceLayoutDirection = native
-            if changed { refreshVisibleCells() }
         }
 
         func update(_ value: CocoaSidebar) {
@@ -396,7 +385,6 @@ struct CocoaSidebar: NSViewRepresentable {
         private func configure(_ cell: SidebarCellView, node: Node, row: Int) {
             guard let outline else { return }
             let nested = outline.parent(forItem: node) != nil
-            cell.userInterfaceLayoutDirection = layoutDirection
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewSession = { [weak self] id in self?.parent.onNewSession(id) }
             cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
@@ -881,10 +869,6 @@ enum SidebarGlyphs {
         for row in rows.location..<(rows.location + rows.length) {
             guard let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarCellView,
                   cell !== self, !cell.entry.isHeading else { continue }
-            if userInterfaceLayoutDirection == .rightToLeft {
-                let edge = cell.convert(NSPoint(x: cell.bounds.minX, y: 0), to: self).x
-                return bounds.maxX - edge - SidebarMetrics.trailing
-            }
             let edge = cell.convert(NSPoint(x: cell.bounds.maxX, y: 0), to: self).x
             return edge - SidebarMetrics.trailing
         }
@@ -893,22 +877,6 @@ enum SidebarGlyphs {
 
     override func layout() {
         super.layout()
-        // Compute the established LTR geometry first, then reflect the frames for RTL.
-        // Only placement changes: titles retain their natural writing direction, and shortcut
-        // glyph sequences remain LTR rather than reversing the command/key order.
-        let rtl = userInterfaceLayoutDirection == .rightToLeft
-        title.alignment = rtl ? .right : .left
-        shortcut.alignment = rtl ? .left : .right
-        shortcut.baseWritingDirection = .leftToRight
-        defer {
-            if rtl {
-                for view in [icon, glyph, title, badge, accessory, shortcut] {
-                    var frame = view.frame
-                    frame.origin.x = bounds.minX + bounds.maxX - frame.maxX
-                    view.frame = frame
-                }
-            }
-        }
         // The source list has already inset the cell from the sidebar's edge and its selection plate.
         let height = bounds.height
         let slot = SidebarMetrics.iconSlot
