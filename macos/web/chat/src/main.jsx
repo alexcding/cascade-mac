@@ -66,6 +66,9 @@ const CopyIcon = () => (
 const CheckIcon = () => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3.5 8.5l3 3 6-7"/></svg>
 );
+const DownIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5v11M3.5 9 8 13.5 12.5 9"/></svg>
+);
 
 function Actions({ text, at }) {
   const [copied, setCopied] = useState(false);
@@ -252,6 +255,8 @@ function separator(turns, index) {
 function Chat({ state }) {
   const { turns, busy, pending, queued, loaded, permission } = state;
   const stick = useRef(true);
+  // Scrolled up, a button over the bottom edge goes back down to the latest.
+  const [away, setAway] = useState(false);
   // Follows the conversation down while the reader is at the bottom; scrolled up, it stays put.
   useLayoutEffect(() => {
     if (stick.current) window.scrollTo(0, document.documentElement.scrollHeight);
@@ -260,9 +265,15 @@ function Chat({ state }) {
     const onScroll = () => {
       const root = document.documentElement;
       stick.current = root.scrollHeight - root.scrollTop - root.clientHeight < 40;
+      setAway(!stick.current);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    // The composer growing shrinks the page from below without a scroll.
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
   }, []);
 
   const last = turns[turns.length - 1];
@@ -286,6 +297,12 @@ function Chat({ state }) {
       )}
       {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">Working</span></div>}
       {permission && <Permission key={permission.id} permission={permission} />}
+      {away && (
+        <button className="to-latest" aria-label="Scroll to latest" title="Scroll to latest"
+                onClick={() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" })}>
+          <DownIcon />
+        </button>
+      )}
     </div>
   );
 }
