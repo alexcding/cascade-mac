@@ -103,6 +103,7 @@ extension ShellCommand {
         case .reloadPage: "Reload Page"
         case .nextModel: "Next Model"
         case .previousModel: "Previous Model"
+        case .toggleChat: "Switch Terminal / Chat"
         case .runProject: "Run"
         case .stopBuild: "Stop"
         case .nextSession: "Next Session"
@@ -123,7 +124,7 @@ extension ShellCommand {
         case .overview, .terminal, .sidebar, .activity: .go
         case .nextSession, .previousSession: .go
         case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10: .go
-        case .runProject, .stopBuild, .nextModel, .previousModel: .product
+        case .runProject, .stopBuild, .nextModel, .previousModel, .toggleChat: .product
         case .refresh, .tray, .biggerFont, .smallerFont, .resetFont: .view
         }
     }
@@ -157,11 +158,13 @@ extension ShellCommand {
         // so Previous Model needs no key of its own until someone gives it one.
         case .nextModel: KeyShortcut(key: "d", command: true)
         case .stopBuild: KeyShortcut(key: ".", command: true)
+        // VS Code's panel key: the terminal and the chat over it are one agent, shown two ways.
+        case .toggleChat: KeyShortcut(key: "j", command: true)
         default: nil
         }
     }
 
     /// The terminal surface binds these itself and would consume them before the menu, so the
     /// app claims them ahead of the responder chain.
-    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .newSidebarTab, .nextPage, .previousPage, .nextModel, .previousModel].contains(self) }
+    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .newSidebarTab, .nextPage, .previousPage, .nextModel, .previousModel, .toggleChat].contains(self) }
 }
