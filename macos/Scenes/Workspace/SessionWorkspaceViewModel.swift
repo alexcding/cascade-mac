@@ -402,28 +402,41 @@ extension WorkspaceServing {
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
                 },
-                deliver: { [weak self] text, files in
+                deliver: { [weak self] text, files, inLine in
                     guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
                     // Everything is checked before anything is typed, so a message the terminal
                     // refuses leaves nothing half-written in the agent's prompt.
-                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " ")
-                    let pasted = try text.isEmpty ? nil : NativeWorkflowTerminal.paste(text)
+                    let pasted = try text.isEmpty || inLine ? nil : NativeWorkflowTerminal.paste(text)
                     let multiline = text.contains("\n")
                     let typed = multiline ? pasted : pasted.map { _ in text }
-                    // Files go first, pasted as a drop onto the terminal pastes their paths, so
-                    // the agent attaches them before the message is typed after them.
-                    if let paths {
-                        try await terminal.writeWorkflowInput(paths)
-                        try await Task.sleep(for: .milliseconds(600))
-                    }
-                    // One line is typed like the agent controls type a command. Several need a
-                    // bracketed paste, and Claude Code takes an Enter that follows a paste closely
-                    // as part of it, so that Enter waits until the paste has settled.
-                    if let typed {
-                        try await terminal.writeWorkflowInput(typed)
-                        try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    if inLine {
+                        // The message is already in the line, typed as it was written: the files
+                        // follow it, and Enter sends it as Enter in the terminal would.
+                        if !files.isEmpty {
+                            try await terminal.writeWorkflowInput(NativeWorkflowTerminal.paste(" " + files.map(\.path).joined(separator: " ")))
+                            try await Task.sleep(for: .milliseconds(600))
+                        }
+                    } else {
+                        let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " ")
+                        // Files go first, pasted as a drop onto the terminal pastes their paths, so
+                        // the agent attaches them before the message is typed after them.
+                        if let paths {
+                            try await terminal.writeWorkflowInput(paths)
+                            try await Task.sleep(for: .milliseconds(600))
+                        }
+                        // One line is typed like the agent controls type a command. Several need a
+                        // bracketed paste, and Claude Code takes an Enter that follows a paste closely
+                        // as part of it, so that Enter waits until the paste has settled.
+                        if let typed {
+                            try await terminal.writeWorkflowInput(typed)
+                            try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                        }
                     }
                     try await terminal.writeWorkflowInput("\r")
+                },
+                typeKeys: { [weak self] keys in
+                    guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    try await terminal.writeWorkflowInput(keys)
                 },
                 permissions: .init(
                     // Read on every poll: a restarted session's terminal runs under a new id.

@@ -148,6 +148,8 @@ struct TranscriptChatOverlay: View {
                     .lineLimit(1...10)
                     .focused($composing)
                     .onSubmit { Task { await chat.send() } }
+                    // Typed into the terminal as it is written, so the agent's own menus follow it.
+                    .onChange(of: chat.draft) { _, _ in chat.lineChanged() }
                 HStack(spacing: 12) {
                     Button { choosingFiles = true } label: {
                         Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))

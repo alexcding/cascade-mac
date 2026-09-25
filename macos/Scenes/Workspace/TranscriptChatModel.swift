@@ -99,6 +99,11 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var queuedPrompt: String?
     /// The held message's files.
     private(set) var queuedAttachments: [ChatAttachment] = []
+    /// Whether the held message is already in the terminal's input line, so sending it is Enter.
+    @ObservationIgnored private var queuedInLine = false
+    /// What the message field has typed into the terminal's input line so far.
+    @ObservationIgnored private(set) var typedLine = ""
+    @ObservationIgnored private var typingLine = false
     /// Files the next message carries.
     private(set) var attachments: [ChatAttachment] = []
     /// A tool approval the agent is waiting on; it is answered here, not in the terminal.
@@ -116,7 +121,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private var sentAt: Date?
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
-    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void
+    /// `inLine`: the text is already in the terminal's input line, typed as it was written.
+    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment], _ inLine: Bool) async throws -> Void
+    /// Types keys into the terminal. Without it the message goes in whole when it is sent.
+    @ObservationIgnored private let typeKeys: ((String) async throws -> Void)?
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
     @ObservationIgnored let openHookSettings: () -> Void
@@ -137,13 +145,15 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
 
     init(agentName: String,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
-         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void,
+         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment], _ inLine: Bool) async throws -> Void,
+         typeKeys: ((String) async throws -> Void)? = nil,
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
          openHookSettings: @escaping () -> Void = {}) {
         self.agentName = agentName
         self.load = load
         self.deliver = deliver
+        self.typeKeys = typeKeys
         self.permissions = permissions
         self.showTerminal = showTerminal
         self.openHookSettings = openHookSettings
@@ -264,6 +274,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private func settle() {
         updateCover()
         render()
+        lineChanged()
         if atPrompt, queuedPrompt != nil { Task { await sendQueued() } }
     }
 
@@ -309,6 +320,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         guard !retired, permission?.id == id, ["allow", "deny", "pass"].contains(decision) else { return }
         permission = nil
         render()
+        defer { lineChanged() }
         do {
             try await permissions.answer(id, decision)
             error = nil
@@ -349,7 +361,11 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Sends at once at the agent's prompt; otherwise holds the message until it is back there.
     func send() async {
         guard canSend else { return }
+        // The line catches up first, so what Enter sends is what the field shows.
+        await syncLine()
+        guard canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        queuedInLine = !typedLine.isEmpty && typedLine == draft
         draft = ""
         queuedPrompt = text
         queuedAttachments = attachments
@@ -367,20 +383,29 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     func cancelQueued() {
         guard !retired, !sending, let text = queuedPrompt else { return }
         queuedPrompt = nil
+        queuedInLine = false
         if draft.isEmpty { draft = text }
         attachments = queuedAttachments + attachments
         queuedAttachments = []
         render()
+        lineChanged()
     }
 
     private func sendQueued() async {
         guard !retired, !sending, permission == nil, let text = queuedPrompt else { return }
-        let files = queuedAttachments
+        let files = queuedAttachments, inLine = queuedInLine
         sending = true
-        defer { sending = false }
+        defer { sending = false; lineChanged() }
         do {
-            try await deliver(text, files)
+            // A line typed from the field that no longer holds the message is cleared first.
+            if !inLine, !typedLine.isEmpty, let typeKeys {
+                try await typeKeys(String(repeating: Self.backspace, count: typedLine.count))
+                typedLine = ""
+            }
+            try await deliver(text, files, inLine)
             guard !retired else { return }
+            typedLine = ""
+            queuedInLine = false
             queuedPrompt = nil
             queuedAttachments = []
             sentAt = Date()
@@ -394,6 +419,58 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             guard !retired else { return }
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: The terminal's input line
+
+    static let backspace: Character = "\u{7f}"
+
+    /// Keys can type it: one line, nothing a key would act on (a tab, an escape) rather than type.
+    static func typeable(_ text: String) -> Bool { !text.unicodeScalars.contains { $0.value < 32 || $0.value == 127 } }
+
+    /// What the input line should hold: the field's text as it is written, so the agent's own `/`
+    /// and `@` menus follow it as they would in the terminal. Text keys cannot type goes in whole
+    /// on send instead, and the line is left empty for it.
+    private var lineTarget: String { Self.typeable(draft) ? draft : "" }
+
+    /// Not over an approval, which typed keys would answer, nor over a held message, which the line
+    /// already holds.
+    private var canTypeLine: Bool {
+        typeKeys != nil && !retired && coversTerminal && permission == nil && queuedPrompt == nil && !sending
+    }
+
+    /// Keys that take `from` to `to`: back over where they part, then type the rest.
+    static func keys(from: String, to: String) -> String {
+        let shared = zip(from, to).prefix { $0 == $1 }.count
+        return String(repeating: backspace, count: from.count - shared) + to.dropFirst(shared)
+    }
+
+    /// Brings the terminal's input line to the field, one write at a time.
+    func syncLine() async {
+        guard canTypeLine, !typingLine else {
+            // A write already running catches up to the field before it finishes.
+            while typingLine, !retired { try? await Task.sleep(for: .milliseconds(10)) }
+            return
+        }
+        typingLine = true
+        defer { typingLine = false }
+        while canTypeLine, let typeKeys, typedLine != lineTarget {
+            let target = lineTarget
+            do {
+                try await typeKeys(Self.keys(from: typedLine, to: target))
+                typedLine = target
+            } catch {
+                guard !retired else { return }
+                self.error = error.localizedDescription
+                return
+            }
+        }
+    }
+
+    /// The field, or what may be typed, changed: the line follows.
+    func lineChanged() {
+        guard canTypeLine, typedLine != lineTarget else { return }
+        Task { await syncLine() }
     }
 
     /// A sent message as its bubble shows it until the transcript has it: the files by name.

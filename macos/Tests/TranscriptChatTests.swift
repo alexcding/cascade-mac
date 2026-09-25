@@ -12,17 +12,24 @@ import Testing
     var unwatched: [String] = []
     var answers: [(String, String)] = []
     var terminalShown = 0
+    /// Whether the field types into the terminal as it is written, and the keys it typed.
+    var types = false
+    var keys: [String] = []
+    var inLine: [Bool] = []
     var watcher: PermissionWatcher?
 
     /// Held strongly by what it builds: a send can finish after the test that started it.
     func model() -> TranscriptChatModel {
-        TranscriptChatModel(
+        let typeKeys: ((String) async throws -> Void)? = types ? { keys in self.keys.append(keys) } : nil
+        return TranscriptChatModel(
             agentName: "Claude",
             load: { _ in self.transcript },
-            deliver: { text, files in
+            deliver: { text, files, inLine in
                 self.pasted.append(files.map(\.path))
                 self.typed.append(text)
+                self.inLine.append(inLine)
             },
+            typeKeys: typeKeys,
             permissions: .init(
                 runID: { self.runID },
                 watch: { run, watcher in self.watched.append(run); self.watcher = watcher },
@@ -279,6 +286,38 @@ private func stamp(_ date: Date) -> String {
     finish?.resume()
     while chat.staging > 0 { await Task.yield() }
     #expect(chat.attachments == [shot] && chat.canSend)
+}
+
+@MainActor @Test func theFieldIsTypedIntoTheTerminalAsItIsWritten() async {
+    let fixture = ChatFixture()
+    fixture.types = true
+    let chat = fixture.model()
+    chat.setAgentState(busy: false, idle: true)
+    chat.draft = "/rev"
+    await chat.syncLine()
+    chat.draft = "/review"
+    await chat.syncLine()
+    chat.draft = "/re"
+    await chat.syncLine()
+    #expect(fixture.keys == ["/rev", "iew", "\u{7f}\u{7f}\u{7f}\u{7f}"], "Only what changed is typed, and backed over")
+    chat.draft = "/review"
+    await chat.send()
+    #expect(fixture.typed == ["/review"] && fixture.inLine == [true], "Send is Enter on what the line holds")
+    #expect(chat.typedLine.isEmpty && fixture.keys.last == "view")
+}
+
+@MainActor @Test func aMessageKeysCannotTypeLeavesTheLineAndGoesWhole() async {
+    let fixture = ChatFixture()
+    fixture.types = true
+    let chat = fixture.model()
+    chat.setAgentState(busy: false, idle: true)
+    chat.draft = "first"
+    await chat.syncLine()
+    chat.draft = "first\nsecond"
+    await chat.syncLine()
+    #expect(fixture.keys.last == String(repeating: "\u{7f}", count: 5) && chat.typedLine.isEmpty)
+    await chat.send()
+    #expect(fixture.typed == ["first\nsecond"] && fixture.inLine == [false])
 }
 
 @Test func aPasteOfEscapedPathsSplitsIntoItsFiles() {
