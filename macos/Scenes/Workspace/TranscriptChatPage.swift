@@ -52,6 +52,8 @@ struct ChatPageState: Encodable, Equatable {
     let webView: WKWebView
     /// A click on an approval card: the request's id, and `allow`, `deny` or `pass`.
     var onPermission: (String, String) -> Void = { _, _ in }
+    /// A link clicked in the conversation; false leaves it to the system browser.
+    var onOpen: (URL) -> Bool = { _ in false }
     private(set) var failure: String?
     private var ready = false
     private var state: ChatPageState?
@@ -68,16 +70,20 @@ struct ChatPageState: Encodable, Equatable {
         // The page paints its own ground; a white flash before it loads is not ours.
         webView.setValue(false, forKey: "drawsBackground")
         if let zoom = UserDefaults.standard.object(forKey: Self.zoomKey) as? Double { webView.pageZoom = zoom }
+        Self.open.add(self)
         webView.load(URLRequest(url: ChatPageAssets.pageURL))
     }
 
-    /// One size for every chat, kept across launches, like a browser's zoom for a site.
+    /// One size for every chat, kept across launches, as the terminal font is.
     private static let zoomKey = "workspace.chatZoom"
+    /// The chats built so far, which a change of size reaches at once, as a terminal font change does.
+    private static let open = NSHashTable<TranscriptChatPage>.weakObjects()
 
-    /// ⌘+ / ⌘− step it, as a browser page's; nil (⌘0) goes back to actual size.
+    /// ⌘+ / ⌘− step it, as a browser page's; nil (⌘0) goes back to actual size. Every chat follows.
     func zoom(_ delta: Double?) {
-        webView.pageZoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
-        UserDefaults.standard.set(Double(webView.pageZoom), forKey: Self.zoomKey)
+        let zoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
+        UserDefaults.standard.set(Double(zoom), forKey: Self.zoomKey)
+        for page in Self.open.allObjects { page.webView.pageZoom = zoom }
     }
 
     /// Whether the keyboard is in the conversation itself.
@@ -92,6 +98,7 @@ struct ChatPageState: Encodable, Equatable {
     }
 
     func close() {
+        Self.open.remove(self)
         webView.stopLoading(); webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "chat")
         webView.removeFromSuperview()
@@ -131,7 +138,7 @@ struct ChatPageState: Encodable, Equatable {
         case "open":
             guard let text = body["url"] as? String, let url = URL(string: text),
                   ["http", "https"].contains(url.scheme?.lowercased()) else { return }
-            NSWorkspace.shared.open(url)
+            if !onOpen(url) { NSWorkspace.shared.open(url) }
         case "download":
             guard let name = body["name"] as? String, let text = body["data"] as? String,
                   text.utf8.count <= 64 << 20, let data = Data(base64Encoded: text) else { return }

@@ -113,6 +113,18 @@ body {
 
 .working { color: var(--ink-2); }
 
+/* "Working" while the agent is: a brighter band sweeps through the text, left to right. */
+.shimmer {
+  color: transparent;
+  background: linear-gradient(90deg, var(--ink-3) 40%, var(--ink-2) 50%, var(--ink-3) 60%) 0 0 / 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  animation: shimmer 1.8s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .shimmer { animation: none; color: var(--ink-2); background: none; }
+}
+
 /* An approval the agent waits on: a bordered card, the one thing on the page asking for a click. */
 /* A message held until the agent is back at its prompt: not sent yet, and says so. */
 .queued .pill { opacity: 0.6; }

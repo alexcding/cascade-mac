@@ -55,6 +55,10 @@ struct PermissionWatcher {
     func agentCatalog(cli: String) async -> AgentCatalog?
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus?
     func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript
+    /// The CLI's slash commands in this worktree, for the chat's `/` suggestions.
+    func agentCommands(cli: String, worktree: String) async -> [AgentCommand]
+    /// Files of the worktree matching a query, best first, for the chat's `@` suggestions.
+    func worktreeFiles(_ worktree: String, matching query: String) async -> [String]
     func watchPermissions(runID: String, _ watcher: PermissionWatcher)
     func unwatchPermissions(runID: String)
     func answerPermission(_ id: String, decision: String) async throws
@@ -68,6 +72,8 @@ extension WorkspaceServing {
     func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
         AgentTranscript(revision: "", turns: [], hooks: nil)
     }
+    func agentCommands(cli: String, worktree: String) async -> [AgentCommand] { [] }
+    func worktreeFiles(_ worktree: String, matching query: String) async -> [String] { [] }
 }
 
 @MainActor @Observable final class SessionWorkspaceViewModel {
@@ -298,6 +304,12 @@ extension WorkspaceServing {
     func createSession(agent: SessionAgent? = nil) { if canCreateSession { perform(.createSession(agent: agent)) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
+    /// A link from the chat opens in this session's browser, beside the chat, and brings it in.
+    private func openInBrowser(_ url: URL) -> Bool {
+        guard let context, context.open(url.absoluteString) != nil else { return false }
+        selectMode(.browser)
+        return true
+    }
     func selectMode(_ mode: WorkspaceMode) {
         guard let context, canSelectMode(mode) else { return }
         switch mode {
@@ -402,17 +414,41 @@ extension WorkspaceServing {
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
                 },
-                deliver: { [weak self] text in
+                deliver: { [weak self] text, files in
                     guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    // A message ending in an @ mention gets a space, which closes the file list the
+                    // CLI opened for it: Enter on that list picks a file instead of sending.
+                    let text = ChatCompletion.endsInMention(text) ? text + " " : text
+                    // A command must open the line, so its files follow it, as its arguments. Any
+                    // other message has them go first, pasted as a drop onto the terminal pastes
+                    // them, so the agent attaches them before the message is typed after them.
+                    let command = text.hasPrefix("/")
+                    let joined = files.map(\.path).joined(separator: " ")
+                    // Everything is checked before anything is typed, so a message the terminal
+                    // refuses leaves nothing half-written in the agent's prompt.
+                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(command ? " " + joined : joined + " ")
+                    let pasted = try text.isEmpty ? nil : NativeWorkflowTerminal.paste(text)
+                    let multiline = text.contains("\n")
+                    if let paths, !command {
+                        try await terminal.writeWorkflowInput(paths)
+                        try await Task.sleep(for: .milliseconds(600))
+                    }
                     // One line is typed like the agent controls type a command. Several need a
                     // bracketed paste, and Claude Code takes an Enter that follows a paste closely
                     // as part of it, so that Enter waits until the paste has settled.
-                    let pasted = try NativeWorkflowTerminal.paste(text)
-                    let multiline = text.contains("\n")
-                    try await terminal.writeWorkflowInput(multiline ? pasted : text)
-                    try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    if let pasted {
+                        try await terminal.writeWorkflowInput(multiline ? pasted : text)
+                        try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    }
+                    if let paths, command {
+                        try await terminal.writeWorkflowInput(paths)
+                        try await Task.sleep(for: .milliseconds(600))
+                    }
                     try await terminal.writeWorkflowInput("\r")
                 },
+                completions: .init(
+                    commands: { [weak self] in await self?.service?.agentCommands(cli: cli, worktree: worktree) ?? [] },
+                    files: { [weak self] query in await self?.service?.worktreeFiles(worktree, matching: query) ?? [] }),
                 permissions: .init(
                     // Read on every poll: a restarted session's terminal runs under a new id.
                     runID: { [weak self] in self?.terminal?.termID },
@@ -423,7 +459,8 @@ extension WorkspaceServing {
                         try await service.answerPermission(id, decision: decision)
                     }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
-                openHookSettings: { [weak self] in self?.openHookSettings() })
+                openHookSettings: { [weak self] in self?.openHookSettings() },
+                openLink: { [weak self] url in self?.openInBrowser(url) ?? false })
         }
         defer {
             // Set on every call: a restarted session's terminal is a new one, and must be covered too.

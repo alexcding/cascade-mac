@@ -192,7 +192,7 @@ final class CascadeUITests: XCTestCase {
         let saved = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["● Editable.swift"])
         wait(for: [saved], timeout: 6)
         editor.click(); app.typeText(" // unsaved")
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
         row.click()
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String, "let saved = true // unsaved")
@@ -544,8 +544,8 @@ final class CascadeUITests: XCTestCase {
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
-        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 10), app.debugDescription)
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 10), app.debugDescription)
         app.activate()
         func emitActivity() async throws {
             var request = URLRequest(url: URL(string: base + "/fixture/activity-notification")!)
@@ -560,12 +560,12 @@ final class CascadeUITests: XCTestCase {
         toast.click()
         XCTAssertFalse(toast.exists, app.debugDescription)
         XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5), app.debugDescription)
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
         try await emitActivity()
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
         app.buttons["Dismiss activity"].click()
         XCTAssertFalse(toast.exists)
-        XCTAssertTrue(app.staticTexts["My pull requests"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].exists)
     }
 
     @MainActor
@@ -993,7 +993,7 @@ final class CascadeUITests: XCTestCase {
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
         XCTAssertTrue(app.scrollViews["native-dashboard"].waitForExistence(timeout: 10))
         let reviewed = app.buttons["dashboard-pr-2"]
         XCTAssertTrue(reviewed.waitForExistence(timeout: 10), app.debugDescription)
@@ -1303,7 +1303,7 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(pid.waitForExistence(timeout: 15), app.debugDescription)
         let original = try XCTUnwrap(pid.value as? String)
         XCTAssertTrue(original.hasPrefix("PID "))
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
         row.click()
         XCTAssertTrue(pid.waitForExistence(timeout: 5))
         XCTAssertEqual(pid.value as? String, original)
@@ -1361,8 +1361,8 @@ final class CascadeUITests: XCTestCase {
 
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 5))
-        app.outlines["workspace-sidebar"].staticTexts["Overview"].click()
-        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 5))
+        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Reconnect"].waitForExistence(timeout: 15))
     }
 
@@ -1445,7 +1445,7 @@ final class CascadeUITests: XCTestCase {
         XCTAssertFalse(app.menuItems["Check for Updates…"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("1", modifierFlags: .command)
-        XCTAssertTrue(app.staticTexts["My pull requests"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 5))
         app.typeKey("q", modifierFlags: .command)
         let stopped = expectation(for: NSPredicate(format: "state == %d", XCUIApplication.State.notRunning.rawValue), evaluatedWith: app)
         wait(for: [stopped], timeout: 10)

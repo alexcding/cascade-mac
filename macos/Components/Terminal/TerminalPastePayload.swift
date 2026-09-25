@@ -48,6 +48,12 @@ enum TerminalPastePayload {
         return items.isEmpty ? nil : Stageable(items: items)
     }
 
+    /// Bytes already read from elsewhere — a drop's item provider — waiting to be written the
+    /// same way.
+    static func stageable(data: Data, type: UTType) -> Stageable {
+        Stageable(items: [StagedItem(data: data, type: type)])
+    }
+
     /// Writes what ``stageable(from:)`` read under
     /// `TerminalFileStaging.directory` and answers with escaped, space-joined
     /// paths — or `nil` when nothing could be written.

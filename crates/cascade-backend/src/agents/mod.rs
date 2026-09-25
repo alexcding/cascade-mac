@@ -5,6 +5,7 @@
 
 mod claude;
 mod codex;
+mod commands;
 pub mod permission;
 pub mod statusline;
 mod transcript;
@@ -115,6 +116,27 @@ pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
     .ok()
     .flatten();
     Json(found.unwrap_or_else(|| json!({"revision": "", "turns": []})))
+}
+
+#[derive(serde::Deserialize)]
+pub struct CommandsQuery {
+    cli: String,
+    worktree: String,
+}
+
+/// The slash commands the CLI offers in this worktree, for the chat's `/` suggestions.
+pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
+    let found = tokio::task::spawn_blocking(move || {
+        let home = home()?;
+        if !query.worktree.starts_with('/') {
+            return None;
+        }
+        Some(commands::list(&home, &query.cli, Path::new(&query.worktree)))
+    })
+    .await
+    .ok()
+    .flatten();
+    Json(found.unwrap_or_else(|| json!({"commands": []})))
 }
 
 fn home() -> Option<PathBuf> {

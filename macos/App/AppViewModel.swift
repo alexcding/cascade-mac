@@ -337,6 +337,18 @@ public final class AppViewModel {
         return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, query))
     }
 
+    func agentCommands(cli: String, worktree: String) async -> [AgentCommand] {
+        struct Listed: Decodable { let commands: [AgentCommand] }
+        guard let api else { return [] }
+        let listed: Listed? = try? await api.get(APIClient.query(Routes.AGENT_COMMANDS, ["cli": cli, "worktree": worktree]))
+        return listed?.commands ?? []
+    }
+
+    func worktreeFiles(_ worktree: String, matching query: String) async -> [String] {
+        guard let api else { return [] }
+        return (try? await APIFileSearchService(api: api).files(in: worktree, matching: query)) ?? []
+    }
+
     func watchPermissions(runID: String, _ watcher: PermissionWatcher) {
         permissionWatchers[runID] = watcher
         watcher.show(offeredPermissions[runID]?.first)
