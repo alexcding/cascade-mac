@@ -10,11 +10,11 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             Group {
                 switch model.page {
-                case .welcome: ScrollView { WelcomeIntroPage() }
+                case .welcome: ViewThatFits(in: .vertical) { WelcomeIntroPage(); ScrollView { WelcomeIntroPage() } }
                 case .tools: WelcomeToolsPage(model: model)
                 case .hooks: WelcomeHooksPage(model: model)
                 case .simulator: WelcomeSimulatorPage(model: model)
-                case .done: ScrollView { WelcomeDonePage(model: model) }
+                case .done: ViewThatFits(in: .vertical) { WelcomeDonePage(model: model); ScrollView { WelcomeDonePage(model: model) } }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

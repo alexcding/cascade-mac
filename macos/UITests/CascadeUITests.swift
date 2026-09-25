@@ -269,7 +269,7 @@ final class CascadeUITests: XCTestCase {
         let recovered = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.staticTexts["Fixture diff unavailable"])
         wait(for: [recovered], timeout: 5)
         XCTAssertTrue(app.webViews.buttons["Untracked.txt"].exists)
-        app.webViews.buttons["Open Sources/Fixture.swift at line 1"].click()
+        app.webViews.buttons["Open Sources/Fixture.swift, Line 1"].click()
         let editor = app.webViews.textViews.firstMatch
         XCTAssertTrue(editor.waitForExistence(timeout: 15))
         editor.click()
@@ -593,7 +593,7 @@ final class CascadeUITests: XCTestCase {
         app.buttons["Save Command"].click()
         let session = app.outlines["workspace-sidebar"].staticTexts["sidebar-1"].firstMatch
         session.click()
-        let launch = app.buttons["Open in Custom Git Client"]
+        let launch = app.buttons["Open in Git client"]
         XCTAssertTrue(launch.waitForExistence(timeout: 5), app.debugDescription)
         launch.click()
         let failure = app.staticTexts["workspace-launch-error"]
@@ -800,7 +800,7 @@ final class CascadeUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Native Activity"].exists)
         app.buttons["Clear Logs…"].click()
         XCTAssertTrue(app.sheets.buttons["Clear Logs"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.sheets.staticTexts["Clear Activity?"].exists)
+        XCTAssertTrue(app.sheets.staticTexts["Clear Logs?"].exists)
         XCTAssertTrue(app.sheets.staticTexts["This deletes every entry in this category, including entries hidden by search or Errors only."].exists)
         XCTAssertFalse(app.buttons["New Project"].isEnabled)
         app.sheets.buttons["Cancel"].click()
@@ -925,7 +925,7 @@ final class CascadeUITests: XCTestCase {
         picker.click(); app.menuItems["Merged"].click()
         XCTAssertTrue(app.staticTexts["Refreshing pull requests…"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["No matching pull requests."].exists)
-        picker.click(); app.menuItems["Open"].click()
+        picker.click(); app.menuItems["Open PRs"].click()
         try await post("/fixture/release-pr-scope")
         XCTAssertTrue(app.buttons["dashboard-pr-2"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["dashboard-pr-101"].exists)

@@ -161,9 +161,13 @@ struct UsageStats: View {
         // Narrow, so locales outside the US show "$" rather than "US$".
         value.formatted(.currency(code: "USD").presentation(.narrow).precision(.fractionLength(whole ? 0 : 2)))
     }
-    /// Compact notation follows the locale, including its grouping units and suffixes.
     static func compact(_ value: Double) -> String {
-        value.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
+        let units: [(Double, String)] = [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")]
+        for (scale, suffix) in units where value >= scale {
+            let scaled = value / scale
+            return scaled.formatted(.number.precision(.fractionLength(scaled < 10 ? 1 : 0))) + suffix
+        }
+        return value.formatted(.number.precision(.fractionLength(0)))
     }
 }
 

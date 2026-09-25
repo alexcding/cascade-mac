@@ -478,7 +478,7 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
             // A fixed row height keeps every tile the same height whatever its visual.
             .frame(height: 42)
             Text(footnote).font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
-                .lineLimit(2, reservesSpace: true).fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)

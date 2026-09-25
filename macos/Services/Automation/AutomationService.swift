@@ -457,7 +457,7 @@ enum AutomationCatalogText {
         case "Notify me": String(localized: "Notify me")
         case "Notify you when one of your PRs has sat untouched for five days.": String(localized: "Notify you when one of your PRs has sat untouched for five days.")
         case "On merge → Jira": String(localized: "On merge → Jira")
-        case "Only runs from the Run button, against a chosen PR.": String(localized: "Runs manually against a chosen pull request.")
+        case "Only runs from the Run button, against a chosen PR.": String(localized: "Only runs from the Run button, against a chosen PR.")
         case "Only when the run happens on these days and hours (local time).": String(localized: "Only when the run happens on these days and hours (local time).")
         case "POST to webhook": String(localized: "POST to webhook")
         case "PR approved": String(localized: "PR approved")

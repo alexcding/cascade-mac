@@ -14,7 +14,7 @@ import Observation
     @ObservationIgnored private var openingInTab = false
     @ObservationIgnored private var task: Task<Void, Never>? { didSet { oldValue?.cancel() } }
 
-    init(service: any PageActionServing, failureDescription: String = String(localized: "Could not open ticket.")) {
+    init(service: any PageActionServing, failureDescription: String = String(localized: "Could not open ticket")) {
         self.service = service; self.failureDescription = failureDescription
     }
 

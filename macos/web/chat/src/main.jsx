@@ -95,7 +95,7 @@ function dateLine(iso) {
 function duration(seconds) {
   const total = Math.round(seconds);
   const unit = (value, unit) => new Intl.NumberFormat(localization.locale,
-    { style: "unit", unit, unitDisplay: "short" }).format(value);
+    { style: "unit", unit, unitDisplay: "narrow" }).format(value);
   if (total < 60) return unit(total, "second");
   if (total < 3600) return unit(Math.floor(total / 60), "minute") + " " + unit(total % 60, "second");
   return unit(Math.floor(total / 3600), "hour") + " " + unit(Math.floor((total % 3600) / 60), "minute");

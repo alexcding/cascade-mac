@@ -85658,83 +85658,6 @@
         }
       }
     },
-    "Runs manually against a chosen pull request.": {
-      "extractionState": "manual",
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对所选拉取请求手动运行。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "對所選提取要求手動執行。"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "चुने पुल अनुरोध पर मैनुअल चलता है।"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se ejecuta manualmente sobre un pull request elegido."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "S’exécute manuellement sur une demande de fusion choisie."
-          }
-        },
-        "bn": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "নির্বাচিত পুল রিকোয়েস্টে ম্যানুয়ালি চলে।"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Executa manualmente em um pull request escolhido."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Запускается вручную для выбранного запроса на слияние."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択したプルリクエストに対して手動実行します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "선택한 풀 리퀘스트에 대해 수동으로 실행합니다."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Körs manuellt mot en vald pull request."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Si esegue manualmente su una pull request scelta."
-          }
-        }
-      }
-    },
     "Search files in %@": {
       "extractionState": "manual",
       "localizations": {
@@ -87121,79 +87044,79 @@
         }
       }
     },
-    "Could not open ticket.": {
+    "Could not open ticket": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法打开工单。"
+            "value": "无法打开工单"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法開啟工單。"
+            "value": "無法開啟工單"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "टिकट नहीं खुल सका।"
+            "value": "टिकट नहीं खुल सका"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo abrir el ticket."
+            "value": "No se pudo abrir el ticket"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible d’ouvrir le ticket."
+            "value": "Impossible d’ouvrir le ticket"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "টিকিট খোলা যায়নি।"
+            "value": "টিকিট খোলা যায়নি"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível abrir o ticket."
+            "value": "Não foi possível abrir o ticket"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось открыть задачу."
+            "value": "Не удалось открыть задачу"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チケットを開けませんでした。"
+            "value": "チケットを開けませんでした"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "티켓을 열 수 없습니다."
+            "value": "티켓을 열 수 없습니다"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunde inte öppna ärendet."
+            "value": "Kunde inte öppna ärendet"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile aprire il ticket."
+            "value": "Impossibile aprire il ticket"
           }
         }
       }
