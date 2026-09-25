@@ -16,27 +16,38 @@ struct PtydConfiguration: Sendable {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
             return args[i + 1]
         }
-        let data = argument("--data-dir") ?? env["CASCADE_DATA_DIR"] ?? env["CRAFT_DATA_DIR"]
-            ?? LegacyIdentity.supportDirectory.path
+        let explicit = LegacyIdentity.explicitDataDirectory
+        let data = explicit ?? LegacyIdentity.supportDirectory.path
         let executable = argument("--ptyd-path").map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cascade-ptyd")
         let chosen = argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"]
         return Self(executable: executable, directory: URL(fileURLWithPath: data).appendingPathComponent("ptyd-native-spike"),
-                    socketPath: try chosen ?? defaultSocket(environment: env), hasLegacySockets: chosen == nil)
+                    socketPath: try chosen ?? defaultSocket(environment: env, dataDirectory: explicit),
+                    hasLegacySockets: chosen == nil && explicit == nil)
     }
 
-    static func defaultSocket(environment: [String: String]) throws -> String {
+    /// A run given its own data folder gets its own daemon, named for that folder, so quitting it
+    /// never stops the installed app's shells.
+    static func defaultSocket(environment: [String: String], dataDirectory: String? = nil) throws -> String {
+        // Temporary M1 isolation: the established app uses cascade-ptyd.sock.
+        let name = dataDirectory.map { path in
+            // FNV-1a: stable across launches, unlike `hashValue`. Fixed width, so the name's length
+            // never depends on the folder.
+            let key = URL(fileURLWithPath: path).standardizedFileURL.path
+            let hash = String(key.utf8.reduce(UInt64(0xcbf29ce484222325)) { ($0 ^ UInt64($1)) &* 0x100000001b3 }, radix: 16)
+            return "cascade-native-ptyd-\(String(repeating: "0", count: 16 - hash.count))\(hash).sock"
+        } ?? "cascade-native-ptyd.sock"
         let candidate = environment["TMPDIR"] ?? ""
         let directory: String
-        if candidate.hasPrefix("/"), candidate.utf8.count < 70, privateDirectory(candidate) {
+        // Leaves the socket path well under the 104 bytes `validateSocket` allows, whatever the name.
+        if candidate.hasPrefix("/"), candidate.utf8.count + name.utf8.count < 94, privateDirectory(candidate) {
             directory = candidate
         } else {
             directory = "/tmp/cascade-\(getuid())"
             if mkdir(directory, 0o700) != 0 && errno != EEXIST { throw PtyError.connection(String(localized: "Cannot create terminal socket directory.")) }
             guard privateDirectory(directory) else { throw PtyError.connection(String(localized: "Terminal socket directory is not private.")) }
         }
-        // Temporary M1 isolation: the established app uses cascade-ptyd.sock.
-        return URL(fileURLWithPath: directory).appendingPathComponent("cascade-native-ptyd.sock").path
+        return URL(fileURLWithPath: directory).appendingPathComponent(name).path
     }
 
     static func privateDirectory(_ path: String) -> Bool {

@@ -707,3 +707,28 @@ private final class EventLog: @unchecked Sendable {
     #expect(larger.cols < grid.cols && larger.rows < grid.rows)
     #expect(DetachedShell.grid(fitting: .zero, font: CodeFont(size: 13)) == (20, 5))
 }
+
+@Test func aRunWithItsOwnDataFolderGetsItsOwnDaemonSocket() throws {
+    let env = ["TMPDIR": "/tmp/"]
+    let installed = try PtydConfiguration.defaultSocket(environment: env)
+    let dev = try PtydConfiguration.defaultSocket(environment: env, dataDirectory: "/work/macos/.build/dev-data")
+    #expect(installed.hasSuffix("/cascade-native-ptyd.sock"))
+    #expect(dev != installed)
+    #expect(dev == (try PtydConfiguration.defaultSocket(environment: env, dataDirectory: "/work/macos/.build/dev-data/")))
+    #expect(dev != (try PtydConfiguration.defaultSocket(environment: env, dataDirectory: "/work/other")))
+}
+
+@Test func aLongTemporaryFolderNeverMakesAnOverlongSocketPath() throws {
+    // The longest TMPDIR the installed app's socket name still uses: 69 bytes.
+    let prefix = "/tmp/cascade-socket-test-"
+    let tmp = prefix + String(repeating: "x", count: 68 - prefix.count) + "/"
+    try? FileManager.default.removeItem(atPath: tmp)
+    try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+    defer { try? FileManager.default.removeItem(atPath: tmp) }
+    let env = ["TMPDIR": tmp]
+    #expect(try PtydConfiguration.defaultSocket(environment: env).hasPrefix(tmp))
+    for folder in ["/", "/work/macos/.build/dev-data", "/a/much/longer/data/folder/for/a/checkout/somewhere/else"] {
+        let socket = try PtydConfiguration.defaultSocket(environment: env, dataDirectory: folder)
+        #expect(socket.utf8.count < 104, "\(socket)")
+    }
+}

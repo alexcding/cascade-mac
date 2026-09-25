@@ -91,6 +91,8 @@
          <CommandLineArgument argument = "&quot;$(PROJECT_DIR)/..&quot;" isEnabled = "YES"/>
          <CommandLineArgument argument = "--ptyd-path" isEnabled = "YES"/>
          <CommandLineArgument argument = "&quot;$(PROJECT_DIR)/../crates/cascade-ptyd/target/release/cascade-ptyd&quot;" isEnabled = "YES"/>
+         <CommandLineArgument argument = "--data-dir" isEnabled = "YES"/>
+         <CommandLineArgument argument = "&quot;$(PROJECT_DIR)/.build/dev-data&quot;" isEnabled = "YES"/>
       </CommandLineArguments>
    </LaunchAction>
    <ProfileAction

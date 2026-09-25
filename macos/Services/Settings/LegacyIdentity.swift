@@ -15,6 +15,15 @@ enum LegacyIdentity {
     static let supportDirectory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Cascade")
 
+    /// The data folder this run was given, if any. A run with its own folder shares nothing with the
+    /// installed app — not the database, not the terminal daemon — so it may run beside it.
+    static var explicitDataDirectory: String? {
+        let args = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment
+        if let i = args.firstIndex(of: "--data-dir"), i + 1 < args.count { return args[i + 1] }
+        return env["CASCADE_DATA_DIR"] ?? env["CRAFT_DATA_DIR"]
+    }
+
     /// A copy still running under an old name, which has that data open and can still change it.
     static func runningOldCopy() -> NSRunningApplication? {
         bundleIdentifiers.flatMap(NSRunningApplication.runningApplications(withBundleIdentifier:))

@@ -34,38 +34,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.showTerminationError(error)
     })
 
-    /// A second copy of Cascade must not start: both would share the PTY daemon and the
-    /// database, and whichever quits first takes the daemon — and the other's terminals —
-    /// with it. Decided before anything is touched; `applicationDidFinishLaunching` then hands
-    /// focus and any launch URLs to the running copy and leaves.
+    /// A second copy of Cascade on the same data folder must not start: both would share the PTY
+    /// daemon and the database, and whichever quits first takes the daemon — and the other's
+    /// terminals — with it. Decided before anything is touched; `applicationDidFinishLaunching`
+    /// then hands focus and any launch URLs to the running copy and leaves. A run given its own
+    /// data folder (a checkout run from Xcode) shares neither, and runs beside the installed app.
+    @ObservationIgnored private var yielding = false
     @ObservationIgnored private var runningCopy: NSRunningApplication?
     @ObservationIgnored private var forwardedURLs: [URL] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        guard let identifier = Bundle.main.bundleIdentifier else { return }
-        let me = ProcessInfo.processInfo.processIdentifier
-        // A copy still running under the app's old name shares the same database.
-        runningCopy = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-            .first { $0.processIdentifier != me && !$0.isTerminated } ?? LegacyIdentity.runningOldCopy()
+        let explicit = LegacyIdentity.explicitDataDirectory
+        let folder = explicit.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? LegacyIdentity.supportDirectory
+        if case .held(let pid) = InstanceLock.acquire(in: folder) {
+            yielding = true
+            runningCopy = pid.flatMap(NSRunningApplication.init(processIdentifier:))
+        } else if explicit == nil {
+            // A copy still running under the app's old name has the default data open too.
+            runningCopy = LegacyIdentity.runningOldCopy()
+            yielding = runningCopy != nil
+        }
     }
 
-    private func yield(to other: NSRunningApplication) {
-        other.activate()
+    private func yield(to other: NSRunningApplication?) {
+        other?.activate()
         // `exit`, never `terminate`: terminating would run the quit contract and kill the
         // daemon the other copy is using — the very failure this prevents.
-        guard !forwardedURLs.isEmpty, let bundle = other.bundleURL else { exit(0) }
+        guard !forwardedURLs.isEmpty, let bundle = other?.bundleURL else { exit(0) }
         NSWorkspace.shared.open(forwardedURLs, withApplicationAt: bundle, configuration: .init()) { _, _ in exit(0) }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(0) }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if yielding { yield(to: runningCopy); return }
         // Looked for again: an old copy can have started since. With none running, the old data is
-        // carried now, before anything below starts the backend or the terminal daemon.
-        if let other = runningCopy ?? LegacyIdentity.runningOldCopy() { yield(to: other); return }
-        // A run given its own data folder never moves the default one.
-        if !ProcessInfo.processInfo.arguments.contains("--data-dir"),
-           ProcessInfo.processInfo.environment["CASCADE_DATA_DIR"] == nil,
-           ProcessInfo.processInfo.environment["CRAFT_DATA_DIR"] == nil {
+        // carried now, before anything below starts the backend or the terminal daemon. A run given
+        // its own data folder never moves the default one.
+        if LegacyIdentity.explicitDataDirectory == nil {
+            if let other = LegacyIdentity.runningOldCopy() { yield(to: other); return }
             LegacyIdentity.carryData()
         }
         model.shell.applyAppearance()
@@ -114,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        if runningCopy != nil { forwardedURLs += urls; return }
+        if yielding { forwardedURLs += urls; return }
         var handled = false
         for url in urls { if model.handleOpenURL(url) { handled = true } }
         guard handled else { return }
