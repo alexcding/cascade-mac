@@ -53,12 +53,15 @@ struct CraftCommands: Commands {
             command(.sidebar)
             command(.activity)
             Divider()
+            command(.nextSession)
+            command(.previousSession)
+            ForEach(ShellCommand.sessions, id: \.self) { command($0) }
+            Divider()
             command(.back)
             command(.forward)
             Divider()
             command(.nextPage)
             command(.previousPage)
-            ForEach(ShellCommand.tabs, id: \.self) { command($0) }
         }
     }
 

@@ -50,6 +50,12 @@ final class TerminalSession: Identifiable {
     var outputDiagnostics: TerminalPipe.Diagnostics { pipe.diagnostics }
     @ObservationIgnored var openLink: (String, String, Bool) -> Void = { _, _, _ in }
     @ObservationIgnored var onCreated: ((TerminalSession) async throws -> Void)?
+    /// The command a new shell starts with, worked out before the shell exists. The daemon runs
+    /// it once the shell's startup files have loaded, instead of it being typed ahead of a prompt.
+    @ObservationIgnored var startupCommand: (() async throws -> String?)?
+    /// Called as soon as the daemon has created a shell running `startupCommand`, before it is
+    /// attached: whatever the command started is running from here on, attached or not.
+    @ObservationIgnored var startupCommandStarted: (() async -> Void)?
     @ObservationIgnored var launchedAgent: WorkflowCLI?
     @ObservationIgnored var launchedAgentForeground: WorkflowForeground?
 
@@ -224,13 +230,17 @@ final class TerminalSession: Identifiable {
             let profile = try PtyTerminalProfile.current()
             let geometry = try await pipe.measuredGeometry()
             let appearance = try pipe.prepareAppearance()
+            let command = try await startupCommand?()
+            if command != nil { try negotiated.validateStartupCommand() }
             try Task.checkCancellation()
             info = try await client.request(.init(op: "create", opts: .init(
                 cwd: cwd, shell: shellPath, paired: paired, pairKey: pairKey,
                 stateResponseOwner: PtyHello.identityResponseOwnerVersion, terminalProfile: profile,
                 geometryResponseOwner: PtyHello.geometryResponseOwnerVersion, geometry: geometry,
-                appearanceResponseOwner: PtyHello.appearanceResponseOwnerVersion, appearance: appearance)))
+                appearanceResponseOwner: PtyHello.appearanceResponseOwnerVersion, appearance: appearance,
+                startupCommand: command)))
             created = true
+            if command != nil { await startupCommandStarted?() }
         }
         guard !created || info.geometryResponseOwner == PtyHello.geometryResponseOwnerVersion else {
             throw PtyError.connection("The PTY helper did not preserve the requested terminal geometry owner. The created shell has been preserved.")
@@ -269,8 +279,6 @@ final class TerminalSession: Identifiable {
                     self.launchTask = Task {
                         defer { self.launchTask = nil }
                         do {
-                            // Let the shell finish its startup files before entering a command.
-                            try await Task.sleep(for: .seconds(1))
                             try await onCreated(self)
                         } catch { if !Task.isCancelled, self.error == nil { self.error = error.localizedDescription } }
                     }

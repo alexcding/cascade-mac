@@ -6,9 +6,10 @@ public enum ShellCommand: String, Sendable, CaseIterable {
     case reloadPage
     case runProject, stopBuild
     case nextModel, previousModel
-    case tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9
+    case nextSession, previousSession
+    case session1, session2, session3, session4, session5, session6, session7, session8, session9, session10
 
-    static let tabs: [ShellCommand] = [.tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9]
-    /// The position a tab command selects, from zero. The ninth is the last tab, as in Safari.
-    var tabIndex: Int? { Self.tabs.firstIndex(of: self) }
+    static let sessions: [ShellCommand] = [.session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10]
+    /// The position in the sidebar's sessions a command selects, from zero: ⌘1–⌘9, then ⌘0.
+    var sessionIndex: Int? { Self.sessions.firstIndex(of: self) }
 }

@@ -70,7 +70,7 @@ import Testing
     // A row in Settings → Shortcuts that no menu item carries would record a key nothing fires.
     let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent("App/CraftCommands.swift"), encoding: .utf8)
-    for command in ShellCommand.allCases where command.group != nil && command.tabIndex == nil {
+    for command in ShellCommand.allCases where command.group != nil && command.sessionIndex == nil {
         #expect(source.contains("command(.\(command.rawValue))"), "\(command.title) has no menu item")
     }
 }

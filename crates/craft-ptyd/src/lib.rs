@@ -17,6 +17,8 @@
 // Protocol 2 extension: hello {eventScope:"attached"} narrows one connection's events to the
 // terminals it has created, attached to or begun a snapshot of; "all", the default, hears every one.
 // Hello answers with the scope in force, and a daemon that predates it omits the field.
+// Protocol 2 extension: create {opts:{startupCommand}} has a zsh run that command once its startup
+// files have loaded; hello answers "startupCommand":true, and any other shell refuses the create.
 // A request without "id" gets no response (writes/resizes/flow are fire-and-forget).
 //
 // Performance model (borrowed from unpeel's PTY core):
@@ -342,6 +344,9 @@ pub struct CreateOpts {
   pub geometry: Option<TerminalGeometry>,
   pub appearance_response_owner: Option<String>,
   pub appearance: Option<TerminalAppearance>,
+  /// A command the shell runs once its startup files have loaded (see
+  /// `shell_integration::startup_script`), before handing over to an interactive login shell.
+  pub startup_command: Option<String>,
 }
 
 /// Identity is fixed at shell creation. The returned profile records the
@@ -743,6 +748,10 @@ impl Daemon {
 
     // Allocate the parser before spawning a shell, so a parser failure cannot
     // orphan a child. It sees every raw output batch, even without a viewer.
+    // Refuse a command the shell cannot start before anything is allocated for it.
+    if let Some(command) = opts.startup_command.as_deref() {
+      shell_integration::startup_script(Path::new(&shell_path), None, command)?;
+    }
     let mut state = Ring::new(opts.geometry)?;
     if let Some(appearance) = opts.appearance.clone() { state.set_appearance(appearance)?; }
     state.state_response_owner = opts.state_response_owner.is_some();
@@ -756,10 +765,14 @@ impl Daemon {
     // Login + interactive shell so it sources dotfiles and gets the full environment
     // (PATH, nvm, Homebrew, aliases) — like a Terminal.app tab.
     let mut cmd = CommandBuilder::new(&shell_path);
-    if let Some(resources) = prepared_profile.as_ref().and_then(|value| value.profile.resources_directory.as_deref()) {
-      shell_integration::configure(&mut cmd, Path::new(&shell_path), Path::new(resources));
+    let resources = prepared_profile.as_ref().and_then(|value| value.profile.resources_directory.as_deref()).map(Path::new);
+    if let Some(resources) = resources {
+      shell_integration::configure(&mut cmd, Path::new(&shell_path), resources);
     }
+    let startup = opts.startup_command.as_deref()
+      .map(|command| shell_integration::startup_script(Path::new(&shell_path), resources, command)).transpose()?;
     cmd.args(["-l", "-i"]);
+    if let Some(script) = &startup { cmd.args(["-c", script]); }
     cmd.cwd(&dir);
     if let Some(prepared) = &prepared_profile {
       cmd.env("TERM", "xterm-ghostty");
@@ -1205,7 +1218,7 @@ impl Daemon {
         let encoding = if client.byte_transport { "base64" } else { "utf8" };
         let scope = if client.hears_all { "all" } else { "attached" };
         #[allow(unused_mut)]
-        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "eventScope": scope, "acknowledgedInput": true });
+        let mut hello = json!({ "protocol": PROTOCOL, "pid": std::process::id(), "version": env!("CARGO_PKG_VERSION"), "dataEncoding": encoding, "eventScope": scope, "acknowledgedInput": true, "startupCommand": true });
         #[cfg(feature = "terminal-snapshots")]
         {
           _session.snapshot_negotiated = false;

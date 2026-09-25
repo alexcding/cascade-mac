@@ -10,7 +10,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
-                         pinnedIDs: viewModel.pinnedIDs,
+                         pinnedIDs: viewModel.pinnedIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
                          onNewSession: viewModel.newSession(in:), onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onMoveTab: viewModel.moveTab,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,

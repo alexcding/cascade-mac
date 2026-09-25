@@ -81,6 +81,40 @@ pub fn configure(cmd: &mut CommandBuilder, shell: &Path, resources: &Path) {
     }
 }
 
+/// A zsh `-c` script that runs `command` once the login shell has loaded its startup files, then
+/// becomes the interactive login shell a plain terminal starts with. Typed into a shell that is
+/// still loading, the same command echoes ahead of the prompt. Only an absolute zsh gets one.
+pub fn startup_script(shell: &Path, resources: Option<&Path>, command: &str) -> Result<String, String> {
+    if !shell.is_absolute() || shell.file_name().and_then(|name| name.to_str()) != Some("zsh") {
+        return Err(format!("cannot start a command in {}: the terminal shell must be zsh", shell.display()));
+    }
+    if command.trim().is_empty() || command.contains(['\n', '\r', '\0']) {
+        return Err("a startup command must be a single line".into());
+    }
+    let command = quote(command);
+    // Startup handed ZDOTDIR back to the user's dotfiles; the replacement shell needs the
+    // integration injected again, exactly as `configure` did for this one.
+    let reinject = resources
+        .map(|resources| {
+            format!(
+                "if [[ -n ${{ZDOTDIR+set}} ]]; then export GHOSTTY_ZSH_ZDOTDIR=\"$ZDOTDIR\"; \
+                 else unset GHOSTTY_ZSH_ZDOTDIR; fi; export ZDOTDIR={}; ",
+                quote(&resources.join("shell-integration/zsh").to_string_lossy())
+            )
+        })
+        .unwrap_or_default();
+    // `always`: an agent that dies of Ctrl-C would otherwise abort the script, and the terminal
+    // would close instead of returning to a prompt.
+    Ok(format!(
+        "{{ print -sr -- {command}; fc -AI 2>/dev/null; eval {command}; }} always {{ {reinject}exec {} -l -i; }}",
+        quote(&shell.to_string_lossy())
+    ))
+}
+
+fn quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +195,32 @@ mod tests {
                 Some(std::ffi::OsStr::new("/tmp/user.env"))
             );
             assert!(command.get_env("GHOSTTY_BASH_INJECT").is_none());
+        }
+    }
+
+    #[test]
+    fn startup_script_runs_the_command_then_reinjects_an_interactive_zsh() {
+        let resources = Path::new("/tmp/native resources");
+        let script =
+            startup_script(Path::new("/bin/zsh"), Some(resources), "claude --resume 'a b'").unwrap();
+        let quoted = r#"'claude --resume '\''a b'\'''"#;
+        assert!(script.starts_with(&format!(
+            "{{ print -sr -- {quoted}; fc -AI 2>/dev/null; eval {quoted}; }} always {{ "
+        )));
+        assert!(script.contains("export ZDOTDIR='/tmp/native resources/shell-integration/zsh'; "));
+        assert!(script.ends_with("exec '/bin/zsh' -l -i; }"));
+        assert_eq!(
+            startup_script(Path::new("/bin/zsh"), None, "claude").unwrap(),
+            "{ print -sr -- 'claude'; fc -AI 2>/dev/null; eval 'claude'; } always { exec '/bin/zsh' -l -i; }"
+        );
+        for (shell, command) in [
+            ("zsh", "claude"),
+            ("/bin/bash", "claude"),
+            ("/opt/homebrew/bin/fish", "claude"),
+            ("/bin/zsh", " "),
+            ("/bin/zsh", "claude\nrm -rf x"),
+        ] {
+            assert!(startup_script(Path::new(shell), Some(resources), command).is_err());
         }
     }
 }

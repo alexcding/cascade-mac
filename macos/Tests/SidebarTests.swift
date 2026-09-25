@@ -397,3 +397,29 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let inked = (0..<bitmap.pixelsWide).contains { x in (0..<bitmap.pixelsHigh).contains { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.1 } }
     #expect(inked)
 }
+
+/// While ⌘ is held a session shows the key that selects it in place of its glyph, with no plate,
+/// and the title does not move. Let go, the glyph is back.
+@MainActor @Test func aSessionShowsItsShortcutInPlaceOfItsGlyphWhileCommandIsHeld() throws {
+    _ = NSApplication.shared
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")], tabs: [],
+                                    status: ["a": SidebarSessionStatus(live: true, cli: "claude")])
+    let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    func label(_ text: String) -> NSTextField? {
+        cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
+        return cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == text && !$0.isHidden }
+    }
+    cell.configure(session, nested: true, spinFrame: 0)
+    let title = try #require(label(session.title)).frame
+    let glyph = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { !$0.isHidden && $0.stringValue != session.title })
+    #expect(label("⌘1") == nil)
+    cell.configure(session, nested: true, spinFrame: 0, shortcut: "⌘1")
+    let hint = try #require(label("⌘1"))
+    #expect(glyph.isHidden, "the hint takes the glyph's place")
+    #expect(label(session.title)?.frame == title, "the title does not move")
+    #expect(hint.frame.maxX <= title.minX, "the hint ends before the title")
+    #expect(!hint.drawsBackground && hint.layer?.backgroundColor == nil)
+    cell.configure(session, nested: true, spinFrame: 0)
+    #expect(label("⌘1") == nil && !glyph.isHidden)
+}

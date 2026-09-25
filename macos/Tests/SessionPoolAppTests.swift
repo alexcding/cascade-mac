@@ -8,20 +8,34 @@ import Testing
 private actor PoolBackend: BackendTransport {
     let worktree: String
     let ids: [String]
+    /// Sessions with no conversation id yet, which a Claude launch reserves one for.
+    let unreserved: Set<String>
+    /// Conversations that are not on disk, by id. The first look at one still finds it, as a look
+    /// made just before its transcript went would.
+    let missing: Set<String>
+    private var looked: Set<String> = []
     private(set) var paths: [String] = []
-    init(worktree: String, ids: [String]) { self.worktree = worktree; self.ids = ids }
+    /// Each PATCH's path and body.
+    private(set) var patches: [(path: String, body: String)] = []
+    init(worktree: String, ids: [String], unreserved: Set<String> = [], missing: Set<String> = []) {
+        self.worktree = worktree; self.ids = ids; self.unreserved = unreserved; self.missing = missing
+    }
 
     func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
         let url = request.url!
         paths.append(url.path)
+        if request.httpMethod == "PATCH" { patches.append((url.path, String(decoding: request.httpBody ?? Data(), as: UTF8.self))) }
         let body: String
         switch url.path {
         case Routes.PROJECTS: body = #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"\#(worktree)"}]"#
         case Routes.TASKS:
             body = "[" + ids.map { id in
-                #"{"id":"\#(id)","projectId":"p","workspace":"\#(worktree)","worktree":"\#(worktree)","title":"\#(id)","branch":"\#(id)","url":"","pinned":false,"cli":"claude","sessionId":"conversation-\#(id)"}"#
+                #"{"id":"\#(id)","projectId":"p","workspace":"\#(worktree)","worktree":"\#(worktree)","title":"\#(id)","branch":"\#(id)","url":"","pinned":false,"cli":"claude","sessionId":"\#(unreserved.contains(id) ? "" : "conversation-\(id)")"}"#
             }.joined(separator: ",") + "]"
         case Routes.TABS: body = #"{"tabs":[]}"#
+        case Routes.AGENT_CONVERSATION:
+            let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
+            body = #"{"exists":\#(!missing.contains(id) || looked.insert(id).inserted)}"#
         case Routes.SETTINGS: body = #"{"sessionMemoryLimit":"1"}"#
         case Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
         default: body = "{}"
@@ -33,7 +47,9 @@ private actor PoolBackend: BackendTransport {
 @MainActor private final class PoolRuntime: BackendRuntimeServing {
     var onEvent: (BackendRuntimeEvent) -> Void = { _ in }
     let transport: PoolBackend
-    init(worktree: String, ids: [String]) { transport = PoolBackend(worktree: worktree, ids: ids) }
+    init(worktree: String, ids: [String], unreserved: Set<String> = [], missing: Set<String> = []) {
+        transport = PoolBackend(worktree: worktree, ids: ids, unreserved: unreserved, missing: missing)
+    }
     func start() throws -> APIClient { try APIClient(baseURL: URL(string: "http://127.0.0.1:43188")!, transport: transport) }
     func startEvents() { onEvent(.connected) }
     func stopEvents() {}
@@ -58,6 +74,8 @@ private struct RefusedStops: TerminalRuntimeControlling {
 @MainActor private struct PoolPlatform: AppPlatformFactory {
     let fixture: DaemonFixture
     var refusesStops = false
+    /// A shell the daemon will not start an agent in, so creating a session's terminal fails.
+    var refusedShell = false
     var homeDirectory: String { fixture.directory.path }
     private var native: NativeAppPlatformFactory {
         let config = fixture.config
@@ -68,7 +86,8 @@ private struct RefusedStops: TerminalRuntimeControlling {
     }
     func workspaceLauncher() -> WorkspaceLaunchViewModel { native.workspaceLauncher() }
     func terminal(_ request: AppTerminalRequest) -> TerminalSession {
-        TerminalSession(pairKey: request.key, cwd: request.directory, paired: request.paired, configuration: fixture.config, shellPath: fixture.shell)
+        TerminalSession(pairKey: request.key, cwd: request.directory, paired: request.paired, configuration: fixture.config,
+                        shellPath: refusedShell ? "/bin/sh" : fixture.shell)
     }
     func detachedShell(_ request: AppTerminalRequest) -> DetachedShell {
         let config = fixture.config
@@ -107,17 +126,19 @@ private struct RefusedStops: TerminalRuntimeControlling {
     private var daemon: Int32?
     private var opened: [(TerminalSession, NSWindow)] = []
 
-    init(sessions ids: [String], backgroundJobs: [String] = [], refusingStops: Bool = false) throws {
+    init(sessions ids: [String], backgroundJobs: [String] = [], refusingStops: Bool = false,
+         unreserved: Set<String> = [], refusedShell: Bool = false, missing: [String] = [], missingOnDisk: Set<String> = []) throws {
         _ = NSApplication.shared
         let preferences = try #require(UserDefaults(suiteName: suite))
         preferences.set("1", forKey: "native.sessionMemoryLimit")
         fixture = try DaemonFixture()
         try backgroundJobs.map { "conversation-\($0)\n" }.joined().write(to: fixture.backgroundJobs, atomically: true, encoding: .utf8)
+        try missing.map { "conversation-\($0)\n" }.joined().write(to: fixture.missingConversations, atomically: true, encoding: .utf8)
         self.ids = ids
         self.backgroundJobs = backgroundJobs
-        runtime = PoolRuntime(worktree: fixture.directory.path, ids: ids)
+        runtime = PoolRuntime(worktree: fixture.directory.path, ids: ids, unreserved: unreserved, missing: missingOnDisk)
         model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), backendRuntime: runtime,
-            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: PoolPlatform(fixture: fixture, refusesStops: refusingStops),
+            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: PoolPlatform(fixture: fixture, refusesStops: refusingStops, refusedShell: refusedShell),
             welcomeStore: TransientWelcomeStore(shown: true),
             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     }
@@ -205,6 +226,20 @@ private struct RefusedStops: TerminalRuntimeControlling {
         fixture.remove()
         UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
     }
+}
+
+/// The shell starts the agent itself once its startup files have run, so it is never typed ahead of
+/// the prompt, where it would echo twice, and it starts once.
+@MainActor @Test(.timeLimit(.minutes(1))) func theShellStartsTheAgentItselfOnce() async throws {
+    let pool = try PoolHarness(sessions: ["a"])
+    defer { pool.tearDown() }
+    try await pool.start()
+    try await pool.open("a")
+    try await sessionEventually { pool.launches() == ["claude --resume conversation-a"] }
+    try await sessionEventually { pool.terminal("a")?.launchedAgentForeground != nil }
+    try await Task.sleep(for: .milliseconds(1500))
+    #expect(pool.launches().count == 1)
+    try await pool.finish()
 }
 
 /// Two agents, room for one. Launch starts neither: each starts once it is opened. Neither may go
@@ -306,5 +341,86 @@ private struct RefusedStops: TerminalRuntimeControlling {
     try await pool.open("b")
     try await sessionEventually { pool.terminal("b")?.ready == true }
     #expect(pool.launches().count == 2 && pool.model.error == nil)
+    try await pool.finish()
+}
+
+/// ⌘1–9 and ⌘0 go to the sidebar's sessions in its order, past the end do nothing, and ⌘[ ] step.
+@MainActor @Test(.timeLimit(.minutes(1))) func numberShortcutsSelectSessionsInSidebarOrder() async throws {
+    let pool = try PoolHarness(sessions: ["a", "b", "c"])
+    defer { pool.tearDown() }
+    try await pool.start()
+    let order = pool.model.root.entries.flatMap(\.descendants).compactMap(\.sessionID)
+    #expect(order.count == 3)
+    // What the sidebar shows beside them while ⌘ is held.
+    #expect(pool.model.root.sessionShortcuts == [order[0]: "⌘1", order[1]: "⌘2", order[2]: "⌘3"])
+    pool.model.perform(.session2)
+    #expect(pool.model.selection == .session(order[1]))
+    pool.model.perform(.session3)
+    #expect(pool.model.selection == .session(order[2]))
+    #expect(!pool.model.canPerform(.session4) && !pool.model.canPerform(.session10))
+    pool.model.perform(.session10)
+    #expect(pool.model.selection == .session(order[2]))
+    pool.model.perform(.session1)
+    #expect(pool.model.selection == .session(order[0]))
+    // ⌘[ ] step through them and wrap; from anything but a session they start at either end.
+    pool.model.perform(.previousSession)
+    #expect(pool.model.selection == .session(order[2]))
+    pool.model.perform(.nextSession)
+    #expect(pool.model.selection == .session(order[0]))
+    pool.model.perform(.nextSession)
+    #expect(pool.model.selection == .session(order[1]))
+    pool.model.select(.overview)
+    pool.model.perform(.previousSession)
+    #expect(pool.model.selection == .session(order[2]))
+    try await pool.finish()
+}
+
+/// A new Claude session's conversation id goes on its record once its shell exists and starts the
+/// agent under it; a shell that is never created leaves the record as it was.
+@MainActor @Test(.timeLimit(.minutes(1))) func aNewConversationIdIsSavedOnlyOnceItsShellExists() async throws {
+    let pool = try PoolHarness(sessions: ["a"], unreserved: ["a"])
+    defer { pool.tearDown() }
+    try await pool.start()
+    try await pool.open("a")
+    try await sessionEventually { pool.launches().count == 1 }
+    let words = pool.launches()[0].split(separator: " ").map(String.init)
+    #expect(words.prefix(2) == ["claude", "--session-id"])
+    let id = try #require(words.dropFirst(2).first)
+    try await sessionEventually { await pool.runtime.transport.patches.contains { $0.path == Routes.task("a") && $0.body.contains(id) } }
+    #expect(pool.model.sessions.first { $0.id == "a" }?.sessionId == id)
+    try await pool.finish()
+
+    let refused = try PoolHarness(sessions: ["b"], unreserved: ["b"], refusedShell: true)
+    defer { refused.tearDown() }
+    try await refused.start()
+    try await refused.open("b")
+    try await sessionEventually { refused.terminal("b")?.error != nil }
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(await refused.runtime.transport.patches.isEmpty)
+    #expect(refused.model.sessions.first { $0.id == "b" }?.sessionId?.isEmpty != false)
+    #expect(refused.launches().isEmpty)
+    try await refused.finish()
+}
+
+/// A conversation Claude cannot find ends its resume at the shell, and is gone from disk. The session
+/// starts a new one under a new id, keeps that id, and follows the new agent, with nothing reported.
+/// One quit at once, its conversation still on disk, is left at the shell.
+@MainActor @Test(.timeLimit(.minutes(1))) func aResumeClaudeCannotFindStartsANewConversation() async throws {
+    let pool = try PoolHarness(sessions: ["a"], missing: ["a"], missingOnDisk: ["conversation-a"])
+    defer { pool.tearDown() }
+    try await pool.start()
+    try await pool.open("a")
+    try await sessionEventually { pool.launches().count == 2 }
+    #expect(pool.launches()[0] == "claude --resume conversation-a")
+    let words = pool.launches()[1].split(separator: " ").map(String.init)
+    #expect(words.prefix(2) == ["claude", "--session-id"])
+    let id = try #require(words.dropFirst(2).first)
+    #expect(id != "conversation-a")
+    try await sessionEventually { await pool.runtime.transport.patches.contains { $0.path == Routes.task("a") && $0.body.contains(id) } }
+    try await sessionEventually { try await pool.terminal("a")?.atShell() == false }
+    try await Task.sleep(for: .seconds(3.5))
+    #expect(pool.launches().count == 2, "a new conversation that starts is not started again")
+    #expect(pool.model.error == nil)
+    #expect(pool.model.sessions.first { $0.id == "a" }?.sessionId == id)
     try await pool.finish()
 }

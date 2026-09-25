@@ -105,8 +105,10 @@ extension ShellCommand {
         case .previousModel: "Previous Model"
         case .runProject: "Run"
         case .stopBuild: "Stop"
-        case .tab9: "Show Last Tab"
-        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8: "Show Tab \((tabIndex ?? 0) + 1)"
+        case .nextSession: "Next Session"
+        case .previousSession: "Previous Session"
+        case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
+            "Show Session \((sessionIndex ?? 0) + 1)"
         }
     }
 
@@ -116,18 +118,21 @@ extension ShellCommand {
         switch self {
         case .settings, .checkForUpdates: nil
         case .newProject, .newSession, .openFile, .saveFile, .closePage: .file
-        case .newTab, .newSidebarTab, .nextPage, .previousPage, .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9: .tabs
+        case .newTab, .newSidebarTab, .nextPage, .previousPage: .tabs
         case .back, .forward, .reloadPage, .findPage, .zoomIn, .zoomOut, .resetZoom: .browser
         case .overview, .terminal, .sidebar, .activity: .go
+        case .nextSession, .previousSession: .go
+        case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10: .go
         case .runProject, .stopBuild, .nextModel, .previousModel: .product
         case .refresh, .tray, .biggerFont, .smallerFont, .resetFont: .view
         }
     }
 
-    /// One scheme, no two alike: ⌘R/⌘. build as in Xcode, ⌘1–9 and ⇧⌘[ ] tabs as in Safari,
-    /// ⌘+/−/0 zoom whatever is in focus. Page-only zoom has no key until someone gives it one.
+    /// One scheme, no two alike: ⌘R/⌘. build as in Xcode, ⌘1–9 and ⌘0 the first ten sessions and
+    /// ⌘[ ] the ones either side, ⌘+/− zoom whatever is in focus. Actual Size, Back, Forward, the
+    /// panel's tab cycling and page-only zoom gave their keys to sessions, or never had one.
     var defaultShortcut: KeyShortcut? {
-        if let index = tabIndex { return KeyShortcut(key: String(index + 1), command: true) }
+        if let index = sessionIndex { return KeyShortcut(key: String((index + 1) % 10), command: true) }
         return switch self {
         case .overview: KeyShortcut(key: "h", command: true, shift: true)
         case .terminal: KeyShortcut(key: "t", command: true, control: true)
@@ -136,7 +141,6 @@ extension ShellCommand {
         case .tray: KeyShortcut(key: "u", command: true, shift: true)
         case .biggerFont: KeyShortcut(key: "=", command: true)
         case .smallerFont: KeyShortcut(key: "-", command: true)
-        case .resetFont: KeyShortcut(key: "0", command: true)
         case .newSession: KeyShortcut(key: "n", command: true)
         case .newProject: KeyShortcut(key: "p", command: true)
         case .newTab: KeyShortcut(key: "t", command: true)
@@ -145,10 +149,8 @@ extension ShellCommand {
         case .saveFile: KeyShortcut(key: "s", command: true)
         case .closePage: KeyShortcut(key: "w", command: true)
         case .findPage: KeyShortcut(key: "f", command: true)
-        case .back: KeyShortcut(key: "[", command: true)
-        case .forward: KeyShortcut(key: "]", command: true)
-        case .nextPage: KeyShortcut(key: "]", command: true, shift: true)
-        case .previousPage: KeyShortcut(key: "[", command: true, shift: true)
+        case .nextSession: KeyShortcut(key: "]", command: true)
+        case .previousSession: KeyShortcut(key: "[", command: true)
         case .reloadPage: KeyShortcut(key: "r", command: true, option: true)
         case .runProject: KeyShortcut(key: "r", command: true)
         // Two keys, left hand: switching models is done mid-thought, without looking. It wraps,
@@ -161,5 +163,5 @@ extension ShellCommand {
 
     /// The terminal surface binds these itself and would consume them before the menu, so the
     /// app claims them ahead of the responder chain.
-    var claimedAheadOfResponders: Bool { tabIndex != nil || [.newTab, .newSidebarTab, .nextPage, .previousPage, .nextModel, .previousModel].contains(self) }
+    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .newSidebarTab, .nextPage, .previousPage, .nextModel, .previousModel].contains(self) }
 }

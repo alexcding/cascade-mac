@@ -11,6 +11,8 @@ struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
     let selection: SidebarDestination
     let pinnedIDs: Set<String>
+    /// Shown in place of each session's glyph while ⌘ alone is held, then gone once it is let go.
+    var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
     let onTogglePin: (String) -> Void
     var onNewSession: (String) -> Void = { _ in }
@@ -70,7 +72,10 @@ struct CocoaSidebar: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) { context.coordinator.update(self) }
 
-    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) { coordinator.stopSpinner() }
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.stopSpinner()
+        coordinator.stopShortcutHints()
+    }
 
     @MainActor final class Node: NSObject {
         var entry: SidebarEntry
@@ -93,6 +98,9 @@ struct CocoaSidebar: NSViewRepresentable {
         private var spinTimer: Timer?
         private var spinFrame = 0
         private var avatarObserver: NSObjectProtocol?
+        private var flagsMonitor: Any?
+        private var resignObserver: NSObjectProtocol?
+        private var holdingCommand = false { didSet { if oldValue != holdingCommand { refreshVisibleCells() } } }
 
         init(parent: CocoaSidebar, preferences: UserDefaults = .standard) {
             self.parent = parent
@@ -102,6 +110,30 @@ struct CocoaSidebar: NSViewRepresentable {
             avatarObserver = NotificationCenter.default.addObserver(forName: SidebarAvatars.loaded, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshVisibleCells() }
             }
+            // ⌘ alone, in this sidebar's window. Any other modifier with it is a different shortcut,
+            // and a window that loses the keyboard never hears ⌘ let go.
+            flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.outline?.window else { return }
+                    self.holdingCommand = event.window === window
+                        && event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.capsLock) == .command
+                }
+                return event
+            }
+            resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+                let resigned = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                MainActor.assumeIsolated {
+                    guard let self, let window = self.outline?.window, resigned == ObjectIdentifier(window) else { return }
+                    self.holdingCommand = false
+                }
+            }
+        }
+
+        func stopShortcutHints() {
+            if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
+            flagsMonitor = nil
+            if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+            resignObserver = nil
         }
 
         func update(_ value: CocoaSidebar) {
@@ -355,7 +387,8 @@ struct CocoaSidebar: NSViewRepresentable {
             cell.onNewSession = { [weak self] id in self?.parent.onNewSession(id) }
             cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
         cell.onNewTab = { [weak self] in self?.parent.onNewTab() }
-            cell.configure(node.entry, nested: nested, spinFrame: spinFrame)
+            cell.configure(node.entry, nested: nested, spinFrame: spinFrame,
+                           shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
             if row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) as? SidebarRowView {
                 rowView.hoverable = node.entry.destination != nil || node.entry.role == .tabsHeader
                 cell.hovered = rowView.hovered
@@ -623,6 +656,8 @@ enum SidebarGlyphs {
 
     private let icon = NSImageView()
     private let glyph = NSTextField(labelWithString: "")
+    /// The ⌘-held hint, in the glyph's place.
+    private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
     private let badge = NSView()
     private let accessory = SidebarAccessoryButton()
@@ -636,6 +671,9 @@ enum SidebarGlyphs {
         title.maximumNumberOfLines = 1
         glyph.alignment = .center
         glyph.font = Self.glyphFont
+        shortcut.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        shortcut.textColor = .secondaryLabelColor
+        shortcut.alignment = .right
         // Down only: a symbol is already the size its font makes it, and must not be stretched to the slot.
         icon.imageScaling = .scaleProportionallyDown
         icon.wantsLayer = true
@@ -644,7 +682,7 @@ enum SidebarGlyphs {
         badge.layer?.borderWidth = 1.5
         accessory.target = self
         accessory.action = #selector(accessoryPressed)
-        [icon, glyph, title, badge, accessory].forEach(addSubview)
+        [icon, glyph, title, badge, accessory, shortcut].forEach(addSubview)
         imageView = icon
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -669,8 +707,10 @@ enum SidebarGlyphs {
         return [component]
     }
 
-    func configure(_ entry: SidebarEntry, nested: Bool, spinFrame: Int) {
+    func configure(_ entry: SidebarEntry, nested: Bool, spinFrame: Int, shortcut hint: String? = nil) {
         self.entry = entry
+        shortcut.stringValue = hint ?? ""
+        shortcut.isHidden = hint == nil
         self.nested = nested
         title.stringValue = entry.title
         // Only a heading's label is the table's to style. On macOS 27 the table also turns a selected
@@ -703,7 +743,8 @@ enum SidebarGlyphs {
             }
         case .session(let status, let pinned):
             icon.isHidden = true
-            glyph.isHidden = !status.live && !status.busy
+            // The ⌘-held hint takes the glyph's place.
+            glyph.isHidden = (!status.live && !status.busy) || !shortcut.isHidden
             glyph.stringValue = status.busy ? SidebarGlyphs.frames(status.cli)[spinFrame % SidebarGlyphs.frameCount]
                 : SidebarGlyphs.resting(status.cli)
             glyph.font = Self.glyphFont(status.cli)
@@ -802,7 +843,8 @@ enum SidebarGlyphs {
         icon.contentTintColor = SidebarPalette.icon
         switch entry.role {
         case .project(let canCreate): accessory.isHidden = !(hovered && canCreate)
-        case .session, .tab, .tabsHeader: accessory.isHidden = !hovered
+        case .session: accessory.isHidden = !hovered
+        case .tab, .tabsHeader: accessory.isHidden = !hovered
         default: accessory.isHidden = true
         }
         needsLayout = true
@@ -861,6 +903,12 @@ enum SidebarGlyphs {
             let glyphHeight = glyph.frame.height
             glyph.frame = NSRect(x: left - Self.labelInset, y: ((height - glyphHeight) / 2).rounded(),
                                  width: Self.glyphSlot + Self.labelInset * 2, height: glyphHeight)
+            // Ends where the glyph's slot does; wider than the slot, it reaches back into the margin
+            // before it, so the title never moves for it.
+            shortcut.sizeToFit()
+            let hint = shortcut.frame.size
+            shortcut.frame = NSRect(x: left + Self.glyphSlot + Self.labelInset - hint.width, y: ((height - hint.height) / 2).rounded(),
+                                    width: hint.width, height: hint.height)
         case .tab:
             icon.frame = centered(left + (slot - iconSize) / 2, iconSize)
             badge.frame = NSRect(x: icon.frame.maxX - 5, y: icon.frame.maxY - 6, width: 7, height: 7)

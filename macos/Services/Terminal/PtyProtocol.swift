@@ -67,6 +67,13 @@ struct PtyHello: Decodable, Sendable {
     var identityResponseOwner: String? = nil
     var shellIntegration: Bool? = nil
     var geometryResponseOwner: String? = nil
+    var startupCommand: Bool? = nil
+
+    func validateStartupCommand() throws {
+        guard startupCommand == true else {
+            throw PtyError.connection("This PTY helper cannot start the agent in its shell. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+        }
+    }
 
     var appearanceResponseOwner: String? = nil
     func validateAppearanceResponseOwner() throws {
@@ -162,6 +169,7 @@ struct PtyRequest: Encodable, Sendable {
         var geometry: PtyGeometry? = nil
         var appearanceResponseOwner: String? = nil
         var appearance: PtyAppearance? = nil
+        var startupCommand: String? = nil
     }
     var id: UInt64?
     var op: String

@@ -527,8 +527,9 @@ public final class AppViewModel {
         case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
-        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9:
-            (viewer.active?.modeTabs.count ?? 0) > (command == .tab9 ? 0 : command.tabIndex ?? 0)
+        case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
+            sidebarSessions.count > command.sessionIndex ?? 0
+        case .nextSession, .previousSession: !sidebarSessions.isEmpty
         case .refresh: connection == "Connected"
         case .runProject: coordinator.activeWorkspaceModel.map { $0.canRun && $0.build?.running != true } ?? false
         case .stopBuild: coordinator.canPresent && coordinator.activeWorkspaceModel?.build?.running == true
@@ -536,14 +537,33 @@ public final class AppViewModel {
         }
     }
 
+    /// A session reached by its shortcut takes the keyboard into its terminal, so typing goes
+    /// straight to its agent. One chosen in the sidebar leaves it there, for its arrow keys.
+    private func showSession(_ id: String) {
+        select(.session(id))
+        terminals["task:\(id)"]?.surface.requestFocus()
+    }
+
+    /// The sessions in sidebar order, which is what ⌘1–9, ⌘0 and ⌘[ ] count.
+    private var sidebarSessions: [String] { root?.entries.flatMap(\.descendants).compactMap(\.sessionID) ?? [] }
+
     public func perform(_ command: ShellCommand) {
         if [.overview, .terminal].contains(command) { coordinator.discardQueuedDeepLink() }
         // ⌘+ / ⌘− / ⌘0 zoom the web page when that is what has focus, or is all there is to zoom.
         if let zoom = pageZoom(for: command) { return perform(zoom) }
         switch command {
-        case .tab1, .tab2, .tab3, .tab4, .tab5, .tab6, .tab7, .tab8, .tab9:
-            guard canPerform(command), let context = viewer.active, let index = command.tabIndex else { return }
-            context.select(command == .tab9 ? context.modeTabs[context.modeTabs.count - 1] : context.modeTabs[index])
+        case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
+            guard canPerform(command), let index = command.sessionIndex else { return }
+            showSession(sidebarSessions[index])
+        case .nextSession, .previousSession:
+            // Wraps; from anything but a session, Next goes to the first and Previous to the last.
+            let sessions = sidebarSessions
+            guard !sessions.isEmpty else { return }
+            let step = command == .nextSession ? 1 : -1
+            let current: String? = if case .session(let id) = selection { id } else { nil }
+            let target = current.flatMap { sessions.firstIndex(of: $0) }.map { ($0 + step + sessions.count) % sessions.count }
+                ?? (step > 0 ? 0 : sessions.count - 1)
+            showSession(sessions[target])
         case .nextModel, .previousModel:
             if canPerform(command) { coordinator.activeWorkspaceModel?.cycleAgentPreset(command == .nextModel ? 1 : -1) }
         case .reloadPage: if canPerform(.reloadPage) { viewer.active?.activePage?.controls.reload() }
@@ -1099,24 +1119,52 @@ public final class AppViewModel {
         sessionPool.started(record.id)
         terminal.agentTurns.setStreamAvailable(connection == "Connected")
         wireLinks(terminal, contextID: "task:\(record.id)")
+        // Worked out before the shell exists, so the shell starts the agent itself once its
+        // startup files have loaded.
+        let prepared = PreparedLaunch()
+        terminal.startupCommand = { [weak self] in
+            prepared.launch = nil
+            guard let self else { return nil }
+            prepared.launch = try await agentLaunch(record: record, fresh: fresh)
+            return prepared.launch?.command
+        }
+        // The agent runs from the moment its shell exists, so its new conversation id is kept then,
+        // not once the pane has attached, which can still fail.
+        terminal.startupCommandStarted = { [weak self] in
+            guard let self, let launch = prepared.launch else { return }
+            do { try await keepReservedID(launch, record: record) } catch { self.error = error.localizedDescription }
+        }
         terminal.onCreated = { [weak self] terminal in
-            guard let self else { return }
-            try await launchAgent(terminal, record: record, fresh: fresh)
+            guard let self, let launch = prepared.launch else { return }
+            try await noteAgent(terminal, cli: launch.agent.rawValue, started: true)
+            watchLaunch(terminal, agent: launch.agent, resuming: launch.resuming, record: record)
         }
         return terminal
     }
 
-    private func launchAgent(_ terminal: TerminalSession, record: WorkspaceSession, fresh: Bool) async throws {
+    /// `reservedID` is a new conversation id the command starts, not yet on the session record.
+    private struct AgentLaunch { let command: String; let agent: SessionAgent; let resuming: Bool; var reservedID: String? }
+    @MainActor private final class PreparedLaunch { var launch: AgentLaunch? }
+
+    /// Enters the agent's launch at an existing shell, one whose agent was quit.
+    /// `afresh` starts a new conversation under a new id, whatever the session had.
+    private func launchAgent(_ terminal: TerminalSession, record: WorkspaceSession, fresh: Bool, afresh: Bool = false) async throws {
+        guard let launch = try await agentLaunch(record: record, fresh: fresh, afresh: afresh) else { return }
+        try await keepReservedID(launch, record: record)
+        try await enterAgent(terminal, command: launch.command, cli: launch.agent.rawValue)
+        watchLaunch(terminal, agent: launch.agent, resuming: launch.resuming, record: record)
+    }
+
+    private func agentLaunch(record: WorkspaceSession, fresh: Bool, afresh: Bool = false) async throws -> AgentLaunch? {
         let latest = self.sessions.first { $0.id == record.id } ?? record
         let agent = latest.agent
         var id = latest.sessionId
         var firstLaunch = fresh
-        if agent == .claude && (id == nil || id == "") {
-            guard let operations = self.sessionOperations else { throw BackendError.operation("Connect before starting the agent.") }
-            let newID = UUID().uuidString.lowercased()
-            try await operations.saveAgentID(newID, session: latest)
-            id = newID; firstLaunch = true
-            if let index = self.sessions.firstIndex(where: { $0.id == latest.id }) { self.sessions[index].sessionId = newID }
+        var reservedID: String?
+        if agent == .claude && (afresh || id == nil || id == "") {
+            guard self.sessionOperations != nil else { throw BackendError.operation("Connect before starting the agent.") }
+            id = UUID().uuidString.lowercased(); firstLaunch = true
+            reservedID = id
         } else if agent == .claude, !firstLaunch, let id, let operations = self.sessionOperations,
                   (try? await operations.conversationExists(cli: agent.rawValue, id: id)) == false {
             // The id was reserved at a launch that never sent a prompt, so nothing is on disk
@@ -1128,17 +1176,30 @@ public final class AppViewModel {
         let script = Bundle.main.url(forResource: "craft-statusline", withExtension: "sh")
             ?? Bundle.main.url(forResource: "craft-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
         let statusLine = script.map { AgentStatusLine(script: $0.path, taskID: latest.id) }
-        if let command = agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine) {
-            try await enterAgent(terminal, command: command, cli: agent.rawValue)
-            watchLaunch(terminal, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty)
+        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine).map {
+            AgentLaunch(command: $0, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty, reservedID: reservedID)
         }
+    }
+
+    /// Saves a launch's new conversation id once its shell exists, so a shell that is never created
+    /// leaves the session record as it was. A relaunch at an open shell saves it before typing.
+    private func keepReservedID(_ launch: AgentLaunch, record: WorkspaceSession) async throws {
+        guard let id = launch.reservedID else { return }
+        guard let operations = sessionOperations else { throw BackendError.operation("Connect before starting the agent.") }
+        let latest = sessions.first { $0.id == record.id } ?? record
+        try await operations.saveAgentID(id, session: latest)
+        if let index = sessions.firstIndex(where: { $0.id == latest.id }) { sessions[index].sessionId = id }
     }
 
     /// A launch the CLI refuses ends at the shell, which otherwise looks like a session that
     /// simply never started: a resume it cannot find, or an id it says is already in use. Both
     /// are caught, the one that flashed past and the one that never took the foreground at all.
     /// The stored id is kept; this reports that something is wrong, it does not abandon it.
-    private func watchLaunch(_ terminal: TerminalSession, agent: SessionAgent, resuming: Bool) {
+    /// A Claude resume that ends at the shell with its conversation gone from disk is one Claude could
+    /// not find: the session starts a new conversation under a new id instead, and follows that one.
+    /// Only then, since quitting at once reads the same at the shell; and only once, since a new
+    /// conversation that fails too is reported.
+    private func watchLaunch(_ terminal: TerminalSession, agent: SessionAgent, resuming: Bool, record: WorkspaceSession) {
         var seen = terminal.launchedAgentForeground != nil
         Task { [weak self, weak terminal] in
             for _ in 0..<15 {
@@ -1146,9 +1207,16 @@ public final class AppViewModel {
                 guard let terminal, let atShell = try? await terminal.atShell() else { return }
                 if !atShell { seen = true } else if seen { break }
             }
-            guard let terminal, (try? await terminal.atShell()) == true else { return }
+            guard let self, let terminal, (try? await terminal.atShell()) == true else { return }
+            let current = sessions.first { $0.id == record.id }?.sessionId
+            if resuming, agent == .claude, let current, let operations = sessionOperations,
+               (try? await operations.conversationExists(cli: agent.rawValue, id: current)) == false {
+                do { try await launchAgent(terminal, record: record, fresh: true, afresh: true) }
+                catch { self.error = "Claude could not resume its conversation, and starting a new one failed: \(error.localizedDescription)" }
+                return
+            }
             // Quitting the agent within the window reads the same, so this does not claim a failure.
-            self?.error = "\(agent.label) went back to the shell right after \(resuming ? "resuming its conversation" : "starting"). If you did not quit it, check the terminal for its reason."
+            self.error = "\(agent.label) went back to the shell right after \(resuming ? "resuming its conversation" : "starting"). If you did not quit it, check the terminal for its reason."
         }
     }
 
@@ -1156,12 +1224,23 @@ public final class AppViewModel {
     /// how a workflow step later tells the agent it launched from one the user started.
     private func enterAgent(_ terminal: TerminalSession, command: String, cli: String) async throws {
         try await terminal.submit(command)
+        try await noteAgent(terminal, cli: cli, started: false)
+    }
+
+    private func noteAgent(_ terminal: TerminalSession, cli: String, started: Bool) async throws {
         terminal.launchedAgent = WorkflowCLI(rawValue: cli)
         terminal.launchedAgentForeground = nil
-        for _ in 0..<100 {
+        // A shell that starts the agent itself runs its startup files first, and what they run
+        // holds the foreground briefly; there the agent is the program that keeps it.
+        var held = 0
+        var candidate: Int32?
+        for _ in 0..<(started ? 500 : 100) {
             let foreground = try await terminal.workflowForeground()
-            if !foreground.atShell {
-                terminal.launchedAgentForeground = foreground; break
+            if foreground.atShell { held = 0; candidate = nil }
+            else {
+                held = foreground.pgid == candidate ? held + 1 : 0
+                candidate = foreground.pgid
+                if !started || held == 25 { terminal.launchedAgentForeground = foreground; break }
             }
             try await Task.sleep(for: .milliseconds(20))
         }

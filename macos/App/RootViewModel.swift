@@ -42,6 +42,14 @@ import Observation
     var selection: SidebarDestination { state.selection }
     var entries: [SidebarEntry] { state.entries }
     var pinnedIDs: Set<String> { state.pinnedIDs }
+    /// The key that selects each of the first ten sessions, by session id, in the sidebar's order:
+    /// what it shows beside them while ⌘ is held.
+    var sessionShortcuts: [String: String] {
+        let ids = entries.flatMap(\.descendants).compactMap(\.sessionID)
+        return Dictionary(zip(ids, ShellCommand.sessions).compactMap { id, command in
+            ShortcutRegistry.shared.shortcut(for: command).map { (id, $0.title) }
+        }, uniquingKeysWith: { first, _ in first })
+    }
     var error: String? {
         let state = self.state
         switch state.selection {

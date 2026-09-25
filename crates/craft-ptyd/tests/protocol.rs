@@ -170,3 +170,54 @@ fn standalone_helper_preserves_protocol_and_reconnects() {
     BufReader::new(stream).read_line(&mut line).unwrap();
     assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["ok"]["pid"], fixture.child.id());
 }
+
+#[test]
+fn startup_command_runs_after_zsh_startup_and_leaves_an_interactive_shell() {
+    let directory = std::path::PathBuf::from(format!("/tmp/craft-ptyd-startup-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    // The startup file runs before the command; the command sees what it set.
+    std::fs::write(directory.join(".zshrc"), "export CRAFT_STARTUP_ORDER=loaded\n").unwrap();
+    let socket = directory.join("ptyd.sock");
+    let child = Command::new(env!("CARGO_BIN_EXE_craft-ptyd"))
+        .arg(&directory).env("CRAFT_PTYD_SOCK", &socket)
+        .env("HOME", &directory).env_remove("ZDOTDIR")
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut fixture = Fixture { child, directory };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !socket.exists() {
+        assert!(Instant::now() < deadline);
+        assert!(fixture.child.try_wait().unwrap().is_none());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let mut peer = Peer::connect(&socket);
+    assert_eq!(peer.request(json!({"op":"hello","dataEncoding":"base64"}))["ok"]["startupCommand"], true);
+    let marker = fixture.directory.join("started");
+    let created = peer.request(json!({"op":"create","opts":{
+        "cwd":fixture.directory,"shell":"/bin/zsh",
+        "startupCommand":format!("printf %s \"$CRAFT_STARTUP_ORDER\" > '{}'; /bin/sleep 30", marker.display())
+    }}));
+    let id = created["ok"]["id"].as_str().unwrap().to_string();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(&marker).unwrap_or_default() != "loaded" {
+        assert!(Instant::now() < deadline, "the startup command did not run after .zshrc");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(peer.request(json!({"op":"foreground","term":id}))["ok"]["atShell"], false);
+    // Ctrl-C ends the command, not the shell: it is still there, interactive, and takes input.
+    peer.request(json!({"op":"write","term":id,"data":"\u{3}"}));
+    let typed = fixture.directory.join("typed");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    peer.request(json!({"op":"write","term":id,"data":format!("touch '{}'\r", typed.display())}));
+    while !typed.exists() {
+        assert!(Instant::now() < deadline, "the shell after the startup command did not take input");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(peer.request(json!({"op":"foreground","term":id}))["ok"]["atShell"], true);
+    // Any other shell refuses the command, and starts nothing.
+    let refused = peer.request(json!({"op":"create","opts":{
+        "cwd":fixture.directory,"shell":"/bin/sh","startupCommand":"true"
+    }}));
+    assert!(refused["err"].is_string());
+    assert_eq!(peer.request(json!({"op":"list"}))["ok"].as_array().unwrap().len(), 1);
+    assert_eq!(peer.request(json!({"op":"kill","term":id}))["ok"], true);
+}

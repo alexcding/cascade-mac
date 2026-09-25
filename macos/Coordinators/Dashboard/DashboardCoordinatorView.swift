@@ -20,15 +20,6 @@ struct DashboardCoordinatorView: View {
             if model.searching { DashboardSearchView(model: model) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The tabs replaced the back button; its Command-[ stays, from a button nobody sees.
-        .background {
-            if pushed != nil {
-                Button("Back to Dashboard") { model.closeTickets() }
-                    .keyboardShortcut("[", modifiers: .command)
-                    .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
-                    .accessibilityIdentifier("dashboard-back")
-            }
-        }
         .toolbar {
             // The tabs stand in for the page title. Tickets is My Tickets, pushed over the home
             // screen, so choosing any other tab from there pops back to it.
