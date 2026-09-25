@@ -11,7 +11,7 @@ The native app and its bundle script require this feature; Tauri keeps its
 existing feature-free helper protocol. Prepare both runtimes before building the
 native app as described in `macos/README.md`. Cascade snapshot v3 preserves glyph
 registrations and Kitty images. The current handshake revision ends in
-`-craft-appearance-v3`; the sections below describe each response contract.
+`-cascade-appearance-v3`; the sections below describe each response contract.
 Historical validation notes are records only: further UI/unit tests and benchmarks
 are suspended at the user's request.
 

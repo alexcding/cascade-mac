@@ -23,7 +23,7 @@ LOG="$BUILD/bootstrap.log"
 mkdir -p "$BUILD"
 
 # Must match the ghostty-terminal-spm tag the Xcode project pins.
-GHOSTTY_RELEASE="1.6.20260922-craft.1"
+GHOSTTY_RELEASE="1.6.20260922-cascade.1"
 VT_RUNTIME_URL="https://github.com/alexcding/ghostty-terminal-spm/releases/download/$GHOSTTY_RELEASE/ghostty-vt-runtime.zip"
 
 # Xcode pre-actions run with a bare environment; tools may live in the usual places.
