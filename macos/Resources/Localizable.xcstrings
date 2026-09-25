@@ -127057,79 +127057,79 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已有一个 gh webhook forward 钩子，可能是已退出或崩溃的转发程序留下的，也可能是队友正在转发此仓库。GitHub 只允许一个。“修复”会将其移除；队友的转发将因此停止。"
+            "value": "%@ 已有一个 gh webhook forward 钩子，可能是转发程序退出或崩溃后留下的，也可能有团队成员仍在用它转发事件。GitHub 每个仓库只允许一个此类钩子。点击“修复”会移除它；如果其他团队成员正在使用它，其事件转发也会停止。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 已有一個 gh webhook forward 掛鉤，可能是已結束或當機的轉送程式留下的，也可能是隊友正在轉送此儲存庫。GitHub 只允許一個。「修正」會將其移除；隊友的轉送將因此停止。"
+            "value": "%@ 已有一個 gh webhook forward 掛鉤，可能是轉送程式結束或當機後留下的，也可能有團隊成員仍在用它轉送事件。GitHub 每個儲存庫只允許一個此類掛鉤。按一下「修正」會移除它；如果其他團隊成員正在使用它，其事件轉送也會停止。"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ पर पहले से एक gh webhook forward हुक है, जो किसी बंद या क्रैश हुए फ़ॉरवर्डर ने छोड़ा है, या कोई साथी अभी इसे भेज रहा है। GitHub केवल एक की अनुमति देता है। ठीक करें इसे हटा देता है; साथी का फ़ॉरवर्डर रुक जाएगा।"
+            "value": "%@ में पहले से एक gh webhook forward हुक मौजूद है। इसे किसी बंद या क्रैश हुए फ़ॉरवर्डर ने छोड़ा हो सकता है, या कोई साथी अभी इसके ज़रिए इवेंट भेज रहा हो सकता है। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक हुक की अनुमति देता है। “ठीक करें” इसे हटा देगा। अगर कोई साथी इसका इस्तेमाल कर रहा है, तो उसका फ़ॉरवर्डर भी बंद हो जाएगा।"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ya tiene un hook de gh webhook forward, dejado por un reenviador que se cerró o falló, o por un compañero que lo está reenviando ahora. GitHub solo permite uno. Reparar lo elimina; el reenviador de un compañero se detendría."
+            "value": "%@ ya tiene un hook de gh webhook forward. Puede haber quedado tras el cierre o fallo de un proceso de reenvío, o puede que un compañero lo esté usando para reenviar eventos. GitHub solo permite uno de estos hooks por repositorio. «Reparar» lo elimina; si un compañero lo está usando, su reenvío también se detendrá."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ a déjà un hook gh webhook forward, laissé par un transfert qui s’est arrêté ou a planté, ou par un coéquipier qui le transfère en ce moment. GitHub n’en autorise qu’un. Réparer le supprime ; le transfert d’un coéquipier s’arrêterait."
+            "value": "%@ possède déjà un hook gh webhook forward. Il peut avoir été laissé par un processus de transfert arrêté ou ayant planté, ou être encore utilisé par un collègue pour transférer des événements. GitHub n’autorise qu’un seul hook de ce type par dépôt. « Réparer » le supprime ; si un collègue l’utilise, son transfert s’arrêtera aussi."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتوي %@ بالفعل على خطاف gh webhook forward، تركه معيد توجيه أُغلق أو تعطّل، أو زميل يعيد توجيهه الآن. يسمح GitHub بخطاف واحد فقط. يؤدي الإصلاح إلى إزالته، وسيتوقف معيد التوجيه الخاص بالزميل."
+            "value": "يوجد في %@ خطاف gh webhook forward بالفعل. قد يكون برنامج إعادة توجيه قد تركه بعد إغلاقه أو تعطّله، أو قد يكون أحد زملائك يستخدمه الآن لإعادة توجيه الأحداث. يسمح GitHub بخطاف واحد فقط من هذا النوع لكل مستودع. يؤدي اختيار «إصلاح» إلى إزالته؛ وإذا كان أحد زملائك يستخدمه، فستتوقف إعادة توجيه الأحداث لديه أيضًا."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@-এ ইতিমধ্যে একটি gh webhook forward হুক আছে, যা বন্ধ বা ক্র্যাশ হওয়া কোনো ফরোয়ার্ডার রেখে গেছে, অথবা কোনো সহকর্মী এখন এটি পাঠাচ্ছেন। GitHub কেবল একটির অনুমতি দেয়। ঠিক করুন এটি সরিয়ে দেয়; সহকর্মীর ফরোয়ার্ডার থেমে যাবে।"
+            "value": "%@-এ আগে থেকেই একটি gh webhook forward হুক আছে। কোনো ফরোয়ার্ডার বন্ধ হয়ে যাওয়ার বা ক্র্যাশ করার পর এটি থেকে যেতে পারে, অথবা কোনো সহকর্মী এখন এটি দিয়ে ইভেন্ট পাঠাচ্ছেন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি হুকই অনুমোদন করে। “ঠিক করুন” বেছে নিলে এটি সরিয়ে দেওয়া হবে। কোনো সহকর্মী এটি ব্যবহার করে থাকলে তাঁর ফরোয়ার্ডারও বন্ধ হয়ে যাবে।"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ já tem um hook do gh webhook forward, deixado por um encaminhador que foi fechado ou travou, ou por um colega que o está encaminhando agora. O GitHub permite apenas um. Corrigir o remove; o encaminhador de um colega pararia."
+            "value": "%@ já tem um hook do gh webhook forward. Ele pode ter sido deixado por um processo de encaminhamento que foi encerrado ou travou, ou estar sendo usado por um colega para encaminhar eventos. O GitHub permite apenas um hook desse tipo por repositório. “Corrigir” remove esse hook; se um colega o estiver usando, o encaminhamento dele também será interrompido."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "В %@ уже есть хук gh webhook forward — его оставил завершившийся или упавший пересыльщик, либо коллега пересылает этот репозиторий прямо сейчас. GitHub разрешает только один. «Исправить» удалит его; пересылка коллеги остановится."
+            "value": "В %@ уже есть хук gh webhook forward. Он мог остаться после остановки или сбоя процесса передачи событий, либо его сейчас использует коллега. GitHub разрешает только один такой хук на репозиторий. Кнопка «Исправить» удалит его. Если коллега использует этот хук, передача событий у него тоже прекратится."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ にはすでに gh webhook forward のフックがあります。終了またはクラッシュした転送プロセスが残したものか、チームメイトが今転送しているものです。GitHub では 1 つしか許可されません。「修正」でこれを削除します。チームメイトの転送は停止します。"
+            "value": "%@ にはすでに gh webhook forward のフックがあります。転送プロセスの終了やクラッシュ後に残ったものか、チームメイトがイベントの転送に使用している可能性があります。GitHub で許可されるこの種類のフックは、リポジトリごとに 1 つだけです。「修正」を選ぶとフックが削除されます。チームメイトが使用中の場合、そのイベント転送も停止します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에 이미 gh webhook forward 훅이 있습니다. 종료되었거나 충돌한 전달 프로세스가 남긴 것이거나, 팀원이 지금 전달 중인 것입니다. GitHub는 하나만 허용합니다. 수정하면 이 훅을 제거하며, 팀원의 전달은 중지됩니다."
+            "value": "%@에 이미 gh webhook forward 훅이 있습니다. 전달 프로세스가 종료되거나 비정상 종료된 후 남은 훅이거나, 팀원이 현재 이벤트 전달에 사용 중인 훅일 수 있습니다. GitHub는 저장소당 이 유형의 훅을 하나만 허용합니다. ‘수정’을 선택하면 훅이 제거됩니다. 팀원이 사용 중이라면 해당 팀원의 이벤트 전달도 중지됩니다."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ har redan en gh webhook forward-hook, kvarlämnad av en vidarebefordrare som avslutades eller kraschade, eller av en kollega som vidarebefordrar den just nu. GitHub tillåter en. Åtgärda tar bort den; en kollegas vidarebefordran skulle stoppas."
+            "value": "%@ har redan en gh webhook forward-hook. Den kan ha lämnats kvar av en vidarebefordringsprocess som avslutats eller kraschat, eller användas av en kollega som vidarebefordrar händelser just nu. GitHub tillåter bara en sådan hook per kodförråd. ”Åtgärda” tar bort den. Om en kollega använder den stoppas även kollegans vidarebefordran."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ha già un hook di gh webhook forward, lasciato da un inoltro che è stato chiuso o si è arrestato, oppure da un collega che lo sta inoltrando ora. GitHub ne consente uno solo. Correggi lo rimuove; l’inoltro di un collega si interromperebbe."
+            "value": "%@ ha già un hook di gh webhook forward. Potrebbe essere rimasto dopo la chiusura o l’arresto anomalo di un processo di inoltro, oppure essere usato da un collega per inoltrare eventi. GitHub consente un solo hook di questo tipo per repository. «Correggi» lo rimuove; se un collega lo sta usando, anche il suo inoltro verrà interrotto."
           }
         }
       }
@@ -127152,7 +127152,7 @@
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "हर प्रोजेक्ट की सेटिंग्स में भेजना बंद है।"
+            "value": "सभी प्रोजेक्ट की सेटिंग्स में इवेंट भेजना बंद है।"
           }
         },
         "es": {
@@ -127176,7 +127176,7 @@
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "প্রতিটি প্রকল্পের সেটিংসে পাঠানো বন্ধ।"
+            "value": "সব প্রকল্পের সেটিংসে ইভেন্ট পাঠানো বন্ধ আছে।"
           }
         },
         "pt-BR": {
@@ -127194,7 +127194,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのプロジェクトで、設定の転送がオフになっています。"
+            "value": "すべてのプロジェクトの設定で、イベントの転送がオフになっています。"
           }
         },
         "ko": {
@@ -127318,7 +127318,7 @@
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "भेज रहा है"
+            "value": "इवेंट भेजे जा रहे हैं"
           }
         },
         "es": {
@@ -127342,7 +127342,7 @@
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "পাঠানো হচ্ছে"
+            "value": "ইভেন্ট পাঠানো হচ্ছে"
           }
         },
         "pt-BR": {
@@ -127354,7 +127354,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Передаётся"
+            "value": "Передача событий"
           }
         },
         "ja": {
@@ -127472,25 +127472,25 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有已启用的拉取请求自动化涵盖此项目。"
+            "value": "没有已启用的拉取请求自动化适用于此项目。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有已啟用的提取要求自動化涵蓋此專案。"
+            "value": "沒有已啟用的提取要求自動化適用於此專案。"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "कोई चालू पुल रिक्वेस्ट स्वचालन इस प्रोजेक्ट को कवर नहीं करता।"
+            "value": "इस प्रोजेक्ट के लिए कोई पुल रिक्वेस्ट स्वचालन चालू नहीं है।"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ninguna automatización de solicitudes activada cubre este proyecto."
+            "value": "Ninguna automatización activa de solicitudes de incorporación de cambios se aplica a este proyecto."
           }
         },
         "fr": {
@@ -127508,7 +127508,7 @@
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "কোনো চালু পুল রিকোয়েস্ট অটোমেশন এই প্রকল্পকে কভার করে না।"
+            "value": "এই প্রকল্পের জন্য কোনো পুল রিকোয়েস্ট অটোমেশন চালু নেই।"
           }
         },
         "pt-BR": {
@@ -127532,7 +127532,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 프로젝트를 대상으로 하는 켜진 풀 리퀘스트 자동화가 없습니다."
+            "value": "이 프로젝트를 대상으로 하는 활성화된 풀 리퀘스트 자동화가 없습니다."
           }
         },
         "sv": {
@@ -127555,79 +127555,79 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "拉取请求事件会即时送达自动化。Cascade 运行期间，这会在仓库中添加一个 Webhook，需要该仓库的管理员权限。GitHub 每个仓库只允许一个，因此同一时间只能有一人转发。关闭后，自动化会按常规刷新计划检查拉取请求。"
+            "value": "拉取请求事件会即时送达自动化。启用后，Cascade 会在运行期间向仓库添加一个 Webhook，这需要该仓库的管理员权限。GitHub 每个仓库只允许一个此类 Webhook，因此同一时间只能由一人转发事件。关闭后，自动化会按常规刷新间隔检查拉取请求。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "提取要求事件會即時送達自動化。Cascade 執行期間，這會在儲存庫中加入一個 Webhook，需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個，因此同一時間只能有一人轉送。關閉後，自動化會按一般重新整理排程檢查提取要求。"
+            "value": "提取要求事件會即時送達自動化。啟用後，Cascade 會在執行期間向儲存庫加入一個 Webhook，這需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個此類 Webhook，因此同一時間只能由一人轉送事件。關閉後，自動化會依一般重新整理間隔檢查提取要求。"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "पुल रिक्वेस्ट इवेंट तुरंत स्वचालन तक पहुँचते हैं। Cascade चलने के दौरान यह रिपॉज़िटरी में एक वेबहुक जोड़ता है, जिसके लिए उस पर एडमिन पहुँच चाहिए। GitHub हर रिपॉज़िटरी में केवल एक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इसे भेज सकता है। बंद होने पर स्वचालन नियमित रीफ़्रेश अंतराल पर पुल रिक्वेस्ट जाँचता है।"
+            "value": "पुल रिक्वेस्ट इवेंट होते ही स्वचालन तक पहुँच जाते हैं। यह विकल्प चालू होने पर Cascade चलने के दौरान रिपॉज़िटरी में एक वेबहुक जोड़ता है। इसके लिए उस रिपॉज़िटरी पर एडमिन अधिकार चाहिए। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक वेबहुक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इवेंट भेज सकता है। विकल्प बंद होने पर स्वचालन नियमित रीफ़्रेश अंतराल पर पुल रिक्वेस्ट की जाँच करते हैं।"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los eventos de solicitudes llegan a las automatizaciones al instante. Mientras Cascade está abierto, esto añade un webhook al repositorio, lo que requiere acceso de administrador. GitHub permite uno por repositorio, así que solo una persona puede reenviarlo a la vez. Si está desactivado, las automatizaciones comprueban las solicitudes con la frecuencia habitual."
+            "value": "Los eventos de las solicitudes de incorporación de cambios llegan a las automatizaciones en cuanto se producen. Al activar esta opción, Cascade añade un webhook al repositorio mientras está en ejecución. Para ello, se necesita acceso de administrador al repositorio. GitHub solo permite un webhook de este tipo por repositorio, por lo que solo una persona puede reenviar sus eventos a la vez. Si se desactiva esta opción, las automatizaciones comprueban las solicitudes con la frecuencia de actualización habitual."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les événements de pull request parviennent aux automatisations dès qu’ils se produisent. Tant que Cascade est ouvert, un webhook est ajouté au dépôt, ce qui nécessite un accès administrateur. GitHub n’en autorise qu’un par dépôt : une seule personne peut donc le transférer à la fois. Désactivé, les automatisations vérifient les pull requests selon l’intervalle habituel."
+            "value": "Les événements de pull request parviennent aux automatisations dès qu’ils se produisent. Lorsque cette option est activée, Cascade ajoute un webhook au dépôt pendant son exécution, ce qui nécessite des droits d’administration sur le dépôt. GitHub n’autorise qu’un seul webhook de ce type par dépôt : une seule personne peut donc en transférer les événements à la fois. Si l’option est désactivée, les automatisations vérifient les pull requests à la fréquence d’actualisation habituelle."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصل أحداث طلبات السحب إلى الأتمتة فور حدوثها. أثناء تشغيل Cascade يُضاف خطاف ويب إلى المستودع، ويتطلب ذلك صلاحية المسؤول عليه. يسمح GitHub بخطاف واحد لكل مستودع، لذا يمكن لشخص واحد فقط إعادة توجيهه في كل مرة. عند التعطيل، تتحقق الأتمتة من طلبات السحب وفق جدول التحديث المعتاد."
+            "value": "تصل أحداث طلبات السحب إلى الأتمتة فور حدوثها. عند تفعيل هذا الخيار، يضيف Cascade خطاف ويب إلى المستودع أثناء تشغيله، ويتطلب ذلك صلاحيات المسؤول على المستودع. يسمح GitHub بخطاف واحد فقط من هذا النوع لكل مستودع، لذا يمكن لشخص واحد فقط إعادة توجيه أحداثه في الوقت نفسه. عند تعطيل الخيار، تتحقق الأتمتة من طلبات السحب وفق جدول التحديث المعتاد."
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "পুল রিকোয়েস্টের ঘটনাগুলো সঙ্গে সঙ্গে অটোমেশনে পৌঁছায়। Cascade চলার সময় এটি রিপোজিটরিতে একটি ওয়েবহুক যোগ করে, যার জন্য অ্যাডমিন অ্যাক্সেস লাগে। GitHub প্রতি রিপোজিটরিতে একটির অনুমতি দেয়, তাই একবারে কেবল একজন এটি পাঠাতে পারেন। বন্ধ থাকলে অটোমেশন নিয়মিত রিফ্রেশের সময়সূচি অনুযায়ী পুল রিকোয়েস্ট দেখে।"
+            "value": "পুল রিকোয়েস্টের ইভেন্ট ঘটার সঙ্গে সঙ্গেই অটোমেশনে পৌঁছায়। এই বিকল্প চালু থাকলে Cascade চলার সময় রিপোজিটরিতে একটি ওয়েবহুক যোগ করে। এর জন্য ওই রিপোজিটরিতে অ্যাডমিন অ্যাক্সেস প্রয়োজন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি ওয়েবহুকই অনুমোদন করে, তাই একসঙ্গে কেবল একজন ইভেন্ট পাঠাতে পারেন। বিকল্পটি বন্ধ থাকলে অটোমেশন নিয়মিত রিফ্রেশের সময়সূচি অনুযায়ী পুল রিকোয়েস্ট পরীক্ষা করে।"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Os eventos de pull request chegam às automações assim que acontecem. Enquanto o Cascade está aberto, isso adiciona um webhook ao repositório, o que exige acesso de administrador. O GitHub permite um por repositório, então só uma pessoa pode encaminhá-lo por vez. Desativado, as automações verificam os pull requests no intervalo habitual."
+            "value": "Os eventos de pull request chegam às automações assim que ocorrem. Com esta opção ativada, o Cascade adiciona um webhook ao repositório enquanto está em execução. Isso exige acesso de administrador ao repositório. O GitHub permite apenas um webhook desse tipo por repositório, portanto só uma pessoa pode encaminhar os eventos dele por vez. Com a opção desativada, as automações verificam os pull requests no intervalo de atualização habitual."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "События пул-реквестов поступают в автоматизацию сразу. Пока Cascade запущен, в репозиторий добавляется вебхук, для чего нужны права администратора. GitHub разрешает один такой вебхук на репозиторий, поэтому пересылать его может только один человек одновременно. Когда передача выключена, автоматизация проверяет пул-реквесты по обычному расписанию обновления."
+            "value": "События пул-реквестов поступают в автоматизации сразу. Если этот параметр включён, Cascade на время своей работы добавляет в репозиторий вебхук. Для этого нужны права администратора репозитория. GitHub разрешает только один такой вебхук на репозиторий, поэтому передавать его события может только один человек одновременно. Если параметр выключен, автоматизации проверяют пул-реквесты по обычному расписанию обновления."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "プルリクエストのイベントは発生と同時に自動化に届きます。Cascade の実行中はリポジトリに Webhook が追加されるため、リポジトリの管理者権限が必要です。GitHub ではリポジトリごとに 1 つしか許可されないため、同時に転送できるのは 1 人だけです。オフの場合、自動化は通常の更新間隔でプルリクエストを確認します。"
+            "value": "プルリクエストのイベントは発生と同時に自動化に届きます。この設定をオンにすると、Cascade の実行中にリポジトリに Webhook が追加されます。これにはリポジトリの管理者権限が必要です。GitHub で許可されるこの種類の Webhook はリポジトリごとに 1 つだけなので、同時にイベントを転送できるのは 1 人だけです。オフの場合、自動化は通常の更新間隔でプルリクエストを確認します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "풀 리퀘스트 이벤트가 발생하는 즉시 자동화에 전달됩니다. Cascade가 실행되는 동안 저장소에 웹훅이 추가되며, 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소마다 하나만 허용하므로 한 번에 한 사람만 전달할 수 있습니다. 끄면 자동화가 정기 새로 고침 일정에 따라 풀 리퀘스트를 확인합니다."
+            "value": "풀 리퀘스트 이벤트가 발생하는 즉시 자동화에 전달됩니다. 이 옵션을 켜면 Cascade가 실행되는 동안 저장소에 웹훅이 추가됩니다. 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소당 이 유형의 웹훅을 하나만 허용하므로 한 번에 한 사람만 이벤트를 전달할 수 있습니다. 옵션을 끄면 자동화가 일반적인 새로 고침 주기에 따라 풀 리퀘스트를 확인합니다."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pull request-händelser når automatiseringarna direkt. Medan Cascade körs läggs en webhook till i kodförrådet, vilket kräver administratörsbehörighet. GitHub tillåter en per kodförråd, så bara en person i taget kan vidarebefordra den. När det är avstängt kontrollerar automatiseringarna pull requests enligt det vanliga uppdateringsschemat."
+            "value": "Pull request-händelser når automatiseringarna direkt när de inträffar. När alternativet är på lägger Cascade till en webhook i kodförrådet medan appen körs. Det kräver administratörsbehörighet till kodförrådet. GitHub tillåter bara en sådan webhook per kodförråd, så bara en person i taget kan vidarebefordra händelserna. När alternativet är av kontrollerar automatiseringarna pull requests enligt det vanliga uppdateringsschemat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gli eventi delle pull request raggiungono le automazioni non appena si verificano. Mentre Cascade è in esecuzione, viene aggiunto un webhook al repository, il che richiede l’accesso da amministratore. GitHub ne consente uno per repository, quindi solo una persona alla volta può inoltrarlo. Se disattivato, le automazioni controllano le pull request secondo l’intervallo abituale."
+            "value": "Gli eventi delle pull request raggiungono le automazioni non appena si verificano. Quando questa opzione è attiva, Cascade aggiunge un webhook al repository durante l’esecuzione. Per farlo, sono necessari i permessi di amministratore del repository. GitHub consente un solo webhook di questo tipo per repository, quindi solo una persona alla volta può inoltrarne gli eventi. Quando l’opzione è disattivata, le automazioni controllano le pull request con la consueta frequenza di aggiornamento."
           }
         }
       }
@@ -127650,7 +127650,7 @@
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "रिपॉज़िटरी का gh webhook forward हुक हटाएँ, फिर दोबारा भेजना शुरू करें।"
+            "value": "रिपॉज़िटरी का gh webhook forward हुक हटाएँ, फिर इवेंट भेजना दोबारा शुरू करें।"
           }
         },
         "es": {
@@ -127674,7 +127674,7 @@
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "রিপোজিটরির gh webhook forward হুক সরান, তারপর আবার পাঠানো শুরু করুন।"
+            "value": "রিপোজিটরির gh webhook forward হুক সরিয়ে আবার ইভেন্ট পাঠানো শুরু করুন।"
           }
         },
         "pt-BR": {
@@ -127686,7 +127686,7 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Удалить хук gh webhook forward из репозитория и снова начать передачу."
+            "value": "Удалить хук gh webhook forward из репозитория и возобновить передачу событий."
           }
         },
         "ja": {
@@ -127733,7 +127733,7 @@
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "फिर कोशिश कर रहा है"
+            "value": "दोबारा कोशिश जारी है"
           }
         },
         "es": {
@@ -127858,7 +127858,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始中"
+            "value": "起動中"
           }
         },
         "ko": {
@@ -127905,13 +127905,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo iniciar el reenviador."
+            "value": "No se pudo iniciar el proceso de reenvío."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le transfert n’a pas pu démarrer."
+            "value": "Le processus de transfert n’a pas pu démarrer."
           }
         },
         "ar": {
@@ -127929,25 +127929,25 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível iniciar o encaminhador."
+            "value": "Não foi possível iniciar o processo de encaminhamento."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось запустить пересылку."
+            "value": "Не удалось запустить передачу событий."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "転送プロセスを開始できませんでした。"
+            "value": "転送プロセスを起動できませんでした。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전달 프로세스를 시작할 수 없습니다."
+            "value": "전달 프로세스를 시작하지 못했습니다."
           }
         },
         "sv": {
@@ -127959,7 +127959,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile avviare l’inoltro."
+            "value": "Impossibile avviare il processo di inoltro."
           }
         }
       }
