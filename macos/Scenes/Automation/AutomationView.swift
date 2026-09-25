@@ -8,10 +8,10 @@ struct AutomationView: View {
     @Bindable var model: AutomationViewModel
 
     var body: some View {
-        HStack(spacing: 0) {
+        // AppKit owns the divider, so a drag resizes the list without re-rendering the editor per frame.
+        HSplitView {
             AutomationListPane(model: model)
-                .frame(width: 280)
-            Divider()
+                .frame(minWidth: 220, idealWidth: 280, maxWidth: 480)
             Group {
                 if model.draft != nil {
                     AutomationEditorView(model: model)
@@ -21,7 +21,7 @@ struct AutomationView: View {
                     AutomationEmptyState(model: model)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)

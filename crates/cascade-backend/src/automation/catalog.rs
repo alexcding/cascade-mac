@@ -243,7 +243,7 @@ fn templates() -> Value {
                 filter("pr.author", json!({"mode":"in","users":[]})),
                 filter("pr.draft", json!({"is":"no"})),
                 filter("pr.ci", json!({"is":"passing"})),
-                action("github.approve", json!({"body":"Auto-approved by Cascade."})),
+                action("github.approve", json!({"body":"Auto-approved by [Cascade](https://github.com/alexcding/cascade-mac)"})),
             ],
         ),
         template(

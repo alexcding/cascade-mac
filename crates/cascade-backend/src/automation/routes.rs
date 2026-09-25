@@ -262,19 +262,71 @@ pub async fn runs(State(app): State<AppState>, Query(query): Query<RunsQuery>) -
 pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
     let mut forwarding: Vec<String> = app.forwarders.list().await;
     forwarding.sort();
-    let mut wanted: Vec<String> = super::forward_repos(&app).into_iter().collect();
+    // Every project with a repo, with what its forwarder is doing: Settings lists them all, and
+    // offers a fix for one whose forwarder cannot start.
+    let global = super::forwarding(&app);
+    let all = app.db.projects()?;
+    let covered = super::pr_covered(&app, &all);
+    let mut wanted: Vec<String> =
+        if global { super::forwarded(&all, &covered).into_iter().collect() } else { Vec::new() };
     wanted.sort();
+    let statuses = app.forwarders.statuses().await;
+    let projects: Vec<Value> = all
+        .iter()
+        .filter(|project| project["repo"].as_str().is_some_and(|repo| !repo.is_empty()))
+        .map(|project| {
+            let id = project["id"].as_str().unwrap_or("");
+            let repo = project["repo"].as_str().unwrap_or("");
+            let (state, error) = if !global {
+                ("off", None)
+            } else if !super::forwards(project) {
+                ("disabled", None)
+            } else if !covered.contains(id) {
+                ("idle", None)
+            } else {
+                statuses.get(repo).map_or(("starting", None), |status| (status.state, status.error.clone()))
+            };
+            json!({"id": id, "name": project["name"], "repo": repo, "state": state, "error": error})
+        })
+        .collect();
     Ok(Json(json!({
         "paused": super::paused(&app),
-        "forwardWebhooks": super::forwarding(&app),
+        "forwardWebhooks": global,
         "forwarding": forwarding,
         "forwardable": wanted,
+        "projects": projects,
     })))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn settings_list_every_project_with_its_forwarding_state() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = crate::Database::open(directory.path()).unwrap();
+        let covered = db.add_project(json!({"name":"Covered","repo":"a/covered"}).as_object().unwrap()).unwrap();
+        db.add_project(json!({"name":"Idle","repo":"a/idle"}).as_object().unwrap()).unwrap();
+        db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).unwrap();
+        db.add_project(json!({"name":"No repo"}).as_object().unwrap()).unwrap();
+        let mut pipeline = super::super::migrate::legacy_pipeline(&json!({"id":covered["id"],"name":"p","mergeTransition":"Done"})).unwrap();
+        pipeline.mode = super::super::model::Mode::Live;
+        super::super::store::save(&db, pipeline).unwrap();
+        let app = AppState::new(db, None);
+        let Json(settings) = get_settings(State(app)).await.unwrap();
+        let states: Vec<(String, String)> = settings["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (p["repo"].as_str().unwrap().to_owned(), p["state"].as_str().unwrap().to_owned()))
+            .collect();
+        // Covered and wanted, but no forwarder has started in a test: it is about to.
+        assert!(states.contains(&("a/covered".into(), "starting".into())));
+        assert!(states.contains(&("a/idle".into(), "idle".into())));
+        assert!(states.contains(&("a/off".into(), "disabled".into())));
+        assert_eq!(states.len(), 3);
+    }
 
     #[test]
     fn every_template_is_a_valid_pipeline() {

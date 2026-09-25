@@ -51,6 +51,9 @@ struct AutomationEditorView: View {
                     .font(.system(size: 28, weight: .bold)).tracking(-0.6)
                     .accessibilityIdentifier("automation-name")
             }
+            // Both the field and the spacer are flexible, and would split the room between them,
+            // clipping the name at half the pane. The name gets all of it but the spacer's minimum.
+            .layoutPriority(1)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
                 Text(model.draft?.mode == .live ? "On" : "Off").font(.system(size: 13, weight: .medium))

@@ -41,6 +41,20 @@ struct WebhookForwardingSection: View {
             if let status = model.status(extensionInstalled: clis.availability[ManagedCLI.ghWebhook.rawValue]?.present) {
                 Text(status).font(.caption).foregroundStyle(Theme.textSecondary)
             }
+            ForEach(model.projects) { project in
+                let detail = WebhookForwardingViewModel.detail(project)
+                SettingsRow(title: project.name, caption: detail.caption) {
+                    HStack(spacing: 8) {
+                        StatusPill(text: detail.label, tone: detail.tone, identifier: "settings-forwarder-\(project.id)")
+                        if project.state == .hookExists {
+                            if model.fixing == project.repo { ProgressView().controlSize(.small) }
+                            Button("Fix") { Task { await model.fix(project.repo) } }
+                                .disabled(model.fixing != nil)
+                                .help("Remove the repository's gh webhook forward hook, then start forwarding again.")
+                        }
+                    }
+                }
+            }
             if let error = model.error {
                 Text(error).font(.caption).foregroundStyle(Theme.warn).textSelection(.enabled)
             }

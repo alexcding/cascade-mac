@@ -94,6 +94,7 @@ public enum Routes {
     public static let DB = "/api/db"
     public static let STREAM = "/api/stream"
     public static let FORWARDERS = "/api/forwarders"
+    public static let FORWARDERS_FIX = "/api/forwarders/fix"
     public static let AUTOMATIONS = "/api/automations"
     public static let AUTOMATIONS_CATALOG = "/api/automations/catalog"
     public static let AUTOMATIONS_SAMPLES = "/api/automations/samples"

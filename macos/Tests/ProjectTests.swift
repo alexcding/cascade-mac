@@ -194,7 +194,10 @@ private actor ProjectFixture: ProjectService {
     draft.ideTarget = "App/App.xcworkspace"
     #expect(draft.validationError == nil)
     let body = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])
-    #expect(body["runScheme"] == nil && body["workflows"] == nil && body["forwardWebhooks"] == nil)
+    #expect(body["runScheme"] == nil && body["workflows"] == nil)
+    // Forwarding is the project's own switch, since it puts a webhook on the repo: on unless turned off.
+    #expect(body["forwardWebhooks"] as? Bool == true)
+    #expect(!ProjectDraft(Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp", forwardWebhooks: false)).forwardWebhooks)
     // The worktree fields are the project's own and save with it, text kept as typed.
     draft.worktreeSetup = "npm ci\n"; draft.worktreeInclude = ".env\n!.env.example"
     let saved = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(draft)) as? [String: Any])

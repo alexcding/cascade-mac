@@ -51,6 +51,9 @@ private actor AutomationFixture: AutomationService {
     }
     func runs(id: String?) async throws -> [AutomationTrace] { [] }
     func settings() async throws -> AutomationSettings { settingsValue }
+    var fixedForwarders: [String] = []
+    func fixForwarder(repo: String) async throws { fixedForwarders.append(repo) }
+    func setSettings(_ value: AutomationSettings) { settingsValue = value }
     var settingsUpdates = 0
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings {
         settingsUpdates += 1
@@ -214,6 +217,42 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     model.retire()
     await model.setEnabled(false)
     #expect(await service.settingsUpdates == 1 && model.enabled)
+}
+
+@MainActor @Test func webhookForwardingListsProjectsAndFixesABlockedOne() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let blocked = ForwardingProject(id: "p1", name: "Record", repo: "o/record", state: .hookExists, error: "Hook already exists")
+    let running = ForwardingProject(id: "p2", name: "Cascade", repo: "o/cascade", state: .running)
+    await service.setSettings(AutomationSettings(paused: false, forwardWebhooks: true, forwarding: ["o/cascade"],
+                                                 forwardable: ["o/cascade", "o/record"], projects: [blocked, running]))
+    let model = WebhookForwardingViewModel()
+    model.connect(service)
+    model.refresh()
+    for _ in 0..<200 where model.settings == nil { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(model.projects.map(\.repo) == ["o/record", "o/cascade"])
+    #expect(WebhookForwardingViewModel.detail(blocked).label == "Blocked")
+    #expect(WebhookForwardingViewModel.detail(running).tone == .success)
+    #expect(model.status == "Forwarding 1 of 2 repos. Polling covers the rest.")
+    let fixing = Task { await model.fix("o/record") }
+    for _ in 0..<200 where await service.fixedForwarders.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(await service.fixedForwarders == ["o/record"])
+    #expect(model.fixing == nil && model.error == nil)
+    // Retired, a fix is refused, and the pending refresh after the last one never lands.
+    model.retire()
+    fixing.cancel()
+    await model.fix("o/record")
+    #expect(await service.fixedForwarders == ["o/record"])
+}
+
+@MainActor @Test func webhookForwardingSaysWhenEveryProjectTurnedItOff() async throws {
+    let service = AutomationFixture(automations: [], catalog: fixtureCatalog())
+    let off = ForwardingProject(id: "p1", name: "Record", repo: "o/record", state: .disabled)
+    await service.setSettings(AutomationSettings(paused: false, forwardWebhooks: true, forwarding: [], forwardable: [], projects: [off]))
+    let model = WebhookForwardingViewModel()
+    model.connect(service)
+    model.refresh()
+    for _ in 0..<200 where model.settings == nil { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(model.status == "Every project has forwarding turned off in its settings.")
 }
 
 @MainActor @Test func automationUnsavedWorkSurvivesOpeningAnotherPipeline() async throws {

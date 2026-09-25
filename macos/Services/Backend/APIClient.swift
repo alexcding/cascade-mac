@@ -64,6 +64,8 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var worktreeSetup: String? = nil
     /// This project's files-to-copy patterns; empty uses the default in Settings → Worktrees.
     var worktreeInclude: String? = nil
+    /// Whether pull request events on the repo are forwarded to automations, which puts a webhook on it.
+    var forwardWebhooks: Bool? = nil
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots
