@@ -593,6 +593,7 @@ public final class AppViewModel {
         case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
+        case .toggleChat: coordinator.canPresent && coordinator.activeWorkspaceModel?.canShowChat == true
         case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
             sidebarSessions.count > command.sessionIndex ?? 0
         case .nextSession, .previousSession: !sidebarSessions.isEmpty
@@ -635,6 +636,7 @@ public final class AppViewModel {
             showSession(sessions[target])
         case .nextModel, .previousModel:
             if canPerform(command) { coordinator.activeWorkspaceModel?.cycleAgentPreset(command == .nextModel ? 1 : -1) }
+        case .toggleChat: if canPerform(.toggleChat) { coordinator.activeWorkspaceModel?.toggleChat() }
         case .reloadPage: if canPerform(.reloadPage) { viewer.active?.activePage?.controls.reload() }
         case .newProject:
             guard canPerform(.newProject), let api else { return }

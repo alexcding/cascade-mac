@@ -143,7 +143,7 @@ struct SessionAgentControlsView: View {
     /// Terminal (the default) or Chat (prototype). The icon names the mode a click goes to; the
     /// chat draws over the terminal, which keeps running behind it.
     private var modeButton: some View {
-        Button { model.setChatShown(!model.showsChat) } label: {
+        Button { model.toggleChat() } label: {
             Image(systemName: model.showsChat ? "terminal" : "bubble.left.and.bubble.right")
                 .font(.system(size: 15, weight: .medium))
                 .frame(width: 22, height: 18)

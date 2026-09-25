@@ -403,6 +403,8 @@ extension WorkspaceServing {
         if active { focusAgent() }
     }
 
+    func toggleChat() { setChatShown(!showsChat) }
+
     func setChatShown(_ shown: Bool) {
         guard canShowChat, let session, let cli = session.cli else { return }
         UserDefaults.standard.set(shown, forKey: Self.chatModeKey(session.id))
