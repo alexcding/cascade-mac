@@ -38,7 +38,7 @@ import Observation
         switch action {
         // Only after the gate above, so a hidden or blocked dashboard stays silent rather than warn.
         case .open(let request):
-            if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Craft.") }
+            if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Cascade.") }
         case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
         case .closeTickets: leaveTickets()
         }

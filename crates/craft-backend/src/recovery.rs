@@ -457,7 +457,7 @@ fn release_identity() -> Result<String> {
         let contents = helpers
             .parent()
             .context("Missing bundle Contents directory")?;
-        for name in ["MacOS/Craft", "Info.plist"] {
+        for name in ["MacOS/Cascade", "Info.plist"] {
             hash.update(digest(&required_file(contents, name)?)?.1);
         }
     }

@@ -5,7 +5,7 @@ struct MicrophoneAccessView: View {
     var body: some View {
         Section("Microphone") {
             SettingsRow(title: "Microphone access",
-                        caption: "Voice input in terminal sessions and agents runs under Craft's permission.") {
+                        caption: "Voice input in terminal sessions and agents runs under Cascade's permission.") {
                 HStack {
                     if model.loading || model.requesting { ProgressView().controlSize(.small) }
                     if model.canRequest {

@@ -71,7 +71,7 @@ struct PtyHello: Decodable, Sendable {
 
     func validateStartupCommand() throws {
         guard startupCommand == true else {
-            throw PtyError.connection("This PTY helper cannot start the agent in its shell. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot start the agent in its shell. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
@@ -84,43 +84,43 @@ struct PtyHello: Decodable, Sendable {
 
     func validateGeometryResponseOwner() throws {
         guard geometryResponseOwner == Self.geometryResponseOwnerVersion else {
-            throw PtyError.connection("This PTY helper cannot preserve terminal pixel geometry. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot preserve terminal pixel geometry. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateShellIntegration() throws {
         guard shellIntegration == true else {
-            throw PtyError.connection("This PTY helper cannot preserve native shell integration. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot preserve native shell integration. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateIdentityResponseOwner() throws {
         guard identityResponseOwner == Self.identityResponseOwnerVersion else {
-            throw PtyError.connection("This PTY helper cannot preserve the native terminal identity. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot preserve the native terminal identity. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateStateResponseOwner() throws {
         guard stateResponseOwner == Self.stateResponseOwnerVersion else {
-            throw PtyError.connection("This PTY helper cannot own terminal state replies. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot own terminal state replies. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateSnapshots() throws {
         guard snapshotRevision == PtySnapshot.revision else {
-            throw PtyError.connection("This PTY helper cannot provide compatible terminal snapshots. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot provide compatible terminal snapshots. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateInputAcknowledgements() throws {
         guard acknowledgedInput == true else {
-            throw PtyError.connection("This PTY helper cannot acknowledge input failures. Save your work, quit Craft explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot acknowledge input failures. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 
     func validateByteTransport() throws {
         guard dataEncoding == "base64" else {
-            throw PtyError.connection("This PTY helper cannot preserve terminal bytes. Quit Craft explicitly after saving your work, rebuild the helper, and reopen. Existing shells have been preserved.")
+            throw PtyError.connection("This PTY helper cannot preserve terminal bytes. Quit Cascade explicitly after saving your work, rebuild the helper, and reopen. Existing shells have been preserved.")
         }
     }
 }

@@ -1,4 +1,4 @@
-# AGENTS.md - working guide for Craft
+# AGENTS.md - working guide for Cascade
 
 This is the shared working guide for contributors and coding agents, including the
 native app's architecture. Read `README.md` for the product and setup, and
@@ -70,7 +70,7 @@ xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
   it as a child process instead, and `--backend-url <origin>` points at one you started
   yourself; both are useful for isolating whether a bug is in the FFI boundary.
 - `CRAFT_DATA_DIR` overrides the data directory (default
-  `~/Library/Application Support/Craft`).
+  `~/Library/Application Support/Cascade`).
 
 ## Files
 

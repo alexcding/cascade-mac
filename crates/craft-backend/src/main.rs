@@ -45,11 +45,11 @@ async fn main() -> Result<()> {
         .with_context(|| format!("write {}", port_file.display()))?;
     state.forwarders.start(state.clone(), bound_port);
     let app = build_app(state.clone());
-    tracing::info!("Craft Rust backend running at http://127.0.0.1:{bound_port}");
+    tracing::info!("Cascade Rust backend running at http://127.0.0.1:{bound_port}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .context("serve Craft backend")?;
+        .context("serve Cascade backend")?;
     state.forwarders.stop().await;
     let _ = std::fs::remove_file(port_file);
     Ok(())
@@ -59,5 +59,5 @@ fn default_data_dir() -> PathBuf {
     env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("Library/Application Support/Craft")
+        .join("Library/Application Support/Cascade")
 }

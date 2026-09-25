@@ -16,7 +16,7 @@
                   <BuildableReference
                      BuildableIdentifier = "primary"
                      BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-                     BuildableName = "Craft.app"
+                     BuildableName = "Cascade.app"
                      BlueprintName = "Craft"
                      ReferencedContainer = "container:Craft.xcodeproj">
                   </BuildableReference>
@@ -34,7 +34,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-               BuildableName = "Craft.app"
+               BuildableName = "Cascade.app"
                BlueprintName = "Craft"
                ReferencedContainer = "container:Craft.xcodeproj">
             </BuildableReference>
@@ -81,7 +81,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-            BuildableName = "Craft.app"
+            BuildableName = "Cascade.app"
             BlueprintName = "Craft"
             ReferencedContainer = "container:Craft.xcodeproj">
          </BuildableReference>
@@ -104,7 +104,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-            BuildableName = "Craft.app"
+            BuildableName = "Cascade.app"
             BlueprintName = "Craft"
             ReferencedContainer = "container:Craft.xcodeproj">
          </BuildableReference>

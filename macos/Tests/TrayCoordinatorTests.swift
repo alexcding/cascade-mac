@@ -86,7 +86,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(runtime.opened.isEmpty && runtime.acknowledged.isEmpty)
     runtime.failsOpen = true; model.openReview(first); await settle()
     #expect(runtime.acknowledged.isEmpty && window.events.isEmpty && model.active)
-    #expect(model.actionError == "Could not open the pull request in Craft.")
+    #expect(model.actionError == "Could not open the pull request in Cascade.")
     model.refresh(); #expect(model.actionError != nil)
     let current = trayReview(1, url: "https://example.test/pr/current")
     runtime.state.pendingReviews[0] = current

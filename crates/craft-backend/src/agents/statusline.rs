@@ -12,9 +12,9 @@ use std::{fs, path::PathBuf};
 
 /// The name this goes by in the hook status map and the install route.
 pub const KEY: &str = "claude-statusline";
-const SCRIPT_NAME: &str = "craft-statusline.sh";
+const SCRIPT_NAME: &str = "cascade-statusline.sh";
 /// The same script the app bundles for the sessions it launches.
-const SCRIPT: &str = include_str!("../../../../macos/Resources/AgentStatusLine/craft-statusline.sh");
+const SCRIPT: &str = include_str!("../../../../macos/Resources/AgentStatusLine/cascade-statusline.sh");
 
 fn home() -> Result<PathBuf, ApiError> {
     std::env::var_os("HOME")
@@ -23,17 +23,17 @@ fn home() -> Result<PathBuf, ApiError> {
 }
 
 fn support(home: &PathBuf) -> PathBuf {
-    home.join("Library/Application Support/Craft")
+    home.join("Library/Application Support/Cascade")
 }
 
-/// The script's name when the app was called TaskHub. A status line installed back then is still
-/// ours: replacing it must not file it away as the user's original.
-const LEGACY_SCRIPT_NAME: &str = "taskhub-statusline.sh";
+/// The script's names when the app was called Craft, and TaskHub before that. A status line
+/// installed back then is still ours: replacing it must not file it away as the user's original.
+const LEGACY_SCRIPT_NAMES: [&str; 2] = ["craft-statusline.sh", "taskhub-statusline.sh"];
 
 fn is_ours(line: &Value) -> bool {
     line["command"]
         .as_str()
-        .is_some_and(|command| command.contains(SCRIPT_NAME) || command.contains(LEGACY_SCRIPT_NAME))
+        .is_some_and(|command| std::iter::once(SCRIPT_NAME).chain(LEGACY_SCRIPT_NAMES).any(|name| command.contains(name)))
 }
 
 pub fn status() -> String {

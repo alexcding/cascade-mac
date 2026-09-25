@@ -12,7 +12,7 @@ public enum BackendError: LocalizedError, Sendable {
         switch self {
         case .configuration(let message), .startup(let message), .operation(let message): message
         case .http(let status): "The backend returned HTTP \(status)."
-        case .incompatible: "This address is not a compatible Craft backend."
+        case .incompatible: "This address is not a compatible Cascade backend."
         case .oversizedEvent: "The backend sent an oversized stream event."
         }
     }

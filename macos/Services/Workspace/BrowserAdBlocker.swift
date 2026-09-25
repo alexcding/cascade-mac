@@ -158,5 +158,5 @@ enum BrowserAdBlockState: Equatable, Sendable {
         return host.unload()
     }
     /// Never claim "off" over an extension that is still filtering.
-    private static let stillLoaded = BrowserAdBlockState.failed("uBlock Origin Lite could not be switched off. Quit and reopen Craft.")
+    private static let stillLoaded = BrowserAdBlockState.failed("uBlock Origin Lite could not be switched off. Quit and reopen Cascade.")
 }

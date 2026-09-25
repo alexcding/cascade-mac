@@ -1173,8 +1173,8 @@ public final class AppViewModel {
         }
         // Claude Code reports its real context window only to its status line, so the app's
         // wrapper rides along on the sessions it launches.
-        let script = Bundle.main.url(forResource: "craft-statusline", withExtension: "sh")
-            ?? Bundle.main.url(forResource: "craft-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
+        let script = Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh")
+            ?? Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
         let statusLine = script.map { AgentStatusLine(script: $0.path, taskID: latest.id) }
         return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine).map {
             AgentLaunch(command: $0, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty, reservedID: reservedID)

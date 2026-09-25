@@ -1,5 +1,5 @@
 #!/bin/sh
-# Craft's Claude Code status line. Claude Code pipes its session state here as JSON, the only
+# Cascade's Claude Code status line. Claude Code pipes its session state here as JSON, the only
 # place it reports the real context window. This keeps a copy for the app, then hands the same
 # JSON to the status line the user configured, so theirs still draws.
 #
@@ -7,7 +7,7 @@
 # Settings, there is no argument, and the copy is filed under Claude's own session id; the app
 # finds it by the directory it names.
 input=$(cat)
-support="$HOME/Library/Application Support/Craft"
+support="$HOME/Library/Application Support/Cascade"
 dir="$support/statusline"
 key=$1
 if [ -z "$key" ]; then
@@ -23,7 +23,7 @@ esac
 own=$(/usr/bin/plutil -extract command raw -o - "$dir/original.json" 2>/dev/null)
 [ -z "$own" ] && own=$(/usr/bin/plutil -extract statusLine.command raw -o - "$HOME/.claude/settings.json" 2>/dev/null)
 case "$own" in
-    "" | *craft-statusline* | *taskhub-statusline*) ;;
+    "" | *cascade-statusline* | *craft-statusline* | *taskhub-statusline*) ;;
     *) printf '%s' "$input" | /bin/sh -c "$own" ;;
 esac
 exit 0

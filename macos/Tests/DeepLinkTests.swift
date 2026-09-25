@@ -10,7 +10,7 @@ import Testing
         let url = try #require(router.url(for: link))
         #expect(router.deepLink(for: url) == link)
     }
-    let chain = try #require(router.deepLink(for: URL(string: "craft://app/projects/p-123/board")!))
+    let chain = try #require(router.deepLink(for: URL(string: "cascade://app/projects/p-123/board")!))
     #expect(chain.first == .destination(.project("p-123")))
     #expect(chain.droppingFirst() == DeepLink(.projectSection(.board)))
     #expect(chain.droppingFirst().droppingFirst().routes.isEmpty)
@@ -20,14 +20,14 @@ import Testing
 }
 
 @Test(arguments: [
-    "https://app/overview", "craft://other/overview", "craft://user@app/overview",
-    "craft://app:42/overview", "craft://app/overview?command=run", "craft://app/overview#fragment",
-    "craft://app/overview?", "craft://app/overview#", "craft://app/", "craft://app",
-    "craft://app//overview", "craft://app/overview/", "craft://app/overview/extra",
-    "craft://app/projects", "craft://app/projects/id/unknown", "craft://app/projects/id/board/extra",
-    "craft://app/sessions/one/two", "craft://app/sessions/%2Fetc", "craft://app/sessions/%252Fetc",
-    "craft://app/sessions/..", "craft://app/sessions/%00", "craft://app/sessions/hello%20world",
-    "craft://app/terminal/run", "craft://app/sessions/" + String(repeating: "x", count: 257)
+    "https://app/overview", "cascade://other/overview", "cascade://user@app/overview",
+    "cascade://app:42/overview", "cascade://app/overview?command=run", "cascade://app/overview#fragment",
+    "cascade://app/overview?", "cascade://app/overview#", "cascade://app/", "cascade://app",
+    "cascade://app//overview", "cascade://app/overview/", "cascade://app/overview/extra",
+    "cascade://app/projects", "cascade://app/projects/id/unknown", "cascade://app/projects/id/board/extra",
+    "cascade://app/sessions/one/two", "cascade://app/sessions/%2Fetc", "cascade://app/sessions/%252Fetc",
+    "cascade://app/sessions/..", "cascade://app/sessions/%00", "cascade://app/sessions/hello%20world",
+    "cascade://app/terminal/run", "cascade://app/sessions/" + String(repeating: "x", count: 257)
 ]) func deepLinksRejectUnsupportedOrAmbiguousURLs(_ value: String) throws {
     #expect(CraftRouter().deepLink(for: try #require(URL(string: value))) == nil)
 }
@@ -40,10 +40,10 @@ private struct TestRouteHandler: DeepLinkRouteHandling {
 
 @Test func deepLinkRouterUsesInjectedHandlersInOrder() throws {
     let router = CraftRouter(handlers: [TestRouteHandler(destination: .terminal), TestRouteHandler(destination: .overview)])
-    let url = try #require(URL(string: "craft://app/fixture"))
+    let url = try #require(URL(string: "cascade://app/fixture"))
     #expect(router.deepLink(for: url) == DeepLink(.destination(.terminal)))
     #expect(router.url(for: DeepLink(.destination(.terminal))) == url)
-    #expect(router.deepLink(for: URL(string: "craft://app/settings")!) == nil)
+    #expect(router.deepLink(for: URL(string: "cascade://app/settings")!) == nil)
 }
 
 @MainActor private final class DeepLinkRuntime: RootCoordinating {
@@ -91,7 +91,7 @@ func deepLinksWaitForActivityClearConfirmationToFinish(confirm: Bool) async thro
     coordinator.setRoutingReady(true)
     model.requestClear()
     let child = try #require(coordinator.logsCoordinator), request = try #require(child.confirmation)
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .overview && coordinator.pendingDeepLink != nil)
     if confirm { await child.confirm(id: request.id) } else { child.cancel(id: request.id) }
     while coordinator.pendingDeepLink != nil { await Task.yield() }
@@ -122,7 +122,7 @@ func deepLinksWaitForFilePickerAndResumeAfterSelectionOrCancel(select: Bool) asy
     let runtime = DeepLinkRuntime(); runtime.coordinator = coordinator; coordinator.rootRuntime = runtime
     coordinator.setRoutingReady(true)
     model.begin(contextID: context.id)
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .overview && coordinator.pendingDeepLink != nil)
     presenter.completion?(select ? URL(fileURLWithPath: "/tmp/deep-link-selected.swift") : nil)
     while coordinator.pendingDeepLink != nil { await Task.yield() }
@@ -144,7 +144,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.presentNewProject(service: DeepLinkProjectService(), didSave: { _ in })
     #expect(coordinator.sheet == nil)
     await gate.waitForStart()
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .overview && coordinator.pendingDeepLink != nil)
     await gate.finish()
     while coordinator.pendingDeepLink != nil { await Task.yield() }
@@ -158,7 +158,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     let factory = DeepLinkProjectFactory()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }), projectCoordinatorFactory: factory)
     let runtime = DeepLinkRuntime(); runtime.coordinator = coordinator; coordinator.rootRuntime = runtime
-    #expect(coordinator.handle(url: URL(string: "craft://app/projects/p/board")!))
+    #expect(coordinator.handle(url: URL(string: "cascade://app/projects/p/board")!))
     #expect(runtime.selections.isEmpty && coordinator.pendingDeepLink != nil)
     // Jira sections only exist for a project with Jira configured.
     let project = Project(id: "p", name: "Fixture", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
@@ -169,12 +169,12 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.setRoutingReady(true)
     #expect(coordinator.selection == .project("p") && model.section == .board)
     #expect(factory.creations == 1 && coordinator.projectCoordinator?.model === model && coordinator.pendingDeepLink == nil)
-    coordinator.handle(url: URL(string: "craft://app/projects/p/tickets")!)
+    coordinator.handle(url: URL(string: "cascade://app/projects/p/tickets")!)
     #expect(model.section == .tickets && factory.creations == 1)
     #expect(coordinator.projectCoordinator?.navigate(to: DeepLink(.destination(.overview))) == false)
-    coordinator.handle(url: URL(string: "craft://app/sessions/missing")!)
+    coordinator.handle(url: URL(string: "cascade://app/sessions/missing")!)
     #expect(coordinator.selection == .project("p") && coordinator.routingError != nil && runtime.terminals == 0)
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == nil && runtime.terminals == 0)
     #expect(coordinator.projectCoordinator == nil)
 }
@@ -185,23 +185,23 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     let runtime = DeepLinkRuntime(); runtime.coordinator = coordinator; coordinator.rootRuntime = runtime
     runtime.state.sessions = [WorkspaceSession(id: "s", projectId: "p", workspace: "/tmp", worktree: "/tmp/worktree", title: "Title",
         branch: "feature", url: "", createdAt: nil, pinned: false)]
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
-    coordinator.handle(url: URL(string: "craft://app/sessions/s")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/sessions/s")!)
     #expect(!coordinator.handle(url: URL(string: "https://example.test/terminal")!))
     coordinator.setRoutingReady(true)
     #expect(runtime.selections == [.session("s")])
     presentationOpen = true
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .session("s"))
     presentationOpen = false
     coordinator.processPendingDeepLink()
     #expect(coordinator.selection == .terminal)
     coordinator.setRoutingReady(false)
-    coordinator.handle(url: URL(string: "craft://app/sessions/removed")!)
+    coordinator.handle(url: URL(string: "cascade://app/sessions/removed")!)
     coordinator.setRoutingReady(true)
     #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked session is no longer available.")
     coordinator.setRoutingReady(false)
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     coordinator.handle(RootViewModel.Action.select(.overview))
     coordinator.setRoutingReady(true)
     #expect(coordinator.selection == .overview && coordinator.pendingDeepLink == nil && coordinator.routingError == nil)
@@ -215,7 +215,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     let sheet = try #require(coordinator.sheet)
     guard case .newProject(let model) = sheet.destination else { Issue.record("Missing draft"); return }
     model.draft.name = "Keep this draft"
-    coordinator.handle(url: URL(string: "craft://app/terminal")!)
+    coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.sheet?.id == sheet.id && model.draft.name == "Keep this draft" && runtime.selections.isEmpty)
     await withCheckedContinuation { continuation in
         runtime.didNavigate = { continuation.resume(); runtime.didNavigate = nil }
@@ -225,7 +225,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     var restartedAt: SidebarDestination?
     coordinator.presentRestart { restartedAt = coordinator.selection }
     let confirmation = try #require(coordinator.restartConfirmation)
-    coordinator.handle(url: URL(string: "craft://app/overview")!)
+    coordinator.handle(url: URL(string: "cascade://app/overview")!)
     coordinator.dismissRestart(id: UUID())
     #expect(coordinator.restartConfirmation?.id == confirmation.id && coordinator.selection == .terminal)
     await withCheckedContinuation { continuation in

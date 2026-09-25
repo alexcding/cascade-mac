@@ -33,7 +33,7 @@
 
 /* Begin PBXFileReference section */
 		5A200C8AEBCE06F85302EE31 /* CraftTerminalStress */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = CraftTerminalStress; sourceTree = BUILT_PRODUCTS_DIR; };
-		8BC2655C2DEDD3F400F279A4 /* Craft.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Craft.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8BC2655C2DEDD3F400F279A4 /* Cascade.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cascade.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8BC265742DEDD3F500F279A4 /* CraftUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CraftUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FB9BE2BCFF7EB69F13DEF145 /* CraftTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CraftTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -222,7 +222,7 @@
 		8BC2655D2DEDD3F400F279A4 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8BC2655C2DEDD3F400F279A4 /* Craft.app */,
+				8BC2655C2DEDD3F400F279A4 /* Cascade.app */,
 				8BC265742DEDD3F500F279A4 /* CraftUITests.xctest */,
 				FB9BE2BCFF7EB69F13DEF145 /* CraftTests.xctest */,
 				5A200C8AEBCE06F85302EE31 /* CraftTerminalStress */,
@@ -299,7 +299,7 @@
 				CE5E00000000000000000022 /* CodeEditSourceEditor */,
 			);
 			productName = Craft;
-			productReference = 8BC2655C2DEDD3F400F279A4 /* Craft.app */;
+			productReference = 8BC2655C2DEDD3F400F279A4 /* Cascade.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8BC265732DEDD3F500F279A4 /* CraftUITests */ = {
@@ -520,7 +520,7 @@
 					"$(inherited)",
 					"-lcraft_backend",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.terminalstress;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade.terminalstress;
 				PRODUCT_NAME = CraftTerminalStress;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
@@ -552,7 +552,7 @@
 					"$(inherited)",
 					"-lcraft_backend",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade.tests;
 				PRODUCT_NAME = CraftTests;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
@@ -583,7 +583,7 @@
 					"$(inherited)",
 					"-lcraft_backend",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.terminalstress;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade.terminalstress;
 				PRODUCT_NAME = CraftTerminalStress;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";
@@ -689,7 +689,7 @@
 					"$(inherited)",
 					"-lcraft_backend",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade.tests;
 				PRODUCT_NAME = CraftTests;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
 				SWIFT_INCLUDE_PATHS = "$(inherited) $(PROJECT_DIR)/Vendor/CraftBackend";

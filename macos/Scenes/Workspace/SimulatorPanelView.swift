@@ -24,7 +24,7 @@ struct SimulatorPanelView: View {
                 ContentUnavailableView {
                     Label("Simulator preview is not set up", systemImage: "iphone.slash")
                 } description: {
-                    Text("It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Craft checks again when you come back to it.")
+                    Text("It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Cascade checks again when you come back to it.")
                 } actions: {
                     Button("Open Integrations", action: openIntegrations)
                     Button("Try Again", action: model.retry)

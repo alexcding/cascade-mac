@@ -136,7 +136,7 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
             .with_graceful_shutdown(async { let _ = stopped.await; })
             .await;
     });
-    tracing::info!("Craft backend embedded; loopback listener at http://127.0.0.1:{port}");
+    tracing::info!("Cascade backend embedded; loopback listener at http://127.0.0.1:{port}");
     Ok(CraftBackend {
         runtime,
         state,

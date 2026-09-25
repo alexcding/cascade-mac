@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage a bundled Craft app for local review or signed direct distribution.
+"""Stage a bundled Cascade app for local review or signed direct distribution.
 
 Requires a completed Xcode build followed by bundle-backend.sh. Never changes the
 input app, installs it, publishes a feed, or accesses application data.
@@ -40,7 +40,7 @@ def sign_app(app, identity, local):
     binaries = [path for path in app.rglob("*") if mach_o(path)]
     for binary in sorted(binaries, key=lambda p: (-len(p.parts), str(p))):
         entitlements = []
-        if binary == app / "Contents/MacOS/Craft":
+        if binary == app / "Contents/MacOS/Cascade":
             entitlements = ["--entitlements", config / "Craft.entitlements"]
         elif "Frameworks" in binary.parts:
             entitlements = ["--preserve-metadata=entitlements"]
@@ -109,9 +109,9 @@ def main():
     if destination.exists():
         parser.error("Choose a new output directory; existing artifacts are preserved")
     if not app.is_dir() or app.suffix != ".app":
-        parser.error("--app must be a completed Craft.app bundle")
+        parser.error("--app must be a completed Cascade.app bundle")
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-    if info.get("CFBundleIdentifier") != "com.alexcding.craft":
+    if info.get("CFBundleIdentifier") != "com.alexcding.cascade":
         parser.error("Unexpected application bundle identity")
     if not args.local and info.get("CraftBuildConfiguration") != "Release":
         parser.error("Build the Release configuration before preparing a distribution")
@@ -139,10 +139,10 @@ def main():
         stage = Path(temporary)
         result = stage / "result"
         result.mkdir()
-        staged_app = result / "Craft.app"
+        staged_app = result / "Cascade.app"
         run("ditto", app, staged_app)
         sign_app(staged_app, args.identity or "-", args.local)
-        zip_path = result / "Craft.zip"
+        zip_path = result / "Cascade.zip"
         archive(staged_app, zip_path)
         if not args.local:
             notarize(zip_path, credentials)
@@ -152,10 +152,10 @@ def main():
             archive(staged_app, zip_path)
         disk = stage / "disk"
         disk.mkdir()
-        run("ditto", staged_app, disk / "Craft.app")
+        run("ditto", staged_app, disk / "Cascade.app")
         (disk / "Applications").symlink_to("/Applications", target_is_directory=True)
-        dmg = result / "Craft.dmg"
-        run("hdiutil", "create", "-volname", "Craft", "-srcfolder", disk,
+        dmg = result / "Cascade.dmg"
+        run("hdiutil", "create", "-volname", "Cascade", "-srcfolder", disk,
             "-format", "UDZO", "-ov", dmg)
         if not args.local:
             run("codesign", "--sign", args.identity, "--timestamp", dmg)
@@ -164,7 +164,7 @@ def main():
             run("xcrun", "stapler", "validate", dmg)
         manifest = {"bundleID": info["CFBundleIdentifier"],
                     "backendRuntime": "rust-embedded",
-                    "backendSHA256": digest(staged_app / "Contents/MacOS/Craft"),
+                    "backendSHA256": digest(staged_app / "Contents/MacOS/Cascade"),
                     "version": info["CFBundleShortVersionString"], "build": info["CFBundleVersion"],
                     "distribution": "local-ad-hoc" if args.local else "developer-id-notarized",
                     "artifacts": {p.name: {"bytes": p.stat().st_size,
@@ -172,7 +172,7 @@ def main():
                                   for p in [zip_path, dmg]}}
         (result / "release.json").write_text(json.dumps(manifest, indent=2) + "\n")
         shutil.move(result, destination)
-    print(f"Prepared {destination / 'Craft.app'}")
+    print(f"Prepared {destination / 'Cascade.app'}")
     print("No update feed was published. Sparkle archives still require your Ed25519 signature before publication.")
 
 

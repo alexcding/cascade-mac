@@ -184,7 +184,7 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         node(
             "action",
             "craft.notify",
-            "Craft",
+            "Cascade",
             "Notify me",
             "Post to Activity and show a macOS notification.",
             "any",
@@ -196,7 +196,7 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         node(
             "action",
             "craft.shell",
-            "Craft",
+            "Cascade",
             "Run shell script",
             "Run a zsh script in the project's workspace (60 s limit). The event is in CRAFT_* variables.",
             "any",
@@ -205,7 +205,7 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         node(
             "action",
             "craft.webhook",
-            "Craft",
+            "Cascade",
             "POST to webhook",
             "Send the event as JSON to an HTTPS URL (Slack, Teams, your own service).",
             "any",
@@ -243,7 +243,7 @@ fn templates() -> Value {
                 filter("pr.author", json!({"mode":"in","users":[]})),
                 filter("pr.draft", json!({"is":"no"})),
                 filter("pr.ci", json!({"is":"passing"})),
-                action("github.approve", json!({"body":"Auto-approved by Craft."})),
+                action("github.approve", json!({"body":"Auto-approved by Cascade."})),
             ],
         ),
         template(
@@ -293,7 +293,7 @@ fn templates() -> Value {
             vec![
                 filter("pr.author", json!({"mode":"in","users":["@bots"]})),
                 filter("pr.head_branch", json!({"patterns":["dependabot/**"]})),
-                action("github.approve", json!({"body":"Green dependency bump, approved by Craft."})),
+                action("github.approve", json!({"body":"Green dependency bump, approved by Cascade."})),
                 action("github.auto_merge", json!({"method":"squash","deleteBranch":true})),
             ],
         ),

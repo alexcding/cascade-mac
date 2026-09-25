@@ -6,9 +6,11 @@
 // ==========================================
 // Project Identity
 // ==========================================
-PRODUCT_NAME = Craft
-PRODUCT_DISPLAY_NAME = Craft
-PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.craft
+PRODUCT_NAME = Cascade
+PRODUCT_DISPLAY_NAME = Cascade
+PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade
+// The app was Craft; its Swift module keeps the name so `@testable import Craft` still resolves.
+PRODUCT_MODULE_NAME = Craft
 MARKETING_VERSION = 0.0.1
 CURRENT_PROJECT_VERSION = 1
 

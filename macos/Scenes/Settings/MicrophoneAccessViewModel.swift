@@ -28,10 +28,10 @@ import Observation
     var statusText: String {
         guard let status else { return "Checking microphone access…" }
         switch status {
-        case .notDetermined: return "Not requested. Craft asks the first time a session needs the microphone."
-        case .authorized: return "Allowed. Sessions and agents running in Craft can use the microphone."
-        case .denied: return "Denied. Allow Craft under Privacy & Security › Microphone."
-        case .restricted: return "Restricted by a system policy; Craft cannot request it."
+        case .notDetermined: return "Not requested. Cascade asks the first time a session needs the microphone."
+        case .authorized: return "Allowed. Sessions and agents running in Cascade can use the microphone."
+        case .denied: return "Denied. Allow Cascade under Privacy & Security › Microphone."
+        case .restricted: return "Restricted by a system policy; Cascade cannot request it."
         }
     }
 

@@ -112,13 +112,13 @@ private struct WelcomeTerminalCard: View {
 private struct WelcomeIntroPage: View {
     var body: some View {
         VStack(spacing: 0) {
-            WelcomeHeader(title: "Welcome to Craft",
+            WelcomeHeader(title: "Welcome to Cascade",
                           subtitle: "One place for your pull requests, tickets and the coding agents working on them.") {
                 WelcomeAppIcon()
             }
             VStack(alignment: .leading, spacing: 18) {
                 point("terminal", "It drives the tools you already use",
-                      "Craft runs Claude Code, Codex, the GitHub CLI and the Atlassian CLI from your machine, with the sign-ins they already have. It stores no credentials of its own.")
+                      "Cascade runs Claude Code, Codex, the GitHub CLI and the Atlassian CLI from your machine, with the sign-ins they already have. It stores no credentials of its own.")
                 point("arrow.triangle.branch", "One session per worktree",
                       "Each session is an agent on its own git worktree, linked to the pull request or ticket it was started from.")
                 point("bell", "It knows when an agent is waiting",
@@ -168,7 +168,7 @@ private struct WelcomeHooksPage: View {
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "Install agent hooks",
-                          subtitle: "Hooks tell Craft when an agent starts and finishes a turn. Craft merges its entries into the agent's configuration and removes only its own.") {
+                          subtitle: "Hooks tell Cascade when an agent starts and finishes a turn. Cascade merges its entries into the agent's configuration and removes only its own.") {
                 // An agent's turn ending, arriving at the app.
                 HStack(spacing: 18) {
                     WelcomeTerminalCard(lines: ["claude", "turn finished"])
@@ -211,7 +211,7 @@ private struct WelcomeHooksPage: View {
             Button(model.clis.statusLineInstalled ? "Remove status line" : "Install status line", action: model.clis.requestToggleStatusLine)
                 .disabled(!model.canChangeStatusLine).accessibilityIdentifier("welcome-statusline-toggle")
         }
-        Text("Claude Code reports its context window only to its status line. Sessions Craft launches report it already; install this so the ones you start yourself do too. Your own status line keeps drawing.")
+        Text("Claude Code reports its context window only to its status line. Sessions Cascade launches report it already; install this so the ones you start yourself do too. Your own status line keeps drawing.")
             .font(.caption).foregroundStyle(Theme.textSecondary)
     }
 }
@@ -223,7 +223,7 @@ private struct WelcomeSimulatorPage: View {
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "iOS Simulator preview",
-                          subtitle: "Optional, for iOS projects. When you run an app on a simulator, Craft shows it beside the session, where you can tap and type into it.") {
+                          subtitle: "Optional, for iOS projects. When you run an app on a simulator, Cascade shows it beside the session, where you can tap and type into it.") {
                 // A run, arriving in the app's side panel.
                 HStack(spacing: 18) {
                     WelcomeTerminalCard(lines: ["node --version", "v22"])
@@ -246,7 +246,7 @@ private struct WelcomeDonePage: View {
             WelcomeHeader(title: model.remaining.isEmpty ? "You're all set" : "Almost there",
                           subtitle: model.remaining.isEmpty
                               ? "Your tools and hooks are in place."
-                              : "Craft works without these, but the pages that depend on them stay empty.") {
+                              : "Cascade works without these, but the pages that depend on them stay empty.") {
                 Image(systemName: model.remaining.isEmpty ? "checkmark.seal.fill" : "checklist")
                     .font(.system(size: 58, weight: .regular))
                     .foregroundStyle(model.remaining.isEmpty ? Theme.success : Theme.accent)

@@ -12,11 +12,11 @@ final class CraftUITests: XCTestCase {
         }
         let app = XCUIApplication()
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.open(URL(string: "craft://app/sessions/sidebar-2")!)
+        app.open(URL(string: "cascade://app/sessions/sidebar-2")!)
         XCTAssertTrue(app.buttons["Show Changes"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(app.buttons["Open Terminal"].exists)
         let running = try XCTUnwrap(NSWorkspace.shared.frontmostApplication)
-        XCTAssertEqual(running.bundleIdentifier, "com.alexcding.craft")
+        XCTAssertEqual(running.bundleIdentifier, "com.alexcding.cascade")
         let applicationURL = try XCTUnwrap(running.bundleURL)
         guard applicationURL.path.contains(".xctestproducts/") || applicationURL.path.contains("/.build/ui-tests/") else {
             XCTFail("URL delivery target is outside the test products: \(applicationURL.path)"); return
@@ -34,30 +34,30 @@ final class CraftUITests: XCTestCase {
         let draft = app.sheets.textFields["project-name"]
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         draft.click(); app.typeText("Keep deeplink draft")
-        try await deliver("craft://app/settings")
+        try await deliver("cascade://app/settings")
         XCTAssertEqual(draft.value as? String, "Keep deeplink draft")
         app.sheets.buttons["Cancel"].click()
         XCTAssertTrue(app.radioButtons["Text Editor"].waitForExistence(timeout: 5))
         let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/api/projects")!)
         let projects = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
         let projectID = try XCTUnwrap(projects.first?["id"] as? String)
-        try await deliver("craft://app/projects/\(projectID)/tickets")
+        try await deliver("cascade://app/projects/\(projectID)/tickets")
         XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.waitForExistence(timeout: 10))
-        try await deliver("craft://app/projects/\(projectID)/settings")
+        try await deliver("cascade://app/projects/\(projectID)/settings")
         XCTAssertTrue(app.buttons["Delete Project…"].waitForExistence(timeout: 5))
         app.buttons["Delete Project…"].click()
         XCTAssertTrue(app.sheets.buttons["Delete Project"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["New Project"].isEnabled)
-        try await deliver("craft://app/activity")
+        try await deliver("cascade://app/activity")
         XCTAssertTrue(app.sheets.buttons["Delete Project"].exists)
         app.sheets.buttons["Cancel"].click()
         XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5))
-        try await deliver("craft://app/projects/\(projectID)/tickets")
+        try await deliver("cascade://app/projects/\(projectID)/tickets")
         XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.waitForExistence(timeout: 10))
-        try await deliver("craft://app/sessions/removed")
+        try await deliver("cascade://app/sessions/removed")
         XCTAssertTrue(app.staticTexts["The linked session is no longer available."].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.exists)
-        try await deliver("craft://app/sessions/sidebar-2")
+        try await deliver("cascade://app/sessions/sidebar-2")
         XCTAssertTrue(app.buttons["Show Changes"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Open Terminal"].exists, "Selecting a linked session must not spawn a shell")
     }
@@ -1378,7 +1378,7 @@ final class CraftUITests: XCTestCase {
         let status = app.descendants(matching: .any)["craft-status-item"].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 5))
         status.click()
-        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5)) // the tray ends with Quit Craft
+        XCTAssertTrue(app.menuItems["Quit Cascade"].waitForExistence(timeout: 5)) // the tray ends with Quit Cascade
         // Offline there is nothing to review, and no line stands in for the section.
         XCTAssertFalse(app.menuItems["Review requested"].exists)
         XCTAssertFalse(app.menuItems["Nothing to review"].exists)
@@ -1387,11 +1387,11 @@ final class CraftUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["tray-agent-claude"].firstMatch.exists)
         XCTAssertTrue(app.descendants(matching: .any)["tray-agent-codex"].firstMatch.exists)
         app.typeKey(.escape, modifierFlags: [])
-        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.menuItems["Quit Craft"])
+        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.menuItems["Quit Cascade"])
         wait(for: [dismissed], timeout: 5)
         XCTAssertTrue(status.exists)
         status.rightClick() // either click opens the menu
-        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.menuItems["Quit Cascade"].waitForExistence(timeout: 5))
         app.typeKey(.escape, modifierFlags: [])
     }
 
@@ -1408,7 +1408,7 @@ final class CraftUITests: XCTestCase {
         let status = app.descendants(matching: .any)["craft-status-item"].firstMatch
         XCTAssertTrue(status.waitForExistence(timeout: 10))
         status.rightClick()
-        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(app.menuItems["Quit Cascade"].waitForExistence(timeout: 10), app.debugDescription)
         // The tray lists review requests only, never the open pages.
         XCTAssertFalse(app.menuItems["Browser fixture"].exists)
         XCTAssertFalse(app.menuItems["Next page"].exists)
@@ -1418,7 +1418,7 @@ final class CraftUITests: XCTestCase {
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         draft.click(); app.typeText("Keep this tray draft")
         status.rightClick()
-        XCTAssertTrue(app.menuItems["Quit Craft"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.menuItems["Quit Cascade"].waitForExistence(timeout: 5), app.debugDescription)
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         XCTAssertEqual(draft.value as? String, "Keep this tray draft")
@@ -1426,7 +1426,7 @@ final class CraftUITests: XCTestCase {
         // The sidebar bell is today's activity (events-popover.js), not the tray.
         app.buttons["Today's activity"].click()
         XCTAssertTrue(app.descendants(matching: .any)["today-activity-popover"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.menuItems["Quit Craft"].exists)
+        XCTAssertFalse(app.menuItems["Quit Cascade"].exists)
     }
 
     @MainActor
@@ -1440,7 +1440,7 @@ final class CraftUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.menuBars.menuBarItems["Edit"].waitForExistence(timeout: 5), app.debugDescription)
-        app.menuBars.menuBarItems["Craft"].click()
+        app.menuBars.menuBarItems["Cascade"].click()
         XCTAssertTrue(app.menuItems["Check for Updates…"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(app.menuItems["Check for Updates…"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])

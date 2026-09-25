@@ -108,7 +108,7 @@ import SwiftUI
         items.append(usageItem)
         if let error = model.actionError { items.append(note(error)) }
         items.append(.separator())
-        items.append(row("Quit Craft", action: .quit))
+        items.append(row("Quit Cascade", action: .quit))
         menu.items = items
     }
 

@@ -45,9 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let identifier = Bundle.main.bundleIdentifier else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         // A copy still running under the app's old name shares the same database.
-        runningCopy = [identifier, LegacyIdentity.bundleIdentifier]
-            .flatMap(NSRunningApplication.runningApplications(withBundleIdentifier:))
-            .first { $0.processIdentifier != me && !$0.isTerminated }
+        runningCopy = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .first { $0.processIdentifier != me && !$0.isTerminated } ?? LegacyIdentity.runningOldCopy()
     }
 
     private func yield(to other: NSRunningApplication) {
@@ -60,7 +59,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if let other = runningCopy { yield(to: other); return }
+        // Looked for again: an old copy can have started since. With none running, the old data is
+        // carried now, before anything below starts the backend or the terminal daemon.
+        if let other = runningCopy ?? LegacyIdentity.runningOldCopy() { yield(to: other); return }
+        // A run given its own data folder never moves the default one.
+        if !ProcessInfo.processInfo.arguments.contains("--data-dir"),
+           ProcessInfo.processInfo.environment["CRAFT_DATA_DIR"] == nil {
+            LegacyIdentity.carryData()
+        }
         model.shell.applyAppearance()
         // SwiftUI can have made the window key before this runs, so cover both orders.
         NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey),
@@ -152,7 +158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let base = NSImage(named: "MenuBarIcon")?.copy() as? NSImage else { return nil }
         let side = (NSStatusBar.system.thickness * 0.72).rounded()
         base.size = NSSize(width: side, height: side)
-        base.accessibilityDescription = "Craft"
+        base.accessibilityDescription = "Cascade"
         guard let tint else { base.isTemplate = true; return base }
         let painted = NSImage(size: base.size, flipped: false) { rect in
             base.draw(in: rect)
@@ -160,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rect.fill(using: .sourceAtop)
             return true
         }
-        painted.accessibilityDescription = "Craft"
+        painted.accessibilityDescription = "Cascade"
         return painted
     }
 
@@ -183,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Only a review request colors the glyph. Running tasks leave it untinted, so it stays
             // the menu bar's own black or white like every other icon up there.
             applyStatusImage(tint: reviews > 0 ? Self.trayBronze : nil)
-            statusItem?.button?.toolTip = reviews > 0 ? "Craft: \(reviews) pending reviews" : "Craft"
+            statusItem?.button?.toolTip = reviews > 0 ? "Cascade: \(reviews) pending reviews" : "Cascade"
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }
         }
@@ -252,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if error is CancellationError { return }
         Task {
             let alert = NSAlert()
-            alert.messageText = "Craft could not quit"
+            alert.messageText = "Cascade could not quit"
             alert.informativeText = error.localizedDescription
             alert.addButton(withTitle: "OK")
             if let window { _ = await alert.beginSheetModal(for: window) }

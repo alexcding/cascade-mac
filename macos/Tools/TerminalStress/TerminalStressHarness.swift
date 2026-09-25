@@ -86,7 +86,7 @@ public enum TerminalStressHarness {
                 let view = WorkspaceTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 480))
                 view.delegate = session.surface; view.controller = session.surface.controller; view.configuration = session.surface.configuration
                 let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
-                window.title = "Craft isolated terminal stress"
+                window.title = "Cascade isolated terminal stress"
                 window.isReleasedWhenClosed = false; window.contentView = view
                 sessions.append(session); views.append(view); windows.append(window)
                 view.layoutSubtreeIfNeeded()

@@ -458,7 +458,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     #expect(model.navigation.error == nil)
     coordinator.canPresent = { true }
     model.open(row)
-    #expect(model.navigation.error == "Connect to open pull requests in Craft.")
+    #expect(model.navigation.error == "Connect to open pull requests in Cascade.")
     coordinator.retire()
 }
 

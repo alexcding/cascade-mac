@@ -2,7 +2,7 @@
 
 The Rust backend owns recovery for the native app. Backup commands do not open
 application stores, run schema migrations, start a server, or invoke GitHub/Jira.
-The default data directory is `~/Library/Application Support/Craft`; recovery
+The default data directory is `~/Library/Application Support/Cascade`; recovery
 commands always require explicit paths.
 
 ## Backup, verify, and restore
@@ -21,7 +21,7 @@ crates/craft-backend/target/debug/craft-backend restore \
 From the installed app, use the same arguments with:
 
 ```sh
-'/Applications/Craft.app/Contents/Helpers/craft-backend' backup \
+'/Applications/Cascade.app/Contents/Helpers/craft-backend' backup \
   '/absolute/path/to/data' '/absolute/path/to/new-backup'
 ```
 
@@ -80,8 +80,8 @@ up to two minutes for startup; cancellation terminates its owned backend.
 | Activity and diagnostic history | `logs.db`; included when present as a separate consistent SQLite snapshot. |
 | Older durable filename | If `craft.db` is absent, `config.db` is captured/restored under its original name. Backup does not trigger the application's legacy rename or destructive schema changes. |
 | GitHub/Jira snapshots | `data.db`; regenerable, omitted. The normal poller repopulates the restored installation. |
-| Terminal screen state and live process metadata | Daemon memory and PTY manifests; omitted. Closing or updating Craft terminates its PTYs; saved CLI conversation IDs recreate and resume sessions on launch. |
-| Native sidebar selection/collapse, window geometry | AppKit/UserDefaults in `com.alexcding.craft`; left in place during same-bundle upgrades. Not part of this data-directory snapshot. |
+| Terminal screen state and live process metadata | Daemon memory and PTY manifests; omitted. Closing or updating Cascade terminates its PTYs; saved CLI conversation IDs recreate and resume sessions on launch. |
+| Native sidebar selection/collapse, window geometry | AppKit/UserDefaults in `com.alexcding.cascade`; left in place during same-bundle upgrades. Not part of this data-directory snapshot. |
 | Native cached settings and pending preference writes | UserDefaults `native.*`; not copied by this tool. Synced values are in SQLite. Reconnect and let pending writes finish before taking an offline checkpoint. |
 | Tauri localStorage appearance | Theme is mirrored to SQLite; the database remains authoritative. |
 | Tauri localStorage layout | `craft.prRatio`, `craft.projCollapsed`, `craft.sidebarWidth`, `craft.histSplit` are web layout preferences. Native layouts use their own defaults; the web values are left untouched for rollback. |

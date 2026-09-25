@@ -37,7 +37,7 @@ struct CraftRouter: DeepLinkRouting {
     func deepLink(for url: URL) -> DeepLink? {
         guard url.absoluteString.utf8.count <= 2048,
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              components.scheme?.lowercased() == "craft", components.host?.lowercased() == "app",
+              components.scheme?.lowercased() == "cascade", components.host?.lowercased() == "app",
               components.user == nil, components.password == nil, components.port == nil,
               components.query == nil, components.fragment == nil else { return nil }
         // The contract uses ASCII route names and opaque IDs. Reject escaped separators,
@@ -53,7 +53,7 @@ struct CraftRouter: DeepLinkRouting {
         guard deepLink.destination != nil,
               let segments = handlers.lazy.compactMap({ $0.print(deepLink) }).first,
               segments.allSatisfy(Self.validComponent) else { return nil }
-        return URL(string: "craft://app/" + segments.joined(separator: "/"))
+        return URL(string: "cascade://app/" + segments.joined(separator: "/"))
     }
 
     private static func validComponent(_ value: String) -> Bool {

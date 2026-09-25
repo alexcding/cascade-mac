@@ -8,9 +8,9 @@
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>com.alexcding.craft.navigation</string>
+            <string>com.alexcding.cascade.navigation</string>
             <key>CFBundleURLSchemes</key>
-            <array><string>craft</string></array>
+            <array><string>cascade</string></array>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
         </dict>
@@ -25,11 +25,11 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
-    <!-- Terminal sessions and the agents they run inherit Craft's microphone grant: macOS
+    <!-- Terminal sessions and the agents they run inherit Cascade's microphone grant: macOS
          attributes a child process's audio input to the responsible app, and without this key
          the request is refused outright instead of prompting. -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Craft needs the microphone so voice input works in terminal sessions and agents you run here.</string>
+    <string>Cascade needs the microphone so voice input works in terminal sessions and agents you run here.</string>
     <!-- Empty values leave Sparkle inactive. Release builds supply the real feed
          and public key through build settings; private keys never enter the app. -->
     <key>SUFeedURL</key>

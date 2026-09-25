@@ -123,7 +123,7 @@ import Observation
     func open(_ entry: LogEntry) {
         guard !retired, canAct(), rows.contains(where: { $0.id == entry.id }) else { return }
         guard let raw = entry.link, safeWebURL(raw) != nil else { return }
-        guard service != nil else { navigation.reject("Connect to open pull requests in Craft."); return }
+        guard service != nil else { navigation.reject("Connect to open pull requests in Cascade."); return }
         navigation.open(OpenPageRequest(url: raw, kind: "github", title: entry.title))
     }
     func copyEntry(_ entry: LogEntry) {

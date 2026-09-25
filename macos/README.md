@@ -1,4 +1,4 @@
-# Craft for macOS
+# Cascade for macOS
 
 This guide covers the native app's development workflow and individual surfaces.
 Start with the [project README](../README.md) for setup and
@@ -92,7 +92,7 @@ For debugging, set launch arguments in the Xcode scheme:
 | --- | --- |
 | `--backend-root /absolute/path/to/repo` | Marks a checkout launch as development; the backend remains embedded. |
 | `--backend-path /absolute/path/to/craft-backend` | Starts and owns a separate Rust backend process. Use `--backend-port` to choose its port. |
-| `--backend-url http://127.0.0.1:43187` | Connects to an existing backend; Craft never stops that external process. |
+| `--backend-url http://127.0.0.1:43187` | Connects to an existing backend; Cascade never stops that external process. |
 | `--data-dir /absolute/path/to/data` | Selects the app's data directory; `CRAFT_DATA_DIR` is the environment equivalent. |
 | `--ptyd-path /absolute/path/to/craft-ptyd` | Uses a particular terminal helper build. |
 | `--pty-socket /absolute/path/to/socket` | Selects a terminal daemon socket; `CRAFT_PTYD_SOCK` is the environment equivalent. |
@@ -104,7 +104,7 @@ terminal daemon and its shells. Socket paths must be absolute and shorter than
 terminal metadata is stored under `ptyd-native-spike` in the selected data directory.
 These internal names are retained for compatibility.
 
-The default data directory is `~/Library/Application Support/Craft`. `craft.db`
+The default data directory is `~/Library/Application Support/Cascade`. `craft.db`
 holds durable projects, sessions, tabs, and settings; `data.db` holds refreshable
 snapshots and `logs.db` holds activity. Worktree files and agent conversations live
 in their own locations. See [data recovery](../docs/DATA-RECOVERY.md) for backup
@@ -134,7 +134,7 @@ before discarding uncommitted or untracked changes. Restart stops that session's
 shell after confirmation and resumes a saved agent conversation when an ID is
 available. Removing a project keeps its workspace folders and sessions.
 
-Closing the main window keeps Craft and its sessions running. **⌘Q** and update
+Closing the main window keeps Cascade and its sessions running. **⌘Q** and update
 restart check unsaved documents, stop workflows and terminals, stop the owned
 backend, and then exit. Cancelling a document close keeps the app open. An
 unexpected app exit can leave the detached shells alive for reattachment.
@@ -229,7 +229,7 @@ Settings uses the visible sections **General**, **Browser**, **Terminal**,
   Git client, and launch-at-login preferences.
 - **Browser** manages browsing data and the optional ad blocker.
 - **Terminal** and **Text Editor** configure their own fonts and themes. Terminal
-  settings come from Craft, rather than an installed Ghostty app's configuration.
+  settings come from Cascade, rather than an installed Ghostty app's configuration.
 - **Integrations** probes CLI installation and sign-in state, installs/removes
   agent hooks, and configures polling and Jira. Hook changes preserve unrelated
   configuration. The first-launch guide can be reopened here.
@@ -313,7 +313,7 @@ display latency or performance on another machine.
 
 ## Direct-distribution packaging
 
-Craft uses direct distribution with bundle identifier `com.alexcding.craft`.
+Cascade uses direct distribution with bundle identifier `com.alexcding.cascade`.
 The app is not sandboxed because it orchestrates local CLIs, worktrees, and PTYs.
 Local builds use ad-hoc signing; public distribution requires Developer ID signing
 and notarization. Packaging tooling requires Python 3.11+.
@@ -325,7 +325,7 @@ xcodebuild build -project macos/Craft.xcodeproj -scheme Craft \
   -configuration Release -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath macos/.build/xcode
 bash macos/scripts/bundle-backend.sh \
-  "$PWD/macos/.build/xcode/Build/Products/Release/Craft.app"
+  "$PWD/macos/.build/xcode/Build/Products/Release/Cascade.app"
 ```
 
 The bundle script checks framework resolution, builds the Rust crates, copies the
@@ -343,7 +343,7 @@ For a local package, select an output directory that does not already exist:
 
 ```bash
 python3 macos/scripts/package-direct.py --local \
-  --app "$PWD/macos/.build/xcode/Build/Products/Release/Craft.app" \
+  --app "$PWD/macos/.build/xcode/Build/Products/Release/Cascade.app" \
   --output "$PWD/macos/.build/local-package"
 ```
 
@@ -352,7 +352,7 @@ Keychain profile:
 
 ```bash
 python3 macos/scripts/package-direct.py \
-  --app "$PWD/macos/.build/xcode/Build/Products/Release/Craft.app" \
+  --app "$PWD/macos/.build/xcode/Build/Products/Release/Cascade.app" \
   --output "$PWD/macos/.build/signed-package" \
   --identity 'Developer ID Application: YOUR NAME (TEAMID)' \
   --notary-profile CRAFT_NOTARY
@@ -362,8 +362,8 @@ Instead of a Keychain profile, `--notary-key AuthKey_ID.p8 --notary-key-id ID
 --notary-issuer ISSUER` submits with an App Store Connect API key directly. It
 never touches the Keychain, so it suits a runner with no one to answer a prompt.
 
-The script stages the input bundle and produces `Craft.app`, `Craft.zip`,
-`Craft.dmg`, and `release.json` with checksums. Signed mode signs embedded code,
+The script stages the input bundle and produces `Cascade.app`, `Cascade.zip`,
+`Cascade.dmg`, and `release.json` with checksums. Signed mode signs embedded code,
 submits for notarization, and staples the app and disk image. It does not install
 the app or publish an update feed. Use a fresh output directory for each run.
 

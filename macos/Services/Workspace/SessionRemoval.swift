@@ -100,7 +100,7 @@ struct SessionRemovalService: SessionRemoving {
                 lines.append("Still open in \(plan.holders.joined(separator: ", ")). Xcode is asked to close it.")
             }
         } else {
-            lines.append("No project here owns this folder. The terminal stops and Craft forgets the session — the folder itself stays.")
+            lines.append("No project here owns this folder. The terminal stops and Cascade forgets the session — the folder itself stays.")
         }
         return lines.joined(separator: "\n\n")
     }

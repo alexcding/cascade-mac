@@ -86,7 +86,7 @@ private actor ProjectDeletionService: ProjectService {
     await child.confirmDeletion(id: first.id)
     #expect(child.deletionConfirmation?.id == second.id)
     #expect(await service.deletions.isEmpty)
-    root.handle(url: URL(string: "craft://app/terminal")!)
+    root.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(root.selection == .project(deletionProject.id) && root.pendingDeepLink != nil)
     child.cancelDeletion(id: second.id)
     while root.pendingDeepLink != nil { await Task.yield() }
@@ -106,7 +106,7 @@ private actor ProjectDeletionService: ProjectService {
     await gate.waitForStart()
     child.cancelDeletion(id: request.id)
     await child.confirmDeletion(id: request.id)
-    root.handle(url: URL(string: "craft://app/terminal")!)
+    root.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(child.deleting && child.deletionConfirmation?.id == request.id && !root.canPresent)
     await gate.finish(failing: true); await deleting.value
     #expect(child.deletionConfirmation?.id == request.id && !child.deleting && model.editor.canDelete(request))

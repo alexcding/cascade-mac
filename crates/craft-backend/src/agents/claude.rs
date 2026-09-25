@@ -5,7 +5,7 @@ use std::{fs, path::Path};
 pub struct Claude;
 
 /// Where the app's status line wrapper leaves what Claude Code told it, one file per task.
-const STATUS_DIR: &str = "Library/Application Support/Craft/statusline";
+const STATUS_DIR: &str = "Library/Application Support/Cascade/statusline";
 
 impl AgentProbe for Claude {
     async fn catalog(home: &Path) -> Value {

@@ -2,7 +2,7 @@
 # Run after the Xcode build. Produces an ad-hoc signed development bundle.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-APP="${1:?usage: bash macos/scripts/bundle-backend.sh /absolute/path/Craft.app}"
+APP="${1:?usage: bash macos/scripts/bundle-backend.sh /absolute/path/Cascade.app}"
 test -d "$APP/Contents/MacOS"
 python3 "$ROOT/macos/scripts/check-runtime-frameworks.py" "$APP"
 

@@ -5,7 +5,7 @@ struct CraftApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        Window("Craft", id: "main") {
+        Window("Cascade", id: "main") {
             AppCoordinatorView(coordinator: delegate.model.coordinator)
                 .frame(minWidth: 760, minHeight: 480)
                 .environment(\.documentFont, delegate.model.shell.font(.diff))

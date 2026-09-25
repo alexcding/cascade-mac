@@ -4,7 +4,7 @@ import os
 /// Intervals in Instruments' Points of Interest lane, which the Time Profiler template records, so a
 /// slow interaction is measured rather than guessed at. Free while nothing is recording.
 enum Signposts {
-    static let navigation = OSSignposter(subsystem: Bundle.main.bundleIdentifier ?? "Craft", category: .pointsOfInterest)
+    static let navigation = OSSignposter(subsystem: Bundle.main.bundleIdentifier ?? "Cascade", category: .pointsOfInterest)
 }
 
 /// A sidebar switch to a session or the terminal: from the selection to the end of the run-loop

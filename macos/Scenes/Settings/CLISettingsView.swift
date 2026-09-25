@@ -7,7 +7,7 @@ struct CLIIntegrationSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section {
-            Text("Craft uses your installed tools and their existing sign-in sessions.")
+            Text("Cascade uses your installed tools and their existing sign-in sessions.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.required) { cli in CLIStatusRow(model: model, cli: cli) }
             if let error = model.probeError { Text(error).foregroundStyle(Theme.danger) }
@@ -54,7 +54,7 @@ struct SimulatorPreviewSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Simulator preview") {
-            Text("Run on an iOS simulator to see it in the session's Simulator panel. Craft streams it with Expo's serve-sim, fetched automatically, which needs Node.js 20 or later. Any Node your terminal finds works: Homebrew, the Node.js installer, nvm, fnm, Volta, asdf or mise.")
+            Text("Run on an iOS simulator to see it in the session's Simulator panel. Cascade streams it with Expo's serve-sim, fetched automatically, which needs Node.js 20 or later. Any Node your terminal finds works: Homebrew, the Node.js installer, nvm, fnm, Volta, asdf or mise.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.simulatorPreview) { cli in CLIStatusRow(model: model, cli: cli) }
         }
@@ -124,7 +124,7 @@ struct WorkflowHooksSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Workflow hooks") {
-            Text("Hooks report when an agent starts and finishes a turn. Craft merges its entries into the agent's configuration and removes only its own entries.")
+            Text("Hooks report when an agent starts and finishes a turn. Cascade merges its entries into the agent's configuration and removes only its own entries.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.allCases.filter(\.supportsHooks)) { cli in
                 SettingsStatusRow(title: cli.title, status: model.hookLabel(cli),
@@ -147,7 +147,7 @@ struct AgentStatusLineSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Context status line") {
-            Text("Claude Code tells only its status line how large its context window is. Sessions Craft launches report it already. Install this so sessions you start yourself do too. Your own status line keeps drawing, and is put back when this is removed.")
+            Text("Claude Code tells only its status line how large its context window is. Sessions Cascade launches report it already. Install this so sessions you start yourself do too. Your own status line keeps drawing, and is put back when this is removed.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             SettingsStatusRow(title: ManagedCLI.claude.title, status: model.statusLineLabel,
                               tone: model.statusLineInstalled ? .success : .neutral,
