@@ -41,7 +41,7 @@ public struct BackendHealth: Decodable, Sendable {
     }
 
     public func validate(instanceID: String? = nil) throws {
-        guard service == "craft", self.protocol == 1, runtime == nil || runtime == "rust",
+        guard service == "cascade", self.protocol == 1, runtime == nil || runtime == "rust",
               instanceID == nil || instanceId == instanceID else { throw BackendError.incompatible }
     }
 }

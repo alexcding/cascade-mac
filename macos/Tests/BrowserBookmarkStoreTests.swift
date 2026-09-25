@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 @MainActor @Test func browserBookmarkStoreTogglesOneBookmarkPerWebAddressInAddedOrder() {
     let store = BrowserBookmarkStore()
@@ -17,7 +17,7 @@ import Testing
 }
 
 @MainActor @Test func browserBookmarkStorePersistsToItsFileAndLoadsBack() async throws {
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("craft-bookmarks-\(UUID().uuidString)/bookmarks.json")
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-bookmarks-\(UUID().uuidString)/bookmarks.json")
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let store = BrowserBookmarkStore(fileURL: file)
     store.toggle(url: "https://example.com/one", title: "One")

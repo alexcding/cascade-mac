@@ -5,7 +5,7 @@ import Darwin
 // I/O; a slow PTY cannot block the main actor or another connection. Each instance is
 // one connection generation, so old replies cannot resolve a new client's requests.
 final class PtydClient: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "craft.ptyd.socket", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "cascade.ptyd.socket", qos: .userInitiated)
     private var fd: Int32 = -1
     private var hasConnected = false
     private var readSource: DispatchSourceRead?

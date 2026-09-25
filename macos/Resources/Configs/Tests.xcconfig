@@ -8,7 +8,7 @@
 // Test Target Settings (Customizable by scaffold tool)
 // ==========================================
 PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade.uitests
-TEST_TARGET_NAME = Craft
+TEST_TARGET_NAME = Cascade
 
 // Fix duplicate module name issue
-PRODUCT_MODULE_NAME = CraftUITests
+PRODUCT_MODULE_NAME = CascadeUITests

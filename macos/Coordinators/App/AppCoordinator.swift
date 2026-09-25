@@ -121,7 +121,7 @@ import Observation
 
     init(factory: any CreationFlowFactory, selectionStore: any SidebarSelectionPersisting = TransientSidebarSelectionStore(),
          workspaceFactory: any WorkspaceFeatureFactory = NativeWorkspaceFeatureFactory(),
-         router: any DeepLinkRouting = CraftRouter(),
+         router: any DeepLinkRouting = CascadeRouter(),
          projectCoordinatorFactory: any ProjectCoordinatorFactory = NativeProjectCoordinatorFactory(),
          documentCloseCoordinator: EditorCloseCoordinator = EditorCloseCoordinator(),
          browserDialogCoordinator: BrowserDialogCoordinator = BrowserDialogCoordinator(),

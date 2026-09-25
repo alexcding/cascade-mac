@@ -27,7 +27,7 @@ Python, and C.
 
 **Stale-while-revalidate over a DB snapshot.**
 
-- `crates/craft-backend/src/poller.rs` **owns background GitHub synchronization**. Every
+- `crates/cascade-backend/src/poller.rs` **owns background GitHub synchronization**. Every
   poll interval it fetches each project's PRs by status — every open PR (paginated, with
   CI) plus a recent merged/closed window for merge detection — and writes a **lean
   snapshot** (`github.rs:324 lean()`) to `data.db`. Concurrent syncs of one project are
@@ -42,7 +42,7 @@ If the UI needs fresher data, fix the sync loop. Do not make endpoints call `gh`
 
 ## Run / iterate
 
-**Open `macos/Craft.xcodeproj` and press ⌘R. That is the whole workflow.**
+**Open `macos/Cascade.xcodeproj` and press ⌘R. That is the whole workflow.**
 
 The app targets macOS 14+ on Apple Silicon. Building the current source requires
 Xcode 26+ for its macOS 26 SDK APIs. The Rust backend requires Rust 1.88+.
@@ -54,27 +54,27 @@ PTY helper. Its log is `macos/.build/bootstrap.log`.
 
 ```bash
 # Rust alone, without Xcode
-cargo build   --manifest-path crates/craft-backend/Cargo.toml
-cargo test    --manifest-path crates/craft-backend/Cargo.toml
-cargo build   --manifest-path crates/craft-ptyd/Cargo.toml --features terminal-snapshots
+cargo build   --manifest-path crates/cascade-backend/Cargo.toml
+cargo test    --manifest-path crates/cascade-backend/Cargo.toml
+cargo build   --manifest-path crates/cascade-ptyd/Cargo.toml --features terminal-snapshots
 
-# Native app unit tests (the shared plan also includes CraftUITests)
-xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
-  -derivedDataPath macos/.build/xcode -only-testing:CraftTests
+# Native app unit tests (the shared plan also includes CascadeUITests)
+xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
+  -derivedDataPath macos/.build/xcode -only-testing:CascadeTests
 ```
 
-- **Swift Testing does not match `-only-testing:CraftTests/someFunctionName`.** It runs
+- **Swift Testing does not match `-only-testing:CascadeTests/someFunctionName`.** It runs
   **zero** tests and still reports `TEST SUCCEEDED`. Always check the `Executed N tests`
   line before believing a pass.
 - The app links the backend as a static library by default. `--backend-path <binary>` runs
   it as a child process instead, and `--backend-url <origin>` points at one you started
   yourself; both are useful for isolating whether a bug is in the FFI boundary.
-- `CRAFT_DATA_DIR` overrides the data directory (default
+- `CASCADE_DATA_DIR` overrides the data directory (default
   `~/Library/Application Support/Cascade`).
 
 ## Files
 
-**Backend** (`crates/craft-backend/src/`):
+**Backend** (`crates/cascade-backend/src/`):
 
 - `lib.rs` - the axum router (`build_app`) and `AppState`; `route_contract` asserts the
   Swift route constants against the routes actually served.
@@ -86,7 +86,7 @@ xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
 - `db.rs` + `schema_durable.sql` / `schema_cache.sql` / `schema_logs.sql` - the three
   SQLite stores.
 
-**Terminal** (`crates/craft-ptyd`, `crates/craft-vt`): a detached PTY daemon and the
+**Terminal** (`crates/cascade-ptyd`, `crates/cascade-vt`): a detached PTY daemon and the
 headless Ghostty VT engine used for terminal snapshots. Shells can outlive an
 unexpected app exit; explicit Quit and update restart stop them.
 
@@ -99,7 +99,7 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **One repo per project.** A project maps to one GitHub repo, optional Jira JQL,
   workspace path, color and merge transition.
 - **Schema is `CREATE TABLE IF NOT EXISTS`** in the three `schema_*.sql` files — no
-  migration framework. `data.db` and `logs.db` are regenerable caches; **`craft.db` is
+  migration framework. `data.db` and `logs.db` are regenerable caches; **`cascade.db` is
   not** — it holds projects, tasks, tabs and settings.
 - **Two PR classifications, different surfaces — don't conflate them** (`github.rs`):
   - **`category`** (`mine`/`review`/`other`) — strictly "I am an *actively requested*
@@ -156,7 +156,7 @@ Remote context pages use WebKit. **The one bundled app page is the working-chang
 diff**: HTML + JS (`macos/Resources/DiffPage/`) in a `WKWebView`.
 It is push-only: `DiffViewModel` loads the snapshot through `APIClient` and
 hands it to `window.nativeDiff.render`; the page has no network access (CSP
-`connect-src 'none'`), is served by `DiffPageAssets` on its own `craft-diff://` scheme,
+`connect-src 'none'`), is served by `DiffPageAssets` on its own `cascade-diff://` scheme,
 and reports `ready`/`open`/`discard` back through one message handler. Do not add a second
 page, and do not give this one a way to reach the backend.
 
@@ -164,7 +164,7 @@ page, and do not give this one a way to reach the backend.
 
 `macos/` is a layered tree. Each layer may depend on the ones below it, never above:
 
-- **`App/`** — the process. `CraftApp.swift` is the entry point; `AppDelegate.swift`
+- **`App/`** — the process. `CascadeApp.swift` is the entry point; `AppDelegate.swift`
   owns `AppViewModel` and the app lifetime. `AppViewModel` is split by area into
   `AppViewModel+{Root,Workspace,Settings,Tray,Notifications}.swift`; `RootViewModel.swift`
   is what the root view binds to.
@@ -222,11 +222,11 @@ with `!retired`, including the ones that only set appearance or visibility.
 - **`Services/Backend/APIClient.swift`** is the only way to reach the backend. Route paths
   come from `Routes.swift` — never string literals.
 - **`Routes.swift` is hand-maintained**, and `route_contract` in
-  `crates/craft-backend/src/lib.rs` fails the build if it names a path the router does
+  `crates/cascade-backend/src/lib.rs` fails the build if it names a path the router does
   not serve. Add the route in both places.
 - **Two transports, one interface.** By default the backend is a static library in this
   process and requests dispatch straight into the axum router over the C ABI
-  (`EmbeddedBackend.swift` → `crates/craft-backend/src/ffi.rs`). With `--backend-path`
+  (`EmbeddedBackend.swift` → `crates/cascade-backend/src/ffi.rs`). With `--backend-path`
   or `--backend-url` the same `APIClient` talks HTTP to a separate process. Code above the
   transport cannot tell the difference, and must not try to.
 - **Events**: embedded mode delivers them directly; process mode subscribes over SSE
@@ -238,7 +238,7 @@ with `!retired`, including the ones that only set appearance or visibility.
 
 Three pieces, deliberately separate:
 
-- **`crates/craft-ptyd`** — a detached daemon that owns the PTYs. It has its own session,
+- **`crates/cascade-ptyd`** — a detached daemon that owns the PTYs. It has its own session,
   so shells can survive an unexpected app exit. Closing the main window keeps sessions
   running; explicit Quit and update restart stop the daemon and shells through
   `AppViewModel.prepareToTerminate`. The app talks to it over a Unix socket
@@ -246,7 +246,7 @@ Three pieces, deliberately separate:
 - **GhosttyTerminal** — a prebuilt XCFramework from
   `github.com/alexcding/ghostty-terminal-spm`, pinned to an exact tag in the pbxproj. This
   is the on-screen rendering surface.
-- **`crates/craft-vt`** — the headless Ghostty VT engine, used for terminal snapshots.
+- **`crates/cascade-vt`** — the headless Ghostty VT engine, used for terminal snapshots.
   Its `build.rs` asserts that the daemon and the renderer were built from the same patched
   Ghostty, because a snapshot written by one is read by the other.
 
@@ -256,12 +256,12 @@ and `macos/scripts/bootstrap.sh` — they must agree.
 
 ## Tests
 
-- **`macos/Tests/`** is the `CraftTests` target and `macos/UITests/` is
-  `CraftUITests`; the shared test plan runs both. `GhosttySnapshotTests/` is a separate
+- **`macos/Tests/`** is the `CascadeTests` target and `macos/UITests/` is
+  `CascadeUITests`; the shared test plan runs both. `GhosttySnapshotTests/` is a separate
   SPM package and is not in the plan.
-- Rust: `cargo test --manifest-path crates/craft-backend/Cargo.toml`. `route_contract`
+- Rust: `cargo test --manifest-path crates/cascade-backend/Cargo.toml`. `route_contract`
   keeps `Routes.swift` honest; `cli.rs`'s tests cover process-group teardown.
 - After bootstrap has prepared Ghostty, run terminal tests with
-  `cargo test --manifest-path crates/craft-ptyd/Cargo.toml --features terminal-snapshots`.
+  `cargo test --manifest-path crates/cascade-ptyd/Cargo.toml --features terminal-snapshots`.
 - Substitute a `Container/` factory rather than reaching for the real backend, terminal or
   file system.

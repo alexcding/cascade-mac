@@ -113,7 +113,7 @@ private struct RefusedStops: TerminalRuntimeControlling {
     }
 }
 
-/// Craft at the 1 GB minimum over its own daemon, with a Claude session per id, each resuming
+/// Cascade at the 1 GB minimum over its own daemon, with a Claude session per id, each resuming
 /// `conversation-<id>` in a stub agent; those in `backgroundJobs` leave a job running.
 @MainActor private final class PoolHarness {
     let fixture: DaemonFixture
@@ -143,7 +143,7 @@ private struct RefusedStops: TerminalRuntimeControlling {
             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     }
 
-    /// Starts the daemon, then Craft, and waits for the sidebar to list the sessions.
+    /// Starts the daemon, then Cascade, and waits for the sidebar to list the sessions.
     func start() async throws {
         daemon = try await PtydHost(configuration: fixture.config).connect(client: control).pid
         await model.start()
@@ -211,7 +211,7 @@ private struct RefusedStops: TerminalRuntimeControlling {
         return nil
     }
 
-    /// Stops Craft, then the daemon and every shell in it.
+    /// Stops Cascade, then the daemon and every shell in it.
     func finish() async throws {
         for (terminal, _) in opened { terminal.disconnect() }
         await model.stop()

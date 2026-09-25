@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 // A project only shows the sections it can serve: GitHub ones need a repo, Jira
 // ones a project key or JQL.

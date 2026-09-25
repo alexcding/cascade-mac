@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 @MainActor @Test func searchSuggestionStoreParsesFirefoxAndChromeShapesAndCachesByQuery() async throws {
     let payload = #"["you",["youtube","youtube music","you"]]"#.data(using: .utf8)!

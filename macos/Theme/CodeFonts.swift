@@ -108,7 +108,7 @@ struct FontSettingsView: View {
                     .help("Default \(kind.defaultSize) · ⌘0 resets")
                 } label: {
                     // Keep the kind in the label: the two rows are otherwise identical to
-                    // VoiceOver and to `staticTexts[…]` in CraftUITests.
+                    // VoiceOver and to `staticTexts[…]` in CascadeUITests.
                     Text("\(kind.title) size: \(font.size)")
                 }
             }

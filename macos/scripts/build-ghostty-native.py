@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build Craft's pinned native Ghostty snapshot bridge into a local Swift package."""
+"""Build Cascade's pinned native Ghostty snapshot bridge into a local Swift package."""
 import argparse
 import hashlib
 import json

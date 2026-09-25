@@ -4,7 +4,7 @@ Captured 2026-09-24 from the discussion that opened this branch.
 
 ## Goal
 
-A mobile app that can remote-control the Craft desktop app running on the user's Mac.
+A mobile app that can remote-control the Cascade desktop app running on the user's Mac.
 
 ## Must have
 
@@ -29,7 +29,7 @@ A mobile app that can remote-control the Craft desktop app running on the user's
 
 - An Android app.
 - A hosted relay/TURN service run by us. Off-network access is delegated to Tailscale.
-- Syncing Craft's data through iCloud. CloudKit carries only the pairing record and small
+- Syncing Cascade's data through iCloud. CloudKit carries only the pairing record and small
   alert records; live state comes over the direct connection.
 - Exposing the existing loopback API as-is. It has no authentication and trusts its callers
   (research §A).
@@ -51,5 +51,5 @@ A mobile app that can remote-control the Craft desktop app running on the user's
   and `route_contract` must keep passing; no `gh` in request handlers; theme tokens only.
 - The one bundled JavaScript page is the diff page; the relayed serve-sim page is *not*
   bundled, it is served by the helper, so this does not add a second bundled page.
-- `craft.db` is durable and not regenerable: the host secret and certificate live there
+- `cascade.db` is durable and not regenerable: the host secret and certificate live there
   (or in the Keychain, see open questions) and must survive updates.

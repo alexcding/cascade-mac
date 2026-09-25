@@ -7,7 +7,7 @@ import Testing
     #expect(UpdateConfiguration.unavailableReason(debug: false, packaged: true, info: valid) == nil)
     #expect(UpdateConfiguration.unavailableReason(debug: true, packaged: true, info: valid) != nil)
     #expect(UpdateConfiguration.unavailableReason(debug: false, packaged: false, info: valid) != nil)
-    for feed in ["", "$(CRAFT_UPDATE_FEED_URL)", "http://updates.example.org/feed", "file:///tmp/feed",
+    for feed in ["", "$(CASCADE_UPDATE_FEED_URL)", "http://updates.example.org/feed", "file:///tmp/feed",
                  "https://user:password@example.org/feed", "https://example.org/feed#fragment"] {
         #expect(UpdateConfiguration.unavailableReason(debug: false, packaged: true,
             info: ["SUFeedURL": feed, "SUPublicEDKey": key]) != nil)
@@ -21,15 +21,15 @@ import Testing
 @Test func packagedBundleRequiresAnAppWithTheBundledPtyDaemon() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }
-    let app = root.appendingPathComponent("Craft.app"), helpers = app.appendingPathComponent("Contents/Helpers")
+    let app = root.appendingPathComponent("Cascade.app"), helpers = app.appendingPathComponent("Contents/Helpers")
     try FileManager.default.createDirectory(at: helpers, withIntermediateDirectories: true)
     #expect(!PackagedBundle.isPackaged(app))
-    let daemon = helpers.appendingPathComponent("craft-ptyd")
+    let daemon = helpers.appendingPathComponent("cascade-ptyd")
     try Data().write(to: daemon)
     #expect(!PackagedBundle.isPackaged(app))
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemon.path)
     #expect(PackagedBundle.isPackaged(app))
-    let folder = root.appendingPathComponent("Craft")
+    let folder = root.appendingPathComponent("Cascade")
     try FileManager.default.createDirectory(at: folder.appendingPathComponent("Contents"), withIntermediateDirectories: true)
     try FileManager.default.copyItem(at: helpers, to: folder.appendingPathComponent("Contents/Helpers"))
     #expect(!PackagedBundle.isPackaged(folder))

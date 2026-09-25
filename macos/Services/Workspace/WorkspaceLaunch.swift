@@ -91,7 +91,7 @@ protocol WorkspaceCommandLauncher: Sendable {
 // Process creation and executable lookup stay off the UI actor. Presets use the
 // system's app-name lookup (including apps outside /Applications), and report open's
 // exit status. A custom command is handed off and left alone;
-// long-running editors are not waited for or terminated when Craft closes.
+// long-running editors are not waited for or terminated when Cascade closes.
 actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
     func launch(_ command: WorkspaceLaunchCommand) async throws {
         guard let program = command.arguments.first else { throw BackendError.operation("The launch command is empty.") }

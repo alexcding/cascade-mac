@@ -1,6 +1,6 @@
 import Foundation
 
-// The IDE-neutral half of warm-up. `crates/craft-backend/src/warmup.rs` owns which IDEs have a
+// The IDE-neutral half of warm-up. `crates/cascade-backend/src/warmup.rs` owns which IDEs have a
 // preparation at all; nothing here knows what Xcode is.
 
 /// What a worktree's IDE still has to prepare before a build can start. A worktree nobody has

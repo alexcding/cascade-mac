@@ -9,8 +9,6 @@
 PRODUCT_NAME = Cascade
 PRODUCT_DISPLAY_NAME = Cascade
 PRODUCT_BUNDLE_IDENTIFIER = com.alexcding.cascade
-// The app was Craft; its Swift module keeps the name so `@testable import Craft` still resolves.
-PRODUCT_MODULE_NAME = Craft
 MARKETING_VERSION = 0.0.1
 CURRENT_PROJECT_VERSION = 1
 
@@ -27,8 +25,8 @@ GENERATE_INFOPLIST_FILE = YES
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Resources/Configs/Craft.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Resources/Configs/Craft.entitlements
+// AI agents can modify Resources/Configs/Cascade.entitlements to add capabilities
+CODE_SIGN_ENTITLEMENTS = Resources/Configs/Cascade.entitlements
 CODE_SIGN_IDENTITY = -
 CODE_SIGN_STYLE = Manual
 ENABLE_APP_SANDBOX = NO
@@ -37,7 +35,7 @@ ALWAYS_SEARCH_USER_PATHS = NO
 // Embedded dynamic frameworks (Sparkle) must resolve in standalone app launches.
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @loader_path/../Frameworks
 
-// The Rust backend's C ABI (Vendor/CraftBackend, from crates/craft-backend/src/ffi.rs).
+// The Rust backend's C ABI (Vendor/CascadeBackend, from crates/cascade-backend/src/ffi.rs).
 // The targets that compile the app sources (app, unit tests, terminal stress) link
-// libcraft_backend.a through their own settings in the project.
-SWIFT_INCLUDE_PATHS = $(inherited) $(PROJECT_DIR)/Vendor/CraftBackend
+// libcascade_backend.a through their own settings in the project.
+SWIFT_INCLUDE_PATHS = $(inherited) $(PROJECT_DIR)/Vendor/CascadeBackend

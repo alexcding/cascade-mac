@@ -5,6 +5,6 @@ import Foundation
 enum PackagedBundle {
     static func isPackaged(_ bundle: URL, fileManager: FileManager = .default) -> Bool {
         bundle.pathExtension == "app"
-            && fileManager.isExecutableFile(atPath: bundle.appendingPathComponent("Contents/Helpers/craft-ptyd").path)
+            && fileManager.isExecutableFile(atPath: bundle.appendingPathComponent("Contents/Helpers/cascade-ptyd").path)
     }
 }

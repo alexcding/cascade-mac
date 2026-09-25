@@ -34,7 +34,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
 
 @MainActor @Test func cocoaOutlineRetainsNodesSelectionAndExpansionAcrossRefresh() throws {
     _ = NSApplication.shared
-    let suite = "craft-sidebar-test-\(UUID().uuidString)"
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     var selected: SidebarDestination = .overview
@@ -160,7 +160,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
 /// on screen if the heading reads the item's edge rather than reusing its own offset.
 @MainActor @Test func tabsHeadingAddButtonLinesUpWithAProjectRows() throws {
     _ = NSApplication.shared
-    let suite = "craft-sidebar-align-\(UUID().uuidString)"
+    let suite = "cascade-sidebar-align-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], tabs: []),
@@ -238,7 +238,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(SidebarOrder().pinning("b", pinned: true, shown: ["a", "x"]).pinned == ["a", "x", "b"])
 
     // It survives a relaunch through the app's own preferences.
-    let suite = "craft-sidebar-order-test-\(UUID().uuidString)"
+    let suite = "cascade-sidebar-order-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     #expect(UserDefaultsSidebarOrderStore(preferences: preferences).load() == SidebarOrder())
@@ -247,7 +247,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
 }
 
 @MainActor private final class SidebarDropInfo: NSObject, @MainActor NSDraggingInfo {
-    let draggingPasteboard = NSPasteboard(name: .init("craft-sidebar-test-\(UUID().uuidString)"))
+    let draggingPasteboard = NSPasteboard(name: .init("cascade-sidebar-test-\(UUID().uuidString)"))
     init(placement: String) {
         super.init()
         draggingPasteboard.clearContents()
@@ -273,7 +273,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
 
 @MainActor @Test func draggingASidebarRowMovesItAmongItsSiblingsAndKeepsItListed() throws {
     _ = NSApplication.shared
-    let suite = "craft-sidebar-test-\(UUID().uuidString)"
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let projects = [sidebarProject, Project(id: "p2", name: "Second", repo: "o/s", color: nil, workspace: "/tmp"),

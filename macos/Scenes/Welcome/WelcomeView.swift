@@ -160,7 +160,7 @@ private struct WelcomeToolsPage: View {
     }
 }
 
-/// Hooks and the status line are both entries Craft merges into an agent's configuration, so
+/// Hooks and the status line are both entries Cascade merges into an agent's configuration, so
 /// the status line sits under Claude Code's hook rather than on a page of its own.
 private struct WelcomeHooksPage: View {
     let model: WelcomeViewModel

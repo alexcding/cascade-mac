@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 struct ActivityEventPayloadTests {
     // The Rust and Node backends broadcast the log row verbatim: payload is a JSON string.

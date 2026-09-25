@@ -163,7 +163,7 @@ private struct TerminalThemeSample: View {
                                          "#666666", "#D54E53", "#B9CA4A", "#E7C547", "#7AA6DA", "#C397D8", "#70C0B1", "#EAEAEA"]
     /// nil is the foreground; a number is an ANSI palette index.
     private static let lines: [[(String, Int?)]] = [
-        [("~/Workspace/craft", 4), (" on ", nil), ("main", 5), (" ✔", 2)],
+        [("~/Workspace/cascade", 4), (" on ", nil), ("main", 5), (" ✔", 2)],
         [("❯ ", 2), ("git status --short", nil)],
         [(" M ", 1), ("macos/Theme/CodeThemes.swift", nil)],
         [("?? ", 3), ("macos/Scenes/Settings/SettingsPreview.swift", nil)],

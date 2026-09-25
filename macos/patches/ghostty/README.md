@@ -31,7 +31,7 @@ uses the native title and OSC 7 handlers, including local-host validation and
 percent decoding. It converts the headless parser's working-directory URI into
 the native path without feeding bytes into an unfinished parser. Publication is
 allowed once, before subsequent output; callback draining holds no native surface
-operation, allowing a callback to close the surface safely. Craft's attachment
+operation, allowing a callback to close the surface safely. Cascade's attachment
 pipeline owns this worker/tick lifecycle, including hidden surfaces.
 
 After import, physical view resizes request a host resize without reflowing the
@@ -40,22 +40,22 @@ logical terminal. Apply each daemon resize event with
 queue as output. The wrapper drains preceding bytes before changing the grid;
 later output then uses that grid. Input stays gated until attachment completes.
 
-This is a Craft extension, not an upstream snapshot compatibility promise. The
+This is a Cascade extension, not an upstream snapshot compatibility promise. The
 native app consumes the generated local Swift package for download/import and
 ordered live resizes. Transient transport loss reconnects through a fresh surface
 only when input delivery was settled; uncertain input requires manual recovery.
 Offline query response ownership, native default/config synchronization and
-UI-dependent effects remain follow-up work. Craft v3 preserves glyph registrations
+UI-dependent effects remain follow-up work. Cascade v3 preserves glyph registrations
 and Kitty graphics through `0007-glyph-snapshot.patch` and
 `0008-graphics-snapshot.patch`, applied to both builds. See
-`crates/craft-ptyd/SNAPSHOTS.md` for ownership, resource limits and restoration.
+`crates/cascade-ptyd/SNAPSHOTS.md` for ownership, resource limits and restoration.
 
 Historical integration commands (UI/unit runs are currently deferred by user direction):
 
 ```sh
 python3 macos/scripts/build-ghostty-vt.py
 python3 macos/scripts/build-ghostty-native.py
-cargo build --manifest-path crates/craft-vt/Cargo.toml --example snapshot
+cargo build --manifest-path crates/cascade-vt/Cargo.toml --example snapshot
 xcodebuildmcp swift-package test --package-path "$PWD/macos/GhosttySnapshotTests"
 ```
 
@@ -66,7 +66,7 @@ Changed patches are reapplied after reversing the previously recorded generated
 changes, including newly added files. Older build directories without complete
 patch tracking require a fresh `--build-root`. `--zig` selects the pinned
 toolchain explicitly, and `--global-cache` permits reuse of its dependency cache.
-With another build root, set `CRAFT_GHOSTTY_PACKAGE` to its `package` directory
+With another build root, set `CASCADE_GHOSTTY_PACKAGE` to its `package` directory
 when running the integration suite. The Rust example accepts VT bytes on stdin
 and produces a snapshot; it never executes commands or accesses application data.
 
@@ -95,7 +95,7 @@ output, resize or focus callbacks, replace the emulator, or alter the native arc
 `TerminalAppearanceTests` verifies no synchronous publication during direct AppKit
 and SwiftUI mounts, final appearance after rapid changes, detached-view cancellation
 and surface identity across reattachment. It observes the pinned wrapper's Combine
-publisher only in tests; Craft application models continue to use `@Observable`.
+publisher only in tests; Cascade application models continue to use `@Observable`.
 
 ## Native render diagnostics
 

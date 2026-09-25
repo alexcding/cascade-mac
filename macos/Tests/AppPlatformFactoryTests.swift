@@ -11,7 +11,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
 }
 
 @MainActor private final class RecordingAppPlatform: AppPlatformFactory {
-    let homeDirectory = "/tmp/craft-injected-home"
+    let homeDirectory = "/tmp/cascade-injected-home"
     let control = RecordingTerminalControl()
     var requests: [AppTerminalRequest] = []
     var viewerCreations = 0
@@ -56,7 +56,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     #expect(platform.requests == [.init(key: "native-terminal-spike", directory: platform.homeDirectory, paired: false)])
     let scratch = try #require(model.terminal)
     let record = WorkspaceSession(id: "injected-session", projectId: "project", workspace: "/tmp",
-        worktree: "/tmp/craft-injected-worktree", title: "Injected session", branch: "", url: "", createdAt: nil, pinned: false)
+        worktree: "/tmp/cascade-injected-worktree", title: "Injected session", branch: "", url: "", createdAt: nil, pinned: false)
     model.createdSession(record)
     let original = try #require(model.terminal)
     #expect(platform.requests.last == .init(key: record.id, directory: record.worktree, paired: true))

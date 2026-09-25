@@ -74,7 +74,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(runtime.refreshes == 2)
 }
 
-@MainActor @Test func trayReviewsOpenInACraftTabAndAcknowledgeOnlySuccessfulOpens() async {
+@MainActor @Test func trayReviewsOpenInACascadeTabAndAcknowledgeOnlySuccessfulOpens() async {
     let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
     let first = trayReview(1), reviewed = trayReview(2, category: "other")
     runtime.state.pendingReviews = [first, reviewed].filter(\.pendingReview)

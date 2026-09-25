@@ -1,4 +1,0 @@
-module CraftBackendFFI {
-    header "craft_backend.h"
-    export *
-}

@@ -72,7 +72,7 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         start(quietly: false)
     }
 
-    /// Craft came back to the front, perhaps from a terminal that just installed Node: a preview
+    /// Cascade came back to the front, perhaps from a terminal that just installed Node: a preview
     /// that was not set up asks again. Quietly, so a check that still finds nothing leaves the
     /// panel as it was; one that gets further than that check shows that it is starting.
     func applicationBecameActive() {

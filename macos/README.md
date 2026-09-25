@@ -12,10 +12,10 @@ Xcode 26+ for the macOS 26 SDK, on a Mac that supports that Xcode version. The R
 backend requires Rust 1.88+.
 
 ```bash
-open macos/Craft.xcodeproj
+open macos/Cascade.xcodeproj
 ```
 
-Select **Craft → My Mac** and press **⌘R**. The shared scheme runs
+Select **Cascade → My Mac** and press **⌘R**. The shared scheme runs
 [`bootstrap.sh`](scripts/bootstrap.sh), which installs Rust through rustup if Cargo
 is missing, downloads the pinned Ghostty VT runtime, and builds the Rust backend
 and PTY helper. It also bundles the PTY helper during the app build. The first run
@@ -25,7 +25,7 @@ needs network access; subsequent builds are incremental. Bootstrap logs are in
 For a command-line build:
 
 ```bash
-xcodebuild build -project macos/Craft.xcodeproj -scheme Craft \
+xcodebuild build -project macos/Cascade.xcodeproj -scheme Cascade \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath macos/.build/xcode
 ```
@@ -43,7 +43,7 @@ corresponding group and target automatically.
 
 ```text
 macos/
-  Craft.xcodeproj
+  Cascade.xcodeproj
   App/                   App entry, lifetime, commands, and root state
   Scenes/                Dashboard, projects, Jira, documents, settings, welcome, workspaces
   Coordinators/          Navigation, presentation, and model lifetime
@@ -53,13 +53,13 @@ macos/
   Theme/                 Appearance, fonts, and design tokens
   Utilities/             Deep-link routing
   Resources/             Assets, build settings, status-line script, and diff page
-  Tests/                 CraftTests and the shared test plan
-  UITests/               CraftUITests
+  Tests/                 CascadeTests and the shared test plan
+  UITests/               CascadeUITests
   GhosttySnapshotTests/   Separate package for terminal bridge tests
   Tools/TerminalStress/  Optional terminal benchmark
 ```
 
-`Craft`, `CraftTests`, `CraftUITests`, and `CraftTerminalStress` are Xcode targets.
+`Cascade`, `CascadeTests`, `CascadeUITests`, and `CascadeTerminalStress` are Xcode targets.
 Unit tests compile the application source folders with the app entry point and
 delegate excluded; they have no application test host. The stress target uses a
 separate scheme. `GhosttySnapshotTests` is a separate Swift package outside the
@@ -76,7 +76,7 @@ coordinators, factories, view-model actions, and how to add a screen.
 
 ## Backend and local data
 
-By default, `craft-backend` is a Rust static library linked into the app. Requests
+By default, `cascade-backend` is a Rust static library linked into the app. Requests
 pass through `APIClient` and `EmbeddedBackend` to the axum router over a C ABI;
 normal app requests do not use a separate server process. The embedded backend
 also opens an ephemeral loopback port for agent hooks and webhook forwarders,
@@ -91,25 +91,25 @@ For debugging, set launch arguments in the Xcode scheme:
 | Argument | Behavior |
 | --- | --- |
 | `--backend-root /absolute/path/to/repo` | Marks a checkout launch as development; the backend remains embedded. |
-| `--backend-path /absolute/path/to/craft-backend` | Starts and owns a separate Rust backend process. Use `--backend-port` to choose its port. |
+| `--backend-path /absolute/path/to/cascade-backend` | Starts and owns a separate Rust backend process. Use `--backend-port` to choose its port. |
 | `--backend-url http://127.0.0.1:43187` | Connects to an existing backend; Cascade never stops that external process. |
-| `--data-dir /absolute/path/to/data` | Selects the app's data directory; `CRAFT_DATA_DIR` is the environment equivalent. |
-| `--ptyd-path /absolute/path/to/craft-ptyd` | Uses a particular terminal helper build. |
-| `--pty-socket /absolute/path/to/socket` | Selects a terminal daemon socket; `CRAFT_PTYD_SOCK` is the environment equivalent. |
+| `--data-dir /absolute/path/to/data` | Selects the app's data directory; `CASCADE_DATA_DIR` is the environment equivalent. |
+| `--ptyd-path /absolute/path/to/cascade-ptyd` | Uses a particular terminal helper build. |
+| `--pty-socket /absolute/path/to/socket` | Selects a terminal daemon socket; `CASCADE_PTYD_SOCK` is the environment equivalent. |
 
 A different data directory alone does **not** isolate terminal sessions. Use a
 separate private socket for manual tests: explicit Quit stops the connected
 terminal daemon and its shells. Socket paths must be absolute and shorter than
-104 UTF-8 bytes. The current default socket filename is `craft-native-ptyd.sock`;
+104 UTF-8 bytes. The current default socket filename is `cascade-native-ptyd.sock`;
 terminal metadata is stored under `ptyd-native-spike` in the selected data directory.
 These internal names are retained for compatibility.
 
-The default data directory is `~/Library/Application Support/Cascade`. `craft.db`
+The default data directory is `~/Library/Application Support/Cascade`. `cascade.db`
 holds durable projects, sessions, tabs, and settings; `data.db` holds refreshable
 snapshots and `logs.db` holds activity. Worktree files and agent conversations live
 in their own locations. See [data recovery](../docs/DATA-RECOVERY.md) for backup
-and restore semantics. The recovery CLI can be built from `crates/craft-backend`;
-the standard app bundle does not include a separate `craft-backend` executable.
+and restore semantics. The recovery CLI can be built from `crates/cascade-backend`;
+the standard app bundle does not include a separate `cascade-backend` executable.
 
 ## Sidebar and session workspace
 
@@ -172,7 +172,7 @@ forwarding is unavailable.
 
 Working changes are rendered by a bundled HTML/JavaScript page in a `WKWebView`.
 `DiffViewModel` loads the snapshot through an injected service and pushes it into
-the page. `DiffPageAssets` serves an allowlist of bundled files on `craft-diff://`;
+the page. `DiffPageAssets` serves an allowlist of bundled files on `cascade-diff://`;
 the page's content policy forbids network connections. File-open and discard
 intents return to Swift, which owns loading, confirmations, and mutations.
 
@@ -197,8 +197,8 @@ with Option-click, the external browser.
 
 ## Terminal stack
 
-GhosttyTerminal renders the native terminal. `craft-ptyd` owns detached PTYs and
-communicates with the app over a Unix socket. `craft-vt` maintains headless Ghostty
+GhosttyTerminal renders the native terminal. `cascade-ptyd` owns detached PTYs and
+communicates with the app over a Unix socket. `cascade-vt` maintains headless Ghostty
 state for snapshots. The daemon and renderer must use matching patched Ghostty
 revisions; update both the Xcode package pin and bootstrap release together.
 
@@ -217,8 +217,8 @@ A transient disconnect can reconnect to the same shell when all input has been
 acknowledged. Pending or failed input is never replayed. Rebuilding the helper
 does not upgrade an already-running daemon; use an isolated socket to test a new
 helper. Full protocol details are in
-[terminal snapshots](../crates/craft-ptyd/SNAPSHOTS.md) and the
-[headless runtime guide](../crates/craft-vt/README.md).
+[terminal snapshots](../crates/cascade-ptyd/SNAPSHOTS.md) and the
+[headless runtime guide](../crates/cascade-vt/README.md).
 
 ## Settings, menu bar, and notifications
 
@@ -256,38 +256,38 @@ Run the first Xcode build or `bash macos/scripts/bootstrap.sh` to prepare native
 dependencies, then run the checks appropriate to your change:
 
 ```bash
-cargo test --manifest-path crates/craft-backend/Cargo.toml
-cargo test --manifest-path crates/craft-ptyd/Cargo.toml --features terminal-snapshots
+cargo test --manifest-path crates/cascade-backend/Cargo.toml
+cargo test --manifest-path crates/cascade-ptyd/Cargo.toml --features terminal-snapshots
 
-xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
+xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath macos/.build/xcode \
-  -only-testing:CraftTests
+  -only-testing:CascadeTests
 ```
 
 Swift Testing does not select individual functions through
-`-only-testing:CraftTests/someFunctionName`: it can run zero tests and still report
+`-only-testing:CascadeTests/someFunctionName`: it can run zero tests and still report
 success. Check the executed test count. The backend's `route_contract` test checks
 the Swift API paths; terminal tests exercise isolated sockets and fixture shells.
 
 The UI target can be selected separately:
 
 ```bash
-xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
+xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath macos/.build/ui-tests \
-  -only-testing:CraftUITests
+  -only-testing:CascadeUITests
 ```
 
-Many UI tests require prepared fixture data and `CRAFT_UI_BACKEND_URL`,
-`CRAFT_UI_DATA_DIR`, and `CRAFT_UI_PTY_SOCKET`. Some also require
-`CRAFT_UI_PTYD_PATH`; real-build coverage is opt-in with `CRAFT_UI_REAL_BUILD=1`.
-Read the selected test's setup in [`CraftUITests.swift`](UITests/CraftUITests.swift)
+Many UI tests require prepared fixture data and `CASCADE_UI_BACKEND_URL`,
+`CASCADE_UI_DATA_DIR`, and `CASCADE_UI_PTY_SOCKET`. Some also require
+`CASCADE_UI_PTYD_PATH`; real-build coverage is opt-in with `CASCADE_UI_REAL_BUILD=1`.
+Read the selected test's setup in [`CascadeUITests.swift`](UITests/CascadeUITests.swift)
 and provide its expected records and files through an isolated Rust backend.
 Without the fixtures, tests skip; a successful invocation is not proof of UI
 coverage. The old fixture launcher is no longer part of this repository.
 
 [`GhosttySnapshotTests`](GhosttySnapshotTests/Package.swift) is a separate package
 for bridge work. It expects a prepared local Ghostty package, selected through
-`CRAFT_GHOSTTY_PACKAGE` or the path documented in its manifest. Follow the
+`CASCADE_GHOSTTY_PACKAGE` or the path documented in its manifest. Follow the
 [patch guide](patches/ghostty/README.md) when working on that runtime.
 
 ### Terminal stress benchmark
@@ -297,13 +297,13 @@ builds, UI tests, or other benchmark:
 
 ```bash
 bash macos/scripts/bootstrap.sh
-xcodebuild build -project macos/Craft.xcodeproj -scheme CraftTerminalStress \
+xcodebuild build -project macos/Cascade.xcodeproj -scheme CascadeTerminalStress \
   -configuration Release -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath macos/.build/terminal-stress
-macos/.build/terminal-stress/Build/Products/Release/CraftTerminalStress \
+macos/.build/terminal-stress/Build/Products/Release/CascadeTerminalStress \
   --seconds 600 --root "$PWD" \
-  --helper "$PWD/crates/craft-ptyd/target/release/craft-ptyd" \
-  --report /tmp/craft-terminal-stress.json
+  --helper "$PWD/crates/cascade-ptyd/target/release/cascade-ptyd" \
+  --report /tmp/cascade-terminal-stress.json
 ```
 
 The harness exercises ten sessions and records machine/build metadata,
@@ -321,7 +321,7 @@ and notarization. Packaging tooling requires Python 3.11+.
 Build Release and prepare its bundle:
 
 ```bash
-xcodebuild build -project macos/Craft.xcodeproj -scheme Craft \
+xcodebuild build -project macos/Cascade.xcodeproj -scheme Cascade \
   -configuration Release -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath macos/.build/xcode
 bash macos/scripts/bundle-backend.sh \
@@ -331,8 +331,8 @@ bash macos/scripts/bundle-backend.sh \
 The bundle script checks framework resolution, builds the Rust crates, copies the
 PTY helper, provider artwork, and dependency licenses, and ad-hoc signs the app.
 The backend is linked into the app executable; `Contents/Helpers` contains
-`craft-ptyd`, not a separate backend executable. If using another derived-data
-location, set `CRAFT_GHOSTTY_PACKAGE` to its Ghostty package checkout so the script
+`cascade-ptyd`, not a separate backend executable. If using another derived-data
+location, set `CASCADE_GHOSTTY_PACKAGE` to its Ghostty package checkout so the script
 can find dependency licenses.
 
 `package-direct.py` allows exactly one kind of bundled JavaScript: the diff page's
@@ -355,7 +355,7 @@ python3 macos/scripts/package-direct.py \
   --app "$PWD/macos/.build/xcode/Build/Products/Release/Cascade.app" \
   --output "$PWD/macos/.build/signed-package" \
   --identity 'Developer ID Application: YOUR NAME (TEAMID)' \
-  --notary-profile CRAFT_NOTARY
+  --notary-profile CASCADE_NOTARY
 ```
 
 Instead of a Keychain profile, `--notary-key AuthKey_ID.p8 --notary-key-id ID
@@ -374,7 +374,7 @@ update installation, or clean-machine acceptance.
 
 ### Native updates and launch at login
 
-Sparkle configuration uses `CRAFT_UPDATE_FEED_URL` and `CRAFT_UPDATE_PUBLIC_KEY`,
+Sparkle configuration uses `CASCADE_UPDATE_FEED_URL` and `CASCADE_UPDATE_PUBLIC_KEY`,
 mapped to `SUFeedURL` and `SUPublicEDKey` in the app's Info.plist. The public key is
 committed in `Release.xcconfig`; the release pipeline supplies the feed URL. The updater
 requires a Release app, a valid HTTPS feed, and a base64-encoded 32-byte Ed25519
@@ -382,7 +382,7 @@ public key. Private signing keys stay outside the repository. Publishing an
 appcast and signing update archives are separate release steps.
 
 Updates and launch at login activate only in a packaged Release app, meaning a
-`.app` whose `Contents/Helpers/craft-ptyd` was installed by `bundle-backend.sh`
+`.app` whose `Contents/Helpers/cascade-ptyd` was installed by `bundle-backend.sh`
 (`PackagedBundle`). Development builds keep both disabled.
 
 An update restart follows the same document-save and terminal-cleanup transaction

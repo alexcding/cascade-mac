@@ -6,7 +6,7 @@ let package = Package(
     name: "GhosttySnapshotTests",
     platforms: [.macOS(.v14)],
     dependencies: [.package(name: "GhosttyKit", path:
-        ProcessInfo.processInfo.environment["CRAFT_GHOSTTY_PACKAGE"] ?? "../.build/ghostty-native/package")],
+        ProcessInfo.processInfo.environment["CASCADE_GHOSTTY_PACKAGE"] ?? "../.build/ghostty-native/package")],
     targets: [.testTarget(name: "GhosttySnapshotTests", dependencies: [
         .product(name: "GhosttyTerminal", package: "GhosttyKit"),
         .product(name: "GhosttyKit", package: "GhosttyKit"),

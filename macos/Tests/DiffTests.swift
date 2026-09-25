@@ -74,15 +74,15 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
 @Test func diffPageAssetsServeOnlyTheBundledPage() {
     useSourceTreeDiffPage()
     for name in ["DiffPage.html", "DiffPage.css", "DiffPage.js", "DiffParse.mjs", "DiffHighlight.mjs"] {
-        let asset = DiffPageAssets.data(for: URL(string: "craft-diff://page/\(name)")!)
+        let asset = DiffPageAssets.data(for: URL(string: "cascade-diff://page/\(name)")!)
         // The test bundle carries no app resources, so this reads the source tree: it proves the
         // handler serves each file, not that the app target still bundles it.
         #expect(asset?.0.isEmpty == false, "\(name) is missing from Resources/DiffPage")
     }
-    #expect(DiffPageAssets.data(for: URL(string: "craft-diff://page/DiffPage.js")!)?.1 == "text/javascript")
-    #expect(DiffPageAssets.data(for: URL(string: "craft-diff://page/../Info.plist")!) == nil)
-    #expect(DiffPageAssets.data(for: URL(string: "craft-diff://other/DiffPage.html")!) == nil)
-    #expect(DiffPageAssets.data(for: URL(string: "craft-diff://page/sub/DiffPage.html")!) == nil)
+    #expect(DiffPageAssets.data(for: URL(string: "cascade-diff://page/DiffPage.js")!)?.1 == "text/javascript")
+    #expect(DiffPageAssets.data(for: URL(string: "cascade-diff://page/../Info.plist")!) == nil)
+    #expect(DiffPageAssets.data(for: URL(string: "cascade-diff://other/DiffPage.html")!) == nil)
+    #expect(DiffPageAssets.data(for: URL(string: "cascade-diff://page/sub/DiffPage.html")!) == nil)
 }
 
 // Loads the real page in a real web view: the scheme handler, the CSP, the module imports

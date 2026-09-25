@@ -61,7 +61,7 @@ private final class SurfaceHarness {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { root.deleteLastPathComponent() }
         let process = Process()
-        process.executableURL = root.appendingPathComponent("crates/craft-vt/target/debug/examples/snapshot")
+        process.executableURL = root.appendingPathComponent("crates/cascade-vt/target/debug/examples/snapshot")
         process.arguments = [String(Int(size.columns) + (extraColumn ? 1 : 0)), String(size.rows)]
         if includePixels || cellPixels != nil {
             process.arguments?.append(contentsOf: [String(cellPixels?.0 ?? size.cellWidthPixels), String(cellPixels?.1 ?? size.cellHeightPixels)])
@@ -272,7 +272,7 @@ struct NativeSnapshotTests {
     @Test func restoredMetadataValidatesLocalURIsWithoutDisturbingParserContinuation() async throws {
         for (uri, title, expectedDirectory, expectedTitle) in [
             ("file://localhost/tmp/restored%20worktree", "Saved title", "/tmp/restored worktree", "Saved title"),
-            ("file://craft-remote.invalid/tmp/remote", "Saved title", "", "Saved title"),
+            ("file://cascade-remote.invalid/tmp/remote", "Saved title", "", "Saved title"),
             ("https://localhost/tmp/remote", "Saved title", "", "Saved title"),
             ("", "Saved title", "", "Saved title"),
             ("file://localhost/tmp/fallback", "", "/tmp/fallback", "/tmp/fallback"),

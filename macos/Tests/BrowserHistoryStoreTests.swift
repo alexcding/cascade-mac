@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 @MainActor @Test func browserHistoryStoreKeepsOneEntryPerAddressNewestFirst() {
     var clock = Date(timeIntervalSince1970: 1_000)
@@ -50,7 +50,7 @@ import Testing
 }
 
 @MainActor @Test func browserHistoryStoreLoadKeepsFileOrderForSeededTies() async throws {
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("craft-history-\(UUID().uuidString)/history.json")
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-history-\(UUID().uuidString)/history.json")
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let store = BrowserHistoryStore(fileURL: file)
     store.seed((0..<20).map { .init(url: "https://example.com/\($0)", title: "") })
@@ -60,7 +60,7 @@ import Testing
 }
 
 @MainActor @Test func browserHistoryStorePersistsToItsFileAndLoadsBack() async throws {
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("craft-history-\(UUID().uuidString)/history.json")
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-history-\(UUID().uuidString)/history.json")
     defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
     let store = BrowserHistoryStore(fileURL: file)
     store.note(url: "https://example.com/one", title: "One")
@@ -80,7 +80,7 @@ import Testing
     // A context restored from the tab cache seeds the shared history, below any real visit.
     var snapshot = first.snapshot
     snapshot.history = [.init(url: "https://example.com/restored", title: "Restored")]
-    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("craft-tabs-\(UUID().uuidString).json")
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: cache) }
     struct Cache: Encodable { let snapshots: [String: ContextSnapshot]; let pending: Set<String> }
     try JSONEncoder().encode(Cache(snapshots: ["task:two": snapshot], pending: [])).write(to: cache)
@@ -93,7 +93,7 @@ import Testing
 }
 
 @MainActor @Test func clearingBrowsingHistoryEmptiesLiveContextsSavedSnapshotsAndTheSharedStore() throws {
-    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("craft-tabs-\(UUID().uuidString).json")
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: cache) }
     struct Cache: Codable { let snapshots: [String: ContextSnapshot]; let pending: Set<String> }
     var dormant = ContextSnapshot()
@@ -134,7 +134,7 @@ import Testing
 }
 
 @MainActor @Test func aHiddenSecondPanelStaysHiddenAcrossARelaunchPerSession() throws {
-    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("craft-tabs-\(UUID().uuidString).json")
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
     defer { try? FileManager.default.removeItem(at: cache) }
     let viewer = ViewerStore(cacheURL: cache)
     let hidden = viewer.select(id: "task:one", url: "https://example.com/one", title: "One")

@@ -38,7 +38,7 @@ struct ProjectEditorView: View {
                             .accessibilityIdentifier("project-worktree-setup")
                         Button("Choose…") { Task { await model.pickSetupScript() } }.disabled(model.draft.workspace.isEmpty)
                     }
-                    Text("Runs inside each new worktree once it is created, in the background. A script from the repository runs the copy on the session's branch. $CRAFT_ROOT_PATH is the project folder, $CRAFT_WORKTREE_PATH the new worktree. Failures show in Activity.")
+                    Text("Runs inside each new worktree once it is created, in the background. A script from the repository runs the copy on the session's branch. $CASCADE_ROOT_PATH is the project folder, $CASCADE_WORKTREE_PATH the new worktree. Failures show in Activity.")
                         .font(.caption).foregroundStyle(.secondary)
                     TextField("Copy ignored files", text: $model.draft.worktreeInclude, prompt: Text(".env*  (the default)"), axis: .vertical)
                         .lineLimit(1...6).font(.system(.body, design: .monospaced))

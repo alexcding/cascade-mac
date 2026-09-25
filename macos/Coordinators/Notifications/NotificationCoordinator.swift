@@ -8,8 +8,8 @@ import Observation
 
 @MainActor protocol NotificationCoordinating: AnyObject {
     func acknowledgeNotificationReview(repo: String, number: Int)
-    /// Opens a notice's link in a Craft tab (or the session that already owns its address), or in
-    /// the browser when Craft cannot open pages yet. True when it opened inside Craft.
+    /// Opens a notice's link in a Cascade tab (or the session that already owns its address), or in
+    /// the browser when Cascade cannot open pages yet. True when it opened inside Cascade.
     func openNotificationPage(_ request: OpenPageRequest) async throws -> Bool
 }
 
@@ -44,7 +44,7 @@ import Observation
         }
     }
 
-    /// A linked notice opens inside Craft, as a row's click does; a later click replaces one
+    /// A linked notice opens inside Cascade, as a row's click does; a later click replaces one
     /// still opening. A notice with no link shows Activity. A failed open brings the window up so
     /// its error is seen; one that fell back to the browser leaves the browser in front.
     private func open(_ notice: NativeNotice, runtime: any NotificationCoordinating) {

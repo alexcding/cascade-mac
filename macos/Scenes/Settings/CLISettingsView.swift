@@ -142,7 +142,7 @@ struct WorkflowHooksSection: View {
 }
 
 /// Claude Code reports its real context window only to its status line. Sessions the app launches
-/// get Craft's for that launch alone; this installs it for the ones started by hand too.
+/// get Cascade's for that launch alone; this installs it for the ones started by hand too.
 struct AgentStatusLineSection: View {
     let model: CLISettingsViewModel
     var body: some View {

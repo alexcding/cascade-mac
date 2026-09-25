@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The first-run welcome: what Craft needs from the machine, in the order a new user can fix
+/// The first-run welcome: what Cascade needs from the machine, in the order a new user can fix
 /// it — the tools first, then the hooks that only make sense once an agent is installed, then
 /// the optional Simulator preview for iOS projects.
 @MainActor @Observable final class WelcomeViewModel {

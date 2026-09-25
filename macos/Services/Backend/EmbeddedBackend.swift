@@ -1,7 +1,7 @@
 import Foundation
-import CraftBackendFFI
+import CascadeBackendFFI
 
-// The backend hosted inside this process: crates/craft-backend linked as a
+// The backend hosted inside this process: crates/cascade-backend linked as a
 // static library (its C ABI is src/ffi.rs). Requests dispatch straight into the
 // same axum router the web client talks to, so routes, models and contracts are
 // unchanged; there is no child process, port or health handshake to manage. The
@@ -28,7 +28,7 @@ final class EmbeddedBackendHandle: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let raw else { return }
         self.raw = nil
-        craft_backend_stop(raw)
+        cascade_backend_stop(raw)
     }
 }
 
@@ -53,7 +53,7 @@ struct EmbeddedTransport: BackendTransport {
             let context = Unmanaged.passRetained(Pending(continuation))
             let dispatched: Void? = handle.with { raw in
                 body.withUnsafeBytes { bytes in
-                    craft_backend_request(raw, method, target, bytes.bindMemory(to: UInt8.self).baseAddress, body.count,
+                    cascade_backend_request(raw, method, target, bytes.bindMemory(to: UInt8.self).baseAddress, body.count,
                                             context.toOpaque()) { context, status, contentType, body, length in
                         // Runs once, on a backend runtime thread; the body is only valid during the call.
                         let pending = Unmanaged<Pending>.fromOpaque(context!).takeRetainedValue()
@@ -90,7 +90,7 @@ struct EmbeddedEventStream: BackendEventStreaming {
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         let context = Unmanaged.passRetained(Subscriber(continuation))
         let subscription: UInt64? = handle.with { raw in
-            craft_backend_subscribe(raw, context.toOpaque(), { context, json, length in
+            cascade_backend_subscribe(raw, context.toOpaque(), { context, json, length in
                 let subscriber = Unmanaged<Subscriber>.fromOpaque(context!).takeUnretainedValue()
                 subscriber.continuation.yield(Data(bytes: json!, count: length))
             }, { context in
@@ -113,7 +113,7 @@ struct EmbeddedEventStream: BackendEventStreaming {
             // The stream only ends when the backend stops; report it like a dropped connection.
             throw BackendError.startup("The embedded backend stopped.")
         } onCancel: {
-            _ = handle.with { craft_backend_unsubscribe($0, subscription) }
+            _ = handle.with { cascade_backend_unsubscribe($0, subscription) }
         }
     }
 }
@@ -144,13 +144,13 @@ public actor EmbeddedBackend: BackendProcessServing {
             catch { throw BackendError.startup("The embedded backend could not start: data directory \(directory.path) is unavailable (\(error.localizedDescription))") }
             var raw: OpaquePointer?
             var message: UnsafeMutablePointer<CChar>?
-            let code = craft_backend_start(directory.path, packaged ? 1 : 0, instanceID, &raw, &message)
-            defer { craft_string_free(message) }
+            let code = cascade_backend_start(directory.path, packaged ? 1 : 0, instanceID, &raw, &message)
+            defer { cascade_string_free(message) }
             guard code == 0, let raw else {
                 let text = message.map { String(cString: $0) } ?? "unknown error"
                 throw BackendError.startup("The embedded backend could not start: \(text)")
             }
-            return (EmbeddedBackendHandle(raw: raw), craft_backend_port(raw))
+            return (EmbeddedBackendHandle(raw: raw), cascade_backend_port(raw))
         }
         do {
             let (handle, port) = try await task.value

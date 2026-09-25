@@ -58,7 +58,7 @@ private struct InertRemovalService: SessionRemoving {
 }
 
 @MainActor @Test func rootActionsReachCoordinatorAndObsoleteRootCannotNavigate() async throws {
-    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
     let shell = ShellStore(preferences: preferences), viewer = ViewerStore(), factory = RecordingRootFactory()
     let store = TransientSidebarSelectionStore(.terminal)
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }), selectionStore: store)
@@ -86,7 +86,7 @@ private struct InertRemovalService: SessionRemoving {
 }
 
 @MainActor @Test func rootIsTheActiveWorkspaceCoordinatorAndDeselectedContextsAreRetained() throws {
-    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
     let shell = ShellStore(preferences: preferences), viewer = ViewerStore(), factory = RecordingRootFactory()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
                                      selectionStore: TransientSidebarSelectionStore(.session("first")))
@@ -137,7 +137,7 @@ private struct InertRemovalService: SessionRemoving {
 }
 
 @MainActor @Test func sidebarSelectionPreservesExistingJSONFormatAndIgnoresCorruption() throws {
-    let suite = "CraftSelectionTests-\(UUID().uuidString)"
+    let suite = "CascadeSelectionTests-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let selection = SidebarDestination.tab("https://example.test/a?q=one%20two")
@@ -167,7 +167,7 @@ private struct InertRemovalService: SessionRemoving {
 /// A session row's right-click Remove Session asks with the same system confirmation the
 /// workspace toolbar does, without the session having to be open. An unknown id asks nothing.
 @MainActor @Test(.timeLimit(.minutes(1))) func sidebarRemoveSessionAsksForConfirmation() async throws {
-    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
     let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
                                      selectionStore: TransientSidebarSelectionStore(.overview))
@@ -195,7 +195,7 @@ private struct InertRemovalService: SessionRemoving {
 /// A session row's right-click Rename Session hands the typed name to the runtime as is;
 /// trimming and "did it change" are the app model's.
 @MainActor @Test func sidebarRenameSessionReachesTheRuntime() throws {
-    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
     let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
                                      selectionStore: TransientSidebarSelectionStore(.overview))
@@ -223,7 +223,7 @@ private struct InertRemovalService: SessionRemoving {
 /// not write anything the workspace views read — each write redraws the whole workspace, its
 /// toolbar and the menus — while a context the viewer really let go of is still pruned.
 @MainActor @Test func reselectingAnOpenSessionWritesNothingItsViewsRead() async throws {
-    let preferences = try #require(UserDefaults(suiteName: "CraftRootTests-\(UUID().uuidString)"))
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
     let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
                                      selectionStore: TransientSidebarSelectionStore(.overview))

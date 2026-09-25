@@ -1,7 +1,7 @@
 # Architecture
 
 ```
- iPhone (Craft Remote)                          Mac (Craft)
+ iPhone (Cascade Remote)                          Mac (Cascade)
  ┌──────────────────────┐                      ┌────────────────────────────────────────┐
  │ SwiftUI views        │                      │ Swift                                  │
  │ RemoteClient ────────┼── HTTPS/SSE/WS ─────►│  RemoteListener (Rust, port N, TLS)    │
@@ -20,7 +20,7 @@ tailnet).
 
 ## 1. Pairing through iCloud
 
-### Records (CloudKit private database, custom zone `craft`)
+### Records (CloudKit private database, custom zone `cascade`)
 
 `Host` — one per Mac, record name = the Mac's stable instance id.
 
@@ -39,7 +39,7 @@ tailnet).
 | Field | Meaning |
 |---|---|
 | `kind` | `agentIdle`, `reviewRequested`, `syncFailed` |
-| `title`, `body`, `deepLink` | what to show and where a tap goes (`craft://…`, reusing `AppCoordinator+Routing.swift` routes) |
+| `title`, `body`, `deepLink` | what to show and where a tap goes (`cascade://…`, reusing `AppCoordinator+Routing.swift` routes) |
 | `hostId`, `createdAt` | |
 
 ### Flows
@@ -70,14 +70,14 @@ per phone holding a public key, and the listener accepting a signed challenge.
   private database is the user. That is the same assumption as iCloud Keychain.
 - Nothing is exposed on the network unless Remote is enabled, and then only the allowlist.
 
-## 2. The remote listener (Rust, `crates/craft-backend/src/remote/`)
+## 2. The remote listener (Rust, `crates/cascade-backend/src/remote/`)
 
 A second axum server, started only when enabled, bound to `[::]:0` (or a stored port so the
 CloudKit record stays valid across restarts), served through `axum-server` with rustls.
 
 | Piece | Design |
 |---|---|
-| Certificate | `rcgen` self-signed, 10-year validity, CN `craft-<instanceId>`; PEM stored in `craft.db` settings (`remote_cert`, `remote_key`), secret in `remote_secret`. Same trust level as `jira_api_token` today; Keychain is an open question |
+| Certificate | `rcgen` self-signed, 10-year validity, CN `cascade-<instanceId>`; PEM stored in `cascade.db` settings (`remote_cert`, `remote_key`), secret in `remote_secret`. Same trust level as `jira_api_token` today; Keychain is an open question |
 | Auth layer | Tower middleware: constant-time compare of `Authorization: Bearer` with the secret; `401` otherwise. Applied to every route including the relays. The sim relay additionally accepts a cookie minted by `POST /sim/{udid}/ticket` because `WKWebView` cannot add headers to subresource requests |
 | Allowlist | An explicit `Router` that maps each permitted path to the same handler function used in `build_app`. It does **not** nest or fall through to the loopback router. Adding a route to the phone is a deliberate one-line change plus a `route_contract`-style test listing what is served |
 | Origin | The relay strips any `Origin` header before invoking a handler so `foreign_origin` cannot be reasoned about from the phone side; the allowlist is the boundary |
@@ -191,12 +191,12 @@ limits.
 
 | Where | What |
 |---|---|
-| `crates/craft-backend/src/remote/{mod,listener,auth,allowlist,sim_relay,pty_bridge,presence,commands}.rs` | the listener |
-| `crates/craft-backend/src/lib.rs` | control routes; `route_contract` extended with a `remote_contract` listing the allowlist |
+| `crates/cascade-backend/src/remote/{mod,listener,auth,allowlist,sim_relay,pty_bridge,presence,commands}.rs` | the listener |
+| `crates/cascade-backend/src/lib.rs` | control routes; `route_contract` extended with a `remote_contract` listing the allowlist |
 | `macos/Services/Remote/{RemotePairing,RemotePresence,RemoteCommands,RemoteAlerts}.swift` | CloudKit, presence push, command executor, alert writer |
 | `macos/Scenes/Settings/RemoteSettingsView.swift` | enable, status, endpoints, "Forget all phones", stream quality |
-| `packages/CraftKit/` (new SPM package) | `APIClient` (with a `RemoteTransport`), `Routes`, `SSEClient`, models, `PtyProtocol`, `ServerEvent`. Both apps depend on it |
-| `ios/CraftRemote.xcodeproj` | the phone app: Pair, Home (sessions + presence), Project (PRs/Jira), Session (status, reply), Simulator, Terminal |
+| `packages/CascadeKit/` (new SPM package) | `APIClient` (with a `RemoteTransport`), `Routes`, `SSEClient`, models, `PtyProtocol`, `ServerEvent`. Both apps depend on it |
+| `ios/CascadeRemote.xcodeproj` | the phone app: Pair, Home (sessions + presence), Project (PRs/Jira), Session (status, reply), Simulator, Terminal |
 
 `APIClient` today refuses non-loopback URLs (`APIClient.swift:80-89`); the shared version
 takes a `Transport` that owns the base URL, the bearer header and the pinned trust, and the

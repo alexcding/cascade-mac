@@ -13,12 +13,12 @@ struct PtydConfiguration: Sendable {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
             return args[i + 1]
         }
-        let data = argument("--data-dir") ?? env["CRAFT_DATA_DIR"]
+        let data = argument("--data-dir") ?? env["CASCADE_DATA_DIR"] ?? env["CRAFT_DATA_DIR"]
             ?? LegacyIdentity.supportDirectory.path
         let executable = argument("--ptyd-path").map { URL(fileURLWithPath: $0) }
-            ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/craft-ptyd")
+            ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cascade-ptyd")
         return Self(executable: executable, directory: URL(fileURLWithPath: data).appendingPathComponent("ptyd-native-spike"),
-                    socketPath: try argument("--pty-socket") ?? env["CRAFT_PTYD_SOCK"] ?? defaultSocket(environment: env))
+                    socketPath: try argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"] ?? defaultSocket(environment: env))
     }
 
     static func defaultSocket(environment: [String: String]) throws -> String {
@@ -27,12 +27,12 @@ struct PtydConfiguration: Sendable {
         if candidate.hasPrefix("/"), candidate.utf8.count < 70, privateDirectory(candidate) {
             directory = candidate
         } else {
-            directory = "/tmp/craft-\(getuid())"
+            directory = "/tmp/cascade-\(getuid())"
             if mkdir(directory, 0o700) != 0 && errno != EEXIST { throw PtyError.connection("Cannot create terminal socket directory.") }
             guard privateDirectory(directory) else { throw PtyError.connection("Terminal socket directory is not private.") }
         }
-        // Temporary M1 isolation: the established app uses craft-ptyd.sock.
-        return URL(fileURLWithPath: directory).appendingPathComponent("craft-native-ptyd.sock").path
+        // Temporary M1 isolation: the established app uses cascade-ptyd.sock.
+        return URL(fileURLWithPath: directory).appendingPathComponent("cascade-native-ptyd.sock").path
     }
 
     static func privateDirectory(_ path: String) -> Bool {
@@ -80,7 +80,7 @@ actor PtydHost {
         process.executableURL = configuration.executable
         process.arguments = [configuration.directory.path]
         var environment = ProcessInfo.processInfo.environment
-        environment["CRAFT_PTYD_SOCK"] = configuration.socketPath
+        environment["CASCADE_PTYD_SOCK"] = configuration.socketPath
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = handle

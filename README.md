@@ -8,10 +8,10 @@ agent, terminal, browser, files, and diff, and keeps your pull requests, review
 queue, and Jira tickets one click away. It's free and open source under the
 [MIT License](LICENSE).
 
-[Download](https://github.com/alexcding/craft-mac/releases/latest) ·
+[Download](https://github.com/alexcding/cascade-mac/releases/latest) ·
 [Features](#features) · [Connect your tools](#connect-your-tools) ·
 [Build from source](#build-from-source) · [Contribute](#contribute) ·
-[Report an issue](https://github.com/alexcding/craft-mac/issues)
+[Report an issue](https://github.com/alexcding/cascade-mac/issues)
 
 ![Cascade dashboard showing pull requests, review requests, Jira tickets, and agent usage](docs/images/dashboard.png)
 
@@ -132,7 +132,7 @@ the agent hooks from **Settings → Integrations**.
 ## Install
 
 Download the latest `Cascade-X.Y.Z.dmg` from
-[Releases](https://github.com/alexcding/craft-mac/releases/latest), open it, and drag
+[Releases](https://github.com/alexcding/cascade-mac/releases/latest), open it, and drag
 Cascade to Applications. It needs an **Apple Silicon Mac** with **macOS 14 or later**.
 The app is signed and notarized, and installs its own updates.
 
@@ -164,12 +164,12 @@ backups and restores.
 2. Clone the repository and open the Xcode project:
 
    ```bash
-   git clone https://github.com/alexcding/craft-mac.git
-   cd craft-mac
-   open macos/Craft.xcodeproj
+   git clone https://github.com/alexcding/cascade-mac.git
+   cd cascade-mac
+   open macos/Cascade.xcodeproj
    ```
 
-3. Select **Craft → My Mac** and press **⌘R**.
+3. Select **Cascade → My Mac** and press **⌘R**.
 
 The build prepares the Rust backend and terminal helper, downloads the pinned
 Ghostty runtime, and installs Rust through rustup if Cargo is missing. The first
@@ -189,7 +189,7 @@ Rust, or write code at all, to help.
 
 - **Try one real task** and tell us where setup, navigation, or the agent workflow
   felt confusing.
-- **Report a bug.** [Open an issue](https://github.com/alexcding/craft-mac/issues/new)
+- **Report a bug.** [Open an issue](https://github.com/alexcding/cascade-mac/issues/new)
   with steps to reproduce, expected and actual behavior, your macOS and Xcode
   versions, and relevant logs or screenshots. Remove credentials and private project
   details.
@@ -213,21 +213,21 @@ that cover your change:
 
 ```bash
 # Rust backend
-cargo test --manifest-path crates/craft-backend/Cargo.toml
+cargo test --manifest-path crates/cascade-backend/Cargo.toml
 
 # Terminal daemon and snapshots
-cargo test --manifest-path crates/craft-ptyd/Cargo.toml --features terminal-snapshots
+cargo test --manifest-path crates/cascade-ptyd/Cargo.toml --features terminal-snapshots
 
 # Native app unit tests
-xcodebuild test -project macos/Craft.xcodeproj -scheme Craft \
-  -derivedDataPath macos/.build/xcode -only-testing:CraftTests
+xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
+  -derivedDataPath macos/.build/xcode -only-testing:CascadeTests
 ```
 
 Swift Testing can report success after running zero tests when filtered by a single
 function name. Use the target-level command above and check the executed test count.
 
 For deeper work, see the [native app guide](macos/README.md),
-[terminal snapshot protocol](crates/craft-ptyd/SNAPSHOTS.md), and
+[terminal snapshot protocol](crates/cascade-ptyd/SNAPSHOTS.md), and
 [Ghostty patch guide](macos/patches/ghostty/README.md). Direct-distribution packaging
 is documented in the [packaging guide](macos/README.md#direct-distribution-packaging).
 

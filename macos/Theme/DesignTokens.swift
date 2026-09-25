@@ -64,7 +64,7 @@ struct ThemePalette: Sendable {
 
 extension ThemePalette {
     /// The values in `src/renderer/css/tokens.css`.
-    static let craft = ThemePalette(
+    static let cascade = ThemePalette(
         surfaceHover: .init(light: 0xF1F3F5, dark: 0x2A2A2A),
         border: .init(light: 0xE7E9EE, dark: 0x323232),
         textSecondary: .init(light: 0x565D68, dark: 0xA2A2A2),
@@ -89,7 +89,7 @@ extension ThemePalette {
 
 enum Theme {
     /// The active theme. Assign a different `ThemePalette` here to reskin the app.
-    static let palette = ThemePalette.craft
+    static let palette = ThemePalette.cascade
 
     // Computed, not stored, so the dynamic NSColor underneath re-resolves on an appearance change.
     static var surfaceHover: Color { palette.surfaceHover.color }

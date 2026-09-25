@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
 @MainActor private func registry() -> ShortcutRegistry {
     let suite = "shortcut-tests-\(UUID().uuidString)"
@@ -69,7 +69,7 @@ import Testing
 @MainActor @Test func everyBindableCommandIsInTheMenuBar() throws {
     // A row in Settings → Shortcuts that no menu item carries would record a key nothing fires.
     let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("App/CraftCommands.swift"), encoding: .utf8)
+        .deletingLastPathComponent().appendingPathComponent("App/CascadeCommands.swift"), encoding: .utf8)
     for command in ShellCommand.allCases where command.group != nil && command.sessionIndex == nil {
         #expect(source.contains("command(.\(command.rawValue))"), "\(command.title) has no menu item")
     }

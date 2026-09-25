@@ -5,7 +5,7 @@ import WebKit
 /// backend serves no static files, so the page gets a scheme of its own. Only the files
 /// named here exist; everything else on the scheme is a 404.
 final class DiffPageAssets: NSObject, WKURLSchemeHandler {
-    nonisolated static let scheme = "craft-diff"
+    nonisolated static let scheme = "cascade-diff"
     nonisolated static let pageURL = URL(string: "\(scheme)://page/DiffPage.html")!
     nonisolated private static let types = ["html": "text/html", "css": "text/css", "js": "text/javascript", "mjs": "text/javascript"]
     nonisolated private static let files: Set<String> = ["DiffPage.html", "DiffPage.css", "DiffPage.js", "DiffParse.mjs", "DiffHighlight.mjs"]

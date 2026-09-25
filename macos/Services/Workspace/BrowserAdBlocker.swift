@@ -114,7 +114,7 @@ enum BrowserAdBlockState: Equatable, Sendable {
     /// Reports unsupported and never looks for the app or touches WebKit: what a settings model
     /// gets when nobody hands it the shared blocker, which is every test.
     static func inert() -> BrowserAdBlocker { BrowserAdBlocker(host: InertBrowserExtensionHost(), locate: { nil },
-                         defaults: UserDefaults(suiteName: "craft.adblock.inert") ?? .standard)
+                         defaults: UserDefaults(suiteName: "cascade.adblock.inert") ?? .standard)
     }
 
     func attach(to configuration: WKWebViewConfiguration) {

@@ -8,9 +8,9 @@ Estimates are working days for one engineer, judged from the surveyed surface in
 | # | Item | Notes |
 |---|---|---|
 | 0.1 | Apple Developer Program team | Required for the iCloud entitlement (research §E-a). Decide: personal team vs organisation |
-| 0.2 | Mac app: `DEVELOPMENT_TEAM`, `CODE_SIGN_STYLE = Automatic` for dev, Developer ID for release; add `com.apple.developer.icloud-services = [CloudKit]` and `com.apple.developer.icloud-container-identifiers = [iCloud.com.alexcding.craft]` to `Craft.entitlements`; `aps-environment` for the alert subscription | Keep `ENABLE_APP_SANDBOX = NO`; CloudKit does not need the sandbox |
-| 0.3 | CloudKit container `iCloud.com.alexcding.craft`, custom zone `craft`, record types `Host` and `Alert`, deployed to production via CloudKit Console or `cktool` | Development environment first |
-| 0.4 | iOS app id `com.alexcding.craft.remote` with the same container, push capability | |
+| 0.2 | Mac app: `DEVELOPMENT_TEAM`, `CODE_SIGN_STYLE = Automatic` for dev, Developer ID for release; add `com.apple.developer.icloud-services = [CloudKit]` and `com.apple.developer.icloud-container-identifiers = [iCloud.com.alexcding.cascade]` to `Cascade.entitlements`; `aps-environment` for the alert subscription | Keep `ENABLE_APP_SANDBOX = NO`; CloudKit does not need the sandbox |
+| 0.3 | CloudKit container `iCloud.com.alexcding.cascade`, custom zone `cascade`, record types `Host` and `Alert`, deployed to production via CloudKit Console or `cktool` | Development environment first |
+| 0.4 | iOS app id `com.alexcding.cascade.remote` with the same container, push capability | |
 | 0.5 | Confirm `package-direct.py` still notarises with the new entitlements | It already takes a Developer ID identity |
 
 Exit: a dev build of the Mac app can save and read a record in the private database.
@@ -21,7 +21,7 @@ Backend (Rust):
 
 | # | Item |
 |---|---|
-| 1.1 | `remote/` module: `rcgen` certificate + secret generation, storage in `craft.db` settings, `axum-server` rustls listener on a stored port, bearer middleware, allowlist router with the read-only routes from research §A (minus `settings`, `config`, `file*`, `db`, `xcode`, `warmup`, `launch-target`, `detect-repo`) |
+| 1.1 | `remote/` module: `rcgen` certificate + secret generation, storage in `cascade.db` settings, `axum-server` rustls listener on a stored port, bearer middleware, allowlist router with the read-only routes from research §A (minus `settings`, `config`, `file*`, `db`, `xcode`, `warmup`, `launch-target`, `detect-repo`) |
 | 1.2 | Control routes `GET /api/remote`, `POST /api/remote/enable|disable|rotate`, `PUT/GET /api/remote/presence`; `Routes.swift` + `route_contract` updated; a `remote_contract` test asserting the allowlist |
 | 1.3 | `presence` event on the broadcast channel |
 | 1.4 | Tests: unauthenticated → 401; allowlisted route answers; a non-allowlisted route that exists on the loopback router → 404 on the remote listener; TLS handshake with the fingerprint; `foreign_origin`-guarded route not reachable |
@@ -33,13 +33,13 @@ Mac (Swift):
 | 1.5 | `RemotePairing`: enable/disable/rotate, `Host` record save, `NWPathMonitor`-driven endpoint refresh |
 | 1.6 | `RemotePresence`: observe sessions, selection, live simulators (from `SimulatorPreviewModel.state`) and push |
 | 1.7 | `RemoteSettingsView` in the Settings scene: toggle, status, endpoints, "Forget all phones" |
-| 1.8 | Extract `packages/CraftKit` (APIClient with `Transport`, Routes, SSEClient, models). Mac behaviour unchanged; `CraftTests` still pass |
+| 1.8 | Extract `packages/CascadeKit` (APIClient with `Transport`, Routes, SSEClient, models). Mac behaviour unchanged; `CascadeTests` still pass |
 
 Phone (Swift, new):
 
 | # | Item |
 |---|---|
-| 1.9 | `ios/CraftRemote`: CloudKit fetch of `Host`, endpoint race, pinned-certificate `URLSession`, bearer |
+| 1.9 | `ios/CascadeRemote`: CloudKit fetch of `Host`, endpoint race, pinned-certificate `URLSession`, bearer |
 | 1.10 | Screens: Pair (host list), Home (sessions from presence + review count), Project (PRs with CI, Jira), Session (status, recent activity). Live via SSE while foregrounded |
 
 Exit: on the same Wi-Fi, the phone shows the dashboard and session list with no setup
@@ -76,9 +76,9 @@ Exit: the phone shows and drives the simulator the Mac is streaming.
 | # | Item |
 |---|---|
 | 4.1 | `pty_bridge`: WebSocket ↔ ptyd Unix socket, own `hello`, op filter, per-connection lifetime tied to the WebSocket |
-| 4.2 | Move `PtyProtocol` types into `CraftKit`; phone `PtyBridgeClient` over `URLSessionWebSocketTask` |
+| 4.2 | Move `PtyProtocol` types into `CascadeKit`; phone `PtyBridgeClient` over `URLSessionWebSocketTask` |
 | 4.3 | Phone Terminal screen with SwiftTerm, ring-replay attach, read-only first, then keyboard input and an accessory bar (Esc, Ctrl, arrows, Tab, Enter) |
-| 4.4 | Tests in `craft-ptyd` style: filtered op rejected; attach replay through the bridge matches direct attach |
+| 4.4 | Tests in `cascade-ptyd` style: filtered op rejected; attach replay through the bridge matches direct attach |
 
 Exit: live terminal of any session on the phone with input.
 
@@ -102,13 +102,13 @@ Exit: live terminal of any session on the phone with input.
 | serve-sim changes its URL rewriting in a later version | Low | Version is pinned (`sim_preview.rs:30`); bump deliberately |
 | Ghostty snapshot revision pinning leaks onto the phone | Low | The bridge never negotiates snapshots; ring replay only |
 | Address changes (DHCP, sleep/wake) leave a stale `Host` record | Medium | `NWPathMonitor` re-save + endpoint race on the phone + `instanceId` check |
-| `craft.db` holds a bearer secret in plaintext | Accepted for v1 | Same as `jira_api_token` today; Keychain later |
+| `cascade.db` holds a bearer secret in plaintext | Accepted for v1 | Same as `jira_api_token` today; Keychain later |
 
 ## Open questions
 
 1. **Team:** personal or organisation Apple Developer account? It decides the container
    name and who can build the iOS app.
-2. **Secret storage:** `craft.db` settings (consistent with today) or a first Keychain
+2. **Secret storage:** `cascade.db` settings (consistent with today) or a first Keychain
    wrapper? Keychain also gives free iCloud Keychain sync, which could even replace the
    `secret` field in the `Host` record.
 3. **Dev builds without a team:** local ad-hoc builds cannot use CloudKit. Do we want a
@@ -123,5 +123,5 @@ Exit: live terminal of any session on the phone with input.
 
 ## How to start
 
-Phase 0 needs the team decision. Phase 1.1–1.4 (Rust listener, tests) and 1.8 (`CraftKit`
+Phase 0 needs the team decision. Phase 1.1–1.4 (Rust listener, tests) and 1.8 (`CascadeKit`
 extraction) do not depend on Apple at all and can start now on this branch.

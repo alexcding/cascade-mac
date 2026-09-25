@@ -12,7 +12,7 @@ import Observation
 }
 
 @MainActor protocol TrayCoordinating: TrayServing {
-    /// Opens a review in a Craft tab (or the session that already owns its address).
+    /// Opens a review in a Cascade tab (or the session that already owns its address).
     func openTrayReview(_ request: OpenPageRequest) async throws
     /// Shows the screen that carries the plan usage the tray summarises.
     func openTrayUsage()
@@ -21,7 +21,7 @@ import Observation
 @MainActor struct TrayPresentation {
     let openWindow: () -> Void
     let dismiss: () -> Void
-    /// Quit through the app's own contract — the same path as the Craft menu's Quit.
+    /// Quit through the app's own contract — the same path as the Cascade menu's Quit.
     var quit: () -> Void = {}
 }
 

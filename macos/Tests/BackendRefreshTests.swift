@@ -99,7 +99,7 @@ private actor RefreshTransport: BackendTransport {
     if let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
         hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         if let png = bitmap.representation(using: .png, properties: [:]) {
-            let path = FileManager.default.temporaryDirectory.appendingPathComponent("craft-sidebar-first-layout.png")
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-sidebar-first-layout.png")
             try png.write(to: path)
             print("First sidebar layout: \(path.path)")
         }

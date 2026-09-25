@@ -51,7 +51,7 @@ struct AppConfigDraft: Equatable, Sendable {
     }
 }
 
-/// Where the backend makes a session's new worktree (`crates/craft-backend/src/worktrees.rs`).
+/// Where the backend makes a session's new worktree (`crates/cascade-backend/src/worktrees.rs`).
 /// Existing worktrees stay where they are: git's own worktree list is what finds them.
 enum WorktreeLocation: String, CaseIterable, Identifiable, Sendable {
     case sibling, inside, custom

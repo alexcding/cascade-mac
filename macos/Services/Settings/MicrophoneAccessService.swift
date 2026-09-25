@@ -5,7 +5,7 @@ import Foundation
 enum MicrophoneAccessStatus: Sendable, Equatable { case notDetermined, authorized, denied, restricted }
 
 /// Microphone permission belongs to macOS. Terminal sessions and the agents they run inherit
-/// Craft's grant, because TCC attributes a child process's audio input to the responsible app.
+/// Cascade's grant, because TCC attributes a child process's audio input to the responsible app.
 protocol MicrophoneAccessService: Sendable {
     func status() async -> MicrophoneAccessStatus
     /// Shows the system prompt when the status is undetermined; otherwise returns the current status.

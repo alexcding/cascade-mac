@@ -16,7 +16,7 @@ final class TerminalPipe: @unchecked Sendable {
         let failed: Bool
     }
     private let lock = NSLock()
-    private let outputQueue = DispatchQueue(label: "craft.terminal.output", qos: .userInitiated)
+    private let outputQueue = DispatchQueue(label: "cascade.terminal.output", qos: .userInitiated)
     private var client: PtydClient?
     private var termID: String?
     private var input: TerminalInputQueue?

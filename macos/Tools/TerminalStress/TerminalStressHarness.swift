@@ -64,7 +64,7 @@ public enum TerminalStressHarness {
         for name in ["flood", "ticker"] {
             try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent(name), withDestinationURL: executable)
         }
-        let config = PtydConfiguration(executable: helperURL ?? root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+        let config = PtydConfiguration(executable: helperURL ?? root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
             directory: directory, socketPath: directory.appendingPathComponent("daemon.sock").path)
         let host = PtydHost(configuration: config)
         let control = PtydClient(onEvent: { _ in })

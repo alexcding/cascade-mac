@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepares everything the Craft Xcode scheme needs, so Run in Xcode is the only
+# Prepares everything the Cascade Xcode scheme needs, so Run in Xcode is the only
 # step: a Rust toolchain, the prebuilt Ghostty VT runtime, and the Rust backend +
 # PTY helper the scheme launches. Idempotent: re-running after a successful
 # bootstrap only performs a fast cargo no-op build.
@@ -11,7 +11,7 @@
 # The GhosttyTerminal Swift package itself needs nothing here: the project pulls
 # github.com/alexcding/ghostty-terminal-spm, whose binary target is a prebuilt
 # XCFramework attached to its release. The same release carries the headless VT
-# runtime (libghostty-vt) that crates/craft-vt links; it is downloaded below.
+# runtime (libghostty-vt) that crates/cascade-vt links; it is downloaded below.
 # build-ghostty-vt.py / build-ghostty-native.py remain the from-source path for
 # working on the Ghostty patches.
 set -euo pipefail
@@ -70,16 +70,16 @@ if [[ ! -f "$RUNTIME/lib/libghostty-vt.a" || "$(cat "$STAMP" 2>/dev/null || true
   echo "$GHOSTTY_RELEASE" > "$STAMP"
 fi
 
-# 3. The backend static library the app links (crates/craft-backend/src/ffi.rs) and
+# 3. The backend static library the app links (crates/cascade-backend/src/ffi.rs) and
 #    the PTY helper the shared scheme's launch arguments point at.
 #
 # Cargo goes through the shared normalized environment; see cargo-env.sh for why.
 . "$MACOS/scripts/cargo-env.sh"
 
 log "Building the Rust backend library and PTY helper (release)"
-cargo_build build --manifest-path "$ROOT/crates/craft-backend/Cargo.toml" --release --locked || fail "craft-backend build failed"
-cargo_build build --manifest-path "$ROOT/crates/craft-ptyd/Cargo.toml" --release --features terminal-snapshots --locked \
-  || fail "craft-ptyd build failed"
+cargo_build build --manifest-path "$ROOT/crates/cascade-backend/Cargo.toml" --release --locked || fail "cascade-backend build failed"
+cargo_build build --manifest-path "$ROOT/crates/cascade-ptyd/Cargo.toml" --release --features terminal-snapshots --locked \
+  || fail "cascade-ptyd build failed"
 
 # 4. The PTY helper inside the app bundle, where PtydHost looks when no --ptyd-path is
 #    given. The scheme passes one, but a Dock or Finder relaunch of the same build does
@@ -88,14 +88,14 @@ cargo_build build --manifest-path "$ROOT/crates/craft-ptyd/Cargo.toml" --release
 #    build phase: as a scheme pre-action there is no bundle yet.
 if [[ -n "${TARGET_BUILD_DIR:-}" && -n "${CONTENTS_FOLDER_PATH:-}" ]]; then
   HELPERS="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
-  HELPER="$ROOT/crates/craft-ptyd/target/release/craft-ptyd"
-  if ! cmp -s "$HELPER" "$HELPERS/craft-ptyd"; then
+  HELPER="$ROOT/crates/cascade-ptyd/target/release/cascade-ptyd"
+  if ! cmp -s "$HELPER" "$HELPERS/cascade-ptyd"; then
     log "Bundling the PTY helper into $CONTENTS_FOLDER_PATH/Helpers"
     mkdir -p "$HELPERS"
     # A daemon from the previous build may still be running from this path; a rename
     # gives it a fresh inode instead of overwriting the one it is executing.
-    cp "$HELPER" "$HELPERS/craft-ptyd.tmp" && codesign --force --sign - "$HELPERS/craft-ptyd.tmp" \
-      && mv -f "$HELPERS/craft-ptyd.tmp" "$HELPERS/craft-ptyd" || fail "could not bundle craft-ptyd"
+    cp "$HELPER" "$HELPERS/cascade-ptyd.tmp" && codesign --force --sign - "$HELPERS/cascade-ptyd.tmp" \
+      && mv -f "$HELPERS/cascade-ptyd.tmp" "$HELPERS/cascade-ptyd" || fail "could not bundle cascade-ptyd"
   fi
 fi
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="712" height="788" viewBox="27 12 178 197" fill="none" role="img" aria-labelledby="craft-title craft-description">
-  <title id="craft-title">Craft app icon</title>
-  <desc id="craft-description">A softly folded C ribbon on a transparent background: a cyan-to-blue upper ribbon, deep blue vertical fold, and violet lower ribbon, traced from the supplied reference.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="712" height="788" viewBox="27 12 178 197" fill="none" role="img" aria-labelledby="cascade-title cascade-description">
+  <title id="cascade-title">Cascade app icon</title>
+  <desc id="cascade-description">A softly folded C ribbon on a transparent background: a cyan-to-blue upper ribbon, deep blue vertical fold, and violet lower ribbon, traced from the supplied reference.</desc>
   <defs>
     <linearGradient id="upper" x1="78" y1="27" x2="147" y2="99" gradientUnits="userSpaceOnUse">
       <stop stop-color="#73D3FC"/>

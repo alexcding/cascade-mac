@@ -7,21 +7,21 @@ commands always require explicit paths.
 
 ## Backup, verify, and restore
 
-From a checkout, build `crates/craft-backend` and run:
+From a checkout, build `crates/cascade-backend` and run:
 
 ```sh
-crates/craft-backend/target/debug/craft-backend backup \
+crates/cascade-backend/target/debug/cascade-backend backup \
   '/absolute/path/to/data' '/absolute/path/to/new-backup'
-crates/craft-backend/target/debug/craft-backend verify \
+crates/cascade-backend/target/debug/cascade-backend verify \
   '/absolute/path/to/new-backup'
-crates/craft-backend/target/debug/craft-backend restore \
+crates/cascade-backend/target/debug/cascade-backend restore \
   '/absolute/path/to/new-backup' '/absolute/path/to/new-restored-data'
 ```
 
 From the installed app, use the same arguments with:
 
 ```sh
-'/Applications/Cascade.app/Contents/Helpers/craft-backend' backup \
+'/Applications/Cascade.app/Contents/Helpers/cascade-backend' backup \
   '/absolute/path/to/data' '/absolute/path/to/new-backup'
 ```
 
@@ -49,7 +49,7 @@ directory alone does not change the PTY daemon's default socket.
 
 ## Automatic packaged startup checkpoint
 
-With `CRAFT_PACKAGED=1`, startup acquires the existing SQLite ownership lock in
+With `CASCADE_PACKAGED=1`, startup acquires the existing SQLite ownership lock in
 `DATA_DIR/native-backups/owner.db` before opening any application store. The lock
 remains held until process exit and coordinates with older packaged Node owners.
 Standalone development and external backends do not acquire this lease; stop them
@@ -72,19 +72,19 @@ up to two minutes for startup; cancellation terminates its owned backend.
 
 | State | Storage and handling |
 | --- | --- |
-| Projects, workflows, automation settings, CLI preferences, PR/Jira links | `craft.db`; included without rewriting schema or unknown columns. |
-| Worktree sessions, pinned state, CLI conversation IDs | `craft.db`; included. Actual checkout files and agent conversation stores remain in their existing locations. |
-| Viewer tabs, document paths/order/history, native context settings | `craft.db`; included. Native `native.context.*` settings coexist with web tab rows. |
+| Projects, workflows, automation settings, CLI preferences, PR/Jira links | `cascade.db`; included without rewriting schema or unknown columns. |
+| Worktree sessions, pinned state, CLI conversation IDs | `cascade.db`; included. Actual checkout files and agent conversation stores remain in their existing locations. |
+| Viewer tabs, document paths/order/history, native context settings | `cascade.db`; included. Native `native.context.*` settings coexist with web tab rows. |
 | Pending native context writes | `ptyd-native-spike/page-tabs.json`; included when present. This is page metadata, not unsaved editor text. |
-| Review requested/viewed timestamps | `craft.db`; included, avoiding an artificial reset of acknowledged reviews on restore. |
+| Review requested/viewed timestamps | `cascade.db`; included, avoiding an artificial reset of acknowledged reviews on restore. |
 | Activity and diagnostic history | `logs.db`; included when present as a separate consistent SQLite snapshot. |
-| Older durable filename | If `craft.db` is absent, `config.db` is captured/restored under its original name. Backup does not trigger the application's legacy rename or destructive schema changes. |
+| Older durable filename | If `cascade.db` is absent, `config.db` is captured/restored under its original name. Backup does not trigger the application's legacy rename or destructive schema changes. |
 | GitHub/Jira snapshots | `data.db`; regenerable, omitted. The normal poller repopulates the restored installation. |
 | Terminal screen state and live process metadata | Daemon memory and PTY manifests; omitted. Closing or updating Cascade terminates its PTYs; saved CLI conversation IDs recreate and resume sessions on launch. |
 | Native sidebar selection/collapse, window geometry | AppKit/UserDefaults in `com.alexcding.cascade`; left in place during same-bundle upgrades. Not part of this data-directory snapshot. |
 | Native cached settings and pending preference writes | UserDefaults `native.*`; not copied by this tool. Synced values are in SQLite. Reconnect and let pending writes finish before taking an offline checkpoint. |
 | Tauri localStorage appearance | Theme is mirrored to SQLite; the database remains authoritative. |
-| Tauri localStorage layout | `craft.prRatio`, `craft.projCollapsed`, `craft.sidebarWidth`, `craft.histSplit` are web layout preferences. Native layouts use their own defaults; the web values are left untouched for rollback. |
+| Tauri localStorage layout | `cascade.prRatio`, `cascade.projCollapsed`, `cascade.sidebarWidth`, `cascade.histSplit` are web layout preferences. Native layouts use their own defaults; the web values are left untouched for rollback. |
 | Remote website logins/cookies, OS notification/login approvals | Browser and macOS stores; not moved by this tool. Cross-host login migration and real OS upgrade behavior still require acceptance. |
 
 ## Validation status

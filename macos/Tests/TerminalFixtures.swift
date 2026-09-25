@@ -11,7 +11,7 @@ import Foundation
 struct DaemonFixture {
     let directory = URL(fileURLWithPath: "/tmp/th-term-\(UUID().uuidString.prefix(12))")
     var config: PtydConfiguration {
-        PtydConfiguration(executable: TestPaths.checkout.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+        PtydConfiguration(executable: TestPaths.checkout.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                           directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     }
     /// Named zsh: it is the only shell the daemon starts an agent in.

@@ -1,5 +1,5 @@
 // The paths this app addresses the Rust backend on. Hand-maintained since the node
-// generator was removed; `route_contract` in crates/craft-backend/src/lib.rs fails the
+// generator was removed; `route_contract` in crates/cascade-backend/src/lib.rs fails the
 // build if a path here is not a route the backend serves.
 import Foundation
 

@@ -1,8 +1,8 @@
-# Craft Remote — an iOS companion for the Mac app
+# Cascade Remote — an iOS companion for the Mac app
 
 Status: **research and plan, no code yet.** Branch `remote`.
 
-Craft Remote is a phone app that watches and drives a running Craft on your Mac: the
+Cascade Remote is a phone app that watches and drives a running Cascade on your Mac: the
 dashboard (PRs, CI, Jira), the agent sessions, the iOS Simulator the Mac is streaming, and
 later the terminals. Pairing goes through the user's own iCloud account, so there is no
 QR code, token or port to set up.
@@ -38,5 +38,5 @@ QR code, token or port to set up.
 ## Prerequisite that blocks everything
 
 CloudKit needs a provisioning profile with the iCloud entitlement, so it needs an Apple
-Developer Program team. Craft is ad-hoc signed today with no `DEVELOPMENT_TEAM`
+Developer Program team. Cascade is ad-hoc signed today with no `DEVELOPMENT_TEAM`
 (`macos/Resources/Configs/Shared.xcconfig:26-27`). See [04-plan.md](04-plan.md) §Phase 0.

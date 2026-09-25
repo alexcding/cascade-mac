@@ -12,7 +12,7 @@ private final class InputBytes: @unchecked Sendable {
 }
 
 @MainActor private func pasteboard(_ fill: (NSPasteboard) -> Void) -> NSPasteboard {
-    let board = NSPasteboard(name: NSPasteboard.Name("craft-paste-\(UUID().uuidString)"))
+    let board = NSPasteboard(name: NSPasteboard.Name("cascade-paste-\(UUID().uuidString)"))
     board.clearContents()
     fill(board)
     return board

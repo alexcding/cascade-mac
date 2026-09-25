@@ -28,7 +28,7 @@ protocol DeepLinkRouteHandling {
 }
 
 /// One origin and one path grammar, with injected handlers tried in order.
-struct CraftRouter: DeepLinkRouting {
+struct CascadeRouter: DeepLinkRouting {
     let handlers: [any DeepLinkRouteHandling]
     init(handlers: [any DeepLinkRouteHandling] = [RootRouteHandler(), ProjectRouteHandler(), SessionRouteHandler()]) {
         self.handlers = handlers

@@ -14,7 +14,7 @@ import Foundation
                 }
                 let seconds = Double(argument("--seconds") ?? "10") ?? 0
                 let root = URL(fileURLWithPath: argument("--root") ?? FileManager.default.currentDirectoryPath)
-                let report = URL(fileURLWithPath: argument("--report") ?? "/tmp/craft-terminal-stress.json")
+                let report = URL(fileURLWithPath: argument("--report") ?? "/tmp/cascade-terminal-stress.json")
                 let helper = argument("--helper").map { URL(fileURLWithPath: $0) }
                 _ = try await TerminalStressHarness.run(seconds: seconds, root: root, reportURL: report, helperURL: helper)
                 exit(0)

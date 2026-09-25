@@ -26,12 +26,12 @@ public struct BackendConfiguration: Sendable {
             }
             return arguments[index + 1]
         }
-        if let external = try argument("--backend-url") ?? environment["CRAFT_BACKEND_URL"] {
+        if let external = try argument("--backend-url") ?? environment["CASCADE_BACKEND_URL"] {
             guard let url = URL(string: external) else { throw BackendError.configuration("Invalid backend address.") }
             _ = try APIClient(baseURL: url)
             return Self(baseURL: url, mode: .external)
         }
-        let dataPath = try argument("--data-dir") ?? environment["CRAFT_DATA_DIR"]
+        let dataPath = try argument("--data-dir") ?? environment["CASCADE_DATA_DIR"] ?? environment["CRAFT_DATA_DIR"]
         let dataDirectory = dataPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? LegacyIdentity.supportDirectory
         // A checkout run (--backend-root) is development; a bare launch is the packaged app.
@@ -70,7 +70,7 @@ public actor BackendProcess {
         guard process == nil else { throw BackendError.startup("The backend is already starting or running.") }
         guard case let .owned(executable, directory) = configuration.mode else { throw BackendError.incompatible }
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw BackendError.startup("The Rust backend executable is missing. Build craft-backend, pass --backend-path, or use --backend-url.")
+            throw BackendError.startup("The Rust backend executable is missing. Build cascade-backend, pass --backend-path, or use --backend-url.")
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let logURL = directory.appendingPathComponent("native-backend.log")
@@ -83,10 +83,10 @@ public actor BackendProcess {
         child.currentDirectoryURL = executable.deletingLastPathComponent()
         var environment = ProcessInfo.processInfo.environment
         environment["PORT"] = String(configuration.baseURL.port ?? 3000)
-        environment["CRAFT_DATA_DIR"] = directory.path
-        environment["CRAFT_INSTANCE_ID"] = instanceID
-        environment["CRAFT_PACKAGED"] = configuration.packaged ? "1" : "0"
-        environment["CRAFT_NATIVE_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
+        environment["CASCADE_DATA_DIR"] = directory.path
+        environment["CASCADE_INSTANCE_ID"] = instanceID
+        environment["CASCADE_PACKAGED"] = configuration.packaged ? "1" : "0"
+        environment["CASCADE_NATIVE_PARENT_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         // Finder launches have a small PATH; keep the user's entries and include
         // standard CLI installation locations for gh, acli, and agent CLIs.
         environment["PATH"] = (environment["PATH"] ?? "/usr/bin:/bin") + ":/opt/homebrew/bin:/usr/local/bin"

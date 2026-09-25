@@ -22,7 +22,7 @@ def main():
     parser.add_argument("--global-cache", type=Path)
     args = parser.parse_args()
     if platform.system() != "Darwin" or platform.machine() != "arm64":
-        parser.error("The native Craft runtime currently targets Apple Silicon macOS.")
+        parser.error("The native Cascade runtime currently targets Apple Silicon macOS.")
     lock = json.loads(Path(__file__).with_name("ghostty-vt.lock.json").read_text())
     build = Path(__file__).resolve().parents[1] / ".build" / "ghostty-vt"
     build.mkdir(parents=True, exist_ok=True)

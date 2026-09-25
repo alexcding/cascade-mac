@@ -9,13 +9,13 @@ claims carry a source or are marked UNVERIFIED. Line numbers drift; the symbol n
 
 | Fact | Where |
 |---|---|
-| The embedded backend binds `TcpListener::bind((Ipv4Addr::LOCALHOST, 0))` and writes the port to `.server-port` | `crates/craft-backend/src/ffi.rs:119-139` |
+| The embedded backend binds `TcpListener::bind((Ipv4Addr::LOCALHOST, 0))` and writes the port to `.server-port` | `crates/cascade-backend/src/ffi.rs:119-139` |
 | `APIClient.init` rejects any base URL whose host is not `127.0.0.1` / `localhost` / `[::1]`, scheme not `http`, or with a path/query | `macos/Services/Backend/APIClient.swift:80-89` |
 | No auth header is ever attached; the router has only cache-control, body-limit and tracing layers | `APIClient.swift:115,135,146`; `lib.rs:197-199` |
 | Transport is chosen by `BackendConfiguration.current`: embedded (default), `--backend-path` child process, `--backend-url` external | `macos/Services/Backend/BackendProcess.swift:20-69` |
-| Events: HTTP mode reads `GET /api/stream` as SSE via `SSEClient`; embedded mode subscribes over FFI (`craft_backend_subscribe`) and never touches HTTP | `SSEClient.swift:76`; `EmbeddedBackend.swift:88`; `BackendRuntime.swift:91` |
+| Events: HTTP mode reads `GET /api/stream` as SSE via `SSEClient`; embedded mode subscribes over FFI (`cascade_backend_subscribe`) and never touches HTTP | `SSEClient.swift:76`; `EmbeddedBackend.swift:88`; `BackendRuntime.swift:91` |
 | `ServerEvent` fields: `type, projectId?, id?, event: ActivityEvent?, runId?, cli?, sessionId?, source?, scope?, worktree?, status?, label?, message?, url?` | `SSEClient.swift:3-21` |
-| Health handshake checks `service=="craft"`, `protocol==1`, optional `instanceId` | `APIClient.swift:43,104` |
+| Health handshake checks `service=="cascade"`, `protocol==1`, optional `instanceId` | `APIClient.swift:43,104` |
 
 `foreign_origin` (`local.rs:46-56`) is a browser CSRF guard, not authentication: it allows a
 request when the `Origin` header is **absent** or loopback. A native client sends no
@@ -69,10 +69,10 @@ command executor (architecture §6).
 
 | Fact | Where |
 |---|---|
-| Backend runs `serve-sim --detach -q <udid>` (installed) or `npx -y @expo/serve-sim@0.3.1 --detach -q <udid>`, 120 s timeout | `crates/craft-backend/src/sim_preview.rs:40-56,166-171` |
+| Backend runs `serve-sim --detach -q <udid>` (installed) or `npx -y @expo/serve-sim@0.3.1 --detach -q <udid>`, 120 s timeout | `crates/cascade-backend/src/sim_preview.rs:40-56,166-171` |
 | The helper answers `{"url","streamUrl","wsUrl","port","device"}`; the backend forwards **only** `{udid, url}` and drops `streamUrl`/`wsUrl`/`port` | `sim_preview.rs:111-121` |
 | `url` must match `^http://(127\.0\.0\.1|localhost|\[::1\]):\d+/?$`; Swift re-checks loopback before loading | `sim_preview.rs:117`; `macos/Services/Workspace/SimulatorPreview.swift:33-37` |
-| The Mac renders the helper's **own web page** in a `WKWebView`; that page does the MJPEG and the touch WebSocket itself. Craft has no native stream or input code | `SimulatorPreview.swift:100-121`; `Scenes/Workspace/SimulatorPanelView.swift:14` |
+| The Mac renders the helper's **own web page** in a `WKWebView`; that page does the MJPEG and the touch WebSocket itself. Cascade has no native stream or input code | `SimulatorPreview.swift:100-121`; `Scenes/Workspace/SimulatorPanelView.swift:14` |
 | Start trigger: a build reaching `atShell` on a simulator destination calls `preview.show(udid:)` → `POST /api/sim-preview` | `Services/Workspace/BuildWorkspace.swift:216-218`; `SimulatorPreview.swift:20-26` |
 | Since `39d557b`, `SimulatorPreviewModel.active` follows whether the session is on screen; inactive unloads the page (`loadHTMLString("")`) but the helper keeps running | `SimulatorPreview.swift:94-96,127-138` |
 | Retiring the model leaves the helper running ("another session may be showing the same device"); `DELETE /api/sim-preview` runs `serve-sim --kill` for every helper, called from `prepareToTerminate` | `SimulatorPreview.swift:141-142`; `sim_preview.rs:190-203`; `App/AppViewModel.swift:1423` |
@@ -98,17 +98,17 @@ the helper is; today that field is discarded (`sim_preview.rs:120`).
 
 | Fact | Where |
 |---|---|
-| Unix socket at `$CRAFT_PTYD_SOCK`, else a private `$TMPDIR/craft-ptyd.sock`, else `/tmp/craft-<uid>/craft-ptyd.sock` (0700) | `crates/craft-ptyd/src/lib.rs:90-119`; `macos/Services/Terminal/PtydHost.swift:24-54` |
+| Unix socket at `$CASCADE_PTYD_SOCK`, else a private `$TMPDIR/cascade-ptyd.sock`, else `/tmp/cascade-<uid>/cascade-ptyd.sock` (0700) | `crates/cascade-ptyd/src/lib.rs:90-119`; `macos/Services/Terminal/PtydHost.swift:24-54` |
 | Framing: newline-delimited JSON, no length prefix, 2 MiB frame cap on the Swift side | `PtyProtocol.swift:194-211`; `lib.rs:1350-1362` |
 | Ops: `hello, create, write, resize, kill, killAll, list, attach, flow, foreground, appearance, snapshotBegin/Read/End`; a request without `id` is fire-and-forget | `lib.rs` `handle()`; `PtydClient.swift:71-98` |
 | Protocol 2: `hello{dataEncoding:"base64", eventScope:"attached", …}` negotiates exact-byte transport and per-connection event scope; Swift refuses mismatches | `lib.rs:69,1213-1238`; `PtyProtocol.swift:56-126` |
 | Events: `{"ev":"data","id","bytes","seq"}`, `{"ev":"exit",…}`, plus resize/geometry/appearance/state | `PtyProtocol.swift:145-158` |
 | **Several clients may attach to one terminal**; attach subscribes then returns the ring tail `{bytes, seq, live, truncated}` with `RING_MAX = 256 KiB`; the client then hears `seq >` events with no gap | `lib.rs:70,1158-1182`; `tests/protocol.rs:116-118` |
 | Backpressure per client: 8 MiB outbox, stalled 60 s → dropped; a terminal pauses reads while any client owes more than `BACKLOG_HIGH` | `lib.rs:32-37` |
-| Snapshots (`terminal-snapshots`) require the exact `craft_vt::GHOSTTY_REVISION` at hello and are for restoring a full screen; ring replay is the normal attach path | `lib.rs:1232-1237`; `PtySnapshot.swift:4-44` |
+| Snapshots (`terminal-snapshots`) require the exact `cascade_vt::GHOSTTY_REVISION` at hello and are for restoring a full screen; ring replay is the normal attach path | `lib.rs:1232-1237`; `PtySnapshot.swift:4-44` |
 | Auth is filesystem ownership only (uid match, mode `& 0o077 == 0`); no token in the protocol | `lib.rs:108-119`; `PtydHost.swift:38-54` |
 | Daemon exits after 30 s idle with no terminals and no clients | `lib.rs:71,1184-1195` |
-| GhosttyTerminal is pinned to `alexcding/ghostty-terminal-spm` `1.6.20260909-taskhub.1`; the pbxproj has no iOS settings at all | `macos/Craft.xcodeproj/project.pbxproj:753-758` |
+| GhosttyTerminal is pinned to `alexcding/ghostty-terminal-spm` `1.6.20260909-taskhub.1`; the pbxproj has no iOS settings at all | `macos/Cascade.xcodeproj/project.pbxproj:753-758` |
 
 Consequence: a network bridge that forwards frames verbatim and filters ops is enough. The
 phone can use ring replay and skip snapshots (which would also pin it to the Ghostty revision).
@@ -156,14 +156,14 @@ Source: tailscale.com/docs/features/exit-nodes.
 
 | Fact | Where |
 |---|---|
-| Bundle id `com.alexcding.craft`, `MACOSX_DEPLOYMENT_TARGET 14.0`, `CODE_SIGN_IDENTITY = -`, `CODE_SIGN_STYLE = Manual`, **no `DEVELOPMENT_TEAM`**, `ENABLE_APP_SANDBOX = NO` | `macos/Resources/Configs/Shared.xcconfig:11,15,26-28` |
-| `Craft.entitlements` exists and is an empty dict | `macos/Resources/Configs/Craft.entitlements` |
+| Bundle id `com.alexcding.cascade`, `MACOSX_DEPLOYMENT_TARGET 14.0`, `CODE_SIGN_IDENTITY = -`, `CODE_SIGN_STYLE = Manual`, **no `DEVELOPMENT_TEAM`**, `ENABLE_APP_SANDBOX = NO` | `macos/Resources/Configs/Shared.xcconfig:11,15,26-28` |
+| `Cascade.entitlements` exists and is an empty dict | `macos/Resources/Configs/Cascade.entitlements` |
 | Packaging: `macos/scripts/package-direct.py` signs with a supplied Developer ID, notarises, staples, builds a DMG; no update feed is published; Sparkle public key in `Release.xcconfig:12` | `macos/scripts/package-direct.py` |
-| Settings are one KV table `settings(key TEXT PRIMARY KEY, value TEXT)` in `craft.db`; `jira_api_token` is plaintext there; **no Keychain code exists** in app or backend | `crates/craft-backend/src/schema_durable.sql:2`; `macos/Services/Settings/SettingsService.swift:3-40` |
+| Settings are one KV table `settings(key TEXT PRIMARY KEY, value TEXT)` in `cascade.db`; `jira_api_token` is plaintext there; **no Keychain code exists** in app or backend | `crates/cascade-backend/src/schema_durable.sql:2`; `macos/Services/Settings/SettingsService.swift:3-40` |
 | "Agent needs input" is `AgentTurnTracker.idle` = `streamAvailable && betweenTurns && pending == nil`, fed by `agent-turn-start/done` hook events; surfaced only as a sidebar badge via `TerminalSession.agentIdle` | `macos/Services/Terminal/AgentTurnTracker.swift:50,75-83`; `TerminalSession.swift:22`; `AppViewModel.swift:1257-1258` |
 | Notifications are local `UNUserNotificationCenter` only, for server `ActivityEvent`s (`pr_opened/merged/closed`, `jira_*`, `sync_failed`, `automation_*`); no APNs, no agent-idle event | `macos/Services/Notifications/NotificationModels.swift:56-70`; `MacNotificationDelivery.swift:29-33` |
-| Review waiting = `awaitingMyReview` / `category` in `github.rs` (tray bronze) | `crates/craft-backend/src/github.rs:313` |
+| Review waiting = `awaitingMyReview` / `category` in `github.rs` (tray bronze) | `crates/cascade-backend/src/github.rs:313` |
 
 Consequences: (1) CloudKit needs a team and entitlements that do not exist yet; (2) the host
-secret has nowhere better than `craft.db` today unless Keychain code is added; (3) agent-idle
+secret has nowhere better than `cascade.db` today unless Keychain code is added; (3) agent-idle
 is Swift-side, so the Mac app (not the backend) is the natural writer of `Alert` records.

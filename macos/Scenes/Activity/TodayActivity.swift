@@ -15,7 +15,7 @@ import Observation
     @ObservationIgnored private var service: (any LogService)?
     @ObservationIgnored private var task: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private let now: () -> Date
-    /// Opens an entry's PR or Jira page in Craft (the popover's row links, events-popover.js).
+    /// Opens an entry's PR or Jira page in Cascade (the popover's row links, events-popover.js).
     @ObservationIgnored var openPage: (LogEntry) async throws -> Void = { _ in }
 
     init(now: @escaping () -> Date = Date.init) { self.now = now }

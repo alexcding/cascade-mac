@@ -68,7 +68,7 @@ private struct ToolbarBrandIcon: View {
     private static func load(_ name: String) -> NSImage? {
         let filename = "\(name).png"
         let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/CraftImages")
+            .appendingPathComponent("Contents/Resources/CascadeImages")
             .appendingPathComponent(filename)
         if let image = NSImage(contentsOf: bundled) { return image }
 

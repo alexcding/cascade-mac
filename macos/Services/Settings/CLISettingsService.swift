@@ -97,7 +97,7 @@ protocol CLISettingsService: Sendable {
     func probe() async throws -> [String: CLIAvailability]
     func hooks() async throws -> [String: String]
     func setHook(_ cli: ManagedCLI, installed: Bool) async throws -> [String: String]
-    /// Craft's Claude Code status line, installed for every session. It reports in the same
+    /// Cascade's Claude Code status line, installed for every session. It reports in the same
     /// status map as the hooks, under `statusLineKey`.
     func setStatusLine(installed: Bool) async throws -> [String: String]
 }

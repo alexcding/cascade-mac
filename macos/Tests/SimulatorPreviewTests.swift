@@ -52,9 +52,9 @@ private final class SimulatorPreviewFixture: SimulatorPreviewing, @unchecked Sen
 
 private let noNode = BackendError.operation("The simulator preview needs Node.js 20 or later. See Settings → Integrations.")
 
-/// Node installed from a terminal while the panel said "not set up": coming back to Craft is
+/// Node installed from a terminal while the panel said "not set up": coming back to Cascade is
 /// enough, with no new Run.
-@MainActor @Test func anUnavailablePreviewTriesAgainWhenCraftComesBack() async {
+@MainActor @Test func anUnavailablePreviewTriesAgainWhenCascadeComesBack() async {
     let service = SimulatorPreviewFixture()
     service.results["udid-node"] = .failure(noNode)
     let model = SimulatorPreviewModel(service: service)

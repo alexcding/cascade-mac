@@ -2,7 +2,7 @@ import AppKit
 import Testing
 
 @Test func deepLinksRoundTripSupportedRoutesAndProjectChains() throws {
-    let router = CraftRouter()
+    let router = CascadeRouter()
     let roots: [SidebarDestination] = [.overview, .terminal, .project("p-123"), .session("s_123")]
     let links = roots.map { DeepLink(.destination($0)) }
         + ProjectSection.allCases.map { DeepLink([.destination(.project("p-123")), .projectSection($0)]) }
@@ -29,7 +29,7 @@ import Testing
     "cascade://app/sessions/..", "cascade://app/sessions/%00", "cascade://app/sessions/hello%20world",
     "cascade://app/terminal/run", "cascade://app/sessions/" + String(repeating: "x", count: 257)
 ]) func deepLinksRejectUnsupportedOrAmbiguousURLs(_ value: String) throws {
-    #expect(CraftRouter().deepLink(for: try #require(URL(string: value))) == nil)
+    #expect(CascadeRouter().deepLink(for: try #require(URL(string: value))) == nil)
 }
 
 private struct TestRouteHandler: DeepLinkRouteHandling {
@@ -39,7 +39,7 @@ private struct TestRouteHandler: DeepLinkRouteHandling {
 }
 
 @Test func deepLinkRouterUsesInjectedHandlersInOrder() throws {
-    let router = CraftRouter(handlers: [TestRouteHandler(destination: .terminal), TestRouteHandler(destination: .overview)])
+    let router = CascadeRouter(handlers: [TestRouteHandler(destination: .terminal), TestRouteHandler(destination: .overview)])
     let url = try #require(URL(string: "cascade://app/fixture"))
     #expect(router.deepLink(for: url) == DeepLink(.destination(.terminal)))
     #expect(router.url(for: DeepLink(.destination(.terminal))) == url)

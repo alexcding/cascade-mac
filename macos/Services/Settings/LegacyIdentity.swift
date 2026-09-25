@@ -8,7 +8,7 @@ enum LegacyIdentity {
     /// Every earlier data folder, newest first.
     private static let folders = ["Craft", "TaskHub"]
     /// The durable database under every name it has had. The backend renames the one it finds.
-    private static let databases = ["craft.db", "taskhub.db", "config.db"]
+    private static let databases = ["cascade.db", "craft.db", "taskhub.db", "config.db"]
 
     /// The default data folder. Reading it moves nothing: the old folders are carried by
     /// `carryData`, which the app calls at one point in launch, once it knows it is not yielding.

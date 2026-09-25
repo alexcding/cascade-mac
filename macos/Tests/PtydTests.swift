@@ -38,7 +38,7 @@ private final class EventLog: @unchecked Sendable {
     compiler.standardOutput = FileHandle.nullDevice; compiler.standardError = FileHandle.nullDevice
     try compiler.run(); compiler.waitUntilExit()
     try #require(compiler.terminationStatus == 0)
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
         directory: directory, socketPath: directory.appendingPathComponent("daemon.sock").path)
     let host = PtydHost(configuration: config), log = EventLog()
     let control = PtydClient(onEvent: log.append)
@@ -122,7 +122,7 @@ private final class EventLog: @unchecked Sendable {
     let shell = directory.appendingPathComponent("echo-shell")
     try "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf 'PTY_READY\\n'\nexec /bin/cat\n".write(to: shell, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     let host = PtydHost(configuration: config)
     let log = EventLog()
@@ -276,7 +276,7 @@ private final class EventLog: @unchecked Sendable {
     let shell = directory.appendingPathComponent("echo-shell")
     try "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf 'PTY_READY\\n'\nexec /bin/cat\n".write(to: shell, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     let log = EventLog(), otherLog = EventLog()
     let client = PtydClient(onEvent: log.append), other = PtydClient(onEvent: otherLog.append)
@@ -311,7 +311,7 @@ private final class EventLog: @unchecked Sendable {
     let shell = directory.appendingPathComponent("blocked-reader")
     try "#!/bin/sh\n/bin/stty raw -echo || exit 1\nprintf 'INPUT_READY\\n'\nexec /bin/sleep 30\n".write(to: shell, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shell.path)
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     let host = PtydHost(configuration: config), log = EventLog()
     let client = PtydClient(onEvent: log.append)
@@ -358,7 +358,7 @@ private final class EventLog: @unchecked Sendable {
     text += "PRIMARY_MARKER\u{1B}[5;9H\u{1B}7\u{1B}[?1049hALT_MARKER\r\nSPLIT_"
     let startup = Data(text.utf8) + Data([0xf0, 0x9f])
     try startup.write(to: directory.appendingPathComponent("startup"))
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     let host = PtydHost(configuration: config)
     let log = EventLog()
@@ -570,7 +570,7 @@ private final class EventLog: @unchecked Sendable {
         startup.appendingPathComponent(".zlogin"): "print -r -- login >> \"$HOME/startup.log\"\n",
     ]
     for (path, text) in files { try text.write(to: path, atomically: true, encoding: .utf8) }
-    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: root.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     // Isolate only this daemon's child environment; no user shell configuration
     // or history is read or modified by the integration test.
@@ -578,7 +578,7 @@ private final class EventLog: @unchecked Sendable {
     process.executableURL = config.executable
     process.arguments = [directory.path]
     var environment = ProcessInfo.processInfo.environment
-    environment["CRAFT_PTYD_SOCK"] = config.socketPath
+    environment["CASCADE_PTYD_SOCK"] = config.socketPath
     environment["HOME"] = home.path
     environment["ZDOTDIR"] = originalStartup.path
     environment["SHELL"] = "/bin/zsh"
@@ -660,7 +660,7 @@ private final class EventLog: @unchecked Sendable {
     let directory = URL(fileURLWithPath: "/tmp/th-pty-\(UUID().uuidString.prefix(12))")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     defer { try? FileManager.default.removeItem(at: directory) }
-    let config = PtydConfiguration(executable: TestPaths.checkout.appendingPathComponent("crates/craft-ptyd/target/debug/craft-ptyd"),
+    let config = PtydConfiguration(executable: TestPaths.checkout.appendingPathComponent("crates/cascade-ptyd/target/debug/cascade-ptyd"),
                                    directory: directory, socketPath: directory.appendingPathComponent("pty.sock").path)
     let shell = DetachedShell(pairKey: "build:fixture", cwd: directory.path, shellPath: "/bin/sh", configurationProvider: { config })
     try await shell.waitUntilReady()

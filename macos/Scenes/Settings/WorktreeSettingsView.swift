@@ -5,7 +5,7 @@ import SwiftUI
 /// session's new worktree is made, whether it fetches first, the default files it gets, and what
 /// removing it also removes. A project's setup script and its own patterns live in its settings.
 /// Every field is a config key the backend reads when the next worktree is made
-/// (`crates/craft-backend/src/worktrees.rs`), so nothing here touches a worktree that already exists.
+/// (`crates/cascade-backend/src/worktrees.rs`), so nothing here touches a worktree that already exists.
 struct WorktreeSettingsView<SaveRow: View>: View {
     @Bindable var model: SettingsViewModel
     @ViewBuilder var saveRow: SaveRow

@@ -109,7 +109,7 @@ func notificationClicksOpenCurrentRowsInTabsAndAcknowledgeOnlySuccessfulReviewOp
     model.openDelivered(web); await child.waitForOpen()
     #expect(runtime.pages.last?.kind == "web" && runtime.acknowledged.count == 1 && windows == 3)
     var upper = web; upper.url = "https://GitHub.com/a/b"
-    runtime.pageInApp = false // Opened in the browser: Craft's window stays behind it.
+    runtime.pageInApp = false // Opened in the browser: Cascade's window stays behind it.
     model.openDelivered(upper); await child.waitForOpen()
     #expect(runtime.pages.last?.kind == "github" && model.actionError == nil && windows == 3)
     runtime.pageInApp = true

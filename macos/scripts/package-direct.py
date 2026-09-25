@@ -41,7 +41,7 @@ def sign_app(app, identity, local):
     for binary in sorted(binaries, key=lambda p: (-len(p.parts), str(p))):
         entitlements = []
         if binary == app / "Contents/MacOS/Cascade":
-            entitlements = ["--entitlements", config / "Craft.entitlements"]
+            entitlements = ["--entitlements", config / "Cascade.entitlements"]
         elif "Frameworks" in binary.parts:
             entitlements = ["--preserve-metadata=entitlements"]
         run(*common, *entitlements, binary)
@@ -54,7 +54,7 @@ def sign_app(app, identity, local):
         if not infos or not plistlib.loads(infos[0].read_bytes()).get("CFBundleExecutable"):
             continue
         run(*common, "--preserve-metadata=entitlements", bundle)
-    run(*common, "--entitlements", config / "Craft.entitlements", app)
+    run(*common, "--entitlements", config / "Cascade.entitlements", app)
     run("codesign", "--verify", "--deep", "--strict", app)
 
 
@@ -113,16 +113,16 @@ def main():
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     if info.get("CFBundleIdentifier") != "com.alexcding.cascade":
         parser.error("Unexpected application bundle identity")
-    if not args.local and info.get("CraftBuildConfiguration") != "Release":
+    if not args.local and info.get("CascadeBuildConfiguration") != "Release":
         parser.error("Build the Release configuration before preparing a distribution")
-    # The backend is linked into the app binary (crates/craft-backend/src/ffi.rs);
+    # The backend is linked into the app binary (crates/cascade-backend/src/ffi.rs);
     # only the PTY helper ships as a separate executable.
-    for relative in ["Contents/Helpers/craft-ptyd"]:
+    for relative in ["Contents/Helpers/cascade-ptyd"]:
         if not (app / relative).is_file():
             parser.error("Run bundle-backend.sh before packaging: missing " + relative)
-    if (app / "Contents/Helpers/craft-backend").exists():
-        parser.error("Stale backend helper remains; rerun bundle-backend.sh: Contents/Helpers/craft-backend")
-    for relative in ["Contents/Helpers/craft-node", "Contents/Resources/backend"]:
+    if (app / "Contents/Helpers/cascade-backend").exists():
+        parser.error("Stale backend helper remains; rerun bundle-backend.sh: Contents/Helpers/cascade-backend")
+    for relative in ["Contents/Helpers/cascade-node", "Contents/Resources/backend"]:
         if (app / relative).exists():
             parser.error("Legacy Node bundle remains; rerun bundle-backend.sh: " + relative)
     # The working-changes diff page is the one bundled page. Its scripts may ship, byte for byte
@@ -135,7 +135,7 @@ def main():
             parser.error("Unexpected bundled JavaScript: " + str(script.relative_to(app)))
     destination.parent.mkdir(parents=True, exist_ok=True)
     # Publish the directory only after every packaging/signing operation succeeds.
-    with tempfile.TemporaryDirectory(prefix=".craft-package-", dir=destination.parent) as temporary:
+    with tempfile.TemporaryDirectory(prefix=".cascade-package-", dir=destination.parent) as temporary:
         stage = Path(temporary)
         result = stage / "result"
         result.mkdir()

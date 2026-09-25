@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
-@testable import Craft
+@testable import Cascade
 
 @Suite struct AgentDriverTests {
     private let opus = AgentCatalog.Model(id: "claude-opus-5", alias: "opus", name: "Opus 5",
@@ -21,7 +21,7 @@ import Testing
     }
 
     @Test func claudeLaunchCarriesTheStatusLineWithoutTouchingUserSettings() throws {
-        let line = AgentStatusLine(script: "/Apps/Craft Dev.app/it's.sh", taskID: "task-1")
+        let line = AgentStatusLine(script: "/Apps/Cascade Dev.app/it's.sh", taskID: "task-1")
         let command = ClaudeDriver().launchCommand(sessionID: "new", fresh: true, selection: nil, effort: nil, statusLine: line)
         #expect(command.hasPrefix("claude --session-id 'new' --settings '"))
         // Undo the shell quoting: what Claude receives must be the JSON naming the wrapper and task.
@@ -29,7 +29,7 @@ import Testing
         let json = String(quoted.dropFirst().dropLast()).replacingOccurrences(of: "'\"'\"'", with: "'")
         let value = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: [String: String]])
         #expect(value["statusLine"]?["type"] == "command")
-        #expect(value["statusLine"]?["command"] == "/bin/sh '/Apps/Craft Dev.app/it'\"'\"'s.sh' 'task-1'")
+        #expect(value["statusLine"]?["command"] == "/bin/sh '/Apps/Cascade Dev.app/it'\"'\"'s.sh' 'task-1'")
     }
 
     /// The rows as Codex 0.155 draws them: models in catalog order, the ordinary levels, then

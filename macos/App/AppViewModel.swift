@@ -114,7 +114,7 @@ public final class AppViewModel {
          notificationFactory: any NotificationFeatureFactory = NativeNotificationFeatureFactory(),
          selectionStore: any SidebarSelectionPersisting = UserDefaultsSidebarSelectionStore(),
          orderStore: any SidebarOrderPersisting = UserDefaultsSidebarOrderStore(),
-         router: any DeepLinkRouting = CraftRouter(),
+         router: any DeepLinkRouting = CascadeRouter(),
          projectFactory: (any ProjectFeatureFactory)? = nil,
          copy: @escaping (String) -> Void = { NativeClipboard.copy($0) }) {
         self.creationFactory = creationFactory
@@ -1309,7 +1309,7 @@ public final class AppViewModel {
     }
 
     /// Stops a session the pool picked, as Restart does, without starting it again: opening it
-    /// does that. Only the agent Craft launched goes, still in the terminal's foreground, with
+    /// does that. Only the agent Cascade launched goes, still in the terminal's foreground, with
     /// nothing it started still running in a group of its own: once the user quits it, what runs
     /// there is theirs, and a job it left in the background, a dev server or a build, is work in
     /// progress. Each step can take a moment, so one opened or busy meanwhile is attached again and
@@ -1698,12 +1698,12 @@ public final class AppViewModel {
     }
 
     private func received(_ event: ServerEvent) {
-        // A CLI in a terminal opening a link runs the BROWSER craft-ptyd gave it, which lands here:
+        // A CLI in a terminal opening a link runs the BROWSER cascade-ptyd gave it, which lands here:
         // the link opens as a click in that terminal would, in the panel beside it.
         if event.type == "terminal-open-url", let runID = event.runId, let url = event.url {
             // A shell that outlived a relaunch, in a session not opened since, has no terminal
             // here to open beside: its link goes to the default browser, as it would have
-            // without Craft, rather than nowhere.
+            // without Cascade, rather than nowhere.
             if let terminal = terminals.values.first(where: { $0.termID == runID }) { terminal.openLink(url, terminal.cwd, false) }
             else if let web = safeWebURL(url) { desktop.openBrowser(web) }
         }

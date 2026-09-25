@@ -27,7 +27,7 @@ struct CocoaSidebar: NSViewRepresentable {
     var onRenameSession: (String, String) -> Void = { _, _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
-    static let dragType = NSPasteboard.PasteboardType("com.craft.sidebar-row")
+    static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 

@@ -16,7 +16,7 @@ import Foundation
         try BackendHealth(service: "other", protocol: 1, pid: 1, instanceId: nil).validate()
     }
     #expect(throws: BackendError.self) {
-        try BackendHealth(service: "craft", protocol: 1, pid: 1, instanceId: "another").validate(instanceID: "ours")
+        try BackendHealth(service: "cascade", protocol: 1, pid: 1, instanceId: "another").validate(instanceID: "ours")
     }
 }
 
@@ -38,17 +38,17 @@ import Foundation
 }
 
 @Test func configurationResolvesRustDevelopmentRuntime() throws {
-    let development = try BackendConfiguration.current(arguments: ["Craft", "--backend-root", "/tmp/repo"], environment: [:])
+    let development = try BackendConfiguration.current(arguments: ["Cascade", "--backend-root", "/tmp/repo"], environment: [:])
     guard case .embedded = development.mode else { Issue.record("Expected the embedded backend for a checkout run"); return }
     #expect(!development.packaged)
-    let child = try BackendConfiguration.current(arguments: ["Craft", "--backend-root", "/tmp/repo", "--backend-path", "/tmp/repo/crates/craft-backend/target/debug/craft-backend", "--backend-port", "4000"], environment: [:])
+    let child = try BackendConfiguration.current(arguments: ["Cascade", "--backend-root", "/tmp/repo", "--backend-path", "/tmp/repo/crates/cascade-backend/target/debug/cascade-backend", "--backend-port", "4000"], environment: [:])
     guard case .owned(let executable, _) = child.mode else { Issue.record("Expected owned mode"); return }
     #expect(child.baseURL.port == 4000)
-    #expect(executable.path == "/tmp/repo/crates/craft-backend/target/debug/craft-backend")
+    #expect(executable.path == "/tmp/repo/crates/cascade-backend/target/debug/cascade-backend")
     #expect(throws: BackendError.self) {
-        try BackendConfiguration.current(arguments: ["Craft", "--backend-url"], environment: [:])
+        try BackendConfiguration.current(arguments: ["Cascade", "--backend-url"], environment: [:])
     }
-    let config = try BackendConfiguration.current(arguments: ["Craft", "--backend-url", "http://127.0.0.1:4321"], environment: [:])
+    let config = try BackendConfiguration.current(arguments: ["Cascade", "--backend-url", "http://127.0.0.1:4321"], environment: [:])
     guard case .external = config.mode else { Issue.record("Expected external mode"); return }
     #expect(config.baseURL.port == 4321)
 }

@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self?.showTerminationError(error)
     })
 
-    /// A second copy of Craft must not start: both would share the PTY daemon and the
+    /// A second copy of Cascade must not start: both would share the PTY daemon and the
     /// database, and whichever quits first takes the daemon — and the other's terminals —
     /// with it. Decided before anything is touched; `applicationDidFinishLaunching` then hands
     /// focus and any launch URLs to the running copy and leaves.
@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let other = runningCopy ?? LegacyIdentity.runningOldCopy() { yield(to: other); return }
         // A run given its own data folder never moves the default one.
         if !ProcessInfo.processInfo.arguments.contains("--data-dir"),
+           ProcessInfo.processInfo.environment["CASCADE_DATA_DIR"] == nil,
            ProcessInfo.processInfo.environment["CRAFT_DATA_DIR"] == nil {
             LegacyIdentity.carryData()
         }
@@ -90,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.menuBarImage(tint: nil)
         statusThickness = NSStatusBar.system.thickness
-        item.button?.setAccessibilityIdentifier("craft-status-item")
+        item.button?.setAccessibilityIdentifier("cascade-status-item")
         statusItem = item
         // A display added, removed or rearranged can change the menu bar's height under the glyph.
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
@@ -209,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the frame persists across launches (SwiftUI does not restore it for this scene).
     private func adoptWindow() {
         guard let window else { return }
-        if window.frameAutosaveName != "CraftNativeMain" { window.setFrameAutosaveName("CraftNativeMain") }
+        if window.frameAutosaveName != "CascadeNativeMain" { window.setFrameAutosaveName("CascadeNativeMain") }
         guard let close = window.standardWindowButton(.closeButton), close.target !== self else { return }
         close.target = self
         close.action = #selector(hideMainWindow)
@@ -230,10 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// Brings Craft forward from the background: a notification, the tray, a deep link, a
+    /// Brings Cascade forward from the background: a notification, the tray, a deep link, a
     /// Dock click after the window was put away, or a failed quit. The window always exists —
     /// closing only orders it out — so this undoes a hide. Menu commands never need it; they
-    /// only fire while Craft is active.
+    /// only fire while Cascade is active.
     private func showWindow() {
         trayMenu?.dismiss()
         NSApp.unhide(nil)

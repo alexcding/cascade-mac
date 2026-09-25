@@ -1,12 +1,12 @@
 import Foundation
 import Testing
-@testable import Craft
+@testable import Cascade
 
-// The backend linked into the process (crates/craft-backend/src/ffi.rs) behind
+// The backend linked into the process (crates/cascade-backend/src/ffi.rs) behind
 // the same APIClient the app uses everywhere.
 struct EmbeddedBackendTests {
     private func temporaryDirectory() -> URL {
-        FileManager.default.temporaryDirectory.appendingPathComponent("craft-embedded-\(UUID().uuidString)", isDirectory: true)
+        FileManager.default.temporaryDirectory.appendingPathComponent("cascade-embedded-\(UUID().uuidString)", isDirectory: true)
     }
 
     @Test func servesRoutesInProcessAndPublishesItsLoopbackPort() async throws {
@@ -107,7 +107,7 @@ struct EmbeddedBackendTests {
     }
 
     @Test func startFailureIsReportedNotFatal() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("craft-embedded-file-\(UUID().uuidString)")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-embedded-file-\(UUID().uuidString)")
         #expect(FileManager.default.createFile(atPath: file.path, contents: Data()))
         defer { try? FileManager.default.removeItem(at: file) }
         let backend = EmbeddedBackend(dataDirectory: file, packaged: false)

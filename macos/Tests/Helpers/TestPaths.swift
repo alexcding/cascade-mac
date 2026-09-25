@@ -5,11 +5,11 @@ enum TestPaths {
     static let checkout: URL = {
         var candidate = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         while candidate.path != "/" {
-            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("macos/Craft.xcodeproj/project.pbxproj").path) {
+            if FileManager.default.fileExists(atPath: candidate.appendingPathComponent("macos/Cascade.xcodeproj/project.pbxproj").path) {
                 return candidate
             }
             candidate.deleteLastPathComponent()
         }
-        preconditionFailure("Cannot find the Craft checkout for integration fixtures")
+        preconditionFailure("Cannot find the Cascade checkout for integration fixtures")
     }()
 }
