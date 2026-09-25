@@ -38,12 +38,12 @@ struct ProjectEditorView: View {
                             .accessibilityIdentifier("project-worktree-setup")
                         Button("Choose…") { Task { await model.pickSetupScript() } }.disabled(model.draft.workspace.isEmpty)
                     }
-                    Text("Runs inside each new worktree once it is created, in the background. A script from the repository runs the copy on the session's branch. $CASCADE_ROOT_PATH is the project folder, $CASCADE_WORKTREE_PATH the new worktree. Failures show in Activity.")
+                    Text("Runs in the new worktree in the background, using its branch’s script. $CASCADE_ROOT_PATH is the project folder; $CASCADE_WORKTREE_PATH is the worktree. Failures appear in Activity.")
                         .font(.caption).foregroundStyle(.secondary)
                     TextField("Copy ignored files", text: $model.draft.worktreeInclude, prompt: Text(".env*  (the default)"), axis: .vertical)
                         .lineLimit(1...6).font(.system(.body, design: .monospaced))
                         .accessibilityIdentifier("project-worktree-include")
-                    Text("A new worktree only gets the files git tracks, so git-ignored ones like .env or local config are missing. List the ones sessions need, one per line (.env, config/*.local), and they are copied in from the project folder before the setup script runs. Leave blank for the default in Settings → Worktrees.")
+                    Text("Copy ignored files from the project folder before setup runs. Enter one pattern per line, such as .env or config/*.local. Leave blank to use Settings → Worktrees defaults.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.formStyle(.grouped).disabled(model.busy)
@@ -58,7 +58,7 @@ struct ProjectEditorView: View {
                     Button("Revert", action: model.revert).disabled(!model.dirty || model.busy)
                 } else { Spacer() }
                 if model.busy { ProgressView().controlSize(.small) }
-                Button(model.id == nil ? "Create Project" : "Save Project") { Task { await model.save() } }
+                Button(model.id == nil ? String(localized: "Create Project") : String(localized: "Save Project")) { Task { await model.save() } }
                     .buttonStyle(.borderedProminent).disabled(!model.canSave)
             }
         }
@@ -75,14 +75,14 @@ struct NewProjectSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SheetTitle("New Project")
-            SheetField("Project Name") {
+            SheetTitle(String(localized: "New Project"))
+            SheetField(String(localized: "Project Name")) {
                 TextField("", text: $model.draft.name)
                     .textFieldStyle(.roundedBorder).focused($nameFocused)
                     .accessibilityLabel("Project Name")
                     .accessibilityIdentifier("project-name")
             }
-            SheetField("Local Git Repo", last: true) {
+            SheetField(String(localized: "Local Git Repo"), last: true) {
                 HStack(spacing: 8) {
                     TextField("/path/to/local/checkout", text: $model.draft.workspace)
                         .textFieldStyle(.roundedBorder)
@@ -95,27 +95,27 @@ struct NewProjectSheet: View {
                     ? Text("Sets the terminal's working directory; the GitHub repo is auto-detected from its \(sheetCode("git")) origin.")
                     : Text("GitHub repo: \(sheetCode(model.draft.repo))"))
             }
-            SheetSection("Jira") {
-                SheetField("Project Key", last: true) {
+            SheetSection(String(localized: "Jira")) {
+                SheetField(String(localized: "Project Key"), last: true) {
                     TextField("", text: Binding(get: { model.draft.jiraProjectKey },
                                                            set: { model.draft.jiraProjectKey = $0.uppercased() }))
                         .textFieldStyle(.roundedBorder)
                         .accessibilityLabel("Project Key")
-                    SheetHint(Text("Drives this project's **Jira** tab (Board, Tickets). Narrow both with the tab's filter clause (e.g. \(sheetCode("component = iOS")))."))
+                    SheetHint(Text("Sets the Jira project for Tickets and Sprint Board. Use a filter clause, such as \(sheetCode("component = iOS")), to narrow results."))
                 }
             }
             .padding(.top, 14)
-            SheetSection("Editor") {
-                SheetField("IDE", last: model.draft.ide != "custom") {
+            SheetSection(String(localized: "Editor")) {
+                SheetField(String(localized: "IDE"), last: model.draft.ide != "custom") {
                     Picker("IDE", selection: $model.draft.ide) {
                         ForEach(model.ideChoices) { Text($0.title).tag($0.id) }
                     }
                     .labelsHidden().fixedSize()
                     .accessibilityIdentifier("project-ide")
-                    SheetHint(Text("The editor a session opens its worktree in. Set a launch target later in Settings."))
+                    SheetHint(Text("The editor used to open session worktrees. Set a launch target in the project’s Settings tab."))
                 }
                 if model.draft.ide == "custom" {
-                    SheetField("Command Template", last: true) {
+                    SheetField(String(localized: "Command Template"), last: true) {
                         TextField("", text: $model.draft.ideCmd)
                             .textFieldStyle(.roundedBorder)
                             .accessibilityLabel("Command Template")
@@ -149,7 +149,7 @@ struct ProjectPageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Picker("Project section", selection: Binding(get: { model.section }, set: model.selectSection)) {
-                ForEach(model.availableSections) { Text($0.rawValue).tag($0) }
+                ForEach(model.availableSections) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented).labelsHidden()
             switch model.section {
             case .tickets:
@@ -163,7 +163,7 @@ struct ProjectPageView: View {
                 HStack {
                     TextField("Search project pull requests", text: Binding(get: { model.search }, set: model.setSearch)).textFieldStyle(.roundedBorder)
                     Picker("State", selection: Binding(get: { model.state }, set: model.setState)) {
-                        Text("Open").tag("open"); Text("Merged").tag("merged"); Text("All").tag("all")
+                        Text("Open PRs").tag("open"); Text("Merged").tag("merged"); Text("All").tag("all")
                     }.frame(width: 140).accessibilityIdentifier("project-pr-state")
                     if model.loading || model.refreshing { ProgressView().controlSize(.small) }
                 }
@@ -180,7 +180,7 @@ struct ProjectPageView: View {
                         if model.rows.isEmpty && model.refreshing {
                             Text("Refreshing pull requests…").foregroundStyle(.secondary).padding(.vertical, 20)
                         } else if model.rows.isEmpty && !model.loading && model.error == nil {
-                            Text(model.project.repo.isEmpty ? "Configure a GitHub repository in Settings to track pull requests." : "No matching pull requests.")
+                            Text(model.project.repo.isEmpty ? String(localized: "Configure a GitHub repository in Settings to track pull requests.") : String(localized: "No matching pull requests."))
                                 .foregroundStyle(.secondary).padding(.vertical, 20)
                         }
                         ForEach(model.rows) { row in

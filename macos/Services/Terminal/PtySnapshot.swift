@@ -19,11 +19,11 @@ struct PtySnapshot: Sendable {
 
         func validate() throws {
             try appearance?.validate()
-            if appearance != nil, geometry == nil { throw PtyError.connection("Snapshot appearance requires native geometry ownership.") }
+            if appearance != nil, geometry == nil { throw PtyError.connection(String(localized: "Snapshot appearance requires native geometry ownership.")) }
             if let geometry {
                 try geometry.validate()
                 guard geometry.cols == cols, geometry.rows == rows else {
-                    throw PtyError.connection("The snapshot geometry does not match its grid dimensions.")
+                    throw PtyError.connection(String(localized: "The snapshot geometry does not match its grid dimensions."))
                 }
             }
             guard token > 0, size > 0, size <= PtySnapshot.limit,
@@ -31,7 +31,7 @@ struct PtySnapshot: Sendable {
                   seq <= stateSeq, stateSeq < UInt64.max,
                   cols > 0, rows > 0, cols <= 4096, rows <= 4096,
                   UInt32(cols) * UInt32(rows) <= 1024 * 1024 else {
-                throw PtyError.connection("The daemon returned an incompatible or invalid terminal snapshot header.")
+                throw PtyError.connection(String(localized: "The daemon returned an incompatible or invalid terminal snapshot header."))
             }
         }
     }
@@ -66,7 +66,7 @@ struct PtySnapshotDownloader: Sendable {
                 guard chunk.token == header.token, chunk.offset == bytes.count,
                       chunk.bytes.count == expected,
                       chunk.done == (bytes.count + expected == header.size) else {
-                    throw PtyError.connection("The daemon returned an incomplete or out-of-order terminal snapshot chunk.")
+                    throw PtyError.connection(String(localized: "The daemon returned an incomplete or out-of-order terminal snapshot chunk."))
                 }
                 bytes.append(chunk.bytes)
             }

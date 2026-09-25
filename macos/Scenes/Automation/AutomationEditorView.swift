@@ -36,7 +36,7 @@ struct AutomationEditorView: View {
         .confirmationDialog("Delete this automation?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { Task { await model.delete() } }
         } message: {
-            Text("Its run history is kept in Activity.")
+            Text("Existing Activity entries are kept.")
         }
     }
 
@@ -53,9 +53,9 @@ struct AutomationEditorView: View {
             }
             Spacer(minLength: 12)
             HStack(spacing: 8) {
-                Text(model.draft?.mode == .live ? "On" : "Off").font(.system(size: 13, weight: .medium))
+                Text(model.draft?.mode == .live ? String(localized: "On") : String(localized: "Off")).font(.system(size: 13, weight: .medium))
                     .foregroundStyle(model.draft?.mode == .live ? Theme.success : DashboardPalette.ink3)
-                Toggle("On", isOn: Binding(
+                Toggle(String(localized: "On"), isOn: Binding(
                     get: { model.draft?.mode == .live },
                     set: { on in Task { await model.setMode(on ? .live : .off) } }))
                     .toggleStyle(.switch).labelsHidden()
@@ -68,8 +68,8 @@ struct AutomationEditorView: View {
 
     private var caption: String {
         guard let draft = model.draft else { return "" }
-        if model.isNew { return "New automation · not saved" }
-        let mode = draft.mode == .live ? "On — acts on real events" : "Off — never runs"
+        if model.isNew { return String(localized: "New automation · not saved") }
+        let mode = draft.mode == .live ? String(localized: "On — acts on real events") : String(localized: "Off — automatic runs disabled")
 
         let stored = model.automations.first { $0.id == draft.id }
         return stored?.lastRun.map { "\(mode) · \(AutomationStatus.lastRun($0))" } ?? mode
@@ -90,7 +90,7 @@ struct AutomationEditorView: View {
                 Text("Unsaved changes").font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink3)
             }
             Spacer()
-            Button(model.isNew ? "Discard" : "Delete…", role: .destructive) {
+            Button(model.isNew ? String(localized: "Discard") : String(localized: "Delete…"), role: .destructive) {
                 if model.isNew { model.revert() } else { confirmDelete = true }
             }
             .disabled(model.saving)
@@ -121,7 +121,7 @@ private struct AutomationPanelTabs: View {
             ForEach(AutomationViewModel.Panel.allCases) { panel in
                 let active = panel == selection
                 Button { selection = panel } label: {
-                    Text(panel.rawValue).font(.system(size: 12.5, weight: .semibold))
+                    Text(panel.label).font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
                         .padding(.horizontal, 12).frame(height: 30)
                         .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -148,24 +148,24 @@ private struct AutomationChain: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "When", detail: "Any of these starts a run")
+            DashboardSectionHeader(title: String(localized: "When"), detail: String(localized: "Any of these starts a run"))
             TriggerCard(model: model, catalog: catalog, draft: draft, jira: jiraTrigger)
             ChainConnector()
-            DashboardSectionHeader(title: "Only if", detail: filters.isEmpty ? "No filters: every event continues" : "Every filter must pass, top to bottom")
+            DashboardSectionHeader(title: String(localized: "Only if"), detail: filters.isEmpty ? String(localized: "No filters: every event continues") : String(localized: "Every filter must pass, top to bottom"))
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(filters) { step in
                     StepCard(model: model, step: step, node: catalog.filter(step.type), glyph: "line.3.horizontal.decrease", tone: .warning)
                 }
-                AddNodeMenu(title: "Add Filter", nodes: catalog.filters) { model.addStep(.filter, type: $0) }
+                AddNodeMenu(title: String(localized: "Add Filter"), nodes: catalog.filters) { model.addStep(.filter, type: $0) }
                     .accessibilityIdentifier("automation-add-filter")
             }
             ChainConnector()
-            DashboardSectionHeader(title: "Then", detail: actions.isEmpty ? "Add at least one action" : "In order; an error stops the rest")
+            DashboardSectionHeader(title: String(localized: "Then"), detail: actions.isEmpty ? String(localized: "Add at least one action") : String(localized: "Runs in order. Errors stop the following actions unless configured to continue."))
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(actions) { step in
                     StepCard(model: model, step: step, node: catalog.action(step.type), glyph: "arrow.right", tone: .success)
                 }
-                AddNodeMenu(title: "Add Action", nodes: catalog.actions) { model.addStep(.action, type: $0) }
+                AddNodeMenu(title: String(localized: "Add Action"), nodes: catalog.actions) { model.addStep(.action, type: $0) }
                     .accessibilityIdentifier("automation-add-action")
             }
             if !catalog.variables.isEmpty {
@@ -261,11 +261,11 @@ private struct TriggerCard: View {
     var body: some View {
         NodeCard {
             if selected.isEmpty {
-                NodeTitle(glyph: "bolt.fill", tone: .accent, title: "No trigger yet", summary: "Choose what starts this automation.") { EmptyView() }
+                NodeTitle(glyph: "bolt.fill", tone: .accent, title: String(localized: "No trigger yet"), summary: String(localized: "Choose what starts this automation.")) { EmptyView() }
             }
             ForEach(selected) { node in
-                NodeTitle(glyph: "bolt.fill", tone: .accent, title: node.label, summary: node.summary) {
-                    AutomationIconButton(symbol: "xmark", help: "Remove trigger") { model.toggleTrigger(node.type) }
+                NodeTitle(glyph: "bolt.fill", tone: .accent, title: node.localizedLabel, summary: node.localizedSummary) {
+                    AutomationIconButton(symbol: "xmark", help: String(localized: "Remove trigger")) { model.toggleTrigger(node.type) }
                 }
             }
             ForEach(AutomationCatalog.visible(params, values: draft.trigger.params)) { param in
@@ -275,13 +275,13 @@ private struct TriggerCard: View {
                 ForEach(AutomationCatalog.grouped(catalog.triggers), id: \.group) { group in
                     Section(group.group) {
                         ForEach(group.nodes) { node in
-                            Toggle(node.label, isOn: Binding(get: { draft.trigger.types.contains(node.type) },
+                            Toggle(node.localizedLabel, isOn: Binding(get: { draft.trigger.types.contains(node.type) },
                                                              set: { _ in model.toggleTrigger(node.type) }))
                         }
                     }
                 }
             } label: {
-                OutlinedButtonLabel(title: "Add Trigger", symbol: "plus")
+                OutlinedButtonLabel(title: String(localized: "Add Trigger"), symbol: "plus")
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             .accessibilityIdentifier("automation-add-trigger")
@@ -299,9 +299,9 @@ private struct ProjectScope: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            FieldLabel(text: "Projects")
+            FieldLabel(text: String(localized: "Projects"))
             FlowRow(spacing: 8, lineSpacing: 8) {
-                ScopeTag(title: "All projects", active: all) { model.setAllProjects(!all) }
+                ScopeTag(title: String(localized: "All projects"), active: all) { model.setAllProjects(!all) }
                 ForEach(projects) { project in
                     ScopeTag(title: project.name, active: !all && draft.trigger.projects.contains(project.id)) {
                         model.toggleProject(project.id)
@@ -343,15 +343,15 @@ private struct StepCard: View {
 
     var body: some View {
         NodeCard {
-            NodeTitle(glyph: glyph, tone: tone, title: node?.label ?? step.type, summary: node?.summary) {
+            NodeTitle(glyph: glyph, tone: tone, title: node?.localizedLabel ?? step.type, summary: node?.localizedSummary) {
                 HStack(spacing: 6) {
-                    AutomationIconButton(symbol: "chevron.up", help: "Move up", disabled: !model.canMove(step.id, by: -1)) {
+                    AutomationIconButton(symbol: "chevron.up", help: String(localized: "Move up"), disabled: !model.canMove(step.id, by: -1)) {
                         model.moveStep(step.id, by: -1)
                     }
-                    AutomationIconButton(symbol: "chevron.down", help: "Move down", disabled: !model.canMove(step.id, by: 1)) {
+                    AutomationIconButton(symbol: "chevron.down", help: String(localized: "Move down"), disabled: !model.canMove(step.id, by: 1)) {
                         model.moveStep(step.id, by: 1)
                     }
-                    AutomationIconButton(symbol: "trash", help: "Remove") { model.removeStep(step.id) }
+                    AutomationIconButton(symbol: "trash", help: String(localized: "Remove")) { model.removeStep(step.id) }
                 }
             }
             if node == nil {
@@ -380,7 +380,7 @@ private struct AddNodeMenu: View {
         Menu {
             ForEach(AutomationCatalog.grouped(nodes), id: \.group) { group in
                 Section(group.group) {
-                    ForEach(group.nodes) { node in Button(node.label) { add(node.type) } }
+                    ForEach(group.nodes) { node in Button(node.localizedLabel) { add(node.type) } }
                 }
             }
         } label: {
@@ -425,35 +425,35 @@ private struct ParamField: View {
             switch param.kind {
             case "bool":
                 Toggle(isOn: Binding(get: { value?.flag ?? false }, set: { set(.flag($0)) })) {
-                    Text(param.label).font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink2)
+                    Text(param.localizedLabel).font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink2)
                 }
                 .toggleStyle(.switch).controlSize(.mini)
             case "enum":
-                FieldLabel(text: param.label)
-                Picker(param.label, selection: Binding(get: { value?.text ?? param.default?.text ?? param.options?.first?.value ?? "" },
+                FieldLabel(text: param.localizedLabel)
+                Picker(param.localizedLabel, selection: Binding(get: { value?.text ?? param.default?.text ?? param.options?.first?.value ?? "" },
                                                        set: { set(.text($0)) })) {
-                    ForEach(param.options ?? [], id: \.value) { Text($0.label).tag($0.value) }
+                    ForEach(param.options ?? [], id: \.value) { Text($0.localizedLabel).tag($0.value) }
                 }
                 .labelsHidden().fixedSize()
             case "number":
-                FieldLabel(text: param.label)
+                FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: Binding(
                     get: { value?.text ?? "" },
                     set: { set(Double($0).map(ParamValue.number) ?? ($0.isEmpty ? .null : .text($0))) }))
                     .textFieldStyle(.roundedBorder).frame(width: 110)
             case "template", "script":
-                FieldLabel(text: param.label)
+                FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(param.kind == "script" ? 3...10 : 1...5)
                     .font(param.kind == "script" ? .system(size: 12, design: .monospaced) : .system(size: 13))
             default:
-                FieldLabel(text: param.label)
+                FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: text)
                     .textFieldStyle(.roundedBorder)
                     .font(param.kind == "jql" ? .system(size: 12, design: .monospaced) : .system(size: 13))
             }
-            if let help = param.help {
+            if let help = param.localizedHelp {
                 Text(help).font(.system(size: 11.5)).foregroundStyle(DashboardPalette.ink3)
                     .fixedSize(horizontal: false, vertical: true)
             }

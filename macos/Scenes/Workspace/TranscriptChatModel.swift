@@ -252,8 +252,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Why the chat cannot do everything the terminal does, when it cannot.
     var hookNotice: String? {
         switch hooks {
-        case "absent": "Without the \(agentName) hook, Cascade can't always tell when \(agentName) is working: a message may wait for Send Now, and approvals appear in the terminal."
-        case "outdated": "Update the \(agentName) hook to answer approvals here. Until then they appear in the terminal: if \(agentName) seems stuck, switch to it."
+        case "absent": String(localized: "Without the \(agentName) hook, Cascade can't always tell when \(agentName) is working: a message may wait for Send Now, and approvals appear in the terminal.")
+        case "outdated": String(localized: "Update the \(agentName) hook to answer approvals here. Until then they appear in the terminal: if \(agentName) seems stuck, switch to it.")
         default: nil
         }
     }

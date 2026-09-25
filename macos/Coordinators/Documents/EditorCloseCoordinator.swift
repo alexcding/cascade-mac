@@ -21,11 +21,11 @@ enum WorkspaceVisit: Identifiable {
 @MainActor struct NativeEditorClosePresenter: EditorClosePresenting {
     func choose(_ request: EditorCloseViewModel.Request) async -> EditorCloseViewModel.Choice {
         let alert = NSAlert()
-        alert.messageText = "Save changes to “\(request.title)” before closing?"
-        alert.informativeText = request.error.map { "\($0)\n\nYour changes have not been discarded." } ?? "Your changes will be lost if you discard them."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Discard")
-        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        alert.messageText = String(localized: "Save changes to “\(request.title)” before closing?")
+        alert.informativeText = request.error.map { String(localized: "\($0)\n\nYour changes have not been discarded.") } ?? String(localized: "Your changes will be lost if you discard them.")
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Discard"))
+        alert.addButton(withTitle: String(localized: "Cancel")).keyEquivalent = "\u{1b}"
         let response: NSApplication.ModalResponse
         if let window = NSApp.keyWindow { response = await alert.beginSheetModal(for: window) }
         else { response = alert.runModal() }

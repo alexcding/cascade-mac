@@ -8,7 +8,7 @@ import AppKit
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-        panel.prompt = "Choose Workspace"
+        panel.prompt = String(localized: "Choose Workspace")
         let response = await panel.beginSheetModal(for: window)
         return response == .OK ? panel.url?.path : nil
     }
@@ -23,7 +23,7 @@ import AppKit
         panel.canCreateDirectories = false
         panel.showsHiddenFiles = true
         panel.directoryURL = URL(fileURLWithPath: folder, isDirectory: true)
-        panel.prompt = "Choose Script"
+        panel.prompt = String(localized: "Choose Script")
         let response = await panel.beginSheetModal(for: window)
         return response == .OK ? panel.url?.path : nil
     }

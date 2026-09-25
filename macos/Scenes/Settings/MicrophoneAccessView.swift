@@ -4,8 +4,8 @@ struct MicrophoneAccessView: View {
     let model: MicrophoneAccessViewModel
     var body: some View {
         Section("Microphone") {
-            SettingsRow(title: "Microphone access",
-                        caption: "Voice input in terminal sessions and agents runs under Cascade's permission.") {
+            SettingsRow(title: String(localized: "Microphone access"),
+                        caption: String(localized: "Voice input in terminal sessions and agents runs under Cascade's permission.")) {
                 HStack {
                     if model.loading || model.requesting { ProgressView().controlSize(.small) }
                     if model.canRequest {
@@ -26,10 +26,10 @@ struct MicrophoneAccessView: View {
     }
     private static func pillText(_ status: MicrophoneAccessStatus) -> String {
         switch status {
-        case .authorized: return "Allowed"
-        case .denied: return "Denied"
-        case .restricted: return "Restricted"
-        case .notDetermined: return "Not requested"
+        case .authorized: return String(localized: "Allowed")
+        case .denied: return String(localized: "Denied")
+        case .restricted: return String(localized: "Restricted")
+        case .notDetermined: return String(localized: "Not requested")
         }
     }
 }

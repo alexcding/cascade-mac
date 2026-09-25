@@ -16,7 +16,7 @@ import Observation
         }
         if case .files(let multiple, let directories) = request.kind {
             let panel = NSOpenPanel()
-            panel.title = "Choose files for \(request.origin)"
+            panel.title = String(localized: "Choose files for \(request.origin)")
             panel.canChooseFiles = true
             panel.canChooseDirectories = directories
             panel.allowsMultipleSelection = multiple
@@ -31,7 +31,7 @@ import Observation
         }
         let alert = NSAlert()
         alert.window.setAccessibilityIdentifier("browser-dialog")
-        alert.messageText = request.origin + " says"
+        alert.messageText = String(localized: "\(request.origin) says")
         let field: NSTextField?
         switch request.kind {
         case .alert(let message), .confirm(let message):
@@ -41,12 +41,12 @@ import Observation
             let input = NSTextField(string: defaultText)
             input.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
             input.setAccessibilityIdentifier("browser-dialog-input")
-            input.setAccessibilityLabel("Response")
+            input.setAccessibilityLabel(String(localized: "Response"))
             alert.accessoryView = input; field = input
         case .files: return {}
         }
-        alert.addButton(withTitle: "OK")
-        if case .alert = request.kind {} else { alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}" }
+        alert.addButton(withTitle: String(localized: "OK"))
+        if case .alert = request.kind {} else { alert.addButton(withTitle: String(localized: "Cancel")).keyEquivalent = "\u{1b}" }
         alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { completion(.cancel); return }
             switch request.kind {

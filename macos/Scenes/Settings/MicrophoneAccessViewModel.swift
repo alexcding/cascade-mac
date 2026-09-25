@@ -26,12 +26,12 @@ import Observation
     /// A policy restriction cannot be lifted from the privacy pane, so only a denial offers it.
     var canOpenSystemSettings: Bool { !retired && active && status == .denied && settingsOpen == nil }
     var statusText: String {
-        guard let status else { return "Checking microphone access…" }
+        guard let status else { return String(localized: "Checking microphone access…") }
         switch status {
-        case .notDetermined: return "Not requested. Cascade asks the first time a session needs the microphone."
-        case .authorized: return "Allowed. Sessions and agents running in Cascade can use the microphone."
-        case .denied: return "Denied. Allow Cascade under Privacy & Security › Microphone."
-        case .restricted: return "Restricted by a system policy; Cascade cannot request it."
+        case .notDetermined: return String(localized: "Not requested. Cascade asks the first time a session needs the microphone.")
+        case .authorized: return String(localized: "Allowed. Sessions and agents running in Cascade can use the microphone.")
+        case .denied: return String(localized: "Denied. Allow Cascade under Privacy & Security › Microphone.")
+        case .restricted: return String(localized: "Restricted by a system policy; Cascade cannot request it.")
         }
     }
 

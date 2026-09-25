@@ -44,6 +44,71 @@ struct ChatPageState: Encodable, Equatable {
     let queued: Bool
     let loaded: Bool
     let permission: AgentPermissionPrompt?
+    var localization = ChatPageLocalization()
+}
+
+/// App-owned page text travels with the snapshot; transcript content remains unchanged.
+struct ChatPageLocalization: Encodable, Equatable {
+    var locale = Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
+    var language = Bundle.main.preferredLocalizations.first ?? "en"
+    var direction = Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en").characterDirection == .rightToLeft ? "rtl" : "ltr"
+    var strings: [String: String] = [
+        "Close": String(localized: "Close"),
+        "Copied": String(localized: "Copied"),
+        "Copy Code": String(localized: "Copy Code"),
+        "Copy Link": String(localized: "Copy Link"),
+        "Copy Table": String(localized: "Copy Table"),
+        "Copy as %@": String(localized: "Copy as %@"),
+        "Download Diagram": String(localized: "Download Diagram"),
+        "Download File": String(localized: "Download File"),
+        "Download Image": String(localized: "Download Image"),
+        "Download Table": String(localized: "Download Table"),
+        "Download as %@": String(localized: "Download as %@"),
+        "Exit Full Screen": String(localized: "Exit Full Screen"),
+        "Image unavailable": String(localized: "Image unavailable"),
+        "Open External Link": String(localized: "Open External Link"),
+        "Open Link": String(localized: "Open Link"),
+        "Reset View": String(localized: "Reset View"),
+        "View Full Screen": String(localized: "View Full Screen"),
+        "You are about to open an external link.": String(localized: "You are about to open an external link."),
+        "Zoom In": String(localized: "Zoom In"),
+        "Zoom Out": String(localized: "Zoom Out"),
+        "Conversation": String(localized: "Conversation"),
+        "Copy": String(localized: "Copy"),
+        "Ran": String(localized: "Ran"),
+        "Read": String(localized: "Read"),
+        "Edited": String(localized: "Edited"),
+        "Created": String(localized: "Created"),
+        "Searched": String(localized: "Searched"),
+        "Fetched": String(localized: "Fetched"),
+        "Searched the web": String(localized: "Searched the web"),
+        "Delegated": String(localized: "Delegated"),
+        "Updated plan": String(localized: "Updated plan"),
+        "Tool": String(localized: "Tool"),
+        "Failed": String(localized: "Failed"),
+        "Command": String(localized: "Command"),
+        "Error": String(localized: "Error"),
+        "Output": String(localized: "Output"),
+        "Thought": String(localized: "Thought"),
+        "Worked": String(localized: "Worked"),
+        "Working": String(localized: "Working"),
+        "Worked for %@": String(localized: "Worked for %@"),
+        "Run this command?": String(localized: "Run this command?"),
+        "Edit this file?": String(localized: "Edit this file?"),
+        "Create this file?": String(localized: "Create this file?"),
+        "Apply this patch?": String(localized: "Apply this patch?"),
+        "Fetch this page?": String(localized: "Fetch this page?"),
+        "Search the web?": String(localized: "Search the web?"),
+        "Allow %@?": String(localized: "Allow %@?"),
+        "Too long to show here in full. Review it in the terminal.": String(localized: "Too long to show here in full. Review it in the terminal."),
+        "Review in Terminal": String(localized: "Review in Terminal"),
+        "Allow": String(localized: "Allow"),
+        "Deny": String(localized: "Deny"),
+        "No conversation yet. Send a message to start.": String(localized: "No conversation yet. Send a message to start."),
+        "Waiting to send": String(localized: "Waiting to send"),
+        "Scroll to latest": String(localized: "Scroll to latest"),
+        "The chat page failed to load.": String(localized: "The chat page failed to load."),
+    ]
 }
 
 /// The web view the conversation is drawn in (prototype). Push-only, like the diff page: Swift

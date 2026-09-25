@@ -44,7 +44,7 @@ extension BuildSettings {
     /// device, `simctl` on a simulator.
     func command(scheme: String, simulator: String) throws -> String {
         guard appPath.hasSuffix(".app"), !bundleId.isEmpty, !scheme.isEmpty, !simulator.isEmpty else {
-            throw BackendError.operation("Choose a scheme that builds an application and a destination.")
+            throw BackendError.operation(String(localized: "Choose a scheme that builds an application and a destination."))
         }
         let q = SessionAgent.quote
         let document = target.hasSuffix(".xcworkspace") ? " -workspace \(q(target))"
@@ -63,7 +63,7 @@ extension BuildSettings {
             // Run the executable itself so its output lands here and Stop reaches it.
             // pkill reads a pattern, so the path is escaped to match only itself.
             guard let executablePath, !executablePath.isEmpty, executablePath != (appPath as NSString).deletingLastPathComponent else {
-                throw BackendError.operation("Scheme \(scheme) builds no runnable application.")
+                throw BackendError.operation(String(localized: "Scheme \(scheme) builds no runnable application."))
             }
             return "(cd \(q(cwd)) && { \(build) && { /usr/bin/pkill -f -- \(q(NSRegularExpression.escapedPattern(for: executablePath))) >/dev/null 2>&1; exec \(q(executablePath)); }; })"
         }

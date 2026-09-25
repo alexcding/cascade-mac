@@ -7,13 +7,13 @@ struct CLIIntegrationSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section {
-            Text("Cascade uses your installed tools and their existing sign-in sessions.")
+            Text("Use your installed tools and existing sign-ins.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.required) { cli in CLIStatusRow(model: model, cli: cli) }
             if let error = model.probeError { Text(error).foregroundStyle(Theme.danger) }
             if let error = model.actionError { Text(error).foregroundStyle(Theme.danger) }
         } header: {
-            SettingsSectionHeader(title: "CLI integration", busy: model.probing) {
+            SettingsSectionHeader(title: String(localized: "CLI integration"), busy: model.probing) {
                 Button("Refresh", action: model.refresh).disabled(model.probing)
                     .accessibilityIdentifier("cli-refresh")
             }
@@ -30,8 +30,8 @@ struct WebhookForwardingSection: View {
     var body: some View {
         Section("GitHub webhooks") {
             ForEach(ManagedCLI.webhooks) { cli in CLIStatusRow(model: clis, cli: cli) }
-            SettingsRow(title: "Forward webhooks to automations",
-                        caption: "Pull request events reach automations as they happen. Off, or without the extension, polling still catches every change.") {
+            SettingsRow(title: String(localized: "Forward webhooks to automations"),
+                        caption: String(localized: "Pull request events reach automations as they happen. When disabled or unavailable, Cascade checks for updates on its regular schedule.")) {
                 Toggle("Forward webhooks to automations", isOn: Binding(get: { model.enabled },
                                                                         set: { value in Task { await model.setEnabled(value) } }))
                     .toggleStyle(.switch).labelsHidden()
@@ -54,7 +54,7 @@ struct SimulatorPreviewSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Simulator preview") {
-            Text("Run on an iOS simulator to see it in the session's Simulator panel. Cascade streams it with Expo's serve-sim, fetched automatically, which needs Node.js 20 or later. Any Node your terminal finds works: Homebrew, the Node.js installer, nvm, fnm, Volta, asdf or mise.")
+            Text("Simulator preview needs Node.js 20 or later in your terminal. Cascade downloads its preview tool automatically when first used.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.simulatorPreview) { cli in CLIStatusRow(model: model, cli: cli) }
         }
@@ -71,9 +71,9 @@ private struct CLIStatusRow: View {
             let outdated = state?.outdated(for: cli) == true
             // serve-sim is fetched on use: what it lacks is Node, which has its own row.
             if cli != .serveSim, state?.present == false || outdated {
-                Button(outdated ? "Update" : "Install") { model.openGuide(cli) }
+                Button(LocalizedStringKey(outdated ? "Update" : "Install")) { model.openGuide(cli) }
                 if let command = model.installCommand(cli) {
-                    Button(command.hasPrefix("brew ") ? "Copy Homebrew Command" : "Copy Install Command") {
+                    Button(LocalizedStringKey(command.hasPrefix("brew ") ? "Copy Homebrew Command" : "Copy Install Command")) {
                         model.copyInstall(cli)
                     }.help(command)
                 }
@@ -124,7 +124,7 @@ struct WorkflowHooksSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Workflow hooks") {
-            Text("Hooks report when an agent starts and finishes a turn. Cascade merges its entries into the agent's configuration and removes only its own entries.")
+            Text("Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             ForEach(ManagedCLI.allCases.filter(\.supportsHooks)) { cli in
                 SettingsStatusRow(title: cli.title, status: model.hookLabel(cli),
@@ -147,12 +147,12 @@ struct AgentStatusLineSection: View {
     let model: CLISettingsViewModel
     var body: some View {
         Section("Context status line") {
-            Text("Claude Code tells only its status line how large its context window is. Sessions Cascade launches report it already. Install this so sessions you start yourself do too. Your own status line keeps drawing, and is put back when this is removed.")
+            Text("Show context usage for Claude Code sessions started outside Cascade. Sessions started here already report it. Your existing status line is preserved.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             SettingsStatusRow(title: ManagedCLI.claude.title, status: model.statusLineLabel,
                               tone: model.statusLineInstalled ? .success : .neutral,
                               statusIdentifier: "statusline-status", busy: model.changingStatusLine) {
-                Button(model.statusLineInstalled ? "Remove status line" : "Install status line", action: model.requestToggleStatusLine)
+                Button(LocalizedStringKey(model.statusLineInstalled ? "Remove status line" : "Install status line"), action: model.requestToggleStatusLine)
                     .disabled(!model.canChangeStatusLine).accessibilityIdentifier("statusline-toggle")
             }
         }

@@ -16,8 +16,8 @@ protocol LoginItemService: Sendable {
 
 enum LoginItemRegistrationPolicy {
     static func unavailableReason(debug: Bool, packaged: Bool) -> String? {
-        if debug { return "Launch at login is unavailable in development builds. Use the packaged release app." }
-        if !packaged { return "Launch at login requires the packaged app with its bundled backend." }
+        if debug { return String(localized: "Launch at login is unavailable in development builds. Use the packaged release app.") }
+        if !packaged { return String(localized: "Launch at login requires the installed release app.") }
         return nil
     }
     static var currentReason: String? {

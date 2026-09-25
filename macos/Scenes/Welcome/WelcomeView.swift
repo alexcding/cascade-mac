@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The first-run welcome sheet. Every page can be skipped: nothing here is required to open the
-/// app, and Settings > CLIs offers the same controls afterwards.
+/// app, and Settings → Integrations offers the same controls afterwards.
 struct WelcomeView: View {
     let model: WelcomeViewModel
     let cancel: () -> Void
@@ -10,11 +10,11 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             Group {
                 switch model.page {
-                case .welcome: WelcomeIntroPage()
+                case .welcome: ScrollView { WelcomeIntroPage() }
                 case .tools: WelcomeToolsPage(model: model)
                 case .hooks: WelcomeHooksPage(model: model)
                 case .simulator: WelcomeSimulatorPage(model: model)
-                case .done: WelcomeDonePage(model: model)
+                case .done: ScrollView { WelcomeDonePage(model: model) }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -24,6 +24,9 @@ struct WelcomeView: View {
         // A fixed panel, the size of a system setup assistant: it never grows with the window.
         .frame(width: 620, height: 580)
         .interactiveDismissDisabled(model.busy)
+        .environment(\.layoutDirection,
+                     Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+                        .characterDirection == .rightToLeft ? .rightToLeft : .leftToRight)
     }
 
     private var footer: some View {
@@ -43,7 +46,7 @@ struct WelcomeView: View {
                 Button("Skip Setup", action: cancel).keyboardShortcut(.cancelAction)
                     .disabled(model.busy).accessibilityIdentifier("welcome-skip")
             }
-            Button(model.isLast ? "Done" : "Continue") { if model.isLast { model.finish() } else { model.next() } }
+            Button(LocalizedStringKey(model.isLast ? "Done" : "Continue")) { if model.isLast { model.finish() } else { model.next() } }
                 .keyboardShortcut(.defaultAction).disabled(model.isLast && model.busy)
                 .accessibilityIdentifier("welcome-continue")
         }
@@ -63,8 +66,8 @@ private struct WelcomeHeader<Hero: View>: View {
             hero.frame(maxWidth: .infinity).frame(height: 116)
                 .background(Theme.accentBackground)
                 .accessibilityHidden(true)
-            Text(title).font(.system(size: 20, weight: .semibold)).padding(.top, 12)
-            Text(subtitle).font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
+            Text(LocalizedStringKey(title)).font(.system(size: 20, weight: .semibold)).padding(.top, 12)
+            Text(LocalizedStringKey(subtitle)).font(.system(size: 13)).foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 48)
         }
@@ -113,20 +116,20 @@ private struct WelcomeIntroPage: View {
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "Welcome to Cascade",
-                          subtitle: "One place for your pull requests, tickets and the coding agents working on them.") {
+                          subtitle: "Your pull requests, tickets, and coding agents in one workspace.") {
                 WelcomeAppIcon()
             }
             VStack(alignment: .leading, spacing: 18) {
-                point("terminal", "It drives the tools you already use",
-                      "Cascade runs Claude Code, Codex, the GitHub CLI and the Atlassian CLI from your machine, with the sign-ins they already have. It stores no credentials of its own.")
+                point("terminal", "Use the tools you already know",
+                      "Use your installed tools and existing sign-ins. Choose Shell only to work without an agent.")
                 point("arrow.triangle.branch", "One session per worktree",
-                      "Each session is an agent on its own git worktree, linked to the pull request or ticket it was started from.")
-                point("bell", "It knows when an agent is waiting",
-                      "With hooks installed, agents report when a turn starts and ends, so the sidebar and notifications show which session needs you.")
+                      "Each session has its own Git worktree and terminal. Start from a branch name, pull request, or Jira ticket.")
+                point("bell", "See which session needs you",
+                      "Agent hooks update the sidebar and notify you when a session needs attention.")
             }
             .padding(.horizontal, 56).padding(.top, 20)
             Spacer(minLength: 0)
-            Text("The next pages check your tools, install the hooks and set up the iOS Simulator preview. It takes about a minute.")
+            Text("Set up your tools, agent hooks, and optional Simulator preview. You can skip setup and return later.")
                 .font(.system(size: 12)).foregroundStyle(Theme.textTertiary).padding(.bottom, 16)
         }
     }
@@ -136,22 +139,22 @@ private struct WelcomeIntroPage: View {
             Image(systemName: symbol).font(.system(size: 17)).foregroundStyle(Theme.accent)
                 .frame(width: 26, alignment: .center).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(detail).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                Text(LocalizedStringKey(title)).font(.system(size: 13, weight: .semibold))
+                Text(LocalizedStringKey(detail)).font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 }
 
-/// The same card Settings > CLIs shows, so what a user learns here is where they find it later.
+/// The same card Settings → Integrations shows, so what a user learns here is where they find it later.
 private struct WelcomeToolsPage: View {
     let model: WelcomeViewModel
 
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "Check your tools",
-                          subtitle: "Install what is missing in your terminal, then press Refresh. You need at least one agent; the GitHub and Atlassian tools are only needed for the pages that use them.") {
+                          subtitle: "Install the tools you need, then click Refresh. GitHub and Jira features require their command-line tools. Agents are optional.") {
                 WelcomeTerminalCard(lines: ["claude --version", "gh auth login", "acli jira auth login"])
             }
             Form { CLIIntegrationSection(model: model.clis) }
@@ -168,7 +171,7 @@ private struct WelcomeHooksPage: View {
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "Install agent hooks",
-                          subtitle: "Hooks tell Cascade when an agent starts and finishes a turn. Cascade merges its entries into the agent's configuration and removes only its own.") {
+                          subtitle: "Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration.") {
                 // An agent's turn ending, arriving at the app.
                 HStack(spacing: 18) {
                     WelcomeTerminalCard(lines: ["claude", "turn finished"])
@@ -184,10 +187,10 @@ private struct WelcomeHooksPage: View {
                 ForEach(ManagedCLI.allCases.filter(\.supportsHooks)) { cli in
                     Section(cli.title) {
                         if model.present(cli) == false {
-                            Text("\(cli.title) is not installed, so there is nothing to set up yet. You can install its hooks later from Settings > CLIs.")
+                            Text("Install \(cli.title) first. You can add its hooks later in Settings → Integrations.")
                                 .font(.caption).foregroundStyle(Theme.textSecondary)
                         }
-                        SettingsStatusRow(title: "Turn hooks", status: model.clis.hookLabel(cli),
+                        SettingsStatusRow(title: String(localized: "Turn hooks"), status: model.clis.hookLabel(cli),
                                           tone: model.clis.hooks[cli.rawValue] == "installed" ? .success : .neutral,
                                           statusIdentifier: "welcome-hook-status-\(cli.rawValue)", busy: model.clis.changing == cli) {
                             Button(model.clis.hookAction(cli)) { model.clis.requestToggleHook(cli) }
@@ -205,25 +208,25 @@ private struct WelcomeHooksPage: View {
     }
 
     @ViewBuilder private var statusLine: some View {
-        SettingsStatusRow(title: "Context status line", status: model.clis.statusLineLabel,
+        SettingsStatusRow(title: String(localized: "Context status line"), status: model.clis.statusLineLabel,
                           tone: model.clis.statusLineInstalled ? .success : .neutral,
                           statusIdentifier: "welcome-statusline-status", busy: model.clis.changingStatusLine) {
-            Button(model.clis.statusLineInstalled ? "Remove status line" : "Install status line", action: model.clis.requestToggleStatusLine)
+            Button(LocalizedStringKey(model.clis.statusLineInstalled ? "Remove status line" : "Install status line"), action: model.clis.requestToggleStatusLine)
                 .disabled(!model.canChangeStatusLine).accessibilityIdentifier("welcome-statusline-toggle")
         }
-        Text("Claude Code reports its context window only to its status line. Sessions Cascade launches report it already; install this so the ones you start yourself do too. Your own status line keeps drawing.")
+        Text("Show context usage for Claude Code sessions started outside Cascade. Sessions started here already report it. Your existing status line is preserved.")
             .font(.caption).foregroundStyle(Theme.textSecondary)
     }
 }
 
-/// Optional, and says so: only iOS projects use it. The same card as Settings > Integrations.
+/// Optional, and says so: only iOS projects use it. The same card as Settings → Integrations.
 private struct WelcomeSimulatorPage: View {
     let model: WelcomeViewModel
 
     var body: some View {
         VStack(spacing: 0) {
             WelcomeHeader(title: "iOS Simulator preview",
-                          subtitle: "Optional, for iOS projects. When you run an app on a simulator, Cascade shows it beside the session, where you can tap and type into it.") {
+                          subtitle: "Optional for iOS projects: run an app in Simulator to interact with it beside your session.") {
                 // A run, arriving in the app's side panel.
                 HStack(spacing: 18) {
                     WelcomeTerminalCard(lines: ["node --version", "v22"])
@@ -243,10 +246,8 @@ private struct WelcomeDonePage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            WelcomeHeader(title: model.remaining.isEmpty ? "You're all set" : "Almost there",
-                          subtitle: model.remaining.isEmpty
-                              ? "Your tools and hooks are in place."
-                              : "Cascade works without these, but the pages that depend on them stay empty.") {
+            WelcomeHeader(title: model.remaining.isEmpty ? "Ready to start" : "Optional setup remaining",
+                          subtitle: "You can finish setup later in Settings → Integrations.") {
                 Image(systemName: model.remaining.isEmpty ? "checkmark.seal.fill" : "checklist")
                     .font(.system(size: 58, weight: .regular))
                     .foregroundStyle(model.remaining.isEmpty ? Theme.success : Theme.accent)
@@ -262,7 +263,7 @@ private struct WelcomeDonePage: View {
             Spacer(minLength: 0)
             VStack(spacing: 6) {
                 Text("Add a project from the sidebar to start your first session.").font(.system(size: 13))
-                Text("Everything on these pages stays available in Settings > CLIs.")
+                Text("All setup options are available in Settings → Integrations.")
                     .font(.system(size: 12)).foregroundStyle(Theme.textTertiary)
             }
             .padding(.bottom, 24)

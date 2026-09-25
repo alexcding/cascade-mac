@@ -35,17 +35,17 @@ struct AppConfigDraft: Equatable, Sendable {
          "worktree_fetch": worktreeFetch ? "true" : "false"]
     }
     var validationError: String? {
-        guard let interval = Int(pollInterval), (15...86400).contains(interval) else { return "PR polling must be between 15 and 86400 seconds." }
-        guard let interval = Int(jiraPollInterval), (30...86400).contains(interval) else { return "Jira polling must be between 30 and 86400 seconds." }
-        guard let limit = Int(jiraLimit), (1...10000).contains(limit) else { return "The ticket limit must be between 1 and 10000." }
+        guard let interval = Int(pollInterval), (15...86400).contains(interval) else { return String(localized: "PR polling must be between 15 and 86400 seconds.") }
+        guard let interval = Int(jiraPollInterval), (30...86400).contains(interval) else { return String(localized: "Jira polling must be between 30 and 86400 seconds.") }
+        guard let limit = Int(jiraLimit), (1...10000).contains(limit) else { return String(localized: "The ticket limit must be between 1 and 10000.") }
         let raw = jiraBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !raw.isEmpty {
             guard let url = safeWebURL(raw), let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-                  parts.query == nil, parts.fragment == nil else { return "Enter a Jira HTTP or HTTPS site URL without credentials, query, or fragment." }
+                  parts.query == nil, parts.fragment == nil else { return String(localized: "Enter a Jira HTTP or HTTPS site URL without credentials, query, or fragment.") }
         }
         if worktreeLocation == .custom {
             let root = worktreeRoot.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard root.hasPrefix("/") || root == "~" || root.hasPrefix("~/") else { return "Choose a folder for new worktrees." }
+            guard root.hasPrefix("/") || root == "~" || root.hasPrefix("~/") else { return String(localized: "Choose a folder for new worktrees.") }
         }
         return nil
     }
@@ -60,15 +60,15 @@ enum WorktreeLocation: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .sibling: "Next to the project"
-        case .inside: "Inside the project"
-        case .custom: "Custom folder"
+        case .sibling: String(localized: "Next to the project")
+        case .inside: String(localized: "Inside the project")
+        case .custom: String(localized: "Custom folder")
         }
     }
     var example: String {
         switch self {
         case .sibling: "<project>.worktrees/<branch>"
-        case .inside: "<project>/.worktrees/<branch>, hidden from git through .git/info/exclude."
+        case .inside: String(localized: "<project>/.worktrees/<branch>; ignored by Git through .git/info/exclude.")
         case .custom: "<folder>/<project folder>-<id>/<branch>"
         }
     }
@@ -112,7 +112,15 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 enum BrowsingDataScope: String, CaseIterable, Identifiable, Sendable {
     case history, websiteData
     var id: String { rawValue }
-    var title: String { self == .history ? "Browsing history" : "Cookies and site data" }
-    var buttonTitle: String { self == .history ? "Clear History…" : "Clear Cookies…" }
-    var clearedNotice: String { self == .history ? "Browsing history cleared." : "Cookies and site data cleared." }
+    var title: String { self == .history ? String(localized: "Browsing history") : String(localized: "Cookies and site data") }
+    var buttonTitle: String { self == .history ? String(localized: "Clear History…") : String(localized: "Clear Cookies…") }
+    var confirmationTitle: String {
+        self == .history ? String(localized: "Clear browsing history?") : String(localized: "Clear cookies and site data?")
+    }
+    var confirmationMessage: String {
+        self == .history
+            ? String(localized: "Remove all visited pages from history and address suggestions.")
+            : String(localized: "Remove cookies, caches, and site storage from Cascade’s browser. You will be signed out of websites.")
+    }
+    var clearedNotice: String { self == .history ? String(localized: "Browsing history cleared.") : String(localized: "Cookies and site data cleared.") }
 }

@@ -52,8 +52,8 @@ struct BrowserStartPage: View {
         return ScrollView {
             if recent.isEmpty && bookmarks.isEmpty {
                 VStack(spacing: 5) {
-                    Text("No bookmarks or history yet").font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
-                    Text("Pages you bookmark or visit appear here.").font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary)
+                    Text(String(localized: "No bookmarks or history yet")).font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
+                    Text(String(localized: "Pages you bookmark or visit appear here.")).font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary)
                 }
                 .frame(maxWidth: .infinity).padding(.top, 80)
             } else {
@@ -61,10 +61,10 @@ struct BrowserStartPage: View {
                     if !bookmarks.isEmpty {
                         let folded = tileColumns * Self.tileRows
                         HStack {
-                            Text("Bookmarks").font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                            Text(String(localized: "Bookmarks")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
                             Spacer()
                             if bookmarks.count > folded {
-                                Button(showingAllBookmarks ? "Show Less" : "Show More") { showingAllBookmarks.toggle() }
+                                Button(showingAllBookmarks ? String(localized: "Show Less") : String(localized: "Show More")) { showingAllBookmarks.toggle() }
                                     .buttonStyle(.link)
                                     .accessibilityIdentifier("toggle-all-bookmarks")
                             }
@@ -75,12 +75,12 @@ struct BrowserStartPage: View {
                                               open: { open(bookmark.url) }, remove: { context.bookmarks?.remove(url: bookmark.url) })
                             }
                         }
-                        .accessibilityLabel("Bookmarks")
+                        .accessibilityLabel(String(localized: "Bookmarks"))
                     }
                     if context.globalHistory?.entries.isEmpty == false || !recent.isEmpty {
                         Button { showingAll = true } label: {
                             HStack(spacing: 6) {
-                                Text("History").font(.title3.weight(.semibold))
+                                Text(String(localized: "History")).font(.title3.weight(.semibold))
                                 Image(systemName: "chevron.right").font(.body.weight(.semibold))
                             }
                             .foregroundStyle(Theme.textSecondary)
@@ -88,8 +88,8 @@ struct BrowserStartPage: View {
                         }
                         .buttonStyle(.plain)
                         .padding(.top, bookmarks.isEmpty ? 0 : 16)
-                        .help("Show All History")
-                        .accessibilityLabel("Show All History")
+                        .help(String(localized: "Show All History"))
+                        .accessibilityLabel(String(localized: "Show All History"))
                         .accessibilityIdentifier("show-all-history")
                         // Every visited page may be bookmarked: the heading still leads to the full history.
                         if !recent.isEmpty {
@@ -98,7 +98,7 @@ struct BrowserStartPage: View {
                                     StartPageTile(record: record, open: { open(record.url) })
                                 }
                             }
-                            .accessibilityLabel("History")
+                            .accessibilityLabel(String(localized: "History"))
                         }
                     }
                 }
@@ -139,22 +139,22 @@ private struct BrowserHistoryScreen: View {
                 Button(action: back) {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left").font(.body.weight(.semibold))
-                        Text("History").font(.title3.weight(.semibold))
+                        Text(String(localized: "History")).font(.title3.weight(.semibold))
                     }
                     .foregroundStyle(backHovering ? Color.primary : Theme.textSecondary)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .onHover { backHovering = $0 }
-                .help("Back to the start page")
-                .accessibilityLabel("Back to start page")
+                .help(String(localized: "Back to start page"))
+                .accessibilityLabel(String(localized: "Back to start page"))
                 Spacer(minLength: 8)
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundStyle(Theme.textTertiary)
-                    TextField("Search history", text: $query).textFieldStyle(.plain).focused($searching)
+                    TextField(String(localized: "Search history"), text: $query).textFieldStyle(.plain).focused($searching)
                         .accessibilityIdentifier("history-search")
                     if !query.isEmpty {
-                        Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
+                        Button(String(localized: "Clear"), systemImage: "xmark.circle.fill") { query = "" }
                             .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(Theme.textTertiary)
                     }
                 }
@@ -162,18 +162,18 @@ private struct BrowserHistoryScreen: View {
                 .frame(maxWidth: 280).frame(height: Theme.Size.largeControl)
                 .background(Theme.surfaceHover, in: Capsule())
                 .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
-                Button("Clear History") { confirmingClear = true }
+                Button(String(localized: "Clear History")) { confirmingClear = true }
                     .controlSize(.large)
                     .disabled(history.entries.isEmpty)
                     .accessibilityIdentifier("clear-history")
-                    .confirmationDialog("Clear all browsing history?", isPresented: $confirmingClear, titleVisibility: .visible) {
-                        Button("Clear History", role: .destructive) { clear() }
+                    .confirmationDialog(String(localized: "Clear all browsing history?"), isPresented: $confirmingClear, titleVisibility: .visible) {
+                        Button(String(localized: "Clear History"), role: .destructive) { clear() }
                     } message: {
-                        Text("Every page visited in any panel is forgotten. Open tabs stay open.")
+                        Text(String(localized: "Every page visited in any panel is forgotten. Open tabs stay open."))
                     }
             }
             if entries.isEmpty {
-                Text(query.isEmpty ? "No history yet" : "No pages match \u{201C}\(query)\u{201D}")
+                Text(query.isEmpty ? String(localized: "No history yet") : String(localized: "No pages match \u{201C}\(query)\u{201D}"))
                     .font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
                     .frame(maxWidth: .infinity).padding(.top, 60)
                 // The list fills the height and pins the header; without it the stack hugs its
@@ -186,7 +186,7 @@ private struct BrowserHistoryScreen: View {
                             StartPageRow(entry: entry, open: { open(entry.url) }, remove: { history.remove(url: entry.url) })
                         }
                     }
-                    .accessibilityLabel("All history")
+                    .accessibilityLabel(String(localized: "All history"))
                 }
             }
         }
@@ -222,11 +222,11 @@ private struct StartPageRow: View {
                     Text(visited).font(.callout).foregroundStyle(Theme.textTertiary).lineLimit(1)
                 }
                 if let remove {
-                    Button("Delete", systemImage: "xmark.circle.fill", action: remove)
+                    Button(String(localized: "Delete"), systemImage: "xmark.circle.fill", action: remove)
                         .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(Theme.textTertiary)
                         .opacity(hovering ? 1 : 0)
-                        .help("Remove from history")
-                        .accessibilityLabel("Remove \(entry.displayTitle) from history")
+                        .help(String(localized: "Remove from history"))
+                        .accessibilityLabel(String(localized: "Remove \(entry.displayTitle) from history"))
                 }
             }
             .padding(.horizontal, 12).frame(height: Self.height)
@@ -238,7 +238,7 @@ private struct StartPageRow: View {
         .onHover { hovering = $0 }
         .help(entry.url)
         .contextMenu {
-            if let remove { Button("Remove from History", action: remove) }
+            if let remove { Button(String(localized: "Remove from History"), action: remove) }
         }
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
@@ -318,7 +318,7 @@ private struct StartPageTile: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(record.url)
-        .contextMenu { if let remove { Button("Remove Bookmark", action: remove) } }
+        .contextMenu { if let remove { Button(String(localized: "Remove Bookmark"), action: remove) } }
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

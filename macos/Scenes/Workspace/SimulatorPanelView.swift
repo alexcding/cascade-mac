@@ -13,29 +13,29 @@ struct SimulatorPanelView: View {
             case .live:
                 BrowserSurface(webView: model.webView)
             case .idle:
-                ContentUnavailableView("No simulator running", systemImage: "iphone",
-                    description: Text("Run the app on a simulator to see it here."))
+                ContentUnavailableView(String(localized: "No simulator running"), systemImage: "iphone",
+                    description: Text(String(localized: "Run the app on a simulator to see it here.")))
             case .starting:
                 VStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text("Starting the simulator preview…").foregroundColor(Theme.textTertiary)
+                    Text(String(localized: "Starting the simulator preview…")).foregroundColor(Theme.textTertiary)
                 }
             case .unavailable:
                 ContentUnavailableView {
-                    Label("Simulator preview is not set up", systemImage: "iphone.slash")
+                    Label(String(localized: "Simulator preview is not set up"), systemImage: "iphone.slash")
                 } description: {
-                    Text("It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Cascade checks again when you come back to it.")
+                    Text(String(localized: "It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Cascade checks again when you come back to it."))
                 } actions: {
-                    Button("Open Integrations", action: openIntegrations)
-                    Button("Try Again", action: model.retry)
+                    Button(String(localized: "Open Integrations"), action: openIntegrations)
+                    Button(String(localized: "Try Again"), action: model.retry)
                 }
             case .failed(let message):
                 ContentUnavailableView {
-                    Label("The simulator preview did not start", systemImage: "exclamationmark.triangle")
+                    Label(String(localized: "The simulator preview did not start"), systemImage: "exclamationmark.triangle")
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try Again", action: model.retry)
+                    Button(String(localized: "Try Again"), action: model.retry)
                 }
             }
         }

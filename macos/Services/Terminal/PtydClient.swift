@@ -27,11 +27,11 @@ final class PtydClient: @unchecked Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in
                 do {
-                    guard !hasConnected else { throw PtyError.connection("Use a new client for each terminal connection.") }
+                    guard !hasConnected else { throw PtyError.connection(String(localized: "Use a new client for each terminal connection.")) }
                     var address = sockaddr_un()
                     let bytes = Array(path.utf8) + [0]
                     guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
-                        throw PtyError.connection("Terminal socket path is too long.")
+                        throw PtyError.connection(String(localized: "Terminal socket path is too long."))
                     }
                     address.sun_family = sa_family_t(AF_UNIX)
                     address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
@@ -147,7 +147,7 @@ final class PtydClient: @unchecked Sendable {
 
     private func receive(_ data: Data) throws {
         guard let frame = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw PtyError.connection("Invalid daemon frame.")
+            throw PtyError.connection(String(localized: "Invalid daemon frame."))
         }
         if frame["ev"] != nil { event(try JSONDecoder().decode(PtyEvent.self, from: data)); return }
         guard let id = frame["id"] as? UInt64, let waiter = pending.removeValue(forKey: id) else { return }

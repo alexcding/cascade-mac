@@ -5,7 +5,7 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
     /// On or off. "live" is the stored name for on; try a pipeline with Dry Run before switching it on.
     enum Mode: String, Codable, CaseIterable, Sendable {
         case off, live
-        var label: String { self == .live ? "On" : "Off" }
+        var label: String { self == .live ? String(localized: "On") : String(localized: "Off") }
     }
     struct Trigger: Codable, Equatable, Sendable {
         var types: [String] = []
@@ -57,9 +57,9 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
 
     /// What the list shows under the name.
     func summary(_ catalog: AutomationCatalog?) -> String {
-        let triggers = trigger.types.map { catalog?.trigger($0)?.label ?? $0 }
-        let when = triggers.isEmpty ? "No trigger" : triggers.joined(separator: " or ")
-        let actions = steps.filter { $0.kind == .action }.map { catalog?.action($0.type)?.label ?? $0.type }
+        let triggers = trigger.types.map { catalog?.trigger($0)?.localizedLabel ?? $0 }
+        let when = triggers.isEmpty ? String(localized: "No trigger") : triggers.joined(separator: String(localized: " or "))
+        let actions = steps.filter { $0.kind == .action }.map { catalog?.action($0.type)?.localizedLabel ?? $0.type }
         return actions.isEmpty ? when : "\(when) → \(actions.joined(separator: ", "))"
     }
 }
@@ -141,7 +141,11 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
         }
     }
 
-    struct Option: Decodable, Equatable, Sendable { let value: String; let label: String }
+    struct Option: Decodable, Equatable, Sendable {
+        let value: String
+        let label: String
+        var localizedLabel: String { AutomationCatalogText.localized(label) }
+    }
     struct Param: Decodable, Equatable, Identifiable, Sendable {
         let key: String
         let label: String
@@ -153,6 +157,8 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
         /// Shown only while each named sibling param holds the given value, such as the Fix
         /// Version name, which only a template needs.
         var when: [String: String]? = nil
+        var localizedLabel: String { AutomationCatalogText.localized(label) }
+        var localizedHelp: String? { help.map(AutomationCatalogText.localized) }
         var id: String { key }
     }
     struct Node: Decodable, Equatable, Identifiable, Sendable {
@@ -163,6 +169,8 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
         let summary: String
         let subject: String
         let params: [Param]
+        var localizedLabel: String { AutomationCatalogText.localized(label) }
+        var localizedSummary: String { AutomationCatalogText.localized(summary) }
         var id: String { type }
     }
     struct Template: Decodable, Equatable, Identifiable, Sendable {
@@ -170,6 +178,8 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
         let name: String
         let summary: String
         let automation: Automation
+        var localizedName: String { AutomationCatalogText.localized(name) }
+        var localizedSummary: String { AutomationCatalogText.localized(summary) }
     }
     let triggers: [Node]
     let filters: [Node]
@@ -189,7 +199,7 @@ struct AutomationCatalog: Decodable, Equatable, Sendable {
             if groups[node.group] == nil { order.append(node.group) }
             groups[node.group, default: []].append(node)
         }
-        return order.map { ($0, groups[$0] ?? []) }
+        return order.map { (AutomationCatalogText.localized($0), groups[$0] ?? []) }
     }
     /// A step with each param at its catalogue default.
     func step(kind: AutomationStep.Kind, type: String) -> AutomationStep {
@@ -312,5 +322,200 @@ struct APIAutomationService: AutomationService {
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings {
         struct Body: Encodable, Sendable { let paused: Bool?; let forwardWebhooks: Bool? }
         return try await api.request(Routes.AUTOMATIONS_SETTINGS, method: "PUT", body: Body(paused: paused, forwardWebhooks: forwardWebhooks))
+    }
+}
+
+/// Only backend-owned catalog copy is localized. API identifiers, user names, parameter
+/// values, commands, and diagnostic details are preserved verbatim.
+enum AutomationCatalogText {
+    static func localized(_ source: String) -> String {
+        switch source {
+        case "A draft PR is marked ready.": String(localized: "A draft PR is marked ready.")
+        case "A new pull request appears.": String(localized: "A new pull request appears.")
+        case "A notification the moment someone asks for your review.": String(localized: "A notification the moment someone asks for your review.")
+        case "A pull request is closed without merging.": String(localized: "A pull request is closed without merging.")
+        case "A pull request is merged.": String(localized: "A pull request is merged.")
+        case "A reviewer requests changes.": String(localized: "A reviewer requests changes.")
+        case "A ticket in the JQL changes status.": String(localized: "A ticket in the JQL changes status.")
+        case "A ticket newly matches the JQL.": String(localized: "A ticket newly matches the JQL.")
+        case "Add labels": String(localized: "Add labels")
+        case "Add labels to each ticket. Needs a Jira API token.": String(localized: "Add labels to each ticket. Needs a Jira API token.")
+        case "Add labels to the PR.": String(localized: "Add labels to the PR.")
+        case "Add ticket labels": String(localized: "Add ticket labels")
+        case "An open PR has had no update for a number of days.": String(localized: "An open PR has had no update for a number of days.")
+        case "Approve": String(localized: "Approve")
+        case "Approve PRs from people you trust once CI is green.": String(localized: "Approve PRs from people you trust once CI is green.")
+        case "Approve green dependency bumps and let GitHub merge them.": String(localized: "Approve green dependency bumps and let GitHub merge them.")
+        case "Approve the PR as you. Never approves your own PR.": String(localized: "Approve the PR as you. Never approves your own PR.")
+        case "Approved": String(localized: "Approved")
+        case "Ask users or org/team slugs to review.": String(localized: "Ask users or org/team slugs to review.")
+        case "Assign": String(localized: "Assign")
+        case "Assign each ticket. @me is you; empty unassigns.": String(localized: "Assign each ticket. @me is you; empty unassigns.")
+        case "Assign ticket": String(localized: "Assign ticket")
+        case "Assign users to the PR. @me is you.": String(localized: "Assign users to the PR. @me is you.")
+        case "Assignee": String(localized: "Assignee")
+        case "Assignees": String(localized: "Assignees")
+        case "Author": String(localized: "Author")
+        case "Auto-approve trusted authors": String(localized: "Auto-approve trusted authors")
+        case "Base branch": String(localized: "Base branch")
+        case "Bring the PR branch up to date with its base.": String(localized: "Bring the PR branch up to date with its base.")
+        case "CI failed": String(localized: "CI failed")
+        case "CI failed → re-run checks": String(localized: "CI failed → re-run checks")
+        case "CI is": String(localized: "CI is")
+        case "CI passed": String(localized: "CI passed")
+        case "CI state": String(localized: "CI state")
+        case "Changed paths": String(localized: "Changed paths")
+        case "Changes requested": String(localized: "Changes requested")
+        case "Changes requested → In Progress": String(localized: "Changes requested → In Progress")
+        case "Checks on the head commit turn green.": String(localized: "Checks on the head commit turn green.")
+        case "Checks on the head commit turn red.": String(localized: "Checks on the head commit turn red.")
+        case "Close": String(localized: "Close")
+        case "Close the PR without merging.": String(localized: "Close the PR without merging.")
+        case "Comment": String(localized: "Comment")
+        case "Comment (optional)": String(localized: "Comment (optional)")
+        case "Comment on ticket": String(localized: "Comment on ticket")
+        case "Conflicting": String(localized: "Conflicting")
+        case "Dates: {year} {month} {day} {isoWeek}, unpadded {y} {m} {d} {w}, offsets like {year-2000}; also {prNumber} and any {{variable}} below. {year}.{isoWeek} is 2026.39 in week 39.": String(localized: "Dates: {year} {month} {day} {isoWeek}, unpadded {y} {m} {d} {w}, offsets like {year-2000}; also {prNumber} and any {{variable}} below. {year}.{isoWeek} is 2026.39 in week 39.")
+        case "Days": String(localized: "Days")
+        case "Days without update": String(localized: "Days without update")
+        case "Decision": String(localized: "Decision")
+        case "Delete branch after merge": String(localized: "Delete branch after merge")
+        case "Dependabot → approve and auto-merge": String(localized: "Dependabot → approve and auto-merge")
+        case "Draft": String(localized: "Draft")
+        case "Enable auto-merge": String(localized: "Enable auto-merge")
+        case "Failing": String(localized: "Failing")
+        case "From": String(localized: "From")
+        case "GitHub's review decision.": String(localized: "GitHub's review decision.")
+        case "Globs over the files the PR changes.": String(localized: "Globs over the files the PR changes.")
+        case "Has a linked ticket": String(localized: "Has a linked ticket")
+        case "Head branch": String(localized: "Head branch")
+        case "Hear about new tickets assigned to you.": String(localized: "Hear about new tickets assigned to you.")
+        case "Is draft": String(localized: "Is draft")
+        case "Keeps only tickets in one of these statuses.": String(localized: "Keeps only tickets in one of these statuses.")
+        case "Keeps only tickets in these Jira projects.": String(localized: "Keeps only tickets in these Jira projects.")
+        case "Keeps only tickets of these types.": String(localized: "Keeps only tickets of these types.")
+        case "Keeps only tickets with these priorities.": String(localized: "Keeps only tickets with these priorities.")
+        case "Labels": String(localized: "Labels")
+        case "Manual": String(localized: "Manual")
+        case "Mark ready for review": String(localized: "Mark ready for review")
+        case "Match": String(localized: "Match")
+        case "Max files changed": String(localized: "Max files changed")
+        case "Max lines changed": String(localized: "Max lines changed")
+        case "Merge commit": String(localized: "Merge commit")
+        case "Merge conflict": String(localized: "Merge conflict")
+        case "Merge now": String(localized: "Merge now")
+        case "Merge once required checks and reviews pass.": String(localized: "Merge once required checks and reviews pass.")
+        case "Merge the PR immediately.": String(localized: "Merge the PR immediately.")
+        case "Mergeable": String(localized: "Mergeable")
+        case "Message": String(localized: "Message")
+        case "Method": String(localized: "Method")
+        case "Move each ticket to a status.": String(localized: "Move each ticket to a status.")
+        case "Move your ticket to In Review and link the PR on it.": String(localized: "Move your ticket to In Review and link the PR on it.")
+        case "My PR opened → In Review": String(localized: "My PR opened → In Review")
+        case "My review requested": String(localized: "My review requested")
+        case "Name from a template": String(localized: "Name from a template")
+        case "New commits pushed": String(localized: "New commits pushed")
+        case "Next unreleased version": String(localized: "Next unreleased version")
+        case "Next unreleased: the first release in the Jira project that is not yet released, whatever it is called. A template builds the name, and the release is created if Jira does not have it.": String(localized: "Next unreleased: the first release in the Jira project that is not yet released, whatever it is called. A template builds the name, and the release is created if Jira does not have it.")
+        case "No checks": String(localized: "No checks")
+        case "No decision": String(localized: "No decision")
+        case "Not a draft": String(localized: "Not a draft")
+        case "Notify me": String(localized: "Notify me")
+        case "Notify you when one of your PRs has sat untouched for five days.": String(localized: "Notify you when one of your PRs has sat untouched for five days.")
+        case "On merge → Jira": String(localized: "On merge → Jira")
+        case "Only runs from the Run button, against a chosen PR.": String(localized: "Runs manually against a chosen pull request.")
+        case "Only when the run happens on these days and hours (local time).": String(localized: "Only when the run happens on these days and hours (local time).")
+        case "POST to webhook": String(localized: "POST to webhook")
+        case "PR approved": String(localized: "PR approved")
+        case "PR closed": String(localized: "PR closed")
+        case "PR merged": String(localized: "PR merged")
+        case "PR opened": String(localized: "PR opened")
+        case "PR ready for review": String(localized: "PR ready for review")
+        case "PR stale": String(localized: "PR stale")
+        case "Passing": String(localized: "Passing")
+        case "Patterns": String(localized: "Patterns")
+        case "Post a comment on each ticket.": String(localized: "Post a comment on each ticket.")
+        case "Post a comment on the PR.": String(localized: "Post a comment on the PR.")
+        case "Post to Activity and show a macOS notification.": String(localized: "Post to Activity and show a macOS notification.")
+        case "Priorities": String(localized: "Priorities")
+        case "Project keys": String(localized: "Project keys")
+        case "Pull request": String(localized: "Pull request")
+        case "Pull requests": String(localized: "Pull requests")
+        case "Re-run failed GitHub Actions jobs on the head commit.": String(localized: "Re-run failed GitHub Actions jobs on the head commit.")
+        case "Re-run failed checks": String(localized: "Re-run failed checks")
+        case "Re-run failed jobs on your PRs once per commit.": String(localized: "Re-run failed jobs on your PRs once per commit.")
+        case "Rebase": String(localized: "Rebase")
+        case "Rebase instead of merge": String(localized: "Rebase instead of merge")
+        case "Record which Jira release each ticket ships in. Needs a Jira API token.": String(localized: "Record which Jira release each ticket ships in. Needs a Jira API token.")
+        case "Regex": String(localized: "Regex")
+        case "Regular expression over the PR title.": String(localized: "Regular expression over the PR title.")
+        case "Remove labels": String(localized: "Remove labels")
+        case "Remove labels from the PR.": String(localized: "Remove labels from the PR.")
+        case "Request changes": String(localized: "Request changes")
+        case "Request reviewers": String(localized: "Request reviewers")
+        case "Review comment": String(localized: "Review comment")
+        case "Review decision": String(localized: "Review decision")
+        case "Review requested → notify": String(localized: "Review requested → notify")
+        case "Review required": String(localized: "Review required")
+        case "Reviewers": String(localized: "Reviewers")
+        case "Run a zsh script in the project's workspace (60 s limit). The event is in CASCADE_* variables.": String(localized: "Run a zsh script in the project's workspace (60 s limit). The event is in CASCADE_* variables.")
+        case "Run manually": String(localized: "Run manually")
+        case "Run shell script": String(localized: "Run shell script")
+        case "Running": String(localized: "Running")
+        case "Script": String(localized: "Script")
+        case "Send the event as JSON to an HTTPS URL (Slack, Teams, your own service).": String(localized: "Send the event as JSON to an HTTPS URL (Slack, Teams, your own service).")
+        case "Send your ticket back to In Progress and tell you.": String(localized: "Send your ticket back to In Progress and tell you.")
+        case "Set Fix Version": String(localized: "Set Fix Version")
+        case "Set a Fix Version and close linked tickets when a PR merges.": String(localized: "Set a Fix Version and close linked tickets when a PR merges.")
+        case "Size": String(localized: "Size")
+        case "Source branch matches a pattern.": String(localized: "Source branch matches a pattern.")
+        case "Squash": String(localized: "Squash")
+        case "Stale PR → nudge": String(localized: "Stale PR → nudge")
+        case "State": String(localized: "State")
+        case "Status": String(localized: "Status")
+        case "Statuses": String(localized: "Statuses")
+        case "Submit a changes-requested review.": String(localized: "Submit a changes-requested review.")
+        case "Take the PR out of draft.": String(localized: "Take the PR out of draft.")
+        case "Target branch matches a pattern (* and ** globs).": String(localized: "Target branch matches a pattern (* and ** globs).")
+        case "Text (optional)": String(localized: "Text (optional)")
+        case "The PR can no longer merge cleanly.": String(localized: "The PR can no longer merge cleanly.")
+        case "The PR links at least one Jira ticket (title, body or a saved link).": String(localized: "The PR links at least one Jira ticket (title, body or a saved link).")
+        case "The PR's head commit changes.": String(localized: "The PR's head commit changes.")
+        case "The PR's labels.": String(localized: "The PR's labels.")
+        case "The combined state of checks on the head commit.": String(localized: "The combined state of checks on the head commit.")
+        case "The review decision becomes approved.": String(localized: "The review decision becomes approved.")
+        case "Ticket assigned → notify": String(localized: "Ticket assigned → notify")
+        case "Ticket matches JQL": String(localized: "Ticket matches JQL")
+        case "Ticket priority": String(localized: "Ticket priority")
+        case "Ticket project": String(localized: "Ticket project")
+        case "Ticket status": String(localized: "Ticket status")
+        case "Ticket status changed": String(localized: "Ticket status changed")
+        case "Ticket type": String(localized: "Ticket type")
+        case "Time": String(localized: "Time")
+        case "Time window": String(localized: "Time window")
+        case "Title": String(localized: "Title")
+        case "Title matches": String(localized: "Title matches")
+        case "To": String(localized: "To")
+        case "Transition ticket": String(localized: "Transition ticket")
+        case "Types": String(localized: "Types")
+        case "Update branch": String(localized: "Update branch")
+        case "Upper bounds on the change size. Leave a bound empty to ignore it.": String(localized: "Upper bounds on the change size. Leave a bound empty to ignore it.")
+        case "Users": String(localized: "Users")
+        case "Version": String(localized: "Version")
+        case "Version name": String(localized: "Version name")
+        case "Whether GitHub can merge the PR cleanly.": String(localized: "Whether GitHub can merge the PR cleanly.")
+        case "Whether the PR is a draft.": String(localized: "Whether the PR is a draft.")
+        case "Who opened the PR. @me is you, @bots is any bot account.": String(localized: "Who opened the PR. @me is you, @bots is any bot account.")
+        case "You are asked to review a PR.": String(localized: "You are asked to review a PR.")
+        case "any file matches": String(localized: "any file matches")
+        case "every file matches": String(localized: "every file matches")
+        case "has all of": String(localized: "has all of")
+        case "has any of": String(localized: "has any of")
+        case "has none of": String(localized: "has none of")
+        case "is not one of": String(localized: "is not one of")
+        case "is one of": String(localized: "is one of")
+        case "no file matches": String(localized: "no file matches")
+        default: source
+        }
     }
 }

@@ -100,7 +100,7 @@ struct BoardGroup: Equatable, Identifiable {
                 other.tickets.append(ticket)
             }
         }
-        if !other.tickets.isEmpty { groups.append(BoardGroup(id: groups.count, name: "Other", lanes: [other])) }
+        if !other.tickets.isEmpty { groups.append(BoardGroup(id: groups.count, name: String(localized: "Other"), lanes: [other])) }
         return groups
     }
 }
@@ -149,7 +149,7 @@ struct APIBoardService: BoardService {
     /// resolved request, and the coordinator never calls back into this model to resolve one.
     enum Action: Equatable { case open(OpenPageRequest) }
     static let unassigned = "__unassigned__"
-    static let unmappedDrop = "Can’t tell which status this column maps to — use the move menu."
+    static let unmappedDrop = String(localized: "Can’t tell which status this column maps to — use the move menu.")
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let navigation: PageActionViewModel
     private(set) var retired = false
@@ -252,15 +252,15 @@ struct APIBoardService: BoardService {
     var sprintTitle: String? {
         guard let name = snapshot?.sprint?.name, !name.isEmpty else { return nil }
         let days = snapshot?.sprint?.endDate.map { Self.businessDays(until: $0, from: now()) } ?? 0
-        return days > 0 ? "\(name) · \(days)d left" : name
+        return days > 0 ? String(localized: "\(name) · \(days)d left") : name
     }
     /// Why the board has no cards, once it has loaded; nil while it has some.
     var emptyMessage: String? {
         guard let snapshot, tickets.isEmpty else { return nil }
         if let error = snapshot.error, !error.isEmpty { return error }
-        if !snapshot.items.isEmpty { return "No tickets match this filter." }
-        if let query = snapshot.query, !query.isEmpty { return "No tickets match “\(query)” in the active sprint." }
-        return "No active sprint, or no tickets in it."
+        if !snapshot.items.isEmpty { return String(localized: "No tickets match this filter.") }
+        if let query = snapshot.query, !query.isEmpty { return String(localized: "No tickets match “\(query)” in the active sprint.") }
+        return String(localized: "No active sprint, or no tickets in it.")
     }
     func isMine(_ ticket: JiraTicket) -> Bool {
         guard let account else { return false }
@@ -393,7 +393,7 @@ struct APIBoardService: BoardService {
             do {
                 try await service.saveQuery(value, projectID: projectID)
                 guard !retired, self.generation == generation else { return }
-                announce(value.isEmpty ? "Jira filter cleared" : "Jira filter saved")
+                announce(value.isEmpty ? String(localized: "Jira filter cleared") : String(localized: "Jira filter saved"))
                 refresh(force: true)
             } catch { if !retired, self.generation == generation { self.error = error.localizedDescription } }
         }
@@ -459,7 +459,7 @@ struct APIBoardService: BoardService {
     /// A missing site sets `error` rather than opening nothing silently.
     private func emit(_ ticket: JiraTicket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired else { return }
-        guard let url = ticketURL(ticket) else { error = "Configure the Jira site before opening a ticket."; return }
+        guard let url = ticketURL(ticket) else { error = String(localized: "Configure the Jira site before opening a ticket."); return }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
         request.projectID = projectID
         configure(&request)

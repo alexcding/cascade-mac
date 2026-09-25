@@ -18,7 +18,7 @@ struct PtyGeometry: Codable, Sendable, Equatable {
               cellWidthPixels > 0, cellHeightPixels > 0,
               UInt64(cols) * UInt64(cellWidthPixels) <= UInt16.max,
               UInt64(rows) * UInt64(cellHeightPixels) <= UInt16.max else {
-            throw PtyError.connection("The terminal geometry exceeds the supported grid or pixel dimensions.")
+            throw PtyError.connection(String(localized: "The terminal geometry exceeds the supported grid or pixel dimensions."))
         }
     }
 }

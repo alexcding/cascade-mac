@@ -9,7 +9,7 @@ struct ActivityEventPayloadTests {
         let event = try JSONDecoder().decode(ServerEvent.self, from: data)
         #expect(event.event?.type == "forwarder_started")
         #expect(event.event?.payload?.repo == "acme/widgets")
-        #expect(event.event?.message.title == "Forwarder Started")
+        #expect(event.event?.message.title == "Webhook forwarding started")
     }
 
     @Test func decodesObjectPayload() throws {

@@ -37,7 +37,7 @@ extension BrowserControlling {
         case invalidAddress
         var message: String {
             switch self {
-            case .invalidAddress: "Enter a web address, like example.com."
+            case .invalidAddress: String(localized: "Enter a web address, like example.com.")
             }
         }
     }

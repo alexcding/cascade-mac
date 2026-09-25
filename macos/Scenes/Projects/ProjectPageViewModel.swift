@@ -150,7 +150,7 @@ import Observation
                 try await pageActions.openPage(request)
             } catch {
                 if !Task.isCancelled && self?.actionGeneration == generation && self?.actionErrorGeneration == errorGeneration {
-                    self?.actionError = request.failure("Could not open pull request", error)
+                    self?.actionError = request.failure(String(localized: "Could not open pull request"), error)
                 }
             }
         }

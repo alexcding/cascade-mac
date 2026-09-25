@@ -76,7 +76,7 @@ final class TerminalPipe: @unchecked Sendable {
     @MainActor
     func prepareAppearance() throws -> PtyAppearance {
         guard memory.enableAppearanceCallbacks(), let appearance = lock.withLock({ latestAppearance }) else {
-            throw PtyError.connection("The native terminal could not provide its configured colors.")
+            throw PtyError.connection(String(localized: "The native terminal could not provide its configured colors."))
         }
         try appearance.validate()
         return appearance
@@ -119,7 +119,7 @@ final class TerminalPipe: @unchecked Sendable {
             }
             try await Task.sleep(for: .milliseconds(20))
         }
-        throw PtyError.connection("The native terminal did not report measured cell pixels.")
+        throw PtyError.connection(String(localized: "The native terminal did not report measured cell pixels."))
     }
 
     func synchronizeGrid() async throws {
@@ -139,7 +139,7 @@ final class TerminalPipe: @unchecked Sendable {
             if sent { return }
             try await Task.sleep(for: .milliseconds(20))
         }
-        throw PtyError.connection("The native terminal did not report its grid size.")
+        throw PtyError.connection(String(localized: "The native terminal did not report its grid size."))
     }
 
     func receive(_ event: PtyEvent) {
@@ -148,19 +148,20 @@ final class TerminalPipe: @unchecked Sendable {
         guard event.id == termID, !failed else { return }
         queuedEvents += 1
         peakQueuedEvents = max(peakQueuedEvents, queuedEvents)
-        guard queuedEvents <= 16384 else { failLocked("Terminal output exceeded its event limit."); return }
+        guard queuedEvents <= 16384 else { failLocked(String(localized: "Terminal output exceeded its event limit.")); return }
         if event.ev == "inputError" {
-            failLocked("Terminal input delivery failed: \(event.message ?? "PTY write failed.") Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching.")
+            let message = event.message ?? String(localized: "PTY write failed.")
+            failLocked(String(localized: "Terminal input delivery failed: \(message) Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching."))
             return
         }
         if event.ev == "data" {
             guard let bytes = event.bytes, event.seq != nil else {
-                failLocked("The terminal daemon sent an incomplete byte frame."); return
+                failLocked(String(localized: "The terminal daemon sent an incomplete byte frame.")); return
             }
             queuedBytes += bytes.count
             receivedBytes &+= UInt64(bytes.count)
             peakQueuedBytes = max(peakQueuedBytes, queuedBytes)
-            guard queuedBytes <= 8 * 1024 * 1024 else { failLocked("Terminal output exceeded its buffer limit."); return }
+            guard queuedBytes <= 8 * 1024 * 1024 else { failLocked(String(localized: "Terminal output exceeded its buffer limit.")); return }
             if queuedBytes > 1024 * 1024 && !paused { flowLocked(true) }
         }
         if attaching {
@@ -174,31 +175,31 @@ final class TerminalPipe: @unchecked Sendable {
         try snapshot.header.validate()
         guard daemonOwnsGeometryResponses == (snapshot.header.geometry != nil),
               !daemonOwnsGeometryResponses || daemonOwnsIdentityResponses else {
-            throw PtyError.connection("The terminal snapshot geometry does not match its response owner.")
+            throw PtyError.connection(String(localized: "The terminal snapshot geometry does not match its response owner."))
         }
         guard daemonOwnsAppearanceResponses == (snapshot.header.appearance != nil) else {
-            throw PtyError.connection("The terminal snapshot appearance does not match its response owner.")
+            throw PtyError.connection(String(localized: "The terminal snapshot appearance does not match its response owner."))
         }
         guard snapshot.bytes.count == snapshot.header.size else {
-            throw PtyError.connection("The terminal snapshot is incomplete.")
+            throw PtyError.connection(String(localized: "The terminal snapshot is incomplete."))
         }
         guard memory.restoreSnapshot(snapshot.bytes) else {
-            throw PtyError.connection("The terminal snapshot could not be imported; the shell is still running.")
+            throw PtyError.connection(String(localized: "The terminal snapshot could not be imported; the shell is still running."))
         }
         if daemonOwnsGeometryResponses {
             guard memory.enableHostGeometryResponses() else {
-                throw PtyError.connection("Terminal geometry response ownership could not be configured.")
+                throw PtyError.connection(String(localized: "Terminal geometry response ownership could not be configured."))
             }
         } else if daemonOwnsIdentityResponses {
             guard memory.enableHostIdentityResponses() else {
-                throw PtyError.connection("Terminal identity response ownership could not be configured.")
+                throw PtyError.connection(String(localized: "Terminal identity response ownership could not be configured."))
             }
         } else if daemonOwnsStateResponses, !memory.enableHostStateResponses() {
-            throw PtyError.connection("Terminal state response ownership could not be configured.")
+            throw PtyError.connection(String(localized: "Terminal state response ownership could not be configured."))
         }
         if let appearance = snapshot.header.appearance {
             guard memory.applyHostAppearance(appearance.values), memory.enableHostAppearanceResponses() else {
-                throw PtyError.connection("Terminal color response ownership could not be configured.")
+                throw PtyError.connection(String(localized: "Terminal color response ownership could not be configured."))
             }
         }
         let memory = memory!
@@ -215,7 +216,7 @@ final class TerminalPipe: @unchecked Sendable {
         ticker.cancel()
         guard published,
               memory.flushSnapshotMetadataCallbacks() else {
-            throw PtyError.connection("The restored terminal metadata could not be published.")
+            throw PtyError.connection(String(localized: "The restored terminal metadata could not be published."))
         }
         try Task.checkCancellation()
         finishSnapshotAttachment(snapshot.header, onReady: onReady)
@@ -256,7 +257,7 @@ final class TerminalPipe: @unchecked Sendable {
         let replay = attachment.bytes
         queuedBytes += replay.count
         peakQueuedBytes = max(peakQueuedBytes, queuedBytes)
-        guard queuedBytes <= 8 * 1024 * 1024 else { failLocked("Terminal attachment exceeded its buffer limit."); return }
+        guard queuedBytes <= 8 * 1024 * 1024 else { failLocked(String(localized: "Terminal attachment exceeded its buffer limit.")); return }
         if queuedBytes > 1024 * 1024 && !paused { flowLocked(true) }
         outputQueue.async { [self] in
             memory.receive(replay)
@@ -281,15 +282,15 @@ final class TerminalPipe: @unchecked Sendable {
         guard !failed else { return }
         if let state = lastStateSequence, event.ev == "data" || event.ev == "resize" || event.ev == "appearance" {
             guard let next = event.stateSeq, let sequence = event.seq else {
-                failLocked("The terminal daemon omitted ordered state metadata."); return
+                failLocked(String(localized: "The terminal daemon omitted ordered state metadata.")); return
             }
             guard next > state else { consumedLocked(event.bytes?.count ?? 0); return }
             guard state < UInt64.max, next == state + 1 else {
-                failLocked("Terminal state sequence gap; reattachment required."); return
+                failLocked(String(localized: "Terminal state sequence gap; reattachment required.")); return
             }
             if event.ev == "appearance" {
                 guard ownsAppearanceResponses, sequence == lastSequence, let appearance = event.appearance else {
-                    failLocked("The terminal returned an invalid ordered appearance change."); return
+                    failLocked(String(localized: "The terminal returned an invalid ordered appearance change.")); return
                 }
                 do { try appearance.validate() } catch { failLocked(error.localizedDescription); return }
                 lastStateSequence = next
@@ -298,7 +299,7 @@ final class TerminalPipe: @unchecked Sendable {
                     guard active else { return }
                     let applied = memory.applyHostAppearance(appearance.values)
                     lock.lock(); defer { lock.unlock() }
-                    if !applied { failLocked("The terminal could not apply its ordered color change.") }
+                    if !applied { failLocked(String(localized: "The terminal could not apply its ordered color change.")) }
                     consumedLocked(0)
                 }
                 return
@@ -307,17 +308,17 @@ final class TerminalPipe: @unchecked Sendable {
                 guard sequence == lastSequence, let cols = event.cols, let rows = event.rows,
                       cols > 0, rows > 0, cols <= 4096, rows <= 4096,
                       UInt32(cols) * UInt32(rows) <= 1024 * 1024 else {
-                    failLocked("The terminal daemon returned an invalid ordered resize."); return
+                    failLocked(String(localized: "The terminal daemon returned an invalid ordered resize.")); return
                 }
                 lastStateSequence = next
                 guard ownsGeometryResponses == (event.geometry != nil) else {
-                    failLocked("The terminal daemon changed geometry response ownership during a resize."); return
+                    failLocked(String(localized: "The terminal daemon changed geometry response ownership during a resize.")); return
                 }
                 if let geometry = event.geometry {
                     do { try geometry.validate() }
                     catch { failLocked(error.localizedDescription); return }
                     guard geometry.cols == cols, geometry.rows == rows else {
-                        failLocked("The terminal daemon returned inconsistent resize geometry."); return
+                        failLocked(String(localized: "The terminal daemon returned inconsistent resize geometry.")); return
                     }
                 }
                 outputQueue.async { [self] in
@@ -329,20 +330,20 @@ final class TerminalPipe: @unchecked Sendable {
                             cellWidthPixels: geometry.cellWidthPixels, cellHeightPixels: geometry.cellHeightPixels)
                     } else { applied = memory.applyHostGridSize(columns: cols, rows: rows) }
                     if !applied {
-                        lock.lock(); failLocked("The terminal could not apply its ordered grid change."); lock.unlock()
+                        lock.lock(); failLocked(String(localized: "The terminal could not apply its ordered grid change.")); lock.unlock()
                     }
                     lock.lock(); consumedLocked(0); lock.unlock()
                 }
                 return
             }
             guard lastSequence < UInt64.max, sequence == lastSequence + 1 else {
-                failLocked("Terminal output sequence gap; reattachment required."); return
+                failLocked(String(localized: "Terminal output sequence gap; reattachment required.")); return
             }
             lastStateSequence = next
         }
         if event.ev == "data", let sequence = event.seq, let bytes = event.bytes {
             guard sequence > lastSequence else { consumedLocked(bytes.count); return }
-            guard sequence == lastSequence + 1 else { failLocked("Terminal output sequence gap; reconnect required."); return }
+            guard sequence == lastSequence + 1 else { failLocked(String(localized: "Terminal output sequence gap; reconnect required.")); return }
             lastSequence = sequence
             outputQueue.async { [self] in
                 lock.lock(); let active = !failed; lock.unlock()
@@ -427,7 +428,7 @@ final class TerminalPipe: @unchecked Sendable {
                     return
                 }
                 self.lock.lock(); defer { self.lock.unlock() }
-                self.failLocked("Terminal resize failed: \(error.localizedDescription)")
+                self.failLocked(String(localized: "Terminal resize failed: \(error.localizedDescription)"))
             }
         } catch { failLocked(error.localizedDescription) }
     }

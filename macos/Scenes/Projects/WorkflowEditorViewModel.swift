@@ -35,20 +35,20 @@ import Observation
     var canAdd: Bool { !busy && draft.count < 20 }
     var canSave: Bool { service != nil && !busy && dirty && validationError == nil }
     var validationError: String? {
-        if draft.count > 20 { return "Keep at most 20 workflows per project." }
+        if draft.count > 20 { return String(localized: "Keep at most 20 workflows per project.") }
         for recipe in draft {
-            if recipe.name.utf16.count > 80 { return "Workflow names must be at most 80 characters." }
-            if recipe.steps.count > 20 { return "Keep at most 20 steps in a workflow." }
+            if recipe.name.utf16.count > 80 { return String(localized: "Workflow names must be at most 80 characters.") }
+            if recipe.steps.count > 20 { return String(localized: "Keep at most 20 steps in a workflow.") }
             for step in recipe.steps {
-                if step.value.title.utf16.count > 120 { return "Step goals must be at most 120 characters." }
-                if step.value.command.utf16.count > 500 { return "Step commands must be at most 500 characters." }
+                if step.value.title.utf16.count > 120 { return String(localized: "Step goals must be at most 120 characters.") }
+                if step.value.command.utf16.count > 500 { return String(localized: "Step commands must be at most 500 characters.") }
             }
         }
         return nil
     }
     func connect(_ service: (any WorkflowService)?) {
         connection = UUID(); self.service = service
-        if busy { error = "The connection changed while saving. Your draft is kept; review it after reconnecting." }
+        if busy { error = String(localized: "The connection changed while saving. Your draft is kept; review it after reconnecting.") }
     }
     func update(_ project: Project) {
         self.project = project
@@ -64,7 +64,7 @@ import Observation
     }
     func add() {
         guard canAdd else { return }
-        draft.append(WorkflowEditorRecipe(.init(name: "Workflow \(draft.count + 1)"))); saved = false
+        draft.append(WorkflowEditorRecipe(.init(name: String(localized: "Workflow \(draft.count + 1)")))); saved = false
     }
     func remove(_ id: UUID) { guard !busy else { return }; draft.removeAll { $0.id == id }; saved = false }
     private func edit(_ id: UUID, _ body: (inout WorkflowEditorRecipe) -> Void) {

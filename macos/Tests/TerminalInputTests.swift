@@ -123,3 +123,12 @@ private final class InputErrors: @unchecked Sendable {
     info.terminalProfile = PtyTerminalProfile(version: "1.0-test", terminfoDirectory: "/tmp/owned-terminfo")
     try info.validateStateResponseOwner()
 }
+
+@MainActor @Test func terminalLivenessUsesConnectionStateRatherThanTranslatedStatus() {
+    for state: TerminalSession.ConnectionState in [.connecting, .restoring, .connected, .reconnecting] {
+        #expect(state.isLive)
+    }
+    for state: TerminalSession.ConnectionState in [.disconnected, .exited(nil), .exited(0), .exited(1)] {
+        #expect(!state.isLive)
+    }
+}

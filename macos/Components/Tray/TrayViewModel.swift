@@ -67,7 +67,7 @@ import Observation
     }
     func reviewDidOpen(_ review: TrayPR, success: Bool) {
         guard available else { return }
-        guard success else { actionError = "Could not open the pull request in Cascade."; return }
+        guard success else { actionError = String(localized: "Could not open the pull request in Cascade."); return }
         actionError = nil
         service?.acknowledgeTrayReview(review)
     }

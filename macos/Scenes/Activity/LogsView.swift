@@ -4,10 +4,10 @@ struct LogsView: View {
     @Bindable var model: LogsViewModel
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // The categories as inline segments with no title, as the web Settings page had them.
+            // A menu accommodates translated labels and categories discovered from stored logs.
             Picker("Category", selection: $model.category) {
                 ForEach(model.categories, id: \.self) { Text(LogsViewModel.label($0)).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            }.pickerStyle(.menu)
             HStack {
                 Toggle("Errors only", isOn: $model.errorsOnly)
                 Spacer()
@@ -21,7 +21,7 @@ struct LogsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
                     if model.rows.isEmpty && !model.loading {
-                        Text(model.updated == nil ? "Connect to load activity." : "No matching entries.").foregroundStyle(.secondary)
+                        Text(model.updated == nil ? String(localized: "Connect to load activity.") : String(localized: "No matching entries.")).foregroundStyle(.secondary)
                     }
                     ForEach(model.rows) { entry in
                         VStack(alignment: .leading, spacing: 6) {
@@ -34,7 +34,7 @@ struct LogsView: View {
                             }
                             Text(entry.detail).font(.callout).textSelection(.enabled)
                             HStack {
-                                Text("\(LogsViewModel.label(entry.category)) · \(entry.level)").font(.caption).foregroundStyle(.secondary)
+                                Text(verbatim: "\(LogsViewModel.label(entry.category)) · \(entry.levelLabel)").font(.caption).foregroundStyle(.secondary)
                                 Spacer()
                                 if let link = entry.link {
                                     if model.navigation.opening == link { ProgressView().controlSize(.small) }

@@ -217,7 +217,7 @@ extension DashboardPullRequestsModel {
         snapshot.warnings = projects.flatMap { project -> [String] in
             var messages = project.prs.compactMap { $0.error.map { "\(project.name): \($0)" } }
             if let error = project.syncError { messages.insert("\(project.name): \(error)", at: 0) }
-            if project.lastSynced == nil { messages.append("\(project.name): waiting for the first sync.") }
+            if project.lastSynced == nil { messages.append(String(localized: "\(project.name): waiting for the first sync.")) }
             return messages
         }
         return snapshot
@@ -239,12 +239,12 @@ extension DashboardPullRequestsModel {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .all: return "All"
-            case .failing: return "Failing"
-            case .running: return "Running"
-            case .changesRequested: return "Changes requested"
-            case .approved: return "Approved"
-            case .drafts: return "Drafts"
+            case .all: return String(localized: "All")
+            case .failing: return String(localized: "Failing")
+            case .running: return String(localized: "Running")
+            case .changesRequested: return String(localized: "Changes requested")
+            case .approved: return String(localized: "Approved")
+            case .drafts: return String(localized: "Drafts")
             }
         }
         func matches(_ row: DashboardRow) -> Bool {
@@ -269,7 +269,7 @@ extension DashboardPullRequestsModel {
     struct Tile: Equatable, Sendable {
         var count = 0
         var failing = 0
-        var footnote = "0 drafts · 0 approved"
+        var footnote = String(localized: "Drafts: \(0) · Approved: \(0)")
         /// Up to `dotLimit` rows for the check-state dot matrix, failing first so a cut never hides
         /// one, then running, unknown and passing.
         var dots: [DashboardRow] = []
@@ -281,7 +281,7 @@ extension DashboardPullRequestsModel {
             let drafts = counts[.drafts] ?? 0
             count = mine.count
             failing = counts[.failing] ?? 0
-            footnote = "\(drafts) draft\(drafts == 1 ? "" : "s") · \(counts[.approved] ?? 0) approved"
+            footnote = String(localized: "Drafts: \(drafts) · Approved: \(counts[.approved] ?? 0)")
             dots = Array(mine.sorted { Self.rank($0.checks) < Self.rank($1.checks) }.prefix(Self.dotLimit))
         }
         private static func rank(_ checks: DashboardRow.Checks) -> Int {
@@ -294,7 +294,7 @@ extension DashboardPullRequestsModel {
         var count = 0
         /// The oldest waiting review's age, `3d`, or nil with none waiting.
         var oldestAge: String?
-        var footnote = "No review requests"
+        var footnote = String(localized: "No review requests")
         /// The first three distinct authors, in list order.
         var authors: [String] = []
 
@@ -304,7 +304,7 @@ extension DashboardPullRequestsModel {
             // `reviews` is newest first, so the longest wait is the last one with a date.
             oldestAge = reviews.last(where: { $0.created != nil })?.ageLabel
             let repos = Set(reviews.map { $0.pr.repo ?? $0.projectName }).count
-            if !reviews.isEmpty { footnote = "across \(repos) repo\(repos == 1 ? "" : "s")" }
+            if !reviews.isEmpty { footnote = String(localized: "Repositories: \(repos)") }
             for login in reviews.map(\.author) where !login.isEmpty && !authors.contains(login) {
                 authors.append(login)
                 if authors.count == 3 { break }

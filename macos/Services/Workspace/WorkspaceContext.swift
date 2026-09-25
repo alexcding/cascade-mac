@@ -6,6 +6,7 @@ import WebKit
 enum ReviewSection: String, Codable, CaseIterable, Identifiable {
     case changes = "Changes", history = "History"
     var id: String { rawValue }
+    var title: String { self == .changes ? String(localized: "Changes") : String(localized: "History") }
 }
 
 /// `simulator` is never saved: the stream it shows belongs to this launch, so a restored
@@ -17,7 +18,7 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
     case browser, files, diff, simulator
     var id: String { rawValue }
     var pane: WorkspacePane { switch self { case .browser: .term; case .diff: .diff; case .files: .files; case .simulator: .simulator } }
-    var title: String { switch self { case .browser: "Browser"; case .diff: "Diff"; case .files: "Files"; case .simulator: "Simulator" } }
+    var title: String { switch self { case .browser: String(localized: "Browser"); case .diff: String(localized: "Diff"); case .files: String(localized: "Files"); case .simulator: String(localized: "Simulator") } }
     var symbol: String {
         switch self { case .browser: "globe"; case .diff: "plus.forwardslash.minus"; case .files: "doc.text"; case .simulator: "iphone" }
     }
@@ -324,7 +325,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         if let tab = tab(order[(index + direction + order.count) % order.count]) { select(tab) }
     }
     @discardableResult func openFile(_ path: String, line: Int = 1, column: Int = 1) -> EditorDocumentViewModel? {
-        guard path.hasPrefix("/"), !path.contains("\0") else { error = "Choose an absolute file path."; return nil }
+        guard path.hasPrefix("/"), !path.contains("\0") else { error = String(localized: "Choose an absolute file path."); return nil }
         let path = (path as NSString).standardizingPath
         if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
         let file = documentFactory.editor(record: .init(path: path))
@@ -387,7 +388,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @discardableResult func open(_ url: String, title: String = "", configuration: WKWebViewConfiguration? = nil,
                                  allowDuplicate: Bool = false) -> BrowserPage? {
         guard safeWebURL(url) != nil || (configuration != nil && url == "about:blank") else {
-            error = "Enter an HTTP or HTTPS address."; return nil
+            error = String(localized: "Enter an HTTP or HTTPS address."); return nil
         }
         if configuration == nil, !allowDuplicate, let existing = pages.first(where: { $0.url == url }) { select(existing); return existing }
         let page = pageFactory.make(.init(url: url, title: title.isEmpty ? (URL(string: url)?.host ?? url) : title))
@@ -405,7 +406,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
 
     /// A new empty tab. It is never persisted or noted in history until it has a web address.
     @discardableResult func openBlankPage() -> BrowserPage {
-        let page = pageFactory.make(.init(url: Self.blankPageURL, title: "New Tab"))
+        let page = pageFactory.make(.init(url: Self.blankPageURL, title: ""))
         wire(page)
         // At the end, as Safari's New Tab: the tabs already open keep their places.
         pages.append(page); insert(page.id, atEnd: true)
@@ -640,7 +641,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
                 }
                 cache()
                 for id in dirty { if let snapshot = saved[id] { enqueue(id: id, snapshot: snapshot, api: api) } }
-            } catch { if !Task.isCancelled { active?.error = "Could not restore page tabs: \(error.localizedDescription)" } }
+            } catch { if !Task.isCancelled { active?.error = String(localized: "Could not restore page tabs: \(error.localizedDescription)") } }
         }
     }
     private func workspace(id: String, url: String, title: String, legacy: SavedTab?) -> WorkspaceContext {
@@ -690,7 +691,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     func deactivate() { activeContextID = nil }
     func promoteContext(from sourceID: String, to destinationID: String) throws {
         guard sourceID != destinationID, let source = contexts[sourceID] else {
-            throw BackendError.operation("The source page is no longer available. Open its session to continue.")
+            throw BackendError.operation(String(localized: "The source page is no longer available. Open its session to continue."))
         }
         // Move the actual objects, including dirty documents and live WebKit
         // pages. Recreating them from a snapshot would discard unsaved buffers.
@@ -768,7 +769,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
                 try await api.setSetting("native.context.\(id)", value: json)
                 guard let self else { return }
                 if saved[id] == snapshot { dirty.remove(id); cache() }
-            } catch { if !Task.isCancelled { self?.contexts[id]?.error = "Page tabs saved locally; backend sync failed: \(error.localizedDescription)" } }
+            } catch { if !Task.isCancelled { self?.contexts[id]?.error = String(localized: "Page tabs saved locally; backend sync failed: \(error.localizedDescription)") } }
         }
     }
     private func cache() {
@@ -776,7 +777,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(Cache(snapshots: saved, pending: dirty)).write(to: cacheURL, options: .atomic)
-        } catch { active?.error = "Could not save page tabs locally: \(error.localizedDescription)" }
+        } catch { active?.error = String(localized: "Could not save page tabs locally: \(error.localizedDescription)") }
     }
     func stop() async {
         fileOpenCoordinator.enabled = false

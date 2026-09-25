@@ -13,7 +13,7 @@ struct NewSessionView: View {
         VStack(alignment: .leading, spacing: 0) {
             SheetTitle(model.title)
 
-            SheetField("Branch name or URL") {
+            SheetField(String(localized: "Branch name or URL")) {
                 TextField(model.placeholder, text: $model.input)
                     .textFieldStyle(.roundedBorder).focused($focus, equals: .input)
                     .accessibilityIdentifier("session-branch")
@@ -22,7 +22,7 @@ struct NewSessionView: View {
                 SheetHint(hint.text, isError: hint.isError)
             }
             if model.showsPullRequestBranch {
-                SheetField("Branch for that pull request") {
+                SheetField(String(localized: "Branch for that pull request")) {
                     TextField(model.placeholder, text: $model.pullRequestBranch)
                         .textFieldStyle(.roundedBorder).focused($focus, equals: .pullRequestBranch)
                         .onSubmit { Task { await model.create() } }
@@ -30,19 +30,19 @@ struct NewSessionView: View {
                 .onAppear { focus = .pullRequestBranch }
             }
             if let worktree = model.worktreeHint {
-                SheetField("Worktree") {
+                SheetField(String(localized: "Worktree")) {
                     Text(worktree).font(.system(size: 13)).textSelection(.enabled)
                 }
             }
-            SheetField("Branch from") {
-                Picker("Branch from", selection: $model.draft.base) {
+            SheetField(String(localized: "Branch from")) {
+                Picker(String(localized: "Branch from"), selection: $model.draft.base) {
                     ForEach(model.branches, id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
                 if let referenceError = model.referenceError { SheetHint(referenceError, isError: true) }
             }
-            SheetField("Agent", last: true) {
-                SegmentedChoice(options: [("Claude", SessionAgent.claude), ("Codex", .codex), ("Shell only", .shell)],
+            SheetField(String(localized: "Agent"), last: true) {
+                SegmentedChoice(options: [("Claude", SessionAgent.claude), ("Codex", .codex), (String(localized: "Shell only"), .shell)],
                                 selection: $model.draft.agent)
             }
             if let error = model.error {
@@ -51,8 +51,8 @@ struct NewSessionView: View {
             HStack(spacing: 8) {
                 if model.busy { ProgressView().controlSize(.small) }
                 Spacer()
-                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction).disabled(model.creating)
-                Button(model.creating ? "Creating…" : "Create") { Task { await model.create() } }
+                Button(String(localized: "Cancel"), role: .cancel, action: cancel).keyboardShortcut(.cancelAction).disabled(model.creating)
+                Button(model.creating ? String(localized: "Creating…") : String(localized: "Create")) { Task { await model.create() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!model.canCreate)
             }
@@ -78,7 +78,7 @@ private struct SegmentedChoice<Value: Hashable>: View {
             ForEach(options, id: \.1) { label, value in
                 let on = value == selection
                 Button { selection = value } label: {
-                    Text(label).font(.system(size: 13, weight: .medium))
+                    Text(LocalizedStringKey(label)).font(.system(size: 13, weight: .medium))
                         .foregroundStyle(on ? Color.primary : Color(nsColor: .tertiaryLabelColor))
                         .padding(.horizontal, 11).padding(.vertical, 5)
                         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(on ? Color(nsColor: .separatorColor) : .clear))

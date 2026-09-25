@@ -41,7 +41,7 @@ struct TerminalPane: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Theme.textSecondary)
-            .accessibilityLabel("Dismiss")
+            .accessibilityLabel(String(localized: "Dismiss"))
         }
         .font(Theme.Typography.emptyHint)
         .padding(.horizontal, 12)

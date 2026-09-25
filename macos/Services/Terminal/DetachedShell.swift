@@ -107,9 +107,9 @@ import AppKit
     func submit(_ line: String) async throws {
         guard let client, let termID else { throw PtyError.closed }
         guard !line.contains("\n"), !line.contains("\r"), !line.contains("\0") else {
-            throw PtyError.connection("Terminal commands must contain a single line.")
+            throw PtyError.connection(String(localized: "Terminal commands must contain a single line."))
         }
-        guard try await atShell() else { throw PtyError.connection("The terminal is busy. Return to its shell before launching a command.") }
+        guard try await atShell() else { throw PtyError.connection(String(localized: "The terminal is busy. Return to its shell before launching a command.")) }
         try Task.checkCancellation()
         let _: Bool? = try await client.request(.init(op: "write", term: termID, data: line))
         try await Task.sleep(for: .milliseconds(60))

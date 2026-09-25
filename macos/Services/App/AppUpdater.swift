@@ -4,15 +4,15 @@ import Sparkle
 
 enum UpdateConfiguration {
     static func unavailableReason(debug: Bool, packaged: Bool, info: [String: Any]) -> String? {
-        if debug { return "Updates are unavailable in development builds." }
-        if !packaged { return "Updates require the packaged application." }
+        if debug { return String(localized: "Updates are unavailable in development builds.") }
+        if !packaged { return String(localized: "Updates require the packaged application.") }
         guard let feed = info["SUFeedURL"] as? String,
               let url = URLComponents(string: feed), url.scheme == "https",
               let host = url.host, !host.isEmpty, url.user == nil, url.password == nil,
-              url.fragment == nil else { return "A release update feed has not been configured." }
+              url.fragment == nil else { return String(localized: "A release update feed has not been configured.") }
         guard let key = info["SUPublicEDKey"] as? String,
               let data = Data(base64Encoded: key), data.count == 32 else {
-            return "A release update signing key has not been configured."
+            return String(localized: "A release update signing key has not been configured.")
         }
         return nil
     }

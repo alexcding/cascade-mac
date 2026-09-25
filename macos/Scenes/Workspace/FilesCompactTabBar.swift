@@ -16,13 +16,13 @@ struct FilesCompactTabBar: View {
     private var ids: [String] { documents.map(\.id) + (context.hasBlankFileTab ? [WorkspaceContext.blankFileID] : []) }
     private var results: [FileSearchViewModel.Result] { editing ? search.results : [] }
     private var placeholder: String {
-        root.map { "Search files in \(($0 as NSString).lastPathComponent)" } ?? "Enter a file path"
+        root.map { String(localized: "Search files in \(($0 as NSString).lastPathComponent)") } ?? String(localized: "Enter a file path")
     }
 
     var body: some View {
-        CompactTabBar(newTabTitle: "New File Tab", newTabHelp: "Open a new file tab", newTab: { context.fillerFileTab = false; model.newFileTab() }) {
-            HoverCircleButton("Open File…", systemImage: "folder", enabled: model.canOpenTab, action: model.openFile)
-                .help(root == nil ? "Choose a file to open" : "Choose a file from this worktree")
+        CompactTabBar(newTabTitle: String(localized: "New Tab"), newTabHelp: String(localized: "Open a new file tab"), newTab: { context.fillerFileTab = false; model.newFileTab() }) {
+            HoverCircleButton(String(localized: "Open File…"), systemImage: "folder", enabled: model.canOpenTab, action: model.openFile)
+                .help(root == nil ? String(localized: "Choose a file to open") : String(localized: "Choose a file from this worktree"))
                 .barGlass()
         } pill: { available in
             CompactTabPill(ids: ids, activeID: context.activeID, available: available,
@@ -34,13 +34,13 @@ struct FilesCompactTabBar: View {
                         select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
                 } else {
                     // A lone blank tab has nothing to close: closing it would only make another.
-                    tab(label: context.blankFileActive ? "" : "New Tab", help: placeholder, id: id, blank: true, dirty: false,
+                    tab(label: context.blankFileActive ? "" : String(localized: "New Tab"), help: placeholder, id: id, blank: true, dirty: false,
                         closable: !documents.isEmpty, iconOnly: iconOnly, select: model.selectBlankFileTab, close: model.closeBlankFileTab)
                 }
             }
         } suggestions: {
             if !results.isEmpty {
-                CompactSuggestionList(items: results, highlighted: highlighted, accessibilityLabel: "Matching files",
+                CompactSuggestionList(items: results, highlighted: highlighted, accessibilityLabel: String(localized: "Matching files"),
                                       heading: { _ in nil }, title: \.name, detail: \.folder, pick: pick) { _ in
                     CompactSuggestionSymbol(systemImage: "doc.text")
                 }
@@ -69,7 +69,7 @@ struct FilesCompactTabBar: View {
     private func tab(label: String, help: String, id: String, blank: Bool, dirty: Bool, closable: Bool, iconOnly: Bool,
                      select: @escaping () -> Void, close: @escaping () -> Void) -> some View {
         @Bindable var search = search
-        return CompactTabShell(label: label, placeholder: placeholder, closeTitle: "Close \(label.isEmpty ? "tab" : label)", help: help,
+        return CompactTabShell(label: label, placeholder: placeholder, closeTitle: label.isEmpty ? String(localized: "Close Tab") : String(localized: "Close \(label)"), help: help,
                                active: id == context.activeID, workspaceActive: model.isActive, blank: blank, autoFocus: !context.fillerFileTab,
                                closable: closable, iconOnly: iconOnly, editable: blank, text: $search.query, editing: $editing, moveHighlight: moveHighlight,
                                submit: submit, select: select, close: close) {
@@ -80,7 +80,7 @@ struct FilesCompactTabBar: View {
             // Unsaved edits, where the browser shows reload.
             Circle().fill(Theme.textSecondary).frame(width: 7, height: 7).frame(width: 24, height: 24)
                 .opacity(dirty ? 1 : 0)
-                .accessibilityLabel("Unsaved changes").accessibilityHidden(!dirty)
+                .accessibilityLabel(String(localized: "Unsaved changes")).accessibilityHidden(!dirty)
         }
     }
 

@@ -332,20 +332,20 @@ struct BuildDestinationView: View {
     let cancel: () -> Void
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(model.purpose == .run ? "Run Destination" : "Build Destination").font(.title2.weight(.semibold))
-            Picker("Scheme", selection: $model.scheme) {
+            Text(model.purpose == .run ? String(localized: "Run Destination") : String(localized: "Build Destination")).font(.title2.weight(.semibold))
+            Picker(String(localized: "Scheme"), selection: $model.scheme) {
                 ForEach(model.schemes, id: \.self) { Text($0).tag($0) }
             }.disabled(model.starting).accessibilityIdentifier("build-scheme")
-            Picker("Destination", selection: $model.simulator) {
+            Picker(String(localized: "Destination"), selection: $model.simulator) {
                 ForEach(model.simulators) { Text($0.label).tag($0.udid) }
             }.disabled(model.starting).accessibilityIdentifier("build-simulator")
-            if model.loading { ProgressView("Loading destinations…") }
+            if model.loading { ProgressView(String(localized: "Loading destinations…")) }
             if let error = model.error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
             HStack {
-                Button("Cancel", role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
+                Button(String(localized: "Cancel"), role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
                 Spacer()
                 if model.starting { ProgressView().controlSize(.small) }
-                Button(model.purpose == .run ? "Run" : "Save") { Task { await model.confirm() } }
+                Button(model.purpose == .run ? String(localized: "Run") : String(localized: "Save")) { Task { await model.confirm() } }
                     .keyboardShortcut(.defaultAction).disabled(!model.canRun)
             }.disabled(model.starting)
         }.padding(24).frame(width: 480)

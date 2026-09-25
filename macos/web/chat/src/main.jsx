@@ -6,6 +6,13 @@ import { createRoot } from "react-dom/client";
 import { Streamdown } from "streamdown";
 import { code } from "./highlight.js";
 
+let localization = { strings: {}, locale: undefined, language: "en", direction: "ltr" };
+const t = (key, ...values) => {
+  let index = 0;
+  return (localization.strings[key] ?? key).replace(/%(?:(\d+)\$)?@/g,
+    (_, position) => String(values[position ? Number(position) - 1 : index++] ?? ""));
+};
+
 const post = (message) => window.webkit?.messageHandlers?.chat?.postMessage(message);
 
 // The page is not a secure context, so WebKit gives it no clipboard; copying goes through Swift.
@@ -35,29 +42,63 @@ document.addEventListener("click", (event) => {
   post({ type: "open", url: link.href });
 }, true);
 
+const markdownTranslations = () => ({
+  close: t("Close"),
+  copied: t("Copied"),
+  copyCode: t("Copy Code"),
+  copyLink: t("Copy Link"),
+  copyTable: t("Copy Table"),
+  downloadDiagram: t("Download Diagram"),
+  downloadFile: t("Download File"),
+  downloadImage: t("Download Image"),
+  downloadTable: t("Download Table"),
+  exitFullscreen: t("Exit Full Screen"),
+  externalLinkWarning: t("You are about to open an external link."),
+  imageNotAvailable: t("Image unavailable"),
+  openExternalLink: t("Open External Link"),
+  openLink: t("Open Link"),
+  resetView: t("Reset View"),
+  viewFullscreen: t("View Full Screen"),
+  zoomIn: t("Zoom In"),
+  zoomOut: t("Zoom Out"),
+  copyTableAsCsv: t("Copy as %@", "CSV"),
+  copyTableAsMarkdown: t("Copy as %@", "Markdown"),
+  copyTableAsTsv: t("Copy as %@", "TSV"),
+  downloadDiagramAsMmd: t("Download as %@", "MMD"),
+  downloadDiagramAsPng: t("Download as %@", "PNG"),
+  downloadDiagramAsSvg: t("Download as %@", "SVG"),
+  downloadTableAsCsv: t("Download as %@", "CSV"),
+  downloadTableAsMarkdown: t("Download as %@", "Markdown"),
+  mermaidFormatMmd: "MMD",
+  mermaidFormatPng: "PNG",
+  mermaidFormatSvg: "SVG",
+  tableFormatCsv: "CSV",
+  tableFormatMarkdown: "Markdown",
+  tableFormatTsv: "TSV",
+});
+
 function Markdown({ text }) {
   return (
-    <Streamdown mode="static" className="answer" plugins={{ code }}
+    <Streamdown translations={markdownTranslations()} dir="auto" mode="static" className="answer" plugins={{ code }}
       shikiTheme={["github-light", "github-dark"]} linkSafety={{ enabled: false }} tableMaxHeight={0}>
       {text}
     </Streamdown>
   );
 }
 
-const time = (iso) => iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+const time = (iso) => iso ? new Date(iso).toLocaleString(localization.locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
 function dateLine(iso) {
-  const date = new Date(iso);
-  const day = date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  const clock = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  return `${day} at ${clock}`;
+  return new Date(iso).toLocaleString(localization.locale, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function duration(seconds) {
   const total = Math.round(seconds);
-  if (total < 60) return `${total}s`;
-  if (total < 3600) return `${Math.floor(total / 60)}m ${total % 60}s`;
-  return `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`;
+  const unit = (value, unit) => new Intl.NumberFormat(localization.locale,
+    { style: "unit", unit, unitDisplay: "short" }).format(value);
+  if (total < 60) return unit(total, "second");
+  if (total < 3600) return unit(Math.floor(total / 60), "minute") + " " + unit(total % 60, "second");
+  return unit(Math.floor(total / 3600), "hour") + " " + unit(Math.floor((total % 3600) / 60), "minute");
 }
 
 const CopyIcon = () => (
@@ -74,7 +115,7 @@ function Actions({ text, at }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className={`actions${copied ? " copied" : ""}`}>
-      <button title="Copy" onClick={() => {
+      <button title={t("Copy")} aria-label={t("Copy")} onClick={() => {
         post({ type: "copy", text });
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
@@ -114,7 +155,7 @@ const VERBS = {
 };
 
 function Tool({ tool }) {
-  const name = tool.name || "Tool";
+  const name = tool.name || t("Tool");
   const isEdit = tool.path != null && tool.new != null;
   const lines = isEdit ? diff(tool.old || "", tool.new) : null;
   const badge = isEdit && name !== "Write"
@@ -124,10 +165,10 @@ function Tool({ tool }) {
   const expandable = isEdit || output || command;
   const header = (
     <>
-      <span className="verb">{VERBS[name] || name}</span>
+      <span className="verb">{VERBS[name] ? t(VERBS[name]) : name}</span>
       {tool.summary && <span className="summary">{tool.summary}</span>}
       {badge && <span className="badge">{badge}</span>}
-      {tool.isError && <span className="error">failed</span>}
+      {tool.isError && <span className="error">{t("Failed")}</span>}
       {expandable && <span className="chev">›</span>}
     </>
   );
@@ -136,7 +177,7 @@ function Tool({ tool }) {
     <details className="tool">
       <summary>{header}</summary>
       <div className="body">
-        {command && <div><div className="block-label">Command</div><pre className="mono">{command}</pre></div>}
+        {command && <div><div className="block-label">{t("Command")}</div><pre className="mono">{command}</pre></div>}
         {isEdit && (
           <div className="diff">
             {lines.slice(0, 400).map((line, index) => (
@@ -144,7 +185,7 @@ function Tool({ tool }) {
             ))}
           </div>
         )}
-        {output && <div><div className="block-label">{tool.isError ? "Error" : "Output"}</div><pre className="mono">{output}</pre></div>}
+        {output && <div><div className="block-label">{t(tool.isError ? "Error" : "Output")}</div><pre className="mono">{output}</pre></div>}
       </div>
     </details>
   );
@@ -159,7 +200,7 @@ function Worked({ blocks, label, working }) {
           if (block.type === "tool") return <Tool key={index} tool={block} />;
           if (block.type === "thinking") return (
             <details key={index} className="thought">
-              <summary>Thought ›</summary>
+              <summary>{t("Thought")} ›</summary>
               <div className="body"><Markdown text={block.text || ""} /></div>
             </details>
           );
@@ -186,11 +227,11 @@ const Turn = memo(function Turn({ turn, working }) {
   turn.blocks.forEach((block, index) => { if (block.type !== "text") last = index; });
   const work = turn.blocks.slice(0, last + 1);
   const answer = turn.blocks.slice(last + 1).map((b) => b.text).filter(Boolean).join("\n\n");
-  let label = "Worked";
-  if (working) label = "Working";
+  let label = t("Worked");
+  if (working) label = t("Working");
   else if (turn.timestamp && turn.ended) {
     const seconds = (new Date(turn.ended) - new Date(turn.timestamp)) / 1000;
-    if (seconds > 0) label = `Worked for ${duration(seconds)}`;
+    if (seconds > 0) label = t("Worked for %@", duration(seconds));
   }
   return (
     <div className="turn">
@@ -219,7 +260,7 @@ function Permission({ permission }) {
   const change = permission.new != null ? diff(permission.old || "", permission.new) : null;
   return (
     <div className="turn permission">
-      <div className="ask">{ASKS[permission.tool] || `Allow ${permission.tool}?`}</div>
+      <div className="ask">{ASKS[permission.tool] ? t(ASKS[permission.tool]) : t("Allow %@?", permission.tool)}</div>
       {permission.reason && <div className="reason">{permission.reason}</div>}
       {permission.detail && <pre className="mono">{permission.detail}</pre>}
       {change && (
@@ -229,12 +270,12 @@ function Permission({ permission }) {
           ))}
         </div>
       )}
-      {permission.truncated && <div className="reason">Too long to show here in full. Review it in the terminal.</div>}
+      {permission.truncated && <div className="reason">{t("Too long to show here in full. Review it in the terminal.")}</div>}
       <div className="choices">
         {permission.truncated
-          ? <button className="allow" disabled={sent} onClick={() => answer("pass")}>Review in Terminal</button>
-          : <button className="allow" disabled={sent} onClick={() => answer("allow")}>Allow</button>}
-        <button disabled={sent} onClick={() => answer("deny")}>Deny</button>
+          ? <button className="allow" disabled={sent} onClick={() => answer("pass")}>{t("Review in Terminal")}</button>
+          : <button className="allow" disabled={sent} onClick={() => answer("allow")}>{t("Allow")}</button>}
+        <button disabled={sent} onClick={() => answer("deny")}>{t("Deny")}</button>
       </div>
     </div>
   );
@@ -279,7 +320,7 @@ function Chat({ state }) {
   const last = turns[turns.length - 1];
   return (
     <div className="column">
-      {loaded && turns.length === 0 && !pending && <div className="empty">No conversation yet. Send a message to start.</div>}
+      {loaded && turns.length === 0 && !pending && <div className="empty">{t("No conversation yet. Send a message to start.")}</div>}
       {turns.map((turn, index) => {
         const date = separator(turns, index);
         return (
@@ -292,13 +333,13 @@ function Chat({ state }) {
       {pending && (
         <div className={`turn prompt${queued ? " queued" : ""}`}>
           <div className="pill">{pending}</div>
-          {queued && <div className="actions"><span>Waiting to send</span></div>}
+          {queued && <div className="actions"><span>{t("Waiting to send")}</span></div>}
         </div>
       )}
-      {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">Working</span></div>}
+      {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">{t("Working")}</span></div>}
       {permission && <Permission key={permission.id} permission={permission} />}
       {away && (
-        <button className="to-latest" aria-label="Scroll to latest" title="Scroll to latest"
+        <button className="to-latest" aria-label={t("Scroll to latest")} title={t("Scroll to latest")}
                 onClick={() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" })}>
           <DownIcon />
         </button>
@@ -309,7 +350,13 @@ function Chat({ state }) {
 
 const root = createRoot(document.getElementById("chat"));
 window.nativeChat = {
-  render(state) { root.render(<Chat state={state} />); },
+  render(state) {
+    localization = state.localization ?? localization;
+    document.documentElement.lang = localization.language;
+    document.documentElement.dir = localization.direction;
+    document.title = t("Conversation");
+    root.render(<Chat state={state} />);
+  },
 };
-window.addEventListener("error", (event) => post({ type: "error", message: event.message || "The chat page failed to load." }));
+window.addEventListener("error", (event) => post({ type: "error", message: event.message || t("The chat page failed to load.") }));
 post({ type: "ready" });

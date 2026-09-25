@@ -7,7 +7,7 @@ struct WorkflowRunView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Picker("Workflow", selection: $model.selectedID) {
-                    ForEach(model.recipes, id: \.id) { Text($0.name.isEmpty ? "Untitled workflow" : $0.name).tag($0.id) }
+                    ForEach(model.recipes, id: \.id) { Text($0.name.isEmpty ? String(localized: "Untitled workflow") : $0.name).tag($0.id) }
                 }.frame(maxWidth: 280).disabled(model.running)
                 if model.running {
                     ProgressView().controlSize(.small)

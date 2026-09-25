@@ -7,9 +7,9 @@ struct GitHistoryView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                TextField("Search loaded commits", text: $model.search).textFieldStyle(.roundedBorder).focused($finding)
+                TextField(String(localized: "Search loaded commits"), text: $model.search).textFieldStyle(.roundedBorder).focused($finding)
                 if model.loading { ProgressView().controlSize(.small) }
-                Button("Refresh History", systemImage: "arrow.clockwise", action: model.refresh).labelStyle(.iconOnly).disabled(model.loading)
+                Button(String(localized: "Refresh History"), systemImage: "arrow.clockwise", action: model.refresh).labelStyle(.iconOnly).disabled(model.loading)
             }.padding(10)
             if let error = model.error { Text(error).font(.callout).foregroundStyle(.orange).padding(.horizontal, 10) }
             VSplitView {
@@ -33,7 +33,7 @@ struct GitHistoryView: View {
                     }.listStyle(.inset).accessibilityIdentifier("git-history-list")
                     if model.rows.isEmpty, !model.loading { Text(model.emptyLabel).foregroundStyle(.secondary).padding(10) }
                     if model.hasMore {
-                        Button(model.loadingMore ? "Loading Older Commits…" : "Load Older Commits", action: model.loadMore)
+                        Button(model.loadingMore ? String(localized: "Loading Older Commits…") : String(localized: "Load Older Commits"), action: model.loadMore)
                             .disabled(model.loading || model.loadingMore).padding(.horizontal, 10).padding(.bottom, 8)
                     }
                 }.frame(minHeight: 130, idealHeight: 220)
@@ -43,7 +43,7 @@ struct GitHistoryView: View {
                     if let error = model.detailError {
                         VStack(spacing: 8) {
                             Text(error).foregroundStyle(.orange)
-                            Button("Retry Commit", action: model.retryDetail)
+                            Button(String(localized: "Retry Commit"), action: model.retryDetail)
                         }.padding().frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else if let detail = model.detail {
                         // The diff is what this pane is for, so the commit takes two lines: the
@@ -52,14 +52,14 @@ struct GitHistoryView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 if hasBody {
-                                    Button(showsMessage ? "Hide Commit Message" : "Show Commit Message",
+                                    Button(showsMessage ? String(localized: "Hide Commit Message") : String(localized: "Show Commit Message"),
                                            systemImage: showsMessage ? "chevron.down" : "chevron.right") { showsMessage.toggle() }
                                         .labelStyle(.iconOnly).buttonStyle(.borderless).font(.caption)
                                 }
                                 Text(detail.meta.subject).fontWeight(.semibold).lineLimit(1).truncationMode(.tail)
                                 Spacer(minLength: 4)
                                 if model.loadingDetail { ProgressView().controlSize(.small) }
-                                Button("Copy Commit SHA", systemImage: "doc.on.doc", action: model.copySHA)
+                                Button(String(localized: "Copy Commit SHA"), systemImage: "doc.on.doc", action: model.copySHA)
                                     .labelStyle(.iconOnly).buttonStyle(.borderless)
                             }
                             Text(detail.meta.authorLabel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -71,9 +71,9 @@ struct GitHistoryView: View {
                         Divider()
                         if let patch = model.patch { DiffView(model: patch, showsHeader: false) }
                     } else if model.loadingDetail {
-                        ProgressView("Loading commit…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                        ProgressView(String(localized: "Loading commit…")).frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        ContentUnavailableView("Select a commit", systemImage: "clock.arrow.circlepath")
+                        ContentUnavailableView(String(localized: "Select a commit"), systemImage: "clock.arrow.circlepath")
                     }
                 }.frame(minHeight: 160, maxHeight: .infinity)
             }

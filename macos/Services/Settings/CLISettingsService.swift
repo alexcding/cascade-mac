@@ -10,8 +10,8 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .claude: "Claude Code"; case .codex: "Codex"; case .gh: "GitHub CLI"; case .ghWebhook: "gh webhook extension"
-        case .acli: "Atlassian CLI"; case .node: "Node.js 20 or later"; case .serveSim: "serve-sim"
+        case .claude: "Claude Code"; case .codex: "Codex"; case .gh: "GitHub CLI"; case .ghWebhook: String(localized: "gh webhook extension")
+        case .acli: "Atlassian CLI"; case .node: String(localized: "Node.js 20 or later"); case .serveSim: "serve-sim"
         }
     }
     var supportsHooks: Bool { self == .claude || self == .codex }
@@ -65,28 +65,28 @@ struct CLIAvailability: Decodable, Sendable {
     }
     func label(for cli: ManagedCLI) -> String {
         if cli == .serveSim {
-            guard present else { return needs == "npx" ? "Needs npx, which comes with npm" : "Needs Node.js 20 or later" }
-            return source == "npx" ? "Fetched automatically on first use" : "Installed"
+            guard present else { return needs == "npx" ? String(localized: "Needs npx, which comes with npm") : String(localized: "Needs Node.js 20 or later") }
+            return source == "npx" ? String(localized: "Fetched automatically on first use") : String(localized: "Installed")
         }
-        guard present else { return cli.isExtension ? "Not installed" : "Not found" }
+        guard present else { return cli.isExtension ? String(localized: "Not installed") : String(localized: "Not found") }
         if cli == .node {
             let via = source.flatMap(Self.sourceName).map { " · \($0)" } ?? ""
             switch (supported, version) {
-            case (true, let version?): return "Installed · \(version)\(via)"
-            case (false, let version?): return "\(version)\(via), needs 20 or later"
-            default: return "Installed · version unknown"
+            case (true, let version?): return String(localized: "Installed · \(version)\(via)")
+            case (false, let version?): return String(localized: "\(version)\(via), needs 20 or later")
+            default: return String(localized: "Installed · version unknown")
             }
         }
-        if cli.supportsHooks || cli.isExtension || cli.isSimulatorPreview { return "Installed" }
+        if cli.supportsHooks || cli.isExtension || cli.isSimulatorPreview { return String(localized: "Installed") }
         switch authed {
-        case true: return "Signed in"
-        case false: return "Not signed in"
-        default: return "Installed; sign-in status unavailable"
+        case true: return String(localized: "Signed in")
+        case false: return String(localized: "Not signed in")
+        default: return String(localized: "Installed; sign-in status unavailable")
         }
     }
     private static func sourceName(_ source: String) -> String? {
         switch source {
-        case "installer": "Node.js installer"
+        case "installer": String(localized: "Node.js installer")
         case "other": nil
         default: source
         }

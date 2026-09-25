@@ -20,10 +20,10 @@ struct PageSessionMark: Equatable, Sendable {
     var glyph: String { switch cli { case "claude": "✻"; case "codex": "⠿"; default: "❯" } }
     /// The agent's mark in the asset catalogue; a shell has none.
     var asset: String? { switch cli { case "claude": "AgentClaude"; case "codex": "AgentCodex"; default: nil } }
-    var agentName: String { switch cli { case "claude": "Claude Code"; case "codex": "Codex"; default: "shell" } }
+    var agentName: String { switch cli { case "claude": "Claude Code"; case "codex": "Codex"; default: String(localized: "Shell") } }
     /// The one-word form for tight columns: "Claude", "Codex" or "Shell".
-    var shortName: String { switch cli { case "claude": "Claude"; case "codex": "Codex"; default: "Shell" } }
-    var label: String { "Has a \(agentName) session" }
+    var shortName: String { switch cli { case "claude": "Claude"; case "codex": "Codex"; default: String(localized: "Shell") } }
+    var label: String { asset == nil ? String(localized: "Has a shell session") : String(localized: "Has a \(agentName) session") }
 }
 
 @MainActor struct NativePageActionService: PageActionServing {
@@ -45,7 +45,7 @@ struct PageDestinationMark: View {
                     .help(mark.label).accessibilityLabel(mark.label)
             } else {
                 Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    .help("Opens in a tab").accessibilityLabel("Opens in a tab")
+                    .help(String(localized: "Opens in a tab")).accessibilityLabel(String(localized: "Opens in a tab"))
             }
         }.frame(width: 18, height: 18)
     }
@@ -63,10 +63,10 @@ struct PageRowMenu: View {
     let session: (SessionAgent?) -> Void
     var body: some View {
         if hasSession {
-            Button("Go to Session") { session(nil) }; Button("Open in Tab", action: open)
+            Button(String(localized: "Go to Session")) { session(nil) }; Button(String(localized: "Open in Tab"), action: open)
         } else {
-            Button("Open in Tab", action: open)
-            Menu("New Session") { ForEach(Self.agents) { agent in Button(agent.label) { session(agent) } } }
+            Button(String(localized: "Open in Tab"), action: open)
+            Menu(String(localized: "New Session")) { ForEach(Self.agents) { agent in Button(agent.label) { session(agent) } } }
         }
     }
 }

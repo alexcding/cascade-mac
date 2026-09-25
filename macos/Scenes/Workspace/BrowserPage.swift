@@ -270,7 +270,7 @@ final class BrowserWebView: WKWebView {
     }
     private func track(_ download: WKDownload) {
         download.delegate = self
-        let item = BrowserDownload(filename: download.originalRequest?.url?.lastPathComponent ?? "Download")
+        let item = BrowserDownload(filename: download.originalRequest?.url?.lastPathComponent ?? String(localized: "Download"))
         item.download = download
         downloads.append(item)
     }
@@ -280,7 +280,7 @@ final class BrowserWebView: WKWebView {
     private static func downloadDestination(for filename: String) -> URL {
         let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
-        let name = filename.isEmpty ? "Download" : filename
+        let name = filename.isEmpty ? String(localized: "Download") : filename
         var candidate = folder.appendingPathComponent(name)
         let stem = candidate.deletingPathExtension().lastPathComponent
         let ext = candidate.pathExtension
@@ -330,7 +330,7 @@ final class BrowserWebView: WKWebView {
     private static let webProcessIdentifier = NSSelectorFromString("_webProcessIdentifier")
 
     func navigate(_ address: String) {
-        guard let destination = webAddress(address) else { error = "Enter a web address, like example.com."; return }
+        guard let destination = webAddress(address) else { error = String(localized: "Enter a web address, like example.com."); return }
         error = nil; parkedURL = nil
         materialize().load(URLRequest(url: destination))
     }
@@ -410,7 +410,7 @@ final class BrowserWebView: WKWebView {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard self.webView === webView else { return }
         dialogs.cancel()
-        error = "This page stopped responding. Reload to recover it."
+        error = String(localized: "This page stopped responding. Reload to recover it.")
         loading = false
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
@@ -426,7 +426,7 @@ final class BrowserWebView: WKWebView {
         let scheme = action.request.url?.scheme ?? ""
         let allowed = safeWebURL(raw) != nil || raw == "about:blank"
             || (subframe && ["about", "data", "blob"].contains(scheme))
-        if !allowed { error = "This page tried to open an unsupported address." }
+        if !allowed { error = String(localized: "This page tried to open an unsupported address.") }
         decisionHandler(allowed ? .allow : .cancel)
     }
     /// A response the page cannot display, or one the server marked as an attachment, is saved.
@@ -450,7 +450,7 @@ final class BrowserWebView: WKWebView {
     private func requestDialog(_ kind: BrowserDialogViewModel.Kind, from webView: WKWebView, frame: WKFrameInfo,
                                completion: @escaping (BrowserDialogViewModel.Response) -> Void) {
         guard self.webView === webView, isOwned() else { completion(.cancel); return }
-        dialogs.begin(kind, origin: frame.request.url?.host ?? "Web page", completion: completion)
+        dialogs.begin(kind, origin: frame.request.url?.host ?? String(localized: "Web page"), completion: completion)
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,

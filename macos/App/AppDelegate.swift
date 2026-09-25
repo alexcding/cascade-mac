@@ -190,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Only a review request colors the glyph. Running tasks leave it untinted, so it stays
             // the menu bar's own black or white like every other icon up there.
             applyStatusImage(tint: reviews > 0 ? Self.trayBronze : nil)
-            statusItem?.button?.toolTip = reviews > 0 ? "Cascade: \(reviews) pending reviews" : "Cascade"
+            statusItem?.button?.toolTip = reviews > 0 ? String(localized: "Cascade · Pending reviews: \(reviews)") : "Cascade"
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeStatus() }
         }
@@ -267,9 +267,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if error is CancellationError { return }
         Task {
             let alert = NSAlert()
-            alert.messageText = "Cascade could not quit"
+            alert.messageText = String(localized: "Cascade could not quit")
             alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: String(localized: "OK"))
             if let window { _ = await alert.beginSheetModal(for: window) }
         }
     }

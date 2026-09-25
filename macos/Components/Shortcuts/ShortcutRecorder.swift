@@ -4,7 +4,7 @@ import SwiftUI
 /// Click, then press the combination. Escape leaves it as it was; Delete clears it.
 struct ShortcutRecorder: View {
     @Binding var shortcut: KeyShortcut?
-    var placeholder = "Add Shortcut"
+    var placeholder = String(localized: "Add Shortcut")
     /// Why a combination cannot be used, or nil when it can. A refused press is reported and
     /// the shortcut stays as it was.
     var conflict: (KeyShortcut) -> String? = { _ in nil }
@@ -15,8 +15,8 @@ struct ShortcutRecorder: View {
     @MainActor static private(set) var recording = false
 
     var body: some View {
-        Button(monitor != nil ? "Press keys…" : shortcut?.title ?? placeholder) { monitor == nil ? start() : stop() }
-            .frame(width: 96)
+        Button(monitor != nil ? String(localized: "Press keys…") : shortcut?.title ?? placeholder) { monitor == nil ? start() : stop() }
+            .frame(minWidth: 96)
             .help("Click, then press a combination that includes ⌘. Delete clears it.")
             .onDisappear(perform: stop)
     }

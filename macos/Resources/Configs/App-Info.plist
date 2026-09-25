@@ -15,7 +15,7 @@
             <string>Viewer</string>
         </dict>
     </array>
-    <!-- Help → Cascade Help opens Cascade.help in Help Viewer. The name is the help book's own
+    <!-- Help → Detailed User Guide (English) opens Cascade.help in Help Viewer. The name is the help book's own
          CFBundleIdentifier. -->
     <key>CFBundleHelpBookFolder</key>
     <string>Cascade.help</string>

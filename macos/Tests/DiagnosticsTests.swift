@@ -48,7 +48,7 @@ actor DiagnosticsFixture: DiagnosticsService {
     model.refresh(); model.invalidate(); model.invalidate()
     await service.complete(1, with: .success(try diagnosticsFixture()))
     try await waitForDiagnostics { await service.calls == 2 }
-    #expect(model.projects.first?.caches.map(\.count) == ["4 open PRs", "No snapshot", "3 tickets"])
+    #expect(model.projects.first?.caches.map(\.count) == ["Open PRs: 4", "No snapshot", "Tickets: 3"])
     #expect(model.projects.first?.caches.first?.error == "Sync failed")
     #expect(model.projects.first?.caches.last?.lastSync == "Never synced")
     #expect(!String(reflecting: model.snapshot).contains("must-not-be-retained"))

@@ -146,12 +146,12 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     let project = makeProject("p", prs: [makePR(1)])
     let one = rows(project)
     let singular = DashboardPullRequestsModel.Tile(mine: one, counts: [.drafts: 1, .approved: 0])
-    #expect(singular.footnote == "1 draft · 0 approved")
+    #expect(singular.footnote == "Drafts: 1 · Approved: 0")
     #expect(singular.count == 1)
 
     let five = makeProject("p", prs: (1...5).map { makePR($0) })
     let plural = DashboardPullRequestsModel.Tile(mine: rows(five), counts: [.drafts: 2, .approved: 3])
-    #expect(plural.footnote == "2 drafts · 3 approved")
+    #expect(plural.footnote == "Drafts: 2 · Approved: 3")
     #expect(plural.count == 5)
 }
 
@@ -182,7 +182,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     let tile = DashboardPullRequestsModel.ReviewTile(reviews: reviews)
     #expect(tile.count == 5)
     #expect(tile.oldestAge?.hasSuffix("d") == true)
-    #expect(tile.footnote == "across 3 repos")
+    #expect(tile.footnote == "Repositories: 3")
     #expect(tile.authors == ["alice", "bob", "carol"])
 }
 
@@ -271,7 +271,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     #expect(summary.stages.all.map(\.count) == [2, 1, 0, 0])
     #expect(summary.stages.live.map(\.stage) == [.toDo, .inProgress])
     #expect(summary.stages.total == 3)
-    #expect(summary.tile.footnote == "2 to do · 1 in progress · 0 pending release · 0 blocked")
+    #expect(summary.tile.footnote == "To do: 2 · In progress: 1 · Pending release: 0 · Blocked: 0")
 }
 
 @MainActor @Test func rankAttentionExcludesLinkedInProgressAndRespectsLimit() {
@@ -389,11 +389,11 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
 
     model.query = "Alpha One"
     #expect(model.search.count == 1)
-    #expect(model.search.caption == "1 result for \u{201C}Alpha One\u{201D}")
+    #expect(model.search.caption == "Results for \u{201C}Alpha One\u{201D}: 1")
 
     model.query = "Alpha"
     #expect(model.search.count == 2)
-    #expect(model.search.caption == "2 results for \u{201C}Alpha\u{201D}")
+    #expect(model.search.caption == "Results for \u{201C}Alpha\u{201D}: 2")
 
     model.clearFilter()
     await model.stop()

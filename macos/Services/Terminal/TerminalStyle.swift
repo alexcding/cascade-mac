@@ -36,7 +36,7 @@ struct TerminalStyle: Equatable, Sendable {
         if thicken { configuration = configuration.fontThickenStrength(thickenStrength) }
         for binding in keybinds {
             guard Self.keybindProblem(binding) == nil else {
-                resolved.issues.append("Ignored keybind \"\(binding)\": expected trigger=action.")
+                resolved.issues.append(String(localized: "Ignored keybind \"\(binding)\": expected trigger=action."))
                 continue
             }
             configuration = configuration.custom("keybind", binding)
@@ -46,7 +46,7 @@ struct TerminalStyle: Equatable, Sendable {
         var theme = TerminalTheme.default
         for (name, isDark) in [(darkTheme, true), (lightTheme, false)] where !name.isEmpty {
             guard let match = GhosttyThemeCatalog.theme(named: name) else {
-                resolved.issues.append("No terminal theme named \(name).")
+                resolved.issues.append(String(localized: "No terminal theme named \(name)."))
                 continue
             }
             if isDark { theme.dark = match.toTerminalConfiguration() } else { theme.light = match.toTerminalConfiguration() }
@@ -81,16 +81,16 @@ struct TerminalStyle: Equatable, Sendable {
     /// a malformed line and a rejected line fails the whole config, so a typo must never reach it.
     static func keybindProblem(_ binding: String) -> String? {
         let trimmed = binding.trimmingCharacters(in: .whitespaces)
-        guard let eq = trimmed.firstIndex(of: "=") else { return "Missing “=” between the key and its action." }
+        guard let eq = trimmed.firstIndex(of: "=") else { return String(localized: "Missing “=” between the key and its action.") }
         let trigger = trimmed[..<eq], action = trimmed[trimmed.index(after: eq)...]
-        if trigger.isEmpty { return "Missing the key to press." }
-        if trigger.contains(where: \.isWhitespace) { return "The key must not contain spaces." }
+        if trigger.isEmpty { return String(localized: "Missing the key to press.") }
+        if trigger.contains(where: \.isWhitespace) { return String(localized: "The key must not contain spaces.") }
         let parts = trigger.split(separator: "+", omittingEmptySubsequences: false).map { $0.lowercased() }
-        if parts.contains("") { return "Empty part in the key combination." }
+        if parts.contains("") { return String(localized: "Empty part in the key combination.") }
         for modifier in parts.dropLast() where !keybindModifiers.contains(modifier) {
-            return "Unknown modifier “\(modifier)”; use shift, ctrl, alt, super or cmd."
+            return String(localized: "Unknown modifier “\(modifier)”; use shift, ctrl, alt, super or cmd.")
         }
-        if action.isEmpty { return "Missing the action to run." }
+        if action.isEmpty { return String(localized: "Missing the action to run.") }
         return nil
     }
     /// Modifier names Ghostty accepts in a trigger, with the aliases it documents.

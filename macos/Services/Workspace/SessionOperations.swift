@@ -5,7 +5,7 @@ struct OperationOK: Decodable, Sendable { let ok: Bool? }
 enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     case shell = "", claude, codex
     var id: String { rawValue }
-    var label: String { switch self { case .shell: "Shell only"; case .claude: "Claude Code"; case .codex: "Codex" } }
+    var label: String { switch self { case .shell: String(localized: "Shell only"); case .claude: "Claude Code"; case .codex: "Codex" } }
 
     /// Nil for a shell-only session, which has no agent to drive.
     var driver: (any AgentDriver)? { self == .shell ? nil : AgentDrivers.driver(for: rawValue) }
@@ -24,7 +24,7 @@ extension WorkspaceSession {
 /// A pull request whose head branch nothing could tell us — the only resolution failure the
 /// New Session sheet answers by asking for the branch. Every other failure is a real error.
 struct PullRequestBranchUnknown: LocalizedError, Sendable {
-    var errorDescription: String? { "Could not look up this pull request’s branch." }
+    var errorDescription: String? { String(localized: "Could not look up this pull request’s branch.") }
 }
 
 struct GitReferences: Decodable, Sendable {
@@ -85,7 +85,7 @@ enum PageSessionStart {
         } catch is PullRequestBranchUnknown {
             return .needsBranch
         } catch {
-            return .failed("Could not start session: \(error.localizedDescription)")
+            return .failed(String(localized: "Could not start session: \(error.localizedDescription)"))
         }
     }
 }
@@ -104,8 +104,8 @@ struct SessionOperations: SessionServing {
     func create(project: Project, draft: SessionDraft, requireExactBranch: Bool = false) async throws -> WorkspaceSession {
         let branch = draft.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceURL = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !branch.isEmpty, !project.workspace.isEmpty else { throw BackendError.operation("Choose a project workspace and branch.") }
-        guard sourceURL.isEmpty || safeSessionURL(sourceURL) else { throw BackendError.operation("The page address must use HTTP or HTTPS.") }
+        guard !branch.isEmpty, !project.workspace.isEmpty else { throw BackendError.operation(String(localized: "Choose a project workspace and branch.")) }
+        guard sourceURL.isEmpty || safeSessionURL(sourceURL) else { throw BackendError.operation(String(localized: "The page address must use HTTP or HTTPS.")) }
         struct WorktreeRequest: Encodable, Sendable {
             let path: String; let branch: String; let create: Bool; let base: String
         }
@@ -115,7 +115,7 @@ struct SessionOperations: SessionServing {
             let found: ResolvedWorktree = try await api.get(APIClient.query(Routes.WORKTREE,
                 ["path": project.workspace, "branch": branch, "strict": "1"]))
             guard found.matched, found.isWorktree, SessionRemovalPlan.path(found.path) == SessionRemovalPlan.path(reused) else {
-                throw BackendError.operation("The existing worktree changed. Resolve the page again before creating the session.")
+                throw BackendError.operation(String(localized: "The existing worktree changed. Resolve the page again before creating the session."))
             }
             worktree = .init(path: found.path)
         } else {
@@ -137,17 +137,17 @@ struct SessionOperations: SessionServing {
                     // The checkout has already moved and nothing undoes that, so the failure has to
                     // say it happened — otherwise the branch is gone from the main repo silently.
                     guard let parked else { throw error }
-                    throw BackendError.operation("The main checkout was moved to \(parked), but the worktree could not be created: \(error.localizedDescription)")
+                    throw BackendError.operation(String(localized: "The main checkout was moved to \(parked), but the worktree could not be created: \(error.localizedDescription)"))
                 }
             }
         }
-        guard !worktree.path.isEmpty else { throw BackendError.operation("Git did not return a worktree.") }
+        guard !worktree.path.isEmpty else { throw BackendError.operation(String(localized: "Git did not return a worktree.")) }
         if requireExactBranch {
             let verified: ResolvedWorktree = try await api.get(APIClient.query(Routes.WORKTREE,
                 ["path": project.workspace, "branch": branch, "strict": "1"]))
             guard verified.matched, verified.branch == branch,
                   SessionRemovalPlan.path(verified.path) == SessionRemovalPlan.path(worktree.path) else {
-                throw BackendError.operation("The checkout at \(worktree.path) does not match branch \(branch). It has been kept; resolve the branch or folder conflict before running this workflow.")
+                throw BackendError.operation(String(localized: "The checkout at \(worktree.path) does not match branch \(branch). It has been kept; resolve the branch or folder conflict before running this workflow."))
             }
         }
         let id = UUID().uuidString.lowercased()
@@ -157,7 +157,7 @@ struct SessionOperations: SessionServing {
             pinned: false, kind: draft.kind, jiraKey: draft.jiraKey, cli: draft.agent.rawValue,
             sessionId: draft.agent == .claude ? UUID().uuidString.lowercased() : "")
         do { let _: OperationOK = try await api.request(Routes.TASKS, method: "POST", body: session) }
-        catch { throw BackendError.operation("Worktree created at \(worktree.path), but the session could not be saved: \(error.localizedDescription). Use this branch again to recover it.") }
+        catch { throw BackendError.operation(String(localized: "Worktree created at \(worktree.path), but the session could not be saved: \(error.localizedDescription). Use this branch again to recover it.")) }
         return session
     }
 
@@ -165,7 +165,7 @@ struct SessionOperations: SessionServing {
         let path: String; let branch: String; let matched: Bool; let isWorktree: Bool
     }
     func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool = false) async throws -> SessionDraft {
-        guard let page = SessionPage.parse(raw) else { throw BackendError.operation("Enter a GitHub pull request or Jira issue URL, or type a branch name.") }
+        guard let page = SessionPage.parse(raw) else { throw BackendError.operation(String(localized: "Enter a GitHub pull request or Jira issue URL, or type a branch name.")) }
         var result = draft
         result.url = page.url; result.kind = page.kind; result.jiraKey = page.key
         result.reuseWorktree = nil
@@ -177,7 +177,7 @@ struct SessionOperations: SessionServing {
             catch { throw PullRequestBranchUnknown() }
             guard let pr, !pr.headRefName.isEmpty else { throw PullRequestBranchUnknown() }
             guard project.repo.isEmpty || project.repo.lowercased() == pr.repo.lowercased() else {
-                throw BackendError.operation("This pull request belongs to \(pr.repo). Choose its project before creating the session.")
+                throw BackendError.operation(String(localized: "This pull request belongs to \(pr.repo). Choose its project before creating the session."))
             }
             result.branch = pr.headRefName; result.title = pr.title; result.createBranch = false
         } else {
@@ -212,11 +212,11 @@ struct SessionOperations: SessionServing {
         let chosen = selected.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = chosen.isEmpty ? try await references(project).sessionBase : chosen
         guard base != branch else {
-            throw BackendError.operation("\(branch) is the branch this session forks from, so the main checkout cannot be moved off it. Choose a different \u{201C}Branch from\u{201D}.")
+            throw BackendError.operation(String(localized: "\(branch) is the branch this session forks from, so the main checkout cannot be moved off it. Choose a different \u{201C}Branch from\u{201D}."))
         }
         do { try await switchMainCheckout(to: base, project: project); return base }
         catch {
-            throw BackendError.operation("\(branch) is checked out in the main repo, which could not be moved to \(base): \(error.localizedDescription)")
+            throw BackendError.operation(String(localized: "\(branch) is checked out in the main repo, which could not be moved to \(base): \(error.localizedDescription)"))
         }
     }
 

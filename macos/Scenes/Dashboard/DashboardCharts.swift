@@ -106,9 +106,9 @@ struct DashboardRefreshButton: View {
         var id: String { key }
         /// Session leads for every agent, so the rows read alike; failing that, the first window.
         var lead: (title: String, window: UsageSnapshot.Window, duration: TimeInterval)? {
-            if let session = limits.session { return ("Session", session, UsageWindowMath.session) }
-            if let weekly = limits.weekly { return ("Weekly", weekly, UsageWindowMath.week) }
-            return limits.scoped?.first.map { ($0.label ?? "Model", $0, UsageWindowMath.week) }
+            if let session = limits.session { return (String(localized: "Session"), session, UsageWindowMath.session) }
+            if let weekly = limits.weekly { return (String(localized: "Weekly"), weekly, UsageWindowMath.week) }
+            return limits.scoped?.first.map { ($0.label ?? String(localized: "Model"), $0, UsageWindowMath.week) }
         }
     }
 
@@ -166,10 +166,10 @@ private struct AgentUsageRow: View {
                             AgentMark(key: plan.key, size: 13)
                             Text(plan.title).font(.system(size: 13.5, weight: .semibold))
                         }
-                        Text(line(lead?.title ?? "Usage", lead?.window, now: context.date))
+                        Text(line(lead?.title ?? String(localized: "Usage"), lead?.window, now: context.date))
                             .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
-                        if lead?.title == "Session", let weekly = plan.limits.weekly {
-                            Text(line("Weekly", weekly, now: context.date))
+                        if plan.limits.session != nil, let weekly = plan.limits.weekly {
+                            Text(line(String(localized: "Weekly"), weekly, now: context.date))
                                 .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
                         }
                     }
@@ -185,7 +185,7 @@ private struct AgentUsageRow: View {
             .buttonStyle(.plain)
             .onHover { hovering = $0 }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(plan.title) \(lead?.title ?? "usage")")
+            .accessibilityLabel("\(plan.title) \(lead?.title ?? String(localized: "Usage"))")
             .accessibilityValue("\(Int(used.rounded())) percent used")
             .accessibilityHint("Shows every quota window and the month's cost")
             .accessibilityIdentifier("dashboard-usage-\(plan.key)")
@@ -198,8 +198,8 @@ private struct AgentUsageRow: View {
     /// "Session 62% · resets in 2h 07m"; the reset is left off once it has passed.
     private func line(_ title: String, _ window: UsageSnapshot.Window?, now: Date) -> String {
         guard let window else { return title }
-        let used = "\(title) \(Int((100 - window.remaining).rounded()))%"
-        return UsageWindowMath.until(window.resetsAt, now: now).map { "\(used) · resets in \($0)" } ?? used
+        let used = String(localized: "\(title): \(Int((100 - window.remaining).rounded()))% used")
+        return UsageWindowMath.until(window.resetsAt, now: now).map { String(localized: "\(used) · resets in \($0)") } ?? used
     }
 }
 
@@ -232,13 +232,13 @@ private struct AgentUsageDetails: View {
                 Text(plan.title).font(.system(size: 13, weight: .semibold))
             }
             if let session = plan.limits.session {
-                UsageBar(title: "Session", window: session, duration: UsageWindowMath.session, weekly: nil, accent: accent)
+                UsageBar(title: String(localized: "Session"), window: session, duration: UsageWindowMath.session, weekly: nil, accent: accent)
             }
             if let weekly = plan.limits.weekly {
-                UsageBar(title: "Weekly", window: weekly, duration: UsageWindowMath.week, weekly: plan.limits.session, accent: accent)
+                UsageBar(title: String(localized: "Weekly"), window: weekly, duration: UsageWindowMath.week, weekly: plan.limits.session, accent: accent)
             }
             ForEach(Array((plan.limits.scoped ?? []).enumerated()), id: \.offset) { _, window in
-                UsageBar(title: "\(window.label ?? "Model") weekly", window: window, duration: UsageWindowMath.week, weekly: nil, accent: accent)
+                UsageBar(title: String(localized: "\(window.label ?? String(localized: "Model")) weekly"), window: window, duration: UsageWindowMath.week, weekly: nil, accent: accent)
             }
             if let agent = plan.agent { UsageStats(agent: agent, accent: accent) }
         }

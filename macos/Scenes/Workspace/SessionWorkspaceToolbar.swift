@@ -36,7 +36,7 @@ struct SessionWorkspaceToolbar: ToolbarContent {
                 CreateSessionButton(model: model)
                     .labelStyle(.titleAndIcon)
                     .disabled(!model.canCreateSession)
-                    .help("Start an agent session for this page in its project")
+                    .help(String(localized: "Start an agent session for this page in its project"))
             }
         }
         let showsRunGroup = model.session != nil && model.workflow != nil
@@ -72,7 +72,7 @@ struct CreateSessionButton: View {
         Menu {
             ForEach(PageRowMenu.agents) { agent in Button(agent.label) { model.createSession(agent: agent) } }
         } label: {
-            Label("Create Session", systemImage: "terminal")
+            Label(String(localized: "Create Session"), systemImage: "terminal")
         }
     }
 }

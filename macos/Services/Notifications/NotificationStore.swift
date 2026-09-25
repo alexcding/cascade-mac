@@ -77,7 +77,7 @@ import Observation
         let fresh = reviewTracker.consume(prs)
         guard !fresh.isEmpty else { return }
         let notices = fresh.map {
-            NativeNotice(kind: .review, title: "Review requested", body: "PR #\($0.number) \($0.title)",
+            NativeNotice(kind: .review, title: String(localized: "Review requested"), body: String(localized: "PR #\($0.number) \($0.title)"),
                          url: $0.webURL?.absoluteString, repo: $0.repo, number: $0.number)
         }
         deliver(notices, reviewSound: sound)
@@ -122,7 +122,7 @@ import Observation
             }
             if isCurrent(generation), delivered, access.soundAllowed, let reviewSound, reviewSound != "off" {
                 do { try delivery.playReviewSound(reviewSound) }
-                catch { self.error = "Could not play review sound: \(error.localizedDescription)" }
+                catch { self.error = String(localized: "Could not play review sound: \(error.localizedDescription)") }
             }
         }
     }
@@ -162,7 +162,7 @@ import Observation
     func openDelivered(_ notice: NativeNotice) { if !retired { onAction(.openDelivered(notice)) } }
     func didOpen(_ notice: NativeNotice, success: Bool) {
         guard !retired else { return }
-        actionError = success ? nil : "Could not open the notification link."
+        actionError = success ? nil : String(localized: "Could not open the notification link.")
         if success, toast?.id == notice.id { dismissToast() }
     }
 

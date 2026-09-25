@@ -18,7 +18,7 @@ struct BrowserCompactTabBar: View {
     private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
 
     var body: some View {
-        CompactTabBar(newTabTitle: "New Tab", newTabHelp: "Open a new web tab", newTab: model.newTab,
+        CompactTabBar(newTabTitle: String(localized: "New Tab"), newTabHelp: String(localized: "Open a new web tab"), newTab: model.newTab,
                       showsNewTab: model.offersNewTab) {
             NavigationCluster(controls: active?.controls)
         } pill: { available in
@@ -29,13 +29,13 @@ struct BrowserCompactTabBar: View {
             if model.offersPageSession, model.fillsTitleBar {
                 CreateSessionButton(model: model)
                     .disabled(!model.canCreateSession)
-                    .help("Start an agent session for this page in its project")
+                    .help(String(localized: "Start an agent session for this page in its project"))
                     .padding(.horizontal, 12)
                     .barGlass(iconOnly: false)
             }
         } suggestions: {
             if let controls = active?.controls, editingAddress, !suggestions.isEmpty {
-                CompactSuggestionList(items: suggestions, highlighted: highlighted, accessibilityLabel: "Address suggestions",
+                CompactSuggestionList(items: suggestions, highlighted: highlighted, accessibilityLabel: String(localized: "Address suggestions"),
                                       heading: \.heading, title: \.title,
                                       detail: { $0.isSearch || $0.detail == $0.title ? "" : $0.detail },
                                       pick: { pick($0, controls) }) { item in
@@ -170,10 +170,10 @@ private struct NavigationCluster: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HoverCircleButton("Back", systemImage: "chevron.left", enabled: controls?.canGoBack == true) { controls?.back() }
+            HoverCircleButton(String(localized: "Back"), systemImage: "chevron.left", enabled: controls?.canGoBack == true) { controls?.back() }
             if showsForward {
                 Divider().frame(height: 16)
-                HoverCircleButton("Forward", systemImage: "chevron.right", enabled: true) { controls?.forward() }
+                HoverCircleButton(String(localized: "Forward"), systemImage: "chevron.right", enabled: true) { controls?.forward() }
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
@@ -214,14 +214,14 @@ private struct CompactTab: View {
     private var showsBookmark: Bool { active && bookmarks?.canBookmark(page.url) == true }
     /// Safari shows the page title on an unselected tab and the host on the selected one.
     private var label: String {
-        if controls.isBlank { return active ? "" : "New Tab" }
+        if controls.isBlank { return active ? "" : String(localized: "New Tab") }
         if active { return Self.displayHost(page.url) ?? (page.title.isEmpty ? page.url : page.title) }
         return page.title.isEmpty ? (Self.displayHost(page.url) ?? page.url) : page.title
     }
 
     var body: some View {
         @Bindable var controls = controls
-        CompactTabShell(label: label, placeholder: "Search or enter website name", closeTitle: "Close \(page.title)", help: page.url,
+        CompactTabShell(label: label, placeholder: String(localized: "Search or enter website name"), closeTitle: controls.isBlank ? String(localized: "Close Tab") : String(localized: "Close \(page.title)"), help: page.url,
                         active: active, workspaceActive: workspaceActive, blank: controls.isBlank, autoFocus: autoFocus,
                         closable: closable, iconOnly: iconOnly, text: $controls.address, editing: $editing, moveHighlight: moveHighlight,
                         submit: { submitHighlighted() || controls.submitAddress() }, select: select, close: close,
@@ -236,7 +236,7 @@ private struct CompactTab: View {
                 // Reload appears only while the pointer is over the selected tab. Stop, the same button
                 // while a page loads, stays visible: a slow load must always have a way to be stopped.
                 if active {
-                    CompactTabAccessory(title: controls.loading ? "Stop Loading" : "Reload Page",
+                    CompactTabAccessory(title: controls.loading ? String(localized: "Stop") : String(localized: "Reload Page"),
                                         systemImage: controls.loading ? "xmark" : "arrow.clockwise", width: Self.slotWidth,
                                         visible: !controls.isBlank && (hovering || controls.loading),
                                         accessible: !controls.isBlank, action: controls.toggleLoading)
@@ -244,20 +244,20 @@ private struct CompactTab: View {
                 // As in Safari, a speaker sits on any tab making sound, and stays while muted so the
                 // tab can be unmuted after the page has gone quiet.
                 if speaker {
-                    CompactTabAccessory(title: controls.muted ? "Unmute Tab" : "Mute Tab",
+                    CompactTabAccessory(title: controls.muted ? String(localized: "Unmute this tab") : String(localized: "Mute this tab"),
                                         systemImage: controls.muted ? "speaker.slash.fill" : "speaker.wave.2.fill", size: 13,
                                         tint: controls.muted ? Theme.textTertiary : Theme.textSecondary, width: Self.slotWidth,
                                         visible: true, action: controls.toggleMute)
-                        .help(controls.muted ? "Unmute this tab" : "Mute this tab")
+                        .help(controls.muted ? String(localized: "Unmute this tab") : String(localized: "Mute this tab"))
                         .accessibilityIdentifier("mute-tab")
                 }
                 if active {
-                    CompactTabAccessory(title: bookmarked ? "Remove Bookmark" : "Add Bookmark", systemImage: bookmarked ? "star.fill" : "star",
+                    CompactTabAccessory(title: bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"), systemImage: bookmarked ? "star.fill" : "star",
                                         size: 14, tint: bookmarked ? Theme.accent : Theme.textSecondary, width: Self.slotWidth,
                                         visible: showsBookmark) {
                         bookmarks?.toggle(url: page.url, title: page.title)
                     }
-                    .help(bookmarked ? "Remove this page from your bookmarks" : "Bookmark this page")
+                    .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
                     .accessibilityIdentifier("bookmark-page")
                 }
             }
@@ -277,8 +277,8 @@ struct AddressSuggestion: Identifiable, Equatable {
     var heading: String? {
         switch kind {
         case .site: nil
-        case .typed, .google: "Google Suggestions"
-        case .history: "Bookmarks and History"
+        case .typed, .google: String(localized: "Google suggestions")
+        case .history: String(localized: "Bookmarks and history")
         }
     }
 }

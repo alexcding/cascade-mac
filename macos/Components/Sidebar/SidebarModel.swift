@@ -192,36 +192,36 @@ struct SidebarEntry: Equatable {
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
             let state = status[session.id] ?? SidebarSessionStatus(cli: session.cli)
             var tip = session.worktree
-            if let step = workflowProgress[session.id] { tip = "\(session.label)\nWorkflow step \(step)" }
-            else if !state.live { tip += "\nStopped — click to resume" }
+            if let step = workflowProgress[session.id] { tip = String(localized: "\(session.label)\nWorkflow step \(step)") }
+            else if !state.live { tip += "\n" + String(localized: "Stopped — click to resume") }
             return Self(id: "\(pinned ? "pin" : "session"):\(session.id)", title: session.label,
                         symbol: "", detail: session.worktree, destination: .session(session.id),
                         role: .session(state, pinned: session.pinned)).withTip(tip)
         }
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
         var result: [Self] = [
-            .init(id: "overview", title: "Dashboard", symbol: "dashboard", destination: .overview),
-            .init(id: "automation", title: "Automation", symbol: "automation", destination: .automation)
+            .init(id: "overview", title: String(localized: "Dashboard"), symbol: "dashboard", destination: .overview),
+            .init(id: "automation", title: String(localized: "Automation"), symbol: "automation", destination: .automation)
         ]
         let taskURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
         let unownedTabs = tabs.filter { !$0.isOwned(by: taskURLs) }
         func icon(_ tab: SavedTab) -> SidebarTabIcon {
             tabIcons[tab.id] ?? SidebarTabIcon(kind: tab.kind, login: tab.login, avatar: tab.avatar, url: tab.url)
         }
-        func tabTitle(_ tab: SavedTab) -> String { tab.title.isEmpty ? (tab.url.isEmpty ? "New Tab" : tab.url) : tab.title }
+        func tabTitle(_ tab: SavedTab) -> String { tab.displayTitle }
         let pinnedTabs = unownedTabs.filter(\.pinned)
         if !pinnedTabs.isEmpty {
-            result.append(Self(id: "pinned-tabs", title: "Pinned Tabs", symbol: "",
+            result.append(Self(id: "pinned-tabs", title: String(localized: "Pinned Tabs"), symbol: "",
                                role: .pinnedTabs(pinnedTabs.map { .init(id: $0.id, title: tabTitle($0), url: $0.url, icon: icon($0)) })))
         }
         // Pinned lists across projects and has an order of its own: a drag inside one project
         // must not change the order used when sessions are pinned.
         let pinned = displayOrder(sessions.filter(\.pinned), dragged: order.pinned)
         if !pinned.isEmpty {
-            result.append(label("label:pinned", "Pinned"))
+            result.append(label("label:pinned", String(localized: "Pinned")))
             result += pinned.map { row($0, pinned: true) }
         }
-        result.append(label("label:projects", "Projects"))
+        result.append(label("label:projects", String(localized: "Projects")))
         result += projects.map { project in
             .init(id: "project:\(project.id)", title: project.name, symbol: "folder", detail: project.workspace,
                   destination: .project(project.id), children: ordered.filter { $0.projectId == project.id }.map { row($0) },
@@ -229,7 +229,7 @@ struct SidebarEntry: Equatable {
         }
         let projectIDs = Set(projects.map(\.id))
         result += ordered.filter { !projectIDs.contains($0.projectId) }.map { row($0) }
-        result.append(Self(id: "label:tabs", title: "Tabs", symbol: "", role: .tabsHeader))
+        result.append(Self(id: "label:tabs", title: String(localized: "Tabs"), symbol: "", role: .tabsHeader))
         result += unownedTabs.filter { !$0.pinned }.map {
             .init(id: "tab:\($0.id)", title: tabTitle($0), symbol: "", detail: $0.url, destination: .tab($0.id), role: .tab(icon($0)))
         }
@@ -259,4 +259,9 @@ struct SidebarEntry: Equatable {
     private func withTip(_ value: String) -> Self { var copy = self; copy.tooltip = value; return copy }
 
     var descendants: [Self] { [self] + children.flatMap(\.descendants) }
+}
+
+extension SavedTab {
+    /// The sidebar row's and toolbar's name for a tab: its title, else its address, else "New Tab".
+    var displayTitle: String { title.isEmpty ? (url.isEmpty ? String(localized: "New Tab") : url) : title }
 }

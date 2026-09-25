@@ -11,9 +11,9 @@ public enum BackendError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .configuration(let message), .startup(let message), .operation(let message): message
-        case .http(let status): "The backend returned HTTP \(status)."
-        case .incompatible: "This address is not a compatible Cascade backend."
-        case .oversizedEvent: "The backend sent an oversized stream event."
+        case .http(let status): String(localized: "The backend returned HTTP \(status).")
+        case .incompatible: String(localized: "This address is not a compatible Cascade backend.")
+        case .oversizedEvent: String(localized: "The backend sent an oversized stream event.")
         }
     }
 }
@@ -82,7 +82,7 @@ public actor APIClient {
               parts.scheme == "http", ["127.0.0.1", "localhost", "[::1]"].contains(parts.host ?? ""),
               parts.user == nil, parts.password == nil, parts.query == nil, parts.fragment == nil,
               parts.path.isEmpty || parts.path == "/" else {
-            throw BackendError.configuration("The backend address must be a loopback HTTP origin.")
+            throw BackendError.configuration(String(localized: "The backend address must be a loopback HTTP origin."))
         }
         self.baseURL = baseURL
         self.transport = transport
@@ -168,7 +168,7 @@ public actor APIClient {
     func url(_ path: String) throws -> URL {
         guard path.hasPrefix("/"), !path.hasPrefix("//"),
               let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path)
-        else { throw BackendError.configuration("Invalid backend route.") }
+        else { throw BackendError.configuration(String(localized: "Invalid backend route.")) }
         return url
     }
 

@@ -43,7 +43,7 @@ struct EmbeddedTransport: BackendTransport {
 
     func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
         guard let url = request.url, let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw BackendError.configuration("Invalid backend route.")
+            throw BackendError.configuration(String(localized: "Invalid backend route."))
         }
         var target = parts.percentEncodedPath.isEmpty ? "/" : parts.percentEncodedPath
         if let query = parts.percentEncodedQuery { target += "?\(query)" }
@@ -64,7 +64,7 @@ struct EmbeddedTransport: BackendTransport {
             }
             if dispatched == nil {
                 context.takeRetainedValue().continuation.resume(returning: (503, "application/json",
-                    Data(#"{"error":"The embedded backend is not running."}"#.utf8)))
+                    (try? JSONEncoder().encode(["error": String(localized: "The embedded backend is not running.")])) ?? Data()))
             }
         }
         var headers: [String: String] = [:]
@@ -100,7 +100,7 @@ struct EmbeddedEventStream: BackendEventStreaming {
         }
         guard let subscription, subscription != 0 else {
             if subscription == nil { context.release() }
-            throw BackendError.startup("The embedded backend is not running.")
+            throw BackendError.startup(String(localized: "The embedded backend is not running."))
         }
         await onConnect()
         let handle = self.handle
@@ -111,7 +111,7 @@ struct EmbeddedEventStream: BackendEventStreaming {
             }
             try Task.checkCancellation()
             // The stream only ends when the backend stops; report it like a dropped connection.
-            throw BackendError.startup("The embedded backend stopped.")
+            throw BackendError.startup(String(localized: "The embedded backend stopped."))
         } onCancel: {
             _ = handle.with { cascade_backend_unsubscribe($0, subscription) }
         }
@@ -134,21 +134,21 @@ public actor EmbeddedBackend: BackendProcessServing {
     }
 
     public func start() async throws -> APIClient {
-        guard slot.value == nil, !starting else { throw BackendError.startup("The backend is already starting or running.") }
+        guard slot.value == nil, !starting else { throw BackendError.startup(String(localized: "The backend is already starting or running.")) }
         starting = true; defer { starting = false }
         let directory = dataDirectory, packaged = packaged
         let instanceID = UUID().uuidString
         // Starting opens stores and binds the loopback listener; keep that work off the caller's executor.
         let task = Task.detached(priority: .userInitiated) { () throws -> (EmbeddedBackendHandle, UInt16) in
             do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
-            catch { throw BackendError.startup("The embedded backend could not start: data directory \(directory.path) is unavailable (\(error.localizedDescription))") }
+            catch { throw BackendError.startup(String(localized: "The embedded backend could not start: data directory \(directory.path) is unavailable (\(error.localizedDescription))")) }
             var raw: OpaquePointer?
             var message: UnsafeMutablePointer<CChar>?
             let code = cascade_backend_start(directory.path, packaged ? 1 : 0, instanceID, &raw, &message)
             defer { cascade_string_free(message) }
             guard code == 0, let raw else {
-                let text = message.map { String(cString: $0) } ?? "unknown error"
-                throw BackendError.startup("The embedded backend could not start: \(text)")
+                let text = message.map { String(cString: $0) } ?? String(localized: "Unknown error")
+                throw BackendError.startup(String(localized: "The embedded backend could not start: \(text)"))
             }
             return (EmbeddedBackendHandle(raw: raw), cascade_backend_port(raw))
         }

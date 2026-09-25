@@ -28,13 +28,13 @@ extension AppCoordinator {
         let state = runtime.rootState()
         switch destination {
         case .project(let id) where !state.projects.contains(where: { $0.id == id }):
-            routingError = "The linked project is no longer available."
+            routingError = String(localized: "The linked project is no longer available.")
             return
         case .session(let id) where !state.sessions.contains(where: { $0.id == id }):
-            routingError = "The linked session is no longer available."
+            routingError = String(localized: "The linked session is no longer available.")
             return
         case .tab(let id) where !state.tabs.contains(where: { $0.id == id }):
-            routingError = "The linked page is no longer available."
+            routingError = String(localized: "The linked page is no longer available.")
             return
         default: break
         }
@@ -42,7 +42,7 @@ extension AppCoordinator {
         let remainder = link.droppingFirst()
         guard !remainder.routes.isEmpty else { return }
         guard case .project(let id) = destination, let model = runtime.rootState().projectModels[id] else {
-            routingError = "The linked project section is not available yet."
+            routingError = String(localized: "The linked project section is not available yet.")
             return
         }
         let child = installProject(model, runtime: runtime as? any ProjectCoordinating)

@@ -434,3 +434,26 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     #expect(files.map(\.name) == ["My Shot.png", "b(1).txt"])
     #expect(ChatAttachmentReader.files([URL(fileURLWithPath: "/tmp/My Shot.png")]).map(\.path) == ["/tmp/My\\ Shot.png"])
 }
+
+@MainActor @Test func chatPageEncodesLocalizedChromeWithoutChangingTranscriptContent() throws {
+    let userText = "Allow /review @src/main.swift — مرحبًا <script>literal text</script>"
+    var state = ChatPageState(turns: [prompt(userText, at: .distantPast)], busy: false,
+                              pending: userText, queued: true, loaded: true, permission: nil)
+    state.localization.locale = "ar-SA"
+    state.localization.language = "ar"
+    state.localization.direction = "rtl"
+    state.localization.strings["Allow"] = "سماح"
+    let data = try JSONEncoder().encode(state)
+    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let chrome = try #require(object["localization"] as? [String: Any])
+    #expect(chrome["locale"] as? String == "ar-SA")
+    #expect(chrome["language"] as? String == "ar")
+    #expect(chrome["direction"] as? String == "rtl")
+    let strings = try #require(chrome["strings"] as? [String: String])
+    #expect(strings["Allow"] == "سماح")
+    #expect(strings["Copy Code"] != nil && strings["Worked for %@"] != nil)
+    let turns = try #require(object["turns"] as? [[String: Any]])
+    let blocks = try #require(turns.first?["blocks"] as? [[String: Any]])
+    #expect(blocks.first?["text"] as? String == userText)
+    #expect(object["pending"] as? String == userText)
+}

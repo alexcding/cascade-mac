@@ -18,8 +18,8 @@ struct TerminalSettingsView: View {
         rendering
         TerminalKeybindsSection(shell: shell)
         Section("Memory") {
-            MemoryLimitRow(title: "Session memory",
-                           caption: "When the sessions' agents hold more than this, the least recently used idle agent is stopped, and opening its session starts it again, resuming the conversation. An agent is idle once its hooks report its turn has ended and nothing it started, such as a build, is still running. Without the hooks, no agent is stopped.",
+            MemoryLimitRow(title: String(localized: "Session memory"),
+                           caption: String(localized: "Stop the least recently used idle agent when session memory exceeds this limit. Reopening resumes the conversation. Agents are only stopped after their hooks confirm a turn has ended and their child processes have stopped."),
                            identifier: "settings-session-memory", limit: shell.sessionMemoryLimit, set: shell.setSessionMemoryLimit)
         }
         if let error = shell.settingsError {
@@ -31,8 +31,8 @@ struct TerminalSettingsView: View {
 
     @ViewBuilder private var rendering: some View {
         Section("Rendering") {
-            SettingsRow(title: "Font smoothing",
-                        caption: "Thickens glyphs the way the standalone Ghostty app does. Off renders noticeably thinner, especially for light weights on a dark background.") {
+            SettingsRow(title: String(localized: "Font smoothing"),
+                        caption: String(localized: "Make terminal text thicker. Turn off for thinner strokes.")) {
                 Toggle("Font smoothing", isOn: Binding(get: { shell.terminalFontThicken }, set: shell.setTerminalFontThicken))
                     .labelsHidden().accessibilityIdentifier("settings-terminal-thicken")
             }
@@ -62,8 +62,8 @@ struct TerminalSettingsView: View {
     /// way the rest of the window does. Default is the palette the terminal package ships with.
     @ViewBuilder private var theme: some View {
         Section("Theme") {
-            themeRow(title: "Dark", identifier: "dark", selection: shell.terminalDarkTheme) { shell.setTerminalTheme(dark: $0) }
-            themeRow(title: "Light", identifier: "light", selection: shell.terminalLightTheme) { shell.setTerminalTheme(light: $0) }
+            themeRow(title: String(localized: "Dark"), identifier: "dark", selection: shell.terminalDarkTheme) { shell.setTerminalTheme(dark: $0) }
+            themeRow(title: String(localized: "Light"), identifier: "light", selection: shell.terminalLightTheme) { shell.setTerminalTheme(light: $0) }
         }
     }
 

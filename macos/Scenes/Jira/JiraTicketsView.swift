@@ -22,7 +22,7 @@ struct JiraTicketsView: View {
             HStack {
                 ForEach(JiraFacet.allCases) { facet in
                     Picker(facet.label, selection: Binding(get: { model.filters[facet.rawValue] ?? "" }, set: { model.setFilter(facet, $0) })) {
-                        Text("All \(facet.label.lowercased())").tag("")
+                        Text(facet.allLabel).tag("")
                         ForEach(model.options(facet), id: \.self) { value in Text("\(value) (\(model.count(value, facet: facet)))").tag(value) }
                     }.labelsHidden().accessibilityLabel(facet.label)
                 }
@@ -51,7 +51,7 @@ struct JiraTicketsView: View {
                                 Text([ticket.type, ticket.priority, ticket.assignee].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption).foregroundStyle(.secondary)
                             }.frame(maxWidth: .infinity, alignment: .leading)
-                            Menu(ticket.status ?? "Unknown") {
+                            Menu(ticket.status ?? String(localized: "Unknown")) {
                                 ForEach(model.nextStatuses(ticket), id: \.self) { status in
                                     Button(status) { Task { await model.transition(ticket, to: status) } }
                                 }

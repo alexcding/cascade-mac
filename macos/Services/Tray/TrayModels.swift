@@ -25,11 +25,11 @@ struct TrayPR: Decodable, Identifiable, Equatable, Sendable {
     var pendingReview: Bool { state == "OPEN" && category == "review" && reviewPending == true }
     var webURL: URL? { safeWebURL(url) }
     var ciLabel: String {
-        if ci?.status == "in_progress" { return "CI running" }
+        if ci?.status == "in_progress" { return String(localized: "CI running") }
         switch ci?.conclusion {
-        case "success": return "CI passed"
-        case "failure": return "CI failed"
-        default: return "No CI status"
+        case "success": return String(localized: "CI passed")
+        case "failure": return String(localized: "CI failed")
+        default: return String(localized: "No CI status")
         }
     }
 }
@@ -68,7 +68,13 @@ func backendTimestamp(_ value: String) -> Date? {
 public enum AppAppearance: String, CaseIterable, Identifiable, Sendable {
     case system = "auto", light, dark
     public var id: String { rawValue }
-    var title: String { self == .system ? "System" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .system: String(localized: "System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
+        }
+    }
 }
 
 struct UsageSnapshot: Decodable, Equatable, Sendable {

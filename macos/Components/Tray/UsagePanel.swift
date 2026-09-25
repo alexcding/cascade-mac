@@ -16,14 +16,14 @@ struct UsagePanel: View {
             let agent = shell.usageAgent == "codex" ? snapshot?.codex : snapshot?.claude
             let limits = shell.usageAgent == "codex" ? snapshot?.codexLimits : snapshot?.limits
             if let session = limits?.session {
-                UsageBar(title: "Session", window: session, duration: UsageWindowMath.session, weekly: nil, accent: accent)
+                UsageBar(title: String(localized: "Session"), window: session, duration: UsageWindowMath.session, weekly: nil, accent: accent)
             }
             if let weekly = limits?.weekly {
-                UsageBar(title: "Weekly", window: weekly, duration: UsageWindowMath.week, weekly: limits?.session, accent: accent)
+                UsageBar(title: String(localized: "Weekly"), window: weekly, duration: UsageWindowMath.week, weekly: limits?.session, accent: accent)
             }
             if let scoped = limits?.scoped {
                 ForEach(Array(scoped.enumerated()), id: \.offset) { _, window in
-                    UsageBar(title: "\(window.label ?? "Model") weekly", window: window, duration: UsageWindowMath.week, weekly: nil, accent: accent)
+                    UsageBar(title: String(localized: "\(window.label ?? String(localized: "Model")) weekly"), window: window, duration: UsageWindowMath.week, weekly: nil, accent: accent)
                 }
             }
             if let agent { UsageStats(agent: agent, accent: accent) }
@@ -47,9 +47,9 @@ enum UsageWindowMath {
         let minutes = Int(reset.timeIntervalSince(now) / 60)
         guard minutes > 0 else { return nil }
         let d = minutes / 1440, h = (minutes % 1440) / 60, m = minutes % 60
-        if d > 0 { return "\(d)d \(h)h" }
-        if h > 0 { return "\(h)h \(String(format: "%02d", m))m" }
-        return "\(m)m"
+        if d > 0 { return String(localized: "\(d)d \(h)h") }
+        if h > 0 { return String(localized: "\(h)h \(String(format: "%02d", m))m") }
+        return String(localized: "\(m)m")
     }
 }
 
@@ -91,12 +91,12 @@ struct UsageBar: View {
         var parts: [String] = []
         if let pace {
             let reserve = Int((left - pace).rounded())
-            parts.append(reserve >= 0 ? "\(reserve)% in reserve" : "\(-reserve)% over pace")
-            parts.append(reserve >= 0 ? "Lasts until reset" : "Runs out before reset")
+            parts.append(reserve >= 0 ? String(localized: "\(reserve)% in reserve") : String(localized: "\(-reserve)% over pace"))
+            parts.append(reserve >= 0 ? String(localized: "At this pace, lasts until reset") : String(localized: "At this pace, runs out before reset"))
         }
         if weekly != nil {
             if let resetsAt = window.resetsAt, let reset = backendTimestamp(resetsAt), reset > now {
-                parts.append("\(Int((reset.timeIntervalSince(now) / UsageWindowMath.session).rounded(.up))) windows until reset")
+                parts.append(String(localized: "5-hour periods until reset: \(Int((reset.timeIntervalSince(now) / UsageWindowMath.session).rounded(.up)))"))
             }
         }
         return parts.joined(separator: " · ")
@@ -116,12 +116,12 @@ struct UsageStats: View {
         VStack(alignment: .leading, spacing: 10) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
                 GridRow {
-                    stat("Today", Self.money(agent.cost))
-                    stat("30d cost", Self.money(history.isEmpty ? agent.cost : monthCost))
+                    stat(String(localized: "Today"), Self.money(agent.cost))
+                    stat(String(localized: "30d cost"), Self.money(history.isEmpty ? agent.cost : monthCost))
                 }
                 GridRow {
-                    stat("Latest tokens", Self.compact(agent.tokens))
-                    stat("30d tokens", Self.compact(history.isEmpty ? agent.tokens : monthTokens))
+                    stat(String(localized: "Latest tokens"), Self.compact(agent.tokens))
+                    stat(String(localized: "30d tokens"), Self.compact(history.isEmpty ? agent.tokens : monthTokens))
                 }
             }
             if history.count > 1 { chart(history) }
@@ -161,14 +161,9 @@ struct UsageStats: View {
         // Narrow, so locales outside the US show "$" rather than "US$".
         value.formatted(.currency(code: "USD").presentation(.narrow).precision(.fractionLength(whole ? 0 : 2)))
     }
-    /// "20M", "3.2B", "850K": one decimal only when the leading figure is a single digit.
+    /// Compact notation follows the locale, including its grouping units and suffixes.
     static func compact(_ value: Double) -> String {
-        let units: [(Double, String)] = [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")]
-        for (scale, suffix) in units where value >= scale {
-            let scaled = value / scale
-            return scaled.formatted(.number.precision(.fractionLength(scaled < 10 ? 1 : 0))) + suffix
-        }
-        return value.formatted(.number.precision(.fractionLength(0)))
+        value.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
     }
 }
 
@@ -201,5 +196,6 @@ struct UsageTrack: View {
         }
         .frame(height: 6)
         .clipShape(Capsule())
+        .environment(\.layoutDirection, .leftToRight)
     }
 }

@@ -46,20 +46,20 @@ extension KeyShortcut {
     }
 
     private static let system: [KeyShortcut: String] = [
-        .init(key: "q", command: true): "Quit", .init(key: "h", command: true): "Hide",
-        .init(key: "h", command: true, option: true): "Hide Others", .init(key: "m", command: true): "Minimize",
-        .init(key: "`", command: true): "window cycling", .init(key: ",", command: true): "Settings",
-        .init(key: "c", command: true): "Copy", .init(key: "v", command: true): "Paste",
-        .init(key: "x", command: true): "Cut", .init(key: "a", command: true): "Select All",
-        .init(key: "z", command: true): "Undo", .init(key: "z", command: true, shift: true): "Redo",
-        .init(key: "s", command: true, control: true): "Toggle Sidebar",
-        .init(key: "f", command: true, control: true): "Full Screen",
+        .init(key: "q", command: true): String(localized: "Quit"), .init(key: "h", command: true): String(localized: "Hide"),
+        .init(key: "h", command: true, option: true): String(localized: "Hide Others"), .init(key: "m", command: true): String(localized: "Minimize"),
+        .init(key: "`", command: true): String(localized: "Cycle Windows"), .init(key: ",", command: true): String(localized: "Settings"),
+        .init(key: "c", command: true): String(localized: "Copy"), .init(key: "v", command: true): String(localized: "Paste"),
+        .init(key: "x", command: true): String(localized: "Cut"), .init(key: "a", command: true): String(localized: "Select All"),
+        .init(key: "z", command: true): String(localized: "Undo"), .init(key: "z", command: true, shift: true): String(localized: "Redo"),
+        .init(key: "s", command: true, control: true): String(localized: "Toggle Sidebar"),
+        .init(key: "f", command: true, control: true): String(localized: "Full Screen"),
     ]
 
     /// Combinations macOS or the standard menus own, and anything without ⌘: ⌃, ⌥ and Tab
     /// combinations are what a CLI in the terminal is steered with, and ⌘ never reaches it.
     var reservedReason: String? {
-        guard command else { return "\(title) has no ⌘, so it could take a key from the CLI in the terminal." }
-        return Self.system[self].map { "\(title) belongs to \($0)." }
+        guard command else { return String(localized: "\(title) must include ⌘ to avoid interfering with terminal commands.") }
+        return Self.system[self].map { String(localized: "\(title) is reserved for \($0).") }
     }
 }

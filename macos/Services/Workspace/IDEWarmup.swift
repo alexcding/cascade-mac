@@ -12,6 +12,9 @@ struct IDEWarmupState: Decodable, Sendable, Equatable {
     var label = ""
     var message = ""
 
+    var displayLabel: String {
+        label == "Resolving Swift packages" ? String(localized: "Resolving Swift packages") : label
+    }
     var running: Bool { status == "running" }
     var failed: Bool { status == "failed" }
     static func ready(_ worktree: String) -> Self { .init(worktree: worktree, status: "ready") }

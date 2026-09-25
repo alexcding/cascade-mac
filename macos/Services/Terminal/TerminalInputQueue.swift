@@ -25,7 +25,7 @@ final class TerminalInputQueue: @unchecked Sendable {
         guard !closed else { lock.unlock(); return }
         guard data.count <= limit - pending.count - inFlight else {
             closed = true; pending.removeAll(); lock.unlock()
-            error("Terminal input exceeded its buffer limit. Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching.")
+            error(String(localized: "Terminal input exceeded its buffer limit. Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching."))
             return
         }
         pending.append(data)
@@ -53,7 +53,7 @@ final class TerminalInputQueue: @unchecked Sendable {
         closed = true; pending.removeAll(); inFlight = 0; draining = false
         lock.unlock()
         if report {
-            error("Terminal input delivery failed: \(failure.localizedDescription) Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching.")
+            error(String(localized: "Terminal input delivery failed: \(failure.localizedDescription) Earlier input may have been sent; remaining input was stopped. Check the shell before reattaching."))
         }
     }
 

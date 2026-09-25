@@ -31,6 +31,8 @@ CODE_SIGN_IDENTITY = -
 CODE_SIGN_STYLE = Manual
 ENABLE_APP_SANDBOX = NO
 SWIFT_VERSION = 6.0
+// Emit source keys so new UI copy can be found and translated in the string catalog.
+SWIFT_EMIT_LOC_STRINGS = YES
 ALWAYS_SEARCH_USER_PATHS = NO
 // Embedded dynamic frameworks (Sparkle) must resolve in standalone app launches.
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @loader_path/../Frameworks

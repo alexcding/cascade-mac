@@ -4,6 +4,11 @@ import SwiftUI
 struct CascadeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
+    private var appLayoutDirection: LayoutDirection {
+        Locale.Language(identifier: Bundle.main.preferredLocalizations.first ?? "en").characterDirection == .rightToLeft
+            ? .rightToLeft : .leftToRight
+    }
+
     var body: some Scene {
         Window("Cascade", id: "main") {
             AppCoordinatorView(coordinator: delegate.model.coordinator)
@@ -14,6 +19,7 @@ struct CascadeApp: App {
                         .padding(.top, 6).padding(.trailing, 20)
                 }
                 .modifier(SettingsWindowOpener(model: delegate.model))
+                .environment(\.layoutDirection, appLayoutDirection)
         }
         .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1000, height: 680)
@@ -23,10 +29,16 @@ struct CascadeApp: App {
                             canCheckForUpdates: delegate.canCheckForUpdates)
         }
 
+        Window("Cascade Help", id: "help") {
+            HelpView()
+        }
+        .defaultSize(width: 700, height: 650)
+
         // Settings is its own window; SwiftUI supplies the Settings… menu item and ⌘, for it.
         Settings {
             SettingsWindowView(coordinator: delegate.model.coordinator)
                 .environment(\.documentFont, delegate.model.shell.font(.diff))
+                .environment(\.layoutDirection, appLayoutDirection)
         }
         .windowResizability(.contentMinSize)
     }

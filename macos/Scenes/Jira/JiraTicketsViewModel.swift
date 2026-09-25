@@ -100,12 +100,12 @@ import Observation
         if facetCounts != counts { facetCounts = counts }
     }
     var emptyMessage: String {
-        if !items.isEmpty { return "No tickets match these filters." }
-        if searchResult != nil { return "No tickets match this search." }
+        if !items.isEmpty { return String(localized: "No tickets match these filters.") }
+        if searchResult != nil { return String(localized: "No tickets match this search.") }
         if (snapshot?.jql ?? project.jql ?? "").isEmpty && (project.jiraProjectKey ?? "").isEmpty {
-            return "Set a Jira project key or JQL in this project's Settings."
+            return String(localized: "Set a Jira project key or JQL in this project's Settings.")
         }
-        return "No Jira tickets found."
+        return String(localized: "No Jira tickets found.")
     }
     func options(_ facet: JiraFacet) -> [String] { facetOptions[facet] ?? [] }
     func count(_ value: String, facet: JiraFacet) -> Int { facetCounts[facet]?[value] ?? 0 }
@@ -190,7 +190,7 @@ import Observation
                     let site = try await service.site()
                     try Task.checkCancellation()
                     baseURL = safeWebURL(site.baseUrl)
-                    siteError = baseURL == nil ? "Configure the Jira site to open ticket links." : nil
+                    siteError = baseURL == nil ? String(localized: "Configure the Jira site to open ticket links.") : nil
                 } catch { if !Task.isCancelled { siteError = error.localizedDescription } }
             }
         }
@@ -223,7 +223,7 @@ import Observation
         cancelActions()
         let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if typed.isEmpty { clearSearch(); return }
-        guard let service else { error = "Connect to search Jira."; return }
+        guard let service else { error = String(localized: "Connect to search Jira."); return }
         let generation = UUID(); searchGeneration = generation
         searching = true; error = nil
         defer { if searchGeneration == generation { searching = false } }
@@ -264,7 +264,7 @@ import Observation
                 syncPending = false
                 // Explicit successful mutation only; ordinary reads remain snapshot-backed.
                 do { try await service.syncAfterMutation(projectID: project.id) }
-                catch { if !Task.isCancelled { snapshotError = "Status saved; refresh failed: \(error.localizedDescription)" } }
+                catch { if !Task.isCancelled { snapshotError = String(localized: "Status saved; refresh failed: \(error.localizedDescription)") } }
                 if !Task.isCancelled { refresh() }
             }
         }
@@ -280,7 +280,7 @@ import Observation
     private func emit(_ ticket: JiraTicket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired, service != nil else { return }
         guard let current = rows.first(where: { $0.key == ticket.key }) else { return }
-        guard let url = ticketURL(current) else { siteError = "Configure the Jira site to open ticket links."; return }
+        guard let url = ticketURL(current) else { siteError = String(localized: "Configure the Jira site to open ticket links."); return }
         var request = pageRequest(current, url: url)
         request.projectID = project.id
         configure(&request)

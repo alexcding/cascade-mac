@@ -32,8 +32,8 @@ struct PtydConfiguration: Sendable {
             directory = candidate
         } else {
             directory = "/tmp/cascade-\(getuid())"
-            if mkdir(directory, 0o700) != 0 && errno != EEXIST { throw PtyError.connection("Cannot create terminal socket directory.") }
-            guard privateDirectory(directory) else { throw PtyError.connection("Terminal socket directory is not private.") }
+            if mkdir(directory, 0o700) != 0 && errno != EEXIST { throw PtyError.connection(String(localized: "Cannot create terminal socket directory.")) }
+            guard privateDirectory(directory) else { throw PtyError.connection(String(localized: "Terminal socket directory is not private.")) }
         }
         // Temporary M1 isolation: the established app uses cascade-ptyd.sock.
         return URL(fileURLWithPath: directory).appendingPathComponent("cascade-native-ptyd.sock").path
@@ -47,14 +47,14 @@ struct PtydConfiguration: Sendable {
 
     func validateSocket() throws {
         guard socketPath.hasPrefix("/"), socketPath.utf8.count < 104 else {
-            throw PtyError.connection("Terminal socket path must be absolute and shorter than 104 bytes.")
+            throw PtyError.connection(String(localized: "Terminal socket path must be absolute and shorter than 104 bytes."))
         }
         var info = stat()
         if lstat(socketPath, &info) == 0 {
             guard info.st_uid == getuid(), info.st_mode & S_IFMT == S_IFSOCK else {
-                throw PtyError.connection("Refusing an unowned or non-socket terminal endpoint.")
+                throw PtyError.connection(String(localized: "Refusing an unowned or non-socket terminal endpoint."))
             }
-        } else if errno != ENOENT { throw PtyError.connection("Cannot inspect terminal socket.") }
+        } else if errno != ENOENT { throw PtyError.connection(String(localized: "Cannot inspect terminal socket.")) }
     }
 }
 
@@ -73,7 +73,7 @@ actor PtydHost {
         }
         await stopLegacy()
         guard FileManager.default.isExecutableFile(atPath: configuration.executable.path) else {
-            throw PtyError.connection("PTY helper is missing. Bundle it or pass --ptyd-path.")
+            throw PtyError.connection(String(localized: "PTY helper is missing. Bundle it or pass --ptyd-path."))
         }
         try FileManager.default.createDirectory(at: configuration.directory, withIntermediateDirectories: true)
         let log = configuration.directory.appendingPathComponent("ptyd.log")
@@ -99,7 +99,7 @@ actor PtydHost {
             catch { if !Self.mayStartDaemon(after: error) { throw error } }
         }
         let diagnostic = (try? String(contentsOf: log, encoding: .utf8))?.suffix(500) ?? ""
-        throw PtyError.connection("PTY daemon did not become ready: \(diagnostic). See \(log.path).")
+        throw PtyError.connection(String(localized: "PTY daemon did not become ready: \(diagnostic). See \(log.path)."))
     }
 
     // A stale socket or not-yet-created socket is the only reason to launch/retry.
@@ -140,7 +140,7 @@ actor PtydHost {
             if !remaining.contains(where: { $0.paired && keys.contains($0.pairKey) }) { return }
             try await Task.sleep(for: .milliseconds(50))
         }
-        throw PtyError.connection("Session processes did not stop. The worktree has been kept; retry the operation.")
+        throw PtyError.connection(String(localized: "Session processes did not stop. The worktree has been kept; retry the operation."))
     }
 
     /// The shell of each paired terminal the daemon runs, by pair key. Asking never starts a daemon:
@@ -189,7 +189,7 @@ actor PtydHost {
 
     private func terminate(client: PtydClient, hello: PtyHello) async throws {
         let current: PtyHello = try await client.request(.init(op: "hello"))
-        guard current.pid == hello.pid, current.pid > 1 else { throw PtyError.connection("PTY daemon identity changed during Quit.") }
+        guard current.pid == hello.pid, current.pid > 1 else { throw PtyError.connection(String(localized: "PTY daemon identity changed during Quit.")) }
         let _: Int = try await client.request(.init(op: "killAll"))
         // killAll schedules asynchronous teardown. Let the daemon reap children
         // and close each master before terminating it, instead of racing that work.
@@ -197,13 +197,13 @@ actor PtydHost {
             let remaining: [PtyInfo] = try await client.request(.init(op: "list"))
             if remaining.isEmpty {
                 let check: PtyHello = try await client.request(.init(op: "hello"))
-                guard check.pid == hello.pid else { throw PtyError.connection("PTY daemon identity changed during Quit.") }
+                guard check.pid == hello.pid else { throw PtyError.connection(String(localized: "PTY daemon identity changed during Quit.")) }
                 if Darwin.kill(check.pid, SIGTERM) != 0 && errno != ESRCH { throw PtyError.socket(errno) }
                 child = nil
                 return
             }
             try await Task.sleep(for: .milliseconds(50))
         }
-        throw PtyError.connection("Terminal processes did not stop. Quit can be retried.")
+        throw PtyError.connection(String(localized: "Terminal processes did not stop. Quit can be retried."))
     }
 }

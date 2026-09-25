@@ -64,12 +64,12 @@ import Observation
     var title: String {
         let state = self.state
         switch state.selection {
-        case .overview: return "Overview"
-        case .automation: return "Automation"
-        case .terminal: return "Terminal"
-        case .project(let id): return state.projects.first { $0.id == id }?.name ?? "Project"
-        case .session(let id): return state.sessions.first { $0.id == id }?.label ?? "Session"
-        case .tab(let id): return state.tabs.first { $0.id == id }?.displayTitle ?? "Tab"
+        case .overview: return String(localized: "Overview")
+        case .automation: return String(localized: "Automation")
+        case .terminal: return String(localized: "Terminal")
+        case .project(let id): return state.projects.first { $0.id == id }?.name ?? String(localized: "Project")
+        case .session(let id): return state.sessions.first { $0.id == id }?.label ?? String(localized: "Session")
+        case .tab(let id): return state.tabs.first { $0.id == id }?.displayTitle ?? String(localized: "Tab")
         }
     }
     func session(_ id: String) -> WorkspaceSession? { state.sessions.first { $0.id == id } }
@@ -111,9 +111,4 @@ import Observation
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     func openTerminal() { onAction(.openTerminal) }
     func openBrowser(_ url: URL) { onAction(.openBrowser(url)) }
-}
-
-extension SavedTab {
-    /// The sidebar row's and toolbar's name for a tab: its title, else its address, else "New Tab".
-    var displayTitle: String { title.isEmpty ? (url.isEmpty ? "New Tab" : url) : title }
 }

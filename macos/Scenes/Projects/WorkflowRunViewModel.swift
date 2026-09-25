@@ -60,9 +60,9 @@ struct APIWorkflowRunService: WorkflowRunService {
     func run() async {
         guard canRun, let recipe = recipes.first(where: { $0.id == selectedID }) else { return }
         let steps = recipe.steps.filter { !$0.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard !steps.isEmpty else { error = "This workflow has no commands."; return }
+        guard !steps.isEmpty else { error = String(localized: "This workflow has no commands."); return }
         running = true; error = nil; analysis = nil; needsHooks = false; step = 0; total = steps.count
-        status = "Checking \(recipe.cli.title) hooks…"
+        status = String(localized: "Checking \(recipe.cli.title) hooks…")
         let task = Task {
             defer { running = false; self.task = nil; terminal = nil }
             do {
@@ -71,9 +71,9 @@ struct APIWorkflowRunService: WorkflowRunService {
                 // An outdated install still reports turns, which is all a workflow listens for.
                 guard ["installed", "outdated"].contains(hooks[recipe.cli.rawValue] ?? "") else {
                     needsHooks = true
-                    throw BackendError.operation("Install \(recipe.cli.title) hooks in Settings → CLIs before running a workflow.")
+                    throw BackendError.operation(String(localized: "Install \(recipe.cli.title) hooks in Settings → Integrations before running a workflow."))
                 }
-                status = "Preparing \(recipe.cli.title)…"
+                status = String(localized: "Preparing \(recipe.cli.title)…")
                 let terminal = try await prepare(recipe.cli)
                 self.terminal = terminal
                 try Task.checkCancellation()
@@ -85,11 +85,14 @@ struct APIWorkflowRunService: WorkflowRunService {
                     var retried = false
                     while true {
                         try Task.checkCancellation()
-                        status = "\(recipe.name): step \(step)/\(total)\(retried ? " (retry)" : "") — \(goal.isEmpty ? "waiting for the agent" : goal)"
+                        let detail = goal.isEmpty ? String(localized: "Waiting for the agent") : goal
+                        status = retried
+                            ? String(localized: "\(recipe.name): retrying step \(step)/\(total) — \(detail)")
+                            : String(localized: "\(recipe.name): step \(step)/\(total) — \(detail)")
                         let revision = try await terminal.execute(command)
                         try Task.checkCancellation()
                         try await terminal.validate(after: revision)
-                        status = "Checking step \(step)/\(total)…"
+                        status = String(localized: "Checking step \(step)/\(total)…")
                         try await Task.sleep(for: .milliseconds(500))
                         try await terminal.validate(after: revision)
                         var decision = WorkflowAnalysis.Decision.proceed
@@ -103,24 +106,24 @@ struct APIWorkflowRunService: WorkflowRunService {
                                 analysis = result; decision = result.decision
                             } catch {
                                 try Task.checkCancellation()
-                                self.error = "Completion analysis unavailable: \(error.localizedDescription). Continuing after the Stop hook."
+                                self.error = String(localized: "Completion analysis unavailable: \(error.localizedDescription). Continuing after the Stop hook.")
                             }
                         }
                         try Task.checkCancellation()
                         try await terminal.validate(after: revision)
                         if decision == .stop {
-                            status = "Stopped — agent needs attention"; return
+                            status = String(localized: "Stopped — agent needs attention"); return
                         }
                         if decision == .retry {
-                            guard !retried else { status = "Stopped after one retry of step \(step)"; return }
+                            guard !retried else { status = String(localized: "Stopped after one retry of step \(step)"); return }
                             retried = true; continue
                         }
                         break
                     }
                 }
-                status = "\(recipe.name) completed"
-            } catch is CancellationError { status = "Workflow stopped" }
-            catch { self.error = error.localizedDescription; status = "Workflow stopped" }
+                status = String(localized: "\(recipe.name) completed")
+            } catch is CancellationError { status = String(localized: "Workflow stopped") }
+            catch { self.error = error.localizedDescription; status = String(localized: "Workflow stopped") }
         }
         self.task = task; await task.value
     }
@@ -130,7 +133,7 @@ struct APIWorkflowRunService: WorkflowRunService {
         let task = self.task, terminal = self.terminal
         task?.cancel()
         do { try await terminal?.stopStep() }
-        catch { self.error = "Could not interrupt the agent: \(error.localizedDescription)" }
+        catch { self.error = String(localized: "Could not interrupt the agent: \(error.localizedDescription)") }
         await task?.value
         stopping = false
     }

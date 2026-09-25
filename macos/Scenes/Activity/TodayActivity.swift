@@ -37,7 +37,7 @@ import Observation
     func activityReceived() { if visible { refresh() } }
 
     func refresh() {
-        guard let service else { error = "Connect to load activity."; return }
+        guard let service else { error = String(localized: "Connect to load activity."); return }
         loading = true
         task = Task { [weak self] in
             do {
@@ -62,7 +62,7 @@ import Observation
         opening = entry.id; error = nil
         defer { opening = nil }
         do { try await openPage(entry); return true }
-        catch { self.error = "Could not open the page: \(error.localizedDescription)"; return false }
+        catch { self.error = String(localized: "Could not open the page: \(error.localizedDescription)"); return false }
     }
 }
 
@@ -84,7 +84,7 @@ struct TodayActivityPopover: View {
                     if !model.loaded {
                         empty(model.error ?? "Loading…", icon: false)
                     } else if model.entries.isEmpty {
-                        empty("No activity today", icon: true)
+                        empty(String(localized: "No activity today"), icon: true)
                     } else {
                         ForEach(model.entries) { entry in
                             if model.canOpen(entry) {

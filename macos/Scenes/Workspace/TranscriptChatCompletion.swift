@@ -98,9 +98,9 @@ enum ChatCompletion {
 
     static func suggestion(for command: AgentCommand) -> ChatSuggestion {
         let badge: String? = switch command.source {
-        case "project": "Project"
-        case "user": "Personal"
-        case "plugin": command.plugin ?? "Plugin"
+        case "project": String(localized: "Project")
+        case "user": String(localized: "Personal")
+        case "plugin": command.plugin ?? String(localized: "Plugin")
         default: nil
         }
         let title = "/" + command.name

@@ -11,7 +11,31 @@ final class TerminalSession: Identifiable {
     @ObservationIgnored private(set) var presentation: TerminalPaneViewModel!
     private(set) var surface = TerminalViewState()
     private(set) var surfaceGeneration = UUID() { didSet { presentation?.surfaceChanged() } }
-    private(set) var status = "Connecting"
+    enum ConnectionState: Equatable {
+        case connecting, restoring, connected, reconnecting, disconnected, exited(Int?)
+
+        var isLive: Bool {
+            switch self {
+            case .disconnected, .exited: false
+            default: true
+            }
+        }
+        var title: String {
+            switch self {
+            case .connecting: String(localized: "Connecting")
+            case .restoring: String(localized: "Restoring terminal")
+            case .connected: String(localized: "Connected")
+            case .reconnecting: String(localized: "Reconnecting")
+            case .disconnected: String(localized: "Disconnected")
+            case .exited(let code):
+                if let code { String(localized: "Exited (\(code))") }
+                else { String(localized: "Exited") }
+            }
+        }
+    }
+    private(set) var connectionState = ConnectionState.connecting
+    var status: String { connectionState.title }
+    var isLive: Bool { connectionState.isLive }
     private(set) var error: String? { didSet { if oldValue != error { noticeDismissed = false } } }
     private(set) var shellPID: UInt32?
     private(set) var termID: String?
@@ -98,7 +122,7 @@ final class TerminalSession: Identifiable {
             if !style.keybinds.isEmpty {
                 resolved = style.withoutKeybinds.resolve()
                 surface = TerminalViewState(theme: resolved.theme, terminalConfiguration: resolved.configuration)
-                issues.append("Ghostty rejected the terminal keybinds, so they are off until fixed in Settings: \(issue)")
+                issues.append(String(localized: "Ghostty rejected the terminal keybinds, so they are off until fixed in Settings: \(issue)"))
             } else {
                 issues.append(issue)
             }
@@ -113,8 +137,8 @@ final class TerminalSession: Identifiable {
         }, onExit: { [weak self] code in
             Task { @MainActor in
                 guard let self, self.surfaceGeneration == generation else { return }
-                self.status = "Exited (\(code))"; self.ready = false
-                self.agentTurns.invalidate("The terminal exited during the workflow step.")
+                self.connectionState = .exited(Int(code)); self.ready = false
+                self.agentTurns.invalidate(String(localized: "The terminal exited during the workflow step."))
             }
         })
         surface.configuration = .init(backend: .inMemory(pipe.memory))
@@ -135,8 +159,8 @@ final class TerminalSession: Identifiable {
         }
         surface.onClose = { [weak self] _ in
             guard let self, self.surfaceGeneration == generation else { return }
-            self.status = "Exited"; self.ready = false
-            self.agentTurns.invalidate("The terminal closed during the workflow step.")
+            self.connectionState = .exited(nil); self.ready = false
+            self.agentTurns.invalidate(String(localized: "The terminal closed during the workflow step."))
         }
     }
 
@@ -154,16 +178,16 @@ final class TerminalSession: Identifiable {
         // theme switch, say — which is the opposite of what happened.
         if resolved.configuration != surface.terminalConfiguration,
            !surface.setTerminalConfiguration(resolved.configuration) {
-            let issue = surface.controller.lastConfigurationIssue ?? "Could not apply the terminal font."
+            let issue = surface.controller.lastConfigurationIssue ?? String(localized: "Could not apply the terminal font.")
             // Same recovery as makeSurface: keep the font and theme, shed the keybinds.
             if !value.keybinds.isEmpty, surface.setTerminalConfiguration(value.withoutKeybinds.resolve().configuration) {
-                issues.append("Ghostty rejected the terminal keybinds, so they are off until fixed in Settings: \(issue)")
+                issues.append(String(localized: "Ghostty rejected the terminal keybinds, so they are off until fixed in Settings: \(issue)"))
             } else {
                 issues.append(issue)
             }
         }
         if resolved.theme != surface.theme, !surface.setTheme(resolved.theme) {
-            issues.append(surface.controller.lastConfigurationIssue ?? "Could not apply the terminal theme.")
+            issues.append(surface.controller.lastConfigurationIssue ?? String(localized: "Could not apply the terminal theme."))
         }
         style = value
         styleError = issues.isEmpty ? nil : issues.joined(separator: " ")
@@ -193,9 +217,9 @@ final class TerminalSession: Identifiable {
             if surface.surface != nil { break }
             try await Task.sleep(for: .milliseconds(100))
         }
-        guard surface.surface != nil else { throw PtyError.connection("Ghostty could not create a native surface.") }
+        guard surface.surface != nil else { throw PtyError.connection(String(localized: "Ghostty could not create a native surface.")) }
         guard pipe.memory.enableGeometryCallbacks() else {
-            throw PtyError.connection("Ghostty could not report complete terminal geometry.")
+            throw PtyError.connection(String(localized: "Ghostty could not report complete terminal geometry."))
         }
         let config = try configuration ?? configurationProvider()
         let host = PtydHost(configuration: config)
@@ -227,7 +251,7 @@ final class TerminalSession: Identifiable {
         let created: Bool
         if reconnecting {
             guard let existing = terminals.first(where: { $0.id == termID && $0.pid == shellPID }) else {
-                throw PtyError.connection("The original terminal is no longer running. Automatic reconnect did not create a replacement shell.")
+                throw PtyError.connection(String(localized: "The original terminal is no longer running. Automatic reconnect did not create a replacement shell."))
             }
             info = existing
             created = false
@@ -255,10 +279,10 @@ final class TerminalSession: Identifiable {
             if command != nil { agentStartedAt = Date(); await startupCommandStarted?() }
         }
         guard !created || info.geometryResponseOwner == PtyHello.geometryResponseOwnerVersion else {
-            throw PtyError.connection("The PTY helper did not preserve the requested terminal geometry owner. The created shell has been preserved.")
+            throw PtyError.connection(String(localized: "The PTY helper did not preserve the requested terminal geometry owner. The created shell has been preserved."))
         }
         guard !created || info.appearanceResponseOwner == PtyHello.appearanceResponseOwnerVersion else {
-            throw PtyError.connection("The PTY helper did not preserve native color ownership. The created shell has been preserved.")
+            throw PtyError.connection(String(localized: "The PTY helper did not preserve native color ownership. The created shell has been preserved."))
         }
         try info.validateStateResponseOwner()
         if info.stateResponseOwner == PtyHello.identityResponseOwnerVersion {
@@ -276,7 +300,7 @@ final class TerminalSession: Identifiable {
                   appearanceOwned: info.appearanceResponseOwner != nil)
         if info.appearanceResponseOwner != nil { try await pipe.synchronizeAppearance() }
         try await pipe.synchronizeGrid()
-        status = "Restoring terminal"
+        connectionState = .restoring
         let snapshot = try await PtySnapshotDownloader(client: client).fetch(term: info.id)
         try await pipe.attach(snapshot, daemonOwnsStateResponses: true,
                               daemonOwnsIdentityResponses: info.stateResponseOwner == PtyHello.identityResponseOwnerVersion,
@@ -284,7 +308,7 @@ final class TerminalSession: Identifiable {
                               daemonOwnsAppearanceResponses: info.appearanceResponseOwner != nil) { [weak self] in
             Task { @MainActor in
                 guard let self, self.started, self.surfaceGeneration == generation, self.error == nil else { return }
-                self.status = "Connected"
+                self.connectionState = .connected
                 self.ready = true
                 self.presentation.becameReady()
                 if created, let onCreated = self.onCreated {
@@ -302,7 +326,7 @@ final class TerminalSession: Identifiable {
 
     private func connectionLost(_ failure: PtyError, inputWasIdle: Bool) {
         guard !stopped else { return }
-        agentTurns.invalidate("The terminal connection was lost. Check the terminal before restarting the workflow.")
+        agentTurns.invalidate(String(localized: "The terminal connection was lost. Check the terminal before restarting the workflow."))
         let wasReady = ready
         ready = false
         // The current attempt observes its closed pipeline and handles retry.
@@ -310,10 +334,10 @@ final class TerminalSession: Identifiable {
         guard wasReady, failure.permitsReconnect, inputWasIdle,
               commandWrites == 0, launchTask == nil else {
             setError(inputWasIdle ? failure.localizedDescription :
-                "Terminal disconnected while input or attachment was unsettled. Earlier input may have been sent. Check the shell before reattaching.")
+                String(localized: "Terminal disconnected while input or attachment was unsettled. Earlier input may have been sent. Check the shell before reattaching."))
             return
         }
-        status = "Reconnecting"
+        connectionState = .reconnecting
         reconnectTask = Task {
             defer { reconnectTask = nil }
             for delay in [250, 500, 1000, 2000, 4000] {
@@ -333,7 +357,7 @@ final class TerminalSession: Identifiable {
                         return
                     }
                     if delay == 4000 { setError(error.localizedDescription) }
-                    else { status = "Reconnecting" }
+                    else { connectionState = .reconnecting }
                 }
             }
         }
@@ -350,7 +374,7 @@ final class TerminalSession: Identifiable {
         // Closing a failed pipeline also reports a socket disconnect; preserve
         // the actionable root cause (for example truncated restoration).
         if error == nil || prefer { error = text }
-        status = "Disconnected"
+        connectionState = .disconnected
         ready = false
         agentTurns.invalidate(text)
     }
@@ -359,14 +383,14 @@ final class TerminalSession: Identifiable {
         // This object owns one connection/surface generation. A delayed ready
         // callback must not reactivate it after its owner removes the pane.
         stopped = true
-        agentTurns.invalidate("The terminal was disconnected during the workflow step.")
+        agentTurns.invalidate(String(localized: "The terminal was disconnected during the workflow step."))
         reconnectTask?.cancel()
         started = false
         pipe.close()
         ready = false
-        // The app reads `status` to tell a live shell: a stopped terminal must not look
+        // The app reads semantic connection state: a stopped terminal must not look
         // like one still attaching.
-        status = "Disconnected"
+        connectionState = .disconnected
     }
 
     func stopConnecting() async {
@@ -386,18 +410,18 @@ final class TerminalSession: Identifiable {
     func submit(_ line: String) async throws {
         guard ready, let client, let termID else { throw PtyError.closed }
         guard !line.contains("\n"), !line.contains("\r"), !line.contains("\0") else {
-            throw PtyError.connection("Terminal commands must contain a single line.")
+            throw PtyError.connection(String(localized: "Terminal commands must contain a single line."))
         }
         commandWrites += 1
         defer { commandWrites -= 1 }
-        guard try await atShell() else { throw PtyError.connection("The terminal is busy. Return to its shell before launching a command.") }
+        guard try await atShell() else { throw PtyError.connection(String(localized: "The terminal is busy. Return to its shell before launching a command.")) }
         try Task.checkCancellation()
         do {
             let _: Bool? = try await client.request(.init(op: "write", term: termID, data: line))
             try await Task.sleep(for: .milliseconds(60))
             let _: Bool? = try await client.request(.init(op: "write", term: termID, data: "\r"))
         } catch {
-            setError("Command delivery was interrupted. Earlier input may have been sent. Check the shell before reattaching.", prefer: true)
+            setError(String(localized: "Command delivery was interrupted. Earlier input may have been sent. Check the shell before reattaching."), prefer: true)
             throw error
         }
     }
@@ -409,12 +433,12 @@ final class TerminalSession: Identifiable {
         guard ready, let client, let termID else { throw PtyError.closed }
         let texts = inputs.map { input in switch input { case .line(let text), .key(let text): text } }
         guard texts.allSatisfy({ !$0.contains("\n") && !$0.contains("\r") && !$0.contains("\0") }) else {
-            throw PtyError.connection("Agent commands must contain a single line.")
+            throw PtyError.connection(String(localized: "Agent commands must contain a single line."))
         }
-        guard commandWrites == 0 else { throw BackendError.operation("Another terminal command is being delivered.") }
+        guard commandWrites == 0 else { throw BackendError.operation(String(localized: "Another terminal command is being delivered.")) }
         commandWrites += 1
         defer { commandWrites -= 1 }
-        guard try await !atShell() else { throw PtyError.connection("No agent is running in this terminal.") }
+        guard try await !atShell() else { throw PtyError.connection(String(localized: "No agent is running in this terminal.")) }
         try Task.checkCancellation()
         for (index, input) in inputs.enumerated() {
             // The agent redraws after each command or choice; typing into the redraw drops keys.
@@ -460,13 +484,13 @@ final class TerminalSession: Identifiable {
     }
     func writeWorkflowInput(_ data: String) async throws {
         guard ready, let client, let termID else { throw PtyError.closed }
-        guard commandWrites == 0 else { throw BackendError.operation("Another terminal command is being delivered.") }
+        guard commandWrites == 0 else { throw BackendError.operation(String(localized: "Another terminal command is being delivered.")) }
         commandWrites += 1
         defer { commandWrites -= 1 }
         do {
             let _: Bool? = try await client.request(.init(op: "write", term: termID, data: data))
         } catch {
-            setError("Workflow input delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting.", prefer: true)
+            setError(String(localized: "Workflow input delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting."), prefer: true)
             throw error
         }
     }
@@ -478,7 +502,7 @@ final class TerminalSession: Identifiable {
         do {
             let _: Bool? = try await client.request(.init(op: "write", term: termID, data: "\u{03}"))
         } catch {
-            setError("Interrupt delivery was interrupted. Earlier input may have been sent. Check the shell before reattaching.", prefer: true)
+            setError(String(localized: "Interrupt delivery was interrupted. Earlier input may have been sent. Check the shell before reattaching."), prefer: true)
             throw error
         }
     }
@@ -490,7 +514,7 @@ final class TerminalSession: Identifiable {
             if pipe.isClosed { throw PtyError.closed }
             try await Task.sleep(for: .milliseconds(100))
         }
-        throw PtyError.connection("The terminal did not become ready. Open its pane and retry.")
+        throw PtyError.connection(String(localized: "The terminal did not become ready. Open its pane and retry."))
     }
 
     func quit() async {

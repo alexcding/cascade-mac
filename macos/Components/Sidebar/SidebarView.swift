@@ -19,10 +19,10 @@ struct SidebarView: View {
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)
 
             HStack(spacing: 6) {
-                SidebarAppButton(icon: "plus", label: "New Project", help: "New Project") { viewModel.newProject() }
+                SidebarAppButton(icon: "plus", label: String(localized: "New Project"), help: String(localized: "New Project")) { viewModel.newProject() }
                     .disabled(!viewModel.canCreateProject)
                 Spacer()
-                SidebarAppButton(icon: "bell", label: "Today's activity", help: "Today's activity") { showingActivity.toggle() }
+                SidebarAppButton(icon: "bell", label: String(localized: "Today's activity"), help: String(localized: "Today's activity")) { showingActivity.toggle() }
                     .popover(isPresented: $showingActivity, arrowEdge: .top) {
                         if let today = viewModel.todayActivity {
                             TodayActivityPopover(model: today, showAllEvents: {
@@ -32,7 +32,7 @@ struct SidebarView: View {
                         }
                     }
                     .onChange(of: showingActivity) { _, open in viewModel.todayActivity?.setVisible(open) }
-                SidebarAppButton(icon: "gearshape", label: "Settings", help: "Settings") { viewModel.openSettings() }
+                SidebarAppButton(icon: "gearshape", label: String(localized: "Settings"), help: String(localized: "Settings")) { viewModel.openSettings() }
             }
             .glassIconButtons()
             .foregroundStyle(Color(nsColor: SidebarPalette.text2))

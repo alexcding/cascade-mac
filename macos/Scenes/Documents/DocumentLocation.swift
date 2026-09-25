@@ -58,11 +58,11 @@ enum WorkingFileLocation {
     static func resolve(_ relative: String, line: Int, root: String) throws -> DocumentLocation {
         guard !relative.isEmpty, relative.utf8.count <= 4096, !relative.hasPrefix("/"),
               !relative.contains("\0"), !relative.split(separator: "/").contains(".."),
-              (1...1_000_000).contains(line) else { throw BackendError.operation("Invalid changes-view file location.") }
+              (1...1_000_000).contains(line) else { throw BackendError.operation(String(localized: "Invalid changes-view file location.")) }
         let rootURL = URL(fileURLWithPath: root).resolvingSymlinksInPath().standardizedFileURL
         let file = rootURL.appendingPathComponent(relative).resolvingSymlinksInPath().standardizedFileURL
         guard file.path.hasPrefix(rootURL.path == "/" ? "/" : rootURL.path + "/"), file.path != rootURL.path else {
-            throw BackendError.operation("This file points outside the worktree. Open it with Open File.")
+            throw BackendError.operation(String(localized: "This file points outside the worktree. Open it with Open File."))
         }
         return .init(path: file.path, line: line)
     }

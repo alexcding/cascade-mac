@@ -33,13 +33,13 @@ import Observation
     }
     var canOpenSystemSettings: Bool { !retired && active && needsApproval && !changing && !openingSettings }
     var statusText: String {
-        guard let state else { return "Checking login-item status…" }
+        guard let state else { return String(localized: "Checking login-item status…") }
         switch state.status {
-        case .notRegistered: return "Off"
-        case .enabled: return "Enabled"
-        case .requiresApproval: return "Registered; approval required in System Settings."
-        case .notFound: return "macOS could not find this login item. Reinstall the packaged app."
-        case .unknown: return "macOS returned an unknown login-item status."
+        case .notRegistered: return String(localized: "Off")
+        case .enabled: return String(localized: "Enabled")
+        case .requiresApproval: return String(localized: "Registered; approval required in System Settings.")
+        case .notFound: return String(localized: "macOS could not find this login item. Reinstall the packaged app.")
+        case .unknown: return String(localized: "macOS returned an unknown login-item status.")
         }
     }
     func refresh() {

@@ -67,11 +67,11 @@ struct RevealableSecureField: View {
     var body: some View {
         HStack {
             Group {
-                if revealed { TextField(prompt, text: $text) } else { SecureField(prompt, text: $text) }
+                if revealed { TextField(LocalizedStringKey(prompt), text: $text) } else { SecureField(LocalizedStringKey(prompt), text: $text) }
             }
             Button { revealed.toggle() } label: { Image(systemName: revealed ? "eye.slash" : "eye") }
-                .buttonStyle(.borderless).help(revealed ? "Hide" : "Reveal")
-                .accessibilityLabel(revealed ? "Hide token" : "Reveal token")
+                .buttonStyle(.borderless).help(Text(LocalizedStringKey(revealed ? "Hide" : "Reveal")))
+                .accessibilityLabel(Text(LocalizedStringKey(revealed ? "Hide token" : "Reveal token")))
         }
     }
 }

@@ -10,7 +10,7 @@ enum MemoryLimit: String, CaseIterable, Identifiable, Sendable {
     init(setting: String?) { self = setting.flatMap(Self.init(rawValue:)) ?? .unlimited }
     var id: String { rawValue }
     var bytes: UInt64? { UInt64(rawValue).map { $0 << 30 } }
-    var title: String { self == .unlimited ? "Unlimited" : "\(rawValue) GB" }
+    var title: String { self == .unlimited ? String(localized: "Unlimited") : String(localized: "\(rawValue) GB") }
 }
 
 /// Picks what a pool stops to fit its limit.

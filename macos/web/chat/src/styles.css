@@ -160,3 +160,8 @@ body {
 .answer h1 { font-size: 20px; line-height: 26px; }
 .answer h2 { font-size: 18px; line-height: 26px; }
 .answer h3, .answer h4 { font-size: 16px; line-height: 24px; }
+
+/* Code and file diffs retain their source direction inside translated chat chrome. */
+pre, code, .diff { direction: ltr; text-align: left; unicode-bidi: isolate; }
+.tool .body { margin-inline-start: 20px; margin-inline-end: 0; }
+[dir="rtl"] .tool .body { margin-left: 0; }

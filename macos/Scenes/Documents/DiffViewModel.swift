@@ -10,6 +10,8 @@ struct DiffSnapshot: Codable, Equatable, Sendable {
     var revision: String? = nil
     var ahead: Int? = nil
     var behind: Int? = nil
+    var labels: [String: String]? = nil
+    var language: String? = nil
 }
 
 protocol DiffService: Sendable { func load(worktree: String) async throws -> DiffSnapshot }
@@ -23,7 +25,7 @@ struct APIDiffService: DiffService {
         }
         let result: Response = try await api.get(APIClient.query(Routes.DIFF, ["path": worktree]), timeout: 30)
         if let error = result.error { throw BackendError.operation(error) }
-        guard let diff = result.diff else { throw BackendError.operation("The backend returned no diff.") }
+        guard let diff = result.diff else { throw BackendError.operation(String(localized: "The backend returned no diff.")) }
         return .init(diff: diff, untracked: result.untracked ?? [], branch: result.branch,
                      revision: result.revision, ahead: result.ahead, behind: result.behind)
     }
@@ -98,7 +100,7 @@ struct APIDiffService: DiffService {
             config.websiteDataStore = .nonPersistent()
             config.setURLSchemeHandler(DiffPageAssets(), forURLScheme: DiffPageAssets.scheme)
             config.userContentController.add(DiffMessageReceiver(owner: self), name: "diff")
-            config.userContentController.addUserScript(WKUserScript(source: #"window.addEventListener('error', e => window.webkit.messageHandlers.diff.postMessage({type:'error', message:e.message || 'A changes-view asset failed to load.'}), true);"#,
+            config.userContentController.addUserScript(WKUserScript(source: #"window.addEventListener('error', e => window.webkit.messageHandlers.diff.postMessage({type:'error', message:e.message || ''}), true);"#,
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
             let view = WKWebView(frame: .zero, configuration: config)
             view.navigationDelegate = self
@@ -117,22 +119,24 @@ struct APIDiffService: DiffService {
     }
     func refresh() {
         guard task == nil else { return }
-        guard let service else { loadError = "Connect to the backend to load changes."; return }
+        guard let service else { loadError = String(localized: "Connect to the backend to load changes."); return }
         loading = true; loadError = nil
         let generation = generation
         task = Task {
             defer { if self.generation == generation { loading = false; task = nil } }
             do {
-                let value = try await service.load(worktree: worktree)
+                var value = try await service.load(worktree: worktree)
+                value.labels = Self.localizedLabels
+                value.language = Bundle.main.preferredLocalizations.first ?? "en"
                 try Task.checkCancellation()
                 // A large patch is encoded once on a worker, never per frame or on
                 // appearance changes. The page also caps the rows it renders.
-                let script = try await Task.detached(priority: .userInitiated) {
+                let script = try await Task.detached(priority: .userInitiated) { [value] in
                     guard value.diff.utf8.count <= 8 * 1024 * 1024, value.untracked.count <= 100_000 else {
-                        throw BackendError.operation("Diff too large to display.")
+                        throw BackendError.operation(String(localized: "Diff too large to display."))
                     }
                     let data = try JSONEncoder().encode(value)
-                    guard data.count <= 16 * 1024 * 1024 else { throw BackendError.operation("Diff too large to display.") }
+                    guard data.count <= 16 * 1024 * 1024 else { throw BackendError.operation(String(localized: "Diff too large to display.")) }
                     return "window.nativeDiff.render(\(String(decoding: data, as: UTF8.self)))"
                 }.value
                 try Task.checkCancellation()
@@ -140,6 +144,23 @@ struct APIDiffService: DiffService {
                 if snapshot != value { snapshot = value; documentScript = script; render() }
             } catch { if !Task.isCancelled, self.generation == generation { self.loadError = error.localizedDescription } }
         }
+    }
+    private static var localizedLabels: [String: String] {
+        [
+            "openFile": String(localized: "Open File"),
+            "open": String(localized: "Open"),
+            "line": String(localized: "Line"),
+            "binary": String(localized: "Binary file"),
+            "large": String(localized: "Diff too large to display."),
+            "terminal": String(localized: "View in the terminal:"),
+            "discard": String(localized: "Discard"),
+            "discardHelp": String(localized: "Discard this change block"),
+            "untracked": String(localized: "Untracked files"),
+            "moreUntracked": String(localized: "More untracked files"),
+            "empty": String(localized: "No uncommitted changes"),
+            "emptyCommit": String(localized: "No changes (empty or merge commit)."),
+            "moreFiles": String(localized: "More files (diff truncated)"),
+        ]
     }
     func waitForRefresh() async { await task?.value }
     func setAppearance(_ value: AppAppearance) {
@@ -157,7 +178,7 @@ struct APIDiffService: DiffService {
         webView?.evaluateJavaScript(documentScript) { [weak self] _, error in
             guard let self, self.generation == generation, let error else { return }
             let details = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
-            self.documentError = "Could not render changes: \(details)"
+            self.documentError = String(localized: "Could not render changes: \(details)")
         }
     }
     /// Off screen: stop asking for changes, but keep the page and its last render, so showing it
@@ -185,7 +206,7 @@ struct APIDiffService: DiffService {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         loaded = false
         // A hidden page is loaded again when it comes back; only one on screen has to say so.
-        if active { documentError = "The changes view stopped. Reload to restore it." } else { contentProcessEnded = true }
+        if active { documentError = String(localized: "The changes view stopped. Reload to restore it.") } else { contentProcessEnded = true }
     }
     private func failed(_ error: Error) {
         if (error as NSError).code != NSURLErrorCancelled { documentError = error.localizedDescription }
@@ -198,7 +219,7 @@ struct APIDiffService: DiffService {
         if body["type"] as? String == "ready" {
             loaded = true; documentError = nil; setAppearance(appearance); setFont(font); render()
         } else if body["type"] as? String == "error", let text = body["message"] as? String, text.utf8.count <= 4096 {
-            documentError = "Could not load changes: \(text)"
+            documentError = text.isEmpty ? String(localized: "Could not load changes.") : String(localized: "Could not load changes: \(text)")
         } else if let request = DiscardSelectionMessage.decode(body, revision: snapshot?.revision), active, loaded, !loading, let actions {
             let generation = generation
             Task {

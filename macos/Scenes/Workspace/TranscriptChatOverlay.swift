@@ -55,10 +55,10 @@ struct TranscriptChatOverlay: View {
     private var waiting: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Theme.textSecondary)
-            Text("Chat opens once \(chat.agentName) is ready. Answer anything it asks here first.")
+            Text(String(localized: "Chat opens once \(chat.agentName) is ready. Answer anything it asks here first."))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
-            Button("Open Chat", action: chat.openChat).buttonStyle(.link)
+            Button(String(localized: "Open Chat"), action: chat.openChat).buttonStyle(.link)
         }
         .font(Theme.Typography.emptyHint)
         .padding(.horizontal, 12)
@@ -92,19 +92,19 @@ struct TranscriptChatOverlay: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(notice).font(.caption).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    Button("Hook Settings", action: chat.openHookSettings).buttonStyle(.link).font(.caption)
+                    Button(String(localized: "Hook Settings"), action: chat.openHookSettings).buttonStyle(.link).font(.caption)
                 }
                 .padding(.horizontal, 4)
             }
             if chat.queuedPrompt != nil {
                 HStack(spacing: 10) {
-                    Text("Sends when \(chat.agentName) is back at its prompt").font(.caption).foregroundStyle(Theme.textSecondary)
+                    Text(String(localized: "Sends when \(chat.agentName) is back at its prompt")).font(.caption).foregroundStyle(Theme.textSecondary)
                     Spacer(minLength: 0)
-                    Button("Cancel", action: chat.cancelQueued).buttonStyle(.link).font(.caption)
-                    Button("Send Now") { Task { await chat.sendQueuedNow() } }
+                    Button(String(localized: "Cancel"), action: chat.cancelQueued).buttonStyle(.link).font(.caption)
+                    Button(String(localized: "Send Now")) { Task { await chat.sendQueuedNow() } }
                         .buttonStyle(.link).font(.caption)
                         .disabled(!chat.canSendQueuedNow)
-                        .help("Types it into the terminal now. If the agent is asking something there, this answers it.")
+                        .help(String(localized: "Types it into the terminal now. If the agent is asking something there, this answers it."))
                 }
                 .padding(.horizontal, 4)
             }
@@ -114,7 +114,7 @@ struct TranscriptChatOverlay: View {
                 // underneath and would otherwise keep it.
                 ChatComposerField(chat: chat, text: chat.draft, files: chat.attachments, caret: chat.caret,
                                   focusRequest: chat.focusRequest, active: active,
-                                  placeholder: "Ask \(chat.agentName) anything, / for commands, @ for files",
+                                  placeholder: String(localized: "Ask \(chat.agentName) anything, / for commands, @ for files"),
                                   dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
                     Button { choosingFiles = true } label: {
@@ -123,7 +123,7 @@ struct TranscriptChatOverlay: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.textSecondary)
                     .disabled(!chat.canAttach)
-                    .help("Attach files. They are pasted into the terminal ahead of the message; delete a file's chip to take it out.")
+                    .help("Attach files to your message. Remove a file’s chip to detach it.")
                     Spacer()
                     Text(modelName).font(.callout).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button {
@@ -137,7 +137,7 @@ struct TranscriptChatOverlay: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!chat.canSend)
-                    .help("Send to the terminal")
+                    .help(String(localized: "Send to the terminal"))
                 }
             }
             .padding(.horizontal, 16)

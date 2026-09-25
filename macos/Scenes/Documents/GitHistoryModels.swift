@@ -72,17 +72,17 @@ struct APIGitHistoryService: GitHistoryService {
         ]), timeout: 30)
         if let error = value.error { throw BackendError.operation(error) }
         guard let commits = value.commits, commits.allSatisfy({ Self.validSHA($0.sha) }) else {
-            throw BackendError.operation("The backend returned invalid commit history.")
+            throw BackendError.operation(String(localized: "The backend returned invalid commit history."))
         }
         return .init(commits: commits, branch: value.branch, viewing: value.viewing, base: value.base, historyRevision: value.historyRevision)
     }
     func detail(worktree: String, sha: String) async throws -> GitCommitDetail {
-        guard Self.validSHA(sha) else { throw BackendError.operation("Invalid commit identifier.") }
+        guard Self.validSHA(sha) else { throw BackendError.operation(String(localized: "Invalid commit identifier.")) }
         struct Response: Decodable, Sendable { let meta: GitCommitDetail.Metadata?; let diff: String?; let error: String? }
         let value: Response = try await api.get(APIClient.query(Routes.GIT_SHOW, ["path": worktree, "sha": sha]), timeout: 30)
         if let error = value.error { throw BackendError.operation(error) }
         guard let meta = value.meta, meta.sha == sha, let diff = value.diff else {
-            throw BackendError.operation("The backend returned a different commit.")
+            throw BackendError.operation(String(localized: "The backend returned a different commit."))
         }
         return .init(meta: meta, diff: diff)
     }

@@ -101,7 +101,7 @@ struct SessionAgentControlsView: View {
             // presets, say so here too, so an unticked list is not a puzzle.
             if let running = model.agentSelection, !presets.contains(where: { isActive($0.selection) }) {
                 let name = title(running)
-                Text("Running \([name.model, name.effort].compactMap { $0 }.joined(separator: " · ")), not a preset")
+                Text(String(localized: "Running \([name.model, name.effort].compactMap { $0 }.joined(separator: " · ")), not a preset"))
                 Divider()
             }
             ForEach(presets) { preset in
@@ -112,12 +112,12 @@ struct SessionAgentControlsView: View {
                     .disabled(!model.canSendAgentCommand)
             }
             Divider()
-            Button("Edit Presets…") { configuring = true }
+            Button(String(localized: "Edit Presets…")) { configuring = true }
         } label: {
             let running = model.agentSelection.map(title)
             // The model is what you read; its effort is a badge beside it, not a second word.
             HStack(spacing: 6) {
-                Text(running?.model ?? "Model").fontWeight(.medium)
+                Text(running?.model ?? String(localized: "Model")).fontWeight(.medium)
                 if let effort = running?.effort {
                     Text(effort)
                         .font(.system(size: 10, weight: .semibold))
@@ -134,7 +134,7 @@ struct SessionAgentControlsView: View {
         .menuStyle(.button)
         .menuIndicator(.hidden)
         .onHover { hoveringModel = $0 }
-        .help("Switch the agent’s model and effort")
+        .help(String(localized: "Switch the agent’s model and effort"))
         .popover(isPresented: $configuring, arrowEdge: .bottom) {
             AgentPresetEditor(catalog: model.agentCatalog, presets: Binding(get: { presets }, set: { list.presets = $0 }))
         }
@@ -153,7 +153,7 @@ struct SessionAgentControlsView: View {
                 .contentShape(Capsule())
         }
         .onHover { hoveringMode = $0 }
-        .help(model.showsChat ? "Switch to Terminal" : "Switch to Chat")
+        .help(model.showsChat ? String(localized: "Switch to Terminal") : String(localized: "Switch to Chat"))
         .accessibilityIdentifier("workspace-mode-toggle")
     }
 
@@ -179,8 +179,8 @@ struct SessionAgentControlsView: View {
         Menu {
             Text(contextHelp)
             Divider()
-            Button("Compact Conversation", systemImage: "arrow.down.right.and.arrow.up.left", action: model.compactAgent)
-            Button("Clear Conversation…", systemImage: "eraser", role: .destructive) { confirmingClear = true }
+            Button(String(localized: "Compact Conversation"), systemImage: "arrow.down.right.and.arrow.up.left", action: model.compactAgent)
+            Button(String(localized: "Clear Conversation…"), systemImage: "eraser", role: .destructive) { confirmingClear = true }
         } label: {
             HStack(spacing: 6) {
                 if let fraction = model.agentStatus?.fraction { ContextRing(fraction: fraction, brand: Theme.agentTint(driver.cli)) }
@@ -198,26 +198,26 @@ struct SessionAgentControlsView: View {
         .disabled(!model.canSendAgentCommand)
         .opacity(model.canSendAgentCommand ? 1 : 0.5)
         .help(contextHelp)
-        .confirmationDialog("Clear this conversation?", isPresented: $confirmingClear) {
-            Button("Clear", role: .destructive, action: model.clearAgent)
+        .confirmationDialog(String(localized: "Clear this conversation?"), isPresented: $confirmingClear) {
+            Button(String(localized: "Clear"), role: .destructive, action: model.clearAgent)
         } message: {
-            Text("The agent forgets everything said so far. The worktree is not touched.")
+            Text(String(localized: "The agent forgets everything said so far. The worktree is not touched."))
         }
     }
 
     /// The ring carries the percentage, so the text is only the size.
     private var contextTitle: String {
-        guard let status = model.agentStatus else { return "Context" }
+        guard let status = model.agentStatus else { return String(localized: "Context") }
         return status.tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
     }
 
     private var contextHelp: String {
-        guard let status = model.agentStatus else { return "Compact or clear the conversation" }
+        guard let status = model.agentStatus else { return String(localized: "Compact or clear the conversation") }
         guard let fraction = status.fraction, let window = status.window else {
-            return "The agent has not reported its context window, so there is no percentage"
+            return String(localized: "The agent has not reported its context window, so there is no percentage")
         }
         let percent = fraction.formatted(.percent.precision(.fractionLength(0)))
-        return "\(percent) of a \(window.formatted(.number.notation(.compactName))) context in use"
+        return String(localized: "\(percent) of a \(window.formatted(.number.notation(.compactName))) context in use")
     }
 }
 
@@ -255,12 +255,12 @@ private struct AgentPresetEditor: View {
             ForEach(presets) { preset in
                 let efforts = catalog.model(preset.selection.model)?.efforts ?? []
                 HStack(spacing: 8) {
-                    Picker("Model", selection: Binding(get: { catalog.model(preset.selection.model)?.id ?? preset.selection.model },
+                    Picker(String(localized: "Model"), selection: Binding(get: { catalog.model(preset.selection.model)?.id ?? preset.selection.model },
                                                        set: { select($0, for: preset.id) })) {
                         ForEach(catalog.models) { Text($0.name).tag($0.id) }
                     }
                     .frame(width: 150)
-                    Picker("Effort", selection: Binding(get: { preset.selection.effort ?? "" },
+                    Picker(String(localized: "Effort"), selection: Binding(get: { preset.selection.effort ?? "" },
                                                         set: { effort in change(preset.id) { $0.selection.effort = effort } })) {
                         ForEach(efforts) { Text($0.name).tag($0.id) }
                     }
@@ -268,17 +268,17 @@ private struct AgentPresetEditor: View {
                     .disabled(efforts.isEmpty)
                     ShortcutRecorder(shortcut: Binding(get: { preset.shortcut }, set: { value in assign(value, to: preset.id) }),
                                      conflict: { ShortcutRegistry.shared.conflict($0) }, rejected: { rejection = $0 })
-                    Button("Remove Preset", systemImage: "minus.circle") { presets.removeAll { $0.id == preset.id } }
+                    Button(String(localized: "Remove Preset"), systemImage: "minus.circle") { presets.removeAll { $0.id == preset.id } }
                         .labelStyle(.iconOnly).buttonStyle(.borderless).disabled(presets.count == 1)
                 }
                 .labelsHidden()
             }
-            Button("Add Preset", systemImage: "plus") {
+            Button(String(localized: "Add Preset"), systemImage: "plus") {
                 guard let first = catalog.models.first else { return }
                 presets.append(AgentPreset(selection: AgentSelection(model: first.id, effort: first.defaultEffort ?? first.efforts.first?.id)))
             }
             .disabled(catalog.models.isEmpty)
-            Text(rejection ?? "A shortcut needs ⌘, so it never takes a key from the CLI. It works while this window is in front; one a menu command holds is refused.")
+            Text(rejection ?? String(localized: "A shortcut needs ⌘, so it never takes a key from the CLI. It works while this window is in front; one a menu command holds is refused."))
                 .font(.caption).foregroundStyle(rejection == nil ? Theme.textSecondary : Theme.danger).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)

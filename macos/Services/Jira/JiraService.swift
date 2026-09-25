@@ -42,7 +42,15 @@ enum JiraFacet: String, CaseIterable, Identifiable {
     case project, status, type, priority
     var id: String { rawValue }
     var label: String {
-        switch self { case .project: "Projects"; case .status: "Statuses"; case .type: "Types"; case .priority: "Priorities" }
+        switch self { case .project: String(localized: "Projects"); case .status: String(localized: "Statuses"); case .type: String(localized: "Types"); case .priority: String(localized: "Priorities") }
+    }
+    var allLabel: String {
+        switch self {
+        case .project: String(localized: "All projects")
+        case .status: String(localized: "All statuses")
+        case .type: String(localized: "All types")
+        case .priority: String(localized: "All priorities")
+        }
     }
     func value(_ ticket: JiraTicket) -> String {
         switch self {

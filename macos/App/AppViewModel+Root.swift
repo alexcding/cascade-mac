@@ -26,7 +26,7 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating {
             // The launch banner belongs to the session's own screen. From the sidebar that
             // screen may not be showing, so the failure is reported where the user is instead.
             guard viewer.active?.id != "task:\(id)", let message = workspaceLaunch.takeError(sessionID: id) else { return }
-            let failure = "Could not open \(session.label): \(message)"
+            let failure = String(localized: "Could not open \(session.label): \(message)")
             if let context = viewer.active { context.error = failure } else { reportRootError(failure) }
         }
     }

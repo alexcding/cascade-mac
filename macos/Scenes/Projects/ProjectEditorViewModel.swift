@@ -45,7 +45,7 @@ import Observation
     }
     func deletionError(for request: DeletionRequest) -> String? {
         guard active, request.projectID == id, request.generation == generation else {
-            return "The project or backend connection changed. Cancel and reopen deletion to review the current project."
+            return String(localized: "The project or backend connection changed. Cancel and reopen deletion to review the current project.")
         }
         return error
     }
@@ -87,7 +87,7 @@ import Observation
         guard let path = await chooseFile(workspace), active, !Task.isCancelled, self.generation == generation else { return }
         let file = (path as NSString).standardizingPath
         guard file.hasPrefix(workspace + "/") else {
-            error = "Choose a script inside the project folder, so each worktree has its own copy."
+            error = String(localized: "Choose a script inside the project folder, so each worktree has its own copy.")
             return
         }
         let relative = String(file.dropFirst(workspace.count + 1))
@@ -99,7 +99,7 @@ import Observation
         draft.worktreeSetup = Self.setupCommand(relative: relative, executable: executable)
         saved = false
         if recorded?.tracked == false {
-            error = "\(relative) isn't committed, so new worktrees won't have it. Commit it, or list it under Copy ignored files if git ignores it."
+            error = String(localized: "\(relative) isn't committed, so new worktrees won't have it. Commit it, or list it under Copy ignored files if git ignores it.")
         }
     }
     /// `./path` for an executable, which then runs with its own shebang; `sh ./path` otherwise.
@@ -126,7 +126,7 @@ import Observation
             let repo = try await service.detectRepository(workspace)
             guard active, !Task.isCancelled, self.generation == generation, draft.workspace == workspace else { return }
             if repo.isEmpty {
-                error = "No GitHub remote found in this workspace."
+                error = String(localized: "No GitHub remote found in this workspace.")
                 // A new project's repo is only ever derived, so one left from another folder is stale.
                 if id == nil { draft.repo = "" }
             } else { draft.repo = repo }

@@ -36,7 +36,7 @@ import Observation
     @ObservationIgnored private let copy: (String) -> Void
 
     init(pageActions: any PageActionServing, copy: @escaping (String) -> Void) {
-        navigation = PageActionViewModel(service: pageActions, failureDescription: "Could not open pull request")
+        navigation = PageActionViewModel(service: pageActions, failureDescription: String(localized: "Could not open pull request"))
         self.copy = copy
     }
     func connect(_ service: any LogService) {
@@ -49,7 +49,12 @@ import Observation
     }
     var canRequestClear: Bool { !retired && service != nil && !clearing }
     nonisolated static func label(_ category: String) -> String {
-        switch category { case "all": "All logs"; case "event": "Activity"; default: category.capitalized }
+        switch category { case "all": String(localized: "All logs")
+        case "event": String(localized: "Activity")
+        case "worktree": String(localized: "Worktrees")
+        case "webhook": String(localized: "Webhooks")
+        case "agent": String(localized: "Agents")
+        default: category.capitalized }
     }
     func refresh() {
         guard !retired, let service else { return }
@@ -94,7 +99,7 @@ import Observation
     }
     func clearFailure(for request: ClearRequest) -> String? {
         guard !retired, service != nil, request.owner == identity, request.connection == connection, request.id == clearGeneration else {
-            return "The connection or clear request changed. Cancel and review the category again."
+            return String(localized: "The connection or clear request changed. Cancel and review the category again.")
         }
         return clearError
     }
@@ -123,7 +128,7 @@ import Observation
     func open(_ entry: LogEntry) {
         guard !retired, canAct(), rows.contains(where: { $0.id == entry.id }) else { return }
         guard let raw = entry.link, safeWebURL(raw) != nil else { return }
-        guard service != nil else { navigation.reject("Connect to open pull requests in Cascade."); return }
+        guard service != nil else { navigation.reject(String(localized: "Connect to open pull requests in Cascade.")); return }
         navigation.open(OpenPageRequest(url: raw, kind: "github", title: entry.title))
     }
     func copyEntry(_ entry: LogEntry) {

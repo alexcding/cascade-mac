@@ -26,14 +26,14 @@ import Observation
 
     init(copy: @escaping (String) -> Void, openBrowser: @escaping (URL) -> Bool) { self.copy = copy; self.openBrowser = openBrowser }
     func connect(_ service: any CLISettingsService) { guard !retired else { return }; _ = disconnect(); self.service = service }
-    func label(_ cli: ManagedCLI) -> String { availability[cli.rawValue]?.label(for: cli) ?? (probing ? "Checking…" : "Not checked") }
+    func label(_ cli: ManagedCLI) -> String { availability[cli.rawValue]?.label(for: cli) ?? (probing ? String(localized: "Checking…") : String(localized: "Not checked")) }
     func hookLabel(_ cli: ManagedCLI) -> String {
-        guard let status = hooks[cli.rawValue] else { return loadingHooks ? "Checking…" : "Not checked" }
-        return switch status { case "installed": "Installed"; case "outdated": "Update available"; default: "Not installed" }
+        guard let status = hooks[cli.rawValue] else { return loadingHooks ? String(localized: "Checking…") : String(localized: "Not checked") }
+        return switch status { case "installed": String(localized: "Installed"); case "outdated": String(localized: "Update available"); default: String(localized: "Not installed") }
     }
     /// An install from before a hook was added still works; installing again is what adds it.
     func hookAction(_ cli: ManagedCLI) -> String {
-        switch hooks[cli.rawValue] { case "installed": "Remove hook"; case "outdated": "Update hook"; default: "Install hook" }
+        switch hooks[cli.rawValue] { case "installed": String(localized: "Remove hook"); case "outdated": String(localized: "Update hook"); default: String(localized: "Install hook") }
     }
     func canChange(_ cli: ManagedCLI) -> Bool {
         !retired && cli.supportsHooks && service != nil && changing == nil && hooks[cli.rawValue] != nil
@@ -70,8 +70,8 @@ import Observation
     var statusLineInstalled: Bool { statusLine == "installed" }
     private(set) var changingStatusLine = false
     var statusLineLabel: String {
-        guard let statusLine else { return loadingHooks ? "Checking…" : "Not checked" }
-        return statusLine == "installed" ? "Installed" : "Not installed"
+        guard let statusLine else { return loadingHooks ? String(localized: "Checking…") : String(localized: "Not checked") }
+        return statusLine == "installed" ? String(localized: "Installed") : String(localized: "Not installed")
     }
     var canChangeStatusLine: Bool { !retired && service != nil && changing == nil && !changingStatusLine && statusLine != nil }
     func requestToggleStatusLine() {
@@ -92,7 +92,7 @@ import Observation
             let result = try await service.setStatusLine(installed: installed)
             guard requestGeneration == generation else { return }
             hooks = result
-            message = "Claude Code status line \(installed ? "installed" : "removed")."
+            message = installed ? String(localized: "Claude Code status line installed.") : String(localized: "Claude Code status line removed.")
         } catch { if requestGeneration == generation { hookError = error.localizedDescription } }
     }
     func toggleHook(_ cli: ManagedCLI) async {
@@ -108,7 +108,7 @@ import Observation
             let result = try await service.setHook(cli, installed: installed)
             guard requestGeneration == generation else { return }
             hooks = result
-            message = "\(cli.title) hooks \(installed ? "installed" : "removed")."
+            message = installed ? String(localized: "\(cli.title) hooks installed.") : String(localized: "\(cli.title) hooks removed.")
         } catch { if requestGeneration == generation { hookError = error.localizedDescription } }
     }
     func copyLogin(_ cli: ManagedCLI) {
@@ -127,7 +127,7 @@ import Observation
     }
     func openGuide(_ cli: ManagedCLI) {
         guard !retired, canAct() else { return }
-        actionError = openBrowser(cli.installationGuide) ? nil : "macOS could not open the installation guide."
+        actionError = openBrowser(cli.installationGuide) ? nil : String(localized: "macOS could not open the installation guide.")
     }
     /// Presenting is the coordinator's: the welcome is a sheet on the main window, not on Settings.
     func showWelcome() { if !retired { onAction(.showWelcome) } }

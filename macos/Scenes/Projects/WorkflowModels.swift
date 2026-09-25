@@ -79,7 +79,7 @@ struct WorkflowEditorRecipe: Identifiable, Equatable {
     }
     var payload: WorkflowRecipe {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return .init(id: savedID, name: name.isEmpty ? "Untitled workflow" : name, cli: cli,
+        return .init(id: savedID, name: name.isEmpty ? String(localized: "Untitled workflow") : name, cli: cli,
             steps: steps.map { WorkflowStep(title: $0.value.title.trimmingCharacters(in: .whitespacesAndNewlines),
                                           command: $0.value.command.trimmingCharacters(in: .whitespacesAndNewlines)) }
                 .filter { !$0.command.isEmpty })

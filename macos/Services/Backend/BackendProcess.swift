@@ -22,12 +22,12 @@ public struct BackendConfiguration: Sendable {
         func argument(_ name: String) throws -> String? {
             guard let index = arguments.firstIndex(of: name) else { return nil }
             guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-                throw BackendError.configuration("Missing value for \(name).")
+                throw BackendError.configuration(String(localized: "Missing value for \(name)."))
             }
             return arguments[index + 1]
         }
         if let external = try argument("--backend-url") ?? environment["CASCADE_BACKEND_URL"] {
-            guard let url = URL(string: external) else { throw BackendError.configuration("Invalid backend address.") }
+            guard let url = URL(string: external) else { throw BackendError.configuration(String(localized: "Invalid backend address.")) }
             _ = try APIClient(baseURL: url)
             return Self(baseURL: url, mode: .external)
         }
@@ -41,7 +41,7 @@ public struct BackendConfiguration: Sendable {
             // integration tests. Its port must be known in advance.
             let portString = try argument("--backend-port") ?? "3000"
             guard let port = Int(portString), (1...65535).contains(port) else {
-                throw BackendError.configuration("Backend port must be between 1 and 65535.")
+                throw BackendError.configuration(String(localized: "Backend port must be between 1 and 65535."))
             }
             return Self(baseURL: URL(string: "http://127.0.0.1:\(port)")!,
                         mode: .owned(executable: URL(fileURLWithPath: path), dataDirectory: dataDirectory), packaged: root == nil)
@@ -67,10 +67,10 @@ public actor BackendProcess {
             _ = try await api.health()
             return api
         }
-        guard process == nil else { throw BackendError.startup("The backend is already starting or running.") }
+        guard process == nil else { throw BackendError.startup(String(localized: "The backend is already starting or running.")) }
         guard case let .owned(executable, directory) = configuration.mode else { throw BackendError.incompatible }
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw BackendError.startup("The Rust backend executable is missing. Build cascade-backend, pass --backend-path, or use --backend-url.")
+            throw BackendError.startup(String(localized: "The Rust backend executable is missing. Build cascade-backend, pass --backend-path, or use --backend-url."))
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let logURL = directory.appendingPathComponent("native-backend.log")
@@ -101,7 +101,7 @@ public actor BackendProcess {
             let deadline = ContinuousClock.now + .seconds(configuration.packaged ? 120 : 12)
             while ContinuousClock.now < deadline {
                 try Task.checkCancellation()
-                guard child.isRunning else { throw BackendError.startup("Backend exited (\(child.terminationStatus)). See \(logURL.path).") }
+                guard child.isRunning else { throw BackendError.startup(String(localized: "Backend exited (\(Int(child.terminationStatus))). See \(logURL.path).")) }
                 if let health = try? await api.health(), health.instanceId == instanceID,
                    health.pid == child.processIdentifier {
                     try Task.checkCancellation()
@@ -109,7 +109,7 @@ public actor BackendProcess {
                 }
                 try await Task.sleep(for: .milliseconds(100))
             }
-            throw BackendError.startup("Backend did not become ready. The port may be occupied. See \(logURL.path).")
+            throw BackendError.startup(String(localized: "Backend did not become ready. The port may be occupied. See \(logURL.path)."))
         } catch {
             if process === child { process = nil; logHandle = nil }
             await terminate(child, log: log)

@@ -13,13 +13,13 @@ struct WorktreeSettingsView<SaveRow: View>: View {
     var body: some View {
         Group {
             Section("Location") {
-                SettingsRow(title: "New worktrees", caption: model.draft.worktreeLocation.example) {
+                SettingsRow(title: String(localized: "New worktrees"), caption: model.draft.worktreeLocation.example) {
                     Picker("Worktree location", selection: $model.draft.worktreeLocation) {
                         ForEach(WorktreeLocation.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().accessibilityIdentifier("settings-worktree-location")
                 }
                 if model.draft.worktreeLocation == .custom {
-                    SettingsRow(title: "Folder", caption: "Each project gets its own folder inside it.") {
+                    SettingsRow(title: String(localized: "Folder"), caption: String(localized: "Each project gets its own folder inside it.")) {
                         HStack {
                             TextField("~/worktrees", text: $model.draft.worktreeRoot)
                                 .accessibilityIdentifier("settings-worktree-root")
@@ -27,14 +27,14 @@ struct WorktreeSettingsView<SaveRow: View>: View {
                         }
                     }
                 }
-                SettingsRow(title: "Always fetch before creating worktrees",
-                            caption: "New branches are normally cut from the tip this checkout already has. This fetches the base branch first, for at most a few seconds.") {
+                SettingsRow(title: String(localized: "Always fetch before creating worktrees"),
+                            caption: String(localized: "Fetch the base branch before creating a worktree. Stop waiting after eight seconds and use the local branch if fetching fails.")) {
                     Toggle("Fetch before creating", isOn: $model.draft.worktreeFetch)
                         .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-fetch")
                 }
             }
             Section("Copy ignored files") {
-                Text("A new worktree only gets the files git tracks, so git-ignored ones like .env are missing. Files matching these patterns (one per line, .gitignore syntax) are copied in from the project folder. Only ignored files are copied, and nothing already in the worktree is overwritten. This is the default: a project can set its own in its Settings, and a .worktreeinclude file in the repository wins over both. The setup script is set per project.")
+                Text("Copy ignored files that match these patterns into new worktrees. Use one .gitignore pattern per line. Existing files are never overwritten. A project's patterns override this default; a repository's .worktreeinclude overrides both. Configure setup scripts in project settings.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
                 TextEditor(text: $model.draft.worktreeInclude)
                     .font(.system(.body, design: .monospaced))
@@ -42,8 +42,8 @@ struct WorktreeSettingsView<SaveRow: View>: View {
                     .accessibilityIdentifier("settings-worktree-include")
             }
             Section("Cleanup") {
-                SettingsRow(title: "Delete the branch when removing a worktree",
-                            caption: "Only a branch that is fully merged. Unmerged work keeps its branch.") {
+                SettingsRow(title: String(localized: "Delete the branch when removing a worktree"),
+                            caption: String(localized: "Delete only fully merged branches. Keep branches with unmerged work.")) {
                     Toggle("Delete merged branch", isOn: $model.draft.worktreeDeleteBranch)
                         .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-worktree-delete-branch")
                 }
@@ -58,7 +58,7 @@ struct WorktreeSettingsView<SaveRow: View>: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         model.draft.worktreeRoot = url.path
     }

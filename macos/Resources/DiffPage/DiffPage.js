@@ -13,7 +13,9 @@ const CODE_FONT_FALLBACK = '"SF Mono", Menlo, Monaco, monospace';
 const CHEVRON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-const msg = text => `<div class="diff-empty">${text}</div>`;
+const msg = text => `<div class="diff-empty">${esc(text)}</div>`;
+let labels = {};
+const label = key => labels[key] || "";
 const post = body => window.webkit?.messageHandlers.diff?.postMessage(body);
 
 function renderFile(f, fi, allow, discardable, fileLinks) {
@@ -23,14 +25,14 @@ function renderFile(f, fi, allow, discardable, fileLinks) {
   const counts = `<span class="diff-counts">${f.adds ? `<span class="dc-add">+${f.adds}</span>` : ''}${f.dels ? `<span class="dc-del">−${f.dels}</span>` : ''}</span>`;
   const head = `<div class="diff-file-head"><span class="diff-chev">${CHEVRON}</span>` +
     (badge ? `<span class="diff-badge diff-badge-${f.status}">${badge}</span>` : '') +
-    `<span class="diff-fpath">${esc(diffPath(f))}</span>${counts}${canOpen ? open('Open File', 1, `Open ${f.newPath}`) : ''}</div>`;
+    `<span class="diff-fpath">${esc(diffPath(f))}</span>${counts}${canOpen ? open(esc(label('openFile')), 1, `${label('open')} ${f.newPath}`) : ''}</div>`;
 
   let body;
   const total = f.hunks.reduce((n, h) => n + h.lines.length, 0);
-  if (f.binary)                      body = `<div class="diff-stub">Binary file</div>`;
+  if (f.binary)                      body = `<div class="diff-stub">${esc(label('binary'))}</div>`;
   else if (!total)                   body = ''; // pure rename / mode change — header says it all
   else if (total > MAX_FILE_LINES || !allow)
-    body = `<div class="diff-stub">Large diff (+${f.adds} −${f.dels}) — not rendered. Use the terminal: <code>git diff ${esc(f.newPath || f.oldPath)}</code></div>`;
+    body = `<div class="diff-stub">${esc(label('large'))} (+${f.adds} −${f.dels}) ${esc(label('terminal'))} <code>git diff ${esc(f.newPath || f.oldPath)}</code></div>`;
   else {
     // Rows are grouped into one <tbody> per change BLOCK (contiguous +/− run) with the
     // context runs in plain tbodys between them. Hovering anywhere in a block reveals
@@ -38,7 +40,7 @@ function renderFile(f, fi, allow, discardable, fileLinks) {
     const lang = langForPath(diffPath(f));
     const row = l => {
       const cls = l.t === '+' ? 'add' : l.t === '-' ? 'del' : 'ctx';
-      return `<tr class="diff-line ${cls}"><td class="dg">${l.oldNo || ''}</td><td class="dg">${canOpen && l.newNo ? open(l.newNo, l.newNo, `Open ${f.newPath} at line ${l.newNo}`) : l.newNo || ''}</td>` +
+      return `<tr class="diff-line ${cls}"><td class="dg">${l.oldNo || ''}</td><td class="dg">${canOpen && l.newNo ? open(l.newNo, l.newNo, `${label('open')} ${f.newPath}, ${label('line')} ${l.newNo}`) : l.newNo || ''}</td>` +
              `<td class="dx"><span class="dm">${l.t === ' ' ? '&nbsp;' : l.t}</span>${highlightLine(l.text, lang)}</td></tr>`;
     };
     const groups = f.hunks.map((h, hi) => {
@@ -54,7 +56,7 @@ function renderFile(f, fi, allow, discardable, fileLinks) {
           const rows = s.lines.map(row);
           if (!discardable || s.id === null) return `<tbody>${rows.join('')}</tbody>`;
           rows[0] = rows[0].replace('</td></tr>',
-            `<button class="hunk-discard" data-f="${fi}" data-h="${hi}" data-b="${s.id}" title="Revert this block in the file">Discard</button></td></tr>`);
+            `<button class="hunk-discard" data-f="${fi}" data-h="${hi}" data-b="${s.id}" title="${esc(label('discardHelp'))}">${esc(label('discard'))}</button></td></tr>`);
           return `<tbody class="diff-block">${rows.join('')}</tbody>`;
         }).join('');
     });
@@ -69,13 +71,13 @@ function renderUntracked(untracked, fileLinks) {
   const remainder = untracked.length - visible.length;
   const entry = path => fileLinks
     ? `<button class="diff-open-file" data-open-path="${esc(path)}" data-open-line="1">${esc(path)}</button>` : esc(path);
-  return `<div class="diff-file"><div class="diff-file-head diff-untracked-head">Untracked files</div><div class="diff-body">` +
+  return `<div class="diff-file"><div class="diff-file-head diff-untracked-head">${esc(label('untracked'))}</div><div class="diff-body">` +
     visible.map(path => `<div class="diff-untracked">${entry(path)}</div>`).join('') +
-    (remainder ? `<div class="diff-stub">… and ${remainder} more untracked files</div>` : '') + `</div></div>`;
+    (remainder ? `<div class="diff-stub">${esc(label('moreUntracked'))}: ${remainder}</div>` : '') + `</div></div>`;
 }
 
 function render(files, untracked, discardable, fileLinks) {
-  if (!files.length && !untracked.length) return msg(discardable ? 'No uncommitted changes' : 'No changes (empty or merge commit).');
+  if (!files.length && !untracked.length) return msg(label(discardable ? 'empty' : 'emptyCommit'));
   const parts = [];
   // Per-file cap alone still allows 100 × 2000 rows in one innerHTML parse; a whole-pane
   // budget keeps the worst case bounded — files past it render as header-only stubs.
@@ -84,7 +86,7 @@ function render(files, untracked, discardable, fileLinks) {
     parts.push(renderFile(f, i, budget > 0, discardable, fileLinks));
     budget -= f.hunks.reduce((n, h) => n + h.lines.length, 0);
   });
-  if (files.length > MAX_FILES) parts.push(msg(`… and ${files.length - MAX_FILES} more files — diff truncated`));
+  if (files.length > MAX_FILES) parts.push(msg(`${label('moreFiles')}: ${files.length - MAX_FILES}`));
   if (untracked.length) parts.push(renderUntracked(untracked, fileLinks));
   return `<div class="diff-root">${parts.join('')}</div>`;
 }
@@ -136,6 +138,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => wind
 
 window.nativeDiff = {
   render(snapshot) {
+    labels = snapshot.labels || {};
+    document.documentElement.lang = snapshot.language || "en";
+    document.documentElement.dir = snapshot.language?.startsWith("ar") ? "rtl" : "ltr";
     const key = JSON.stringify(snapshot);
     if (key === previous) return true;
     // Collapsed files and scroll position survive a refresh of the working changes: the pane is

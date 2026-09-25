@@ -10,8 +10,8 @@ struct DashboardTicketsView: View {
         let counts = model.tickets.counts
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardPageHeader(caption: "\(model.tickets.tile.count) assigned to you, urgent first", title: "My tickets") {
-                    DashboardRefreshButton(name: "tickets", id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
+                DashboardPageHeader(caption: String(localized: "\(model.tickets.tile.count) assigned to you, urgent first"), title: String(localized: "My tickets")) {
+                    DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
                         .padding(.bottom, 6)
                 }
                 .padding(.top, 12).padding(.bottom, 24)
@@ -25,7 +25,7 @@ struct DashboardTicketsView: View {
                                     id: { "dashboard-ticket-filter-\($0.id)" }) { model.tickets.filter = $0 }
                     .padding(.top, model.tickets.tile.count == 0 ? 0 : 24).padding(.bottom, 24)
                 if rows.isEmpty {
-                    Text(!model.tickets.available ? "Jira isn’t connected, so there are no tickets to show." : model.tickets.loading ? "Loading tickets…" : "No tickets match.")
+                    Text(!model.tickets.available ? String(localized: "Jira isn’t connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
                 } else {
                     DashboardTicketTable(rows: rows, opening: model.navigation.opening,

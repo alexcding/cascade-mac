@@ -54,13 +54,13 @@ import Observation
     }
     var rows: [GitCommit] { commits.filter { search.isEmpty || $0.searchText.localizedStandardContains(search) } }
     var contextLabel: String {
-        if let base = page?.base, !base.isEmpty { return "Commits ahead of \(base)" }
-        return page?.branch.map { "History of \($0)" } ?? "Commit history"
+        if let base = page?.base, !base.isEmpty { return String(localized: "Commits ahead of \(base)") }
+        return page?.branch.map { String(localized: "History of \($0)") } ?? String(localized: "Commit history")
     }
     var emptyLabel: String {
-        if !search.isEmpty { return "No loaded commits match this search." }
-        if let base = page?.base, !base.isEmpty { return "No commits ahead of \(base)." }
-        return "No commits on this branch yet."
+        if !search.isEmpty { return String(localized: "No loaded commits match this search.") }
+        if let base = page?.base, !base.isEmpty { return String(localized: "No commits ahead of \(base).") }
+        return String(localized: "No commits on this branch yet.")
     }
     func connect(baseURL: URL, service: any GitHistoryService) {
         hide(); self.baseURL = baseURL; self.service = service
@@ -96,7 +96,7 @@ import Observation
                 if !reset {
                     guard let revision = page?.historyRevision, revision == value.historyRevision else {
                         hasMore = false
-                        throw BackendError.operation("History changed while loading older commits. Refresh history to continue.")
+                        throw BackendError.operation(String(localized: "History changed while loading older commits. Refresh history to continue."))
                     }
                 }
                 var seen = Set(reset ? [] : commits.map(\.sha))

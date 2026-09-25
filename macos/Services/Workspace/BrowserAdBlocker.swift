@@ -33,7 +33,7 @@ enum BrowserAdBlockState: Equatable, Sendable {
 @MainActor final class WebKitBrowserExtensionHost: BrowserExtensionHost {
     enum Failure: LocalizedError {
         case extensionMissing
-        var errorDescription: String? { "uBlock Origin Lite is installed but its Safari extension could not be found." }
+        var errorDescription: String? { String(localized: "uBlock Origin Lite is installed but its Safari extension could not be found.") }
     }
     // Stored untyped: the WebKit types are macOS 15.4+, the deployment target is not.
     private var controller: AnyObject?
@@ -158,5 +158,5 @@ enum BrowserAdBlockState: Equatable, Sendable {
         return host.unload()
     }
     /// Never claim "off" over an extension that is still filtering.
-    private static let stillLoaded = BrowserAdBlockState.failed("uBlock Origin Lite could not be switched off. Quit and reopen Cascade.")
+    private static let stillLoaded = BrowserAdBlockState.failed(String(localized: "uBlock Origin Lite could not be switched off. Quit and reopen Cascade."))
 }

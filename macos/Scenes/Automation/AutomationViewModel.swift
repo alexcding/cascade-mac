@@ -11,6 +11,7 @@ import Observation
     enum Panel: String, CaseIterable, Identifiable {
         case editor = "Pipeline", runs = "Runs"
         var id: String { rawValue }
+        var label: String { self == .editor ? String(localized: "Pipeline") : String(localized: "Runs") }
     }
     struct ProjectOption: Equatable, Identifiable {
         let id: String
@@ -190,7 +191,8 @@ import Observation
 
     func create(from template: AutomationCatalog.Template? = nil) {
         guard !retired else { return }
-        var automation = template?.automation ?? Automation(name: "New automation", trigger: .init(types: ["pr.opened"]))
+        var automation = template?.automation ?? Automation(name: String(localized: "New automation"), trigger: .init(types: ["pr.opened"]))
+        if let template { automation.name = template.localizedName }
         automation.id = ""; automation.mode = .off
         setAside()
         let key = Self.newKey()

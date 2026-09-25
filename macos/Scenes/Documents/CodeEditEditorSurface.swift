@@ -103,7 +103,7 @@ import CodeEditSourceEditor
     }
 
     func snapshot(freeze: Bool) async throws -> EditorBuffer {
-        guard let controller else { throw BackendError.operation("The editor is no longer available.") }
+        guard let controller else { throw BackendError.operation(String(localized: "The editor is no longer available.")) }
         if freeze { controller.configuration.behavior.isEditable = false }
         return EditorBuffer(content: controller.text, version: version, dirty: version != savedVersion)
     }

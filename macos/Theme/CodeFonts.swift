@@ -6,8 +6,8 @@ import SwiftUI
 enum CodeFontKind: String, CaseIterable, Identifiable {
     case term, diff
     var id: String { rawValue }
-    var title: String { self == .term ? "Terminal" : "Code and diffs" }
-    var rowTitle: String { self == .term ? "Terminal font" : "Code font" }
+    var title: String { self == .term ? String(localized: "Terminal") : String(localized: "Code and diffs") }
+    var rowTitle: String { self == .term ? String(localized: "Terminal font") : String(localized: "Code font") }
     var defaultSize: Int { self == .term ? 13 : 12 }
     static let sizeRange: ClosedRange<Int> = 9...20
 }
@@ -83,7 +83,7 @@ struct FontSettingsView: View {
         ForEach(kinds) { kind in
             let font = shell.font(kind)
             Section(kind.rowTitle) {
-                SettingsRow(title: "Font") {
+                SettingsRow(title: String(localized: "Font")) {
                     Picker(kind.rowTitle, selection: Binding(get: { shell.font(kind).family }, set: { shell.setFont(kind, family: $0) })) {
                         Text("Default").tag("")
                         ForEach(model.families, id: \.self) { Text($0).tag($0) }
@@ -104,8 +104,8 @@ struct FontSettingsView: View {
                                             range: Double(CodeFontKind.sizeRange.lowerBound)...Double(CodeFontKind.sizeRange.upperBound))
                     }
                     // AppViewModel.fontTarget hard-returns the kind belonging to whichever
-                    // Settings tab is showing, so ⌘0 always lands on the slider in view.
-                    .help("Default \(kind.defaultSize) · ⌘0 resets")
+                    // Settings tab is showing, so Actual Size resets the slider in view.
+                    .help("Default size: \(kind.defaultSize). Choose View → Actual Size to reset.")
                 } label: {
                     // Keep the kind in the label: the two rows are otherwise identical to
                     // VoiceOver and to `staticTexts[…]` in CascadeUITests.

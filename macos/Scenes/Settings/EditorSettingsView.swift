@@ -13,7 +13,7 @@ struct EditorSettingsView: View {
         FontSettingsView(model: fonts, shell: shell, kinds: [.diff])
         theme
         Section("Editor") {
-            SettingsRow(title: "Show code preview", caption: "The miniature of the file beside the text.") {
+            SettingsRow(title: String(localized: "Show code preview"), caption: String(localized: "Show a miniature overview beside the file.")) {
                 Toggle("Show code preview", isOn: Binding(get: { shell.editorStyle.showMinimap }, set: shell.setEditorMinimap))
                     .labelsHidden().accessibilityIdentifier("settings-editor-minimap")
             }
@@ -26,8 +26,8 @@ struct EditorSettingsView: View {
     /// One theme per appearance, as the terminal has. Default is the app's own syntax colours.
     @ViewBuilder private var theme: some View {
         Section("Theme") {
-            themeRow(title: "Dark", dark: true, selection: shell.editorStyle.darkTheme) { shell.setEditorTheme(dark: $0) }
-            themeRow(title: "Light", dark: false, selection: shell.editorStyle.lightTheme) { shell.setEditorTheme(light: $0) }
+            themeRow(title: String(localized: "Dark"), dark: true, selection: shell.editorStyle.darkTheme) { shell.setEditorTheme(dark: $0) }
+            themeRow(title: String(localized: "Light"), dark: false, selection: shell.editorStyle.lightTheme) { shell.setEditorTheme(light: $0) }
         }
     }
 

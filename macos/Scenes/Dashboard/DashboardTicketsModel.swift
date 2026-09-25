@@ -133,7 +133,7 @@ extension DashboardTicketsModel {
         return Summary(
             counts: counts,
             tile: Tile(count: rows.count, urgent: counts[.urgent] ?? 0,
-                       footnote: stages.map { "\($0.count) \($0.stage.title.lowercased())" }.joined(separator: " · ")),
+                       footnote: stages.map { "\($0.stage.title): \($0.count)" }.joined(separator: " · ")),
             stages: StageSummary(all: stages, live: stages.filter { $0.count > 0 }, total: rows.count))
     }
 
@@ -185,9 +185,9 @@ extension DashboardTicketsModel {
         }
         var title: String {
             switch self {
-            case .all: return "All"
+            case .all: return String(localized: "All")
             case .stage(let stage): return stage.title
-            case .urgent: return "Urgent"
+            case .urgent: return String(localized: "Urgent")
             }
         }
         func matches(_ row: DashboardTicketRow) -> Bool {

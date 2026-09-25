@@ -176,12 +176,12 @@ public final class AppViewModel {
         sessionPool.sessions = { [weak self] in self?.poolSessions() ?? [] }
         sessionPool.stop = { [weak self] id in await self?.stopPooledSession(id) ?? false }
         _ = coordinator.makeDashboard(factory: dashboardFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
-            guard let self else { throw BackendError.operation("The workspace has closed.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
             try await self.openPage(request)
         }, session: { [weak self] request in self?.pageSessionMark(request) }), shell: shell)
         _ = coordinator.makeAutomation(factory: NativeAutomationFeatureFactory())
         _ = coordinator.makeLogs(factory: logsFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
-            guard let self else { throw BackendError.operation("The workspace has closed.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
             try await self.openPage(request)
         }), copy: copy)
         dashboard?.snapshotChanged = { [weak self] in self?.cachedResolverPullRequests = nil; self?.updateWorkspaceReviewState() }
@@ -258,7 +258,7 @@ public final class AppViewModel {
         var status: [String: SidebarSessionStatus] = [:]
         for session in sessions {
             let terminal = terminals["task:\(session.id)"]
-            let live = terminal.map { !$0.status.hasPrefix("Exited") && $0.status != "Disconnected" } ?? false
+            let live = terminal?.isLive ?? false
             let busy = terminal?.agentBusy == true || workflowRuns[session.id]?.running == true
             status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli?.rawValue ?? session.cli)
         }
@@ -289,7 +289,7 @@ public final class AppViewModel {
         let shownTabs = visibleTabs.map { tab in
             guard !tab.isOwned(by: sessionURLs),
                   viewer.contexts["tab:\(tab.id)"]?.activePage?.controls.isBlank == true else { return tab }
-            var blank = SavedTab(id: tab.id, kind: "web", title: "New Tab", url: "")
+            var blank = SavedTab(id: tab.id, kind: "web", title: "", url: "")
             blank.pinned = tab.pinned
             return blank
         }
@@ -331,7 +331,7 @@ public final class AppViewModel {
     }
 
     func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
-        guard let api else { throw BackendError.operation("Connect to the backend to read the conversation.") }
+        guard let api else { throw BackendError.operation(String(localized: "Connect to the backend to read the conversation.")) }
         var query = ["cli": cli, "worktree": worktree]
         if let since { query["since"] = since }
         return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, query))
@@ -362,7 +362,7 @@ public final class AppViewModel {
     }
 
     func answerPermission(_ id: String, decision: String) async throws {
-        guard let api else { throw BackendError.operation("Connect to the backend to answer the agent.") }
+        guard let api else { throw BackendError.operation(String(localized: "Connect to the backend to answer the agent.")) }
         withdrawPermission(id)
         try await api.answerPermission(id: id, decision: decision)
     }
@@ -401,7 +401,7 @@ public final class AppViewModel {
             }
         }
         if diffModels[context.id] == nil {
-            guard let api else { context.error = "Connect to the backend to load changes."; return }
+            guard let api else { context.error = String(localized: "Connect to the backend to load changes."); return }
             diffModels[context.id] = documentFactory.diff(worktree: session.worktree, baseURL: api.baseURL,
                                                    service: backendFactory.diff(api: api), actionsService: backendFactory.changes(api: api), openFile: { [weak context] location in
                 context?.openFile(location.path, line: location.line, column: location.column)
@@ -548,11 +548,11 @@ public final class AppViewModel {
             select(.session(session.id)); return
         }
         guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
-            throw BackendError.operation("No project with a workspace matches this page.")
+            throw BackendError.operation(String(localized: "No project with a workspace matches this page."))
         }
         // One start at a time: a second row asked meanwhile would create and select a session too.
         guard canStartSession, let operations = sessionOperations, startingPages.isEmpty else {
-            throw BackendError.operation("A session cannot be started right now.")
+            throw BackendError.operation(String(localized: "A session cannot be started right now."))
         }
         startingPages.insert(request.url)
         // Its own task, as in startSession: the row's action is cancelled by any navigation, and a
@@ -740,7 +740,7 @@ public final class AppViewModel {
     /// whose address field takes focus. Entering an address commits it as a saved tab.
     func newTab() {
         guard coordinator.canPresent else { return }
-        let draft = SavedTab(id: UUID().uuidString, kind: "web", title: "New Tab", url: "")
+        let draft = SavedTab(id: UUID().uuidString, kind: "web", title: "", url: "")
         draftTabs.append(draft)
         select(.tab(draft.id))
     }
@@ -763,7 +763,7 @@ public final class AppViewModel {
                 draftTabs.removeAll { $0.id == draft.id }
                 tabs = saved.tabs
             } catch {
-                self.error = "Could not save \(address): \(error.localizedDescription)"
+                self.error = String(localized: "Could not save \(address): \(error.localizedDescription)")
             }
         }
     }
@@ -777,7 +777,7 @@ public final class AppViewModel {
         tabs[index].title = title
         Task {
             do { let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: ["id": id, "title": title]); tabs = saved.tabs }
-            catch { self.error = "Could not save tab title: \(error.localizedDescription)" }
+            catch { self.error = String(localized: "Could not save tab title: \(error.localizedDescription)") }
         }
     }
 
@@ -804,7 +804,7 @@ public final class AppViewModel {
                 // Tabs may have been opened, renamed or closed meanwhile: restore only the
                 // old relative order of whatever is listed now, never an old snapshot.
                 if generation == tabOrderGeneration { tabs = Self.ordered(tabs, by: previous) }
-                self.error = "Could not save tab order: \(error.localizedDescription)"
+                self.error = String(localized: "Could not save tab order: \(error.localizedDescription)")
             }
         }
     }
@@ -868,16 +868,16 @@ public final class AppViewModel {
         if let link = entry.link {
             try await openPage(OpenPageRequest(url: link, kind: "github", title: entry.title)); return
         }
-        guard let key = entry.jiraKey, let api else { throw BackendError.operation("Connect before opening a page.") }
+        guard let key = entry.jiraKey, let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
-        guard let base = safeWebURL(site.baseUrl) else { throw BackendError.operation("Configure the Jira site to open ticket links.") }
+        guard let base = safeWebURL(site.baseUrl) else { throw BackendError.operation(String(localized: "Configure the Jira site to open ticket links.")) }
         try await openPage(OpenPageRequest(url: base.appendingPathComponent("browse").appendingPathComponent(key).absoluteString,
                                            kind: "jira", title: key))
     }
 
     func openPage(_ request: OpenPageRequest) async throws {
         try Task.checkCancellation()
-        guard safeWebURL(request.url) != nil else { throw BackendError.operation("Invalid page address.") }
+        guard safeWebURL(request.url) != nil else { throw BackendError.operation(String(localized: "Invalid page address.")) }
         if request.inSession { try await openPageSession(request); return }
         // A page that already has a session — its own, or one on its branch or ticket key — goes
         // there; only a page with none opens a tab. Open in Tab asked for the tab regardless.
@@ -886,7 +886,7 @@ public final class AppViewModel {
             viewer.active?.open(request.url, title: request.title)
             return
         }
-        guard let api else { throw BackendError.operation("Connect before opening a page.") }
+        guard let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
         let saved: SavedTabs = try await api.request(Routes.TABS, method: "POST", body: request)
         try Task.checkCancellation()
         tabs = saved.tabs
@@ -924,7 +924,7 @@ public final class AppViewModel {
             if let project = projects.first(where: { $0.id == id }), let api {
                 let services = backendFactory.projectServices(api: api)
                 coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self, openPage: { [weak self] request in
-                    guard let self else { throw BackendError.operation("The workspace has closed.") }
+                    guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
                     try await self.openPage(request)
                 }, session: { [weak self] request in self?.pageSessionMark(request) })
             }
@@ -938,10 +938,10 @@ public final class AppViewModel {
                 openTerminal()
             } else { viewer.deactivate() }
         case .terminal:
-            viewer.select(id: "scratch", url: "", title: "Terminal")
+            viewer.select(id: "scratch", url: "", title: String(localized: "Terminal"))
         case .tab(let id):
             let tab = visibleTabs.first { $0.id == id }
-            let context = viewer.select(id: "tab:\(id)", url: tab?.url ?? "", title: tab?.title ?? "New Tab", legacy: tabs.first { $0.id == id })
+            let context = viewer.select(id: "tab:\(id)", url: tab?.url ?? "", title: tab?.displayTitle ?? String(localized: "New Tab"), legacy: tabs.first { $0.id == id })
             // A draft has no address to load; it starts as one blank page with the address field focused.
             if isDraftTab(id), context.pages.isEmpty { context.openBlankPage() }
             preparePageWorkflowModel(context)
@@ -969,7 +969,7 @@ public final class AppViewModel {
             let project = self?.projects.first { $0.id == record.projectId } ?? project
             return WorkflowRunContext.values(project: project, session: latest)
         }, prepare: { [weak self] cli in
-            guard let self else { throw BackendError.operation("The workspace closed.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace closed.")) }
             return try await prepareWorkflowTerminal(sessionID: record.id, cli: cli)
         })
         workflowRuns[record.id] = model
@@ -1010,7 +1010,7 @@ public final class AppViewModel {
             let project = self?.projects.first { $0.id == target.projectID } ?? project
             return WorkflowRunContext.values(project: project, session: latest)
         }, prepare: { [weak self] cli in
-            guard let self else { throw BackendError.operation("The workspace closed.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace closed.")) }
             if let preparedSession {
                 return try await prepareWorkflowTerminal(sessionID: preparedSession.id, cli: cli)
             }
@@ -1029,13 +1029,13 @@ public final class AppViewModel {
               WorkflowPageTarget.resolve(url: target.page.url, projects: projects) == target,
               let model = pageWorkflowRuns[sourceID],
               preparingWorkflowPages.insert(target.identity).inserted else {
-            throw BackendError.operation("The page's project changed or another workflow is preparing this page.")
+            throw BackendError.operation(String(localized: "The page's project changed or another workflow is preparing this page."))
         }
         defer { preparingWorkflowPages.remove(target.identity) }
         let record: WorkspaceSession
         if let existing = sessions.first(where: target.matches) {
             guard workflowRuns[existing.id]?.running != true, !changingSessions.contains(existing.id) else {
-                throw BackendError.operation("This page already has an active session operation. Open its session to continue.")
+                throw BackendError.operation(String(localized: "This page already has an active session operation. Open its session to continue."))
             }
             record = existing
         } else {
@@ -1076,18 +1076,18 @@ public final class AppViewModel {
     private func prepareWorkflowTerminal(sessionID: String, cli: WorkflowCLI) async throws -> any WorkflowTerminal {
         guard let operations = sessionOperations, var record = sessions.first(where: { $0.id == sessionID }),
               !record.worktree.isEmpty, changingSessions.insert(sessionID).inserted else {
-            throw BackendError.operation("The session is unavailable or another session operation is in progress.")
+            throw BackendError.operation(String(localized: "The session is unavailable or another session operation is in progress."))
         }
         defer { changingSessions.remove(sessionID) }
         let key = "task:\(sessionID)"
         if let existing = terminals[key] {
             try await existing.waitForAutomaticLaunch()
             guard let latest = sessions.first(where: { $0.id == sessionID }) else {
-                throw BackendError.operation("The session was removed during agent startup.")
+                throw BackendError.operation(String(localized: "The session was removed during agent startup."))
             }
             record = latest
             if try await !existing.atShell(), record.cli != cli.rawValue {
-                throw BackendError.operation("Another agent is running. Return to the shell before switching to \(cli.title).")
+                throw BackendError.operation(String(localized: "Another agent is running. Return to the shell before switching to \(cli.title)."))
             }
         }
         try Task.checkCancellation()
@@ -1113,7 +1113,7 @@ public final class AppViewModel {
         guard let api else { return nil }
         let operationID = UUID()
         let service = backendFactory.removal(api: api, stopTerminals: { [weak self] keys in
-            guard let self else { throw BackendError.operation("The workspace closed before removal.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace closed before removal.")) }
             try await self.stopForRemoval(keys, operationID: operationID)
         })
         return workspaceFactory.removal(service: service, record: record, projects: projects, sessions: sessions,
@@ -1148,7 +1148,7 @@ public final class AppViewModel {
         // the log popover's viewer, and adopts that shell when it is opened.
         var shell: DetachedShell?
         let model = workspaceFactory.build(api: api, project: project, session: record, terminalFactory: { [weak self] in
-            guard let self else { throw BackendError.operation("The workspace closed before the build could start.") }
+            guard let self else { throw BackendError.operation(String(localized: "The workspace closed before the build could start.")) }
             let request = AppTerminalRequest(key: "build:\(record.url)", directory: record.worktree, paired: true)
             if terminals[request.key] == nil {
                 let viewer = platformFactory.terminal(request)
@@ -1176,7 +1176,7 @@ public final class AppViewModel {
 
     private func stopForRemoval(_ keys: Set<String>, operationID: UUID) async throws {
         let ids = Set(sessions.filter { keys.contains($0.id) }.map(\.id))
-        guard changingSessions.isDisjoint(with: ids) else { throw BackendError.operation("A session operation is already in progress.") }
+        guard changingSessions.isDisjoint(with: ids) else { throw BackendError.operation(String(localized: "A session operation is already in progress.")) }
         changingSessions.formUnion(ids)
         removalLocks[operationID] = ids
         let worktrees = sessions.filter { ids.contains($0.id) }.map(\.worktree)
@@ -1184,7 +1184,7 @@ public final class AppViewModel {
             worktrees.contains(model.worktree) && model.actions?.busy == true
         }) else {
             changingSessions.subtract(ids); removalLocks.removeValue(forKey: operationID)
-            throw BackendError.operation("Wait for the Git operation to finish before removing this worktree.")
+            throw BackendError.operation(String(localized: "Wait for the Git operation to finish before removing this worktree."))
         }
         guard await viewer.closeDocuments(contextIDs: Set(ids.map { "task:\($0)" }), worktrees: worktrees) else {
             changingSessions.subtract(ids); removalLocks.removeValue(forKey: operationID)
@@ -1250,7 +1250,7 @@ public final class AppViewModel {
         var firstLaunch = fresh
         var reservedID: String?
         if agent == .claude && (afresh || id == nil || id == "") {
-            guard self.sessionOperations != nil else { throw BackendError.operation("Connect before starting the agent.") }
+            guard self.sessionOperations != nil else { throw BackendError.operation(String(localized: "Connect before starting the agent.")) }
             id = UUID().uuidString.lowercased(); firstLaunch = true
             reservedID = id
         } else if agent == .claude, !firstLaunch, let id, let operations = self.sessionOperations,
@@ -1273,7 +1273,7 @@ public final class AppViewModel {
     /// leaves the session record as it was. A relaunch at an open shell saves it before typing.
     private func keepReservedID(_ launch: AgentLaunch, record: WorkspaceSession) async throws {
         guard let id = launch.reservedID else { return }
-        guard let operations = sessionOperations else { throw BackendError.operation("Connect before starting the agent.") }
+        guard let operations = sessionOperations else { throw BackendError.operation(String(localized: "Connect before starting the agent.")) }
         let latest = sessions.first { $0.id == record.id } ?? record
         try await operations.saveAgentID(id, session: latest)
         if let index = sessions.firstIndex(where: { $0.id == latest.id }) { sessions[index].sessionId = id }
@@ -1300,11 +1300,13 @@ public final class AppViewModel {
             if resuming, agent == .claude, let current, let operations = sessionOperations,
                (try? await operations.conversationExists(cli: agent.rawValue, id: current)) == false {
                 do { try await launchAgent(terminal, record: record, fresh: true, afresh: true) }
-                catch { self.error = "Claude could not resume its conversation, and starting a new one failed: \(error.localizedDescription)" }
+                catch { self.error = String(localized: "Claude could not resume its conversation, and starting a new one failed: \(error.localizedDescription)") }
                 return
             }
             // Quitting the agent within the window reads the same, so this does not claim a failure.
-            self.error = "\(agent.label) went back to the shell right after \(resuming ? "resuming its conversation" : "starting"). If you did not quit it, check the terminal for its reason."
+            self.error = resuming
+                ? String(localized: "\(agent.label) returned to the shell after resuming. If you did not quit it, check the terminal for details.")
+                : String(localized: "\(agent.label) returned to the shell after starting. If you did not quit it, check the terminal for details.")
         }
     }
 
@@ -1338,7 +1340,7 @@ public final class AppViewModel {
         terminal.openLink = { [weak self] raw, directory, _ in
             guard let self, let context = viewer.contexts[contextID] else { return }
             guard let link = WorkspaceLink.parse(raw, directory: directory, home: platformFactory.homeDirectory) else {
-                context.error = "This terminal link is not a supported web or local file address."
+                context.error = String(localized: "This terminal link is not a supported web or local file address.")
                 return
             }
             if contextID == "scratch" { select(.terminal) }
@@ -1368,7 +1370,7 @@ public final class AppViewModel {
                 await terminals[key]?.stopConnecting()
                 try await terminalControl.stopPaired(keys: [record.id])
                 terminals[key] = makeTerminal(sessions.first { $0.id == record.id } ?? record)
-            } catch { self.error = "Could not restart session: \(error.localizedDescription)" }
+            } catch { self.error = String(localized: "Could not restart session: \(error.localizedDescription)") }
         }
     }
 
@@ -1441,7 +1443,7 @@ public final class AppViewModel {
                 sidebarOrder = sidebarOrder.pinning(id, pinned: !record.pinned, shown: shown)
                 if let index = sessions.firstIndex(where: { $0.id == id }) { sessions[index].pinned = !record.pinned }
                 refresh()
-            } catch { self.error = "Could not update pin: \(error.localizedDescription)" }
+            } catch { self.error = String(localized: "Could not update pin: \(error.localizedDescription)") }
         }
     }
 
@@ -1462,7 +1464,7 @@ public final class AppViewModel {
                 let _: OperationOK = try await api.request(Routes.task(id), method: "PATCH", body: Payload(name: name))
             } catch {
                 if let index = sessions.firstIndex(where: { $0.id == id }), sessions[index].name == name { sessions[index].name = previous }
-                self.error = "Could not rename session: \(error.localizedDescription)"
+                self.error = String(localized: "Could not rename session: \(error.localizedDescription)")
             }
         }
     }
@@ -1483,7 +1485,7 @@ public final class AppViewModel {
                 // A newer toggle owns the list now; its own response will land.
                 if generation == tabPinGeneration { tabs = saved.tabs }
             } catch {
-                self.error = "Could not update pin: \(error.localizedDescription)"
+                self.error = String(localized: "Could not update pin: \(error.localizedDescription)")
                 refresh()
             }
         }
@@ -1506,7 +1508,7 @@ public final class AppViewModel {
         guard let api, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let key = "tab:\(id)"
         if pageWorkflowRuns[key]?.running == true {
-            error = "Wait for the workflow to start before closing this tab."
+            error = String(localized: "Wait for the workflow to start before closing this tab.")
             return
         }
         if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
@@ -1518,7 +1520,7 @@ public final class AppViewModel {
                 let saved: SavedTabs = try await api.request(Routes.TABS, method: "DELETE", body: ["id": id])
                 tabs = saved.tabs
             } catch {
-                self.error = "Could not close tab: \(error.localizedDescription)"
+                self.error = String(localized: "Could not close tab: \(error.localizedDescription)")
                 refresh()
             }
         }
@@ -1781,7 +1783,7 @@ public final class AppViewModel {
             do {
                 try await operations.saveAgentID(id, session: session)
                 if let index = sessions.firstIndex(where: { $0.id == session.id }) { sessions[index].sessionId = id }
-            } catch { self.error = "Could not save agent session: \(error.localizedDescription)" }
+            } catch { self.error = String(localized: "Could not save agent session: \(error.localizedDescription)") }
         }
     }
 

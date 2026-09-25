@@ -1,0 +1,96 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "NSMicrophoneUsageDescription": {
+      "comment": "Explains the microphone request for terminal sessions and agents launched by Cascade. Do not imply that permission is already granted.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade needs the microphone so voice input works in terminal sessions and agents you run here."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade 需要使用麦克风，以便在你运行的终端会话和代理中提供语音输入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade 需要使用麥克風，讓你執行的終端機工作階段與代理程式能使用語音輸入。"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade को माइक्रोफ़ोन की अनुमति चाहिए ताकि यहाँ चलाए गए टर्मिनल सत्रों और एजेंट में आवाज़ से इनपुट काम कर सके।"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade necesita el micrófono para usar la entrada de voz en las sesiones de terminal y los agentes que ejecutes aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade a besoin du microphone pour la saisie vocale dans les sessions de terminal et les agents que vous exécutez ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج Cascade إلى الميكروفون لتمكين الإدخال الصوتي في جلسات الطرفية والوكلاء الذين تشغّلهم هنا."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এখানে চালানো টার্মিনাল সেশন ও এজেন্টে ভয়েস ইনপুট ব্যবহারের জন্য Cascade-এর মাইক্রোফোনের অনুমতি দরকার।"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Cascade precisa do microfone para permitir a entrada de voz nas sessões de terminal e nos agentes que você executa aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade нужен микрофон для голосового ввода в сессиях терминала и агентах, которые вы запускаете здесь."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade で実行するターミナルセッションやエージェントで音声入力を使うため、マイクへのアクセスが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade에서 실행하는 터미널 세션과 에이전트에서 음성 입력을 사용하려면 마이크 접근이 필요합니다."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade behöver mikrofonen för röstinmatning i terminalsessioner och agenter som du kör här."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cascade ha bisogno del microfono per l’input vocale nelle sessioni di terminale e negli agenti che esegui qui."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

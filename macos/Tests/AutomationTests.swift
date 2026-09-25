@@ -204,7 +204,7 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     model.refresh()
     for _ in 0..<200 where model.settings == nil { try await Task.sleep(for: .milliseconds(5)) }
     #expect(model.settings != nil && !model.enabled)
-    #expect(model.status?.hasPrefix("Polling only") == true)
+    #expect(model.status == "Webhook forwarding is off. Automations check pull request changes on the regular refresh schedule.")
     await model.setEnabled(true)
     #expect(model.enabled && !model.saving)
     // On, but the extension the forwarders run is missing: the card says to install it.

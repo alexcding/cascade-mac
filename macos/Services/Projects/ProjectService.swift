@@ -20,9 +20,9 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
     }
     var validationError: String? {
-        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Enter a project name." }
-        if !workspace.isEmpty && !workspace.hasPrefix("/") { return "Choose an absolute workspace folder path." }
-        if ideTarget.hasPrefix("/") || ideTarget.split(separator: "/").contains("..") { return "The IDE target must be a relative path inside the workspace." }
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Enter a project name.") }
+        if !workspace.isEmpty && !workspace.hasPrefix("/") { return String(localized: "Choose an absolute workspace folder path.") }
+        if ideTarget.hasPrefix("/") || ideTarget.split(separator: "/").contains("..") { return String(localized: "The IDE target must be a relative path inside the workspace.") }
         return nil
     }
 }
@@ -93,6 +93,15 @@ struct APIProjectService: ProjectService {
 enum ProjectSection: String, CaseIterable, Identifiable {
     case prs = "Pull Requests", tickets = "Tickets", board = "Sprint Board", workflows = "Workflows", settings = "Settings"
     var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .prs: String(localized: "Pull Requests")
+        case .tickets: String(localized: "Tickets")
+        case .board: String(localized: "Sprint Board")
+        case .workflows: String(localized: "Workflows")
+        case .settings: String(localized: "Settings")
+        }
+    }
 
     /// The sections a project can show. Pull Requests need GitHub, Tickets and Sprint Board
     /// need Jira. Workflows and Settings always apply. Automation is its own screen now.
@@ -116,7 +125,7 @@ extension Project {
 struct IDEChoice: Identifiable {
     let id: String
     let title: String
-    static let all: [Self] = [.init(id: "", title: "None")]
+    static let all: [Self] = [.init(id: "", title: String(localized: "None"))]
         + ExternalTool.editors.map { .init(id: $0.id, title: $0.name) }
-        + [.init(id: "custom", title: "Custom")]
+        + [.init(id: "custom", title: String(localized: "Custom"))]
 }

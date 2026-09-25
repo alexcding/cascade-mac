@@ -14,6 +14,16 @@ struct LogEntry: Decodable, Identifiable, Equatable, Sendable {
     let link: String?
     let jiraKey: String?
     var id: Int { seq }
+    var levelLabel: String {
+        switch level {
+        case "info": String(localized: "Info")
+        case "warn", "warning": String(localized: "Warning")
+        case "error": String(localized: "Error")
+        case "debug": String(localized: "Debug")
+        case "trace": String(localized: "Trace")
+        default: level
+        }
+    }
     var date: Date? { backendTimestamp(created_at) }
     var timestamp: String { date?.formatted(date: .abbreviated, time: .shortened) ?? created_at }
 

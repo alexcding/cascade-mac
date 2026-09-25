@@ -32,7 +32,7 @@ struct RootSessionPlaceholderView: View {
                 HStack {
                     Button("Open Terminal", systemImage: "terminal", action: model.openTerminal)
                         .buttonStyle(.borderedProminent)
-                    Button(session.pinned ? "Unpin Session" : "Pin Session", systemImage: "pin") { model.togglePin(session.id) }
+                    Button(session.pinned ? String(localized: "Unpin Session") : String(localized: "Pin Session"), systemImage: "pin") { model.togglePin(session.id) }
                 }
             }.textSelection(.enabled)
             .padding(28)

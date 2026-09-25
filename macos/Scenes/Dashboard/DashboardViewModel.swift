@@ -24,7 +24,7 @@ import Observation
     private(set) var search = SearchResults()
 
     init(pageActions: any PageActionServing) {
-        navigation = PageActionViewModel(service: pageActions, failureDescription: "Could not open pull request")
+        navigation = PageActionViewModel(service: pageActions, failureDescription: String(localized: "Could not open pull request"))
         prs.onChange = { [weak self] in self?.pullRequestsChanged() }
         tickets.onChange = { [weak self] in self?.updateSearch() }
     }
@@ -96,7 +96,7 @@ extension DashboardViewModel {
         var count: Int { mine.count + reviews.count + tickets.count }
         var isEmpty: Bool { count == 0 }
         /// "3 results for “login”".
-        var caption: String { "\(count) result\(count == 1 ? "" : "s") for “\(needle)”" }
+        var caption: String { String(localized: "Results for “\(needle)”: \(count)") }
     }
 
     var searching: Bool { !search.needle.isEmpty }
@@ -129,10 +129,10 @@ extension DashboardViewModel {
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .overview: return "Overview"
-            case .pullRequests: return "Pull Requests"
-            case .reviews: return "Reviews"
-            case .tickets: return "Tickets"
+            case .overview: return String(localized: "Overview")
+            case .pullRequests: return String(localized: "Pull Requests")
+            case .reviews: return String(localized: "Reviews")
+            case .tickets: return String(localized: "Tickets")
             }
         }
     }

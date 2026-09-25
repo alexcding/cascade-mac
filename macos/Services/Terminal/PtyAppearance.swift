@@ -8,7 +8,7 @@ struct PtyAppearance: Codable, Equatable, Sendable {
         guard values.count == 260, values.prefix(258).allSatisfy({ $0 <= 0xFFFFFF }),
               values[258] <= 0xFFFFFF || values[258] == UInt32.max,
               values[259] <= 1 else {
-            throw PtyError.connection("The terminal returned invalid configured colors.")
+            throw PtyError.connection(String(localized: "The terminal returned invalid configured colors."))
         }
     }
 }

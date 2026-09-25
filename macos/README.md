@@ -250,6 +250,17 @@ Usage, and **⌘,** for Settings. Every command's key can be changed under Setti
 Shortcuts; a combination must include ⌘, so it never takes a key from the CLI in the
 terminal. Standard editing commands follow the focused responder.
 
+## Help and localization
+
+**Help → Cascade Help** opens the native, searchable quick help. It works offline
+and includes setup, sessions, reviews, commits, automation, data safety, and
+troubleshooting. **Help → Detailed User Guide (English)** opens the existing
+Help Book in macOS Help Viewer.
+
+English is the source language, with 13 additional locales for the native UI and
+quick help. See [coverage and authoring guidance](../docs/LOCALIZATION.md) for the
+language list, scope, language selection, and validation commands.
+
 ## Verify
 
 Run the first Xcode build or `bash macos/scripts/bootstrap.sh` to prepare native

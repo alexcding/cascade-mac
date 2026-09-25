@@ -7,7 +7,7 @@ import Observation
 // PR / ticket address the session is for, read by shape, with the hint saying which reading won.
 @MainActor @Observable final class NewSessionViewModel {
     enum Action { case created(WorkspaceSession) }
-    static let hint = "Also names the worktree folder — or paste a GitHub PR / Jira URL to start on that page."
+    static let hint = String(localized: "Also names the worktree folder — or paste a GitHub PR / Jira URL to start on that page.")
 
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let project: Project
@@ -48,7 +48,7 @@ import Observation
 
     private var active: Bool { !retired && !completed }
     var busy: Bool { loading || creating || resolving }
-    var title: String { "New session on \(project.name.isEmpty ? "project" : project.name)" }
+    var title: String { String(localized: "New session on \(project.name.isEmpty ? String(localized: "Project") : project.name)") }
     private var typed: String { input.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var urlish: Bool { typed.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil }
     var page: SessionPage? { urlish ? SessionPage.parse(typed) : nil }
@@ -60,20 +60,20 @@ import Observation
     var fieldHint: (text: String, isError: Bool) {
         if let inputError { return (inputError, true) }
         guard !typed.isEmpty else { return (Self.hint, false) }
-        if urlish && page == nil { return ("Not a GitHub pull request or Jira issue URL", true) }
+        if urlish && page == nil { return (String(localized: "Not a GitHub pull request or Jira issue URL"), true) }
         guard let page else { return (Self.hint, false) }
-        if resolving { return ("Looking it up…", false) }
+        if resolving { return (String(localized: "Looking it up…"), false) }
         if let resolved {
-            let name = resolved.title.isEmpty ? (page.kind == "jira" ? page.key : "that pull request") : resolved.title
-            return ("Opens \(name) — branch \(resolved.branch)", false)
+            let name = resolved.title.isEmpty ? (page.kind == "jira" ? page.key : String(localized: "that pull request")) : resolved.title
+            return (String(localized: "Opens \(name) — branch \(resolved.branch)"), false)
         }
-        if unresolvedPullRequest != nil { return ("Opens that pull request — name its branch below", false) }
+        if unresolvedPullRequest != nil { return (String(localized: "Opens that pull request — name its branch below"), false) }
         return (Self.hint, false)
     }
 
     var worktreeHint: String? {
         guard let path = reusedWorktree, let resolved else { return nil }
-        return "Runs in \((path as NSString).lastPathComponent) on \(resolved.branch)"
+        return String(localized: "Runs in \((path as NSString).lastPathComponent) on \(resolved.branch)")
     }
 
     /// Every edit invalidates what the LAST text resolved to, then looks up a pasted address.
@@ -167,11 +167,11 @@ import Observation
                 // A pull request needs its OWN head branch: the placeholder would check out a
                 // branch that doesn't exist (its worktree adopts, it doesn't create).
                 let branch = pullRequestBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !branch.isEmpty else { inputError = "Name the pull request’s branch"; return }
+                guard !branch.isEmpty else { inputError = String(localized: "Name the pull request’s branch"); return }
                 if let problem = Self.branchNameError(branch) { inputError = problem; return }
                 creation.url = page.url; creation.kind = "github"; creation.branch = branch; creation.createBranch = false
             } else {
-                if error == nil { error = "Could not look up that page. Check the address and try again." }
+                if error == nil { error = String(localized: "Could not look up that page. Check the address and try again.") }
                 return
             }
         } else {
@@ -190,15 +190,15 @@ import Observation
 
     /// The server's validBranchName, so a bad name is caught before the worktree call.
     static func branchNameError(_ branch: String) -> String? {
-        if branch.isEmpty { return "Enter a branch name" }
+        if branch.isEmpty { return String(localized: "Enter a branch name") }
         if branch.hasPrefix("-") || branch.hasSuffix("/") || branch.hasSuffix(".") || branch.hasSuffix(".lock") {
-            return "Branch name can’t start with “-” or end with “/”, “.” or “.lock”"
+            return String(localized: "Branch name can’t start with “-” or end with “/”, “.” or “.lock”")
         }
         if branch.range(of: #"[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|^@$"#, options: .regularExpression) != nil {
-            return "Branch name can’t contain spaces, “..” or ~ ^ : ? * [ \\"
+            return String(localized: "Branch name can’t contain spaces, “..” or ~ ^ : ? * [ \\")
         }
         if !branch.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && !$0.hasPrefix(".") }) {
-            return "No branch segment may start with “.”"
+            return String(localized: "No branch segment may start with “.”")
         }
         return nil
     }

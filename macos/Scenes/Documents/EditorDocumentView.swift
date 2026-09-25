@@ -10,22 +10,22 @@ struct EditorDocumentView: View {
             if let error = model.error {
                 HStack {
                     Text(error).font(.callout).foregroundStyle(.orange)
-                    if !model.loaded && !model.loading { Button("Retry", action: model.retry) }
+                    if !model.loaded && !model.loading { Button(String(localized: "Retry"), action: model.retry) }
                 }.padding(8)
                 Divider()
             }
-            if let view = model.editorView { NativeEditorHost(view: view) }
+            if let view = model.editorView { NativeEditorHost(view: view).environment(\.layoutDirection, .leftToRight) }
             else { Color.clear }
             Divider()
             // The same glass capsules as the tab bar above.
             HStack(spacing: 8) {
-                HoverCircleButton("Show or Hide Preview", systemImage: "map", enabled: model.loaded, action: togglePreview)
-                    .help("Show or Hide Preview")
+                HoverCircleButton(String(localized: "Show or Hide Preview"), systemImage: "map", enabled: model.loaded, action: togglePreview)
+                    .help(String(localized: "Show or Hide Preview"))
                     .barGlass()
                 Spacer()
-                if model.readOnly { Text("Read Only").font(.callout).foregroundStyle(Theme.textSecondary) }
+                if model.readOnly { Text(String(localized: "Read Only")).font(.callout).foregroundStyle(Theme.textSecondary) }
                 if model.loading || model.saving { ProgressView().controlSize(.small) }
-                Button("Save") { Task { await model.save() } }
+                Button(String(localized: "Save")) { Task { await model.save() } }
                     .padding(.horizontal, 14)
                     .barGlass(iconOnly: false)
                     .disabled(!canEdit)

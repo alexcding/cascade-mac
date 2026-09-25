@@ -21,13 +21,13 @@ import Observation
     }
     var statusText: String {
         switch state {
-        case .unknown: "Checking for uBlock Origin Lite…"
-        case .unsupported: "Ad blocking needs macOS 15.4 or later."
-        case .notInstalled: "Not installed. Install it from the App Store, then come back here."
-        case .available: "Installed. Off."
-        case .loading: "Loading…"
-        case .active: "Blocking ads in new and open browser tabs."
-        case .failed(let message): "Could not load: \(message)"
+        case .unknown: String(localized: "Checking for uBlock Origin Lite…")
+        case .unsupported: String(localized: "Ad blocking needs macOS 15.4 or later.")
+        case .notInstalled: String(localized: "Not installed. Install it from the App Store, then come back here.")
+        case .available: String(localized: "Installed. Off.")
+        case .loading: String(localized: "Loading…")
+        case .active: String(localized: "Blocking ads in new and open browser tabs.")
+        case .failed(let message): String(localized: "Could not load: \(message)")
         }
     }
     func refresh() { if !retired { blocker.refresh() } }

@@ -1,7 +1,18 @@
 import Darwin
 import Foundation
 
-enum ResourceGroup: String, Sendable { case app = "App", backend = "Backend", terminals = "Terminals", web = "WebKit", helpers = "Helpers" }
+enum ResourceGroup: String, Sendable {
+    case app = "App", backend = "Backend", terminals = "Terminals", web = "WebKit", helpers = "Helpers"
+    var title: String {
+        switch self {
+        case .app: String(localized: "App")
+        case .backend: String(localized: "Backend")
+        case .terminals: String(localized: "Terminals")
+        case .web: "WebKit"
+        case .helpers: String(localized: "Helpers")
+        }
+    }
+}
 struct ResourceRoot: Sendable { let pid: Int32; let group: ResourceGroup }
 struct ProcessResourceCounter: Sendable, Identifiable {
     let pid: Int32
@@ -58,7 +69,7 @@ actor NativeProcessResourceSampler {
         var name = withUnsafeBytes(of: info.pbsd.pbi_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
         if name.isEmpty { name = withUnsafeBytes(of: info.pbsd.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) } }
         return .init(pid: pid, processGroup: Int32(bitPattern: info.pbsd.pbi_pgid), startedSeconds: info.pbsd.pbi_start_tvsec,
-            startedMicroseconds: info.pbsd.pbi_start_tvusec, name: name.isEmpty ? "Process" : name,
+            startedMicroseconds: info.pbsd.pbi_start_tvusec, name: name.isEmpty ? String(localized: "Process") : name,
             group: group, footprintBytes: footprint(of: pid) ?? info.ptinfo.pti_resident_size,
             cpuTicks: ticks, sampledTicks: mach_absolute_time())
     }
@@ -104,8 +115,8 @@ actor NativeProcessResourceSampler {
             counters += Self.helpers(of: getpid(), excluding: seen)
         }
         var notes: [String] = []
-        if skipped > 0 { notes.append("\(skipped) process reads were unavailable or changed during sampling.") }
-        if truncated { notes.append("Process sampling reached its 512-process limit; totals are partial.") }
+        if skipped > 0 { notes.append(String(localized: "Unavailable or changed process reads: \(skipped).")) }
+        if truncated { notes.append(String(localized: "Process sampling reached its 512-process limit; totals are partial.")) }
         return .init(processes: counters, notes: notes)
     }
 }
@@ -146,26 +157,26 @@ struct NativeResourceUsageService: ResourceUsageService {
     }
 
     private func backendRoot() async -> (root: ResourceRoot?, note: String?) {
-        guard let api else { return (nil, "Backend is disconnected; its resources are not included.") }
+        guard let api else { return (nil, String(localized: "Backend is disconnected; its resources are not included.")) }
         do {
             let pid = try await api.health().pid
             guard pid > 1 else { throw BackendError.incompatible }
             return (ResourceRoot(pid: pid, group: .backend), nil)
         }
-        catch { return (nil, "Backend resources are unavailable: \(error.localizedDescription)") }
+        catch { return (nil, String(localized: "Backend resources are unavailable: \(error.localizedDescription)")) }
     }
     private func terminalRoot() async -> (root: ResourceRoot?, note: String?) {
-        guard let pty else { return (nil, "Terminal configuration is unavailable.") }
+        guard let pty else { return (nil, String(localized: "Terminal configuration is unavailable.")) }
         let client = PtydClient(onEvent: { _ in })
         defer { client.close() }
         do {
             try pty.validateSocket()
             let hello = try await client.connect(path: pty.socketPath)
-            guard hello.pid > 1 else { throw PtyError.connection("Invalid PTY helper identity.") }
+            guard hello.pid > 1 else { throw PtyError.connection(String(localized: "Invalid PTY helper identity.")) }
             return (ResourceRoot(pid: hello.pid, group: .terminals), nil)
         } catch {
-            if PtydHost.mayStartDaemon(after: error) { return (nil, "PTY helper is not running.") }
-            return (nil, "Terminal resources are unavailable: \(error.localizedDescription)")
+            if PtydHost.mayStartDaemon(after: error) { return (nil, String(localized: "PTY helper is not running.")) }
+            return (nil, String(localized: "Terminal resources are unavailable: \(error.localizedDescription)"))
         }
     }
 }

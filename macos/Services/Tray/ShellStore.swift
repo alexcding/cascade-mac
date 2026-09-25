@@ -203,7 +203,7 @@ import Observation
                 if let index = prs.firstIndex(where: { $0.id == id }) { prs[index].reviewPending = false }
                 pendingReviews.removeAll { $0.id == id }
                 refresh()
-            } catch { if generation == currentGeneration { trayError = "Could not mark review opened: \(error.localizedDescription)" } }
+            } catch { if generation == currentGeneration { trayError = String(localized: "Could not mark review opened: \(error.localizedDescription)") } }
         }
     }
 
@@ -260,7 +260,7 @@ import Observation
 
     func font(_ kind: CodeFontKind) -> CodeFont { kind == .term ? terminalCodeFont : documentCodeFont }
     func setFont(_ kind: CodeFontKind, family: String? = nil, size: Int? = nil) {
-        if let family, !CodeFont.validFamily(family) { settingsError = "The font family contains unsupported characters."; return }
+        if let family, !CodeFont.validFamily(family) { settingsError = String(localized: "The font family contains unsupported characters."); return }
         let previous = font(kind)
         let next = CodeFont(family: family ?? previous.family, size: size ?? previous.size)
         guard previous != next else { return }
@@ -286,7 +286,7 @@ import Observation
         settingsError = nil
         let cleaned = keybinds.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if let bad = cleaned.first(where: { TerminalStyle.keybindProblem($0) != nil }) {
-            settingsError = "Keybind “\(bad)”: \(TerminalStyle.keybindProblem(bad)!)"
+            settingsError = String(localized: "Keybind “\(bad)”: \(TerminalStyle.keybindProblem(bad)!)")
             return false
         }
         guard cleaned != terminalKeybinds else { return true }
@@ -325,7 +325,7 @@ import Observation
         for (value, key, isDark) in [(dark, "terminalThemeDark", true), (light, "terminalThemeLight", false)] {
             guard let value, value != (isDark ? terminalDarkTheme : terminalLightTheme) else { continue }
             guard value.isEmpty || TerminalStyle.hasTheme(value) else {
-                settingsError = "No terminal theme named \(value)."
+                settingsError = String(localized: "No terminal theme named \(value).")
                 continue
             }
             if isDark { terminalDarkTheme = value } else { terminalLightTheme = value }
@@ -337,7 +337,7 @@ import Observation
         for (value, key, isDark) in [(dark, "editorThemeDark", true), (light, "editorThemeLight", false)] {
             guard let value, value != (isDark ? editorStyle.darkTheme : editorStyle.lightTheme) else { continue }
             guard value.isEmpty || CodeTheme.has(value, dark: isDark) else {
-                settingsError = "No editor theme named \(value)."
+                settingsError = String(localized: "No editor theme named \(value).")
                 continue
             }
             if isDark { editorStyle.darkTheme = value } else { editorStyle.lightTheme = value }
@@ -357,7 +357,7 @@ import Observation
         preferences.set(pendingSettings, forKey: "native.pendingSettings")
         settingsRevision += 1
         let revision = settingsRevision
-        guard let service else { settingsError = "Preference saved locally; connect to sync it."; return }
+        guard let service else { settingsError = String(localized: "Preference saved locally; connect to sync it."); return }
         let previous = settingsWrite
         settingsWrite = Task {
             await previous?.value // Preserve rapid user changes in their original order.
@@ -374,7 +374,7 @@ import Observation
                     preferences.set(pendingSettings, forKey: "native.pendingSettings")
                 }
                 if settingsRevision == revision {
-                    settingsError = pendingSettings.isEmpty ? nil : "Some preferences are saved locally; reconnect to sync them."
+                    settingsError = pendingSettings.isEmpty ? nil : String(localized: "Some preferences are saved locally; reconnect to sync them.")
                 }
             } catch { if !Task.isCancelled && settingsRevision == revision { settingsError = error.localizedDescription } }
         }

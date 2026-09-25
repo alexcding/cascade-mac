@@ -35,7 +35,7 @@ final class ShortcutRegistry {
     /// outside the table, such as a model preset.
     func conflict(_ shortcut: KeyShortcut, for command: ShellCommand? = nil) -> String? {
         if let reason = shortcut.reservedReason { return reason }
-        if let owner = self.command(for: shortcut), owner != command { return "\(shortcut.title) is already \(owner.title)." }
+        if let owner = self.command(for: shortcut), owner != command { return String(localized: "\(shortcut.title) is already assigned to \(owner.title).") }
         return nil
     }
 
@@ -74,42 +74,42 @@ enum ShortcutGroup: String, CaseIterable, Identifiable {
 extension ShellCommand {
     var title: String {
         switch self {
-        case .overview: "Overview"
-        case .terminal: "Terminal"
-        case .activity: "Activity"
-        case .settings: "Settings…"
-        case .sidebar: "Focus Sidebar"
-        case .refresh: "Refresh"
-        case .tray: "Reviews & Usage"
-        case .biggerFont: "Zoom In"
-        case .smallerFont: "Zoom Out"
-        case .resetFont: "Actual Size"
-        case .checkForUpdates: "Check for Updates…"
-        case .newProject: "New Project…"
-        case .newSession: "New Session…"
-        case .newTab: "New Tab"
-        case .newSidebarTab: "New Sidebar Tab"
-        case .openFile: "Open File…"
-        case .saveFile: "Save File"
-        case .closePage: "Close Tab / Window"
-        case .findPage: "Find in Page…"
-        case .back: "Back"
-        case .forward: "Forward"
-        case .nextPage: "Next Tab"
-        case .previousPage: "Previous Tab"
-        case .zoomIn: "Zoom Page In"
-        case .zoomOut: "Zoom Page Out"
-        case .resetZoom: "Reset Page Zoom"
-        case .reloadPage: "Reload Page"
-        case .nextModel: "Next Model"
-        case .previousModel: "Previous Model"
-        case .toggleChat: "Switch Terminal / Chat"
-        case .runProject: "Run"
-        case .stopBuild: "Stop"
-        case .nextSession: "Next Session"
-        case .previousSession: "Previous Session"
+        case .overview: String(localized: "Overview")
+        case .terminal: String(localized: "Terminal")
+        case .activity: String(localized: "Activity")
+        case .settings: String(localized: "Settings…")
+        case .sidebar: String(localized: "Focus Sidebar")
+        case .refresh: String(localized: "Refresh")
+        case .tray: String(localized: "Reviews & Usage")
+        case .biggerFont: String(localized: "Zoom In")
+        case .smallerFont: String(localized: "Zoom Out")
+        case .resetFont: String(localized: "Actual Size")
+        case .checkForUpdates: String(localized: "Check for Updates…")
+        case .newProject: String(localized: "New Project…")
+        case .newSession: String(localized: "New Session…")
+        case .newTab: String(localized: "New Tab")
+        case .newSidebarTab: String(localized: "New Sidebar Tab")
+        case .openFile: String(localized: "Open File…")
+        case .saveFile: String(localized: "Save File")
+        case .closePage: String(localized: "Close Tab / Window")
+        case .findPage: String(localized: "Find in Page…")
+        case .back: String(localized: "Back")
+        case .forward: String(localized: "Forward")
+        case .nextPage: String(localized: "Next Tab")
+        case .previousPage: String(localized: "Previous Tab")
+        case .zoomIn: String(localized: "Zoom Page In")
+        case .zoomOut: String(localized: "Zoom Page Out")
+        case .resetZoom: String(localized: "Reset Page Zoom")
+        case .reloadPage: String(localized: "Reload Page")
+        case .nextModel: String(localized: "Next Model")
+        case .previousModel: String(localized: "Previous Model")
+        case .toggleChat: String(localized: "Switch Terminal / Chat")
+        case .runProject: String(localized: "Run")
+        case .stopBuild: String(localized: "Stop")
+        case .nextSession: String(localized: "Next Session")
+        case .previousSession: String(localized: "Previous Session")
         case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
-            "Show Session \((sessionIndex ?? 0) + 1)"
+            String(localized: "Show Session \((sessionIndex ?? 0) + 1)")
         }
     }
 

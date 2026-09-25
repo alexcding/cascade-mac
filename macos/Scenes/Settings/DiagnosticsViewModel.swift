@@ -9,10 +9,20 @@ import Observation
         let lastSync: String
         let error: String?
 
-        init(id: String, title: String, cache: DiagnosticsSnapshot.Cache?, unit: String) {
+        enum CountKind { case pullRequests, tickets }
+
+        init(id: String, title: String, cache: DiagnosticsSnapshot.Cache?, kind: CountKind) {
             self.id = id; self.title = title
-            count = cache.map { "\($0.open ?? $0.tickets ?? 0) \(unit)" } ?? "No snapshot"
-            lastSync = cache?.lastSynced.map { "Last synced: \($0)" } ?? "Never synced"
+            count = cache.map {
+                switch kind {
+                case .pullRequests: String(localized: "Open PRs: \($0.open ?? 0)")
+                case .tickets: String(localized: "Tickets: \($0.tickets ?? 0)")
+                }
+            } ?? String(localized: "No snapshot")
+            lastSync = cache?.lastSynced.map {
+                let timestamp = backendTimestamp($0)?.formatted(date: .abbreviated, time: .shortened) ?? $0
+                return String(localized: "Last synced: \(timestamp)")
+            } ?? String(localized: "Never synced")
             error = cache?.error.flatMap { $0.isEmpty ? nil : $0 }
         }
     }
@@ -71,11 +81,11 @@ import Observation
                 snapshot = result
                 projects = result.projects.map { project in
                     ProjectRow(id: project.id, name: project.name,
-                        repository: project.repo.isEmpty ? "No GitHub repository" : project.repo,
+                        repository: project.repo.isEmpty ? String(localized: "No GitHub repository") : project.repo,
                         caches: [
-                            CacheRow(id: "github", title: "GitHub", cache: result.snapshots[project.id], unit: "open PRs"),
-                            CacheRow(id: "jira", title: "Jira tickets", cache: result.jiraSnapshots[project.id], unit: "tickets"),
-                            CacheRow(id: "board", title: "Sprint board", cache: result.jiraSnapshots["board:\(project.id)"], unit: "tickets")
+                            CacheRow(id: "github", title: "GitHub", cache: result.snapshots[project.id], kind: .pullRequests),
+                            CacheRow(id: "jira", title: String(localized: "Jira tickets"), cache: result.jiraSnapshots[project.id], kind: .tickets),
+                            CacheRow(id: "board", title: String(localized: "Sprint board"), cache: result.jiraSnapshots["board:\(project.id)"], kind: .tickets)
                         ])
                 }
                 updatedAt = Date(); error = nil

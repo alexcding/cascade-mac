@@ -29,7 +29,7 @@ struct WebBoardView: View {
             if let notice = model.notice { Text(notice).font(.callout).foregroundStyle(Theme.textSecondary).transition(.opacity) }
             if model.snapshot == nil {
                 if model.loading {
-                    ProgressView("Loading…").controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView(String(localized: "Loading…")).controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ContentUnavailableView("No Active Sprint", systemImage: "rectangle.3.group")
                 }
@@ -158,7 +158,7 @@ private struct BoardDropZone: View {
         } isTargeted: { model.target(lane, $0) }
         .animation(.easeOut(duration: 0.12), value: targeted)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Move to \(lane.status.isEmpty ? "unmapped status" : lane.status)")
+        .accessibilityLabel("Move to \(lane.status.isEmpty ? String(localized: "unmapped status") : lane.status)")
     }
 }
 
@@ -231,8 +231,8 @@ private struct BoardCard: View {
             BoardAvatar(name: ticket.assignee, mine: model.isMine(ticket))
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-        .help(ticket.assignee.map { "Assigned to \($0)" } ?? "Assign")
-        .accessibilityLabel(ticket.assignee.map { "Assignee \($0)" } ?? "Assign")
+        .help(ticket.assignee.map { String(localized: "Assigned to \($0)") } ?? String(localized: "Assign"))
+        .accessibilityLabel(ticket.assignee.map { String(localized: "Assignee \($0)") } ?? String(localized: "Assign"))
     }
 }
 

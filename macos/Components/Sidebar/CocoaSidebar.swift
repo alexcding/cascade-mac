@@ -35,7 +35,7 @@ struct CocoaSidebar: NSViewRepresentable {
         let outline = SidebarOutlineView()
         outline.identifier = .init("workspace-sidebar")
         outline.setAccessibilityIdentifier("workspace-sidebar")
-        outline.setAccessibilityLabel("Workspace sidebar")
+        outline.setAccessibilityLabel(String(localized: "Workspace sidebar"))
         let column = NSTableColumn(identifier: .init("name"))
         column.resizingMask = .autoresizingMask
         outline.addTableColumn(column)
@@ -66,11 +66,15 @@ struct CocoaSidebar: NSViewRepresentable {
         scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
         scroll.documentView = outline
         context.coordinator.outline = outline
+        context.coordinator.setLayoutDirection(context.environment.layoutDirection)
         context.coordinator.update(self)
         return scroll
     }
 
-    func updateNSView(_ nsView: NSScrollView, context: Context) { context.coordinator.update(self) }
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        context.coordinator.setLayoutDirection(context.environment.layoutDirection)
+        context.coordinator.update(self)
+    }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
         coordinator.stopSpinner()
@@ -86,6 +90,7 @@ struct CocoaSidebar: NSViewRepresentable {
     @MainActor final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate {
         var parent: CocoaSidebar
         weak var outline: NSOutlineView?
+        private var layoutDirection: NSUserInterfaceLayoutDirection = .leftToRight
         private var roots: [Node] = []
         private var nodes: [String: Node] = [:]
         /// Each nested row's folder, so a drag — which asks on every mouse move — never searches for it.
@@ -134,6 +139,14 @@ struct CocoaSidebar: NSViewRepresentable {
             flagsMonitor = nil
             if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
             resignObserver = nil
+        }
+
+        func setLayoutDirection(_ direction: LayoutDirection) {
+            let native: NSUserInterfaceLayoutDirection = direction == .rightToLeft ? .rightToLeft : .leftToRight
+            let changed = native != layoutDirection
+            layoutDirection = native
+            outline?.userInterfaceLayoutDirection = native
+            if changed { refreshVisibleCells() }
         }
 
         func update(_ value: CocoaSidebar) {
@@ -383,6 +396,7 @@ struct CocoaSidebar: NSViewRepresentable {
         private func configure(_ cell: SidebarCellView, node: Node, row: Int) {
             guard let outline else { return }
             let nested = outline.parent(forItem: node) != nil
+            cell.userInterfaceLayoutDirection = layoutDirection
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewSession = { [weak self] id in self?.parent.onNewSession(id) }
             cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
@@ -464,7 +478,7 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let destination = node.entry.destination else { return nil }
             let menu = NSMenu()
             func add(_ title: String, action: Selector) {
-                let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                let item = NSMenuItem(title: Bundle.main.localizedString(forKey: title, value: title, table: nil), action: action, keyEquivalent: "")
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
@@ -503,15 +517,15 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             let alert = NSAlert()
             alert.window.setAccessibilityIdentifier("rename-session-dialog")
-            alert.messageText = "Rename Session"
-            alert.informativeText = "Leave it empty to show the worktree folder's name."
-            alert.addButton(withTitle: "Rename")
-            alert.addButton(withTitle: "Cancel")
+            alert.messageText = String(localized: "Rename Session")
+            alert.informativeText = String(localized: "Leave it empty to show the worktree folder's name.")
+            alert.addButton(withTitle: String(localized: "Rename"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
             let field = NSTextField(string: node.entry.title)
-            field.placeholderString = "Session name"
+            field.placeholderString = String(localized: "Session name")
             field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
             field.setAccessibilityIdentifier("rename-session-input")
-            field.setAccessibilityLabel("Session name")
+            field.setAccessibilityLabel(String(localized: "Session name"))
             alert.accessoryView = field
             let rename = { [weak self] (response: NSApplication.ModalResponse) in
                 guard response == .alertFirstButtonReturn else { return }
@@ -730,16 +744,16 @@ enum SidebarGlyphs {
         case .tabsHeader:
             icon.isHidden = true
             accessory.image = SidebarIcons.addSymbol
-            accessory.toolTip = "New tab"
-            accessory.setAccessibilityLabel("New tab")
+            accessory.toolTip = String(localized: "New tab")
+            accessory.setAccessibilityLabel(String(localized: "New tab"))
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project(let canCreate):
             icon.image = SidebarIcons.rowSymbol("folder")
             if canCreate {
                 accessory.image = SidebarIcons.addSymbol
-                accessory.toolTip = "New session on a new worktree"
-                accessory.setAccessibilityLabel("New session")
+                accessory.toolTip = String(localized: "New session on a new worktree")
+                accessory.setAccessibilityLabel(String(localized: "New session"))
             }
         case .session(let status, let pinned):
             icon.isHidden = true
@@ -751,13 +765,13 @@ enum SidebarGlyphs {
             glyph.textColor = status.busy ? SidebarGlyphs.tint(status.cli) : SidebarPalette.text3
             alphaValue = status.live || status.busy ? 1 : 0.82
             accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
-            accessory.toolTip = pinned ? "Unpin session" : "Pin session to the top"
+            accessory.toolTip = pinned ? String(localized: "Unpin session") : String(localized: "Pin session to the top")
             accessory.setAccessibilityLabel(accessory.toolTip)
         case .tab(let tab):
             configureTabIcon(tab)
             accessory.image = SidebarIcons.closeSymbol
-            accessory.toolTip = "Close tab"
-            accessory.setAccessibilityLabel("Close tab")
+            accessory.toolTip = String(localized: "Close tab")
+            accessory.setAccessibilityLabel(String(localized: "Close tab"))
         case .pinnedTabs:
             break // Hosted by SidebarPinnedTabsCell, never this cell.
         }
@@ -867,6 +881,10 @@ enum SidebarGlyphs {
         for row in rows.location..<(rows.location + rows.length) {
             guard let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarCellView,
                   cell !== self, !cell.entry.isHeading else { continue }
+            if userInterfaceLayoutDirection == .rightToLeft {
+                let edge = cell.convert(NSPoint(x: cell.bounds.minX, y: 0), to: self).x
+                return bounds.maxX - edge - SidebarMetrics.trailing
+            }
             let edge = cell.convert(NSPoint(x: cell.bounds.maxX, y: 0), to: self).x
             return edge - SidebarMetrics.trailing
         }
@@ -875,6 +893,22 @@ enum SidebarGlyphs {
 
     override func layout() {
         super.layout()
+        // Compute the established LTR geometry first, then reflect the frames for RTL.
+        // Only placement changes: titles retain their natural writing direction, and shortcut
+        // glyph sequences remain LTR rather than reversing the command/key order.
+        let rtl = userInterfaceLayoutDirection == .rightToLeft
+        title.alignment = rtl ? .right : .left
+        shortcut.alignment = rtl ? .left : .right
+        shortcut.baseWritingDirection = .leftToRight
+        defer {
+            if rtl {
+                for view in [icon, glyph, title, badge, accessory, shortcut] {
+                    var frame = view.frame
+                    frame.origin.x = bounds.minX + bounds.maxX - frame.maxX
+                    view.frame = frame
+                }
+            }
+        }
         // The source list has already inset the cell from the sidebar's edge and its selection plate.
         let height = bounds.height
         let slot = SidebarMetrics.iconSlot

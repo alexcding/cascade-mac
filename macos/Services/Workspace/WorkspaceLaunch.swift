@@ -30,7 +30,7 @@ struct WorkspaceLaunchCommand: Equatable, Sendable {
 
     static func make(id: String, custom: String, tools: [ExternalTool], path: String, directory: String) throws -> Self {
         guard path.hasPrefix("/"), directory.hasPrefix("/"), !path.contains("\0"), !directory.contains("\0") else {
-            throw BackendError.operation("The workspace must have an absolute local path.")
+            throw BackendError.operation(String(localized: "The workspace must have an absolute local path."))
         }
         if id == "custom" {
             // Substitute after tokenization so spaces, quotes, and shell syntax in
@@ -39,7 +39,7 @@ struct WorkspaceLaunchCommand: Equatable, Sendable {
                         directory: directory, waitsForExit: false)
         }
         guard let tool = tools.first(where: { $0.id == id }) else {
-            throw BackendError.operation("Choose an external application in Settings.")
+            throw BackendError.operation(String(localized: "Choose an external application in Settings."))
         }
         return Self(arguments: ["/usr/bin/open", "-a", tool.application, path], directory: directory, waitsForExit: true)
     }
@@ -48,7 +48,7 @@ struct WorkspaceLaunchCommand: Equatable, Sendable {
     // backslashes are literal. No expansion, pipelines, or shell evaluation.
     static func tokenize(_ template: String) throws -> [String] {
         guard template.utf8.count <= 16_384, !template.contains("\0") else {
-            throw BackendError.operation("The command is too long or contains a null character.")
+            throw BackendError.operation(String(localized: "The command is too long or contains a null character."))
         }
         var tokens: [String] = [], token = "", quote: Character?, started = false
         for character in template {
@@ -60,10 +60,10 @@ struct WorkspaceLaunchCommand: Equatable, Sendable {
                 if started || !token.isEmpty { tokens.append(token); token = ""; started = false }
             } else { token.append(character) }
         }
-        guard quote == nil else { throw BackendError.operation("Close the quote in the command template.") }
+        guard quote == nil else { throw BackendError.operation(String(localized: "Close the quote in the command template.")) }
         if started || !token.isEmpty { tokens.append(token) }
         guard let program = tokens.first, !program.isEmpty, tokens.count <= 256 else {
-            throw BackendError.operation("Enter a command with an executable name and no more than 256 arguments.")
+            throw BackendError.operation(String(localized: "Enter a command with an executable name and no more than 256 arguments."))
         }
         return tokens
     }
@@ -94,7 +94,7 @@ protocol WorkspaceCommandLauncher: Sendable {
 // long-running editors are not waited for or terminated when Cascade closes.
 actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
     func launch(_ command: WorkspaceLaunchCommand) async throws {
-        guard let program = command.arguments.first else { throw BackendError.operation("The launch command is empty.") }
+        guard let program = command.arguments.first else { throw BackendError.operation(String(localized: "The launch command is empty.")) }
         var environment = ProcessInfo.processInfo.environment
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let searchPath = (environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")
@@ -104,7 +104,7 @@ actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
             ? [program.hasPrefix("/") ? program : (command.directory as NSString).appendingPathComponent(program)]
             : searchPath.split(separator: ":").filter { $0.hasPrefix("/") }.map { ($0 as NSString).appendingPathComponent(program) }
         guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
-            throw BackendError.operation("Could not find executable ‘\(program)’. Check the custom command and PATH.")
+            throw BackendError.operation(String(localized: "Could not find executable ‘\(program)’. Check the custom command and PATH."))
         }
         try Task.checkCancellation()
         let process = Process()
@@ -119,11 +119,11 @@ actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
         defer { if process.isRunning { process.terminate() } }
         let deadline = ContinuousClock.now + .seconds(15)
         while process.isRunning {
-            guard ContinuousClock.now < deadline else { throw BackendError.operation("macOS timed out opening the application.") }
+            guard ContinuousClock.now < deadline else { throw BackendError.operation(String(localized: "macOS timed out opening the application.")) }
             try await Task.sleep(for: .milliseconds(20))
         }
         guard process.terminationStatus == 0 else {
-            throw BackendError.operation("macOS could not open the application (exit \(process.terminationStatus)). Check that it is installed and the target exists.")
+            throw BackendError.operation(String(localized: "macOS could not open the application (exit \(Int(process.terminationStatus))). Check that it is installed and the target exists."))
         }
     }
 }
@@ -143,10 +143,10 @@ actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
     }
     func editorLabel(_ project: Project?) -> String? {
         guard let id = project?.ide, !id.isEmpty else { return nil }
-        return id == "custom" ? "Open in Custom IDE" : ExternalTool.editors.first { $0.id == id }.map { "Open in \($0.name)" }
+        return id == "custom" ? String(localized: "Open in IDE") : ExternalTool.editors.first { $0.id == id }.map { String(localized: "Open in \($0.name)") }
     }
     func gitClientLabel(_ id: String) -> String? {
-        id == "custom" ? "Open in Custom Git Client" : ExternalTool.gitClients.first { $0.id == id }.map { "Open in \($0.name)" }
+        id == "custom" ? String(localized: "Open in Git client") : ExternalTool.gitClients.first { $0.id == id }.map { String(localized: "Open in \($0.name)") }
     }
     func openEditor(session: WorkspaceSession, project: Project?) async {
         guard let project else { return }
@@ -170,7 +170,7 @@ actor NativeWorkspaceCommandLauncher: WorkspaceCommandLauncher {
             do {
                 var path = directory
                 if !relative.isEmpty || !probe.isEmpty {
-                    guard let targets else { throw BackendError.operation("Connect to resolve the IDE launch target.") }
+                    guard let targets else { throw BackendError.operation(String(localized: "Connect to resolve the IDE launch target.")) }
                     path = try await targets.target(directory: directory, relative: relative, kind: probe)
                 }
                 try Task.checkCancellation()

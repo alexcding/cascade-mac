@@ -29,7 +29,7 @@ struct DashboardView: View {
                 if let error = model.navigation.error { warning(error) }
                 ForEach(Array(model.prs.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
                 if model.prs.updated == nil {
-                    Text(model.prs.loading ? "Loading pull requests…" : "Connect to load pull requests.").foregroundStyle(.secondary)
+                    Text(model.prs.loading ? String(localized: "Loading pull requests…") : String(localized: "Connect to load pull requests.")).foregroundStyle(.secondary)
                 } else {
                     switch model.tab {
                     case .pullRequests: pullRequestsPage
@@ -53,8 +53,8 @@ struct DashboardView: View {
     /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
     private var header: some View {
         switch model.tab {
-        case .pullRequests: DashboardPageHeader(caption: "Yours, newest first", title: "Pull requests")
-        case .reviews: DashboardPageHeader(caption: "Waiting on you, newest first", title: "Review requested")
+        case .pullRequests: DashboardPageHeader(caption: String(localized: "Yours, newest first"), title: String(localized: "Pull requests"))
+        case .reviews: DashboardPageHeader(caption: String(localized: "Waiting on you, newest first"), title: String(localized: "Review requested"))
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
         }
@@ -62,8 +62,8 @@ struct DashboardView: View {
 
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: .now)
-        let value = hour < 5 ? "Up late" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
-        return NSFullUserName().split(separator: " ").first.map { "\(value), \($0)" } ?? value
+        let value = hour < 5 ? String(localized: "Up late") : hour < 12 ? String(localized: "Good morning") : hour < 18 ? String(localized: "Good afternoon") : String(localized: "Good evening")
+        return NSFullUserName().split(separator: " ").first.map { String(localized: "\(value), \($0)") } ?? value
     }
 
     // MARK: Overview
@@ -120,10 +120,10 @@ struct DashboardView: View {
 
     private var pullRequestTile: some View {
         let tile = model.prs.tile
-        return DashboardStatTile(title: "Open pull requests", value: Double(tile.count), shown: shown("prs"),
+        return DashboardStatTile(title: String(localized: "Open pull requests"), value: Double(tile.count), shown: shown("prs"),
                                  footnote: tile.footnote,
                                  open: { model.selectTab(.pullRequests) }) {
-            if tile.failing > 0 { DashboardBadge("\(tile.failing) failing", tone: .danger) }
+            if tile.failing > 0 { DashboardBadge(String(localized: "\(tile.failing) failing"), tone: .danger) }
         } visual: {
             DashboardChecksMatrix(rows: tile.dots)
         }
@@ -132,10 +132,10 @@ struct DashboardView: View {
 
     private var reviewTile: some View {
         let tile = model.prs.reviewTile
-        return DashboardStatTile(title: "Waiting on you", value: Double(tile.count), shown: shown("reviews"),
+        return DashboardStatTile(title: String(localized: "Waiting on you"), value: Double(tile.count), shown: shown("reviews"),
                                  footnote: tile.footnote,
                                  open: { model.selectTab(.reviews) }) {
-            if let age = tile.oldestAge { DashboardBadge("oldest \(age)", tone: .warn) }
+            if let age = tile.oldestAge { DashboardBadge(String(localized: "oldest \(age)"), tone: .warn) }
         } visual: {
             DashboardAvatarStack(logins: tile.authors, avatars: model.prs.avatars)
         }
@@ -146,11 +146,11 @@ struct DashboardView: View {
     private var ticketTile: some View {
         let tile = model.tickets.tile
         let loading = model.tickets.loading && tile.count == 0
-        return DashboardStatTile(title: "Tickets assigned", value: loading ? 0 : Double(tile.count), shown: shown("tickets"),
+        return DashboardStatTile(title: String(localized: "Tickets assigned"), value: loading ? 0 : Double(tile.count), shown: shown("tickets"),
                                  footnote: tile.footnote,
                                  open: { model.showTickets() }) {
             if tile.urgent > 0 {
-                Button { model.showTickets(.urgent) } label: { DashboardBadge("\(tile.urgent) urgent", tone: .danger) }
+                Button { model.showTickets(.urgent) } label: { DashboardBadge(String(localized: "\(tile.urgent) urgent"), tone: .danger) }
                     .buttonStyle(.plain)
                     .help("Show urgent tickets")
                     .accessibilityIdentifier("dashboard-urgent-tickets")
@@ -164,7 +164,7 @@ struct DashboardView: View {
 
     private var spendTile: some View {
         let tile = model.usage.tile
-        return DashboardStatTile(title: "AI spend · 30 days", value: tile.month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
+        return DashboardStatTile(title: String(localized: "AI spend · 30 days"), value: tile.month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
                                  footnote: tile.footnote) {
             if let label = tile.tokensLabel { DashboardBadge(label, tone: .outline) }
         } visual: {
@@ -179,12 +179,12 @@ struct DashboardView: View {
     /// Yours newest first. The refresh here syncs every pull request, review requests included.
     private func myPullRequests(_ rows: [DashboardRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "My pull requests", detail: "",
+            DashboardSectionHeader(title: String(localized: "My pull requests"), detail: "",
                                    refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "prs")
             if model.prs.projects.isEmpty {
                 noProjects
             } else {
-                if rows.isEmpty { placeholder("No open pull requests you authored.") }
+                if rows.isEmpty { placeholder(String(localized: "No open pull requests you authored.")) }
                 prRows(rows)
             }
         }
@@ -193,7 +193,7 @@ struct DashboardView: View {
     /// Other people's pull requests waiting on the user, as their own section; left out when none are.
     private func reviewRequests(_ rows: [DashboardRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "Review requested", detail: "")
+            DashboardSectionHeader(title: String(localized: "Review requested"), detail: "")
             // Compact only in the side column; full width has room for the agent and Draft state.
             prRows(rows, compact: width >= Self.splitWidth)
         }
@@ -244,7 +244,7 @@ struct DashboardView: View {
             if model.prs.projects.isEmpty {
                 noProjects
             } else if groups.isEmpty {
-                placeholder("No pull requests here.")
+                placeholder(String(localized: "No pull requests here."))
             } else {
                 VStack(alignment: .leading, spacing: 44) {
                     ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
@@ -266,10 +266,10 @@ struct DashboardView: View {
     private var reviewsPage: some View {
         let reviews = model.prs.reviews
         return VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "Waiting on you", detail: "",
+            DashboardSectionHeader(title: String(localized: "Waiting on you"), detail: "",
                                    refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "reviews")
             if reviews.isEmpty {
-                placeholder("No review requests.")
+                placeholder(String(localized: "No review requests."))
             }
             prRows(reviews, author: true)
         }
@@ -282,14 +282,14 @@ struct DashboardView: View {
     @ViewBuilder private func ticketSummary(_ rows: [DashboardTicketRow], attention: [DashboardTicketRow]) -> some View {
         if model.tickets.available {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardSectionHeader(title: "Tickets", detail: "",
+                DashboardSectionHeader(title: String(localized: "Tickets"), detail: "",
                                        refresh: { model.tickets.refresh() }, busy: model.tickets.loading, id: "tickets")
                 if rows.isEmpty && model.tickets.loading {
-                    placeholder("Loading tickets…")
+                    placeholder(String(localized: "Loading tickets…"))
                 } else if rows.isEmpty {
-                    placeholder(model.tickets.error ?? "No tickets assigned to you.")
+                    placeholder(model.tickets.error ?? String(localized: "No tickets assigned to you."))
                 } else {
-                    if attention.isEmpty { placeholder("Nothing in progress or urgent.") }
+                    if attention.isEmpty { placeholder(String(localized: "Nothing in progress or urgent.")) }
                     ForEach(Array(attention.enumerated()), id: \.element.id) { index, row in
                         ticketRow(row, first: index == 0)
                     }
@@ -334,7 +334,7 @@ struct DashboardView: View {
     @ViewBuilder private var usage: some View {
         if showsUsage {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardSectionHeader(title: "Agent usage", detail: "")
+                DashboardSectionHeader(title: String(localized: "Agent usage"), detail: "")
                 DashboardUsageRows(shell: shell)
             }
         }
@@ -478,7 +478,7 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
             // A fixed row height keeps every tile the same height whatever its visual.
             .frame(height: 42)
             Text(footnote).font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
-                .lineLimit(1).truncationMode(.tail)
+                .lineLimit(2, reservesSpace: true).fixedSize(horizontal: false, vertical: true)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -709,13 +709,13 @@ struct DashboardPRRow: View {
 
     @ViewBuilder private var reviewState: some View {
         if let status = row.reviewLabel {
-            if status == "Draft" {
+            if row.pr.isDraft == true {
                 Text(status.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.3)
                     .foregroundStyle(DashboardPalette.ink3)
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
             } else {
-                let approved = status == "Approved"
+                let approved = row.pr.reviewDecision == "APPROVED"
                 Label(status, systemImage: approved ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.system(size: 11, weight: .semibold)).lineLimit(1).fixedSize()
                     .foregroundStyle(approved ? DashboardPalette.pill(.pendingRelease).text : DashboardPalette.pill(.inProgress).text)
@@ -780,12 +780,12 @@ struct DashboardCard: View {
             .contextMenu { PageRowMenu(hasSession: hasSession, open: openTab, session: session) }
     }
     @ViewBuilder private func reviewState(_ status: String) -> some View {
-        if status == "Draft" {
+        if row.pr.isDraft == true {
             Text(status.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.3).foregroundStyle(.tertiary)
                 .padding(.horizontal, 5).padding(.vertical, 2).overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
         } else {
-            Label(status, systemImage: status == "Approved" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(status == "Approved" ? .green : .orange).lineLimit(1)
+            Label(status, systemImage: row.pr.reviewDecision == "APPROVED" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold)).foregroundStyle(row.pr.reviewDecision == "APPROVED" ? .green : .orange).lineLimit(1)
         }
     }
     private var ciColor: Color {

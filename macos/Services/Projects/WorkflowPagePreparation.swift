@@ -37,7 +37,7 @@ struct APIWorkflowPagePreparation: WorkflowPagePreparing {
     let operations: any SessionCreating
     func prepare(_ target: WorkflowPageTarget, project: Project) async throws -> WorkspaceSession {
         guard target.projectID == project.id, !project.workspace.isEmpty else {
-            throw BackendError.operation("Choose a local workspace for this project before running a workflow.")
+            throw BackendError.operation(String(localized: "Choose a local workspace for this project before running a workflow."))
         }
         // Agent launch happens only after the durable session is handed to the
         // runner. A cancelled checkout does not mint an unused conversation ID.
@@ -46,7 +46,7 @@ struct APIWorkflowPagePreparation: WorkflowPagePreparing {
         try Task.checkCancellation()
         if draft.createBranch {
             draft.base = try await operations.references(project).defaultBranch
-            guard !draft.base.isEmpty else { throw BackendError.operation("Could not determine the default branch for this workflow.") }
+            guard !draft.base.isEmpty else { throw BackendError.operation(String(localized: "Could not determine the default branch for this workflow.")) }
         }
         try Task.checkCancellation()
         // Once checkout creation begins, drain its record write even if Stop is

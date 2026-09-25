@@ -12,7 +12,7 @@ struct ResourceUsageView: View {
                 Text("Listed memory: \(model.memory)").accessibilityIdentifier("resources-memory")
                 Text("Listed CPU: \(model.cpu)").accessibilityIdentifier("resources-cpu")
             }.monospacedDigit()
-            Text("CPU updates every 3 seconds while this view is active; 100% means one CPU core. Memory is physical footprint, the figure Activity Monitor shows.")
+            Text("CPU updates every 3 seconds while this view is active; 100% means one CPU core. Memory uses physical footprint when available.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
             Text("Includes the app, connected backend, PTY helper and their descendants, plus the WebKit and other helper processes macOS runs for the app. Totals cover only listed processes.")
                 .font(.caption).foregroundStyle(Theme.textSecondary)
@@ -24,17 +24,17 @@ struct ResourceUsageView: View {
             // The Form scrolls, so the table needs an explicit height or it collapses to one row.
             // Size it to its rows: a fixed height cuts the list off behind a second, nested scroll.
             Table(model.rows) {
-                TableColumn("Component") { Text($0.process.group.rawValue) }.width(85)
+                TableColumn("Component") { Text($0.process.group.title) }.width(min: 85, ideal: 110)
                 TableColumn("Process") { Text($0.process.name) }
                 TableColumn("PID") { Text(String($0.process.pid)).monospacedDigit() }.width(65)
-                TableColumn("Memory") { Text($0.memory).monospacedDigit() }.width(90)
-                TableColumn("CPU") { Text($0.cpu).monospacedDigit() }.width(90)
+                TableColumn("Memory") { Text($0.memory).monospacedDigit() }.width(min: 90, ideal: 110)
+                TableColumn("CPU") { Text($0.cpu).monospacedDigit() }.width(min: 90, ideal: 110)
             }.frame(height: Self.tableHeight(rows: model.rows.count)).accessibilityIdentifier("resources-processes")
             if let date = model.updatedAt {
                 Text("Sampled \(date.formatted(date: .omitted, time: .standard))").font(.caption).foregroundStyle(Theme.textSecondary)
             }
         } header: {
-            SettingsSectionHeader(title: "Resource usage", busy: model.loading) {
+            SettingsSectionHeader(title: String(localized: "Resource usage"), busy: model.loading) {
                 Button("Refresh", action: model.refresh).disabled(model.loading)
                     .accessibilityIdentifier("resources-refresh")
             }

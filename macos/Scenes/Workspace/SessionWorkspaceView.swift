@@ -132,17 +132,17 @@ struct BrowserPane: View {
             // Navigation and the address live in the compact tab bar above this pane.
             if context.findVisible {
                 HStack {
-                    TextField("Find in page", text: Binding(get: { context.findText }, set: { context.findText = $0 }))
+                    TextField(String(localized: "Find in page"), text: Binding(get: { context.findText }, set: { context.findText = $0 }))
                         .capsuleField()
                         .focused($finding).onSubmit { model.find(context.findText) }
-                    if model.found == false { Text("No match").font(.caption).foregroundStyle(.secondary) }
-                    Button("Previous Match", systemImage: "chevron.up") { model.find(context.findText, backwards: true) }
-                    Button("Next Match", systemImage: "chevron.down") { model.find(context.findText) }
-                    Button("Close Find", systemImage: "xmark") { context.findVisible = false }
+                    if model.found == false { Text(String(localized: "No match")).font(.caption).foregroundStyle(.secondary) }
+                    Button(String(localized: "Previous Match"), systemImage: "chevron.up") { model.find(context.findText, backwards: true) }
+                    Button(String(localized: "Next Match"), systemImage: "chevron.down") { model.find(context.findText) }
+                    Button(String(localized: "Close Find"), systemImage: "xmark") { context.findVisible = false }
                 }.glassIconButtons().padding(8)
             }
             if let error = model.error {
-                HStack { Text(error).font(.callout); Spacer(); Button("Retry", action: model.retry) }
+                HStack { Text(error).font(.callout); Spacer(); Button(String(localized: "Retry"), action: model.retry) }
                     .padding(10).foregroundStyle(.orange)
             }
             ForEach(page.downloads) { download in
@@ -156,7 +156,7 @@ struct BrowserPane: View {
                     // Per tab: what one blank tab expanded or searched is not the next one's.
                     BrowserStartPage(context: context, controls: model).id(page.id)
                 } else if page.webView == nil {
-                    ContentUnavailableView("Page suspended", systemImage: "globe", description: Text("Select this tab to reload it."))
+                    ContentUnavailableView(String(localized: "Page suspended"), systemImage: "globe", description: Text(String(localized: "Select this tab to reload it.")))
                 }
             }
         }
@@ -180,8 +180,8 @@ private struct BrowserDownloadRow: View {
             if let error = download.error { Text(error).font(.caption).foregroundStyle(Theme.danger).lineLimit(1) }
             else if download.running { ProgressView(value: download.fraction).frame(maxWidth: 160) }
             Spacer()
-            if download.finished { Button("Show in Finder", action: download.reveal) }
-            Button(download.running ? "Cancel Download" : "Dismiss", systemImage: "xmark", action: dismiss)
+            if download.finished { Button(String(localized: "Show in Finder"), action: download.reveal) }
+            Button(download.running ? String(localized: "Cancel Download") : String(localized: "Dismiss"), systemImage: "xmark", action: dismiss)
                 .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(Theme.textSecondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
@@ -240,13 +240,13 @@ struct SessionWorkspaceView: View {
                 }
                 .task(id: terminal.id) { model.restoreChatMode() }
         } else if model.removingSession {
-            ProgressView("Removing Session…")
+            ProgressView(String(localized: "Removing Session…"))
         } else if model.session != nil {
-            ProgressView("Opening Terminal…")
+            ProgressView(String(localized: "Opening Terminal…"))
         } else {
             VStack(spacing: 12) {
                 Text(model.terminalPrompt).foregroundStyle(.secondary)
-                Button("Open Terminal", systemImage: "terminal", action: model.openTerminal).buttonStyle(.borderedProminent)
+                Button(String(localized: "Open Terminal"), systemImage: "terminal", action: model.openTerminal).buttonStyle(.borderedProminent)
             }
         }
     }
@@ -312,8 +312,8 @@ private struct ReviewFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Picker("Review section", selection: Binding(get: { context.reviewSection }, set: context.setReviewSection)) {
-                ForEach(ReviewSection.allCases) { Text($0.rawValue).tag($0) }
+            Picker(String(localized: "Review section"), selection: Binding(get: { context.reviewSection }, set: context.setReviewSection)) {
+                ForEach(ReviewSection.allCases) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented).labelsHidden().fixedSize()
             if context.reviewSection == .changes, let diff {
                 let busy = diff.loading || diff.actions?.busy == true
@@ -322,10 +322,10 @@ private struct ReviewFooter: View {
                 }
                 Spacer(minLength: 4)
                 if busy { ProgressView().controlSize(.small) }
-                Button("Refresh Changes", systemImage: "arrow.clockwise", action: diff.refresh)
+                Button(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", action: diff.refresh)
                     .labelStyle(.iconOnly).buttonStyle(.borderless).disabled(busy)
                 if diff.actions != nil {
-                    Button("Commit and Push…", systemImage: "arrow.up.circle", action: diff.requestActions)
+                    Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: diff.requestActions)
                         .disabled(diff.actions?.busy == true)
                 }
             } else {
@@ -342,7 +342,7 @@ struct SessionWorkspaceModePicker: View {
     let model: SessionWorkspaceViewModel
 
     var body: some View {
-        Picker("Panel", selection: Binding(get: { model.mode }, set: model.selectMode)) {
+        Picker(String(localized: "Panel"), selection: Binding(get: { model.mode }, set: model.selectMode)) {
             ForEach(model.modes.filter { $0 != .diff || model.session != nil }) { mode in
                 Image(systemName: mode.symbol).help(mode.title).tag(mode)
                     .disabled(!model.canSelectMode(mode))
@@ -363,8 +363,8 @@ struct BlankPane: View {
 
     private var hint: Text {
         switch model.mode {
-        case .files: return Text("Search this worktree from the tab above, or use the folder to browse it.").foregroundColor(Theme.textTertiary)
-        case .diff, .browser, .simulator: return Text("Use ＋ to open a web page.").foregroundColor(Theme.textTertiary)
+        case .files: return Text(String(localized: "Search this worktree from the tab above, or use the folder to browse it.")).foregroundColor(Theme.textTertiary)
+        case .diff, .browser, .simulator: return Text(String(localized: "Use ＋ to open a web page.")).foregroundColor(Theme.textTertiary)
         }
     }
     private var root: String? {
@@ -393,7 +393,7 @@ struct BlankPane: View {
 
     private var empty: some View {
         VStack(spacing: 5) {
-            Text(model.mode == .files ? "No file open" : "Nothing open in this panel")
+            Text(model.mode == .files ? String(localized: "No file open") : String(localized: "Nothing open in this panel"))
                 .font(Theme.Typography.emptyTitle)
                 .foregroundStyle(Theme.textSecondary)
             hint.font(Theme.Typography.emptyHint).multilineTextAlignment(.center)
@@ -406,13 +406,13 @@ struct BlankPane: View {
     private var recent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Recent Files").font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                Text(String(localized: "Recent Files")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(recentFiles) { file in
                         RecentFileRow(file: file, root: root) { model.reopen(.file(file)) }
                     }
                 }
-                .accessibilityLabel("Recent Files")
+                .accessibilityLabel(String(localized: "Recent Files"))
             }
             .padding(24)
             .readableColumn()
@@ -482,11 +482,11 @@ struct SessionWorkspaceRunButton: View {
         // The stock navigation style is what draws one capsule with the system's divider; the
         // automatic style splits the pair into two glass circles.
         ControlGroup {
-            Button("Run \(model.runScheme)", systemImage: "play.fill", action: model.run)
-                .help("Build and run \(model.runScheme)")
+            Button(String(localized: "Run \(model.runScheme)"), systemImage: "play.fill", action: model.run)
+                .help(String(localized: "Build and run \(model.runScheme)"))
                 .disabled(running || starting || !model.canRun)
-            Button("Stop", systemImage: "stop.fill") { Task { await model.stopBuild() } }
-                .help("Stop the build")
+            Button(String(localized: "Stop"), systemImage: "stop.fill") { Task { await model.stopBuild() } }
+                .help(String(localized: "Stop the build"))
                 .disabled(!running)
         }
         .controlGroupStyle(.navigation)
@@ -525,7 +525,7 @@ struct SessionWorkspaceBuildTitle: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Show the build settings: scheme and simulator")
+            .help(String(localized: "Show the build settings: scheme and simulator"))
             .disabled(!model.canRun)
             SessionWorkspaceBuildLogButton(model: model)
         }
@@ -552,11 +552,11 @@ private struct SessionWorkspaceWarmupLine: View {
                     .rotationEffect(.degrees(state.running ? Self.angle(at: context.date) : 0))
             }
             .frame(width: 12, height: 12)
-            Text(state.failed ? "\(state.label) failed" : "\(state.label)…")
+            Text(state.failed ? String(localized: "\(state.displayLabel) failed") : String(localized: "\(state.displayLabel)…"))
                 .font(.subheadline).foregroundStyle(Theme.textSecondary)
                 .lineLimit(1).truncationMode(.tail)
         }
-        .help(state.failed ? state.message : "\(state.label) in this worktree, so the first build does not wait on it")
+        .help(state.failed ? state.message : String(localized: "\(state.displayLabel) in this worktree, so the first build does not wait on it"))
     }
 
     private static func angle(at date: Date) -> Double {
@@ -583,7 +583,7 @@ private struct SessionWorkspaceBuildLogButton: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Show the build log")
+            .help(String(localized: "Show the build log"))
             // Not while a build is starting: the viewer and the build would both find no shell and
             // each create one.
             .disabled(model.buildTerminal == nil || model.build?.starting == true)
@@ -612,7 +612,7 @@ struct SessionWorkspaceLeadingToolbar: View {
 
     private func workflowControls(_ workflow: WorkflowRunViewModel) -> some View {
         HStack(spacing: 5) {
-            Button(workflow.running ? "Stop Workflow" : "Run Workflow",
+            Button(workflow.running ? String(localized: "Stop Workflow") : String(localized: "Run Workflow"),
                    systemImage: workflow.running ? "stop.fill" : "bolt") {
                 Task {
                     if workflow.running { await workflow.stop() }
@@ -621,9 +621,9 @@ struct SessionWorkspaceLeadingToolbar: View {
             }
             .labelStyle(.iconOnly)
             .disabled(workflow.running ? workflow.stopping : !workflow.canRun)
-            Picker("Workflow", selection: Binding(get: { workflow.selectedID }, set: { workflow.selectedID = $0 })) {
+            Picker(String(localized: "Workflow"), selection: Binding(get: { workflow.selectedID }, set: { workflow.selectedID = $0 })) {
                 ForEach(workflow.recipes, id: \.id) {
-                    Text($0.name.isEmpty ? "Untitled workflow" : $0.name).tag($0.id)
+                    Text($0.name.isEmpty ? String(localized: "Untitled workflow") : $0.name).tag($0.id)
                 }
             }
             .labelsHidden()
@@ -643,7 +643,7 @@ struct SessionWorkspaceContextToggle: View {
         } label: {
             Image(systemName: "sidebar.trailing")
         }
-        .help(model.showsPage ? "Hide Context Pane" : "Show Context Pane")
+        .help(model.showsPage ? String(localized: "Hide Context Pane") : String(localized: "Show Context Pane"))
         .disabled(!model.canToggleContext)
     }
 }

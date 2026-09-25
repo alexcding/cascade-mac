@@ -11,8 +11,13 @@ struct LogsCoordinatorView: View {
                 if value == nil, let request = coordinator.confirmation { coordinator.cancel(id: request.id) }
             })) { request in
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Clear \(request.label)?").font(.title2.weight(.semibold))
-                    Text("This deletes every entry in this category, including entries hidden by search or Errors only.")
+                    Text("Clear Logs?").font(.title2.weight(.semibold))
+                    LabeledContent("Category", value: request.label)
+                    if request.category == "all" {
+                        Text("This deletes all logs, including entries hidden by search or Errors only.")
+                    } else {
+                        Text("This deletes every entry in this category, including entries hidden by search or Errors only.")
+                    }
                     if let error = coordinator.model.clearFailure(for: request) {
                         Text(error).foregroundStyle(.orange).textSelection(.enabled)
                     }

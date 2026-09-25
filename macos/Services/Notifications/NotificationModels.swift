@@ -42,36 +42,60 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
 
     var message: NativeNotice {
         let p = payload
-        let repo = p?.repo?.split(separator: "/").last.map(String.init) ?? "repository"
+        let repo = p?.repo?.split(separator: "/").last.map(String.init) ?? String(localized: "repository")
         let prBody = "#\(p?.pr?.number.map(String.init) ?? "?") \(p?.pr?.title ?? "")".trimmingCharacters(in: .whitespaces)
         let title: String
         let body: String
         var url: String?
         switch type {
-        case "pr_opened", "pr_merged", "pr_closed":
-            title = "Pull request \(type.dropFirst(3)) in \(repo)"; body = prBody; url = p?.pr?.url
+        case "pr_opened":
+            title = String(localized: "Pull request opened in \(repo)"); body = prBody; url = p?.pr?.url
+        case "pr_merged":
+            title = String(localized: "Pull request merged in \(repo)"); body = prBody; url = p?.pr?.url
+        case "pr_closed":
+            title = String(localized: "Pull request closed in \(repo)"); body = prBody; url = p?.pr?.url
         case "jira_transitioned":
-            title = "\(p?.key ?? "Ticket") → \(p?.transition ?? "?")"
-            body = p?.version.map { "Fix Version \($0)" } ?? ""
-        case "jira_version_created": title = "Fix Version \(p?.version ?? "?") created"; body = p?.project ?? ""
-        case "jira_fixversion_set": title = "Fix Version \(p?.version ?? "?") set"; body = p?.key ?? ""
-        case "jira_transition_failed": title = "Failed to transition \(p?.key ?? "ticket")"; body = p?.error ?? ""
-        case "jira_fixversion_failed": title = "Failed to set Fix Version"; body = p?.error ?? ""
-        case "sync_failed": title = "Sync failed for \(repo)"; body = p?.error ?? ""
+            title = "\(p?.key ?? String(localized: "Ticket")) → \(p?.transition ?? "?")"
+            body = p?.version.map { String(localized: "Fix Version \($0)") } ?? ""
+        case "jira_version_created": title = String(localized: "Fix Version \(p?.version ?? "?") created"); body = p?.project ?? ""
+        case "jira_fixversion_set": title = String(localized: "Fix Version \(p?.version ?? "?") set"); body = p?.key ?? ""
+        case "jira_transition_failed": title = String(localized: "Failed to transition \(p?.key ?? String(localized: "Ticket"))"); body = p?.error ?? ""
+        case "jira_fixversion_failed": title = String(localized: "Failed to set Fix Version"); body = p?.error ?? ""
+        case "sync_failed": title = String(localized: "Sync failed for \(repo)"); body = p?.error ?? ""
         case "automation_notify":
-            title = p?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Automation"; body = p?.body ?? ""; url = p?.url
+            title = p?.title.flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "Automation"); body = p?.body ?? ""; url = p?.url
         case "automation_run":
-            title = "\(p?.automation ?? "Automation") ran"
+            title = p?.mode == "dry"
+                ? String(localized: "Preview completed for \(p?.automation ?? String(localized: "Automation"))")
+                : String(localized: "\(p?.automation ?? String(localized: "Automation")) ran")
             body = p?.subject ?? ""
-        case "automation_failed": title = "\(p?.automation ?? "Automation") failed"; body = p?.subject ?? ""
+        case "automation_failed": title = String(localized: "\(p?.automation ?? String(localized: "Automation")) failed"); body = p?.subject ?? ""
         case "automation_limited":
-            title = "\(p?.automation ?? "Automation") held back"
-            body = ["Over its hourly run limit", p?.subject].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
-        default: title = type.isEmpty ? "Activity" : type.replacingOccurrences(of: "_", with: " ").capitalized
+            title = String(localized: "\(p?.automation ?? String(localized: "Automation")) held back")
+            body = [String(localized: "Over its hourly run limit"), p?.subject].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · ")
+        default: title = diagnosticTitle ?? (type.isEmpty ? String(localized: "Activity") : type.replacingOccurrences(of: "_", with: " ").capitalized)
             body = p?.error ?? p?.detail ?? ""
         }
         return NativeNotice(kind: .activity, title: title, body: body, url: url.flatMap(safeWebURL)?.absoluteString, eventType: type)
     }
+
+    private var diagnosticTitle: String? {
+        switch type {
+        case "worktree_setup_finished": String(localized: "Worktree setup finished")
+        case "worktree_setup_failed": String(localized: "Worktree setup failed")
+        case "worktree_fetch_skipped": String(localized: "Worktree fetch skipped")
+        case "worktree_derived_data_deleted": String(localized: "Worktree build data deleted")
+        case "worktree_derived_data_failed": String(localized: "Could not delete worktree build data")
+        case "worktree_branch_deleted": String(localized: "Worktree branch deleted")
+        case "worktree_branch_kept": String(localized: "Worktree branch kept")
+        case "worktree_copy_failed": String(localized: "Could not copy worktree files")
+        case "forwarder_started": String(localized: "Webhook forwarding started")
+        case "forwarder_failed": String(localized: "Webhook forwarding failed")
+        case "analyze_failed": String(localized: "Agent analysis failed")
+        default: nil
+        }
+    }
+
 }
 
 extension ActivityEvent {
@@ -113,10 +137,10 @@ enum NotificationPermission: String, Sendable {
     case notDetermined, denied, authorized, unavailable
     var label: String {
         switch self {
-        case .notDetermined: "Notifications are not enabled"
-        case .denied: "Notifications are disabled in System Settings"
-        case .authorized: "Notifications enabled"
-        case .unavailable: "Notification status unavailable"
+        case .notDetermined: String(localized: "Notifications are not enabled")
+        case .denied: String(localized: "Notifications are disabled in System Settings")
+        case .authorized: String(localized: "Notifications enabled")
+        case .unavailable: String(localized: "Notification status unavailable")
         }
     }
 }

@@ -15,14 +15,14 @@ struct SettingsView: View {
         // is the window's only navigation, and a split view's sidebar can always be dragged shut.
         HStack(spacing: 0) {
             List(SettingsSection.allCases, selection: $model.section) { section in
-                Label(section.rawValue, systemImage: section.symbol).tag(section)
+                Label(LocalizedStringKey(section.rawValue), systemImage: section.symbol).tag(section)
             }
             .listStyle(.sidebar)
-            .frame(width: 170)
+            .frame(minWidth: 170, idealWidth: 210, maxWidth: 240)
             Divider()
             detail.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .navigationTitle(model.section.rawValue)
+        .navigationTitle(Text(LocalizedStringKey(model.section.rawValue)))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.applicationActiveChanged(true) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in model.applicationActiveChanged(false) }
     }
@@ -55,7 +55,7 @@ struct SettingsView: View {
             if let error = model.error {
                 Section {
                     Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
-                    Button("Retry Settings", action: model.refresh)
+                    Button("Reload Settings", action: model.refresh)
                 }
             }
             if model.loading && !model.loaded {
@@ -69,7 +69,7 @@ struct SettingsView: View {
 
     @ViewBuilder private var general: some View {
             Section("Appearance") {
-                SettingsRow(title: "Appearance") {
+                SettingsRow(title: String(localized: "Appearance")) {
                     Picker("Theme", selection: Binding(get: { shell.appearance }, set: shell.setAppearance)) {
                         ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().accessibilityIdentifier("settings-theme")
@@ -78,7 +78,7 @@ struct SettingsView: View {
             LoginItemView(model: model.loginItem)
             MicrophoneAccessView(model: model.microphone)
             Section("Default agent") {
-                SettingsRow(title: "New session agent") {
+                SettingsRow(title: String(localized: "New session agent")) {
                     Picker("Default session agent", selection: Binding(get: { shell.defaultAgent }, set: shell.setDefaultAgent)) {
                         ForEach(SessionAgent.allCases) { Text($0.label).tag($0) }
                     }.labelsHidden().accessibilityIdentifier("settings-default-agent")
@@ -86,7 +86,7 @@ struct SettingsView: View {
             }
             NotificationPreferencesView(shell: shell, sounds: model.sounds)
             Section("Git client") {
-                SettingsRow(title: "Open in git client") {
+                SettingsRow(title: String(localized: "Open in Git client")) {
                     Picker("Git client", selection: Binding(get: { shell.gitClient }, set: shell.setGitClient)) {
                         Text("None").tag("")
                         ForEach(ExternalTool.gitClients) { Text($0.name).tag($0.id) }
@@ -97,8 +97,8 @@ struct SettingsView: View {
                     }.labelsHidden().accessibilityIdentifier("settings-git-client")
                 }
                 if shell.gitClient == "custom" {
-                    SettingsRow(title: "Command template",
-                                caption: "Use {path} for the checkout. Quotes group arguments; shell expansion and pipelines are not supported.") {
+                    SettingsRow(title: String(localized: "Command template"),
+                                caption: String(localized: "Use {path} for the checkout. Quotes group arguments; shell expansion and pipelines are not supported.")) {
                         TextField("Command template", text: Binding(get: { shell.gitClientCommandDraft }, set: { shell.gitClientCommandDraft = $0 }))
                             .accessibilityIdentifier("settings-git-client-command").onSubmit(shell.saveGitClientCommand)
                     }
@@ -132,18 +132,17 @@ struct SettingsView: View {
                 Text(notice).foregroundStyle(Theme.textSecondary).accessibilityIdentifier("settings-browsing-data-notice")
             }
         }
-        .confirmationDialog(confirmingClear.map { "Clear \($0.title.lowercased())?" } ?? "",
+        .confirmationDialog(confirmingClear?.confirmationTitle ?? "",
                             isPresented: Binding(get: { confirmingClear != nil }, set: { if !$0 { confirmingClear = nil } }),
                             titleVisibility: .visible, presenting: confirmingClear) { scope in
-            Button(scope == .history ? "Clear History" : "Clear Cookies", role: .destructive) { model.clearBrowsingData(scope) }
+            Button(LocalizedStringKey(scope == .history ? "Clear History" : "Clear Cookies"), role: .destructive) { model.clearBrowsingData(scope) }
             Button("Cancel", role: .cancel) {}
         } message: { scope in
-            Text(scope == .history ? "Removes every visited page from the start page and address suggestions."
-                                   : "Removes cookies, caches and site storage for the embedded browser. Open pages will be signed out.")
+            Text(scope.confirmationMessage)
         }
         Section("Memory") {
-            MemoryLimitRow(title: "Page memory",
-                           caption: "When web pages hold more than this, the least recently used hidden page is suspended, and it loads again when opened. A page playing sound, using the camera or microphone, or downloading is kept.",
+            MemoryLimitRow(title: String(localized: "Page memory"),
+                           caption: String(localized: "Suspend the least recently used hidden page when browser memory exceeds this limit. Pages playing audio, using the camera or microphone, or downloading stay active."),
                            identifier: "settings-page-memory", limit: shell.pageMemoryLimit, set: shell.setPageMemoryLimit)
         }
     }
@@ -158,26 +157,26 @@ struct SettingsView: View {
             AgentStatusLineSection(model: model.clis)
             SimulatorPreviewSection(model: model.clis)
             Section("Polling") {
-                Text("The GitHub and Jira CLIs poll on independent loops.")
+                Text("Choose how often Cascade checks GitHub and Jira for updates.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
-                SettingsRow(title: "GitHub poll interval", caption: "Seconds between PR refreshes. Minimum 15.") {
+                SettingsRow(title: String(localized: "GitHub poll interval"), caption: String(localized: "Seconds between PR refreshes. Minimum 15.")) {
                     TextField("60", text: $model.draft.pollInterval)
                         .accessibilityIdentifier("settings-poll-interval")
                 }
-                SettingsRow(title: "Jira poll interval", caption: "Seconds between ticket refreshes. Minimum 30.") {
+                SettingsRow(title: String(localized: "Jira poll interval"), caption: String(localized: "Seconds between ticket refreshes. Minimum 30.")) {
                     TextField("120", text: $model.draft.jiraPollInterval)
                         .accessibilityIdentifier("settings-jira-poll-interval")
                 }
             }.disabled(!model.loaded || model.saving)
             Section("Jira") {
-                SettingsRow(title: "Jira site URL", caption: "Leave blank to use the site acli is signed in to.") {
-                    TextField("auto-detected from acli", text: $model.draft.jiraBaseURL).accessibilityIdentifier("settings-jira-site")
+                SettingsRow(title: String(localized: "Jira site URL"), caption: String(localized: "Leave blank to use the site acli is signed in to.")) {
+                    TextField("Use the signed-in Jira site", text: $model.draft.jiraBaseURL).accessibilityIdentifier("settings-jira-site")
                 }
-                SettingsRow(title: "Result limit", caption: "How many tickets a sync fetches at most.") {
+                SettingsRow(title: String(localized: "Result limit"), caption: String(localized: "Maximum number of tickets to fetch per refresh.")) {
                     TextField("100", text: $model.draft.jiraLimit)
                         .accessibilityIdentifier("settings-jira-limit")
                 }
-                SettingsRow(title: "API token", caption: "Create one at id.atlassian.com. Stored with your other settings.") {
+                SettingsRow(title: String(localized: "API token"), caption: String(localized: "Create one at id.atlassian.com. Stored with your other settings.")) {
                     RevealableSecureField(prompt: "API token", text: $model.draft.jiraAPIToken).accessibilityIdentifier("settings-jira-token")
                 }
                 saveRow

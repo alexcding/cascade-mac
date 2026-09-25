@@ -19,12 +19,12 @@ struct APIGitChangesService: GitChangesService {
         struct Response: Decodable, Sendable { let ok: Bool; let hash: String }
         let value: Response = try await api.request(Routes.GIT_COMMIT, method: "POST",
             body: Request(path: worktree, message: message, includeUntracked: includeUntracked))
-        guard value.ok, !value.hash.isEmpty else { throw BackendError.operation("The backend did not confirm the commit. Refresh before retrying.") }
+        guard value.ok, !value.hash.isEmpty else { throw BackendError.operation(String(localized: "The backend did not confirm the commit. Refresh before retrying.")) }
         return value.hash
     }
     func push(worktree: String) async throws {
         let value: OperationOK = try await api.request(Routes.GIT_PUSH, method: "POST", body: ["path": worktree], timeout: 130)
-        guard value.ok == true else { throw BackendError.operation("The backend did not confirm the push. Refresh before retrying.") }
+        guard value.ok == true else { throw BackendError.operation(String(localized: "The backend did not confirm the push. Refresh before retrying.")) }
     }
 }
 
@@ -58,14 +58,14 @@ extension APIGitChangesService {
             body: DiscardRequest(path: worktree, revision: revision, selection: selection, mode: "preview"))
         guard value.revision == revision, value.selection == selection, value.patch.utf8.count <= 1024 * 1024,
               !value.patch.isEmpty, !value.path.isEmpty, value.path.utf8.count <= 4096 else {
-            throw BackendError.operation("The discard preview is invalid. Refresh changes.")
+            throw BackendError.operation(String(localized: "The discard preview is invalid. Refresh changes."))
         }
         return value
     }
     func discard(worktree: String, proposal: DiscardProposal) async throws {
         let value: OperationOK = try await api.request(Routes.GIT_DISCARD, method: "POST",
             body: DiscardRequest(path: worktree, revision: proposal.revision, selection: proposal.selection, mode: "apply"))
-        guard value.ok == true else { throw BackendError.operation("The backend did not confirm the discard. Refresh changes.") }
+        guard value.ok == true else { throw BackendError.operation(String(localized: "The backend did not confirm the discard. Refresh changes.")) }
     }
 }
 
@@ -101,9 +101,9 @@ extension APIGitChangesService {
     }
     var canPush: Bool { fresh && !suspended && discardProposal == nil && !loading && !busy && (snapshot?.ahead == nil || (snapshot?.ahead ?? 0) > 0) }
     var summary: String {
-        guard let snapshot else { return "Loading working changes…" }
-        let tracked = trackedChanges ? "Tracked changes" : "No tracked changes"
-        return "\(tracked) · \(snapshot.untracked.count) untracked files"
+        guard let snapshot else { return String(localized: "Loading working changes…") }
+        let tracked = trackedChanges ? String(localized: "Tracked changes") : String(localized: "No tracked changes")
+        return String(localized: "\(tracked) · \(snapshot.untracked.count) untracked files")
     }
     func connect(_ service: any GitChangesService) {
         self.service = service; generation = UUID(); loading = false; fresh = false
@@ -132,15 +132,15 @@ extension APIGitChangesService {
         do {
             if action != .push {
                 committedHash = try await service.commit(worktree: worktree, message: commitMessage, includeUntracked: includeUntracked)
-                status = "Committed \(committedHash!)."
+                status = String(localized: "Committed \(committedHash!).")
                 if message.trimmingCharacters(in: .whitespacesAndNewlines) == submitted { message = "" }
             }
             if action != .commit {
                 try await service.push(worktree: worktree)
-                status = committedHash.map { "Committed \($0) and pushed." } ?? "Pushed."
+                status = committedHash.map { String(localized: "Committed \($0) and pushed.") } ?? String(localized: "Pushed.")
             }
         } catch {
-            self.error = committedHash.map { "Commit \($0) is saved locally. \(error.localizedDescription)" } ?? error.localizedDescription
+            self.error = committedHash.map { String(localized: "Commit \($0) is saved locally. \(error.localizedDescription)") } ?? error.localizedDescription
         }
         // Even a failed commit may have staged files or a hook may have edited
         // the worktree. Always reconcile. Do not cancel an in-flight mutation
@@ -151,7 +151,7 @@ extension APIGitChangesService {
             let value = try await self.service.load(worktree: worktree)
             if generation == reconciliation { snapshot = value; fresh = true }
         }
-        catch { self.error = [self.error, "Could not refresh changes: \(error.localizedDescription)"].compactMap { $0 }.joined(separator: "\n") }
+        catch { self.error = [self.error, String(localized: "Could not refresh changes: \(error.localizedDescription)")].compactMap { $0 }.joined(separator: "\n") }
         finishOperation(); didChange()
     }
     func prepareDiscard(revision: String, selection: [Int]) async {
@@ -179,7 +179,7 @@ extension APIGitChangesService {
         defer { finishOperation(); didChange() }
         do {
             try await service.discard(worktree: worktree, proposal: proposal)
-            discardProposal = nil; status = "Discarded changes in \(proposal.path)."
+            discardProposal = nil; status = String(localized: "Discarded changes in \(proposal.path).")
             onPresentation(.discardEnded)
         } catch { self.error = error.localizedDescription }
     }

@@ -53,16 +53,16 @@ import Observation
         var items: [String] = []
         for cli in ManagedCLI.required {
             guard let state = clis.availability[cli.rawValue] else { continue }
-            if !state.present { items.append("\(cli.title) is not installed.") }
-            else if state.authed == false { items.append("\(cli.title) is not signed in.") }
+            if !state.present { items.append(String(localized: "\(cli.title) is not installed.")) }
+            else if state.authed == false { items.append(String(localized: "\(cli.title) is not signed in.")) }
         }
         for cli in ManagedCLI.allCases where cli.supportsHooks && present(cli) == true {
             if let status = clis.hooks[cli.rawValue], status != "installed" {
-                items.append(status == "outdated" ? "\(cli.title) hooks have an update." : "\(cli.title) hooks are not installed.")
+                items.append(status == "outdated" ? String(localized: "\(cli.title) hooks have an update.") : String(localized: "\(cli.title) hooks are not installed."))
             }
         }
         if present(.claude) == true, let status = clis.hooks[APICLISettingsService.statusLineKey], status != "installed" {
-            items.append("The Claude Code context status line is not installed.")
+            items.append(String(localized: "The Claude Code context status line is not installed."))
         }
         return items
     }

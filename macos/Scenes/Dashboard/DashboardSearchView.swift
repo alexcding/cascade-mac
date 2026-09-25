@@ -10,15 +10,15 @@ struct DashboardSearchView: View {
         let search = model.search
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardPageHeader(caption: search.caption, title: "Search")
+                DashboardPageHeader(caption: search.caption, title: String(localized: "Search"))
                     .padding(.top, 12).padding(.bottom, 24)
                 if let error = model.navigation.error { warning(error) }
                 if search.isEmpty {
                     empty
                 } else {
                     VStack(alignment: .leading, spacing: 40) {
-                        if !search.mine.isEmpty { pullRequests("Your pull requests", search.mine) }
-                        if !search.reviews.isEmpty { pullRequests("Review requests", search.reviews) }
+                        if !search.mine.isEmpty { pullRequests(String(localized: "Your pull requests"), search.mine) }
+                        if !search.reviews.isEmpty { pullRequests(String(localized: "Review requests"), search.reviews) }
                         if !search.tickets.isEmpty { tickets(search.tickets) }
                     }
                 }
@@ -47,7 +47,7 @@ struct DashboardSearchView: View {
 
     private func tickets(_ rows: [DashboardTicketRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "Tickets", detail: "")
+            DashboardSectionHeader(title: String(localized: "Tickets"), detail: "")
             DashboardTicketTable(rows: rows, opening: model.navigation.opening,
                 open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
                 session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark)

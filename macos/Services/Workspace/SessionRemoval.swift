@@ -43,7 +43,7 @@ struct SessionRemovalService: SessionRemoving {
         if plan.removesWorktree {
             let related = current.filter { SessionRemovalPlan.path($0.worktree) == SessionRemovalPlan.path(plan.record.worktree) }
             guard Set(related.map(\.id)) == Set(plan.sessions.map(\.id)) else {
-                throw BackendError.operation("Sessions using this worktree changed. Close this dialog and review removal again.")
+                throw BackendError.operation(String(localized: "Sessions using this worktree changed. Close this dialog and review removal again."))
             }
         }
         try await stopTerminals(plan.pairKeys)
@@ -85,22 +85,22 @@ struct SessionRemovalService: SessionRemoving {
     }
     var canRemove: Bool { !retired && !completed && !loading && !removing && plan != nil }
     /// The words the system confirmation shows. Plain: what stops, what is deleted, what survives.
-    var promptTitle: String { plan?.removesWorktree == true ? "Remove this session?" : "Forget this session?" }
-    var confirmLabel: String { plan?.removesWorktree == true ? "Remove Session" : "Forget Session" }
+    var promptTitle: String { plan?.removesWorktree == true ? String(localized: "Remove this session?") : String(localized: "Forget this session?") }
+    var confirmLabel: String { plan?.removesWorktree == true ? String(localized: "Remove Session") : String(localized: "Forget Session") }
     var promptMessage: String {
         guard let plan else { return "" }
         var lines = [plan.record.worktree]
         if plan.removesWorktree {
-            lines.append("The terminal stops and this folder is deleted. Your branch and its commits stay, but anything not committed here is lost.")
+            lines.append(String(localized: "The terminal stops and this folder is deleted. Your branch and its commits stay, but anything not committed here is lost."))
             if plan.sessions.count > 1 {
                 let names = plan.sessions.map { $0.title.isEmpty ? $0.label : $0.title }
-                lines.append("\(plan.sessions.count) sessions use this folder, so all of them go: \(names.joined(separator: ", ")).")
+                lines.append(String(localized: "\(plan.sessions.count) sessions use this folder, so all of them go: \(names.joined(separator: ", "))."))
             }
             if !plan.holders.isEmpty {
-                lines.append("Still open in \(plan.holders.joined(separator: ", ")). Xcode is asked to close it.")
+                lines.append(String(localized: "Still open in \(plan.holders.joined(separator: ", ")). Xcode is asked to close it."))
             }
         } else {
-            lines.append("No project here owns this folder. The terminal stops and Cascade forgets the session — the folder itself stays.")
+            lines.append(String(localized: "No project here owns this folder. The terminal stops and Cascade forgets the session — the folder itself stays."))
         }
         return lines.joined(separator: "\n\n")
     }

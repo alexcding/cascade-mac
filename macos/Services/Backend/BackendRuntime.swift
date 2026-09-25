@@ -66,7 +66,7 @@ enum BackendRuntimeEvent: Equatable {
     init(factory: any BackendRuntimeFactory = NativeBackendRuntimeFactory()) { self.factory = factory }
 
     func start() async throws -> APIClient {
-        guard owner == nil else { throw BackendError.startup("The backend runtime is already starting or running.") }
+        guard owner == nil else { throw BackendError.startup(String(localized: "The backend runtime is already starting or running.")) }
         let configuration = try factory.configuration()
         let process = factory.process(configuration: configuration)
         let request = UUID()

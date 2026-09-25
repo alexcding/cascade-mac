@@ -16,19 +16,19 @@ struct AutomationDryRunSheet: View {
             }
             .padding(.bottom, 18)
             HStack(spacing: 10) {
-                Picker(model.sampleKind == "jira" ? "Ticket" : "Pull request", selection: $model.sample) {
-                    if model.samples.isEmpty { Text(model.samplesLoading ? "Loading…" : "None synced").tag(AutomationSample?.none) }
+                Picker(model.sampleKind == "jira" ? String(localized: "Ticket") : String(localized: "Pull request"), selection: $model.sample) {
+                    if model.samples.isEmpty { Text(model.samplesLoading ? String(localized: "Loading…") : String(localized: "None synced")).tag(AutomationSample?.none) }
                     ForEach(model.samples) { sample in
                         Text(sample.detail.map { "\(sample.label) — \($0)" } ?? sample.label).tag(Optional(sample))
                     }
                 }
                 .frame(maxWidth: 440)
                 .accessibilityIdentifier("automation-sample")
-                DashboardRefreshButton(name: "samples", id: "automation-samples", busy: model.samplesLoading) { model.loadSamples() }
+                DashboardRefreshButton(name: String(localized: "samples"), id: "automation-samples", busy: model.samplesLoading) { model.loadSamples() }
             }
             if let types = model.draft?.trigger.types, types.count > 1 {
                 Picker("As if", selection: Binding(get: { model.sampleEvent ?? types.first ?? "" }, set: { model.sampleEvent = $0 })) {
-                    ForEach(types, id: \.self) { Text(model.catalog?.trigger($0)?.label ?? $0).tag($0) }
+                    ForEach(types, id: \.self) { Text(model.catalog?.trigger($0)?.localizedLabel ?? $0).tag($0) }
                 }
                 .frame(maxWidth: 320)
                 .padding(.top, 10)
@@ -57,7 +57,7 @@ struct AutomationDryRunSheet: View {
             HStack {
                 Button("Run for Real…") { confirmLive = true }
                     .disabled(model.sample == nil || model.isNew || model.dirty || model.dryRunning)
-                    .help(model.dirty || model.isNew ? "Save first to run for real." : "Execute the actions on this sample now.")
+                    .help(model.dirty || model.isNew ? String(localized: "Save first to run for real.") : String(localized: "Execute the actions on this sample now."))
                 Spacer()
                 Button("Close") { model.clearTrace(); dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Dry Run") { Task { await model.dryRun() } }
@@ -72,7 +72,7 @@ struct AutomationDryRunSheet: View {
         .confirmationDialog("Run this automation for real?", isPresented: $confirmLive) {
             Button("Run Now", role: .destructive) { Task { await model.runNow() } }
         } message: {
-            Text("Its actions act on \(model.sample?.label ?? "the sample") as you, even while it is off.")
+            Text("Its actions act on \(model.sample?.label ?? String(localized: "the sample")) as you, even while it is off.")
         }
     }
 }
@@ -84,10 +84,10 @@ struct AutomationTraceSteps: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             row(symbol: trace.triggerMatched ? "bolt.fill" : "bolt.slash", tint: trace.triggerMatched ? Theme.accent : Theme.warn,
-                title: trace.triggerMatched ? "Trigger matches" : "Trigger would not fire", detail: trace.triggerDetail, commands: [])
+                title: trace.triggerMatched ? String(localized: "Trigger matches") : String(localized: "Trigger would not fire"), detail: trace.triggerDetail, commands: [])
             ForEach(trace.steps) { step in
                 row(symbol: AutomationStatus.symbol(step.status), tint: AutomationStatus.tint(step.status),
-                    title: step.label, status: AutomationStatus.title(step.status), detail: step.detail, commands: step.commands)
+                    title: AutomationCatalogText.localized(step.label), status: AutomationStatus.title(step.status), detail: step.detail, commands: step.commands)
             }
             if trace.status == "limited" {
                 Label("Held back: this automation already ran 30 times in the last hour.", systemImage: "hourglass")
@@ -128,7 +128,7 @@ struct AutomationRunsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: "Runs", detail: model.runs.isEmpty ? "Automatic and manual runs" : "\(model.runs.count) recorded, newest first",
+            DashboardSectionHeader(title: String(localized: "Runs"), detail: model.runs.isEmpty ? String(localized: "Automatic and manual runs") : String(localized: "\(model.runs.count) recorded, newest first"),
                                    refresh: model.loadRuns, busy: model.runsLoading, id: "automation-runs")
             if model.runs.isEmpty && !model.runsLoading {
                 Text("No runs yet. They appear here once the automation is on and an event matches its trigger, or after Run for Real.")

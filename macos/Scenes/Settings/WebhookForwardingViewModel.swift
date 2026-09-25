@@ -21,15 +21,15 @@ import Observation
     func status(extensionInstalled: Bool?) -> String? {
         guard let settings else { return nil }
         if settings.forwardWebhooks, extensionInstalled == false {
-            return "Install the gh webhook extension to forward events. Until then, polling catches every change."
+            return String(localized: "Install the gh webhook extension to forward events. Cascade will keep checking for updates on its regular schedule.")
         }
-        if settings.paused { return "Automations are paused: forwarded events are ignored until they are back on." }
-        guard settings.forwardWebhooks else { return "Polling only: automations see pull request changes on the next poll." }
-        if settings.forwardable.isEmpty { return "No pull request automation that is on needs forwarding yet." }
+        if settings.paused { return String(localized: "Automations are paused. Forwarded events are ignored until you resume them.") }
+        guard settings.forwardWebhooks else { return String(localized: "Webhook forwarding is off. Automations check pull request changes on the regular refresh schedule.") }
+        if settings.forwardable.isEmpty { return String(localized: "No enabled pull request automation needs webhook forwarding.") }
         let running = settings.forwardable.filter(settings.forwarding.contains)
         return running.count == settings.forwardable.count
-            ? "Forwarding \(running.count) repo\(running.count == 1 ? "" : "s")."
-            : "Forwarding \(running.count) of \(settings.forwardable.count) repos. Polling covers the rest."
+            ? String(localized: "Repositories forwarding events: \(running.count).")
+            : String(localized: "Repositories forwarding events: \(running.count) of \(settings.forwardable.count). Cascade checks the rest on its regular schedule.")
     }
 
     func connect(_ service: (any AutomationService)?) {

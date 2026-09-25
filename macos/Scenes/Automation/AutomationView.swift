@@ -44,7 +44,7 @@ private struct AutomationMasterSwitch: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(on ? "Automations on" : "Automations paused")
+            Text(on ? String(localized: "Automations on") : String(localized: "Automations paused"))
                 .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(on ? Color.primary : Theme.warn)
             Toggle("All automations", isOn: Binding(get: { on }, set: { value in Task { await model.setPaused(!value) } }))
@@ -53,8 +53,8 @@ private struct AutomationMasterSwitch: View {
         }
         .padding(.horizontal, 10)
         .disabled(model.settings == nil)
-        .help(on ? "Pause every automation. Pipelines keep their modes and resume where they were."
-                 : "Paused: no pipeline runs until you switch automations back on.")
+        .help(on ? String(localized: "Pause new automatic runs. Automation modes are preserved.")
+                 : String(localized: "Automatic runs are paused. Manual runs are still available."))
     }
 }
 
@@ -68,7 +68,7 @@ struct AutomationNewMenu: View {
                 Divider()
                 Section("Start From") {
                     ForEach(templates) { template in
-                        Button(template.name) { model.create(from: template) }
+                        Button(template.localizedName) { model.create(from: template) }
                     }
                 }
             }
@@ -76,7 +76,7 @@ struct AutomationNewMenu: View {
             Label("New Automation", systemImage: "plus")
         }
         .menuIndicator(.hidden)
-        .help("New automation")
+        .help(String(localized: "New automation"))
         .accessibilityIdentifier("automation-new")
     }
 }
@@ -105,7 +105,7 @@ private struct AutomationListPane: View {
             // Last, where they land once saved: a new pipeline takes the next position.
             ForEach(model.newDrafts, id: \.key) { item in
                 AutomationListRow(name: item.draft.name, summary: item.draft.summary(model.catalog),
-                                  pill: ("Unsaved", .accent), lastRun: nil, selected: model.openKey == item.key) {
+                                  pill: (String(localized: "Unsaved"), .accent), lastRun: nil, selected: model.openKey == item.key) {
                     model.select(item.key)
                 }
                 .accessibilityIdentifier("automation-row-\(item.key)")
@@ -147,7 +147,7 @@ private struct AutomationListRow: View {
         Button(action: select) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(name.isEmpty ? "Untitled automation" : name)
+                    Text(name.isEmpty ? String(localized: "Untitled automation") : name)
                         .font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.tail)
                     if edited {
                         Circle().fill(Theme.accent).frame(width: 6, height: 6)
@@ -185,7 +185,7 @@ private struct AutomationEmptyState: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                DashboardPageHeader(caption: "Pipelines across your projects", title: "Automation")
+                DashboardPageHeader(caption: String(localized: "Pipelines across your projects"), title: String(localized: "Automation"))
                     .padding(.top, 12).padding(.bottom, 12)
                 Text("A pipeline waits for a GitHub or Jira event, checks its filters, then acts. Dry-run it on a real pull request to see exactly what it would do, then switch it on.")
                     .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink2)
@@ -194,12 +194,12 @@ private struct AutomationEmptyState: View {
                 if let error = model.error {
                     Text(error).font(.system(size: 12.5)).foregroundStyle(Theme.warn).textSelection(.enabled).padding(.bottom, 20)
                 }
-                DashboardSectionHeader(title: "Start from", detail: "Every template starts Off")
+                DashboardSectionHeader(title: String(localized: "Start from"), detail: String(localized: "Every template starts Off"))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], alignment: .leading, spacing: 14) {
-                    AutomationTemplateTile(name: "Blank automation", summary: "A trigger and nothing else; add the filters and actions you need.",
+                    AutomationTemplateTile(name: String(localized: "Blank automation"), summary: String(localized: "A trigger and nothing else; add the filters and actions you need."),
                                            symbol: "plus") { model.create() }
                     ForEach(model.catalog?.templates ?? []) { template in
-                        AutomationTemplateTile(name: template.name, summary: template.summary, symbol: "bolt") {
+                        AutomationTemplateTile(name: template.localizedName, summary: template.localizedSummary, symbol: "bolt") {
                             model.create(from: template)
                         }
                     }
@@ -281,15 +281,15 @@ enum AutomationStatus {
     }
     static func title(_ status: String) -> String {
         switch status {
-        case "passed": "Passed"
-        case "failed": "Stopped here"
-        case "planned": "Would run"
-        case "done": "Done"
-        case "skipped": "Skipped"
-        case "completed": "Completed"
-        case "filtered": "Filtered out"
-        case "limited": "Rate limited"
-        default: "Error"
+        case "passed": String(localized: "Passed")
+        case "failed": String(localized: "Stopped here")
+        case "planned": String(localized: "Would run")
+        case "done": String(localized: "Done")
+        case "skipped": String(localized: "Skipped")
+        case "completed": String(localized: "Completed")
+        case "filtered": String(localized: "Filtered out")
+        case "limited": String(localized: "Rate limited")
+        default: String(localized: "Error")
         }
     }
     static func lastRun(_ run: Automation.RunSummary) -> String {

@@ -28,7 +28,7 @@ import Observation
 
     func bind(terminalID: String) {
         guard self.terminalID != terminalID else { return }
-        invalidate("The terminal identity changed during the workflow step.")
+        invalidate(String(localized: "The terminal identity changed during the workflow step."))
         self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false; betweenTurns = false
     }
 
@@ -37,7 +37,7 @@ import Observation
         streamAvailable = value
         if !value {
             betweenTurns = false
-            invalidate("The agent event connection was lost. Check the terminal before restarting the workflow.")
+            invalidate(String(localized: "The agent event connection was lost. Check the terminal before restarting the workflow."))
         }
     }
 
@@ -61,9 +61,9 @@ import Observation
 
     func arm(cli: WorkflowCLI, sessionID: String?) throws -> Ticket {
         guard streamAvailable, terminalID != nil else {
-            throw BackendError.operation("Connect the terminal and agent event stream before running a workflow.")
+            throw BackendError.operation(String(localized: "Connect the terminal and agent event stream before running a workflow."))
         }
-        guard pending == nil, !busy else { throw BackendError.operation("The agent already has an active turn or workflow step.") }
+        guard pending == nil, !busy else { throw BackendError.operation(String(localized: "The agent already has an active turn or workflow step.")) }
         let ticket = Ticket()
         pending = Pending(ticket: ticket, cli: cli, sessionID: sessionID.flatMap { $0.isEmpty ? nil : $0 })
         return ticket
@@ -79,7 +79,7 @@ import Observation
         let incomingID = event.sessionId.flatMap { $0.isEmpty ? nil : $0 }
         if pending?.sessionID != nil && incomingID == nil { return false }
         if let expected = pending?.sessionID, let incomingID, expected != incomingID {
-            invalidate("The agent conversation changed during the workflow step. Check the terminal before continuing.")
+            invalidate(String(localized: "The agent conversation changed during the workflow step. Check the terminal before continuing."))
             return false
         }
         // A Stop for an older/different CLI conversation must not clear a newer
@@ -91,7 +91,7 @@ import Observation
         if event.type == "agent-turn-start" {
             revision &+= 1; busy = true; betweenTurns = false
             if pending?.started == true {
-                invalidate("Another agent turn started before the workflow step finished.")
+                invalidate(String(localized: "Another agent turn started before the workflow step finished."))
             } else if pending != nil {
                 pending?.started = true
                 if let incomingID { pending?.sessionID = incomingID }
@@ -109,12 +109,12 @@ import Observation
             try Task.checkCancellation()
             return try await withCheckedThrowingContinuation { continuation in
                 guard var current = pending, current.ticket == ticket else {
-                    continuation.resume(throwing: BackendError.operation("This workflow step is no longer active.")); return
+                    continuation.resume(throwing: BackendError.operation(String(localized: "This workflow step is no longer active."))); return
                 }
                 if let result = current.result {
                     pending = nil; continuation.resume(with: result)
                 } else if current.continuation != nil {
-                    continuation.resume(throwing: BackendError.operation("This workflow step already has a completion waiter."))
+                    continuation.resume(throwing: BackendError.operation(String(localized: "This workflow step already has a completion waiter.")))
                 } else {
                     current.continuation = continuation; pending = current
                 }
@@ -132,7 +132,7 @@ import Observation
     }
 
     func interrupted() {
-        invalidate("The workflow was interrupted.")
+        invalidate(String(localized: "The workflow was interrupted."))
         busy = false
     }
 

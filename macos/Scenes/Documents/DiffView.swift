@@ -2,14 +2,14 @@ import SwiftUI
 
 struct DiffView: View {
     @Bindable var model: DiffViewModel
-    var title = "Changes"
+    var title = String(localized: "Changes")
     /// The session workspace draws these controls in its review footer instead.
     var showsHeader = true
     var body: some View {
         VStack(spacing: 0) {
             if showsHeader { header; Divider() }
             if let error = model.error {
-                HStack { Text(error).font(.callout).foregroundStyle(.orange); Spacer(); Button("Reload Changes", action: model.reload) }.padding(10)
+                HStack { Text(error).font(.callout).foregroundStyle(.orange); Spacer(); Button(String(localized: "Reload Changes"), action: model.reload) }.padding(10)
                 Divider()
             }
             if let view = model.webView { BrowserSurface(webView: view) }
@@ -29,10 +29,10 @@ struct DiffView: View {
             if let branch = model.snapshot?.branch { Text(branch).foregroundStyle(.secondary).lineLimit(1) }
             Spacer()
             if model.actions != nil {
-                Button("Commit and Push…", systemImage: "arrow.up.circle", action: model.requestActions).disabled(model.actions?.busy == true)
+                Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: model.requestActions).disabled(model.actions?.busy == true)
             }
             if model.loading || model.actions?.busy == true { ProgressView().controlSize(.small) }
-            Button("Refresh Changes", systemImage: "arrow.clockwise", action: model.refresh)
+            Button(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", action: model.refresh)
                 .labelStyle(.iconOnly).disabled(model.loading || model.actions?.busy == true)
         }.padding(10)
     }

@@ -133,3 +133,15 @@ private func activity(_ stamp: String, type: String = "pr_merged", url: String =
     #expect(recorder.notices.isEmpty)
     await store.stop()
 }
+
+@Test func automationPreviewDoesNotClaimActionsRan() throws {
+    func notice(mode: String) throws -> NativeNotice {
+        let data = try JSONSerialization.data(withJSONObject: ["type": "automation_run",
+            "payload": ["automation": "Release notes", "mode": mode, "subject": "PR #42"]])
+        return try JSONDecoder().decode(ActivityEvent.self, from: data).message
+    }
+    let preview = try notice(mode: "dry")
+    #expect(preview.title == "Preview completed for Release notes")
+    #expect(preview.body == "PR #42")
+    #expect(try notice(mode: "live").title == "Release notes ran")
+}

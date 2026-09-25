@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 
 private let sidebarProject = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
@@ -158,7 +159,8 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
 /// The "+" on the Tabs heading and the "+" on a project row are the same control in the same
 /// place. A source list frames a heading's cell differently from an item's, so they only line up
 /// on screen if the heading reads the item's edge rather than reusing its own offset.
-@MainActor @Test func tabsHeadingAddButtonLinesUpWithAProjectRows() throws {
+@MainActor @Test(arguments: [LayoutDirection.leftToRight, .rightToLeft])
+func tabsHeadingAddButtonLinesUpWithAProjectRows(direction: LayoutDirection) throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-align-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -176,6 +178,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     outline.indentationPerLevel = 0
     outline.dataSource = coordinator; outline.delegate = coordinator
     coordinator.outline = outline
+    coordinator.setLayoutDirection(direction)
     let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
     scroll.documentView = outline
     let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -422,4 +425,36 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(!hint.drawsBackground && hint.layer?.backgroundColor == nil)
     cell.configure(session, nested: true, spinFrame: 0)
     #expect(label("⌘1") == nil && !glyph.isHidden)
+}
+
+/// RTL mirrors placement without reversing paths, user titles or command-key sequences.
+@MainActor @Test func sidebarSessionMirrorsPlacementWithoutChangingItsText() throws {
+    _ = NSApplication.shared
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")], tabs: [],
+                                   status: ["a": SidebarSessionStatus(live: true, cli: "claude")])
+    let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    cell.userInterfaceLayoutDirection = .leftToRight
+    cell.configure(session, nested: true, spinFrame: 0, shortcut: "⌘1")
+    cell.layoutSubtreeIfNeeded()
+    let labels = cell.subviews.compactMap { $0 as? NSTextField }
+    let title = try #require(labels.first { $0.stringValue == session.title })
+    let hint = try #require(labels.first { $0.stringValue == "⌘1" })
+    let original = title.frame
+    #expect(hint.frame.maxX <= title.frame.minX)
+
+    cell.userInterfaceLayoutDirection = .rightToLeft
+    cell.needsLayout = true
+    cell.layoutSubtreeIfNeeded()
+    #expect(title.frame.minX == cell.bounds.maxX - original.maxX)
+    #expect(title.frame.width == original.width)
+    #expect(hint.frame.minX >= title.frame.maxX)
+    #expect(title.alignment == .right)
+    #expect(title.stringValue == session.title && hint.stringValue == "⌘1")
+    #expect(hint.baseWritingDirection == .leftToRight)
+
+    cell.userInterfaceLayoutDirection = .leftToRight
+    cell.needsLayout = true
+    cell.layoutSubtreeIfNeeded()
+    #expect(title.frame == original)
 }

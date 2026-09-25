@@ -123,7 +123,7 @@ extension EditorSurface {
             return
         }
         guard loadingTask == nil else { return }
-        guard let service, let makeSurface else { error = "Connect to the backend to open this file."; return }
+        guard let service, let makeSurface else { error = String(localized: "Connect to the backend to open this file."); return }
         loading = true; error = nil
         let generation = generation
         loadingTask = Task {
@@ -239,7 +239,7 @@ extension EditorSurface {
     // Freeze before querying: a sheet/save may await, so later keystrokes cannot
     // arrive after the user approves closing. Dirty notifications alone race input.
     func beginClose() async throws -> Bool {
-        guard !closing else { throw BackendError.operation("This file is already being closed.") }
+        guard !closing else { throw BackendError.operation(String(localized: "This file is already being closed.")) }
         closing = true
         if let savingTask { _ = await savingTask.value }
         guard loaded, let surface else { return dirty }
@@ -273,10 +273,10 @@ extension EditorSurface {
     }
     private static func validate(content: String, revision: String) throws {
         guard content.utf8.count <= 5 * 1024 * 1024, !content.contains("\0") else {
-            throw BackendError.operation("Only UTF-8 text files up to 5 MB can be edited.")
+            throw BackendError.operation(String(localized: "Only UTF-8 text files up to 5 MB can be edited."))
         }
         guard revision.count == 64, revision.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }) else {
-            throw BackendError.operation("The backend returned no valid file revision. Reopen the file after reconnecting.")
+            throw BackendError.operation(String(localized: "The backend returned no valid file revision. Reopen the file after reconnecting."))
         }
     }
 }

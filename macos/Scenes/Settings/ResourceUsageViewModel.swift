@@ -7,7 +7,7 @@ import Observation
         let cpuPercent: Double?
         var id: String { process.id }
         var memory: String { ByteCountFormatter.string(fromByteCount: Int64(clamping: process.footprintBytes), countStyle: .memory) }
-        var cpu: String { cpuPercent.map { String(format: "%.1f%%", $0) } ?? "Sampling…" }
+        var cpu: String { cpuPercent.map { $0.formatted(.percent.scale(1).precision(.fractionLength(1))) } ?? String(localized: "Sampling…") }
     }
     private(set) var rows: [Row] = []
     private(set) var notes: [String] = []
@@ -24,16 +24,16 @@ import Observation
 
     init(interval: Duration = .seconds(3)) { self.interval = interval }
     var memory: String {
-        guard updatedAt != nil else { return "Sampling…" }
+        guard updatedAt != nil else { return String(localized: "Sampling…") }
         let maximum = UInt64(Int64.max)
         let total = rows.reduce(UInt64(0)) { min(maximum, $0 + min(maximum, $1.process.footprintBytes)) }
         return ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .memory)
     }
     var cpu: String {
         let values = rows.compactMap(\.cpuPercent)
-        guard !values.isEmpty else { return "Sampling…" }
-        let result = String(format: "%.1f%%", values.reduce(0, +))
-        return values.count == rows.count ? result : result + " (partial)"
+        guard !values.isEmpty else { return String(localized: "Sampling…") }
+        let result = values.reduce(0, +).formatted(.percent.scale(1).precision(.fractionLength(1)))
+        return values.count == rows.count ? result : String(localized: "\(result) (partial)")
     }
     func connect(_ service: any ResourceUsageService) {
         cancel(); self.service = service

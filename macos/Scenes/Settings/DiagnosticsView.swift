@@ -14,7 +14,7 @@ struct DiagnosticsView: View {
                 if model.snapshot != nil { Text("Showing the last successful read.").foregroundStyle(Theme.textSecondary) }
             }
             if let snapshot = model.snapshot {
-                HStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("Projects: \(snapshot.counts.projects)")
                     Text("PR–Jira links: \(snapshot.counts.links)")
                     Text("Recent events: \(snapshot.counts.events) (up to 1,000)")
@@ -23,7 +23,7 @@ struct DiagnosticsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Calls: \(snapshot.ghStats.calls) · Errors: \(snapshot.ghStats.errors)")
                         Text("Average: \(snapshot.ghStats.avgMs) ms · Maximum: \(snapshot.ghStats.maxMs) ms")
-                        Text("Syncs in flight: \(snapshot.ghStats.inflight) · Coalesced: \(snapshot.ghStats.coalesced)")
+                        Text("Active refreshes: \(snapshot.ghStats.inflight) · Combined requests: \(snapshot.ghStats.coalesced)")
                     }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
                 }
                 if model.projects.isEmpty { Text("No projects configured.").foregroundStyle(Theme.textSecondary) }
@@ -34,7 +34,7 @@ struct DiagnosticsView: View {
                             ForEach(project.caches) { cache in
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack {
-                                        Text(cache.title).fontWeight(.medium).frame(width: 110, alignment: .leading)
+                                        Text(cache.title).fontWeight(.medium).frame(minWidth: 110, alignment: .leading)
                                         Text(cache.count)
                                         Spacer()
                                         Text(cache.lastSync).foregroundStyle(Theme.textSecondary)
@@ -54,7 +54,7 @@ struct DiagnosticsView: View {
                 ContentUnavailableView("Waiting for backend", systemImage: "externaldrive")
             }
         } header: {
-            SettingsSectionHeader(title: "Database", busy: model.loading) {
+            SettingsSectionHeader(title: String(localized: "Database"), busy: model.loading) {
                 Button("Refresh", action: model.refresh).disabled(model.loading)
                     .accessibilityIdentifier("diagnostics-refresh")
             }

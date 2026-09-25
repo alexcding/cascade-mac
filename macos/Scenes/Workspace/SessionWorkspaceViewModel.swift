@@ -124,7 +124,7 @@ extension WorkspaceServing {
     var runScheme: String {
         if let scheme = state.build?.scheme, !scheme.isEmpty { return scheme }
         if let scheme = state.project?.runScheme, !scheme.isEmpty { return scheme }
-        return "Scheme"
+        return String(localized: "Scheme")
     }
     /// The active web page's address when this workspace shows a page, for its favicon.
     var activePageURL: String? {
@@ -132,11 +132,11 @@ extension WorkspaceServing {
         return url
     }
     var workspaceTitle: String {
-        if context?.id == "scratch" { return "Terminal" }
-        return context?.activeDocument?.title ?? context?.activePage?.title ?? "Workspace"
+        if context?.id == "scratch" { return String(localized: "Terminal") }
+        return context?.activeDocument?.title ?? context?.activePage?.title ?? String(localized: "Workspace")
     }
     var terminalPrompt: String {
-        context?.id == "scratch" ? "Open an interactive shell." : "Open this session’s shell in its worktree."
+        context?.id == "scratch" ? String(localized: "Open an interactive shell.") : String(localized: "Open this session’s shell in its worktree.")
     }
     var showsTerminal: Bool { session != nil || context?.id == "scratch" }
     var showsChanges: Bool { session != nil && context?.pane == .diff }
@@ -346,7 +346,7 @@ extension WorkspaceServing {
     func switchAgent(to selection: AgentSelection) {
         guard context != nil, canSendAgentCommand, let driver = agentDriver else { return }
         guard let model = agentCatalog.model(selection.model) else {
-            agentCommandError = "\(selection.model) is not a model this CLI lists."; return
+            agentCommandError = String(localized: "\(selection.model) is not a model this CLI lists."); return
         }
         let effort = model.efforts.contains { $0.id == selection.effort } ? selection.effort : nil
         do {
@@ -417,7 +417,7 @@ extension WorkspaceServing {
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
                 },
                 deliver: { [weak self] text, files in
-                    guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    guard let terminal = self?.terminal else { throw BackendError.operation(String(localized: "The terminal is not open.")) }
                     // A message ending in an @ mention gets a space, which closes the file list the
                     // CLI opened for it: Enter on that list picks a file instead of sending.
                     let text = ChatCompletion.endsInMention(text) ? text + " " : text
@@ -457,7 +457,7 @@ extension WorkspaceServing {
                     watch: { [weak self] runID, watcher in self?.service?.watchPermissions(runID: runID, watcher) },
                     unwatch: { [weak self] runID in self?.service?.unwatchPermissions(runID: runID) },
                     answer: { [weak self] id, decision in
-                        guard let service = self?.service else { throw BackendError.operation("The workspace is closed.") }
+                        guard let service = self?.service else { throw BackendError.operation(String(localized: "The workspace is closed.")) }
                         try await service.answerPermission(id, decision: decision)
                     }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },

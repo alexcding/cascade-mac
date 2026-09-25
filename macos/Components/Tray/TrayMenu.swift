@@ -91,13 +91,13 @@ import SwiftUI
         let snapshot = model.snapshot()
         let pending = snapshot.pending
         var listed = false
-        if !pending.isEmpty { items.append(header("Review requested")); listed = true }
+        if !pending.isEmpty { items.append(header(String(localized: "Review requested"))); listed = true }
         if let error = shell.trayError {
-            items.append(note(Self.truncate(pending.isEmpty ? "Reviews unavailable. \(error)" : "Showing last available reviews. \(error)", limit: 60)))
+            items.append(note(Self.truncate(pending.isEmpty ? String(localized: "Reviews unavailable. \(error)") : String(localized: "Showing last available reviews. \(error)"), limit: 60)))
             listed = true
         }
         for pr in pending {
-            let item = row("PR #\(pr.number) \(pr.title)", action: .openReview(pr.id), enabled: model.canOpen(pr, in: snapshot))
+            let item = row(String(localized: "PR #\(pr.number) \(pr.title)"), action: .openReview(pr.id), enabled: model.canOpen(pr, in: snapshot))
             item.image = TrayIcons.github(login: pr.author?.login, frozen: nil, ci: pr.ci)
             item.toolTip = "\(pr.projectName ?? pr.repo) · \(pr.ciLabel)"
             items.append(item)
@@ -108,7 +108,7 @@ import SwiftUI
         items.append(usageItem)
         if let error = model.actionError { items.append(note(error)) }
         items.append(.separator())
-        items.append(row("Quit Cascade", action: .quit))
+        items.append(row(String(localized: "Quit Cascade"), action: .quit))
         menu.items = items
     }
 

@@ -7,7 +7,7 @@ struct NotificationPreferencesView: View {
 
     var body: some View {
         Section("Notifications") {
-            SettingsRow(title: "Review sound") {
+            SettingsRow(title: String(localized: "Review sound")) {
                 HStack {
                     Picker("Review sound", selection: Binding(get: { shell.reviewSound }, set: shell.setReviewSound)) {
                         Text("Glass (default)").tag("system")
@@ -35,7 +35,7 @@ struct NotificationPreferencesView: View {
                 } label: {
                     Text("Permission")
                     Text(shell.notifications.permission == .denied
-                         ? "Allow Cascade in System Settings → Notifications."
+                         ? String(localized: "Allow Cascade in System Settings → Notifications.")
                          : shell.notifications.permission.label)
                 }
             }

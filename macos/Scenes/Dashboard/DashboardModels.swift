@@ -36,9 +36,9 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
 func compactAge(_ date: Date?) -> String {
     guard let date else { return "" }
     let seconds = max(0, Int(Date.now.timeIntervalSince(date)))
-    if seconds < 3_600 { return "\(max(1, seconds / 60))m" }
-    if seconds < 86_400 { return "\(seconds / 3_600)h" }
-    return "\(seconds / 86_400)d"
+    if seconds < 3_600 { return String(localized: "\(max(1, seconds / 60))m") }
+    if seconds < 86_400 { return String(localized: "\(seconds / 3_600)h") }
+    return String(localized: "\(seconds / 86_400)d")
 }
 
 struct DashboardRow: Identifiable, Equatable, Sendable {
@@ -61,11 +61,11 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
         created = pr.createdAt.flatMap(backendTimestamp)
         detail = [pr.repo ?? projectName, pr.headRefName, pr.author?.login].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         dateLabel = created?.formatted(date: .abbreviated, time: .omitted)
-        searchText = ([pr.title ?? "Pull request", pr.number.map { "#\($0)" } ?? "PR", projectName, detail]
+        searchText = ([pr.title ?? String(localized: "Pull request"), pr.number.map { "#\($0)" } ?? "PR", projectName, detail]
             + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
     }
     var id: String { "\(projectID):\(url.absoluteString)" }
-    var title: String { pr.title ?? "Pull request" }
+    var title: String { pr.title ?? String(localized: "Pull request") }
     var number: String { pr.number.map { "#\($0)" } ?? "PR" }
     var inReviewGroup: Bool { pr.awaitingMyReview ?? (pr.category == "review") }
     var isMine: Bool { pr.category == "mine" }
@@ -77,12 +77,12 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
     }
     var ciRunning: Bool { ["queued", "in_progress"].contains(pr.ci?.status ?? "") }
     var ciLabel: String {
-        if ciRunning { return "CI running" }
+        if ciRunning { return String(localized: "CI running") }
         switch pr.ci?.conclusion {
-        case "success": return "CI passed"
-        case "failure": return "CI failed"
-        case "cancelled": return "CI cancelled"
-        default: return "No checks"
+        case "success": return String(localized: "CI passed")
+        case "failure": return String(localized: "CI failed")
+        case "cancelled": return String(localized: "CI cancelled")
+        default: return String(localized: "No checks")
         }
     }
     var ciSymbol: String {
@@ -107,10 +107,10 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
     /// Compact age at the row's trailing edge: 12m, 4h, 3d. Relative to now, so not stored.
     var ageLabel: String { compactAge(created) }
     var reviewLabel: String? {
-        if pr.isDraft == true { return "Draft" }
+        if pr.isDraft == true { return String(localized: "Draft") }
         switch pr.reviewDecision {
-        case "APPROVED": return "Approved"
-        case "CHANGES_REQUESTED": return "Changes requested"
+        case "APPROVED": return String(localized: "Approved")
+        case "CHANGES_REQUESTED": return String(localized: "Changes requested")
         default: return nil
         }
     }
@@ -214,10 +214,10 @@ enum TicketStage: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .toDo: return "To do"
-        case .inProgress: return "In progress"
-        case .pendingRelease: return "Pending release"
-        case .blocked: return "Blocked"
+        case .toDo: return String(localized: "To do")
+        case .inProgress: return String(localized: "In progress")
+        case .pendingRelease: return String(localized: "Pending release")
+        case .blocked: return String(localized: "Blocked")
         }
     }
 
@@ -239,10 +239,10 @@ enum TicketPriority: String, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .urgent: return "Urgent"
-        case .high: return "High"
-        case .medium: return "Medium"
-        case .low: return "Low"
+        case .urgent: return String(localized: "Urgent")
+        case .high: return String(localized: "High")
+        case .medium: return String(localized: "Medium")
+        case .low: return String(localized: "Low")
         }
     }
     var symbol: String {

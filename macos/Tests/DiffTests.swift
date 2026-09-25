@@ -110,6 +110,16 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(paths == "Sources/App.swift|fä.png")
     #expect(try await view.evaluateJavaScript("document.documentElement.dataset.theme") as? String == "dark")
     #expect(model.error == nil)
+    // Native translations travel with the payload; labels remain text even when they contain markup.
+    var localized = try #require(model.snapshot)
+    localized.language = "ar"
+    localized.labels?["discard"] = "تجاهل <b>التغييرات</b>"
+    let localizedData = try JSONEncoder().encode(localized)
+    _ = try await view.evaluateJavaScript("window.nativeDiff.render(\(String(decoding: localizedData, as: UTF8.self)))")
+    #expect(try await view.evaluateJavaScript("document.querySelector('.hunk-discard').textContent") as? String == "تجاهل <b>التغييرات</b>")
+    #expect(try await count(".hunk-discard b") == 0)
+    #expect(try await view.evaluateJavaScript("document.documentElement.dir") as? String == "rtl")
+    #expect(try await view.evaluateJavaScript("getComputedStyle(document.querySelector('.diff-table')).direction") as? String == "ltr")
     // Hidden, the page and its render stay for the next show; disconnecting lets them go.
     model.hide()
     #expect(model.webView === view && model.isPageReady)

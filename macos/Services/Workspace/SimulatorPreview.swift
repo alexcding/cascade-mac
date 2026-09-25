@@ -20,7 +20,7 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
     func start(udid: String) async throws -> URL {
         let started: Started = try await api.request(Routes.SIM_PREVIEW, method: "POST", body: ["udid": udid], timeout: 120)
         guard let url = Self.loopback(started.url) else {
-            throw BackendError.operation("serve-sim answered with an address that is not on this Mac.")
+            throw BackendError.operation(String(localized: "serve-sim answered with an address that is not on this Mac."))
         }
         return url
     }
