@@ -60,6 +60,7 @@ struct ChatPageLocalization: Encodable, Equatable {
         "Copy Link": String(localized: "Copy Link"),
         "Copy Table": String(localized: "Copy Table"),
         "Copy as %@": String(localized: "Copy as %@"),
+        "%@ at %@": String(localized: "%@ at %@", comment: "Chat date line: a day, then a time"),
         "Download Diagram": String(localized: "Download Diagram"),
         "Download File": String(localized: "Download File"),
         "Download Image": String(localized: "Download Image"),

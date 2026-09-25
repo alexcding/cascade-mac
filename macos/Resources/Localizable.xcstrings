@@ -66100,6 +66100,84 @@
         }
       }
     },
+    "unknown": {
+      "comment": "Mid-sentence: the foreground program is unknown",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अज्ञात"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desconocido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inconnu"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "অজানা"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desconhecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "неизвестно"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없음"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "okänt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sconosciuto"
+          }
+        }
+      }
+    },
     "Assigned to %@": {
       "extractionState": "manual",
       "localizations": {
@@ -113374,7 +113452,7 @@
         }
       }
     },
-    "Unknown error": {
+    "unknown error": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -113397,13 +113475,13 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Error desconocido"
+            "value": "error desconocido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erreur inconnue"
+            "value": "erreur inconnue"
           }
         },
         "bn": {
@@ -113415,13 +113493,13 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erro desconhecido"
+            "value": "erro desconhecido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Неизвестная ошибка"
+            "value": "неизвестная ошибка"
           }
         },
         "ja": {
@@ -113439,13 +113517,13 @@
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Okänt fel"
+            "value": "okänt fel"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Errore sconosciuto"
+            "value": "errore sconosciuto"
           }
         }
       }
@@ -116866,6 +116944,84 @@
           "stringUnit": {
             "state": "translated",
             "value": "Copia come %@"
+          }
+        }
+      }
+    },
+    "%@ at %@": {
+      "comment": "Chat date line: a day, then a time",
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ à %2$@"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ в %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ kl. %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
           }
         }
       }

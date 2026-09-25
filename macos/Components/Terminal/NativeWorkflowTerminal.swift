@@ -17,7 +17,7 @@ import Foundation
         }
         guard Self.matches(foreground, cli: cli,
                            launched: terminal.launchedAgent == cli && terminal.launchedAgentForeground == foreground) else {
-            let process = foreground.process.isEmpty ? String(localized: "Unknown") : foreground.process
+            let process = foreground.process.isEmpty ? String(localized: "unknown", comment: "Mid-sentence: the foreground program is unknown") : foreground.process
             throw BackendError.operation(String(localized: "The foreground program is \(process), not the selected \(cli.title) agent. Return to the shell before running this workflow."))
         }
         guard !terminal.agentBusy else { throw BackendError.operation(String(localized: "The agent is busy. Finish or stop its current turn first.")) }

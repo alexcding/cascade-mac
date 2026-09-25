@@ -147,7 +147,7 @@ public actor EmbeddedBackend: BackendProcessServing {
             let code = cascade_backend_start(directory.path, packaged ? 1 : 0, instanceID, &raw, &message)
             defer { cascade_string_free(message) }
             guard code == 0, let raw else {
-                let text = message.map { String(cString: $0) } ?? String(localized: "Unknown error")
+                let text = message.map { String(cString: $0) } ?? String(localized: "unknown error")
                 throw BackendError.startup(String(localized: "The embedded backend could not start: \(text)"))
             }
             return (EmbeddedBackendHandle(raw: raw), cascade_backend_port(raw))

@@ -89,7 +89,10 @@ function Markdown({ text }) {
 const time = (iso) => iso ? new Date(iso).toLocaleString(localization.locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
 function dateLine(iso) {
-  return new Date(iso).toLocaleString(localization.locale, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const date = new Date(iso);
+  const day = date.toLocaleDateString(localization.locale, { weekday: "short", month: "short", day: "numeric" });
+  const clock = date.toLocaleTimeString(localization.locale, { hour: "numeric", minute: "2-digit" });
+  return t("%@ at %@", day, clock);
 }
 
 function duration(seconds) {
