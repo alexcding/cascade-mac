@@ -12,24 +12,24 @@ import Testing
     var unwatched: [String] = []
     var answers: [(String, String)] = []
     var terminalShown = 0
-    /// Whether the field types into the terminal as it is written, and the keys it typed.
-    var types = false
-    var keys: [String] = []
-    var inLine: [Bool] = []
     var watcher: PermissionWatcher?
+    /// What the CLI and the worktree offer the suggestion list.
+    var commands: [AgentCommand] = []
+    var files: [String] = []
+    var fileQueries: [String] = []
 
     /// Held strongly by what it builds: a send can finish after the test that started it.
     func model() -> TranscriptChatModel {
-        let typeKeys: ((String) async throws -> Void)? = types ? { keys in self.keys.append(keys) } : nil
-        return TranscriptChatModel(
+        TranscriptChatModel(
             agentName: "Claude",
             load: { _ in self.transcript },
-            deliver: { text, files, inLine in
+            deliver: { text, files in
                 self.pasted.append(files.map(\.path))
                 self.typed.append(text)
-                self.inLine.append(inLine)
             },
-            typeKeys: typeKeys,
+            completions: .init(
+                commands: { self.commands },
+                files: { query in self.fileQueries.append(query); return self.files }),
             permissions: .init(
                 runID: { self.runID },
                 watch: { run, watcher in self.watched.append(run); self.watcher = watcher },
@@ -254,7 +254,8 @@ private func stamp(_ date: Date) -> String {
     #expect(chat.attachments.isEmpty && chat.queuedAttachments == [shot] && !chat.canAttach)
     chat.cancelQueued()
     #expect(chat.attachments == [shot] && chat.queuedAttachments.isEmpty && fixture.typed.isEmpty)
-    chat.draft = "what is this"
+    #expect(chat.draft == String(ChatCompletion.fileMark), "Its chip is back in the field")
+    chat.draft += "what is this"
     await chat.send()
     await chat.sendQueuedNow()
     #expect(fixture.pasted == [["/tmp/image.png"]] && fixture.typed == ["what is this"])
@@ -266,7 +267,8 @@ private func stamp(_ date: Date) -> String {
     let kept = ChatAttachment(path: "/tmp/a.txt", name: "a.txt"), dropped = ChatAttachment(path: "/tmp/b.txt", name: "b.txt")
     chat.attach([kept, dropped])
     chat.removeAttachment(dropped.id)
-    chat.draft = "read it"
+    #expect(chat.draft == String(ChatCompletion.fileMark), "Its chip goes with it")
+    chat.draft += "read it"
     await chat.send()
     await chat.sendQueuedNow()
     #expect(fixture.pasted == [["/tmp/a.txt"]])
@@ -288,36 +290,122 @@ private func stamp(_ date: Date) -> String {
     #expect(chat.attachments == [shot] && chat.canSend)
 }
 
-@MainActor @Test func theFieldIsTypedIntoTheTerminalAsItIsWritten() async {
-    let fixture = ChatFixture()
-    fixture.types = true
-    let chat = fixture.model()
-    chat.setAgentState(busy: false, idle: true)
-    chat.draft = "/rev"
-    await chat.syncLine()
-    chat.draft = "/review"
-    await chat.syncLine()
-    chat.draft = "/re"
-    await chat.syncLine()
-    #expect(fixture.keys == ["/rev", "iew", "\u{7f}\u{7f}\u{7f}\u{7f}"], "Only what changed is typed, and backed over")
-    chat.draft = "/review"
-    await chat.send()
-    #expect(fixture.typed == ["/review"] && fixture.inLine == [true], "Send is Enter on what the line holds")
-    #expect(chat.typedLine.isEmpty && fixture.keys.last == "view")
+@MainActor @Test func deletingAFilesChipTakesTheFileOutOfTheMessage() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    let a = ChatAttachment(path: "/tmp/a.png", name: "a.png"), b = ChatAttachment(path: "/tmp/b.png", name: "b.png")
+    chat.attach([a, b])
+    let mark = String(ChatCompletion.fileMark)
+    // Backspace over the first chip, as the field reports it.
+    chat.edit(mark + "compare", files: [b], caret: 1)
+    #expect(chat.attachments == [b])
+    // Select All then Delete, with nothing reported but the text.
+    chat.draft = ""
+    #expect(chat.attachments.isEmpty && !chat.canSend)
 }
 
-@MainActor @Test func aMessageKeysCannotTypeLeavesTheLineAndGoesWhole() async {
+@MainActor @Test func filesArePlacedAtTheCaret() {
+    let chat = ChatFixture().model()
+    chat.edit("before after", files: [], caret: 7)
+    let shot = ChatAttachment(path: "/tmp/shot.png", name: "shot.png")
+    chat.attach([shot])
+    #expect(chat.draft == "before \u{FFFC}after" && chat.caret == 8 && chat.attachments == [shot])
+    #expect(ChatCompletion.text(of: chat.draft) == "before after", "The terminal gets the text without the chip")
+}
+
+@Test func theWordAtTheCaretIsACommandOnlyWhereItOpensTheMessage() {
+    #expect(ChatCompletion.word(in: "/rev", caret: 4) == ChatCompletion.Word(kind: .command, query: "rev", range: NSRange(location: 0, length: 4)))
+    #expect(ChatCompletion.word(in: "  /re", caret: 5)?.kind == .command)
+    #expect(ChatCompletion.word(in: "hi /re", caret: 6) == nil, "A command anywhere else is text to the CLI")
+    #expect(ChatCompletion.word(in: "/usr/bin", caret: 8) == nil, "A path is not a command")
+    #expect(ChatCompletion.word(in: "\u{FFFC}/re", caret: 4) == nil, "Files go ahead of the text, so a command after one is text")
+    #expect(ChatCompletion.word(in: "/review ", caret: 8) == nil, "A space ends the word")
+}
+
+@Test func theWordAtTheCaretIsAFileAfterAnAt() {
+    #expect(ChatCompletion.word(in: "see @src/ma", caret: 11) == ChatCompletion.Word(kind: .file, query: "src/ma", range: NSRange(location: 4, length: 7)))
+    // The caret mid-word completes what is before it and replaces the whole word.
+    #expect(ChatCompletion.word(in: "@main x", caret: 3) == ChatCompletion.Word(kind: .file, query: "ma", range: NSRange(location: 0, length: 5)))
+    #expect(ChatCompletion.word(in: "mail me@host", caret: 12) == nil, "An @ inside a word is not a mention")
+}
+
+private func command(_ name: String, _ description: String = "", hint: String = "", source: String = "builtin",
+                     interactive: Bool = false) -> AgentCommand {
+    AgentCommand(name: name, description: description, hint: hint, source: source, plugin: nil, interactive: interactive)
+}
+
+@Test func commandsRankByNameThenByPartThenByDescription() {
+    let all = [command("preview"), command("pr-review"), command("tidy", "Review the diff"), command("review"), command("clear")]
+    #expect(ChatCompletion.commands(all, matching: "rev").map(\.name) == ["review", "pr-review", "preview", "tidy"])
+    #expect(ChatCompletion.commands(all, matching: "").count == all.count)
+}
+
+@MainActor @Test func aSlashListsTheCLIsCommandsAndTabCompletesOne() async throws {
     let fixture = ChatFixture()
-    fixture.types = true
+    fixture.commands = [command("compact"), command("commit", "Commit the work", source: "project"), command("clear")]
+    let chat = fixture.model()
+    chat.edit("/co", files: [], caret: 3)
+    try await eventually { chat.suggestions.count == 2 }
+    #expect(chat.suggestions.map(\.title) == ["/compact", "/commit"])
+    #expect(chat.suggestions[1].badge == "Project")
+    chat.moveHighlight(1)
+    await chat.acceptSuggestion()
+    #expect(chat.draft == "/commit " && chat.caret == 8 && chat.suggestions.isEmpty)
+    #expect(fixture.typed.isEmpty, "Completing is not sending")
+}
+
+@MainActor @Test func returnOnACommandWithoutArgumentsRunsIt() async throws {
+    let fixture = ChatFixture()
+    fixture.commands = [command("compact"), command("add-dir", hint: "<path>")]
     let chat = fixture.model()
     chat.setAgentState(busy: false, idle: true)
-    chat.draft = "first"
-    await chat.syncLine()
-    chat.draft = "first\nsecond"
-    await chat.syncLine()
-    #expect(fixture.keys.last == String(repeating: "\u{7f}", count: 5) && chat.typedLine.isEmpty)
+    chat.edit("/ad", files: [], caret: 3)
+    try await eventually { chat.suggestions.count == 1 }
+    await chat.acceptSuggestion(run: true)
+    #expect(chat.draft == "/add-dir " && fixture.typed.isEmpty, "One that takes arguments waits for them")
+    chat.edit("/comp", files: [], caret: 5)
+    try await eventually { chat.suggestions.count == 1 }
+    await chat.acceptSuggestion(run: true)
+    #expect(fixture.typed == ["/compact"] && chat.draft.isEmpty)
+}
+
+@MainActor @Test func aCommandThatOpensAPanelShowsTheTerminal() async throws {
+    let fixture = ChatFixture()
+    fixture.commands = [command("model", hint: "[model]", interactive: true)]
+    let chat = fixture.model()
+    chat.setAgentState(busy: false, idle: true)
+    chat.edit("/mo", files: [], caret: 3)
+    try await eventually { !chat.suggestions.isEmpty }
+    await chat.acceptSuggestion()
     await chat.send()
-    #expect(fixture.typed == ["first\nsecond"] && fixture.inLine == [false])
+    #expect(fixture.typed == ["/model"] && fixture.terminalShown == 1)
+    chat.edit("/model opus", files: [], caret: 11)
+    await chat.send()
+    #expect(fixture.terminalShown == 1, "With an argument it answers in the conversation")
+}
+
+@MainActor @Test func escapeClosesTheListForThatWordOnly() async throws {
+    let fixture = ChatFixture()
+    fixture.commands = [command("compact")]
+    let chat = fixture.model()
+    chat.edit("/c", files: [], caret: 2)
+    try await eventually { !chat.suggestions.isEmpty }
+    chat.dismissSuggestions()
+    chat.edit("/co", files: [], caret: 3)
+    #expect(chat.suggestions.isEmpty, "Still closed while the same word is typed")
+    chat.edit("", files: [], caret: 0)
+    chat.edit("/c", files: [], caret: 2)
+    #expect(!chat.suggestions.isEmpty, "A new word opens it again")
+}
+
+@MainActor @Test func anAtListsWorktreeFilesAndTakesOne() async throws {
+    let fixture = ChatFixture()
+    fixture.files = ["src/main.rs", "src/lib.rs"]
+    let chat = fixture.model()
+    chat.edit("see @ma", files: [], caret: 7)
+    try await eventually { chat.suggestions.count == 2 }
+    #expect(fixture.fileQueries.last == "ma" && chat.suggestions[0].title == "@src/main.rs")
+    await chat.acceptSuggestion()
+    #expect(chat.draft == "see @src/main.rs " && chat.suggestions.isEmpty)
 }
 
 @Test func aPasteOfEscapedPathsSplitsIntoItsFiles() {

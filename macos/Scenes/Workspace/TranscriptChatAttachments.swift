@@ -37,8 +37,15 @@ enum ChatAttachmentReader {
         return result
     }
 
-    /// ⌘V in the composer: copied files, or a screenshot staged as one. Nothing for text, which
-    /// the message field pastes itself.
+    /// Files a paste or a drop would bring: copied or dragged files, or image data with no file of
+    /// its own. Text, and a link, are the field's to insert as text.
+    static func carriesFiles(_ pasteboard: NSPasteboard) -> Bool {
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        return !urls.isEmpty || (TerminalPastePayload.text(from: pasteboard) == nil && TerminalPastePayload.stageable(from: pasteboard) != nil)
+    }
+
+    /// A paste or a drop onto the message field: copied files, or a screenshot staged as one.
+    /// Nothing for text, which the field inserts itself.
     @MainActor static func paste(from pasteboard: NSPasteboard, into chat: TranscriptChatModel) -> Bool {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         if !urls.isEmpty {
@@ -79,61 +86,5 @@ enum ChatAttachmentReader {
             }
         }
         return accepted
-    }
-}
-
-/// The composer's files, each removable until the message is sent.
-struct ChatAttachmentStrip: View {
-    let attachments: [ChatAttachment]
-    let remove: @MainActor (ChatAttachment.ID) -> Void
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(attachments) { file in
-                    HStack(spacing: 5) {
-                        Image(systemName: Self.isImage(file.name) ? "photo" : "doc")
-                            .foregroundStyle(Theme.textSecondary)
-                        Text(file.name).lineLimit(1).truncationMode(.middle).frame(maxWidth: 180, alignment: .leading)
-                        Button { remove(file.id) } label: {
-                            Image(systemName: "xmark").font(.system(size: 9, weight: .semibold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(Theme.textSecondary)
-                        .help("Remove \(file.name)")
-                    }
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Theme.paneBackground, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: Theme.Size.hairline))
-                    .help(ChatAttachmentReader.unescape(file.path))
-                }
-            }
-        }
-    }
-
-    private static func isImage(_ name: String) -> Bool {
-        UTType(filenameExtension: (name as NSString).pathExtension)?.conforms(to: .image) ?? false
-    }
-}
-
-/// ⌘V while the message field has the keyboard, for what the field cannot paste itself.
-@MainActor final class ChatPasteMonitor {
-    private var monitor: Any?
-
-    func start(_ handle: @escaping @MainActor (NSEvent) -> Bool) {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            // Caps Lock, Fn and the like do not make it another shortcut.
-            guard event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command,
-                  event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
-            return handle(event) ? nil : event
-        }
-    }
-
-    func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
     }
 }

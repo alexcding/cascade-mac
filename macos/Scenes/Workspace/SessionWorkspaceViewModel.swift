@@ -55,6 +55,10 @@ struct PermissionWatcher {
     func agentCatalog(cli: String) async -> AgentCatalog?
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus?
     func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript
+    /// The CLI's slash commands in this worktree, for the chat's `/` suggestions.
+    func agentCommands(cli: String, worktree: String) async -> [AgentCommand]
+    /// Files of the worktree matching a query, best first, for the chat's `@` suggestions.
+    func worktreeFiles(_ worktree: String, matching query: String) async -> [String]
     func watchPermissions(runID: String, _ watcher: PermissionWatcher)
     func unwatchPermissions(runID: String)
     func answerPermission(_ id: String, decision: String) async throws
@@ -68,6 +72,8 @@ extension WorkspaceServing {
     func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
         AgentTranscript(revision: "", turns: [], hooks: nil)
     }
+    func agentCommands(cli: String, worktree: String) async -> [AgentCommand] { [] }
+    func worktreeFiles(_ worktree: String, matching query: String) async -> [String] { [] }
 }
 
 @MainActor @Observable final class SessionWorkspaceViewModel {
@@ -402,42 +408,34 @@ extension WorkspaceServing {
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
                 },
-                deliver: { [weak self] text, files, inLine in
+                deliver: { [weak self] text, files in
                     guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    // A message ending in an @ mention gets a space, which closes the file list the
+                    // CLI opened for it: Enter on that list picks a file instead of sending.
+                    let text = text.split(whereSeparator: \.isWhitespace).last?.hasPrefix("@") == true ? text + " " : text
                     // Everything is checked before anything is typed, so a message the terminal
                     // refuses leaves nothing half-written in the agent's prompt.
-                    let pasted = try text.isEmpty || inLine ? nil : NativeWorkflowTerminal.paste(text)
+                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " ")
+                    let pasted = try text.isEmpty ? nil : NativeWorkflowTerminal.paste(text)
                     let multiline = text.contains("\n")
-                    let typed = multiline ? pasted : pasted.map { _ in text }
-                    if inLine {
-                        // The message is already in the line, typed as it was written: the files
-                        // follow it, and Enter sends it as Enter in the terminal would.
-                        if !files.isEmpty {
-                            try await terminal.writeWorkflowInput(NativeWorkflowTerminal.paste(" " + files.map(\.path).joined(separator: " ")))
-                            try await Task.sleep(for: .milliseconds(600))
-                        }
-                    } else {
-                        let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " ")
-                        // Files go first, pasted as a drop onto the terminal pastes their paths, so
-                        // the agent attaches them before the message is typed after them.
-                        if let paths {
-                            try await terminal.writeWorkflowInput(paths)
-                            try await Task.sleep(for: .milliseconds(600))
-                        }
-                        // One line is typed like the agent controls type a command. Several need a
-                        // bracketed paste, and Claude Code takes an Enter that follows a paste closely
-                        // as part of it, so that Enter waits until the paste has settled.
-                        if let typed {
-                            try await terminal.writeWorkflowInput(typed)
-                            try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
-                        }
+                    // Files go first, pasted as a drop onto the terminal pastes their paths, so
+                    // the agent attaches them before the message is typed after them.
+                    if let paths {
+                        try await terminal.writeWorkflowInput(paths)
+                        try await Task.sleep(for: .milliseconds(600))
+                    }
+                    // One line is typed like the agent controls type a command. Several need a
+                    // bracketed paste, and Claude Code takes an Enter that follows a paste closely
+                    // as part of it, so that Enter waits until the paste has settled.
+                    if let pasted {
+                        try await terminal.writeWorkflowInput(multiline ? pasted : text)
+                        try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
                     }
                     try await terminal.writeWorkflowInput("\r")
                 },
-                typeKeys: { [weak self] keys in
-                    guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
-                    try await terminal.writeWorkflowInput(keys)
-                },
+                completions: .init(
+                    commands: { [weak self] in await self?.service?.agentCommands(cli: cli, worktree: worktree) ?? [] },
+                    files: { [weak self] query in await self?.service?.worktreeFiles(worktree, matching: query) ?? [] }),
                 permissions: .init(
                     // Read on every poll: a restarted session's terminal runs under a new id.
                     runID: { [weak self] in self?.terminal?.termID },

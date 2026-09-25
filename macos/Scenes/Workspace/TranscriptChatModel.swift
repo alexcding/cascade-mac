@@ -57,8 +57,9 @@ struct AgentTranscript: Decodable, Sendable {
     var atPrompt: String? = nil
 }
 
-/// A file a message carries: pasted into the terminal ahead of the message, as a drop onto the
-/// terminal would paste it, so an agent that attaches a pasted path (Claude Code) gets the file.
+/// A file a message carries: placed in the message as a chip, and pasted into the terminal ahead
+/// of the message as a drop onto the terminal would paste it, so an agent that attaches a pasted
+/// path (Claude Code) gets the file.
 struct ChatAttachment: Equatable, Identifiable, Sendable {
     let id = UUID()
     /// The shell-escaped path, as `TerminalPastePayload` types it.
@@ -99,12 +100,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var queuedPrompt: String?
     /// The held message's files.
     private(set) var queuedAttachments: [ChatAttachment] = []
-    /// Whether the held message is already in the terminal's input line, so sending it is Enter.
-    @ObservationIgnored private var queuedInLine = false
-    /// What the message field has typed into the terminal's input line so far.
-    @ObservationIgnored private(set) var typedLine = ""
-    @ObservationIgnored private var typingLine = false
-    /// Files the next message carries.
+    /// Files the next message carries, in the order their marks appear in `draft`.
     private(set) var attachments: [ChatAttachment] = []
     /// A tool approval the agent is waiting on; it is answered here, not in the terminal.
     private(set) var permission: AgentPermissionPrompt?
@@ -115,16 +111,27 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Whether the chat is drawn over the terminal. Not until the agent has been seen at its prompt
     /// since it started: a question it asks first is the terminal's to show and answer.
     private(set) var coversTerminal = false
-    var draft = ""
+    /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
+    /// which the field draws as a chip: deleting that character in any way (Backspace, Cut, Select
+    /// All then Delete) drops the file, and Undo brings it back.
+    var draft = "" {
+        didSet {
+            let marks = ChatCompletion.markCount(in: draft)
+            if attachments.count > marks { attachments = Array(attachments.prefix(marks)) }
+        }
+    }
+    /// Where the field's caret is, in UTF-16 units of `draft`; nil while text is selected.
+    private(set) var caret: Int?
+    /// The list over the field: commands after a leading `/`, files after `@`.
+    private(set) var suggestions: [ChatSuggestion] = []
+    private(set) var highlighted = 0
     let agentName: String
 
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private var sentAt: Date?
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
-    /// `inLine`: the text is already in the terminal's input line, typed as it was written.
-    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment], _ inLine: Bool) async throws -> Void
-    /// Types keys into the terminal. Without it the message goes in whole when it is sent.
-    @ObservationIgnored private let typeKeys: ((String) async throws -> Void)?
+    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void
+    @ObservationIgnored private let completions: Completions
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
     @ObservationIgnored let openHookSettings: () -> Void
@@ -140,20 +147,39 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var ready = false
     /// The first report decides the cover even when it matches the defaults.
     @ObservationIgnored private var stateReported = false
+    /// The word the list is for, and one the person closed the list on.
+    @ObservationIgnored private var completing: ChatCompletion.Word?
+    @ObservationIgnored private var dismissed: ChatCompletion.Word?
+    @ObservationIgnored private var commands: [AgentCommand]?
+    @ObservationIgnored private var commandsRead: Date?
+    @ObservationIgnored private var lookup: Task<Void, Never>?
     /// Built on first show and kept while the model lives, so switching back is immediate.
     private(set) var page: TranscriptChatPage?
 
+    /// Where the list over the field gets its rows. Either may be missing, and then offers none.
+    struct Completions {
+        /// The CLI's commands in this worktree.
+        var commands: (() async -> [AgentCommand])?
+        /// Worktree files matching what follows `@`, best first.
+        var files: ((_ query: String) async -> [String])?
+
+        init(commands: (() async -> [AgentCommand])? = nil, files: ((_ query: String) async -> [String])? = nil) {
+            self.commands = commands
+            self.files = files
+        }
+    }
+
     init(agentName: String,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
-         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment], _ inLine: Bool) async throws -> Void,
-         typeKeys: ((String) async throws -> Void)? = nil,
+         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void,
+         completions: Completions = Completions(),
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
          openHookSettings: @escaping () -> Void = {}) {
         self.agentName = agentName
         self.load = load
         self.deliver = deliver
-        self.typeKeys = typeKeys
+        self.completions = completions
         self.permissions = permissions
         self.showTerminal = showTerminal
         self.openHookSettings = openHookSettings
@@ -161,14 +187,34 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
 
     var canSend: Bool {
         !retired && !sending && queuedPrompt == nil && staging == 0
-            && (!attachments.isEmpty || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            && (!attachments.isEmpty || !ChatCompletion.text(of: draft).isEmpty)
     }
     /// Files can be added until a message is held; the held one keeps its own.
     var canAttach: Bool { !retired && queuedPrompt == nil }
 
+    /// Places files at the caret, or at the end with no caret; a file already in the message is
+    /// not placed twice.
     func attach(_ files: [ChatAttachment]) {
         guard canAttach else { return }
-        attachments += files.filter { file in !attachments.contains { $0.path == file.path } }
+        var added: [ChatAttachment] = []
+        for file in files where !(attachments + added).contains(where: { $0.path == file.path }) { added.append(file) }
+        guard !added.isEmpty else { return }
+        let text = draft as NSString
+        let at = min(caret ?? text.length, text.length)
+        let before = ChatCompletion.markCount(in: text.substring(to: at))
+        let marks = String(repeating: ChatCompletion.fileMark, count: added.count)
+        attachments.insert(contentsOf: added, at: before)
+        draft = text.replacingCharacters(in: NSRange(location: at, length: 0), with: marks)
+        caret = at + marks.utf16.count
+    }
+
+    /// The field changed: its text with a mark for each file, the files in order, and its caret.
+    func edit(_ text: String, files: [ChatAttachment], caret: Int?) {
+        guard !retired else { return }
+        if attachments != files { attachments = files }
+        if draft != text { draft = text }
+        if self.caret != caret { self.caret = caret }
+        updateSuggestions()
     }
 
     /// Files still being read or staged (a pasted screenshot, a dropped file), which the next
@@ -188,8 +234,12 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     func removeAttachment(_ id: ChatAttachment.ID) {
-        guard !retired else { return }
-        attachments.removeAll { $0.id == id }
+        guard !retired, let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+        let offsets = ChatCompletion.markOffsets(in: draft)
+        attachments.remove(at: index)
+        guard offsets.indices.contains(index) else { return }
+        draft = (draft as NSString).replacingCharacters(in: NSRange(location: offsets[index], length: 1), with: "")
+        if let caret, caret > offsets[index] { self.caret = caret - 1 }
     }
     /// A held message can be pushed through by hand, except while an approval card is up: the
     /// agent is stopped on that, and typed keys would land in its prompt.
@@ -274,7 +324,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private func settle() {
         updateCover()
         render()
-        lineChanged()
         if atPrompt, queuedPrompt != nil { Task { await sendQueued() } }
     }
 
@@ -320,7 +369,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         guard !retired, permission?.id == id, ["allow", "deny", "pass"].contains(decision) else { return }
         permission = nil
         render()
-        defer { lineChanged() }
         do {
             try await permissions.answer(id, decision)
             error = nil
@@ -361,15 +409,12 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Sends at once at the agent's prompt; otherwise holds the message until it is back there.
     func send() async {
         guard canSend else { return }
-        // The line catches up first, so what Enter sends is what the field shows.
-        await syncLine()
-        guard canSend else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        queuedInLine = !typedLine.isEmpty && typedLine == draft
-        draft = ""
-        queuedPrompt = text
+        queuedPrompt = ChatCompletion.text(of: draft)
         queuedAttachments = attachments
         attachments = []
+        draft = ""
+        caret = 0
+        clearSuggestions()
         render()
         if atPrompt { await sendQueued() }
     }
@@ -383,29 +428,22 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     func cancelQueued() {
         guard !retired, !sending, let text = queuedPrompt else { return }
         queuedPrompt = nil
-        queuedInLine = false
-        if draft.isEmpty { draft = text }
+        // Its files go back where they were, ahead of anything written since.
         attachments = queuedAttachments + attachments
+        draft = String(repeating: ChatCompletion.fileMark, count: queuedAttachments.count) + (draft.isEmpty ? text : draft)
+        caret = (draft as NSString).length
         queuedAttachments = []
         render()
-        lineChanged()
     }
 
     private func sendQueued() async {
         guard !retired, !sending, permission == nil, let text = queuedPrompt else { return }
-        let files = queuedAttachments, inLine = queuedInLine
+        let files = queuedAttachments
         sending = true
-        defer { sending = false; lineChanged() }
+        defer { sending = false }
         do {
-            // A line typed from the field that no longer holds the message is cleared first.
-            if !inLine, !typedLine.isEmpty, let typeKeys {
-                try await typeKeys(String(repeating: Self.backspace, count: typedLine.count))
-                typedLine = ""
-            }
-            try await deliver(text, files, inLine)
+            try await deliver(text, files)
             guard !retired else { return }
-            typedLine = ""
-            queuedInLine = false
             queuedPrompt = nil
             queuedAttachments = []
             sentAt = Date()
@@ -414,6 +452,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             pendingPrompt = Self.shown(text, with: files)
             error = nil
             render()
+            // A command that opens a panel does so in the terminal, which the chat covers.
+            if opensPanel(text) { showTerminal() }
             await refresh()
         } catch {
             guard !retired else { return }
@@ -421,56 +461,99 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         }
     }
 
-    // MARK: The terminal's input line
+    // MARK: Suggestions
 
-    static let backspace: Character = "\u{7f}"
-
-    /// Keys can type it: one line, nothing a key would act on (a tab, an escape) rather than type.
-    static func typeable(_ text: String) -> Bool { !text.unicodeScalars.contains { $0.value < 32 || $0.value == 127 } }
-
-    /// What the input line should hold: the field's text as it is written, so the agent's own `/`
-    /// and `@` menus follow it as they would in the terminal. Text keys cannot type goes in whole
-    /// on send instead, and the line is left empty for it.
-    private var lineTarget: String { Self.typeable(draft) ? draft : "" }
-
-    /// Not over an approval, which typed keys would answer, nor over a held message, which the line
-    /// already holds.
-    private var canTypeLine: Bool {
-        typeKeys != nil && !retired && coversTerminal && permission == nil && queuedPrompt == nil && !sending
-    }
-
-    /// Keys that take `from` to `to`: back over where they part, then type the rest.
-    static func keys(from: String, to: String) -> String {
-        let shared = zip(from, to).prefix { $0 == $1 }.count
-        return String(repeating: backspace, count: from.count - shared) + to.dropFirst(shared)
-    }
-
-    /// Brings the terminal's input line to the field, one write at a time.
-    func syncLine() async {
-        guard canTypeLine, !typingLine else {
-            // A write already running catches up to the field before it finishes.
-            while typingLine, !retired { try? await Task.sleep(for: .milliseconds(10)) }
-            return
+    /// Follows the word at the caret: the CLI's commands after a leading `/`, the worktree's files
+    /// after `@`. Closed with Escape, the list stays closed for that word.
+    private func updateSuggestions() {
+        guard let caret, let word = ChatCompletion.word(in: draft, caret: caret) else { return clearSuggestions() }
+        if let dismissed, dismissed.kind == word.kind, dismissed.range.location == word.range.location {
+            return clearSuggestions(keepDismissed: true)
         }
-        typingLine = true
-        defer { typingLine = false }
-        while canTypeLine, let typeKeys, typedLine != lineTarget {
-            let target = lineTarget
-            do {
-                try await typeKeys(Self.keys(from: typedLine, to: target))
-                typedLine = target
-            } catch {
-                guard !retired else { return }
-                self.error = error.localizedDescription
-                return
+        dismissed = nil
+        let sameWord = completing?.kind == word.kind && completing?.range.location == word.range.location
+        let changed = completing?.query != word.query || !sameWord
+        completing = word
+        switch word.kind {
+        case .command:
+            if let commands { show(ChatCompletion.commands(commands, matching: word.query).map(ChatCompletion.suggestion(for:)), reset: changed) }
+            // Read once, then again after a while: a command written meanwhile shows up.
+            if commandsRead.map({ Date().timeIntervalSince($0) > 30 }) ?? true { readCommands() }
+        case .file:
+            guard changed, completions.files != nil else { return }
+            lookup?.cancel()
+            // Asked once typing pauses, and only the latest word's answer is shown.
+            lookup = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled, let files = self?.completions.files else { return }
+                let found = await files(word.query)
+                guard !Task.isCancelled, let self, self.completing == word else { return }
+                self.show(found.prefix(50).map(ChatCompletion.suggestion(forFile:)), reset: true)
             }
         }
     }
 
-    /// The field, or what may be typed, changed: the line follows.
-    func lineChanged() {
-        guard canTypeLine, typedLine != lineTarget else { return }
-        Task { await syncLine() }
+    private func readCommands() {
+        guard completions.commands != nil else { return }
+        commandsRead = Date()
+        Task { [weak self] in
+            guard let read = self?.completions.commands else { return }
+            let found = await read()
+            guard let self, !self.retired else { return }
+            self.commands = found
+            if let word = self.completing, word.kind == .command {
+                self.show(ChatCompletion.commands(found, matching: word.query).map(ChatCompletion.suggestion(for:)), reset: false)
+            }
+        }
+    }
+
+    private func show(_ rows: [ChatSuggestion], reset: Bool) {
+        if suggestions != rows { suggestions = rows }
+        highlighted = reset ? 0 : min(highlighted, max(rows.count - 1, 0))
+    }
+
+    private func clearSuggestions(keepDismissed: Bool = false) {
+        lookup?.cancel()
+        lookup = nil
+        completing = nil
+        if !keepDismissed { dismissed = nil }
+        if !suggestions.isEmpty { suggestions = [] }
+        highlighted = 0
+    }
+
+    func moveHighlight(_ step: Int) {
+        guard !retired, !suggestions.isEmpty else { return }
+        highlighted = (highlighted + step + suggestions.count) % suggestions.count
+    }
+
+    /// Escape: the list closes for this word, and opens again for the next.
+    func dismissSuggestions() {
+        guard !retired, let completing else { return }
+        dismissed = completing
+        clearSuggestions(keepDismissed: true)
+    }
+
+    /// Puts the row in place of the word being completed. With `run`, a command that takes no
+    /// arguments is sent too, as Enter on it does in the terminal.
+    func acceptSuggestion(_ index: Int? = nil, run: Bool = false) async {
+        guard !retired, let word = completing else { return }
+        let index = index ?? highlighted
+        guard suggestions.indices.contains(index) else { return }
+        let row = suggestions[index]
+        let text = draft as NSString
+        guard NSMaxRange(word.range) <= text.length else { return clearSuggestions() }
+        draft = text.replacingCharacters(in: word.range, with: row.insert)
+        caret = word.range.location + (row.insert as NSString).length
+        clearSuggestions()
+        requestFocus()
+        if run, row.complete { await send() }
+    }
+
+    /// `/model`, `/config` and the like, sent bare, answer in a panel of the terminal's own.
+    private func opensPanel(_ text: String) -> Bool {
+        guard text.hasPrefix("/"), !text.contains(where: \.isWhitespace) else { return false }
+        let name = String(text.dropFirst())
+        return commands?.first { $0.name == name }?.interactive == true
     }
 
     /// A sent message as its bubble shows it until the transcript has it: the files by name.
@@ -481,6 +564,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
 
     func retire() {
         retired = true
+        clearSuggestions()
         disappear()
         page?.close()
         page = nil

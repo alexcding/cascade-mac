@@ -21,13 +21,8 @@ struct TranscriptChatOverlay: View {
     let active: Bool
     /// The chat began or stopped covering the terminal, which takes or gives up the keyboard.
     let coverChanged: () -> Void
-    @State private var focusHandled = 0
-    /// Taken from the terminal on appear: it stays in the window underneath and would otherwise
-    /// keep the keyboard.
-    @FocusState private var composing: Bool
     @State private var choosingFiles = false
     @State private var dropTargeted = false
-    @State private var pasteMonitor = ChatPasteMonitor()
 
     private static let column: CGFloat = 740
 
@@ -37,26 +32,12 @@ struct TranscriptChatOverlay: View {
         ZStack(alignment: .top) {
             if chat.coversTerminal { conversation } else { waiting }
         }
-        .onAppear {
-            chat.appear()
-            if chat.coversTerminal { composing = true }
-            // Text is the field's own to paste; files and screenshots become attachments. Only a
-            // ⌘V in this chat's window: the field keeps its focus while another window has the keys.
-            pasteMonitor.start { [chat] event in
-                composing && event.window != nil && event.window === chat.page?.webView.window && chat.canAttach && ChatAttachmentReader.paste(from: .general, into: chat)
-            }
-        }
-        .onDisappear {
-            chat.disappear()
-            pasteMonitor.stop()
-        }
+        .onAppear { chat.appear() }
+        .onDisappear { chat.disappear() }
         .onChange(of: AgentState(busy: busy, idle: idle, startedAt: startedAt), initial: true) { _, state in
             chat.setAgentState(busy: state.busy, idle: state.idle, startedAt: state.startedAt)
         }
         .onChange(of: chat.coversTerminal) { _, _ in coverChanged() }
-        // A session switched to by its shortcut hands the keyboard here rather than to the terminal.
-        .onChange(of: chat.focusRequest) { _, _ in takeFocus() }
-        .onChange(of: active) { _, _ in takeFocus() }
         .accessibilityIdentifier("transcript-chat")
     }
 
@@ -86,18 +67,6 @@ struct TranscriptChatOverlay: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: Theme.Size.hairline))
         .padding(10)
         .accessibilityIdentifier("transcript-chat-waiting")
-    }
-
-    /// After the pass that shows the page: the deck unhides it in the same update, and focus set
-    /// on a view still hidden is dropped.
-    private func takeFocus() {
-        guard active, chat.coversTerminal, chat.focusRequest != focusHandled else { return }
-        let request = chat.focusRequest
-        DispatchQueue.main.async {
-            guard active, chat.coversTerminal else { return }
-            focusHandled = request
-            composing = true
-        }
     }
 
     /// The conversation itself is the bundled chat page (`TranscriptChatPage`); only the composer
@@ -140,16 +109,13 @@ struct TranscriptChatOverlay: View {
                 .padding(.horizontal, 4)
             }
             VStack(alignment: .leading, spacing: 14) {
-                if !chat.attachments.isEmpty {
-                    ChatAttachmentStrip(attachments: chat.attachments, remove: chat.removeAttachment)
-                }
-                TextField("Ask \(chat.agentName) anything", text: $chat.draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...10)
-                    .focused($composing)
-                    .onSubmit { Task { await chat.send() } }
-                    // Typed into the terminal as it is written, so the agent's own menus follow it.
-                    .onChange(of: chat.draft) { _, _ in chat.lineChanged() }
+                // Takes the keyboard from the terminal when it appears, and again when a session
+                // switched to by its shortcut asks for it: the terminal stays in the window
+                // underneath and would otherwise keep it.
+                ChatComposerField(chat: chat, text: chat.draft, files: chat.attachments, caret: chat.caret,
+                                  focusRequest: chat.focusRequest, active: active,
+                                  placeholder: "Ask \(chat.agentName) anything, / for commands, @ for files",
+                                  dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
                     Button { choosingFiles = true } label: {
                         Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
@@ -157,7 +123,7 @@ struct TranscriptChatOverlay: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.textSecondary)
                     .disabled(!chat.canAttach)
-                    .help("Attach files. They are pasted into the terminal ahead of the message.")
+                    .help("Attach files. They are pasted into the terminal ahead of the message; delete a file's chip to take it out.")
                     Spacer()
                     Text(modelName).font(.callout).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button {
@@ -187,11 +153,81 @@ struct TranscriptChatOverlay: View {
                 if case .success(let urls) = result { chat.attach(ChatAttachmentReader.files(urls)) }
             }
             .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
+            // Over the conversation, just above the field, so opening it moves nothing.
+            .overlay(alignment: .topLeading) {
+                if !chat.suggestions.isEmpty {
+                    ChatSuggestionList(suggestions: chat.suggestions, highlighted: chat.highlighted) { index in
+                        Task { await chat.acceptSuggestion(index) }
+                    }
+                    .alignmentGuide(.top) { $0[.bottom] + 6 }
+                }
+            }
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 18)
         .padding(.top, 6)
         .frame(maxWidth: Self.column + 48)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// The rows over the message field: what `/` or `@` is completing to. The field keeps the
+/// keyboard; the arrows move the highlight and Tab or Return take it.
+struct ChatSuggestionList: View {
+    let suggestions: [ChatSuggestion]
+    let highlighted: Int
+    let choose: (Int) -> Void
+
+    private static let rowHeight: CGFloat = 30
+    private static let visibleRows = 8
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, row in
+                        Button { choose(index) } label: { label(row, highlighted: index == highlighted) }
+                            .buttonStyle(.plain)
+                            .id(row.id)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(height: CGFloat(min(suggestions.count, Self.visibleRows)) * Self.rowHeight + 8)
+            .onChange(of: highlighted) { _, index in
+                if suggestions.indices.contains(index) { proxy.scrollTo(suggestions[index].id) }
+            }
+        }
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: Theme.Size.hairline))
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 2)
+        .accessibilityIdentifier("transcript-chat-suggestions")
+    }
+
+    private func label(_ row: ChatSuggestion, highlighted: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: row.kind == .command ? "command" : "doc")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.textTertiary)
+                .frame(width: 14)
+            Text(row.title)
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .lineLimit(1)
+                .layoutPriority(1)
+            Text(row.detail)
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(row.kind == .file ? .head : .tail)
+            Spacer(minLength: 8)
+            if let badge = row.badge {
+                Text(badge).font(.system(size: 11)).foregroundStyle(Theme.textTertiary).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: Self.rowHeight)
+        .background(highlighted ? Theme.accentBackground : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 4)
+        .contentShape(Rectangle())
     }
 }
