@@ -20,6 +20,10 @@ import GhosttyTerminal
     /// Hidden or shown again, directly or with an ancestor: a session the workspace deck is not
     /// showing keeps its terminal in the window, so this, not leaving it, says it is off screen.
     var visibilityChanged: () -> Void = {}
+    /// Covered by the session's chat: keys typed there must not land in a terminal nobody sees,
+    /// however focus is asked for — a shortcut, the shell becoming ready, or the surface itself.
+    var refusesFocus: () -> Bool = { false }
+    override func becomeFirstResponder() -> Bool { refusesFocus() ? false : super.becomeFirstResponder() }
 
     override init(frame: NSRect) {
         super.init(frame: frame)

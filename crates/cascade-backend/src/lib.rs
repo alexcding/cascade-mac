@@ -162,6 +162,9 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/catalog", get(agents::catalog))
         .route("/api/agent/status", get(agents::status))
         .route("/api/agent/conversation", get(agents::conversation))
+        .route("/api/agent/transcript", get(agents::transcript))
+        .route("/api/agent/permission", post(agents::permission::answer))
+        .route("/api/hooks/permission", post(agents::permission::request))
         .route("/api/forwarders", get(integrations::forwarders))
         .route(
             "/api/automations",

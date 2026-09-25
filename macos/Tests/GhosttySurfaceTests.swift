@@ -404,3 +404,20 @@ private final class LinkMetrics: @unchecked Sendable {
     #expect(calls == 2 && !view.isHiddenOrHasHiddenAncestor)
     window.contentView = nil; window.close()
 }
+
+@MainActor @Test func aTerminalUnderTheChatNeverTakesTheKeyboard() {
+    _ = NSApplication.shared
+    let view = WorkspaceTerminalView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+    let container = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+    container.addSubview(view)
+    let window = NSWindow(contentRect: container.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false; window.contentView = container
+    var covered = true
+    view.refusesFocus = { covered }
+    _ = window.makeFirstResponder(view)
+    #expect(window.firstResponder !== view, "Keys typed in the chat must not reach the terminal it covers")
+    covered = false
+    _ = window.makeFirstResponder(view)
+    #expect(window.firstResponder === view)
+    window.contentView = nil; window.close()
+}

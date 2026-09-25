@@ -53,6 +53,7 @@ struct SessionAgentControlsView: View {
     @State private var confirmingClear = false
     @State private var hoveringModel = false
     @State private var hoveringContext = false
+    @State private var hoveringMode = false
     private let rowHeight: CGFloat = 26
 
     init(model: SessionWorkspaceViewModel, driver: any AgentDriver) {
@@ -64,6 +65,10 @@ struct SessionAgentControlsView: View {
 
     var body: some View {
         HStack(spacing: 3) {
+            if model.canShowChat {
+                modeButton
+                Rectangle().fill(Theme.border).frame(width: 1, height: 14)
+            }
             modelMenu
             // A hairline, not a `Divider`: the two halves are one control, not two sections.
             Rectangle().fill(Theme.border).frame(width: 1, height: 14)
@@ -133,6 +138,23 @@ struct SessionAgentControlsView: View {
         .popover(isPresented: $configuring, arrowEdge: .bottom) {
             AgentPresetEditor(catalog: model.agentCatalog, presets: Binding(get: { presets }, set: { list.presets = $0 }))
         }
+    }
+
+    /// Terminal (the default) or Chat (prototype). The icon names the mode a click goes to; the
+    /// chat draws over the terminal, which keeps running behind it.
+    private var modeButton: some View {
+        Button { model.setChatShown(!model.showsChat) } label: {
+            Image(systemName: model.showsChat ? "terminal" : "bubble.left.and.bubble.right")
+                .font(.system(size: 15, weight: .medium))
+                .frame(width: 22, height: 18)
+                .padding(.horizontal, 10)
+                .frame(height: rowHeight)
+                .background(hoveringMode ? Theme.surfaceHover.opacity(0.6) : .clear, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .onHover { hoveringMode = $0 }
+        .help(model.showsChat ? "Switch to Terminal" : "Switch to Chat")
+        .accessibilityIdentifier("workspace-mode-toggle")
     }
 
     /// The presets' shortcuts, as buttons nobody sees: a menu's items only answer their keys

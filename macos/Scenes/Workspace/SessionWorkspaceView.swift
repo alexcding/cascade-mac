@@ -230,6 +230,15 @@ struct SessionWorkspaceView: View {
     @ViewBuilder private var terminalContent: some View {
         if let terminal = model.terminal {
             TerminalPane(session: terminal).id(terminal.id)
+                .allowsHitTesting(!model.chatCoversTerminal)
+                .overlay(alignment: .top) {
+                    if model.showsChat, let chat = model.chat {
+                        TranscriptChatOverlay(chat: chat, busy: terminal.agentBusy, idle: terminal.agentTurns.idle,
+                                              startedAt: terminal.agentStartedAt, active: model.isActive,
+                                              coverChanged: model.chatCoverChanged)
+                    }
+                }
+                .task(id: terminal.id) { model.restoreChatMode() }
         } else if model.removingSession {
             ProgressView("Removing Session…")
         } else if model.session != nil {

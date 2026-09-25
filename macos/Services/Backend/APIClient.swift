@@ -123,6 +123,11 @@ public actor APIClient {
         try await send(Routes.PRS_VIEWED, method: "POST", body: Payload(repo: repo, number: number))
     }
 
+    func answerPermission(id: String, decision: String) async throws {
+        struct Payload: Encodable, Sendable { let id: String; let decision: String }
+        try await send(Routes.AGENT_PERMISSION, method: "POST", body: Payload(id: id, decision: decision))
+    }
+
     func setSetting(_ key: String, value: String) async throws {
         struct Payload: Encodable, Sendable { let value: String }
         try await send(Routes.settingsKey(key), method: "PUT", body: Payload(value: value))

@@ -1,0 +1,22 @@
+{
+  "name": "cascade-chat-page",
+  "private": true,
+  "description": "Source of the bundled chat page (macos/Resources/ChatPage). Run `npm run build` after changing it; the app ships only the built files.",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@shikijs/langs": "3.23.0",
+    "@shikijs/themes": "3.23.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "shiki": "3.23.0",
+    "streamdown": "2.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "esbuild": "0.28.2",
+    "tailwindcss": "4.3.3"
+  }
+}

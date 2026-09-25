@@ -1,6 +1,9 @@
 use super::{newest_jsonl, percent, tail, AgentProbe};
 use serde_json::{json, Value};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 pub struct Claude;
 
@@ -106,16 +109,21 @@ fn input_tokens(usage: &Value) -> u64 {
     .sum()
 }
 
+/// The worktree's live transcript; `last_turn` says how Claude files them.
+pub(super) fn transcript_file(home: &Path, worktree: &str) -> Option<PathBuf> {
+    let project: String = worktree
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    newest_jsonl(&home.join(".claude/projects").join(project))
+}
+
 /// The last main-thread turn of the worktree's live conversation. Claude files a directory's
 /// conversations under its path with everything but letters and digits turned to dashes, which
 /// also leaves nothing of the path to climb out with. The newest transcript is the live one: a
 /// worktree runs one session, and the id a session was created with goes stale at `/clear`.
 fn last_turn(home: &Path, worktree: &str) -> Option<Value> {
-    let project: String = worktree
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let path = newest_jsonl(&home.join(".claude/projects").join(project))?;
+    let path = transcript_file(home, worktree)?;
     let text = tail(&path)?;
     let turn = text.lines().rev().find_map(|line| {
         if !line.contains("\"usage\"") {

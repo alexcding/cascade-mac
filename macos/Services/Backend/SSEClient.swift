@@ -18,6 +18,37 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var message: String? = nil
     /// `terminal-open-url` only: the web address a terminal's BROWSER asked to open.
     public var url: String? = nil
+    /// `agent-permission` only: what the agent asks to run, for the chat view to allow or deny.
+    public var request: AgentPermissionPrompt.Details? = nil
+    /// `agent-permission-done` only: `answered`, `terminal` (the CLI shows its own prompt), or
+    /// `cancelled` (nothing waits on it any more).
+    public var outcome: String? = nil
+}
+
+/// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.
+public struct AgentPermissionPrompt: Encodable, Equatable, Sendable {
+    public struct Details: Codable, Equatable, Sendable {
+        public let tool: String
+        public let detail: String
+        public let reason: String
+        /// A file change's two sides, when the tool is one.
+        public var old: String? = nil
+        public var new: String? = nil
+        /// Too long to show whole: the card sends it to the terminal rather than let it be allowed.
+        public var truncated: Bool? = nil
+    }
+    public let id: String
+    public let tool: String
+    public let detail: String
+    public let reason: String
+    public let old: String?
+    public let new: String?
+    public let truncated: Bool
+
+    init(id: String, details: Details) {
+        self.id = id; tool = details.tool; detail = details.detail; reason = details.reason
+        old = details.old; new = details.new; truncated = details.truncated ?? false
+    }
 }
 
 // Byte framing preserves empty lines, CRLF and UTF-8 split between network reads.

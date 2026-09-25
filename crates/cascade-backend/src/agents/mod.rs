@@ -5,7 +5,9 @@
 
 mod claude;
 mod codex;
+pub mod permission;
 pub mod statusline;
+mod transcript;
 
 use axum::{extract::Query, Json};
 use serde_json::{json, Value};
@@ -88,6 +90,33 @@ pub async fn status(Query(query): Query<StatusQuery>) -> Json<Value> {
     Json(found.unwrap_or(Value::Null))
 }
 
+#[derive(serde::Deserialize)]
+pub struct TranscriptQuery {
+    cli: String,
+    worktree: String,
+    #[serde(default)]
+    since: Option<String>,
+}
+
+/// The session's conversation as chat turns, for the chat view over its terminal. `hooks` is the
+/// CLI's hook install: without it the chat cannot tell a working agent from one at its prompt,
+/// and without the current permission hook approvals stay in the terminal.
+pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
+    let found = tokio::task::spawn_blocking(move || {
+        let home = home()?;
+        if !query.worktree.starts_with('/') {
+            return None;
+        }
+        let mut found = transcript::read(&home, &query.cli, &query.worktree, query.since.as_deref());
+        found["hooks"] = json!(crate::integrations::hook_status_for(&query.cli));
+        Some(found)
+    })
+    .await
+    .ok()
+    .flatten();
+    Json(found.unwrap_or_else(|| json!({"revision": "", "turns": []})))
+}
+
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
@@ -100,10 +129,13 @@ fn is_name(value: &str) -> bool {
 
 /// The end of a session file. They run to tens of megabytes, and the latest turn is at the end.
 fn tail(path: &Path) -> Option<String> {
-    const TAIL: u64 = 512 * 1024;
+    tail_window(path, 512 * 1024)
+}
+
+fn tail_window(path: &Path, window: u64) -> Option<String> {
     let mut file = fs::File::open(path).ok()?;
     let length = file.metadata().ok()?.len();
-    file.seek(SeekFrom::Start(length.saturating_sub(TAIL)))
+    file.seek(SeekFrom::Start(length.saturating_sub(window)))
         .ok()?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).ok()?;

@@ -1,0 +1,139 @@
+@import "tailwindcss";
+@source "../node_modules/streamdown/dist/*.js";
+@source "./*.jsx";
+
+/* The Codex conversation look: prompts as dark bubbles, replies as plain text in a centred
+   column, intermediate work folded behind "Worked for". Colours follow the system appearance. */
+:root {
+  color-scheme: light dark;
+  --ground: #ffffff;
+  --ink: #0d0d0d;
+  --ink-2: #6b6b6b;
+  --ink-3: #9a9a9a;
+  --rule: rgba(0, 0, 0, 0.1);
+  --chip: rgba(0, 0, 0, 0.05);
+  --pill: #0d0d0d;
+  --pill-ink: #ffffff;
+  --add: rgba(46, 160, 67, 0.14);
+  --remove: rgba(248, 81, 73, 0.12);
+  --danger: #d1242f;
+  --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #1e1e1e;
+    --ink: #ececec;
+    --ink-2: #a3a3a3;
+    --ink-3: #737373;
+    --rule: rgba(255, 255, 255, 0.12);
+    --chip: rgba(255, 255, 255, 0.07);
+    --pill: #303030;
+    --pill-ink: #ececec;
+    --danger: #ff7b72;
+  }
+}
+
+/* Streamdown is styled with shadcn's colour names; they map onto the palette above. */
+@theme inline {
+  --color-background: var(--ground);
+  --color-foreground: var(--ink);
+  --color-muted: var(--chip);
+  --color-muted-foreground: var(--ink-2);
+  --color-border: var(--rule);
+  --color-sidebar: var(--chip);
+  --color-primary: var(--ink);
+  --color-primary-foreground: var(--ground);
+}
+
+html, body { background: transparent; color: var(--ink); }
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.column { max-width: 740px; margin: 0 auto; padding: 28px 24px 24px; }
+.turn { margin-bottom: 28px; }
+
+.date { text-align: center; color: var(--ink-3); margin: 8px 0 28px; }
+
+.prompt { display: flex; flex-direction: column; align-items: flex-end; }
+.pill {
+  max-width: min(456px, 100%);
+  background: var(--pill); color: var(--pill-ink);
+  padding: 8px 16px; border-radius: 16px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.worked { margin-bottom: 14px; }
+.worked > summary {
+  list-style: none; cursor: default; color: var(--ink-2);
+  padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; gap: 6px;
+}
+.worked > summary::-webkit-details-marker { display: none; }
+.worked > summary .chev { font-size: 10px; transition: none; }
+.worked[open] > summary { border-bottom: none; }
+.worked .steps { padding: 8px 0 8px 2px; border-bottom: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
+.worked .commentary { color: var(--ink-2); }
+
+.tool > summary {
+  list-style: none; cursor: default; color: var(--ink-2);
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+}
+.tool > summary::-webkit-details-marker { display: none; }
+.tool .verb { color: var(--ink-2); flex: none; }
+.tool .summary {
+  font: 12.5px var(--mono); color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.tool .badge { font-size: 12px; color: var(--ink-3); flex: none; }
+.tool .error { color: var(--danger); flex: none; }
+.tool .body { margin: 6px 0 4px 20px; display: flex; flex-direction: column; gap: 8px; }
+.block-label { font-size: 11px; font-weight: 600; color: var(--ink-3); margin-bottom: 2px; }
+.mono {
+  font: 12px/1.5 var(--mono);
+  background: var(--chip); border-radius: 10px; padding: 10px;
+  white-space: pre; overflow: auto; max-height: 240px; margin: 0;
+}
+.diff { font: 12px/1.5 var(--mono); border: 1px solid var(--rule); border-radius: 10px; overflow: auto; max-height: 320px; }
+.diff div { white-space: pre; padding: 0 8px; }
+.diff .add { background: var(--add); }
+.diff .remove { background: var(--remove); }
+
+.thought > summary { list-style: none; cursor: default; color: var(--ink-2); }
+.thought > summary::-webkit-details-marker { display: none; }
+.thought .body { color: var(--ink-2); margin: 4px 0 0 20px; }
+
+/* Copy and time under a message, shown on hover; hidden, it keeps its height. */
+.actions { display: flex; gap: 14px; align-items: center; color: var(--ink-3); margin-top: 6px; visibility: hidden; }
+.turn:hover .actions, .actions.copied { visibility: visible; }
+.actions button { all: unset; cursor: default; display: inline-flex; }
+.actions svg { width: 15px; height: 15px; }
+
+.working { color: var(--ink-2); }
+
+/* An approval the agent waits on: a bordered card, the one thing on the page asking for a click. */
+/* A message held until the agent is back at its prompt: not sent yet, and says so. */
+.queued .pill { opacity: 0.6; }
+.queued .actions { visibility: visible; }
+.permission { border: 1px solid var(--rule); border-radius: 16px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.permission .ask { font-weight: 600; }
+.permission .reason { color: var(--ink-2); }
+.permission .choices { display: flex; gap: 8px; justify-content: flex-end; }
+.permission button {
+  font: inherit; padding: 5px 14px; border-radius: 9999px; cursor: default;
+  border: 1px solid var(--rule); background: transparent; color: var(--ink);
+}
+.permission button.allow { background: var(--pill); color: var(--pill-ink); border-color: var(--pill); }
+.permission button:disabled { opacity: 0.5; }
+.empty { text-align: center; color: var(--ink-3); padding-top: 80px; }
+
+/* Streamdown inside our column: inherit our ink and keep code chips soft. */
+.answer { color: var(--ink); }
+.answer :not(pre) > code { background: var(--chip); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
+.answer code, .answer pre { font-family: var(--mono); }
+.answer h1, .answer h2, .answer h3, .answer h4 { font-weight: 600; }
+.answer h1 { font-size: 20px; line-height: 26px; }
+.answer h2 { font-size: 18px; line-height: 26px; }
+.answer h3, .answer h4 { font-size: 16px; line-height: 24px; }

@@ -28,6 +28,12 @@ public final class AppViewModel {
     /// What each worktree's IDE is still preparing. Fed by `ide-warmup` events, read by every
     /// session workspace.
     let ideWarmup = IDEWarmupStore()
+    /// The chat views on screen, by the terminal they sit over: an agent's approval request goes
+    /// to its chat, and one with no chat watching goes straight back to the terminal.
+    @ObservationIgnored private var permissionWatchers: [String: PermissionWatcher] = [:]
+    /// The requests each watched terminal is waiting on, oldest first: an agent can ask again
+    /// before the first is answered, and each must be shown in turn, not dropped.
+    @ObservationIgnored private var offeredPermissions: [String: [AgentPermissionPrompt]] = [:]
     /// Opens the Settings window. The main window installs SwiftUI's `openSettings` here, since
     /// that action only exists in a view's environment.
     @ObservationIgnored var openSettingsWindow: (() -> Void)?
@@ -324,6 +330,54 @@ public final class AppViewModel {
         return value ?? nil
     }
 
+    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
+        guard let api else { throw BackendError.operation("Connect to the backend to read the conversation.") }
+        var query = ["cli": cli, "worktree": worktree]
+        if let since { query["since"] = since }
+        return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, query))
+    }
+
+    func watchPermissions(runID: String, _ watcher: PermissionWatcher) {
+        permissionWatchers[runID] = watcher
+        watcher.show(offeredPermissions[runID]?.first)
+    }
+
+    /// The chat left the screen. The requests it was showing go back to the terminal, which would
+    /// otherwise show nothing while their hooks wait.
+    func unwatchPermissions(runID: String) {
+        permissionWatchers[runID] = nil
+        for prompt in offeredPermissions.removeValue(forKey: runID) ?? [] { pass(prompt.id) }
+    }
+
+    func answerPermission(_ id: String, decision: String) async throws {
+        guard let api else { throw BackendError.operation("Connect to the backend to answer the agent.") }
+        withdrawPermission(id)
+        try await api.answerPermission(id: id, decision: decision)
+    }
+
+    private func pass(_ id: String) { Task { try? await answerPermission(id, decision: "pass") } }
+
+    /// Takes a request off its terminal's queue and shows the next one; whether it was queued.
+    @discardableResult private func withdrawPermission(_ id: String) -> Bool {
+        guard let runID = offeredPermissions.first(where: { $0.value.contains { $0.id == id } })?.key else { return false }
+        offeredPermissions[runID]?.removeAll { $0.id == id }
+        if offeredPermissions[runID]?.isEmpty == true { offeredPermissions[runID] = nil }
+        permissionWatchers[runID]?.show(offeredPermissions[runID]?.first)
+        return true
+    }
+
+    private func receivePermission(_ event: ServerEvent) {
+        guard let id = event.id, let runID = event.runId else { return }
+        if event.type == "agent-permission-done" {
+            // A request the chat was holding now waits in the terminal it covers: show that.
+            if withdrawPermission(id), event.outcome == "terminal" { permissionWatchers[runID]?.movedToTerminal() }
+            return
+        }
+        guard let details = event.request, let watcher = permissionWatchers[runID] else { pass(id); return }
+        offeredPermissions[runID, default: []].append(AgentPermissionPrompt(id: id, details: details))
+        watcher.show(offeredPermissions[runID]?.first)
+    }
+
     func prepareChanges(for session: WorkspaceSession, context: WorkspaceContext) {
         defer { context.workspaceViewModel?.documentStateChanged() }
         if context.reviewSection == .history, let api {
@@ -537,11 +591,13 @@ public final class AppViewModel {
         }
     }
 
-    /// A session reached by its shortcut takes the keyboard into its terminal, so typing goes
-    /// straight to its agent. One chosen in the sidebar leaves it there, for its arrow keys.
+    /// A session reached by its shortcut takes the keyboard to its agent — the terminal, or the
+    /// chat's message field when it is in Chat — so typing goes straight to it. One chosen in the sidebar leaves it there, for its arrow keys.
     private func showSession(_ id: String) {
         select(.session(id))
-        terminals["task:\(id)"]?.surface.requestFocus()
+        // In Chat the keyboard goes to its message field; a chat not built yet takes it on appear.
+        if SessionWorkspaceViewModel.opensInChat(sessionID: id) { coordinator.activeWorkspaceModel?.focusAgent() }
+        else { terminals["task:\(id)"]?.surface.requestFocus() }
     }
 
     /// The sessions in sidebar order, which is what ⌘1–9, ⌘0 and ⌘[ ] count.
@@ -549,6 +605,7 @@ public final class AppViewModel {
 
     public func perform(_ command: ShellCommand) {
         if [.overview, .terminal].contains(command) { coordinator.discardQueuedDeepLink() }
+        if zoomChat(for: command) { return }
         // ⌘+ / ⌘− / ⌘0 zoom the web page when that is what has focus, or is all there is to zoom.
         if let zoom = pageZoom(for: command) { return perform(zoom) }
         switch command {
@@ -614,6 +671,23 @@ public final class AppViewModel {
         }
         guard let zoom, canPerform(zoom), viewer.active?.pane != .diff, fontTarget == nil || webPageFocused else { return nil }
         return zoom
+    }
+
+    /// ⌘+ / ⌘− / ⌘0 in Chat size the conversation: the terminal they would reach is under it. A
+    /// browser tab beside it that has the keyboard keeps its own zoom.
+    private func zoomChat(for command: ShellCommand) -> Bool {
+        let delta: Double?
+        switch command {
+        case .biggerFont: delta = 0.1
+        case .smallerFont: delta = -0.1
+        case .resetFont: delta = nil
+        default: return false
+        }
+        guard let workspace = coordinator.activeWorkspaceModel, workspace.chatCoversTerminal, let chat = workspace.chat else { return false }
+        let inChat = chat.page?.hasFocus == true
+        guard inChat || (fontTarget == .term && !webPageFocused) else { return false }
+        chat.zoom(delta)
+        return true
     }
 
     private var webPageFocused: Bool {
@@ -1707,6 +1781,7 @@ public final class AppViewModel {
             if let terminal = terminals.values.first(where: { $0.termID == runID }) { terminal.openLink(url, terminal.cwd, false) }
             else if let web = safeWebURL(url) { desktop.openBrowser(web) }
         }
+        if ["agent-permission", "agent-permission-done"].contains(event.type) { receivePermission(event) }
         if ["agent-turn-start", "agent-turn-done"].contains(event.type), let runID = event.runId,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,

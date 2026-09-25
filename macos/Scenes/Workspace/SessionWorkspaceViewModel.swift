@@ -42,14 +42,32 @@ enum WorkspaceOperation: Equatable {
     case changes, openTerminal, hookSettings, prepareChanges, toggleEditorPreview
 }
 
+/// Where a terminal's approval requests go while its chat is on screen.
+struct PermissionWatcher {
+    /// The request to show, the oldest still waiting, or nil for none.
+    let show: (AgentPermissionPrompt?) -> Void
+    /// A request the chat held fell back to the terminal's own prompt, which the chat covers.
+    let movedToTerminal: () -> Void
+}
+
 @MainActor protocol WorkspaceServing: AnyObject {
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState
     func agentCatalog(cli: String) async -> AgentCatalog?
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus?
+    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript
+    func watchPermissions(runID: String, _ watcher: PermissionWatcher)
+    func unwatchPermissions(runID: String)
+    func answerPermission(_ id: String, decision: String) async throws
 }
 extension WorkspaceServing {
+    func watchPermissions(runID: String, _ watcher: PermissionWatcher) {}
+    func unwatchPermissions(runID: String) {}
+    func answerPermission(_ id: String, decision: String) async throws {}
     func agentCatalog(cli: String) async -> AgentCatalog? { nil }
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus? { nil }
+    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
+        AgentTranscript(revision: "", turns: [], hooks: nil)
+    }
 }
 
 @MainActor @Observable final class SessionWorkspaceViewModel {
@@ -340,6 +358,85 @@ extension WorkspaceServing {
     func openHookSettings() { perform(.hookSettings) }
     func stopBuild() async { await build?.stop() }
     func toggleContext() { setContextPresented(!showsPage) }
+
+    // MARK: Chat overlay (prototype)
+
+    /// The chat drawn over the terminal, made on first show and kept while the workspace lives.
+    private(set) var chat: TranscriptChatModel?
+    private(set) var showsChat = false
+    var canShowChat: Bool { session?.cli != nil && terminal != nil }
+    /// In Chat, and past the agent's startup questions, so the chat is what is on screen.
+    var chatCoversTerminal: Bool { showsChat && chat?.coversTerminal == true }
+
+    /// Each session keeps the mode it was left in, across relaunches; Terminal until it is changed.
+    private static func chatModeKey(_ sessionID: String) -> String { "workspace.chatMode.\(sessionID)" }
+    /// Whether the session opens in Chat, for whoever hands it the keyboard.
+    static func opensInChat(sessionID: String) -> Bool { UserDefaults.standard.bool(forKey: chatModeKey(sessionID)) }
+
+    /// Called when the terminal appears, so a session left in Chat opens in Chat.
+    func restoreChatMode() {
+        guard let session, Self.opensInChat(sessionID: session.id) else { return }
+        setChatShown(true)
+    }
+
+    /// The keyboard goes to what is on screen: the chat's message field, or the terminal.
+    func focusAgent() {
+        if chatCoversTerminal { chat?.requestFocus() } else { terminal?.surface.requestFocus() }
+    }
+
+    /// The chat began or stopped covering the terminal: the terminal gives up or may take the
+    /// keyboard, and it goes to whichever is now on screen.
+    func chatCoverChanged() {
+        terminal?.coveredByChat = chatCoversTerminal
+        if active { focusAgent() }
+    }
+
+    func setChatShown(_ shown: Bool) {
+        guard canShowChat, let session, let cli = session.cli else { return }
+        UserDefaults.standard.set(shown, forKey: Self.chatModeKey(session.id))
+        if shown, chat == nil {
+            let worktree = session.worktree
+            chat = TranscriptChatModel(
+                agentName: SessionAgent(rawValue: cli)?.label ?? cli.capitalized,
+                load: { [weak self] since in
+                    guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
+                    return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
+                },
+                deliver: { [weak self] text in
+                    guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
+                    // One line is typed like the agent controls type a command. Several need a
+                    // bracketed paste, and Claude Code takes an Enter that follows a paste closely
+                    // as part of it, so that Enter waits until the paste has settled.
+                    let pasted = try NativeWorkflowTerminal.paste(text)
+                    let multiline = text.contains("\n")
+                    try await terminal.writeWorkflowInput(multiline ? pasted : text)
+                    try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    try await terminal.writeWorkflowInput("\r")
+                },
+                permissions: .init(
+                    // Read on every poll: a restarted session's terminal runs under a new id.
+                    runID: { [weak self] in self?.terminal?.termID },
+                    watch: { [weak self] runID, watcher in self?.service?.watchPermissions(runID: runID, watcher) },
+                    unwatch: { [weak self] runID in self?.service?.unwatchPermissions(runID: runID) },
+                    answer: { [weak self] id, decision in
+                        guard let service = self?.service else { throw BackendError.operation("The workspace is closed.") }
+                        try await service.answerPermission(id, decision: decision)
+                    }),
+                showTerminal: { [weak self] in self?.setChatShown(false) },
+                openHookSettings: { [weak self] in self?.openHookSettings() })
+        }
+        defer {
+            // Set on every call: a restarted session's terminal is a new one, and must be covered too.
+            terminal?.coveredByChat = chatCoversTerminal
+        }
+        guard showsChat != shown else { return }
+        showsChat = shown
+        // A switch by hand takes the keyboard with it; the terminal would otherwise keep it hidden.
+        if active { focusAgent() }
+    }
+
+    /// The workspace owns its chat, so its chat goes with it.
+    isolated deinit { chat?.retire() }
     func setContextPresented(_ presented: Bool) {
         guard canToggleContext, let context else { return }
         if presented { context.setPane(context.lastMode.pane) } else { context.setPane(.off) }

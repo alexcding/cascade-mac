@@ -17,6 +17,17 @@ final class TerminalSession: Identifiable {
     private(set) var termID: String?
     let agentTurns = AgentTurnTracker()
     var agentBusy: Bool { agentTurns.busy }
+    /// When this app started the agent in a shell it created. A startup question (trust this
+    /// folder, review hooks) comes before the agent's prompt, so until the agent is seen there
+    /// since, the chat leaves the terminal in view. Nil for a shell that was already running.
+    private(set) var agentStartedAt: Date?
+    /// The session's chat is drawn over this terminal, which then never takes the keyboard.
+    var coveredByChat = false {
+        didSet {
+            guard coveredByChat, let view = platformView, view.window?.firstResponder === view else { return }
+            view.window?.makeFirstResponder(nil)
+        }
+    }
     /// Between turns by the agent's own hooks: linked to its shell, and heard at its prompt with
     /// no turn or workflow step open since. An agent whose hooks it has not heard is never idle.
     var agentIdle: Bool { termID != nil && agentTurns.idle }
@@ -114,6 +125,7 @@ final class TerminalSession: Identifiable {
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.openLink(raw, directory ?? self.cwd, external)
             }
+            view.refusesFocus = { [weak self] in self?.coveredByChat == true }
             view.visibilityChanged = { [weak self] in
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.presentation?.surfaceChanged()
@@ -240,7 +252,7 @@ final class TerminalSession: Identifiable {
                 appearanceResponseOwner: PtyHello.appearanceResponseOwnerVersion, appearance: appearance,
                 startupCommand: command)))
             created = true
-            if command != nil { await startupCommandStarted?() }
+            if command != nil { agentStartedAt = Date(); await startupCommandStarted?() }
         }
         guard !created || info.geometryResponseOwner == PtyHello.geometryResponseOwnerVersion else {
             throw PtyError.connection("The PTY helper did not preserve the requested terminal geometry owner. The created shell has been preserved.")

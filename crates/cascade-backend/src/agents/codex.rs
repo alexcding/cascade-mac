@@ -97,7 +97,7 @@ fn effort_name(id: &str) -> String {
 /// The session file most recently written for this worktree. A resumed conversation keeps
 /// appending to the file from the day it began, so recency is by modification time across every
 /// day, not by the dated folder; the first line of each names the directory it ran in.
-fn session_file(home: &Path, worktree: &str) -> Option<PathBuf> {
+pub(super) fn session_file(home: &Path, worktree: &str) -> Option<PathBuf> {
     let mut files: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut pending = vec![home.join(".codex/sessions")];
     while let Some(directory) = pending.pop() {

@@ -488,6 +488,10 @@ const EVENTS: [(&str, &str); 2] = [
 /// Checked against Claude Code 2.1.278: the payload carries top-level `session_id` and `source`
 /// (`startup` on a fresh launch, `resume` with the same id on `--resume`).
 const CLAUDE_SESSION: (&str, &str) = ("SessionStart", "/api/hooks/session-start");
+/// Both CLIs ask this hook before showing their approval prompt (checked against Claude Code
+/// 2.1.282 and Codex 0.156.1), so the chat view can answer it. Outside `EVENTS` for the same
+/// reason as `CLAUDE_SESSION`: an install without it still reports turns.
+const PERMISSION: (&str, &str) = ("PermissionRequest", "/api/hooks/permission");
 /// Whatever the agent runs inherits this terminal's `CASCADE_RUN_ID`, so a nested `claude -p`
 /// would report as the session's own conversation and take it over. The hook's parent is the
 /// `claude` that fired it, and only the session's own is the terminal's foreground job: a nested
@@ -507,11 +511,21 @@ fn is_current(entry: &Value, cli: &str) -> bool {
         })
     })
 }
+/// The permission hook's reply is the CLI's decision; one installed before it failed on errors
+/// and stopped at a missing port file must be installed again.
+fn is_current_for(entry: &Value, cli: &str, event: &str) -> bool {
+    is_current(entry, cli)
+        && (event != PERMISSION.0
+            || entry["hooks"].as_array().is_some_and(|hooks| {
+                hooks.iter().any(|hook| hook["command"].as_str().is_some_and(|command| command.contains("curl -sf")))
+            }))
+}
 fn events(cli: &str) -> Vec<(&'static str, &'static str)> {
     let mut events = EVENTS.to_vec();
     if cli == "claude" {
         events.push(CLAUDE_SESSION)
     }
+    events.push(PERMISSION);
     events
 }
 fn hook_file(cli: &str) -> Result<(PathBuf, Value), ApiError> {
@@ -552,7 +566,7 @@ fn is_our_entry(entry: &Value) -> bool {
         })
     })
 }
-fn hook_status_for(cli: &str) -> String {
+pub(crate) fn hook_status_for(cli: &str) -> String {
     let Ok((file, _)) = hook_file(cli) else {
         return "absent".into();
     };
@@ -567,7 +581,7 @@ fn hook_status_for(cli: &str) -> String {
     let current = |event: &str| {
         value["hooks"][event]
             .as_array()
-            .is_some_and(|items| items.iter().any(|entry| is_current(entry, cli)))
+            .is_some_and(|items| items.iter().any(|entry| is_current_for(entry, cli, event)))
     };
     if !EVENTS.iter().all(|(event, _)| ours(event)) {
         "absent".into()
@@ -588,9 +602,28 @@ pub(crate) fn shell_quote(value: &str) -> String {
 }
 fn hook_entry(cli: &str, endpoint: &str, port_file: &PathBuf) -> Value {
     let guard = if cli == "claude" { FOREGROUND_GUARD } else { "" };
-    let script=format!("{guard}P=$(cat {} 2>/dev/null || echo 3000); curl -s -m 2 -X POST \"http://127.0.0.1:$P{endpoint}?cli={cli}&runId=${{CASCADE_RUN_ID:-}}\" -H \"Content-Type: application/json\" --data-binary @- >/dev/null 2>&1 || true # {MARKER}",shell_quote(&port_file.to_string_lossy()));
-    let mut entry =
-        json!({"hooks":[{"type":"command","command":format!("sh -c {}",shell_quote(&script))}]});
+    // Every other hook only reports, so it is quick and silent. The permission hook waits for an
+    // answer and prints it, which is the decision the CLI reads; an empty reply decides nothing.
+    let asks = endpoint == PERMISSION.1;
+    let (wait, output) = if asks {
+        (crate::agents::permission::HOOK_TIMEOUT - 10, "2>/dev/null")
+    } else {
+        (2, ">/dev/null 2>&1")
+    };
+    // Its reply is trusted as the decision, so it goes to Cascade or nowhere: no port file means no
+    // Cascade to ask, not the old default port, and `-f` turns an error page into no reply.
+    let port = shell_quote(&port_file.to_string_lossy());
+    let (read_port, flags) = if asks {
+        (format!("P=$(cat {port} 2>/dev/null) || exit 0;"), "-sf")
+    } else {
+        (format!("P=$(cat {port} 2>/dev/null || echo 3000);"), "-s")
+    };
+    let script=format!("{guard}{read_port} curl {flags} -m {wait} -X POST \"http://127.0.0.1:$P{endpoint}?cli={cli}&runId=${{CASCADE_RUN_ID:-}}\" -H \"Content-Type: application/json\" --data-binary @- {output} || true # {MARKER}");
+    let mut hook = json!({"type":"command","command":format!("sh -c {}",shell_quote(&script))});
+    if asks {
+        hook["timeout"] = json!(crate::agents::permission::HOOK_TIMEOUT)
+    }
+    let mut entry = json!({"hooks":[hook]});
     if cli == "claude" {
         entry["matcher"] = json!(".*")
     }
@@ -881,7 +914,28 @@ mod forwarder_tests {
     #[test]
     fn only_claude_is_asked_for_session_starts() {
         assert!(events("claude").contains(&CLAUDE_SESSION));
-        assert_eq!(events("codex"), EVENTS.to_vec());
+        assert!(!events("codex").contains(&CLAUDE_SESSION));
+    }
+
+    #[test]
+    fn both_clis_ask_for_permission_and_wait_for_the_answer() {
+        let port = PathBuf::from("/tmp/.server-port");
+        for cli in ["claude", "codex"] {
+            assert!(events(cli).contains(&PERMISSION));
+            let entry = hook_entry(cli, PERMISSION.1, &port);
+            let hook = &entry["hooks"][0];
+            assert_eq!(hook["timeout"], crate::agents::permission::HOOK_TIMEOUT);
+            let command = hook["command"].as_str().unwrap();
+            // The answer is the hook's output, so it must not be thrown away.
+            assert!(command.contains("-m 290") && !command.contains(">/dev/null 2>&1"));
+            // Its reply is the decision: only Cascade may give it.
+            assert!(command.contains("curl -sf") && !command.contains("echo 3000"));
+            assert!(is_current_for(&entry, cli, PERMISSION.0));
+            let before = json!({"hooks":[{"type":"command","command":command.replace("curl -sf", "curl -s")}]});
+            assert!(is_current(&before, cli) && !is_current_for(&before, cli, PERMISSION.0));
+        }
+        let quiet = hook_entry("codex", "/api/hooks/turn-start", &port);
+        assert!(quiet["hooks"][0].get("timeout").is_none());
     }
 
     #[test]

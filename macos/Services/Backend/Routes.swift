@@ -84,6 +84,8 @@ public enum Routes {
     public static let AGENT_CATALOG = "/api/agent/catalog"
     public static let AGENT_STATUS = "/api/agent/status"
     public static let AGENT_CONVERSATION = "/api/agent/conversation"
+    public static let AGENT_TRANSCRIPT = "/api/agent/transcript"
+    public static let AGENT_PERMISSION = "/api/agent/permission"
     public static let EVENTS = "/api/events"
     public static let LOGS = "/api/logs"
     public static let LOGS_CATEGORIES = "/api/logs/categories"
