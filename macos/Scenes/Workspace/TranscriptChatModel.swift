@@ -452,8 +452,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             pendingPrompt = Self.shown(text, with: files)
             error = nil
             render()
-            // A command that opens a panel does so in the terminal, which the chat covers.
-            if opensPanel(text) { showTerminal() }
+            // A command that opens a panel does so in the terminal, which the chat covers. Files
+            // go after a command as its arguments, and one with arguments opens none.
+            if files.isEmpty, opensPanel(text) { showTerminal() }
             await refresh()
         } catch {
             guard !retired else { return }

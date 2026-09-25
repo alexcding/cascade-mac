@@ -412,15 +412,18 @@ extension WorkspaceServing {
                     guard let terminal = self?.terminal else { throw BackendError.operation("The terminal is not open.") }
                     // A message ending in an @ mention gets a space, which closes the file list the
                     // CLI opened for it: Enter on that list picks a file instead of sending.
-                    let text = text.split(whereSeparator: \.isWhitespace).last?.hasPrefix("@") == true ? text + " " : text
+                    let text = ChatCompletion.endsInMention(text) ? text + " " : text
+                    // A command must open the line, so its files follow it, as its arguments. Any
+                    // other message has them go first, pasted as a drop onto the terminal pastes
+                    // them, so the agent attaches them before the message is typed after them.
+                    let command = text.hasPrefix("/")
+                    let joined = files.map(\.path).joined(separator: " ")
                     // Everything is checked before anything is typed, so a message the terminal
                     // refuses leaves nothing half-written in the agent's prompt.
-                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(files.map(\.path).joined(separator: " ") + " ")
+                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(command ? " " + joined : joined + " ")
                     let pasted = try text.isEmpty ? nil : NativeWorkflowTerminal.paste(text)
                     let multiline = text.contains("\n")
-                    // Files go first, pasted as a drop onto the terminal pastes their paths, so
-                    // the agent attaches them before the message is typed after them.
-                    if let paths {
+                    if let paths, !command {
                         try await terminal.writeWorkflowInput(paths)
                         try await Task.sleep(for: .milliseconds(600))
                     }
@@ -430,6 +433,10 @@ extension WorkspaceServing {
                     if let pasted {
                         try await terminal.writeWorkflowInput(multiline ? pasted : text)
                         try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+                    }
+                    if let paths, command {
+                        try await terminal.writeWorkflowInput(paths)
+                        try await Task.sleep(for: .milliseconds(600))
                     }
                     try await terminal.writeWorkflowInput("\r")
                 },

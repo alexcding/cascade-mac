@@ -124,6 +124,15 @@ enum ChatCompletion {
         draft.filter { $0 != fileMark }.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Whether the message ends in an `@` mention. Its last word is taken back to a space that is
+    /// not escaped, since a mentioned path's own spaces are.
+    static func endsInMention(_ text: String) -> Bool {
+        let characters = Array(text)
+        var start = characters.count
+        while start > 0, !(characters[start - 1].isWhitespace && (start < 2 || characters[start - 2] != "\\")) { start -= 1 }
+        return start < characters.count && characters[start] == "@"
+    }
+
     static func markCount(in draft: String) -> Int { draft.reduce(0) { $0 + ($1 == fileMark ? 1 : 0) } }
 
     /// The UTF-16 offset of each file's mark, in order.

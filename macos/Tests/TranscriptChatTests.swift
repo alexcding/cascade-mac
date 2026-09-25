@@ -408,6 +408,26 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     #expect(chat.draft == "see @src/main.rs " && chat.suggestions.isEmpty)
 }
 
+@Test func aMessageEndsInAMentionEvenWhenItsPathHasSpaces() {
+    #expect(ChatCompletion.endsInMention("read @docs/Release\\ Notes.md"))
+    #expect(ChatCompletion.endsInMention("@src/main.rs"))
+    #expect(!ChatCompletion.endsInMention("read @src/main.rs please"))
+    #expect(!ChatCompletion.endsInMention("mail me@host"))
+}
+
+@MainActor @Test func aCommandWithAFileDoesNotShowTheTerminal() async throws {
+    let fixture = ChatFixture()
+    fixture.commands = [command("model", hint: "[model]", interactive: true)]
+    let chat = fixture.model()
+    chat.setAgentState(busy: false, idle: true)
+    chat.edit("/mo", files: [], caret: 3)
+    try await eventually { !chat.suggestions.isEmpty }
+    await chat.acceptSuggestion()
+    chat.attach([ChatAttachment(path: "/tmp/a.png", name: "a.png")])
+    await chat.send()
+    #expect(fixture.typed == ["/model"] && fixture.pasted == [["/tmp/a.png"]] && fixture.terminalShown == 0)
+}
+
 @Test func aPasteOfEscapedPathsSplitsIntoItsFiles() {
     let files = ChatAttachmentReader.files(pasted: "/tmp/My\\ Shot.png /tmp/b\\(1\\).txt")
     #expect(files.map(\.path) == ["/tmp/My\\ Shot.png", "/tmp/b\\(1\\).txt"])

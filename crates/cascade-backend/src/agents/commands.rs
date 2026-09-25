@@ -144,6 +144,7 @@ fn claude_plugins(home: &Path, worktree: &Path) -> Vec<Command> {
         }
     }
     let Some(plugins) = installed["plugins"].as_object() else { return Vec::new() };
+    let project = main_checkout(worktree);
     let mut keys: Vec<&String> = plugins.keys().collect();
     keys.sort();
     let mut found = Vec::new();
@@ -152,8 +153,10 @@ fn claude_plugins(home: &Path, worktree: &Path) -> Vec<Command> {
             continue;
         }
         // One install per plugin in the first format, a list of them (one per scope) in the next.
+        // An install for one project is offered only in that project's worktrees.
         let entry = &plugins[key];
-        let install = entry.as_array().and_then(|installs| installs.first()).unwrap_or(entry);
+        let installs = entry.as_array().map_or_else(|| vec![entry], |installs| installs.iter().collect());
+        let Some(install) = installs.into_iter().find(|install| installed_for(install, &project)) else { continue };
         let Some(path) = install["installPath"].as_str() else { continue };
         let name = key.split('@').next().unwrap_or(key);
         let root = PathBuf::from(path);
@@ -161,6 +164,27 @@ fn claude_plugins(home: &Path, worktree: &Path) -> Vec<Command> {
         found.extend(skills(&root.join("skills"), "plugin", Some(name)));
     }
     found
+}
+
+/// An install with no project of its own is everyone's; one made for a project, only its.
+fn installed_for(install: &Value, project: &Path) -> bool {
+    match install["projectPath"].as_str() {
+        Some(path) if install["scope"] != "user" => Path::new(path) == project,
+        _ => true,
+    }
+}
+
+/// The checkout a worktree was added from, which is the project a plugin was installed for. A
+/// linked worktree's `.git` is a file naming `<checkout>/.git/worktrees/<name>`.
+fn main_checkout(worktree: &Path) -> PathBuf {
+    fs::read_to_string(worktree.join(".git"))
+        .ok()
+        .and_then(|text| {
+            let gitdir = text.lines().find_map(|line| line.strip_prefix("gitdir:"))?.trim().to_string();
+            let (checkout, _) = gitdir.rsplit_once("/.git/worktrees/")?;
+            Some(PathBuf::from(checkout))
+        })
+        .unwrap_or_else(|| worktree.to_path_buf())
 }
 
 /// `(name, description, hint, interactive)`.
@@ -229,7 +253,9 @@ fn markdown_files(directory: &Path, depth: usize) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(&folder) else { continue };
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
-            let Ok(kind) = entry.file_type() else { continue };
+            // Through links: a dotfiles manager keeps commands as links to its own tree. The
+            // depth limit keeps a link back up the tree from walking forever.
+            let Ok(kind) = fs::metadata(&path) else { continue };
             if kind.is_dir() && level + 1 < depth {
                 pending.push((path, level + 1));
             } else if kind.is_file() && path.extension().is_some_and(|e| e == "md") {
@@ -371,6 +397,40 @@ mod tests {
         assert_eq!(commands[3]["plugin"], "tools");
         let model = commands.iter().find(|c| c["name"] == "model").unwrap();
         assert_eq!(model["interactive"], true);
+    }
+
+    #[test]
+    fn linked_commands_are_listed() {
+        let root = scratch("links");
+        write(root.join("dotfiles/standup.md"), "Write my standup\n");
+        write(root.join("dotfiles/team/triage.md"), "Triage\n");
+        let commands = root.join("home/.claude/commands");
+        fs::create_dir_all(&commands).unwrap();
+        std::os::unix::fs::symlink(root.join("dotfiles/standup.md"), commands.join("standup.md")).unwrap();
+        std::os::unix::fs::symlink(root.join("dotfiles/team"), commands.join("team")).unwrap();
+        let found = names(&list(&root.join("home"), "claude", &root.join("worktree")));
+        assert!(found.contains(&"standup".to_string()) && found.contains(&"triage".to_string()));
+    }
+
+    #[test]
+    fn a_plugin_installed_for_one_project_is_offered_only_in_its_worktrees() {
+        let root = scratch("scoped");
+        let (home, project, other) = (root.join("home"), root.join("project"), root.join("other"));
+        let worktree = root.join("worktrees/feature");
+        write(worktree.join(".git"), &format!("gitdir: {}/.git/worktrees/feature\n", project.display()));
+        fs::create_dir_all(&other).unwrap();
+        let plugin = root.join("plugin");
+        write(plugin.join("commands/deploy.md"), "Deploy\n");
+        write(
+            home.join(".claude/plugins/installed_plugins.json"),
+            &json!({"version": 2, "plugins": {
+                "tools@market": [{"scope": "project", "projectPath": project, "installPath": plugin}],
+            }})
+            .to_string(),
+        );
+        assert!(names(&list(&home, "claude", &worktree)).contains(&"tools:deploy".to_string()));
+        assert!(names(&list(&home, "claude", &project)).contains(&"tools:deploy".to_string()));
+        assert!(!names(&list(&home, "claude", &other)).contains(&"tools:deploy".to_string()));
     }
 
     #[test]
