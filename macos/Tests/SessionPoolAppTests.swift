@@ -95,9 +95,6 @@ private struct RefusedStops: TerminalRuntimeControlling {
     }
     func terminalControl() -> any TerminalRuntimeControlling { refusesStops ? RefusedStops(native: native.terminalControl()) : native.terminalControl() }
     func processSampler() -> any ProcessSampling { FixedMemory(each: 600 << 20) }
-    func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
-        try await native.workflowTerminal(terminal, cli: cli, sessionID: sessionID)
-    }
     func resources(api: APIClient?) -> any ResourceUsageService { native.resources(api: api) }
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing {

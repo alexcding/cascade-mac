@@ -72,10 +72,6 @@ public final class AppViewModel {
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
-    private(set) var workflowRuns: [String: WorkflowRunViewModel] = [:]
-    private(set) var pageWorkflowRuns: [String: WorkflowRunViewModel] = [:]
-    @ObservationIgnored private var pageWorkflowTargets: [String: WorkflowPageTarget] = [:]
-    @ObservationIgnored private var preparingWorkflowPages: Set<String> = []
     @ObservationIgnored private var pendingPins: Set<String> = []
     /// Observed, not ignored: `isRemoving(_:)` is read from a view body, so a lock taken or
     /// released has to invalidate it.
@@ -232,7 +228,7 @@ public final class AppViewModel {
     }
 
     /// Store the display snapshot after loading inventory or a live dependency changes.
-    /// Tracking includes nested terminal, workflow, and browser state, so those updates
+    /// Tracking includes nested terminal and browser state, so those updates
     /// schedule a load even when no backend inventory request is needed.
     private func loadSidebar() async {
         guard sidebarNeedsLoad else { return }
@@ -255,13 +251,12 @@ public final class AppViewModel {
 
     private func makeSidebarEntries() -> [SidebarEntry] {
         // Per-session agent state for the row glyph (sidebar.js taskSessions + refreshTermBusy):
-        // live while its terminal is attached, busy between the CLI's turn hooks or while a
-        // workflow runs on it.
+        // live while its terminal is attached, busy between the CLI's turn hooks.
         var status: [String: SidebarSessionStatus] = [:]
         for session in sessions {
             let terminal = terminals["task:\(session.id)"]
             let live = terminal?.isLive ?? false
-            let busy = terminal?.agentBusy == true || workflowRuns[session.id]?.running == true
+            let busy = terminal?.agentBusy == true
             status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli?.rawValue ?? session.cli)
         }
         let prs = Dictionary((dashboard?.prs.projects ?? []).flatMap(\.prs).compactMap { pr in pr.url.map { ($0, pr) } },
@@ -296,7 +291,6 @@ public final class AppViewModel {
             return blank
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, tabs: shownTabs, status: status,
-            workflowProgress: workflowRuns.filter { $0.value.running }.mapValues { "\($0.step)/\($0.total)" },
             tabIcons: tabIcons, order: sidebarOrder, canCreateProject: canPerform(.newProject))
     }
     var activeTerminalKey: String? {
@@ -426,7 +420,7 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire(); model.board?.suspend()
-        Task { await model.workflows?.stop(); await model.tickets?.stop() }
+        Task { await model.tickets?.stop() }
     }
 
     private func savedProject(_ project: Project) {
@@ -477,7 +471,7 @@ public final class AppViewModel {
     }
 
     private var canStartSession: Bool {
-        connection == "Connected" && coordinator.canPresent && pageWorkflowRuns[viewer.activeContextID ?? ""]?.running != true
+        connection == "Connected" && coordinator.canPresent
             && !(selection.tabID.flatMap(tabURL).map(startingPages.contains) ?? false)
     }
 
@@ -931,7 +925,6 @@ public final class AppViewModel {
             if let session = sessions.first(where: { $0.id == id }) {
                 sessionPool.shown(id)
                 let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url && !$0.standalone })
-                _ = workflowRunModel(for: session)
                 warmIDE(for: session)
                 buildModel(for: session, context: context)?.warmDestinations()
                 openTerminal()
@@ -943,7 +936,6 @@ public final class AppViewModel {
             let context = viewer.select(id: "tab:\(id)", url: tab?.url ?? "", title: tab?.displayTitle ?? String(localized: "New Tab"), legacy: tabs.first { $0.id == id })
             // A draft has no address to load; it starts as one blank page with the address field focused.
             if isDraftTab(id), context.pages.isEmpty { context.openBlankPage() }
-            preparePageWorkflowModel(context)
         default: viewer.deactivate()
         }
     }
@@ -960,99 +952,12 @@ public final class AppViewModel {
         }
     }
 
-    private func workflowRunModel(for record: WorkspaceSession) -> WorkflowRunViewModel? {
-        guard let api, let project = projects.first(where: { $0.id == record.projectId }) else { return nil }
-        if let existing = workflowRuns[record.id] { existing.update(project.workflows ?? []); return existing }
-        let model = backendFactory.workflowRun(api: api, recipes: project.workflows ?? [], context: { [weak self] in
-            let latest = self?.sessions.first { $0.id == record.id } ?? record
-            let project = self?.projects.first { $0.id == record.projectId } ?? project
-            return WorkflowRunContext.values(project: project, session: latest)
-        }, prepare: { [weak self] cli in
-            guard let self else { throw BackendError.operation(String(localized: "The workspace closed.")) }
-            return try await prepareWorkflowTerminal(sessionID: record.id, cli: cli)
-        })
-        workflowRuns[record.id] = model
-        return model
-    }
-
     private func adoptProjectDestinations() {
         for (contextID, model) in buildModels {
             guard let session = sessions.first(where: { "task:\($0.id)" == contextID }),
                   let project = projects.first(where: { $0.id == session.projectId }) else { continue }
             model.adopt(project)
         }
-    }
-
-    func workflowModel(in context: WorkspaceContext) -> WorkflowRunViewModel? {
-        if let record = sessions.first(where: { "task:\($0.id)" == context.id }) { return workflowRuns[record.id] }
-        return pageWorkflowRuns[context.id]
-    }
-
-    private func preparePageWorkflowModel(_ context: WorkspaceContext) {
-        guard let api, let target = WorkflowPageTarget.resolve(url: context.sourceURL, projects: projects),
-              let project = projects.first(where: { $0.id == target.projectID }) else {
-            if pageWorkflowRuns[context.id]?.running != true {
-                pageWorkflowRuns.removeValue(forKey: context.id); pageWorkflowTargets.removeValue(forKey: context.id)
-            }
-            return
-        }
-        if let model = pageWorkflowRuns[context.id], pageWorkflowTargets[context.id] == target || model.running {
-            if pageWorkflowTargets[context.id] == target { model.update(project.workflows ?? []) }
-            return
-        }
-        let sourceID = context.id
-        var preparedSession: WorkspaceSession?
-        let service = backendFactory.workflowPreparation(api: api)
-        let model = backendFactory.workflowRun(api: api, recipes: project.workflows ?? [], context: { [weak self] in
-            guard let preparedSession else { return [:] }
-            let latest = self?.sessions.first { $0.id == preparedSession.id } ?? preparedSession
-            let project = self?.projects.first { $0.id == target.projectID } ?? project
-            return WorkflowRunContext.values(project: project, session: latest)
-        }, prepare: { [weak self] cli in
-            guard let self else { throw BackendError.operation(String(localized: "The workspace closed.")) }
-            if let preparedSession {
-                return try await prepareWorkflowTerminal(sessionID: preparedSession.id, cli: cli)
-            }
-            let record = try await prepareWorkflowPage(target, sourceID: sourceID, service: service)
-            preparedSession = record
-            try Task.checkCancellation()
-            return try await prepareWorkflowTerminal(sessionID: record.id, cli: cli)
-        })
-        pageWorkflowRuns[sourceID] = model
-        pageWorkflowTargets[sourceID] = target
-    }
-
-    private func prepareWorkflowPage(_ target: WorkflowPageTarget, sourceID: String,
-                                     service: any WorkflowPagePreparing) async throws -> WorkspaceSession {
-        guard let project = projects.first(where: { $0.id == target.projectID }),
-              WorkflowPageTarget.resolve(url: target.page.url, projects: projects) == target,
-              let model = pageWorkflowRuns[sourceID],
-              preparingWorkflowPages.insert(target.identity).inserted else {
-            throw BackendError.operation(String(localized: "The page's project changed or another workflow is preparing this page."))
-        }
-        defer { preparingWorkflowPages.remove(target.identity) }
-        let record: WorkspaceSession
-        if let existing = sessions.first(where: target.matches) {
-            guard workflowRuns[existing.id]?.running != true, !changingSessions.contains(existing.id) else {
-                throw BackendError.operation(String(localized: "This page already has an active session operation. Open its session to continue."))
-            }
-            record = existing
-        } else {
-            record = try await service.prepare(target, project: project)
-        }
-        // Once creation succeeds, retain the durable result even when Stop raced
-        // the HTTP response. Cancellation is checked before any agent startup.
-        if !sessions.contains(where: { $0.id == record.id }) { sessions.append(record) }
-        let destination = "task:\(record.id)"
-        let wasSelected = sourceID.hasPrefix("tab:") && selection == .tab(String(sourceID.dropFirst("tab:".count)))
-        try viewer.promoteContext(from: sourceID, to: destination)
-        await adoptTab(sourceID)
-        pageWorkflowRuns.removeValue(forKey: sourceID)
-        pageWorkflowTargets.removeValue(forKey: sourceID)
-        workflowRuns[record.id] = model
-        if wasSelected { select(.session(record.id)) }
-        refresh()
-        return record
     }
 
     /// The tab a session was just started from is the session's own now. A standalone tab (Open in
@@ -1070,42 +975,6 @@ public final class AppViewModel {
 
     func openWorkflowHookSettings() {
         settings?.section = .clis; presentSettings()
-    }
-
-    private func prepareWorkflowTerminal(sessionID: String, cli: WorkflowCLI) async throws -> any WorkflowTerminal {
-        guard let operations = sessionOperations, var record = sessions.first(where: { $0.id == sessionID }),
-              !record.worktree.isEmpty, changingSessions.insert(sessionID).inserted else {
-            throw BackendError.operation(String(localized: "The session is unavailable or another session operation is in progress."))
-        }
-        defer { changingSessions.remove(sessionID) }
-        let key = "task:\(sessionID)"
-        if let existing = terminals[key] {
-            try await existing.waitForAutomaticLaunch()
-            guard let latest = sessions.first(where: { $0.id == sessionID }) else {
-                throw BackendError.operation(String(localized: "The session was removed during agent startup."))
-            }
-            record = latest
-            if try await !existing.atShell(), record.cli != cli.rawValue {
-                throw BackendError.operation(String(localized: "Another agent is running. Return to the shell before switching to \(cli.title)."))
-            }
-        }
-        try Task.checkCancellation()
-        record = try await operations.configureAgent(cli, session: record)
-        if let index = sessions.firstIndex(where: { $0.id == record.id }) { sessions[index] = record }
-        try Task.checkCancellation()
-        let terminal: TerminalSession
-        if let existing = terminals[key] { terminal = existing }
-        else { terminal = makeTerminal(record); terminals[key] = terminal }
-        // Retained native panes mount the new surface even if navigation changes.
-        await terminal.start()
-        try await terminal.waitForAutomaticLaunch()
-        if try await terminal.atShell() {
-            try await launchAgent(terminal, record: record, fresh: false)
-        }
-        try await Task.sleep(for: .seconds(2))
-        try Task.checkCancellation()
-        let latest = sessions.first { $0.id == sessionID } ?? record
-        return try await platformFactory.workflowTerminal(terminal, cli: cli, sessionID: latest.sessionId)
     }
 
     func removalModel(for record: WorkspaceSession) -> SessionRemovalViewModel? {
@@ -1190,7 +1059,6 @@ public final class AppViewModel {
             throw CancellationError()
         }
         for id in ids {
-            await workflowRuns.removeValue(forKey: id)?.stop()
             workspaceLaunch.cancel(sessionID: id)
             buildModels.removeValue(forKey: "task:\(id)")?.disconnect()
         }
@@ -1365,7 +1233,6 @@ public final class AppViewModel {
             defer { changingSessions.remove(record.id) }
             do {
                 let key = "task:\(record.id)"
-                await workflowRuns.removeValue(forKey: record.id)?.stop()
                 await terminals[key]?.stopConnecting()
                 try await terminalControl.stopPaired(keys: [record.id])
                 terminals[key] = makeTerminal(sessions.first { $0.id == record.id } ?? record)
@@ -1394,7 +1261,7 @@ public final class AppViewModel {
     /// Hidden, its agent at its prompt by the agent's own hooks, and nothing else under way on it.
     private func agentIdle(_ record: WorkspaceSession) -> Bool {
         record.agent != .shell && selection != .session(record.id) && terminals["task:\(record.id)"]?.agentIdle == true
-            && workflowRuns[record.id]?.running != true && !isRemoving(record.id)
+            && !isRemoving(record.id)
     }
 
     /// Stops a session the pool picked, as Restart does, without starting it again: opening it
@@ -1493,8 +1360,7 @@ public final class AppViewModel {
     private var tabPinGeneration = 0
 
     /// Closes a task-less tab: moves the selection to its neighbour first when it is the tab in
-    /// view, then drops the tab from the backend and releases its pages. A tab whose workflow is
-    /// still preparing stays open, since the run promotes this tab's pages into its session.
+    /// view, then drops the tab from the backend and releases its pages.
     func closeTab(_ id: String) {
         let sessionURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
         let visible = visibleTabs.filter { !$0.isOwned(by: sessionURLs) }.map(\.id)
@@ -1506,13 +1372,8 @@ public final class AppViewModel {
         }
         guard let api, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let key = "tab:\(id)"
-        if pageWorkflowRuns[key]?.running == true {
-            error = String(localized: "Wait for the workflow to start before closing this tab.")
-            return
-        }
         if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
         tabs.remove(at: index)
-        pageWorkflowRuns.removeValue(forKey: key); pageWorkflowTargets.removeValue(forKey: key)
         Task {
             await viewer.remove(id: key)
             do {
@@ -1551,8 +1412,6 @@ public final class AppViewModel {
         for action in actions { await action.suspendAndWait() }
         defer { actions.forEach { $0.resume() } }
         guard await viewer.closeDocuments() else { throw CancellationError() }
-        for model in workflowRuns.values { await model.stop() }
-        for model in pageWorkflowRuns.values { await model.stop() }
         for terminal in terminals.values { await terminal.stopConnecting() }
         try await terminalControl.stopExisting()
         for terminal in terminals.values { terminal.disconnect() }
@@ -1570,7 +1429,6 @@ public final class AppViewModel {
             let key = "task:\(record.id)"
             _ = viewer.restore(id: key, url: record.url, title: record.title,
                                legacy: tabs.first { $0.url == record.url && !$0.standalone })
-            _ = workflowRunModel(for: record)
             // One the memory pool stopped stays stopped until it is opened.
             if terminals[key] == nil, !sessionPool.stopped.contains(record.id) { terminals[key] = makeTerminal(record) }
         }
@@ -1603,7 +1461,6 @@ public final class AppViewModel {
             if let api { for model in projectModels.values {
                 model.connect(backendFactory.projects(api: api)); model.board?.connect(api: api)
                 model.tickets?.connect(backendFactory.tickets(api: api))
-                model.workflows?.connect(backendFactory.workflows(api: api))
             } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
@@ -1672,7 +1529,6 @@ public final class AppViewModel {
                         let retained = Set(sessionSnapshot.map(\.id))
                         for session in sessions where !retained.contains(session.id) {
                             workspaceLaunch.cancel(sessionID: session.id)
-                            await workflowRuns.removeValue(forKey: session.id)?.stop()
                         }
                         sessions = sessionSnapshot
                         sessionPool.retain(retained)
@@ -1680,10 +1536,6 @@ public final class AppViewModel {
                     if current.contains(.tabs), let tabSnapshot, tabs != tabSnapshot.tabs { tabs = tabSnapshot.tabs }
                     restoreSessionTerminals()
                     showSelectedContext()
-                    if current.contains(.projects), case .project(let id) = selection,
-                       let model = projectModels[id], model.section == .prs {
-                        await model.refresh()
-                    }
                     guard refreshPending.isEmpty else { continue }
                     await loadSidebar()
                     // Only sidebar-backed destinations can go stale: a project, session or tab that
@@ -1692,8 +1544,7 @@ public final class AppViewModel {
                     // Ask each entry for the destinations it presents, not for its own: a pinned tab
                     // is a tile inside the grid row and has no row of its own to match.
                     if selection.isSidebarBacked,
-                       !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }),
-                       pageWorkflowRuns[viewer.activeContextID ?? ""]?.running != true { select(.overview) }
+                       !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
                     lastUpdate = Date()
                     error = nil
                     coordinator.setRoutingReady(started && connection == "Connected")
@@ -1738,8 +1589,6 @@ public final class AppViewModel {
         guard case .project(let id) = selection, let model = projectModels[id] else { return }
         let jira = events.filter { $0.type == "jira-sync" }
         switch model.section {
-        case .prs:
-            if prs.contains(where: { $0.projectId == nil || $0.projectId == id }) { await model.refresh() }
         case .tickets:
             if jira.contains(where: { $0.id == nil || $0.id == id }) { model.tickets?.refresh() }
         case .board:
@@ -1814,8 +1663,7 @@ public final class AppViewModel {
         // nested `claude -p`, which is what makes any of this safe to believe.
         if event.type == "agent-session", let runID = event.runId, let id = event.sessionId, !id.isEmpty,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
-           let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,
-           !terminal.agentTurns.hasPendingStep {
+           let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli {
             // A resume keeps its conversation, but still says the agent is up at its prompt.
             terminal.agentTurns.adopt(sessionID: id, midTurn: event.source == "compact")
             if id != session.sessionId { saveConversation(id, for: session) }
@@ -1866,11 +1714,6 @@ public final class AppViewModel {
         await eventRefreshTask?.value
         eventRefreshTask = nil
         pendingRefreshEvents.removeAll()
-        for model in pageWorkflowRuns.values { await model.stop() }
-        pageWorkflowRuns.removeAll()
-        pageWorkflowTargets.removeAll()
-        for model in workflowRuns.values { await model.stop() }
-        workflowRuns.removeAll()
         terminals.values.forEach { $0.agentTurns.setStreamAvailable(false) }
         workspaceLaunch.stop()
         for model in diffModels.values { await model.actions?.suspendAndWait() }
@@ -1885,7 +1728,6 @@ public final class AppViewModel {
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            await model.workflows?.stop()
             model.connect(nil); model.board?.pause(); await model.tickets?.stop()
         }
         await viewer.stop()

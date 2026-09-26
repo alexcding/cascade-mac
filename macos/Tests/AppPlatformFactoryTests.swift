@@ -31,9 +31,6 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     func detachedShell(_ request: AppTerminalRequest) -> DetachedShell { native.detachedShell(request) }
     func terminalControl() -> any TerminalRuntimeControlling { control }
     func processSampler() -> any ProcessSampling { native.processSampler() }
-    func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
-        try await native.workflowTerminal(terminal, cli: cli, sessionID: sessionID)
-    }
     func resources(api: APIClient?) -> any ResourceUsageService { native.resources(api: api) }
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing {

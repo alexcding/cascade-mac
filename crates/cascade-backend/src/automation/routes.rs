@@ -159,10 +159,17 @@ pub async fn samples(State(app): State<AppState>, Query(query): Query<SampleQuer
     for project in &projects {
         let id = project["id"].as_str().unwrap_or("");
         let identity = project_identity(project);
-        for (state, snapshot) in [
-            ("open", app.db.pr_snapshot(id, "open", None)?),
-            ("merged", app.db.pr_snapshot(id, "merged", Some(&identity))?),
-        ] {
+        let merged = app.db.pr_snapshot(id, "merged", Some(&identity))?;
+        // Nothing else reads the merged window, so a stale one is refreshed here, in the
+        // background; the next listing shows it.
+        if project["repo"].as_str().is_some_and(|r| !r.is_empty()) && crate::poller::stale(merged.as_ref(), 60) {
+            let (app, project) = (app.clone(), project.clone());
+            tokio::spawn(async move {
+                let poller = app.poller.clone();
+                poller.sync_pr_scope(&app, project, "merged").await
+            });
+        }
+        for (state, snapshot) in [("open", app.db.pr_snapshot(id, "open", None)?), ("merged", merged)] {
             for pr in snapshot.and_then(|s| s["prs"].as_array().cloned()).unwrap_or_default().into_iter().take(30) {
                 let number = pr["number"].as_i64().unwrap_or(0);
                 let repo = pr["repo"].as_str().or_else(|| project["repo"].as_str()).unwrap_or("");

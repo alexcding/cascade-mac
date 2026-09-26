@@ -138,7 +138,7 @@ import Observation
         resolving = true; error = nil
         defer { if inputGeneration == generation { resolving = false } }
         do {
-            let result = try await operations.resolvePage(page.url, project: project, draft: draft, workflow: false)
+            let result = try await operations.resolvePage(page.url, project: project, draft: draft)
             guard active, !Task.isCancelled, inputGeneration == generation else { return nil }
             resolved = result
             return result
@@ -181,7 +181,7 @@ import Observation
         }
         guard active, !Task.isCancelled, inputGeneration == generation else { return }
         do {
-            let session = try await operations.create(project: project, draft: creation, requireExactBranch: false)
+            let session = try await operations.create(project: project, draft: creation)
             guard active else { return }
             completed = true
             onAction(.created(session))

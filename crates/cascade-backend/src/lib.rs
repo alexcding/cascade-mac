@@ -102,7 +102,6 @@ pub fn build_app(state: AppState) -> Router {
                 .put(routes::update_project)
                 .delete(routes::delete_project),
         )
-        .route("/api/projects/{id}/prs", get(routes::project_prs))
         .route("/api/projects/{id}/jira", get(routes::project_jira))
         .route("/api/projects/{id}/board", get(routes::project_board))
         .route("/api/detect-repo", get(routes::detect_repo))
@@ -197,7 +196,6 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/hooks/turn-done", post(integrations::turn_done))
         .route("/api/hooks/session-start", post(integrations::session_start))
         .route("/api/hooks/open-url", post(integrations::open_url))
-        .route("/api/agent-analyze", post(integrations::agent_analyze))
         .route("/webhook/github", post(integrations::github_webhook))
         .layer(no_store)
         .layer(DefaultBodyLimit::max(15 * 1024 * 1024))

@@ -195,7 +195,7 @@ struct SidebarEntry: Equatable {
     /// (unlabeled), then every unpinned task-less tab under "Tabs". Headings
     /// are flat rows, not collapsible groups — only a project folder collapses.
     static func make(projects: [Project], sessions: [WorkspaceSession], tabs: [SavedTab],
-                     status: [String: SidebarSessionStatus] = [:], workflowProgress: [String: String] = [:],
+                     status: [String: SidebarSessionStatus] = [:],
                      tabIcons: [String: SidebarTabIcon] = [:], order: SidebarOrder = .init(),
                      canCreateProject: Bool = false) -> [Self] {
         let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
@@ -203,8 +203,7 @@ struct SidebarEntry: Equatable {
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
             let state = status[session.id] ?? SidebarSessionStatus(cli: session.cli)
             var tip = session.worktree
-            if let step = workflowProgress[session.id] { tip = String(localized: "\(session.label)\nWorkflow step \(step)") }
-            else if !state.live { tip += "\n" + String(localized: "Stopped — click to resume") }
+            if !state.live { tip += "\n" + String(localized: "Stopped — click to resume") }
             return Self(id: "\(pinned ? "pin" : "session"):\(session.id)", title: session.label,
                         symbol: "", detail: session.worktree, destination: .session(session.id),
                         role: .session(state, pinned: session.pinned)).withTip(tip)

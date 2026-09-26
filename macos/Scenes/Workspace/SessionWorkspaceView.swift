@@ -518,41 +518,6 @@ private struct SessionWorkspaceBuildLogButton: View {
     }
 }
 
-struct SessionWorkspaceLeadingToolbar: View {
-    let model: SessionWorkspaceViewModel
-
-    var body: some View {
-        HStack(spacing: 5) {
-            if let workflow = model.workflow { workflowControls(workflow) }
-        }
-        .padding(.horizontal, 8)
-        .controlSize(.regular)
-        .imageScale(.medium)
-    }
-
-    private func workflowControls(_ workflow: WorkflowRunViewModel) -> some View {
-        HStack(spacing: 5) {
-            Button(workflow.running ? String(localized: "Stop Workflow") : String(localized: "Run Workflow"),
-                   systemImage: workflow.running ? "stop.fill" : "bolt") {
-                Task {
-                    if workflow.running { await workflow.stop() }
-                    else { await workflow.run() }
-                }
-            }
-            .labelStyle(.iconOnly)
-            .disabled(workflow.running ? workflow.stopping : !workflow.canRun)
-            Picker(String(localized: "Workflow"), selection: Binding(get: { workflow.selectedID }, set: { workflow.selectedID = $0 })) {
-                ForEach(workflow.recipes, id: \.id) {
-                    Text($0.name.isEmpty ? String(localized: "Untitled workflow") : $0.name).tag($0.id)
-                }
-            }
-            .labelsHidden()
-            .frame(maxWidth: 180)
-            .disabled(workflow.running)
-        }
-    }
-}
-
 struct SessionWorkspaceContextToggle: View {
     let model: SessionWorkspaceViewModel
 

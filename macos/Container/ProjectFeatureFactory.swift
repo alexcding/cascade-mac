@@ -1,11 +1,10 @@
 import Foundation
 
-enum ProjectSaveSource: Equatable { case configuration, workflows }
+enum ProjectSaveSource: Equatable { case configuration }
 
 struct ProjectFeatureServices {
     let projects: any ProjectService
     let tickets: any JiraService
-    let workflows: any WorkflowService
     let api: APIClient
     let baseURL: URL
 }
@@ -33,9 +32,6 @@ extension ProjectFeatureFactory {
         let pageActions = NativePageActionService(open: openPage, session: session)
         let board = WebBoardViewModel(projectID: project.id, api: services.api, pageActions: pageActions)
         let tickets = JiraTicketsViewModel(project: project, service: services.tickets, pageActions: pageActions)
-        let workflows = WorkflowEditorViewModel(project: project, service: services.workflows)
-        return ProjectPageViewModel(project: project, service: services.projects, editor: editor, board: board,
-                                    tickets: tickets, workflows: workflows,
-                                    pageActions: pageActions)
+        return ProjectPageViewModel(project: project, editor: editor, board: board, tickets: tickets)
     }
 }

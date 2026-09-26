@@ -77,12 +77,14 @@ struct RootRouteHandler: DeepLinkRouteHandling {
 }
 
 struct ProjectRouteHandler: DeepLinkRouteHandling {
-    private let sections: [String: ProjectSection] = ["prs": .prs, "tickets": .tickets, "board": .board,
-                                                     "workflows": .workflows, "settings": .settings]
+    private let sections: [String: ProjectSection] = ["tickets": .tickets, "board": .board,
+                                                     "settings": .settings]
+    /// Sections the project page no longer has; their links still open the project.
+    private let retiredSections: Set<String> = ["prs", "workflows"]
     func parse(_ components: [String]) -> DeepLink? {
         guard (2...3).contains(components.count), components[0] == "projects" else { return nil }
         let root = Route.destination(.project(components[1]))
-        if components.count == 2 { return DeepLink(root) }
+        if components.count == 2 || retiredSections.contains(components[2]) { return DeepLink(root) }
         guard let section = sections[components[2]] else { return nil }
         return DeepLink([root, .projectSection(section)])
     }

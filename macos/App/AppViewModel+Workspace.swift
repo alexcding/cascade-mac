@@ -37,7 +37,7 @@ extension AppViewModel: WorkspaceCoordinating {
         else { title = visibleTabs.first { "tab:\($0.id)" == context.id }?.displayTitle ?? String(localized: "Tab") }
         return SessionWorkspaceState(session: session, project: project, terminal: terminals[context.id],
             buildTerminal: terminals["build:\(context.sourceURL)"], build: buildModels[context.id],
-            history: historyModels[context.id], diff: diffModels[context.id], workflow: workflowModel(in: context),
+            history: historyModels[context.id], diff: diffModels[context.id],
             appearance: shell.appearance, documentFont: shell.font(.diff), editorStyle: shell.editorStyle, terminalStyle: shell.terminalStyle, connected: connection == "Connected",
             changingSession: session.map { changingSessions.contains($0.id) } ?? false,
             removingSession: session.map { isRemoving($0.id) } ?? false,

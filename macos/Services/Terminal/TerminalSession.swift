@@ -138,7 +138,7 @@ final class TerminalSession: Identifiable {
             Task { @MainActor in
                 guard let self, self.surfaceGeneration == generation else { return }
                 self.connectionState = .exited(Int(code)); self.ready = false
-                self.agentTurns.invalidate(String(localized: "The terminal exited during the workflow step."))
+                self.agentTurns.invalidate()
             }
         })
         surface.configuration = .init(backend: .inMemory(pipe.memory))
@@ -160,7 +160,7 @@ final class TerminalSession: Identifiable {
         surface.onClose = { [weak self] _ in
             guard let self, self.surfaceGeneration == generation else { return }
             self.connectionState = .exited(nil); self.ready = false
-            self.agentTurns.invalidate(String(localized: "The terminal closed during the workflow step."))
+            self.agentTurns.invalidate()
         }
     }
 
@@ -326,7 +326,7 @@ final class TerminalSession: Identifiable {
 
     private func connectionLost(_ failure: PtyError, inputWasIdle: Bool) {
         guard !stopped else { return }
-        agentTurns.invalidate(String(localized: "The terminal connection was lost. Check the terminal before restarting the workflow."))
+        agentTurns.invalidate()
         let wasReady = ready
         ready = false
         // The current attempt observes its closed pipeline and handles retry.
@@ -376,14 +376,14 @@ final class TerminalSession: Identifiable {
         if error == nil || prefer { error = text }
         connectionState = .disconnected
         ready = false
-        agentTurns.invalidate(text)
+        agentTurns.invalidate()
     }
 
     func disconnect() {
         // This object owns one connection/surface generation. A delayed ready
         // callback must not reactivate it after its owner removes the pane.
         stopped = true
-        agentTurns.invalidate(String(localized: "The terminal was disconnected during the workflow step."))
+        agentTurns.invalidate()
         reconnectTask?.cancel()
         started = false
         pipe.close()
@@ -531,5 +531,17 @@ final class TerminalSession: Identifiable {
             memory.waitForPendingOutput()
             return memory.readViewportText()
         }.value
+    }
+}
+
+extension TerminalSession {
+    static func paste(_ command: String) throws -> String {
+        guard !command.isEmpty, command.utf8.count <= 64 * 1024,
+              !command.unicodeScalars.contains(where: { ($0.value < 32 && $0.value != 9 && $0.value != 10) || $0.value == 127 }) else {
+            throw BackendError.operation(String(localized: "Messages must contain text without terminal control characters and fit within 64 KiB."))
+        }
+        // Both interactive agents use bracketed paste for multi-line commands.
+        // Enter is acknowledged separately after the pasted text has arrived.
+        return "\u{1b}[200~" + command + "\u{1b}[201~"
     }
 }

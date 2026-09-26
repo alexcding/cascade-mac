@@ -134,7 +134,6 @@ private actor CreationProjectService: ProjectService {
     }
     func delete(_ id: String) {}
     func detectRepository(_ path: String) -> String { "fixture/repo" }
-    func pullRequests(_ id: String, state: String, force: Bool) -> ProjectPRSnapshot { .init() }
     static let project = Project(id: "created", name: "Fixture", repo: "fixture/repo", color: nil, workspace: "/tmp/fixture")
 }
 

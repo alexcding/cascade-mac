@@ -92,30 +92,6 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(SessionAgent.quote("a'$(touch /tmp/no);b") == "'a'\"'\"'$(touch /tmp/no);b'")
 }
 
-@Test func workflowPagePreparationUsesWorkflowBranchAndReusesResolvedWorktrees() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [SessionHTTPFixture.self]
-    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
-    var project = Project(id: "fixture", name: "Fixture", repo: "fixture/repo", color: nil, workspace: "/tmp/fixture")
-    project.jiraProjectKey = "RECORD"
-    let service = APIWorkflowPagePreparation(operations: SessionOperations(api: api))
-    let fresh = try #require(WorkflowPageTarget.resolve(url: "https://jira.test/browse/RECORD-13", projects: [project]))
-    let created = try await service.prepare(fresh, project: project)
-    #expect(created.branch == "feature/record-13-native-sidebar")
-    #expect(created.cli == "" && created.sessionId == "")
-    #expect(created.jiraKey == "RECORD-13" && fresh.matches(created))
-    let existing = try #require(WorkflowPageTarget.resolve(url: "https://jira.test/browse/RECORD-12", projects: [project]))
-    let reused = try await service.prepare(existing, project: project)
-    #expect(reused.branch == "RECORD-12-existing" && reused.worktree == "/tmp/existing")
-    let pull = try #require(WorkflowPageTarget.resolve(url: "https://github.com/fixture/repo/pull/42/files", projects: [project]))
-    let pr = try await service.prepare(pull, project: project)
-    #expect(pr.branch == "feature/native" && pr.kind == "github")
-    #expect(pull.matches(pr))
-    let canonical = try #require(WorkflowPageTarget.resolve(url: "https://github.com/FIXTURE/repo/pull/42?diff=split", projects: [project]))
-    #expect(canonical.identity == pull.identity && canonical.matches(pr))
-    #expect(WorkflowPageTarget.resolve(url: "https://github.com/elsewhere/repo/pull/42", projects: [project]) == nil)
-    #expect(WorkflowPageTarget.resolve(url: fresh.page.url, projects: [project, project]) == nil)
-}
 
 @MainActor @Test func workflowPagePromotionRetainsLiveContextObjectsAndMergesExistingContext() throws {
     let viewer = ViewerStore()
@@ -147,7 +123,7 @@ private actor ScriptedSessionService: SessionCreating {
         if referencesFail { throw BackendError.operation("Could not read refs") }
         return GitReferences(branches: [.init(name: "main")], defaultBranch: "main")
     }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool) throws -> SessionDraft {
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) throws -> SessionDraft {
         resolutions += 1
         if let resolutionError { throw resolutionError }
         return draft
@@ -155,7 +131,7 @@ private actor ScriptedSessionService: SessionCreating {
     private(set) var movedMainCheckoutTo: String?
     /// Moving the checkout frees the branch, so what failed on it resolves the next time.
     func switchMainCheckout(to branch: String, project: Project) { movedMainCheckoutTo = branch; resolutionError = nil }
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool) -> WorkspaceSession {
+    func create(project: Project, draft: SessionDraft) -> WorkspaceSession {
         creations += 1
         return WorkspaceSession(id: "created", projectId: project.id, workspace: project.workspace, worktree: "/tmp/w",
                                 title: draft.title, branch: draft.branch, url: draft.url, createdAt: nil, pinned: false)
@@ -274,7 +250,7 @@ private final class ExistingCheckoutFixture: URLProtocol, @unchecked Sendable {
     ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts = []; ExistingCheckoutFixture.switched = [] }
 
     // An existing WORKTREE is adopted as it stands: the session is new, the checkout is not.
-    let reused = try await operations.create(project: project, draft: draft("reuse-me"), requireExactBranch: false)
+    let reused = try await operations.create(project: project, draft: draft("reuse-me"))
     #expect(reused.worktree == "/tmp/fixture.worktrees/reuse-me")
     #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts.isEmpty })
 
@@ -282,14 +258,14 @@ private final class ExistingCheckoutFixture: URLProtocol, @unchecked Sendable {
     // own, so the main checkout is parked on the selected base and the branch then gets one.
     var held = draft("held", base: "develop")
     held.createBranch = false
-    let freed = try await operations.create(project: project, draft: held, requireExactBranch: false)
+    let freed = try await operations.create(project: project, draft: held)
     #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched } == ["develop"])
     // Never the main repo's own path, which is what `matched` pointed at.
     #expect(freed.worktree == "/tmp/fixture.worktrees/fresh")
     #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts.count } == 1)
 
     // Nothing selected — the page flow creates without a sheet — falls back to the session base.
-    _ = try await operations.create(project: project, draft: draft("main"), requireExactBranch: false)
+    _ = try await operations.create(project: project, draft: draft("main"))
     #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched.last } == "develop")
 
     // Resolving is a LOOKUP. It runs on every keystroke that parses as a URL, so it must never
@@ -301,10 +277,10 @@ private final class ExistingCheckoutFixture: URLProtocol, @unchecked Sendable {
 
     // The one case with nowhere to park it: the branch IS the base this session forks from.
     await #expect(throws: BackendError.self) {
-        _ = try await operations.create(project: project, draft: draft("develop", base: "develop"), requireExactBranch: false)
+        _ = try await operations.create(project: project, draft: draft("develop", base: "develop"))
     }
 
-    let fresh = try await operations.create(project: project, draft: draft("fresh"), requireExactBranch: false)
+    let fresh = try await operations.create(project: project, draft: draft("fresh"))
     #expect(fresh.worktree == "/tmp/fixture.worktrees/fresh")
 }
 
@@ -317,12 +293,12 @@ private actor PageStartService: SessionCreating {
         baseRequests += 1
         return GitReferences(branches: [.init(name: "main"), .init(name: "develop")], defaultBranch: "main")
     }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool) throws -> SessionDraft {
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) throws -> SessionDraft {
         var result = try resolution.get(); result.agent = draft.agent; return result
     }
     private(set) var movedMainCheckoutTo: String?
     func switchMainCheckout(to branch: String, project: Project) { movedMainCheckoutTo = branch }
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool) -> WorkspaceSession {
+    func create(project: Project, draft: SessionDraft) -> WorkspaceSession {
         createdDraft = draft
         return WorkspaceSession(id: "page", projectId: project.id, workspace: project.workspace, worktree: draft.reuseWorktree ?? "/tmp/new",
                                 title: draft.title, branch: draft.branch, url: draft.url, createdAt: nil, pinned: false)

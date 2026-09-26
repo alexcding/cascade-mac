@@ -33,7 +33,6 @@ private actor LifetimeProjectService: ProjectService {
         if let detection { return try await detection.value() }
         return "fixture/repo"
     }
-    func pullRequests(_ id: String, state: String, force: Bool) -> ProjectPRSnapshot { .init() }
 }
 
 private actor LifetimeSessionService: SessionCreating {
@@ -46,14 +45,14 @@ private actor LifetimeSessionService: SessionCreating {
     func references(_ project: Project) -> GitReferences {
         references += 1; return GitReferences(branches: [.init(name: "main")], defaultBranch: "main")
     }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool) async throws -> SessionDraft {
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) async throws -> SessionDraft {
         resolutions += 1
         if let resolution { return try await resolution.value() }
         return draft
     }
     private(set) var movedMainCheckoutTo: String?
     func switchMainCheckout(to branch: String, project: Project) { movedMainCheckoutTo = branch }
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool) async throws -> WorkspaceSession {
+    func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession {
         creations += 1
         if let creation {
             self.creation = nil

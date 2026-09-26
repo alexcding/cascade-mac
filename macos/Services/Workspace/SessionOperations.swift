@@ -58,8 +58,8 @@ struct SessionDraft: Equatable, Sendable {
 // record write reports the created checkout so it is recoverable, never deleted.
 protocol SessionCreating: Sendable {
     func references(_ project: Project) async throws -> GitReferences
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool) async throws -> SessionDraft
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool) async throws -> WorkspaceSession
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) async throws -> SessionDraft
+    func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession
     /// Moves `project`'s main checkout onto `branch`, freeing the one it holds for a worktree.
     func switchMainCheckout(to branch: String, project: Project) async throws
 }
@@ -78,10 +78,10 @@ enum PageSessionStart {
     static func run(url: String, project: Project, agent: SessionAgent, jiraKey: String = "", operations: any SessionCreating) async -> Outcome {
         do {
             var draft = SessionDraft(); draft.agent = agent
-            draft = try await operations.resolvePage(url, project: project, draft: draft, workflow: false)
+            draft = try await operations.resolvePage(url, project: project, draft: draft)
             if draft.jiraKey.isEmpty { draft.jiraKey = jiraKey.uppercased() }
             if draft.createBranch && draft.reuseWorktree == nil { draft.base = try await operations.references(project).sessionBase }
-            return .created(try await operations.create(project: project, draft: draft, requireExactBranch: false))
+            return .created(try await operations.create(project: project, draft: draft))
         } catch is PullRequestBranchUnknown {
             return .needsBranch
         } catch {
@@ -93,7 +93,6 @@ enum PageSessionStart {
 protocol SessionServing: SessionCreating {
     func saveAgentID(_ id: String, session: WorkspaceSession) async throws
     func conversationExists(cli: String, id: String) async throws -> Bool
-    func configureAgent(_ cli: WorkflowCLI, session: WorkspaceSession) async throws -> WorkspaceSession
 }
 
 struct SessionOperations: SessionServing {
@@ -101,7 +100,7 @@ struct SessionOperations: SessionServing {
     func references(_ project: Project) async throws -> GitReferences {
         try await api.get(APIClient.query(Routes.GIT_REFS, ["path": project.workspace]))
     }
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool = false) async throws -> WorkspaceSession {
+    func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession {
         let branch = draft.branch.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceURL = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !branch.isEmpty, !project.workspace.isEmpty else { throw BackendError.operation(String(localized: "Choose a project workspace and branch.")) }
@@ -142,14 +141,6 @@ struct SessionOperations: SessionServing {
             }
         }
         guard !worktree.path.isEmpty else { throw BackendError.operation(String(localized: "Git did not return a worktree.")) }
-        if requireExactBranch {
-            let verified: ResolvedWorktree = try await api.get(APIClient.query(Routes.WORKTREE,
-                ["path": project.workspace, "branch": branch, "strict": "1"]))
-            guard verified.matched, verified.branch == branch,
-                  SessionRemovalPlan.path(verified.path) == SessionRemovalPlan.path(worktree.path) else {
-                throw BackendError.operation(String(localized: "The checkout at \(worktree.path) does not match branch \(branch). It has been kept; resolve the branch or folder conflict before running this workflow."))
-            }
-        }
         let id = UUID().uuidString.lowercased()
         let session = WorkspaceSession(id: id, projectId: project.id, workspace: project.workspace, worktree: worktree.path,
             title: draft.title.isEmpty ? branch : draft.title, branch: branch,
@@ -164,7 +155,7 @@ struct SessionOperations: SessionServing {
     struct ResolvedWorktree: Decodable, Sendable {
         let path: String; let branch: String; let matched: Bool; let isWorktree: Bool
     }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool = false) async throws -> SessionDraft {
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) async throws -> SessionDraft {
         guard let page = SessionPage.parse(raw) else { throw BackendError.operation(String(localized: "Enter a GitHub pull request or Jira issue URL, or type a branch name.")) }
         var result = draft
         result.url = page.url; result.kind = page.kind; result.jiraKey = page.key
@@ -187,7 +178,7 @@ struct SessionOperations: SessionServing {
             let response: Search? = try? await api.request(Routes.JIRA_SEARCH, method: "POST", body: Query(jql: "key = \(page.key)"))
             let summary = response?.items.first?.summary ?? ""
             result.title = summary.isEmpty ? page.key : "\(page.key) \(summary)"
-            result.branch = workflow ? WorkflowText.branch(key: page.key, summary: summary) : SessionPage.jiraBranch(key: page.key, summary: summary)
+            result.branch = SessionPage.jiraBranch(key: page.key, summary: summary)
             result.createBranch = true
         }
         let match = page.kind == "jira" ? ["key": page.key] : ["branch": result.branch]
@@ -234,14 +225,6 @@ struct SessionOperations: SessionServing {
     func saveAgentID(_ id: String, session: WorkspaceSession) async throws {
         struct Payload: Encodable, Sendable { let sessionId: String }
         let _: OperationOK = try await api.request(Routes.task(session.id), method: "PATCH", body: Payload(sessionId: id))
-    }
-    func configureAgent(_ cli: WorkflowCLI, session: WorkspaceSession) async throws -> WorkspaceSession {
-        var result = session
-        if result.cli != cli.rawValue { result.cli = cli.rawValue; result.sessionId = "" }
-        struct Payload: Encodable, Sendable { let cli: String; let sessionId: String }
-        let _: OperationOK = try await api.request(Routes.task(session.id), method: "PATCH",
-            body: Payload(cli: cli.rawValue, sessionId: result.sessionId ?? ""))
-        return result
     }
     private func safeSessionURL(_ value: String) -> Bool {
         guard let url = URL(string: value), ["http", "https"].contains(url.scheme?.lowercased() ?? ""),

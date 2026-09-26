@@ -36,7 +36,6 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func terminalControl() -> any TerminalRuntimeControlling
     /// Reads the process table for the session and page memory pools.
     func processSampler() -> any ProcessSampling
-    func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal
     func resources(api: APIClient?) -> any ResourceUsageService
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing
@@ -71,9 +70,6 @@ extension AppPlatformFactory {
     }
     func terminalControl() -> any TerminalRuntimeControlling { NativeTerminalRuntimeControl(configuration: configuration) }
     func processSampler() -> any ProcessSampling { NativeProcessResourceSampler() }
-    func workflowTerminal(_ terminal: TerminalSession, cli: WorkflowCLI, sessionID: String?) async throws -> any WorkflowTerminal {
-        try await NativeWorkflowTerminal(terminal: terminal, cli: cli, sessionID: sessionID)
-    }
     func resources(api: APIClient?) -> any ResourceUsageService {
         NativeResourceUsageService(api: api, pty: try? configuration())
     }

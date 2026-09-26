@@ -22,7 +22,7 @@ private final class EventLog: @unchecked Sendable {
     }
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func nativeWorkflowDeliversPasteThenEnterAndStopsOnlyItsForeground() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func terminalReportsForegroundAndDeliversBracketedPasteInput() async throws {
     _ = NSApplication.shared
     let root = TestPaths.checkout
     let directory = URL(fileURLWithPath: "/tmp/th-workflow-\(UUID().uuidString.prefix(10))")
@@ -68,33 +68,22 @@ private final class EventLog: @unchecked Sendable {
     try #require(stat(executablePath, &observedFile) == 0 && stat(agent.path, &fixtureFile) == 0)
     #expect(observedFile.st_dev == fixtureFile.st_dev && observedFile.st_ino == fixtureFile.st_ino)
     try #require(foreground.pgid != nil)
-    let adapter = try await NativeWorkflowTerminal(terminal: session, cli: .claude, sessionID: "fixture")
     let command = "/check\nSecond line 🦀"
-    let running = Task { try await adapter.execute(command) }
-    let expected = try NativeWorkflowTerminal.paste(command) + "\r"
+    let pasted = try TerminalSession.paste(command)
+    try await session.writeWorkflowInput(pasted)
+    try await Task.sleep(for: .milliseconds(60))
+    try await session.writeWorkflowInput("\r")
+    let expected = pasted + "\r"
     for _ in 0..<100 { if log.text.contains(expected) { break }; try await Task.sleep(for: .milliseconds(20)) }
     try #require(log.text.contains(expected))
     for type in ["agent-turn-start", "agent-turn-done"] {
         session.agentTurns.receive(ServerEvent(type: type, projectId: nil, id: nil, runId: term.id, cli: "claude", sessionId: "fixture"))
     }
-    let revision = try await running.value
-    try await adapter.validate(after: revision)
-    let long = Task { try await adapter.execute("/long-step") }
-    for _ in 0..<100 {
-        if log.text.contains("/long-step\u{1b}[201~\r") { break }
-        try await Task.sleep(for: .milliseconds(20))
-    }
-    try #require(log.text.contains("/long-step\u{1b}[201~\r"))
-    session.agentTurns.receive(ServerEvent(type: "agent-turn-start", projectId: nil, id: nil, runId: term.id, cli: "claude", sessionId: "fixture"))
-    long.cancel(); try await adapter.stopStep()
-    do { _ = try await long.value; Issue.record("Cancelled step must not complete") } catch { #expect(error is CancellationError) }
-    for _ in 0..<100 { if log.text.hasSuffix("\u{1b}") { break }; try await Task.sleep(for: .milliseconds(10)) }
-    #expect(log.text.hasSuffix("\u{1b}") && !session.agentBusy)
+    #expect(!session.agentBusy)
     _ = kill(try #require(foreground.pgid), SIGTERM)
     for _ in 0..<100 { if try await session.atShell() { break }; try await Task.sleep(for: .milliseconds(20)) }
-    do { _ = try await adapter.execute("MUST_NOT_REACH_SHELL"); Issue.record("Changed foreground must reject workflow input") }
-    catch { #expect(error.localizedDescription.contains("foreground program changed")) }
-    #expect(!log.text.contains("MUST_NOT_REACH_SHELL"))
+    let after = try await session.workflowForeground()
+    #expect(after.atShell)
     await session.stopConnecting(); try await host.stopExisting()
 }
 

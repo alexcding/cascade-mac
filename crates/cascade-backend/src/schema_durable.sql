@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS projects (
   workspace TEXT NOT NULL DEFAULT '', jira_project_key TEXT NOT NULL DEFAULT '', jql TEXT NOT NULL DEFAULT '',
   merge_transition TEXT NOT NULL DEFAULT '', forward_webhooks INTEGER NOT NULL DEFAULT 1,
   fix_version_enabled INTEGER NOT NULL DEFAULT 0, fix_version_prefix TEXT NOT NULL DEFAULT '',
-  fix_version_script TEXT NOT NULL DEFAULT '', workflows TEXT NOT NULL DEFAULT '', ide TEXT NOT NULL DEFAULT '',
+  fix_version_script TEXT NOT NULL DEFAULT '', ide TEXT NOT NULL DEFAULT '',
   ide_cmd TEXT NOT NULL DEFAULT '', ide_target TEXT NOT NULL DEFAULT '', run_scheme TEXT NOT NULL DEFAULT '',
   run_sim TEXT NOT NULL DEFAULT '', worktree_setup TEXT NOT NULL DEFAULT '',
   worktree_include TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL

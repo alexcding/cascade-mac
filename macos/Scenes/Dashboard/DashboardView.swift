@@ -52,7 +52,7 @@ struct DashboardView: View {
     /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
     private var header: some View {
         switch model.tab {
-        case .pullRequests: DashboardPageHeader(caption: String(localized: "Yours, newest first"), title: String(localized: "Pull requests"))
+        case .pullRequests: DashboardPageHeader(caption: model.prs.author == .mine ? String(localized: "Yours, newest first") : String(localized: "Everyone else’s, newest first"), title: String(localized: "Pull requests"))
         case .reviews: DashboardPageHeader(caption: String(localized: "Waiting on you, newest first"), title: String(localized: "Review requested"))
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
@@ -232,14 +232,19 @@ struct DashboardView: View {
 
     // MARK: Pull Requests tab
 
-    /// Every pull request of the user's, one ruled section per project, narrowed by a tag.
+    /// The user's or everyone else's open pull requests, one ruled section per project, narrowed
+    /// by a tag and optionally to one project.
     private var pullRequestsPage: some View {
         let groups = model.prs.groups
         return VStack(alignment: .leading, spacing: 0) {
-            DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
-                                title: \.title, count: { model.prs.counts[$0] ?? 0 },
-                                id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
-                .padding(.bottom, 24)
+            HStack(alignment: .top, spacing: 12) {
+                DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
+                                    title: \.title, count: { model.prs.counts[$0] ?? 0 },
+                                    id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                pullRequestScope
+            }
+            .padding(.bottom, 24)
             if model.prs.projects.isEmpty {
                 noProjects
             } else if groups.isEmpty {
@@ -251,11 +256,40 @@ struct DashboardView: View {
                             DashboardSectionHeader(title: group.project.name, detail: group.project.repo,
                                                    refresh: index == 0 ? { model.prs.sync() } : nil,
                                                    busy: model.prs.loading || model.prs.syncing, id: "prs")
-                            prRows(group.rows)
+                            prRows(group.rows, author: model.prs.author == .others)
                         }
                     }
                 }
             }
+        }
+    }
+
+    /// Whose pull requests, and from which project, beside the tags and drawn as tags.
+    private var pullRequestScope: some View {
+        let prs = model.prs
+        let project = prs.projects.first { $0.id == prs.project }
+        return HStack(spacing: 8) {
+            ForEach(DashboardPullRequestsModel.Author.allCases) { author in
+                let active = prs.author == author
+                Button { prs.author = author } label: {
+                    DashboardTagLabel(title: author.title, count: prs.count(author), active: active)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("dashboard-pr-author-\(author.id)")
+                .accessibilityAddTraits(active ? .isSelected : [])
+            }
+            Menu {
+                Picker("Project", selection: Binding(get: { prs.project }, set: { prs.project = $0 })) {
+                    Text("All Projects").tag(String?.none)
+                    Divider()
+                    ForEach(prs.projects) { Text($0.name).tag(Optional($0.id)) }
+                }
+                .pickerStyle(.inline).labelsHidden()
+            } label: {
+                DashboardTagLabel(title: project?.name ?? String(localized: "All Projects"), symbol: "chevron.down", active: project != nil)
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .accessibilityIdentifier("dashboard-pr-project")
         }
     }
 
@@ -417,23 +451,36 @@ struct DashboardFilterTags<Value: Hashable>: View {
             ForEach(values, id: \.self) { value in
                 let active = value == selection
                 Button { select(value) } label: {
-                    HStack(spacing: 7) {
-                        Text(title(value)).fontWeight(.semibold)
-                        Text("\(count(value))").monospacedDigit().opacity(0.7)
-                    }
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-                    .padding(.horizontal, 12).frame(height: 30)
-                    .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
-                    .contentShape(Rectangle())
+                    DashboardTagLabel(title: title(value), count: count(value), active: active)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier(id(value))
                 .accessibilityAddTraits(active ? .isSelected : [])
             }
         }
+    }
+}
+
+/// One tag's face: its name, then a count or a symbol; filled when selected.
+struct DashboardTagLabel: View {
+    let title: String
+    var count: Int?
+    var symbol: String?
+    let active: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(title).fontWeight(.semibold)
+            if let count { Text("\(count)").monospacedDigit().opacity(0.7) }
+            if let symbol { Image(systemName: symbol).font(.system(size: 9, weight: .bold)).opacity(0.7) }
+        }
+        .font(.system(size: 12.5))
+        .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+        .padding(.horizontal, 12).frame(height: 30)
+        .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
+        .contentShape(Rectangle())
     }
 }
 

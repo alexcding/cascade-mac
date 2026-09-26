@@ -7,7 +7,7 @@ import Testing
     let base = URL(string: "http://127.0.0.1:1")!, api = try APIClient(baseURL: base)
     let factory = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
     let model = factory.project(project, services: .init(projects: ProjectPageService(), tickets: service,
-        workflows: APIWorkflowService(api: api), api: api, baseURL: base), openPage: actions.openPage)
+        api: api, baseURL: base), openPage: actions.openPage)
     let tickets = try #require(model.tickets)
     tickets.refresh()
     while tickets.baseURL == nil || tickets.loading { await Task.yield() }
@@ -22,7 +22,8 @@ import Testing
     tickets.open(ticket); tickets.openSession(ticket); await tickets.navigation.waitForOpen()
     #expect(actions.opened.isEmpty)
     root.navigate(to: .project(model.project.id))
-    tickets.openSession(ticket); await tickets.navigation.waitForOpen() // PR section cannot accept hidden ticket actions.
+    model.selectSection(.settings)
+    tickets.openSession(ticket); await tickets.navigation.waitForOpen() // Settings cannot accept hidden ticket actions.
     #expect(actions.opened.isEmpty)
     model.selectSection(.tickets)
     tickets.open(ticket); await tickets.navigation.waitForOpen()
@@ -198,7 +199,7 @@ private struct BoardTicketActionService: BoardService {
     #expect(!board.active && board.appearance == .dark)
     root.navigate(to: .project(model.project.id))
     #expect(board.active)
-    model.selectSection(.prs)
+    model.selectSection(.tickets)
     #expect(!board.active)
     model.selectSection(.board)
     child.retire(); model.active = true; model.appearance = .light
