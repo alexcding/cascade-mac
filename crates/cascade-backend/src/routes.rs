@@ -435,9 +435,14 @@ pub async fn detect_repo(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     let path = query
         .path
         .ok_or_else(|| ApiError::bad_request("path required"))?;
-    Ok(Json(
-        json!({"repo":crate::github::remote_repo(&path).await.unwrap_or_default()}),
-    ))
+    let root = std::path::PathBuf::from(&path);
+    let ide = tokio::task::spawn_blocking(move || crate::local::detect_ide(&root))
+        .await
+        .unwrap_or_default();
+    Ok(Json(json!({
+        "repo": crate::github::remote_repo(&path).await.unwrap_or_default(),
+        "ide": ide,
+    })))
 }
 pub async fn lookup_pr(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     Ok(Json(match query.url {

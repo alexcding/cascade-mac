@@ -356,6 +356,26 @@ fn xcode_target(root: &Path) -> Option<PathBuf> {
     None
 }
 
+/// A best guess at a new project's IDE, covering the common cases only: an Apple project opens
+/// in Xcode, an Android one in Android Studio, a web one in VS Code. "" for anything else, and
+/// the user picks.
+pub(crate) fn detect_ide(root: &Path) -> &'static str {
+    let has = |rel: &str| root.join(rel).exists();
+    let android = has("app/src/main/AndroidManifest.xml")
+        || ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
+            .iter()
+            .any(|file| fs::read_to_string(root.join(file)).is_ok_and(|text| text.contains("com.android")));
+    if xcode_target(root).is_some() {
+        "xcode"
+    } else if android {
+        "android"
+    } else if has("package.json") || has(".vscode") {
+        "vscode"
+    } else {
+        ""
+    }
+}
+
 pub(crate) fn resolve_launch(root: &Path, rel: &str, kind: &str) -> Result<(PathBuf, &'static str), ApiError> {
     let metadata = fs::metadata(root).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -1637,5 +1657,38 @@ mod file_match_tests {
         assert_eq!(file_match_rank("macos/App/AppDelegate.swift", "macos/app"), Some(2));
         assert_eq!(file_match_rank("macos/Scenes/SessionWorkspaceViewModel.swift", "swvm"), Some(3));
         assert_eq!(file_match_rank("README.md", "zzz"), None);
+    }
+}
+
+#[cfg(test)]
+mod detect_ide_tests {
+    use super::detect_ide;
+    use std::fs;
+
+    /// A checkout holding `entries`: a trailing `/` makes a folder, anything else a file.
+    fn guess(entries: &[(&str, &str)]) -> &'static str {
+        let dir = tempfile::tempdir().unwrap();
+        for (entry, contents) in entries {
+            let path = dir.path().join(entry.trim_end_matches('/'));
+            if entry.ends_with('/') {
+                fs::create_dir_all(path).unwrap();
+            } else {
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, contents).unwrap();
+            }
+        }
+        detect_ide(dir.path())
+    }
+
+    #[test]
+    fn guesses_from_what_the_checkout_holds() {
+        assert_eq!(guess(&[("ios/App.xcodeproj/", ""), ("package.json", "{}")]), "xcode");
+        assert_eq!(guess(&[("Package.swift", "")]), "xcode");
+        assert_eq!(guess(&[("build.gradle.kts", "id(\"com.android.application\")")]), "android");
+        assert_eq!(guess(&[("app/src/main/AndroidManifest.xml", "")]), "android");
+        assert_eq!(guess(&[("package.json", "{}")]), "vscode");
+        assert_eq!(guess(&[(".vscode/", "")]), "vscode");
+        assert_eq!(guess(&[("build.gradle", "plugins { id 'java' }")]), "");
+        assert_eq!(guess(&[("README.md", ""), ("node_modules/x/X.xcodeproj/", "")]), "");
     }
 }

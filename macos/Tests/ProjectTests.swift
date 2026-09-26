@@ -278,3 +278,37 @@ private struct TrackedFixture: ProjectService {
     await untracked.pickSetupScript()
     #expect(untracked.draft.worktreeSetup == "sh ./setup.sh" && untracked.error?.contains("isn't committed") == true)
 }
+
+private struct IDEGuessFixture: ProjectService {
+    func load(_ id: String) -> Project { Project(id: id, name: "", repo: "", color: nil, workspace: "") }
+    func save(_ draft: ProjectDraft, id: String?) throws -> Project { load(id ?? "created") }
+    func delete(_ id: String) {}
+    func detectRepository(_ path: String) -> String { "o/r" }
+    func detect(_ path: String) -> DetectedWorkspace {
+        DetectedWorkspace(repo: "o/r", ide: path.hasSuffix("ios") ? "xcode" : path.hasSuffix("web") ? "vscode" : "")
+    }
+    func pullRequests(_ id: String, state: String, force: Bool) -> ProjectPRSnapshot { ProjectPRSnapshot(prs: [], error: nil, refreshing: false) }
+}
+
+@MainActor @Test func newProjectGuessesItsIDEButNeverReplacesAPick() async {
+    var folder = "/tmp/ios"
+    let editor = ProjectEditorViewModel(project: nil, service: IDEGuessFixture(), chooseFolder: { folder })
+    await editor.chooseWorkspace()
+    #expect(editor.draft.ide == "xcode")
+    folder = "/tmp/web"
+    await editor.chooseWorkspace()
+    #expect(editor.draft.ide == "vscode")
+    folder = "/tmp/other"
+    await editor.chooseWorkspace()
+    #expect(editor.draft.ide == "")
+    editor.draft.ide = "zed"
+    folder = "/tmp/ios"
+    await editor.chooseWorkspace()
+    #expect(editor.draft.ide == "zed")
+
+    let existing = ProjectEditorViewModel(project: Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp/x", ide: "cursor"),
+                                          service: IDEGuessFixture(), chooseFolder: { "/tmp/ios" })
+    await existing.chooseWorkspace()
+    #expect(existing.draft.ide == "cursor")
+    #expect(existing.ideChoices.last?.title == "Cursor" && !IDEChoice.all.contains { $0.id == "cursor" || $0.id == "windsurf" })
+}

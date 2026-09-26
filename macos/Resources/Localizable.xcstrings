@@ -57289,79 +57289,79 @@
         }
       }
     },
-    "Local Git Repo": {
+    "Project Folder": {
       "extractionState": "manual",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本地 Git 仓库"
+            "value": "项目文件夹"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "本機 Git 儲存庫"
+            "value": "專案資料夾"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "स्थानीय Git रिपॉज़िटरी"
+            "value": "प्रोजेक्ट फ़ोल्डर"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Repositorio Git local"
+            "value": "Carpeta del proyecto"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dépôt Git local"
+            "value": "Dossier du projet"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "স্থানীয় Git রিপোজিটরি"
+            "value": "প্রকল্প ফোল্ডার"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Repositório Git local"
+            "value": "Pasta do projeto"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Локальный репозиторий Git"
+            "value": "Папка проекта"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカル Git リポジトリ"
+            "value": "プロジェクトフォルダ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로컬 Git 저장소"
+            "value": "프로젝트 폴더"
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lokalt Git-arkiv"
+            "value": "Projektmapp"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Repository Git locale"
+            "value": "Cartella del progetto"
           }
         }
       }
@@ -63613,11 +63613,6 @@
     },
     "Jira": {
       "comment": "Product name; retained in every language.",
-      "extractionState": "manual",
-      "shouldTranslate": false
-    },
-    "/path/to/local/checkout": {
-      "comment": "Literal path or configuration syntax example; do not translate.",
       "extractionState": "manual",
       "shouldTranslate": false
     },

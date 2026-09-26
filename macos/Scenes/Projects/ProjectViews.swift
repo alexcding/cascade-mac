@@ -87,10 +87,11 @@ struct NewProjectSheet: View {
                     .accessibilityLabel("Project Name")
                     .accessibilityIdentifier("project-name")
             }
-            SheetField(String(localized: "Local Git Repo"), last: true) {
+            SheetField(String(localized: "Project Folder"), last: true) {
                 HStack(spacing: 8) {
-                    TextField("/path/to/local/checkout", text: $model.draft.workspace)
+                    TextField("", text: $model.draft.workspace)
                         .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Project Folder")
                         .accessibilityIdentifier("project-workspace")
                         .onSubmit { Task { await model.detectRepository() } }
                     Button("Choose…") { Task { await model.chooseWorkspace() } }

@@ -19,6 +19,7 @@ import Observation
     private(set) var retired = false
     private var completedCreation = false
     private var suggestedName = ""
+    private var suggestedIDE = ""
     private var generation = UUID()
     private var service: (any ProjectService)?
     private let chooseFolder: () async -> String?
@@ -59,7 +60,7 @@ import Observation
         onAction = { _ in }
     }
     var ideChoices: [IDEChoice] {
-        IDEChoice.all.contains(where: { $0.id == draft.ide }) ? IDEChoice.all : IDEChoice.all + [.init(id: draft.ide, title: draft.ide)]
+        IDEChoice.choices(keeping: draft.ide)
     }
     func update(_ project: Project) {
         guard active && !dirty && !busy else { return }
@@ -123,7 +124,8 @@ import Observation
         busy = true; error = nil
         defer { busy = false }
         do {
-            let repo = try await service.detectRepository(workspace)
+            let detected = try await service.detect(workspace)
+            let repo = detected.repo
             guard active, !Task.isCancelled, self.generation == generation, draft.workspace == workspace else { return }
             if repo.isEmpty {
                 error = String(localized: "No GitHub remote found in this workspace.")
@@ -131,6 +133,7 @@ import Observation
                 if id == nil { draft.repo = "" }
             } else { draft.repo = repo }
             suggestName()
+            suggestIDE(detected.ide)
         } catch {
             if active && !Task.isCancelled && self.generation == generation && draft.workspace == workspace {
                 self.error = error.localizedDescription
@@ -146,6 +149,13 @@ import Observation
         if name.isEmpty, !draft.workspace.isEmpty { name = URL(fileURLWithPath: draft.workspace).lastPathComponent }
         guard !name.isEmpty, name != "/" else { return }
         draft.name = name; suggestedName = name
+    }
+    /// A new project's IDE is guessed from what the checkout holds. A pick the user made is
+    /// never replaced — only None or a still-suggested guess.
+    private func suggestIDE(_ ide: String) {
+        guard active, id == nil, draft.ide.isEmpty || draft.ide == suggestedIDE,
+              ide.isEmpty || IDEChoice.all.contains(where: { $0.id == ide }) else { return }
+        draft.ide = ide; suggestedIDE = ide
     }
     func save() async {
         guard active, !Task.isCancelled, !busy, let service else { return }

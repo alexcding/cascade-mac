@@ -58,6 +58,13 @@ protocol ProjectService: Sendable {
     func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot
     /// What git records for `rel` in `workspace`, which is what a new worktree checks out.
     func trackedFile(workspace: String, rel: String) async throws -> TrackedFile?
+    /// The checkout's GitHub repo and a best guess at its IDE ("" when there is no guess).
+    func detect(_ path: String) async throws -> DetectedWorkspace
+}
+
+struct DetectedWorkspace: Decodable, Equatable, Sendable {
+    let repo: String
+    let ide: String
 }
 
 struct TrackedFile: Decodable, Equatable, Sendable {
@@ -68,6 +75,10 @@ struct TrackedFile: Decodable, Equatable, Sendable {
 extension ProjectService {
     /// Unknown by default: the setup script pick then goes by the file as it is on disk.
     func trackedFile(workspace: String, rel: String) async throws -> TrackedFile? { nil }
+    /// No IDE guess by default: only the repo.
+    func detect(_ path: String) async throws -> DetectedWorkspace {
+        DetectedWorkspace(repo: try await detectRepository(path), ide: "")
+    }
 }
 
 struct APIProjectService: ProjectService {
@@ -82,10 +93,9 @@ struct APIProjectService: ProjectService {
     func delete(_ id: String) async throws {
         let _: OperationOK = try await api.request(Routes.project(id), method: "DELETE", body: [String: String]())
     }
-    func detectRepository(_ path: String) async throws -> String {
-        struct Result: Decodable, Sendable { let repo: String }
-        let result: Result = try await api.get(APIClient.query(Routes.DETECT_REPO, ["path": path]), timeout: 30)
-        return result.repo
+    func detectRepository(_ path: String) async throws -> String { try await detect(path).repo }
+    func detect(_ path: String) async throws -> DetectedWorkspace {
+        try await api.get(APIClient.query(Routes.DETECT_REPO, ["path": path]), timeout: 30)
     }
     func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot {
         try await api.get(APIClient.query(Routes.projectPrs(id), ["state": state, "snapshot": "1", "refresh": force ? "1" : "0"]))
@@ -127,7 +137,16 @@ extension Project {
 struct IDEChoice: Identifiable {
     let id: String
     let title: String
+    /// Editors a project can still open in but the picker no longer offers: the AI editors.
+    /// A project already set to one keeps it and shows it.
+    static let retired: Set<String> = ["cursor", "windsurf"]
     static let all: [Self] = [.init(id: "", title: String(localized: "None"))]
-        + ExternalTool.editors.map { .init(id: $0.id, title: $0.name) }
+        + ExternalTool.editors.filter { !retired.contains($0.id) }.map { .init(id: $0.id, title: $0.name) }
         + [.init(id: "custom", title: String(localized: "Custom"))]
+    /// The picker's choices, plus the project's current IDE when the picker no longer offers it.
+    static func choices(keeping current: String) -> [Self] {
+        guard !all.contains(where: { $0.id == current }) else { return all }
+        let title = ExternalTool.editors.first { $0.id == current }?.name ?? current
+        return all + [.init(id: current, title: title)]
+    }
 }
