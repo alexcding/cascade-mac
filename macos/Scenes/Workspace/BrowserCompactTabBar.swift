@@ -4,9 +4,9 @@ import SwiftUI
 /// raised glass capsule that doubles as the address bar. Its close button is at the leading edge,
 /// the site icon and host are centred, reload is trailing; clicking the host edits the address.
 /// There is no second row for the browser: back/forward lead the pill, New Tab and Recently
-/// Closed trail it. In its own row the bar hangs its suggestions under itself; in the toolbar the
-/// page beneath draws them (`BrowserAddressSuggestionList`), from the editing state and highlight
-/// the bar keeps on the models.
+/// Closed trail it. In its own row, or a pane's title-bar zone, the bar hangs its suggestions under
+/// itself; in the toolbar — a sidebar tab's — the page beneath draws them
+/// (`BrowserAddressSuggestionList`), from the editing state and highlight the bar keeps on the models.
 struct BrowserCompactTabBar: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -80,7 +80,9 @@ struct BrowserCompactTabBar: View {
                        // A drag in the address field selects its text: the tab being edited stays put.
                        canMove: { !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
-                CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive,
+                // On screen means the pane too: a collapsed pane keeps its bar, and a field in it
+                // must not take the keyboard from the terminal.
+                CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive && model.showsPage,
                            autoFocus: page.id != context.fillerPageID,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
                            closable: model.offersClose(page), iconOnly: iconOnly, editing: $editingAddress,
@@ -117,9 +119,9 @@ struct BrowserCompactTabBar: View {
     }
 }
 
-/// The address suggestions under the field: hung from the bar in its own row, or from the top of
-/// the page while the bar is in the toolbar. Picking one lets go of the field through the model,
-/// which the bar follows wherever it is drawn.
+/// The address suggestions under the field: hung from the bar in its own row or title-bar zone, or
+/// from the top of the page while the bar is in the toolbar. Picking one lets go of the field
+/// through the model, which the bar follows wherever it is drawn.
 struct BrowserAddressSuggestionList: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel

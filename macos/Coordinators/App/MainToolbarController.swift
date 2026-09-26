@@ -4,7 +4,7 @@ import SwiftUI
 
 /// Draws the main window's toolbar from the description the screen on show gives
 /// (`AppCoordinator.windowToolbar`). The toolbar is split where the window is: the sidebar's
-/// section, the screen's, and the context pane's while it is open, each tracking its divider in
+/// section, the screen's, and beside a terminal the context pane's, each tracking its divider in
 /// `MainSplitViewController`. Every item hosts its SwiftUI content; the description is read under
 /// observation, so anything it reads redraws the toolbar, and an item's content is handed over
 /// again on every pass rather than only when the set of items changes.

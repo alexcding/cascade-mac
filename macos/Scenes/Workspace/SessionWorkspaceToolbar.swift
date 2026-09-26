@@ -2,9 +2,11 @@ import SwiftUI
 
 /// The toolbar of a workspace, a session's or a sidebar tab's: the IDE icon and title, or the run
 /// button and build title, flat at the leading edge; the agent's controls in the middle; the run
-/// controls, the mode picker and the pane toggle trailing, against the context pane when it is open. The pane's
-/// own section holds its tab bar and Hide. A sidebar tab browsing the web has no title: its tab bar
-/// is the whole section, as Safari's is.
+/// controls and the mode picker trailing, against the context pane. Beside a terminal the pane's
+/// own section is its toggle alone, at the window's edge whether the pane is open or not: the pane
+/// draws its bar itself, in its title-bar zone (`SessionWorkspacePane`), so showing or hiding it
+/// changes no item, and the toolbar's items keep pace with the divider as it slides. A sidebar tab
+/// browsing the web has no title: its tab bar is the whole section, as Safari's is.
 @MainActor struct SessionWorkspaceToolbar {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -30,11 +32,8 @@ import SwiftUI
         if model.showsModePicker {
             toolbar.trailing.append(item("mode-picker") { SessionWorkspaceModePicker(model: model) })
         }
-        if model.showsInspector {
-            toolbar.pane = pane
-        } else if model.showsTerminal {
-            // Shows the pane; once shown, Hide is the last item of the pane's own section.
-            toolbar.trailing.append(item("show-pane") { SessionWorkspaceContextToggle(model: model) })
+        if model.showsTerminal {
+            toolbar.pane = [item("pane-toggle") { SessionWorkspaceContextToggle(model: model) }]
         }
         return toolbar
     }
@@ -68,17 +67,6 @@ import SwiftUI
                                      priority: NSToolbarItem.VisibilityPriority = .standard,
                                      @ViewBuilder content: () -> Content) -> WindowToolbarItem {
         WindowToolbarItem(id, style: style, priority: priority) { content().id(context.id) }
-    }
-
-    private var pane: [WindowToolbarItem] {
-        var items: [WindowToolbarItem] = []
-        if model.showsBrowser {
-            items.append(item("pane-bar", style: .fill) { BrowserCompactTabBar(context: context, model: model, placement: .toolbar) })
-        } else if model.showsFiles {
-            items.append(item("pane-bar", style: .fill) { FilesCompactTabBar(context: context, model: model, placement: .toolbar) })
-        }
-        items.append(item("hide-pane") { SessionWorkspaceContextToggle(model: model) })
-        return items
     }
 }
 

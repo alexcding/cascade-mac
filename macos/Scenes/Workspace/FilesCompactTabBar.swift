@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The Files panel's tab bar: the browser's compact layout over files. A folder button leads the
 /// pill and opens the worktree in a file panel; the selected tab's field searches the worktree and
-/// lists matching files beneath it; ＋ opens another empty tab to search from. In its own row the bar
-/// hangs its results under itself; in the toolbar the pane draws them (`FileSearchResultList`), from
-/// the editing state and highlight the bar keeps on the model.
+/// lists matching files beneath it; ＋ opens another empty tab to search from. In its own row, or a
+/// pane's title-bar zone, the bar hangs its results under itself (`FileSearchResultList`), from the
+/// editing state and highlight it keeps on the model.
 struct FilesCompactTabBar: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -80,7 +80,8 @@ struct FilesCompactTabBar: View {
                      select: @escaping () -> Void, close: @escaping () -> Void) -> some View {
         @Bindable var search = search
         return CompactTabShell(label: label, placeholder: placeholder, closeTitle: label.isEmpty ? String(localized: "Close Tab") : String(localized: "Close \(label)"), help: help,
-                               active: id == context.activeID, workspaceActive: model.isActive, blank: blank, autoFocus: !context.fillerFileTab,
+                               // On screen means the pane too: a collapsed pane keeps its bar.
+                               active: id == context.activeID, workspaceActive: model.isActive && model.showsPage, blank: blank, autoFocus: !context.fillerFileTab,
                                closable: closable, iconOnly: iconOnly, editable: blank, text: $search.query, editing: $editing, moveHighlight: moveHighlight,
                                submit: submit, select: select, close: close) {
             if !blank { Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
@@ -109,9 +110,8 @@ struct FilesCompactTabBar: View {
     private var needsBlankTab: Bool { ids.isEmpty && model.canOpenTab && !context.restoring }
 }
 
-/// The files matching the search field: hung from the bar in its own row, or from the top of the
-/// pane while the bar is in the toolbar. Picking one lets go of the field through the model, which
-/// the bar follows wherever it is drawn.
+/// The files matching the search field, hung from the bar in its own row or title-bar zone. Picking
+/// one lets go of the field through the model, which the bar follows wherever it is drawn.
 struct FileSearchResultList: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel

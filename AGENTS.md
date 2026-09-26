@@ -227,10 +227,17 @@ user collapses from the divider is told back to the workspace.
   the pane's section; the sidebar's section is its toggle alone, on every screen — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the
   SwiftUI content, split by the sidebar and inspector tracking separators. It reads the
   description under observation, so what it reads redraws the toolbar.
-- **A compact tab bar in the toolbar** (`CompactTabBarPlacement.toolbar`) cannot hang its
-  suggestions under itself: a toolbar item clips what it draws outside. The bar keeps its
-  editing state and highlight on the models, and the page beneath draws the list
-  (`SessionWorkspacePane`).
+- **The pane draws its own bar, in the title-bar zone.** The pane column runs the window's
+  full height, as Xcode's inspector does, and each pane draws its compact tab bar in the zone
+  AppKit reports as the safe area (`SessionWorkspacePane`, `CompactTabBarPlacement.titleBar`).
+  The toolbar's pane section is the toggle alone, so showing or hiding the pane changes no
+  toolbar item: the tracking separator carries the screen's trailing items along with the
+  divider, and the bar slides with its column. Putting the bar in the toolbar instead broke
+  that — a changed item set is re-laid out on the toolbar's own animation, not the divider's,
+  and a hidden item keeps its width. The one bar that is a toolbar item is a page-only sidebar
+  tab's (`CompactTabBarPlacement.toolbar`); it cannot hang its suggestions under itself, since
+  a toolbar item clips what it draws outside, so the bar keeps its editing state and highlight
+  on the models and the page beneath draws the list.
 - Settings is the app's only SwiftUI scene. SwiftUI opens an app's first window scene at
   every launch but leaves a lone `Settings` shut, so any other window — Help included
   (`AppDelegate.showHelp`) — is AppKit's.

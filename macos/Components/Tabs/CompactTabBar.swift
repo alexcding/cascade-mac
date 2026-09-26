@@ -17,6 +17,9 @@ enum CompactTabMetrics {
     /// selected tab, and a ceiling the toolbar never reaches.
     static let minToolbarBarWidth: CGFloat = 200
     static let maxToolbarBarWidth: CGFloat = 4000
+    /// A bar in a column's title-bar zone ends this far from the window's edge: the toolbar's pane
+    /// toggle (36pt, 8pt in from the edge) and the toolbar's own gap before it.
+    static let titleBarTrailingInset: CGFloat = 60
     static let tabFont = Font.system(size: 15)
     /// The same size as the text. AppKit draws a field's prompt in the field's own font whatever
     /// the prompt asks for, so a smaller placeholder on the resting label sat on a different line
@@ -60,11 +63,13 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     }
 }
 
-/// Where a compact bar sits: its own row over the panel, or an item in the window toolbar's
-/// section over the panel, which gives it the width the section leaves.
+/// Where a compact bar sits: its own row over the panel; an item in the window toolbar's section
+/// over the panel, which gives it the width the section leaves; or the title-bar zone of a column
+/// that reaches the window's top, given the zone's height, beside the toolbar's pane toggle.
 enum CompactTabBarPlacement: Equatable {
     case row
     case toolbar
+    case titleBar(height: CGFloat)
 }
 
 /// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
@@ -96,6 +101,14 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 .overlay(alignment: .top) { suggestions.padding(.top, 52) }
         case .toolbar:
             content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
+        case .titleBar(let height):
+            content
+                .padding(.leading, 12)
+                // The toolbar draws the pane's toggle over the zone's trailing end.
+                .padding(.trailing, CompactTabMetrics.titleBarTrailingInset)
+                .frame(height: height)
+                .zIndex(1)
+                .overlay(alignment: .top) { suggestions.padding(.top, height - 4) }
         }
     }
 
@@ -261,7 +274,8 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     let closeTitle: String
     let help: String
     let active: Bool
-    /// Hidden workspaces stay mounted; opacity does not stop a field from taking first responder.
+    /// Whether the bar is on screen: hidden workspaces and collapsed panes stay mounted, and
+    /// neither opacity nor a hidden ancestor stops a field from taking first responder.
     let workspaceActive: Bool
     /// A blank tab takes the keyboard when it becomes active, unless the bar opened it itself.
     let blank: Bool

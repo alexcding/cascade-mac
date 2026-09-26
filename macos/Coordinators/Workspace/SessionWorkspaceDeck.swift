@@ -103,8 +103,9 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
         private func add(_ coordinator: SessionWorkspaceCoordinator, id: ObjectIdentifier, environment: EnvironmentValues) {
             let page = NSHostingController(rootView: Page(environment: environment, coordinator: coordinator, part: part))
             page.sizingOptions = []
-            // The deck already sits inside the detail column's safe area.
-            page.safeAreaRegions = []
+            // A workspace deck already sits inside the screen's safe area. A pane deck reaches the
+            // window's top, and its pages draw their bar in the title-bar zone the safe area marks.
+            if part == .workspace { page.safeAreaRegions = [] }
             addChild(page)
             page.view.isHidden = true
             view.addSubview(page.view)

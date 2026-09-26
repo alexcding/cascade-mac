@@ -43,10 +43,11 @@ import SwiftUI
         paneItem.minimumThickness = MainWindowMetrics.paneMin
         paneItem.maximumThickness = NSSplitViewItem.unspecifiedDimension
         paneItem.canCollapse = true
-        // An inspector is a glass panel, full height by default: its section of the toolbar would be
-        // that glass, with the pane's page showing through it. Below the toolbar, the section is the
-        // window's own toolbar background, as the screen's is.
-        paneItem.allowsFullHeightLayout = false
+        // Full height, as Xcode's inspector is: the column reaches the window's top and draws its
+        // own bar in the title-bar zone (`SessionWorkspacePane`), so the toolbar's pane section is
+        // its toggle alone, and showing or hiding the pane changes no toolbar item — the tracking
+        // separator carries the screen's trailing items along with the divider, and the bar slides
+        // with the column it is part of.
         // Equal holding priorities: a window resize is shared between the screen and the pane in
         // proportion, as it was between the terminal and the pane before.
         paneItem.holdingPriority = contentItem.holdingPriority
@@ -174,10 +175,11 @@ private struct MainSidebarColumn: View {
 /// The context pane's column: a deck of every workspace's pane, the one on show on top, so a switch
 /// between sessions rebuilds no pane and takes no web view out of the window, as the screen's deck
 /// does for their terminals. The pane stays while the column slides shut, so what closes is the
-/// pane that was open, not an empty one. The column is opaque: AppKit backs an inspector with glass, which would show through wherever the
-/// pane is not drawn — between one panel and the next, or while a page loads. It draws its own
-/// edge: beside a glass column the divider is zero-width and AppKit draws no line, though it can
-/// still be dragged.
+/// pane that was open, not an empty one. The column reaches the window's top: each pane draws its
+/// bar in the title-bar zone, which AppKit reports to it as the safe area. It is opaque: AppKit
+/// backs an inspector with glass, which would show through wherever the pane is not drawn —
+/// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
+/// column the divider is zero-width and AppKit draws no line, though it can still be dragged.
 private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
 
@@ -188,5 +190,6 @@ private struct MainPaneColumn: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(Theme.border).frame(width: Theme.Size.hairline).accessibilityHidden(true)
         }
+        .ignoresSafeArea(.container, edges: .top)
     }
 }

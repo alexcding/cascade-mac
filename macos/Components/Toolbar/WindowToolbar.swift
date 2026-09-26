@@ -10,9 +10,10 @@ struct WindowToolbar {
     /// The middle of the screen's section, between its leading and trailing items, so it moves
     /// with the pane's divider rather than sitting at the window's centre.
     var center: [WindowToolbarItem] = []
-    /// The trailing edge of the screen's section, against the pane while one is open.
+    /// The trailing edge of the screen's section, against the pane's.
     var trailing: [WindowToolbarItem] = []
-    /// The context pane's section, from its leading edge; nil while no pane is open.
+    /// The context pane's section, from its leading edge: nil on a screen with no pane; beside a
+    /// terminal it is there whether the pane is open or collapsed, so toggling the pane changes no item.
     var pane: [WindowToolbarItem]?
 
     static var empty: WindowToolbar { WindowToolbar() }
