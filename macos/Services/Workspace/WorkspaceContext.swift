@@ -10,21 +10,26 @@ enum ReviewSection: String, Codable, CaseIterable, Identifiable {
 }
 
 /// `simulator` is never saved: the stream it shows belongs to this launch, so a restored
-/// workspace opens on its browser instead.
-enum WorkspacePane: String, Codable, CaseIterable { case off, term, diff, files, simulator }
+/// workspace opens on its browser instead. `term` is the browser, which holds the web pages and
+/// the files alike; a snapshot saved while files had a pane of their own restores to it.
+enum WorkspacePane: String, Codable, CaseIterable {
+    case off, term, diff, simulator
+    init?(saved: String) { self.init(rawValue: saved == "files" ? "term" : saved) }
+}
 
 enum WorkspaceMode: String, CaseIterable, Identifiable {
-    // Declaration order is the order of the toolbar picker: Browser, Files, Diff, Simulator.
-    case browser, files, diff, simulator
+    // Declaration order is the order of the toolbar picker: Tabs, Diff, Simulator. `browser` holds
+    // the web pages and the worktree files alike.
+    case browser, diff, simulator
     var id: String { rawValue }
-    var pane: WorkspacePane { switch self { case .browser: .term; case .diff: .diff; case .files: .files; case .simulator: .simulator } }
-    var title: String { switch self { case .browser: String(localized: "Browser"); case .diff: String(localized: "Diff"); case .files: String(localized: "Files"); case .simulator: String(localized: "Simulator") } }
+    var pane: WorkspacePane { switch self { case .browser: .term; case .diff: .diff; case .simulator: .simulator } }
+    var title: String { switch self { case .browser: String(localized: "Tabs"); case .diff: String(localized: "Diff"); case .simulator: String(localized: "Simulator") } }
     var symbol: String {
-        switch self { case .browser: "globe"; case .diff: "plus.forwardslash.minus"; case .files: "doc.text"; case .simulator: "iphone" }
+        switch self { case .browser: "rectangle.stack"; case .diff: "plus.forwardslash.minus"; case .simulator: "iphone" }
     }
     init?(pane: WorkspacePane) {
         switch pane {
-        case .term: self = .browser; case .diff: self = .diff; case .files: self = .files; case .simulator: self = .simulator
+        case .term: self = .browser; case .diff: self = .diff; case .simulator: self = .simulator
         default: return nil
         }
     }
@@ -123,8 +128,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         }
     }
     private(set) var lastMode: WorkspaceMode = .browser
-    @ObservationIgnored private var lastPageID: String?
-    @ObservationIgnored private var lastDocumentID: String?
     private(set) var reviewSection: ReviewSection = .changes {
         didSet { if oldValue != reviewSection { workspaceViewModel?.reviewStateChanged() } }
     }
@@ -160,7 +163,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
-    /// The Files tab bar's search; opening a result is this context's own `openFile`.
+    /// The address field's worktree search; opening a result is this context's own `openFile`.
     @ObservationIgnored private(set) lazy var fileSearch: FileSearchViewModel = {
         let model = documentFactory.fileSearch()
         model.onAction = { [weak self] action in
@@ -199,12 +202,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             }
             historyOrder = Self.order(snapshot.historyOrder, ids: history.map(\.id) + fileHistory.map(\.id))
             activeID = tabOrder.contains(snapshot.activeID ?? "") ? snapshot.activeID : tabOrder.first
-            pane = WorkspacePane(rawValue: snapshot.pane) ?? .term
+            pane = WorkspacePane(saved: snapshot.pane) ?? .term
             reviewSection = snapshot.reviewSection ?? .changes
-            if pane == .term, activeDocument != nil { pane = .files }
-            if pane == .files, activeDocument == nil, activePage != nil { pane = .term }
-            lastPageID = activePage?.id; lastDocumentID = activeDocument?.id
-            lastMode = WorkspaceMode(pane: pane) ?? (activeDocument != nil ? .files : .browser)
+            lastMode = WorkspaceMode(pane: pane) ?? .browser
         } else if safeWebURL(sourceURL) != nil {
             let page = pageFactory.make(.init(url: sourceURL, title: title))
             pages = [page]; tabOrder = [page.id]; activeID = page.id
@@ -220,38 +220,17 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
 
     var activeDocument: EditorDocumentViewModel? { documents.first { $0.id == activeID } }
-    /// The Files panel's empty tab: a field to search the worktree from, holding no file yet. It
-    /// trails the file tabs, is never saved, and gives its slot to the file it opens.
-    static let blankFileID = "blank-file"
-    private(set) var hasBlankFileTab = false { didSet { if oldValue != hasBlankFileTab { fileEdits += 1 } } }
-    /// Count tabs opened, closed and moved by hand, never a restore: what each tab bar animates on.
-    private(set) var pageEdits = 0
-    private(set) var fileEdits = 0
-    private func noteEdit(page: Bool) { if page { pageEdits += 1 } else { fileEdits += 1 } }
-    /// The empty-state tabs the bars opened themselves: unlike Cmd-T they must not take the keyboard.
+    /// Counts tabs opened, closed and moved by hand, never a restore: what the tab bar animates on.
+    private(set) var tabEdits = 0
+    /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
-    var fillerFileTab = false
-    var blankFileActive: Bool { hasBlankFileTab && activeID == Self.blankFileID }
-    func newFileTab() {
-        hasBlankFileTab = true; activeID = Self.blankFileID; pane = .files; changed()
-    }
-    func closeBlankFileTab() {
-        guard hasBlankFileTab else { return }
-        hasBlankFileTab = false; fileSearch.reset()
-        guard activeID == Self.blankFileID else { return }
-        activeID = nil
-        if let file = documents.first(where: { $0.id == lastDocumentID }) ?? documents.last { select(.file(file)) } else { changed() }
-    }
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
-    var pageTabs: [WorkspaceTab] { tabs.filter { if case .page = $0 { true } else { false } } }
-    var fileTabs: [WorkspaceTab] { tabs.filter { if case .file = $0 { true } else { false } } }
     var visits: [WorkspaceVisit] { historyOrder.compactMap { id in
         if let page = history.first(where: { $0.id == id }) { return .page(page) }
         return fileHistory.first(where: { $0.id == id }).map(WorkspaceVisit.file)
     } }
     var pageVisits: [WorkspaceVisit] { visits.filter { if case .page = $0 { true } else { false } } }
     var fileVisits: [WorkspaceVisit] { visits.filter { if case .file = $0 { true } else { false } } }
-    var modeTabs: [WorkspaceTab] { pane == .files ? fileTabs : pageTabs }
     func tab(_ id: String) -> WorkspaceTab? {
         if let page = pages.first(where: { $0.id == id }) { return .page(page) }
         return documents.first(where: { $0.id == id }).map(WorkspaceTab.file)
@@ -269,14 +248,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     func setReviewSection(_ value: ReviewSection) { reviewSection = value; changed() }
     func setPane(_ value: WorkspacePane) {
-        switch value {
-        case .term where activePage == nil:
-            activeID = pages.first { $0.id == lastPageID }?.id ?? pageTabs.last?.id
-        case .files where activeDocument == nil:
-            activeID = documents.first { $0.id == lastDocumentID }?.id ?? fileTabs.last?.id
-                ?? (hasBlankFileTab ? Self.blankFileID : nil)
-        default: break
-        }
+        if value == .term, activeID == nil { activeID = tabOrder.last }
         pane = value; changed()
     }
     func present() { if pane == .off { setPane(lastMode.pane) } }
@@ -291,23 +263,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         fileHistory += source.fileHistory.filter { value in !fileHistory.contains { $0.id == value.id } }
         historyOrder = Self.order(historyOrder + source.historyOrder, ids: history.map(\.id) + fileHistory.map(\.id))
         trimHistory()
-        if let selected = source.activeID, tabOrder.contains(selected) {
-            activeID = selected
-            if activeDocument != nil { lastDocumentID = selected; pane = .files }
-            else { lastPageID = selected; if pane == .files { pane = .term } }
-        }
+        if let selected = source.activeID, tabOrder.contains(selected) { activeID = selected }
         source.changed = {}; source.activatePage = { _ in }; source.activateDocument = { _ in }
         source.pages = []; source.documents = []; source.tabOrder = []; source.activeID = nil
     }
     func select(_ page: BrowserPage) {
-        activeID = page.id; lastPageID = page.id; pane = .term; activatePage(page); changed()
+        activeID = page.id; pane = .term; activatePage(page); changed()
     }
     func select(_ tab: WorkspaceTab) {
         switch tab { case .page(let page): select(page)
-        case .file(let file): activeID = file.id; lastDocumentID = file.id; pane = .files; activateDocument(file); changed() }
+        case .file(let file): activeID = file.id; pane = .term; activateDocument(file); changed() }
     }
     func cycle(_ direction: Int) {
-        let order = modeTabs.map(\.id)
+        let order = tabOrder
         guard !order.isEmpty else { return }
         let index = order.firstIndex(of: activeID ?? "") ?? 0
         if let tab = tab(order[(index + direction + order.count) % order.count]) { select(tab) }
@@ -315,28 +283,30 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @discardableResult func openFile(_ path: String, line: Int = 1, column: Int = 1) -> EditorDocumentViewModel? {
         guard path.hasPrefix("/"), !path.contains("\0") else { error = String(localized: "Choose an absolute file path."); return nil }
         let path = (path as NSString).standardizingPath
+        // A file opened from a blank tab — its address field, or its start page — takes its place.
+        // Not in a sidebar tab: its one page is its only address field, and it offers no New Tab.
+        let blank = holdsOnePage ? nil : activePage.flatMap { $0.controls.isBlank ? $0 : nil }
+        fileSearch.reset()
+        defer { if let blank { close(blank) } }
         if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
         let file = documentFactory.editor(record: .init(path: path))
-        // A file opened from the blank tab takes its place: the blank trails the tabs, and so does
-        // an insert with no active tab to follow.
-        if blankFileActive { hasBlankFileTab = false; fileSearch.reset() }
-        documents.append(file); wire(file); insert(file.id, page: false); noteHistory(file.record)
-        select(.file(file)); file.focus(line: line, column: column); return file
+        documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
+        select(.file(file)); file.focus(line: line, column: column)
+        return file
     }
-    private func insert(_ id: String, page: Bool = true, atEnd: Bool = false) {
+    private func insert(_ id: String, atEnd: Bool = false) {
         let index = atEnd ? tabOrder.endIndex : tabOrder.firstIndex(of: activeID ?? "").map { $0 + 1 } ?? tabOrder.endIndex
-        tabOrder.insert(id, at: index); noteEdit(page: page)
+        tabOrder.insert(id, at: index); tabEdits += 1
         pages.sort { tabOrder.firstIndex(of: $0.id)! < tabOrder.firstIndex(of: $1.id)! }
     }
-    /// Moves a tab before another, or to the end for nil. Pages and files share one order, and each
-    /// panel shows its own kind in it, so a move among one kind leaves the other where it was.
+    /// Moves a tab before another, or to the end for nil. Pages and files share one order and one bar.
     func moveTab(_ id: String, before target: String?) {
         guard id != target, let from = tabOrder.firstIndex(of: id) else { return }
         var order = tabOrder
         order.remove(at: from)
         order.insert(id, at: target.flatMap(order.firstIndex(of:)) ?? order.endIndex)
         guard order != tabOrder else { return }
-        tabOrder = order; noteEdit(page: pages.contains { $0.id == id })
+        tabOrder = order; tabEdits += 1
         pages.sort { tabOrder.firstIndex(of: $0.id)! < tabOrder.firstIndex(of: $1.id)! }
         changed()
     }
@@ -353,20 +323,13 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     func remove(_ file: EditorDocumentViewModel) {
         guard documents.contains(where: { $0 === file }) else { return }
-        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id, page: false)
+        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id)
     }
-    private func removeTab(_ id: String, page: Bool) {
-        let kin = Set((page ? pages.map(\.id) : documents.map(\.id)) + [id])
-        let siblings = tabOrder.filter(kin.contains)
-        let index = siblings.firstIndex(of: id) ?? 0
-        tabOrder.removeAll { $0 == id }; noteEdit(page: page)
-        if lastPageID == id { lastPageID = nil }
-        if lastDocumentID == id { lastDocumentID = nil }
+    private func removeTab(_ id: String) {
+        let index = tabOrder.firstIndex(of: id) ?? 0
+        tabOrder.removeAll { $0 == id }; tabEdits += 1
         if activeID == id {
-            let remaining = siblings.filter { $0 != id }
-            activeID = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)]
-            // The blank file tab is not in `tabOrder`; with no file left it is what remains selected.
-            if activeID == nil, !page, hasBlankFileTab { activeID = Self.blankFileID }
+            activeID = tabOrder.isEmpty ? nil : tabOrder[min(index, tabOrder.count - 1)]
             if let activeID, let tab = tab(activeID) { select(tab) }
         }
         changed()
@@ -408,14 +371,13 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         noteHistory(page.record)
         page.evict()
         pages.remove(at: index)
-        removeTab(page.id, page: true)
+        removeTab(page.id)
     }
     func apply(_ snapshot: ContextSnapshot) {
         // Used only for the first backend load, before the user edits this context.
         pages.forEach { $0.evict() }; documents.forEach { $0.dispose() }
         let restored = WorkspaceContext(id: id, sourceURL: sourceURL, title: "", snapshot: snapshot, pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
         pages = restored.pages; activeID = restored.activeID; history = restored.history; pane = restored.pane
-        lastPageID = restored.activePage?.id; lastDocumentID = restored.activeDocument?.id
         lastMode = restored.lastMode
         reviewSection = restored.reviewSection
         documents = restored.documents; tabOrder = restored.tabOrder; fileHistory = restored.fileHistory; historyOrder = restored.historyOrder
@@ -692,7 +654,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             source.id = destinationID; contexts[destinationID] = source; context = source
         }
         if activeContextID == sourceID { activeContextID = destinationID }
-        context.setPane(context.activeDocument != nil ? .files : .term)
+        context.setPane(.term)
         // Keep the old persisted snapshot as history for reopening the page.
         // Outstanding writes under its old key cannot overwrite this context.
     }

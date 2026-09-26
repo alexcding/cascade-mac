@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Safari's compact tab layout: every web tab sits inside one pill, and the selected tab is a
-/// raised glass capsule that doubles as the address bar. Its close button is at the leading edge,
-/// the site icon and host are centred, reload is trailing; clicking the host edits the address.
-/// There is no second row for the browser: back/forward lead the pill, New Tab and Recently
-/// Closed trail it. In its own row, or a pane's title-bar zone, the bar hangs its suggestions under
-/// itself; in the toolbar — a sidebar tab's — the page beneath draws them
-/// (`BrowserAddressSuggestionList`), from the editing state and highlight the bar keeps on the models.
+/// Safari's compact tab layout: every tab — web pages and worktree files alike, in one order —
+/// sits inside one pill, and the selected page is a raised glass capsule that doubles as the
+/// address bar. Its close button is at the leading edge, the site icon and host are centred,
+/// reload is trailing; clicking the host edits the address. The address field also searches the
+/// session's worktree, and a file picked from it opens as a tab of its own. There is no second
+/// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or a
+/// pane's title-bar zone, the bar hangs its suggestions under itself; in the toolbar — a sidebar
+/// tab's — the page beneath draws them (`BrowserAddressSuggestionList`), from the editing state
+/// and highlight the bar keeps on the models.
 struct BrowserCompactTabBar: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -18,8 +20,9 @@ struct BrowserCompactTabBar: View {
         nonmutating set { model.addressHighlight = newValue }
     }
 
-    private var pages: [BrowserPage] { context.pageTabs.compactMap { if case .page(let page) = $0 { page } else { nil } } }
+    private var pages: [BrowserPage] { context.pages }
     private var active: BrowserPage? { context.activePage }
+    private var root: String? { model.session?.worktree }
     private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
     private var suggestions: [AddressSuggestion] { BrowserAddressSuggestions(context: context).items }
 
@@ -45,14 +48,18 @@ struct BrowserCompactTabBar: View {
         .onChange(of: suggestions.map(\.id)) { _, _ in highlighted = nil }
         // Fetching is driven from here, once per keystroke, never from the body.
         .onChange(of: active?.controls.address) { _, text in
-            if editingAddress, let text, webAddress(text) == nil { SearchSuggestionStore.shared.prefetch(text) }
+            guard editingAddress, let text else { return }
+            // Every change, cleared text included, so no earlier query's files sit under new text.
+            context.fileSearch.query = active?.controls.addressEdited == true ? text : ""
+            context.fileSearch.search(in: root)
+            if active?.controls.addressEdited == true, webAddress(text) == nil { SearchSuggestionStore.shared.prefetch(text) }
         }
         // On the whole row, so the pill's re-centring animates with its contents: opening a tab
         // moves the existing tabs left as the new one slides in from the right. Keyed on tabs
         // opened and closed only: selecting a tab or restoring the saved ones does not glide.
         // Another session's tabs arriving is not an edit. Inside the animation, so it wins.
         .transaction(value: context.id) { $0.animation = nil }
-        .animation(.snappy(duration: 0.3), value: context.pageEdits)
+        .animation(.snappy(duration: 0.3), value: context.tabEdits)
         // A browser panel always has a page to type into: a blank tab showing this panel's history
         // is the empty state, never a pill with nothing in it. Keyed on presentability too, so a
         // refusal while a sheet is up is retried once the sheet goes away.
@@ -64,29 +71,34 @@ struct BrowserCompactTabBar: View {
         .onChange(of: context.activeID) { _, _ in synchronizeEditing() }
         .onChange(of: editingAddress) { _, value in
             active?.controls.setEditingAddress(value)
-            if !value { highlighted = nil }
+            if !value { highlighted = nil; context.fileSearch.reset() }
         }
         // The reverse: a model that ends editing (the start page opening a site) releases the field.
         .onChange(of: active?.controls.editingAddress) { _, value in if value == false { editingAddress = false } }
         // A hidden workspace stays mounted, and opacity does not drop first responder: release the
         // field when this workspace leaves the screen, or the terminal shown instead loses keystrokes.
         .onChange(of: model.isActive) { _, visible in if !visible { editingAddress = false } }
-        .onDisappear { active?.controls.setEditingAddress(false) }
+        .onDisappear { active?.controls.setEditingAddress(false); context.fileSearch.reset() }
     }
 
     private func tabPill(_ available: CGFloat) -> some View {
-        CompactTabPill(ids: pages.map(\.id), activeID: context.activeID, available: available, maxTabWidth: CompactTabMetrics.maxWebTabWidth,
-                       select: { id in pages.first { $0.id == id }.map { model.selectTab(.page($0)) } }, move: model.moveTab,
+        CompactTabPill(ids: context.tabs.map(\.id), activeID: context.activeID, available: available, maxTabWidth: CompactTabMetrics.maxWebTabWidth,
+                       select: { id in context.tab(id).map(model.selectTab) }, move: model.moveTab,
                        // A drag in the address field selects its text: the tab being edited stays put.
                        canMove: { !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
                 // On screen means the pane too: a collapsed pane keeps its bar, and a field in it
                 // must not take the keyboard from the terminal.
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive && model.showsPage,
-                           autoFocus: page.id != context.fillerPageID,
+                           autoFocus: page.id != context.fillerPageID, searchesFiles: root != nil,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
+                           submitTyped: { submitTyped(page.controls) },
                            closable: model.offersClose(page), iconOnly: iconOnly, editing: $editingAddress,
                            select: { model.selectTab(.page(page)) }, close: { model.closeTab(.page(page)) })
+            } else if let file = context.documents.first(where: { $0.id == id }) {
+                CompactFileTab(file: file, active: id == context.activeID, workspaceActive: model.isActive && model.showsPage,
+                               iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
             }
         }
     }
@@ -100,8 +112,18 @@ struct BrowserCompactTabBar: View {
     func submitHighlighted(_ controls: BrowserControlsViewModel) -> Bool {
         let items = suggestions
         guard let index = highlighted, items.indices.contains(index) else { return false }
-        if BrowserAddressSuggestions.open(items[index], in: controls) { editingAddress = false }
+        if BrowserAddressSuggestions.open(items[index], in: controls, context: context) { editingAddress = false }
         return true
+    }
+    /// Enter with nothing highlighted: the absolute path of a file that exists opens it; anything
+    /// else, `/r/swift` included, is an address or a search.
+    func submitTyped(_ controls: BrowserControlsViewModel) -> Bool {
+        let text = controls.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        var directory: ObjCBool = false
+        if root != nil, text.hasPrefix("/"), FileManager.default.fileExists(atPath: text, isDirectory: &directory), !directory.boolValue {
+            return context.openFile(text) != nil
+        }
+        return controls.submitAddress()
     }
 
     // Not while restoring: a blank tab opened before the saved snapshot lands would mark the
@@ -109,7 +131,8 @@ struct BrowserCompactTabBar: View {
     /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
     /// a blank tab is never saved, so on every launch the filler opened, selected itself and
     /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
-    private var needsBlankTab: Bool { pages.isEmpty && model.showsBrowser && model.canOpenTab && !context.restoring }
+    /// A sidebar tab needs a page whatever files it holds: it has no New Tab to make one.
+    private var needsBlankTab: Bool { (context.holdsOnePage ? context.pages.isEmpty : context.tabs.isEmpty) && model.showsBrowser && model.canOpenTab && !context.restoring }
 
     /// Leaving a tab drops any address focus so it does not carry over. A blank tab takes focus
     /// itself when its address field appears in `CompactTab`, once that field exists: a focus binding set before
@@ -133,8 +156,9 @@ struct BrowserAddressSuggestionList: View {
                 CompactSuggestionList(items: items, highlighted: model.addressHighlight, accessibilityLabel: String(localized: "Address suggestions"),
                                       heading: \.heading, title: \.title,
                                       detail: { $0.isSearch || $0.detail == $0.title ? "" : $0.detail },
-                                      pick: { if BrowserAddressSuggestions.open($0, in: controls) { controls.setEditingAddress(false) } }) { item in
-                    if item.isSearch { CompactSuggestionSymbol(systemImage: "magnifyingglass") }
+                                      pick: { if BrowserAddressSuggestions.open($0, in: controls, context: context) { controls.setEditingAddress(false) } }) { item in
+                    if item.kind == .file { CompactSuggestionSymbol(systemImage: "doc.text") }
+                    else if item.isSearch { CompactSuggestionSymbol(systemImage: "magnifyingglass") }
                     else { FaviconImage(url: item.url, size: 28, fallbackSize: 15) }
                 }
             }
@@ -143,8 +167,8 @@ struct BrowserAddressSuggestionList: View {
 }
 
 /// What the address field offers for the active tab's typed text. One list: a suggested site, the
-/// typed text and Google's phrase completions as searches, then the bookmarks and the pages
-/// visited in any panel that match the text.
+/// session's worktree files that match, the typed text and Google's phrase completions as
+/// searches, then the bookmarks and the pages visited in any panel that match the text.
 @MainActor struct BrowserAddressSuggestions {
     let context: WorkspaceContext
 
@@ -153,6 +177,17 @@ struct BrowserAddressSuggestionList: View {
         guard let controls = context.activePage?.controls, controls.addressEdited else { return [] }
         let text = controls.address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
+        let files = context.fileSearch.results.prefix(Self.fileLimit).map { result in
+            AddressSuggestion(id: "file:" + result.path, title: result.name, detail: result.folder, url: result.path, kind: .file)
+        }
+        // Under the suggested site, which leads the list with no heading of its own.
+        var items = web(text)
+        items.insert(contentsOf: files, at: items.first?.kind == .site ? 1 : 0)
+        return items
+    }
+    static let fileLimit = 5
+
+    private func web(_ text: String) -> [AddressSuggestion] {
         let searching = webAddress(text) == nil
         var history: [AddressSuggestion] = []
         // Bookmarks lead the section, then the one history shared by every panel. A bookmarked page
@@ -183,8 +218,10 @@ struct BrowserAddressSuggestionList: View {
         return items
     }
 
-    /// Opens a suggestion in the active tab; whether the address was taken, so the field can let go.
-    static func open(_ item: AddressSuggestion, in controls: BrowserControlsViewModel) -> Bool {
+    /// Opens a suggestion: a page in the active tab, a file as its own tab. Whether it was taken,
+    /// so the field can let go.
+    static func open(_ item: AddressSuggestion, in controls: BrowserControlsViewModel, context: WorkspaceContext) -> Bool {
+        if item.kind == .file { return context.openFile(item.url) != nil }
         controls.address = item.url
         return controls.submitAddress()
     }
@@ -224,8 +261,10 @@ private struct CompactTab: View {
     /// Hidden workspaces stay mounted; opacity does not stop a field from taking first responder.
     let workspaceActive: Bool
     let autoFocus: Bool
+    let searchesFiles: Bool
     let moveHighlight: (Int) -> Bool
     let submitHighlighted: () -> Bool
+    let submitTyped: () -> Bool
     let closable: Bool
     let iconOnly: Bool
     @FocusState.Binding var editing: Bool
@@ -252,10 +291,10 @@ private struct CompactTab: View {
 
     var body: some View {
         @Bindable var controls = controls
-        CompactTabShell(label: label, placeholder: String(localized: "Search or enter website name"), closeTitle: controls.isBlank ? String(localized: "Close Tab") : String(localized: "Close \(page.title)"), help: page.url,
+        CompactTabShell(label: label, placeholder: searchesFiles ? String(localized: "Search files or the web, or enter website name") : String(localized: "Search or enter website name"), closeTitle: controls.isBlank ? String(localized: "Close Tab") : String(localized: "Close \(page.title)"), help: page.url,
                         active: active, workspaceActive: workspaceActive, blank: controls.isBlank, autoFocus: autoFocus,
                         closable: closable, iconOnly: iconOnly, text: $controls.address, editing: $editing, moveHighlight: moveHighlight,
-                        submit: { submitHighlighted() || controls.submitAddress() }, select: select, close: close,
+                        submit: { submitHighlighted() || submitTyped() }, select: select, close: close,
                         searching: controls.isBlank || FaviconStore.host(of: page.url) == nil) {
             if FaviconStore.host(of: page.url) != nil { FaviconImage(url: page.url, size: 16) }
             // An icon-only tab must still be something to click.
@@ -296,8 +335,33 @@ private struct CompactTab: View {
     }
 }
 
+/// A worktree file's tab: its name, a document icon and, where a page has reload, a dot for
+/// unsaved edits. Its title is fixed: selecting it shows the file, never an address field.
+private struct CompactFileTab: View {
+    let file: EditorDocumentViewModel
+    let active: Bool
+    let workspaceActive: Bool
+    let iconOnly: Bool
+    @FocusState.Binding var editing: Bool
+    let select: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        CompactTabShell(label: file.title, placeholder: "", closeTitle: String(localized: "Close \(file.title)"), help: file.record.path,
+                        active: active, workspaceActive: workspaceActive, blank: false, autoFocus: false,
+                        closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
+                        moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
+            Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+        } accessories: { _ in
+            Circle().fill(Theme.textSecondary).frame(width: 7, height: 7).frame(width: 24, height: 24)
+                .opacity(file.dirty ? 1 : 0)
+                .accessibilityLabel(String(localized: "Unsaved changes")).accessibilityHidden(!file.dirty)
+        }
+    }
+}
+
 struct AddressSuggestion: Identifiable, Equatable {
-    enum Kind { case typed, history, site, google }
+    enum Kind { case file, typed, history, site, google }
     let id: String
     let title: String
     let detail: String
@@ -308,6 +372,7 @@ struct AddressSuggestion: Identifiable, Equatable {
     var heading: String? {
         switch kind {
         case .site: nil
+        case .file: String(localized: "Files")
         case .typed, .google: String(localized: "Google suggestions")
         case .history: String(localized: "Bookmarks and history")
         }

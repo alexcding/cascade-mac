@@ -53,20 +53,14 @@ extension AppCoordinator {
               workspaceCoordinator(for: context) != nil else { return }
         switch action {
         case .selectTab(let id):
-            guard canPresent else { return }
-            // The blank file tab is not a saved tab; selecting it is opening it again.
-            if id == WorkspaceContext.blankFileID { context.newFileTab() }
-            else if let tab = context.tab(id) { context.select(tab) }
+            guard canPresent, let tab = context.tab(id) else { return }
+            context.select(tab)
         case .newTab:
             guard canPresent else { return }
             context.openBlankPage()
-        case .newFileTab:
-            guard canPresent else { return }
-            context.newFileTab()
         case .closeTab(let id):
-            guard canPresent else { return }
-            if id == WorkspaceContext.blankFileID { context.closeBlankFileTab() }
-            else if let tab = context.tab(id) { context.close(tab) }
+            guard canPresent, let tab = context.tab(id) else { return }
+            context.close(tab)
         case .moveTab(let id, let target):
             guard canPresent else { return }
             context.moveTab(id, before: target)

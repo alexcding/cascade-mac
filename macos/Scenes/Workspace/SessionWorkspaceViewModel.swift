@@ -79,7 +79,7 @@ extension WorkspaceServing {
 @MainActor @Observable final class SessionWorkspaceViewModel {
     enum Action: Equatable {
         case operation(WorkspaceOperation), run, configureRun, remove, restart, selectTab(String), closeTab(String), reopen(String)
-        case newTab, newFileTab, moveTab(String, before: String?)
+        case newTab, moveTab(String, before: String?)
     }
     struct ReviewInputs: Equatable {
         let pane: WorkspacePane?
@@ -141,7 +141,7 @@ extension WorkspaceServing {
     var showsTerminal: Bool { session != nil || context?.id == "scratch" }
     var showsChanges: Bool { session != nil && context?.pane == .diff }
     var showsPage: Bool {
-        !showsTerminal || showsChanges || context?.pane == .term || context?.pane == .files || context?.pane == .simulator
+        !showsTerminal || showsChanges || context?.pane == .term || context?.pane == .simulator
     }
     var mode: WorkspaceMode {
         guard let context else { return .browser }
@@ -153,7 +153,7 @@ extension WorkspaceServing {
         switch mode {
         case .diff: session != nil
         case .simulator: simulatorPreview != nil
-        case .browser, .files: true
+        case .browser: true
         }
     }
     /// The Simulator panel's model, owned by the session's build.
@@ -170,12 +170,6 @@ extension WorkspaceServing {
     /// Keyboard highlight in the address suggestions; nil means Enter submits the typed text. Here
     /// rather than in the bar: in the toolbar the bar and its list are drawn apart.
     var addressHighlight: Int?
-    /// Keyboard highlight in the file search results; nil means Enter opens the best match.
-    var fileSearchHighlight: Int?
-    /// Whether the Files bar's field has the keyboard, so its results can be drawn apart from it.
-    private(set) var searchingFiles = false
-    func setSearchingFiles(_ value: Bool) { if searchingFiles != value { searchingFiles = value } }
-    var showsFiles: Bool { showsPage && !showsChanges && mode == .files }
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }
     var canSendAgentCommand: Bool { terminal?.ready == true && terminal?.agentBusy == false }
@@ -219,16 +213,19 @@ extension WorkspaceServing {
             pendingSelection = nil
         }
     }
-    var showsModePicker: Bool { showsTerminal || context?.documents.isEmpty == false }
+    /// A picker of one mode — a panel with no session and no Simulator — is not shown.
+    var showsModePicker: Bool { context != nil && modes.count > 1 }
     func canSelectMode(_ mode: WorkspaceMode) -> Bool {
         switch mode {
         case .diff: canShowChanges
         case .simulator: simulatorPreview != nil
-        case .browser, .files: true
+        case .browser: true
         }
     }
-    /// The picker lists Simulator only where it can show one.
-    var modes: [WorkspaceMode] { WorkspaceMode.allCases.filter { $0 != .simulator || simulatorPreview != nil } }
+    /// The picker lists Diff only for a session, and Simulator only where it can show one.
+    var modes: [WorkspaceMode] {
+        WorkspaceMode.allCases.filter { ($0 != .simulator || simulatorPreview != nil) && ($0 != .diff || session != nil) }
+    }
     var showsBuildActions: Bool { session != nil && state.project?.ide == "xcode" }
     /// What this worktree's IDE is still preparing, if anything. `ready` for every IDE that
     /// prepares nothing, so the toolbar can ask without knowing which ones do.
@@ -255,19 +252,16 @@ extension WorkspaceServing {
     /// neither; `canOpenTab` still holds, so the panel's own blank filler page is unaffected.
     var offersNewTab: Bool { state.offersNewTab }
     /// Whether a page's tab shows its close button, which lets the page and its web view go. Closing
-    /// a panel's last page leaves its empty state, a blank page, and a sidebar tab stays in the
-    /// sidebar. A lone blank page is that empty state: closing it would only make another.
+    /// a panel's last tab leaves its empty state, a blank page, and a sidebar tab stays in the
+    /// sidebar. A lone blank page is that empty state: closing it would only make another. A sidebar
+    /// tab counts its pages alone: with no New Tab, its last page is its only address field.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return context.pageTabs.count > 1 || !page.controls.isBlank
+        return (context.holdsOnePage ? context.pages.count : context.tabs.count) > 1 || !page.controls.isBlank
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
     func newTab() { guard canOpenTab else { return }; onAction(.newTab) }
-    /// The Files panel's ＋: an empty tab whose field searches the worktree.
-    func newFileTab() { guard canOpenTab else { return }; onAction(.newFileTab) }
-    func selectBlankFileTab() { onAction(.selectTab(WorkspaceContext.blankFileID)) }
-    func closeBlankFileTab() { onAction(.closeTab(WorkspaceContext.blankFileID)) }
     func reviewStateChanged(force: Bool = false) {
         let inputs = reviewInputs
         if force || previousReviewInputs != inputs {
@@ -298,7 +292,7 @@ extension WorkspaceServing {
         state.build?.preview?.active = visible
         // Once each, not per page or document: every one of these rebuilds the workspace state.
         let shownPage = visible && showsBrowser ? context?.activePage : nil
-        let shownDocument = visible && showsFiles ? context?.activeDocument : nil
+        let shownDocument = visible && showsBrowser ? context?.activeDocument : nil
         for page in context?.pages ?? [] {
             let activePage = page === shownPage
             page.controls.active = activePage
@@ -325,7 +319,7 @@ extension WorkspaceServing {
         guard let context, canSelectMode(mode) else { return }
         switch mode {
         case .diff: if context.pane != .diff { perform(.changes) }
-        case .browser, .files, .simulator: context.setPane(mode.pane)
+        case .browser, .simulator: context.setPane(mode.pane)
         }
     }
     func run() { if canRun { onAction(.run) } }

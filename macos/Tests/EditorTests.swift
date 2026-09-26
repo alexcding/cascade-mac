@@ -255,31 +255,27 @@ private extension NSView {
     model.dispose()
 }
 
-@MainActor @Test func browserAndFilesModesKeepSeparateTabsAndSelections() throws {
+@MainActor @Test func browserHoldsPagesAndFilesInOneOrder() throws {
     let context = WorkspaceContext(id: "task:modes", sourceURL: "session:modes", title: "")
     let home = try #require(context.open("https://example.com/home", title: "Home"))
     let docs = try #require(context.open("https://example.com/docs", title: "Docs"))
     #expect(context.pane == .term && context.lastMode == .browser)
     let first = try #require(context.openFile("/tmp/first.swift"))
-    #expect(context.pane == .files && context.activeDocument === first && context.activePage == nil)
-    #expect(context.fileTabs.map(\.id) == [first.id] && context.pageTabs.map(\.id) == [home.id, docs.id])
+    #expect(context.pane == .term && context.activeDocument === first && context.activePage == nil)
     let second = try #require(context.openFile("/tmp/second.swift"))
+    #expect(context.tabs.map(\.id) == [home.id, docs.id, first.id, second.id])
     context.cycle(1)
-    #expect(context.activeDocument === first, "cycling stays within the Files tabs")
-    context.setPane(.term)
-    #expect(context.activePage === docs && context.activeDocument == nil, "Browser restores its last page")
+    #expect(context.activePage === home, "cycling runs through pages and files alike")
     context.setPane(.off)
     #expect(context.lastMode == .browser)
-    context.setPane(.files)
-    #expect(context.activeDocument === first, "Files restores its last file, not the last opened")
-    context.remove(first)
-    #expect(context.activeDocument === second, "closing a file picks a file neighbour, never a page")
-    context.remove(second)
-    #expect(context.activeID == nil && context.pane == .files, "an emptied mode stays selected and blank")
     context.setPane(.term)
-    #expect(context.activePage === docs)
-    let snapshot = context.snapshot
-    let restored = WorkspaceContext(id: context.id, sourceURL: "session:modes", title: "", snapshot: snapshot)
+    #expect(context.activePage === home, "showing the pane again keeps its tab")
+    context.select(.file(first))
+    context.remove(first)
+    #expect(context.activeDocument === second, "closing a tab selects the one that took its place")
+    context.remove(second)
+    #expect(context.activePage === docs, "closing the last tab selects its neighbour, a page or a file")
+    let restored = WorkspaceContext(id: context.id, sourceURL: "session:modes", title: "", snapshot: context.snapshot)
     #expect(restored.pane == .term && restored.activePage?.id == docs.id)
 }
 
