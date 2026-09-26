@@ -44,7 +44,7 @@ import Observation
         let projects = all.filter(\.hasJira)
         if self.projects != projects { self.projects = projects }
         let asked = requested.flatMap { id in projects.first { $0.id == id } }
-        if asked != nil { requested = nil }
+        if asked != nil || !all.isEmpty { requested = nil }
         let current = project.flatMap { current in projects.first { $0.id == current.id } }
         let chosen = asked ?? current ?? remembered ?? projects.first
         if chosen?.id != project?.id { project = chosen; rebuild() } else if chosen != project { project = chosen }

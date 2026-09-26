@@ -38,10 +38,15 @@ extension AppCoordinator {
             return
         default: break
         }
-        if case .dashboardBoard(let id) = link.droppingFirst().first,
-           !state.projects.contains(where: { $0.id == id }) {
-            routingError = String(localized: "The linked project is no longer available.")
-            return
+        if case .dashboardBoard(let id) = link.droppingFirst().first {
+            guard let project = state.projects.first(where: { $0.id == id }) else {
+                routingError = String(localized: "The linked project is no longer available.")
+                return
+            }
+            guard project.hasJira else {
+                routingError = String(localized: "The linked project has no Jira board.")
+                return
+            }
         }
         navigate(to: destination)
         let remainder = link.droppingFirst()

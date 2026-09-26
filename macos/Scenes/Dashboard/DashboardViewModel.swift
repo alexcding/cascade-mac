@@ -160,24 +160,32 @@ extension DashboardViewModel {
     func selectTab(_ value: Tab) {
         guard !retired else { return }
         clearFilter()
-        if value == .tickets { showTickets(); return }
+        if value == .tickets { clearFilter(); onAction(.showTickets); return }
         tab = value
         closeTickets()
         // Back on the overview with no tickets yet (Jira was slow or failed at connect): try again.
         if value == .overview, tickets.available, tickets.fetchedNothing, !tickets.loading { tickets.refresh() }
     }
 
-    /// The Pull Requests tab on one author's pull requests, as the overview's tiles open it.
+    /// The Pull Requests tab on one author's pull requests across every project, as the overview's
+    /// tiles count them.
     func showPullRequests(_ author: DashboardPullRequestsModel.Author) {
         guard !retired else { return }
         prs.author = author
+        prs.project = nil
+        prs.filter = .all
         selectTab(.pullRequests)
     }
 
+    /// My Tickets as the list of every tracked project's tickets under `filter`: what the overview's
+    /// tile, badges and stage strip count, and what a tickets link means. The Tickets tab instead
+    /// returns to My Tickets as it was left, board or list.
     func showTickets(_ filter: DashboardTicketsModel.Filter = .all) {
         guard !retired else { return }
         clearFilter()
         tickets.filter = filter
+        tickets.project = nil
+        setTicketsMode(.list)
         onAction(.showTickets)
     }
 
