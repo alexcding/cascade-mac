@@ -3,10 +3,13 @@ import SwiftUI
 /// What a blank tab shows in place of a web view: the bookmarks as icon tiles, then this
 /// session's own pages as the same tiles, newest first. A session with none left to show
 /// offers the pages visited in any panel instead. The History heading leads to the one history
-/// shared by every panel. Clicking a tile loads it in this tab.
+/// shared by every panel. Clicking a tile loads it in this tab. Last, the files this session's
+/// worktree last had open; picking one opens it in place of this tab.
 struct BrowserStartPage: View {
     let context: WorkspaceContext
     let controls: BrowserControlsViewModel
+    var worktree: String? = nil
+    var reopenFile: (FileDocumentRecord) -> Void = { _ in }
     /// The full-history screen replaces the start page in this tab until Back is pressed.
     @State private var showingAll = false
     /// Bookmarks fold to `tileRows` rows of however many tiles the pane's width fits, history to `historyRows`.
@@ -29,6 +32,21 @@ struct BrowserStartPage: View {
             .map { WebPageRecord(id: $0.url, url: $0.url, title: $0.title) }
     }
 
+    static let recentFileLimit = 8
+    private var root: String? { worktree.flatMap { $0.isEmpty ? nil : $0.hasSuffix("/") ? $0 : $0 + "/" } }
+    /// Only this session's worktree: a context outlives and is shared between sessions, and another
+    /// worktree's files are not a way back to anything here. Until the session names its worktree,
+    /// nothing is listed.
+    private var recentFiles: [FileDocumentRecord] {
+        guard let root else { return [] }
+        let open = Set(context.documents.map(\.record.path))
+        let files = context.fileVisits.reversed().compactMap { visit -> FileDocumentRecord? in
+            guard case .file(let file) = visit, file.path.hasPrefix(root), !open.contains(file.path) else { return nil }
+            return file
+        }
+        return Array(files.prefix(Self.recentFileLimit))
+    }
+
     private func tileGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .top)], spacing: 12, content: content)
             .onGeometryChange(for: Int.self) { proxy in
@@ -48,12 +66,14 @@ struct BrowserStartPage: View {
     }
 
     private var startPage: some View {
-        let bookmarks = context.bookmarks?.bookmarks ?? [], recent = recent(excluding: bookmarks)
+        let bookmarks = context.bookmarks?.bookmarks ?? [], recent = recent(excluding: bookmarks), files = recentFiles
         return ScrollView {
-            if recent.isEmpty && bookmarks.isEmpty {
+            if recent.isEmpty && bookmarks.isEmpty && files.isEmpty {
                 VStack(spacing: 5) {
                     Text(String(localized: "No bookmarks or history yet")).font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
-                    Text(String(localized: "Pages you bookmark or visit appear here.")).font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary)
+                    Text(root == nil ? String(localized: "Pages you bookmark or visit appear here.")
+                                     : String(localized: "Pages you bookmark or visit, and files you open, appear here."))
+                        .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary)
                 }
                 .frame(maxWidth: .infinity).padding(.top, 80)
             } else {
@@ -100,6 +120,19 @@ struct BrowserStartPage: View {
                             }
                             .accessibilityLabel(String(localized: "History"))
                         }
+                    }
+                    if !files.isEmpty {
+                        Text(String(localized: "Recent Files")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                            .padding(.top, bookmarks.isEmpty && recent.isEmpty ? 0 : 16)
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(files) { file in
+                                RecentFileRow(file: file, root: root) {
+                                    controls.setEditingAddress(false)
+                                    reopenFile(file)
+                                }
+                            }
+                        }
+                        .accessibilityLabel(String(localized: "Recent Files"))
                     }
                 }
                 .padding(Self.pagePadding)
@@ -319,6 +352,39 @@ private struct StartPageTile: View {
         .onHover { hovering = $0 }
         .help(record.url)
         .contextMenu { if let remove { Button(String(localized: "Remove Bookmark"), action: remove) } }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+/// A file the worktree had open: its name and the folder it sits in, newest first.
+private struct RecentFileRow: View {
+    let file: FileDocumentRecord
+    let root: String?
+    let open: () -> Void
+    @State private var hovering = false
+
+    /// The folder inside the worktree; empty for a file at its top.
+    private var folder: String {
+        let relative = root.map { file.path.hasPrefix($0) ? String(file.path.dropFirst($0.count)) : file.path } ?? file.path
+        return (relative as NSString).deletingLastPathComponent
+    }
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text").font(.system(size: 17)).foregroundStyle(Theme.textTertiary).frame(width: 24)
+                Text(file.title).font(.body).lineLimit(1)
+                Text(folder).font(.body).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.head)
+                Spacer(minLength: 8)
+            }
+            .padding(.horizontal, 12).frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(hovering ? Theme.surfaceHover : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(file.path)
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

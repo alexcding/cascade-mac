@@ -8,35 +8,35 @@ private struct FileSearchFixture: FileSearchService {
     }
 }
 
-@MainActor @Test func blankFileTabGivesItsSlotToTheFileItOpensAndIsNeverSaved() {
+@MainActor @Test func aFileOpenedFromABlankPageTakesItsPlace() throws {
     let context = WorkspaceContext(id: "task:files", sourceURL: "", title: "Files")
-    context.newFileTab()
-    #expect(context.blankFileActive && context.pane == .files && context.activeDocument == nil)
-    #expect(context.snapshot.documents?.isEmpty == true && context.fileTabs.isEmpty)
+    let home = try #require(context.open("https://example.com/home", title: "Home"))
+    let blank = context.openBlankPage()
+    #expect(context.activePage === blank && context.tabs.count == 2)
+    let file = try #require(context.openFile("/tmp/one.swift"))
+    #expect(context.activeDocument === file && context.pane == .term)
+    #expect(context.tabs.map(\.id) == [home.id, file.id], "the blank page gives its slot to the file")
+    // Opened again from a blank page, an open file is selected and the blank page still goes.
+    context.openBlankPage()
     context.openFile("/tmp/one.swift")
-    #expect(!context.hasBlankFileTab && context.activeDocument?.record.path == "/tmp/one.swift")
-    // A second blank beside an open file closes back onto that file.
-    context.newFileTab()
-    #expect(context.blankFileActive && context.documents.count == 1)
-    context.closeBlankFileTab()
-    #expect(!context.hasBlankFileTab && context.activeDocument?.record.path == "/tmp/one.swift")
+    #expect(context.activeDocument === file && context.tabs.map(\.id) == [home.id, file.id])
 }
 
-@MainActor @Test func closingTheLastFileSelectsTheBlankTabBesideIt() {
-    let context = WorkspaceContext(id: "task:last", sourceURL: "", title: "Last")
-    let file = context.openFile("/tmp/last.swift")!
-    context.newFileTab()
-    context.select(.file(file))
-    context.remove(file)
-    #expect(context.blankFileActive && context.documents.isEmpty)
+@MainActor @Test func aSnapshotSavedOnTheFilesPaneRestoresToTheBrowser() {
+    var snapshot = ContextSnapshot()
+    snapshot.pane = "files"
+    snapshot.documents = [.init(path: "/tmp/saved.swift")]
+    let context = WorkspaceContext(id: "task:legacy", sourceURL: "", title: "", snapshot: snapshot)
+    #expect(context.pane == .term && context.lastMode == .browser && context.activeDocument?.record.path == "/tmp/saved.swift")
 }
 
-@MainActor @Test func blankFileTabSurvivesAPanelSwitch() {
-    let context = WorkspaceContext(id: "task:panels", sourceURL: "", title: "Panels")
-    context.newFileTab()
-    context.setPane(.term)
-    context.setPane(.files)
-    #expect(context.blankFileActive)
+@MainActor @Test func aFileSuggestionOpensAsItsOwnTab() throws {
+    let context = WorkspaceContext(id: "task:suggest", sourceURL: "", title: "")
+    let page = context.openBlankPage()
+    let item = AddressSuggestion(id: "file:/repo/README.md", title: "README.md", detail: "", url: "/repo/README.md", kind: .file)
+    #expect(item.heading == String(localized: "Files") && !item.isSearch)
+    #expect(BrowserAddressSuggestions.open(item, in: page.controls, context: context))
+    #expect(context.activeDocument?.record.path == "/repo/README.md" && context.pages.isEmpty)
 }
 
 @MainActor @Test func fileSearchListsOnlyTypedQueriesAndOpensAbsolutePaths() async throws {
@@ -73,4 +73,11 @@ private struct FileSearchFixture: FileSearchService {
     let cut = CompactTabLayout(ids: ids, activeID: "a", available: 260)
     #expect(cut.iconOnly && cut.visible == ["a", "d", "e"])
     #expect(CompactTabLayout(ids: ids, activeID: "a", available: 50).visible == ["a"])
+}
+
+@MainActor @Test func aSidebarTabKeepsItsBlankPageBesideAnOpenedFile() throws {
+    let context = WorkspaceContext(id: "tab:draft", sourceURL: "", title: "")
+    let page = context.openBlankPage()
+    let file = try #require(context.openFile("/tmp/sidebar.swift"))
+    #expect(context.tabs.map(\.id) == [page.id, file.id], "its one page is its only address field")
 }

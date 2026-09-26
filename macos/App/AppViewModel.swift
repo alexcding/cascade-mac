@@ -315,7 +315,7 @@ public final class AppViewModel {
     var sessionOperations: (any SessionServing)? { api.map { backendFactory.sessions(api: $0) } }
 
     func showChanges(for session: WorkspaceSession, context: WorkspaceContext) {
-        if context.pane == .diff { context.setPane(context.activeDocument != nil ? .files : .term); return }
+        if context.pane == .diff { context.setPane(.term); return }
         prepareChanges(for: session, context: context)
         if diffModels[context.id] != nil { context.setPane(.diff) }
     }
@@ -580,9 +580,8 @@ public final class AppViewModel {
     public func canPerform(_ command: ShellCommand) -> Bool {
         switch command {
         case .newProject: connection == "Connected" && coordinator.canPresent
-        // ⌘T follows the panel in view, as `newBrowserTab` does: a file tab from Files, and a web
-        // tab from anywhere else — which a panel holding one page has nowhere to put.
-        case .newTab: coordinator.canPresent && viewer.active.map { $0.pane == .files || !$0.holdsOnePage } == true
+        // ⌘T, as `newBrowserTab`: a blank tab, which a panel holding one page has nowhere to put.
+        case .newTab: coordinator.canPresent && viewer.active.map { !$0.holdsOnePage } == true
         case .newSidebarTab: coordinator.canPresent
         case .newSession: canStartSession && sessionProject(for: selection) != nil
         case .back: coordinator.canPresent && viewer.active?.activePage?.controls.canGoBack == true
@@ -591,7 +590,7 @@ public final class AppViewModel {
         case .saveFile: viewer.active?.activeDocument?.loaded == true && viewer.active?.activeDocument?.readOnly == false
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
-        case .nextPage, .previousPage: (viewer.active?.modeTabs.count ?? 0) > 1
+        case .nextPage, .previousPage: (viewer.active?.tabs.count ?? 0) > 1
         case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
@@ -723,7 +722,7 @@ public final class AppViewModel {
         if let context = viewer.active {
             if context.pane == .diff { return .diff }
             let hasTerminal = context.id == "scratch" || sessions.contains { "task:\($0.id)" == context.id }
-            if context.activeDocument != nil && (!hasTerminal || context.pane == .files) { return .diff }
+            if context.activeDocument != nil && (!hasTerminal || context.pane == .term) { return .diff }
         }
         return terminal?.ready == true ? .term : nil
     }
@@ -732,8 +731,6 @@ public final class AppViewModel {
     /// front. A session panel showing something else switches to Browser first. Never a sidebar tab.
     func newBrowserTab() {
         guard coordinator.canPresent, let context = viewer.active else { return }
-        // Cmd-T follows the panel in view: a file tab from Files, a web tab from anywhere else.
-        if context.pane == .files { context.newFileTab(); return }
         if context.pane != .term { context.setPane(.term) }
         context.openBlankPage()
     }

@@ -24,8 +24,6 @@ struct SessionWorkspacePane: View {
     @ViewBuilder private func bar(height: CGFloat) -> some View {
         if model.mode == .browser, !model.showsChanges {
             BrowserCompactTabBar(context: context, model: model, placement: .titleBar(height: height))
-        } else if model.mode == .files, !model.showsChanges {
-            FilesCompactTabBar(context: context, model: model, placement: .titleBar(height: height))
         } else {
             Color.clear.frame(height: height)
         }

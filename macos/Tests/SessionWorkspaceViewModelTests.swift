@@ -249,11 +249,19 @@ import Testing
     let blank = session.openBlankPage()
     #expect(model.offersClose(page) && model.offersClose(blank))
     session.close(page)
-    #expect(session.pageTabs.count == 1 && !model.offersClose(blank))
+    #expect(session.pages.count == 1 && !model.offersClose(blank))
     let tab = WorkspaceContext(id: "tab:close", sourceURL: "", title: "Tab")
     let tabModel = SessionWorkspaceViewModel(context: tab, service: service)
     let tabPage = try #require(tab.open("https://example.test/tab"))
     #expect(tabModel.offersClose(tabPage))
     tab.close(tabPage)
     #expect(!tabModel.offersClose(tab.openBlankPage()))
+}
+
+@MainActor @Test func aSidebarTabNeverOffersToCloseItsOnlyPageBesideAFile() throws {
+    let tab = WorkspaceContext(id: "tab:beside", sourceURL: "", title: "Tab")
+    let model = SessionWorkspaceViewModel(context: tab, service: WorkspaceFixture())
+    let page = tab.openBlankPage()
+    tab.openFile("/tmp/beside.swift")
+    #expect(tab.tabs.count == 2 && !model.offersClose(page), "a file beside it is no address field")
 }

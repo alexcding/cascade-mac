@@ -125,6 +125,7 @@ struct BrowserPane: View {
     let page: BrowserPage
     let context: WorkspaceContext
     let model: BrowserControlsViewModel
+    let workspace: SessionWorkspaceViewModel
     @FocusState private var finding: Bool
 
     var body: some View {
@@ -154,7 +155,8 @@ struct BrowserPane: View {
                 if model.isBlank {
                     // Safari's start page: a blank tab shows where this panel has been.
                     // Per tab: what one blank tab expanded or searched is not the next one's.
-                    BrowserStartPage(context: context, controls: model).id(page.id)
+                    BrowserStartPage(context: context, controls: model, worktree: workspace.session?.worktree,
+                                     reopenFile: { workspace.reopen(.file($0)) }).id(page.id)
                 } else if page.webView == nil {
                     ContentUnavailableView(String(localized: "Page suspended"), systemImage: "globe", description: Text(String(localized: "Select this tab to reload it.")))
                 }
@@ -262,9 +264,6 @@ private struct SessionWorkspaceContextContent: View {
                     // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
                     BrowserCompactTabBar(context: context, model: model)
                     Divider()
-                } else if model.mode == .files, !model.showsChanges {
-                    FilesCompactTabBar(context: context, model: model)
-                    Divider()
                 }
                 SessionWorkspaceContextBody(context: context, model: model)
             }
@@ -291,11 +290,11 @@ struct SessionWorkspaceContextBody: View {
                 Divider()
                 ReviewFooter(context: context, diff: model.diff)
             }
-        } else if model.mode == .files, let document = context.activeDocument {
+        } else if model.mode == .browser, let document = context.activeDocument {
             EditorDocumentView(model: document, togglePreview: model.toggleEditorPreview).id(document.id)
         } else if model.mode == .browser, let page = context.activePage {
             // Not keyed by page: a new identity would rebuild the surface and re-parent the web views.
-            BrowserPane(page: page, context: context, model: page.controls)
+            BrowserPane(page: page, context: context, model: page.controls, workspace: model)
         } else if model.mode == .simulator, let preview = model.simulatorPreview {
             SimulatorPanelView(model: preview, openIntegrations: model.openHookSettings)
         } else {
@@ -341,7 +340,7 @@ struct SessionWorkspaceModePicker: View {
 
     var body: some View {
         Picker(String(localized: "Panel"), selection: Binding(get: { model.mode }, set: model.selectMode)) {
-            ForEach(model.modes.filter { $0 != .diff || model.session != nil }) { mode in
+            ForEach(model.modes) { mode in
                 Image(systemName: mode.symbol).help(mode.title).tag(mode)
                     .disabled(!model.canSelectMode(mode))
             }
@@ -359,95 +358,18 @@ struct BlankPane: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
 
-    private var hint: Text {
-        switch model.mode {
-        case .files: return Text(String(localized: "Search this worktree from the tab above, or use the folder to browse it.")).foregroundColor(Theme.textTertiary)
-        case .diff, .browser, .simulator: return Text(String(localized: "Use ＋ to open a web page.")).foregroundColor(Theme.textTertiary)
-        }
-    }
-    private var root: String? {
-        (model.session?.worktree).flatMap { $0.isEmpty ? nil : $0.hasSuffix("/") ? $0 : $0 + "/" }
-    }
-    /// Only this session's worktree: a context outlives and is shared between sessions, and another
-    /// worktree's files are not a way back to anything here. Until the session names its worktree,
-    /// nothing is listed.
-    private var recentFiles: [FileDocumentRecord] {
-        guard model.mode == .files else { return [] }
-        let root = root
-        let files = context.fileVisits.reversed().compactMap { visit -> FileDocumentRecord? in
-            guard case .file(let file) = visit, root.map(file.path.hasPrefix) ?? false else { return nil }
-            return file
-        }
-        return Array(files.prefix(12))
-    }
-
     var body: some View {
-        Group {
-            if recentFiles.isEmpty { empty } else { recent }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
-    }
-
-    private var empty: some View {
         VStack(spacing: 5) {
-            Text(model.mode == .files ? String(localized: "No file open") : String(localized: "Nothing open in this panel"))
+            Text(String(localized: "Nothing open in this panel"))
                 .font(Theme.Typography.emptyTitle)
                 .foregroundStyle(Theme.textSecondary)
-            hint.font(Theme.Typography.emptyHint).multilineTextAlignment(.center)
+            Text(String(localized: "Use ＋ to open a web page or search this worktree's files."))
+                .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary).multilineTextAlignment(.center)
         }
         .frame(maxWidth: 260)
         .padding(24)
-    }
-
-    // The browser start page's History, for files: same heading, rows and column.
-    private var recent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(String(localized: "Recent Files")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
-                LazyVStack(alignment: .leading, spacing: 2) {
-                    ForEach(recentFiles) { file in
-                        RecentFileRow(file: file, root: root) { model.reopen(.file(file)) }
-                    }
-                }
-                .accessibilityLabel(String(localized: "Recent Files"))
-            }
-            .padding(24)
-            .readableColumn()
-            .frame(maxWidth: .infinity)
-        }
-    }
-}
-
-private struct RecentFileRow: View {
-    let file: FileDocumentRecord
-    let root: String?
-    let open: () -> Void
-    @State private var hovering = false
-
-    /// The folder inside the worktree; empty for a file at its top.
-    private var folder: String {
-        let relative = root.map { file.path.hasPrefix($0) ? String(file.path.dropFirst($0.count)) : file.path } ?? file.path
-        return (relative as NSString).deletingLastPathComponent
-    }
-
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 12) {
-                Image(systemName: "doc.text").font(.system(size: 17)).foregroundStyle(Theme.textTertiary).frame(width: 24)
-                Text(file.title).font(.body).lineLimit(1)
-                Text(folder).font(.body).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.head)
-                Spacer(minLength: 8)
-            }
-            .padding(.horizontal, 12).frame(height: 44)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovering ? Theme.surfaceHover : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(file.path)
-        .animation(.easeOut(duration: 0.12), value: hovering)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.paneBackground)
     }
 }
 
