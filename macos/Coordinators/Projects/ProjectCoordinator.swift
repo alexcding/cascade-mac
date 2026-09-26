@@ -55,9 +55,6 @@ import Observation
         case .jiraTicket(.open(let request)):
             guard !isPresenting, canPresent(), model.section == .tickets else { return }
             model.tickets?.navigation.open(request)
-        case .boardTicket(.open(let request)):
-            guard !isPresenting, canPresent(), model.section == .board else { return }
-            model.board?.navigation.open(request)
         }
     }
 

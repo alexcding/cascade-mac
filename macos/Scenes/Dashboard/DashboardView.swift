@@ -33,7 +33,6 @@ struct DashboardView: View {
                 } else {
                     switch model.tab {
                     case .pullRequests: pullRequestsPage
-                    case .reviews: reviewsPage
                     case .overview, .tickets: overview
                     }
                 }
@@ -52,10 +51,17 @@ struct DashboardView: View {
     /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
     private var header: some View {
         switch model.tab {
-        case .pullRequests: DashboardPageHeader(caption: model.prs.author == .mine ? String(localized: "Yours, newest first") : String(localized: "Everyone else’s, newest first"), title: String(localized: "Pull requests"))
-        case .reviews: DashboardPageHeader(caption: String(localized: "Waiting on you, newest first"), title: String(localized: "Review requested"))
+        case .pullRequests: DashboardPageHeader(caption: pullRequestsCaption, title: String(localized: "Pull requests"))
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
+        }
+    }
+
+    private var pullRequestsCaption: String {
+        switch model.prs.author {
+        case .mine: String(localized: "Yours, newest first")
+        case .review: String(localized: "Waiting on you, newest first")
+        case .others: String(localized: "Everyone else’s, newest first")
         }
     }
 
@@ -121,7 +127,7 @@ struct DashboardView: View {
         let tile = model.prs.tile
         return DashboardStatTile(title: String(localized: "Open pull requests"), value: Double(tile.count), shown: shown("prs"),
                                  footnote: tile.footnote,
-                                 open: { model.selectTab(.pullRequests) }) {
+                                 open: { model.showPullRequests(.mine) }) {
             if tile.failing > 0 { DashboardBadge(String(localized: "\(tile.failing) failing"), tone: .danger) }
         } visual: {
             DashboardChecksMatrix(rows: tile.dots)
@@ -133,7 +139,7 @@ struct DashboardView: View {
         let tile = model.prs.reviewTile
         return DashboardStatTile(title: String(localized: "Waiting on you"), value: Double(tile.count), shown: shown("reviews"),
                                  footnote: tile.footnote,
-                                 open: { model.selectTab(.reviews) }) {
+                                 open: { model.showPullRequests(.review) }) {
             if let age = tile.oldestAge { DashboardBadge(String(localized: "oldest \(age)"), tone: .warn) }
         } visual: {
             DashboardAvatarStack(logins: tile.authors, avatars: model.prs.avatars)
@@ -232,8 +238,8 @@ struct DashboardView: View {
 
     // MARK: Pull Requests tab
 
-    /// The user's or everyone else's open pull requests, one ruled section per project, narrowed
-    /// by a tag and optionally to one project.
+    /// The user's own, their review queue's, or everyone else's open pull requests, one ruled
+    /// section per project, narrowed by a tag and optionally to one project.
     private var pullRequestsPage: some View {
         let groups = model.prs.groups
         return VStack(alignment: .leading, spacing: 0) {
@@ -256,7 +262,7 @@ struct DashboardView: View {
                             DashboardSectionHeader(title: group.project.name, detail: group.project.repo,
                                                    refresh: index == 0 ? { model.prs.sync() } : nil,
                                                    busy: model.prs.loading || model.prs.syncing, id: "prs")
-                            prRows(group.rows, author: model.prs.author == .others)
+                            prRows(group.rows, author: model.prs.author != .mine)
                         }
                     }
                 }
@@ -290,21 +296,6 @@ struct DashboardView: View {
             }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             .accessibilityIdentifier("dashboard-pr-project")
-        }
-    }
-
-    // MARK: Reviews tab
-
-    /// Every review request, longest waiting first, with who asked.
-    private var reviewsPage: some View {
-        let reviews = model.prs.reviews
-        return VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: String(localized: "Waiting on you"), detail: "",
-                                   refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "reviews")
-            if reviews.isEmpty {
-                placeholder(String(localized: "No review requests."))
-            }
-            prRows(reviews, author: true)
         }
     }
 

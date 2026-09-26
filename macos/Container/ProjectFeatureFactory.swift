@@ -30,8 +30,7 @@ extension ProjectFeatureFactory {
                  session: @escaping (OpenPageRequest) -> PageSessionMark?) -> ProjectPageViewModel {
         let editor = creation.projectEditor(project: project, service: services.projects)
         let pageActions = NativePageActionService(open: openPage, session: session)
-        let board = WebBoardViewModel(projectID: project.id, api: services.api, pageActions: pageActions)
         let tickets = JiraTicketsViewModel(project: project, service: services.tickets, pageActions: pageActions)
-        return ProjectPageViewModel(project: project, editor: editor, board: board, tickets: tickets)
+        return ProjectPageViewModel(project: project, editor: editor, tickets: tickets)
     }
 }

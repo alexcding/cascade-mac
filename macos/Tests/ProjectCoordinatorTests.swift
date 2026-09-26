@@ -42,7 +42,6 @@ import Testing
     root.navigate(to: .project(project.id))
     model.selectSection(.settings)
     #expect(root.projectCoordinator?.model === model && model.section == .settings)
-    #expect(model.board?.projectID == "p")
     #expect(model.tickets != nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")

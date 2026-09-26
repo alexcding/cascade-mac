@@ -49,8 +49,6 @@ extension AppCoordinator {
         }
         projectRuntimes[id] = runtime.map { WeakProjectRuntime(runtime: $0) }
         projectCoordinators[id] = child
-        model.appearance = appearance
-        model.active = selection == .project(id)
         refreshRoot()
         schedulePendingDeepLink()
         return child

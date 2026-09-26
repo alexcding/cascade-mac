@@ -9,7 +9,16 @@ import Observation
     @ObservationIgnored var onChange: () -> Void = {}
     private(set) var retired = false
 
+    /// The user's tickets in the tracked projects: one no project's Jira key claims is left out.
     private(set) var rows: [DashboardTicketRow] = []
+    /// Tracked projects, from the dashboard snapshot; `rows` follows them.
+    var projects: [DashboardProject] = [] {
+        didSet { if projects != oldValue { publish(Self.tracked(loaded, in: projects), summary: nil) } }
+    }
+    /// Everything Jira returned, before `projects` narrows it.
+    @ObservationIgnored private var loaded: [DashboardTicketRow] = []
+    /// Whether Jira has returned no tickets at all, as opposed to none the tracked projects claim.
+    var fetchedNothing: Bool { loaded.isEmpty }
     /// Each My Tickets tag's count over `rows`.
     private(set) var counts = DashboardTicketsModel.makeSummary([]).counts
     /// The home screen's short list; see `rankAttention`.
@@ -25,6 +34,13 @@ import Observation
     /// Jira-capable service connects and goes when it is dropped.
     private(set) var available = false
     var filter: Filter = .all { didSet { if filter != oldValue { updateScreenRows() } } }
+    /// The one project My Tickets lists, or nil for every project. A ticket belongs to the project
+    /// whose Jira key starts its own key.
+    var project: DashboardProject? { didSet { if project != oldValue { updateScreenRows() } } }
+    /// My Tickets' tag counts and stage bar over the rows `project` leaves; the overview's tile
+    /// keeps counting every ticket.
+    private(set) var pageCounts = DashboardTicketsModel.makeSummary([]).counts
+    private(set) var pageStages = DashboardTicketsModel.makeSummary([]).stages
     /// The pull request each Jira key is linked to, from the PR snapshot. The short list skips work
     /// a listed pull request already stands for, and My Tickets shows the number.
     var linkedPRs: [String: String] = [:] {
@@ -58,19 +74,16 @@ import Observation
         task = Task {
             defer { if self.generation == generation { task = nil; loading = false } }
             do {
-                let rows = try await service.myTickets()
+                let loaded = try await service.myTickets()
                 try Task.checkCancellation()
                 guard isCurrent(generation) else { return }
+                self.loaded = loaded
+                let rows = Self.tracked(loaded, in: projects)
                 if self.rows != rows {
                     let summary = await Self.summarize(rows)
-                    guard isCurrent(generation) else { return }
-                    self.rows = rows
-                    if counts != summary.counts { counts = summary.counts }
-                    if tile != summary.tile { tile = summary.tile }
-                    if stages != summary.stages { stages = summary.stages }
-                    updateAttention()
-                    updateScreenRows()
-                    onChange()
+                    // A project change while summarizing has already published its own narrowing.
+                    guard isCurrent(generation), rows == Self.tracked(self.loaded, in: projects) else { return }
+                    publish(rows, summary: summary)
                 }
                 error = nil
             } catch {
@@ -103,13 +116,30 @@ import Observation
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }
 
+    /// Publishes `rows` with their summary, worked out here when the caller has none.
+    private func publish(_ rows: [DashboardTicketRow], summary: Summary?) {
+        guard !retired, self.rows != rows else { return }
+        let summary = summary ?? Self.makeSummary(rows)
+        self.rows = rows
+        if counts != summary.counts { counts = summary.counts }
+        if tile != summary.tile { tile = summary.tile }
+        if stages != summary.stages { stages = summary.stages }
+        updateAttention()
+        updateScreenRows()
+        onChange()
+    }
+
     private func updateAttention() {
         let value = Self.rankAttention(rows, linked: linkedPRs, limit: Self.attentionLimit)
         if attention != value { attention = value }
     }
 
     private func updateScreenRows() {
-        let tagged = Self.stamp(rows.filter(filter.matches), linked: linkedPRs)
+        let scoped = project.map { project in rows.filter { project.owns(ticket: $0.ticket.key) } } ?? rows
+        let summary = Self.makeSummary(scoped)
+        if pageCounts != summary.counts { pageCounts = summary.counts }
+        if pageStages != summary.stages { pageStages = summary.stages }
+        let tagged = Self.stamp(scoped.filter(filter.matches), linked: linkedPRs)
         let value = tagged.filter(\.urgent) + tagged.filter { !$0.urgent }
         if screenRows != value { screenRows = value }
     }
@@ -157,6 +187,13 @@ extension DashboardTicketsModel {
             return (rank, offset, row)
         }
         return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
+    }
+
+    /// The tickets some tracked project's Jira keys claim. A Jira project whose keys cannot be told
+    /// (a saved JQL that names no project) could own any ticket, so then nothing is left out.
+    nonisolated static func tracked(_ rows: [DashboardTicketRow], in projects: [DashboardProject]) -> [DashboardTicketRow] {
+        guard !projects.contains(where: { $0.hasJira && $0.jiraKeys.isEmpty }) else { return rows }
+        return rows.filter { row in projects.contains { $0.owns(ticket: row.ticket.key) } }
     }
 
     /// The rows with their Pull Request column filled from the PR snapshot's links.

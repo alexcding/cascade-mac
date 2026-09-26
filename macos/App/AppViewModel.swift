@@ -419,7 +419,7 @@ public final class AppViewModel {
     }
 
     private func retireProject(_ model: ProjectPageViewModel) {
-        model.retire(); model.board?.suspend()
+        model.retire()
         Task { await model.tickets?.stop() }
     }
 
@@ -1459,7 +1459,7 @@ public final class AppViewModel {
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
             if let api { for model in projectModels.values {
-                model.connect(backendFactory.projects(api: api)); model.board?.connect(api: api)
+                model.connect(backendFactory.projects(api: api))
                 model.tickets?.connect(backendFactory.tickets(api: api))
             } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
@@ -1492,9 +1492,6 @@ public final class AppViewModel {
         shell.refreshUsage()
         dashboard?.reload()
         if coordinator.activityVisible { logs?.refresh() }
-        if case .project(let id) = selection, let model = projectModels[id], model.section == .board {
-            model.board?.refresh()
-        }
         if case .project(let id) = selection, let model = projectModels[id], model.section == .tickets {
             model.tickets?.refresh()
         }
@@ -1586,13 +1583,12 @@ public final class AppViewModel {
         if !prs.isEmpty { dashboard?.prs.refresh() }
         if !prs.isEmpty || events.contains(where: { $0.type == "reviews" }) { shell.refresh() }
         if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
-        guard case .project(let id) = selection, let model = projectModels[id] else { return }
         let jira = events.filter { $0.type == "jira-sync" }
+        for event in jira { dashboard?.board.refresh(event: event.id) }
+        guard case .project(let id) = selection, let model = projectModels[id] else { return }
         switch model.section {
         case .tickets:
             if jira.contains(where: { $0.id == nil || $0.id == id }) { model.tickets?.refresh() }
-        case .board:
-            if jira.contains(where: { $0.id == nil || $0.id == "board:\(id)" }) { model.board?.refresh() }
         default: break
         }
     }
@@ -1728,7 +1724,7 @@ public final class AppViewModel {
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            model.connect(nil); model.board?.pause(); await model.tickets?.stop()
+            model.connect(nil); await model.tickets?.stop()
         }
         await viewer.stop()
         ideWarmup.connect(nil)

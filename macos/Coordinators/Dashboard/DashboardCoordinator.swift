@@ -11,7 +11,7 @@ import Observation
 
 @MainActor @Observable final class DashboardCoordinator: Coordinatable {
     var root: Destination = .none
-    var path: [Destination] = []
+    var path: [Destination] = [] { didSet { model.ticketsShown = !path.isEmpty } }
     @ObservationIgnored var action: ((Action) -> Void)?
 
     let model: DashboardViewModel
@@ -41,6 +41,9 @@ import Observation
             if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Cascade.") }
         case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
         case .closeTickets: leaveTickets()
+        case .board(.open(let request)):
+            guard model.ticketsShown, model.ticketsMode == .board else { return }
+            model.board.board?.navigation.open(request)
         }
     }
     /// Back to the home screen, ending any search: going back is navigation, and a search left
@@ -65,6 +68,8 @@ extension AppCoordinator {
         child.canPresent = { [weak self] in
             self?.selection == .overview && self?.canPresent == true && self?.canOpenExternalRoute() == true
         }
+        model.appearance = appearance
+        model.shown = selection == .overview
         dashboardCoordinator = child
         refreshRoot()
         return child

@@ -14,7 +14,7 @@ private actor DashboardFixture: DashboardService {
         if failing { throw BackendError.operation("Fixture offline") }
         if empty { return [] }
         return try JSONDecoder().decode([DashboardProject].self, from: Data(#"""
-        [{"id":"p","name":"Native","repo":"o/r","lastSynced":"2026-09-12T12:00:00Z","prs":[
+        [{"id":"p","name":"Native","repo":"o/r","jiraProjectKey":"REC","lastSynced":"2026-09-12T12:00:00Z","prs":[
           {"number":1,"title":"My draft","url":"https://github.com/o/r/pull/1","state":"OPEN","category":"mine","isDraft":true,"jiraKeys":["REC-1"],"ci":{"status":"queued","conclusion":"failure"},"labels":[{"name":"bug","color":"d73a4a"},{"name":"ui","color":"ededed"},{"name":"needs-qa","color":"0e8a16"}]},
           {"number":2,"title":"Reviewed already","url":"https://github.com/o/r/pull/2","state":"OPEN","category":"other","awaitingMyReview":true,"jiraKeys":["REC-1","REC-2"],"reviewDecision":"APPROVED","ci":{"status":"completed","conclusion":"failure"}},
           {"number":3,"title":"Not in orbit","url":"https://github.com/o/r/pull/3","state":"OPEN","category":"review","awaitingMyReview":false,"jiraKeys":["REC-9"]},
@@ -386,8 +386,8 @@ private actor TicketFixture: DashboardService, DashboardTicketService {
     model.query = "legacy"
     #expect(model.search.reviews.map(\.pr.number) == [4])
 
-    model.selectTab(.reviews)
-    #expect(!model.searching && model.query.isEmpty && model.tab == .reviews)
+    model.showPullRequests(.review)
+    #expect(!model.searching && model.query.isEmpty && model.tab == .pullRequests && model.prs.author == .review)
 
     await model.stop()
     model.retire()

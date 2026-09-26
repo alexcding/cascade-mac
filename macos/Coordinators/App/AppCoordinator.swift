@@ -85,7 +85,10 @@ import Observation
     /// The sidebar and root placeholders bind to this; `makeRoot` installs it.
     var rootModel: RootViewModel?
     var appearance = AppAppearance.system {
-        didSet { if oldValue != appearance { projectModels.values.forEach { $0.appearance = appearance } } }
+        didSet {
+            guard oldValue != appearance else { return }
+            dashboardCoordinator?.model.appearance = appearance
+        }
     }
     var dashboardCoordinator: DashboardCoordinator?
     var automationCoordinator: AutomationCoordinator?
@@ -160,7 +163,7 @@ import Observation
         }
         routingError = nil
         selection = destination
-        for (id, child) in projectCoordinators { child.model.active = destination == .project(id) }
+        dashboardCoordinator?.model.shown = destination == .overview
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()
         refreshRoot()
