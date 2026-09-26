@@ -68,9 +68,12 @@ private func makePR(
 }
 
 private func makeProject(_ id: String, name: String = "Proj", repo: String = "o/r", prs: [DashboardPR],
-                          lastSynced: String? = "2026-01-01T00:00:00Z", syncError: String? = nil) -> DashboardProject {
-    DashboardProject(id: id, name: name, repo: repo, prs: prs, lastSynced: lastSynced, syncError: syncError)
+                          lastSynced: String? = "2026-01-01T00:00:00Z", syncError: String? = nil, jiraKey: String? = nil) -> DashboardProject {
+    DashboardProject(id: id, name: name, repo: repo, prs: prs, lastSynced: lastSynced, syncError: syncError, jiraProjectKey: jiraKey)
 }
+
+/// A project whose Jira keys claim the given tickets, so the dashboard shows them.
+private func tracking(_ keys: String...) -> DashboardProject { makeProject("jira", prs: [], jiraKey: keys.joined(separator: ", ")) }
 
 private func rows(_ project: DashboardProject) -> [DashboardRow] {
     project.prs.compactMap { pr in
@@ -294,6 +297,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
         makeTicketRow(makeTicket("U2", status: "In PR Review", category: "indeterminate", priority: "Urgent")),
     ]
     let model = DashboardTicketsModel()
+    model.projects = [tracking("N1", "U1", "U2")]
     model.connect(ModelFixture(tickets: rows))
     while model.loading { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.screenRows.map(\.id) == ["U1", "U2", "N1"])
@@ -306,6 +310,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     let inProgress = makeTicket("K2", status: "In PR Review", category: "indeterminate", priority: "Medium")
     let rows = [makeTicketRow(makeTicket("K1", status: "Open", category: "new", priority: "Medium")), makeTicketRow(inProgress)]
     let model = DashboardTicketsModel()
+    model.projects = [tracking("K1", "K2")]
     model.connect(ModelFixture(tickets: rows))
     while model.loading { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.screenRows.first { $0.id == "K1" }?.pullRequest == "")
@@ -381,7 +386,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
 // MARK: - DashboardViewModel
 
 @MainActor @Test(.timeLimit(.minutes(1))) func searchCaptionIsSingularAndPlural() async throws {
-    let project = makeProject("p", prs: [makePR(1, jiraKeys: ["REC-1"], title: "Alpha One")])
+    let project = makeProject("p", prs: [makePR(1, jiraKeys: ["REC-1"], title: "Alpha One")], jiraKey: "REC")
     let fixture = ModelFixture(projects: [project], tickets: [makeTicketRow(makeTicket("REC-2", status: "Open", summary: "Alpha Two"))])
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(fixture)
@@ -401,7 +406,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func searchMatchesTicketReporterCaseInsensitively() async throws {
-    let fixture = ModelFixture(tickets: [makeTicketRow(makeTicket("OPS-9", status: "Open", reporter: "Chen Ding"))])
+    let fixture = ModelFixture(projects: [tracking("OPS")], tickets: [makeTicketRow(makeTicket("OPS-9", status: "Open", reporter: "Chen Ding"))])
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(fixture)
     while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
@@ -414,7 +419,7 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func searchTicketsCarryTheirLinkedPullRequestNumber() async throws {
-    let project = makeProject("p", prs: [makePR(3, category: "mine", jiraKeys: ["OPS-9"])])
+    let project = makeProject("p", prs: [makePR(3, category: "mine", jiraKeys: ["OPS-9"])], jiraKey: "OPS")
     let fixture = ModelFixture(projects: [project], tickets: [makeTicketRow(makeTicket("OPS-9", status: "Open"))])
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(fixture)
@@ -495,7 +500,8 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
         makePR(4, category: "other", state: "MERGED"),
     ])
     let snapshot = await DashboardPullRequestsModel.derive([project])
-    #expect(Set(snapshot.others.compactMap(\.pr.number)) == [2, 3])
+    // #2 waits on the user's review, so it is To review's, not Others'.
+    #expect(snapshot.others.compactMap(\.pr.number) == [3])
     #expect(snapshot.counts[.all] == 1)
 }
 

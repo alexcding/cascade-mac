@@ -17,9 +17,9 @@ import Testing
         let github = Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp")
         #expect(ProjectSection.available(for: github) == [.settings])
         let jiraKey = Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
-        #expect(ProjectSection.available(for: jiraKey) == [.tickets, .board, .settings])
+        #expect(ProjectSection.available(for: jiraKey) == [.tickets, .settings])
         let jql = Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp", jql: "project = APP")
-        #expect(ProjectSection.available(for: jql) == [.tickets, .board, .settings])
+        #expect(ProjectSection.available(for: jql) == [.tickets, .settings])
         let both = Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
         #expect(ProjectSection.available(for: both) == ProjectSection.allCases)
     }
@@ -27,9 +27,7 @@ import Testing
     @Test func selectionNeverRestsOnAHiddenSection() throws {
         let page = try model(Project(id: "p", name: "P", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP"))
         #expect(page.section == .tickets)
-        page.setSection(.board)
-        #expect(page.section == .board)
-        // Removing Jira in Settings moves the selection off the now-hidden board.
+        // Removing Jira in Settings moves the selection off the now-hidden tickets.
         page.update(Project(id: "p", name: "P", repo: "o/r", color: nil, workspace: "/tmp"))
         #expect(page.availableSections == [.settings])
         #expect(page.section == .settings)

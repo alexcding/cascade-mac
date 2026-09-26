@@ -15,7 +15,7 @@ import Observation
     private(set) var mine: [DashboardRow] = []
     /// Pull requests in the user's review orbit, newest first.
     private(set) var reviews: [DashboardRow] = []
-    /// Everyone else's open pull requests, review orbit included, newest first.
+    /// Everyone else's open pull requests outside the review orbit, newest first.
     private(set) var others: [DashboardRow] = []
     /// Each Pull Requests tag's count over the rows `author` and `project` leave.
     private(set) var counts: [Filter: Int] = [:]
@@ -177,11 +177,19 @@ import Observation
 
     /// How many open pull requests `author` has in the chosen project, or in every project.
     func count(_ author: Author) -> Int {
-        (author == .mine ? mine : others).reduce(0) { $0 + (project == nil || $1.projectID == project ? 1 : 0) }
+        rows(author).reduce(0) { $0 + (project == nil || $1.projectID == project ? 1 : 0) }
+    }
+
+    private func rows(_ author: Author) -> [DashboardRow] {
+        switch author {
+        case .mine: mine
+        case .review: reviews
+        case .others: others
+        }
     }
 
     private func updateGroups() {
-        let rows = (author == .mine ? mine : others).filter { project == nil || $0.projectID == project }
+        let rows = self.rows(author).filter { project == nil || $0.projectID == project }
         let counts = Self.counts(rows)
         if self.counts != counts { self.counts = counts }
         let value = Self.group(rows, in: projects, by: filter)
@@ -218,7 +226,7 @@ extension DashboardPullRequestsModel {
         var snapshot = Snapshot()
         snapshot.mine = rows.filter(\.isMine).sorted { $0.sortDate > $1.sortDate }
         snapshot.reviews = rows.filter { !$0.isMine && $0.inReviewGroup }.sorted { $0.sortDate > $1.sortDate }
-        snapshot.others = rows.filter { !$0.isMine }.sorted { $0.sortDate > $1.sortDate }
+        snapshot.others = rows.filter { !$0.isMine && !$0.inReviewGroup }.sorted { $0.sortDate > $1.sortDate }
         snapshot.visibleRows = rows.filter { $0.isMine || $0.inReviewGroup }
         snapshot.counts = counts(snapshot.mine)
         var linked: [String: Int] = [:]
@@ -255,11 +263,18 @@ extension DashboardPullRequestsModel {
 // MARK: - Types
 
 extension DashboardPullRequestsModel {
-    /// Whose pull requests the Pull Requests tab lists.
+    /// Whose pull requests the Pull Requests tab lists: the user's own, the ones in their review
+    /// orbit, or everyone else's. Each open pull request is in exactly one.
     enum Author: String, CaseIterable, Identifiable, Sendable {
-        case mine, others
+        case mine, review, others
         var id: String { rawValue }
-        var title: String { self == .mine ? String(localized: "Mine") : String(localized: "Others") }
+        var title: String {
+            switch self {
+            case .mine: String(localized: "Mine")
+            case .review: String(localized: "To review")
+            case .others: String(localized: "Others")
+            }
+        }
     }
 
     /// The Pull Requests tab's tags, each a check state or review state.

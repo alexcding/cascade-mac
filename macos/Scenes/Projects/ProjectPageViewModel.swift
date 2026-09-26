@@ -8,7 +8,7 @@ import Observation
     enum Action: Equatable {
         case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
-        case jiraTicket(JiraTicketsViewModel.Action), boardTicket(WebBoardViewModel.Action)
+        case jiraTicket(JiraTicketsViewModel.Action)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
@@ -22,21 +22,17 @@ import Observation
                 }
             }
             tickets?.onAction = { [onAction] in onAction(.jiraTicket($0)) }
-            board?.onAction = { [onAction] in onAction(.boardTicket($0)) }
         }
     }
     private(set) var project: Project
     let editor: ProjectEditorViewModel
-    let board: WebBoardViewModel?
     let tickets: JiraTicketsViewModel?
     private(set) var section = ProjectSection.tickets {
-        didSet { if oldValue != section { cancelActions(); updateBoardPresentation() } }
+        didSet { if oldValue != section { cancelActions() } }
     }
-    var active = false { didSet { if oldValue != active { updateBoardPresentation() } } }
-    var appearance = AppAppearance.system { didSet { if oldValue != appearance { updateBoardPresentation() } } }
     private(set) var retired = false
-    init(project: Project, editor: ProjectEditorViewModel, board: WebBoardViewModel? = nil, tickets: JiraTicketsViewModel? = nil) {
-        self.project = project; self.editor = editor; self.board = board; self.tickets = tickets
+    init(project: Project, editor: ProjectEditorViewModel, tickets: JiraTicketsViewModel? = nil) {
+        self.project = project; self.editor = editor; self.tickets = tickets
         section = Self.resolve(section, for: project)
     }
     /// Sections the picker offers for this project (`ProjectSection.available`).
@@ -53,23 +49,17 @@ import Observation
         editor.connect(service)
     }
     func retire() {
-        active = false
         retired = true; onAction = { _ in }
         cancelActions(); editor.retire()
-        tickets?.retire(); board?.retire()
+        tickets?.retire()
     }
     func selectSection(_ section: ProjectSection) { onAction(.selectSection(section)) }
     func setSection(_ section: ProjectSection) {
         guard !retired else { return }
         self.section = Self.resolve(section, for: project)
     }
-    private func updateBoardPresentation() {
-        guard !retired else { return }
-        board?.appearance = appearance
-        board?.active = active && section == .board
-    }
     func cancelActions() {
-        tickets?.cancelActions(); board?.cancelActions()
+        tickets?.cancelActions()
     }
     func update(_ project: Project) {
         guard !retired else { return }

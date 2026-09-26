@@ -57,7 +57,7 @@ func projectTicketNavigationCancelsWithoutClearingDrafts(change: String) async t
     switch change {
     case "leave": root.navigate(to: .overview)
     case "dialog": root.presentNewProject(service: ProjectPageService(), didSave: { _ in })
-    case "section": model.selectSection(.board)
+    case "section": model.selectSection(.settings)
     case "disconnect": await tickets.stop()
     case "filter": tickets.setFilterText("Completed")
     case "site": await tickets.invalidateSite()
@@ -141,68 +141,4 @@ private struct BoardTicketActionService: BoardService {
     unconfigured.onAction = { emitted.append($0) }
     unconfigured.open(ticket); unconfigured.openSession(ticket)
     #expect(emitted.isEmpty && unconfigured.error == "Configure the Jira site before opening a ticket.")
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func webBoardCallbacksAreOwnedAndRejectSuspendedRetiredOrForeignLinks() async throws {
-    let actions = ProjectPageActions(), (model, _) = try await ticketProject(actions)
-    let board = try #require(model.board)
-    let child = ProjectCoordinator(model: model)
-    let link = BoardTicketLink(type: "openTicket", url: "https://jira.example.test/browse/REC-1", title: "REC-1 Board ticket", external: false)
-    board.request(link)
-    #expect(actions.opened.isEmpty)
-    model.active = true
-    board.show(appearance: .system)
-    board.request(link) // Still in PR section.
-    #expect(actions.opened.isEmpty)
-    model.selectSection(.board)
-    child.canPresent = { false }; board.request(link)
-    #expect(actions.opened.isEmpty)
-    child.canPresent = { true }
-    let gate = ProjectPageGate(); actions.gate = gate
-    board.request(link); board.request(link); await gate.waitForStart()
-    #expect(actions.opened.count == 1)
-    board.suspend(); await gate.finish(failing: true); await Task.yield()
-    #expect(actions.navigated.isEmpty && board.navigation.error == nil)
-    board.show(appearance: .system)
-    board.request(.init(type: "openTicket", url: "file:///tmp/secret", title: "Invalid", external: true))
-    #expect(actions.opened.count == 1, "A non-web address is refused, external or not")
-    board.request(link); await board.navigation.waitForOpen()
-    #expect(actions.opened.last?.title == link.title && actions.navigated == [link.url])
-    board.pause(); board.request(link)
-    #expect(actions.opened.count == 2)
-    child.retire(); board.connect(api: try APIClient(baseURL: URL(string: "http://127.0.0.1:2")!)); board.show(appearance: .system); board.request(link)
-    #expect(board.retired && !board.active && actions.opened.count == 2)
-    await model.tickets?.stop()
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func projectBoardStateFollowsRootAndSectionWithoutViewCallbacks() async throws {
-    let actions = ProjectPageActions(), (model, _) = try await ticketProject(actions)
-    let board = try #require(model.board), runtime = ProjectPageRuntime()
-    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    root.appearance = .dark
-    let child = root.installProject(model, runtime: runtime)
-    model.selectSection(.board)
-    #expect(!model.active && !board.active && board.appearance == .dark)
-    root.navigate(to: .project(model.project.id))
-    #expect(model.active && board.active)
-    root.navigate(to: .project(model.project.id)); model.selectSection(.board)
-    root.appearance = .light
-    #expect(board.active && board.appearance == .light)
-    let gate = ProjectPageGate(); actions.gate = gate
-    let link = BoardTicketLink(type: "openTicket", url: "https://jira.example.test/browse/REC-1", title: "REC-1", external: false)
-    board.request(link); await gate.waitForStart()
-    root.navigate(to: .overview)
-    #expect(!board.active && board.navigation.opening == nil)
-    await gate.finish(failing: true); await Task.yield()
-    #expect(actions.navigated.isEmpty && board.navigation.error == nil)
-    root.appearance = .dark
-    #expect(!board.active && board.appearance == .dark)
-    root.navigate(to: .project(model.project.id))
-    #expect(board.active)
-    model.selectSection(.tickets)
-    #expect(!board.active)
-    model.selectSection(.board)
-    child.retire(); model.active = true; model.appearance = .light
-    #expect(board.retired && !board.active)
-    await model.tickets?.stop()
 }

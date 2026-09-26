@@ -78,21 +78,20 @@ struct APIProjectService: ProjectService {
 }
 
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case tickets = "Tickets", board = "Sprint Board", settings = "Settings"
+    case tickets = "Tickets", settings = "Settings"
     var id: String { rawValue }
     var title: String {
         switch self {
         case .tickets: String(localized: "Tickets")
-        case .board: String(localized: "Sprint Board")
         case .settings: String(localized: "Settings")
         }
     }
 
-    /// The sections a project can show. Tickets and Sprint Board need Jira. Settings always applies. Automation is its own screen now.
+    /// The sections a project can show. Tickets need Jira. Settings always applies. Automation is its own screen now.
     static func available(for project: Project) -> [ProjectSection] {
         allCases.filter { section in
             switch section {
-            case .tickets, .board: project.hasJira
+            case .tickets: project.hasJira
             case .settings: true
             }
         }

@@ -29,6 +29,38 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     let prs: [DashboardPR]
     let lastSynced: String?
     let syncError: String?
+    var jiraProjectKey: String? = nil
+    var jql: String? = nil
+
+    /// A Jira project key or a saved JQL query, which is what a sprint board needs.
+    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
+    /// The Jira project keys this project's tickets carry: the key field, which may list several
+    /// comma-separated as page matching reads it, or else the projects its saved JQL names.
+    var jiraKeys: [String] {
+        let listed = Self.keys((jiraProjectKey ?? "").split(separator: ",").map(String.init))
+        return listed.isEmpty ? Self.keys(fromJQL: jql ?? "") : listed
+    }
+
+    /// Whether `key`, a Jira issue key such as `APP-12`, belongs to one of this project's Jira keys.
+    func owns(ticket key: String) -> Bool {
+        guard let prefix = key.split(separator: "-").first?.uppercased() else { return false }
+        return jiraKeys.contains(prefix)
+    }
+
+    /// `project = OPS`, `project in (OPS, "WEB")`: the keys a JQL query's project clauses name.
+    static func keys(fromJQL jql: String) -> [String] {
+        let pattern = #"(?i)\bproject\s*(?:=|\bin\b)\s*(\([^)]*\)|"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9_]*)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let source = jql as NSString
+        return keys(expression.matches(in: jql, range: NSRange(location: 0, length: source.length)).flatMap { match in
+            source.substring(with: match.range(at: 1)).trimmingCharacters(in: CharacterSet(charactersIn: "()")).split(separator: ",").map(String.init)
+        })
+    }
+
+    private static func keys(_ values: [String]) -> [String] {
+        values.map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))).uppercased() }
+            .filter { !$0.isEmpty }
+    }
 }
 
 /// How long ago, in one cell's worth of text: 12m, 4h, 3d. Empty when the date is unknown,
@@ -279,7 +311,12 @@ protocol DashboardTicketService: Sendable {
     func myTickets() async throws -> [DashboardTicketRow]
 }
 
-struct APIDashboardService: DashboardService, DashboardTicketService {
+/// A dashboard service that can also serve sprint boards.
+protocol DashboardBoardSource: Sendable {
+    var boardService: any BoardService { get }
+}
+
+struct APIDashboardService: DashboardService, DashboardTicketService, DashboardBoardSource {
     static let myTicketsJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     let api: APIClient
     func snapshot() async throws -> [DashboardProject] { try await api.get(Routes.DASHBOARD) }
@@ -293,6 +330,7 @@ struct APIDashboardService: DashboardService, DashboardTicketService {
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
     }
+    var boardService: any BoardService { APIBoardService(api: api) }
 }
 
 enum DashboardTicketError: LocalizedError {

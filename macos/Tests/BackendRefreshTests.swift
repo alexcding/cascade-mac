@@ -31,7 +31,9 @@ private actor RefreshTransport: BackendTransport {
             body = includesTab ? #"{"tabs":[{"id":"t","kind":"web","title":"New tab","url":"https://example.test"}]}"# : #"{"tabs":[]}"#
         case Routes.TASKS:
             body = includesSession ? #"[{"id":"s","projectId":"p","workspace":"/fixture","worktree":"/fixture/work","title":"Session","branch":"feature","url":"","pinned":true}]"# : "[]"
-        case Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
+        case Routes.DASHBOARD:
+            body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","jiraProjectKey":"REC","prs":[],"lastSynced":null,"syncError":null}]"# : "[]"
+        case Routes.PRS_TRAY: body = "[]"
         case Routes.projectJira("p"), Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
         default: body = "{}"
@@ -199,8 +201,11 @@ private actor RefreshTransport: BackendTransport {
     try await refreshEventually { await transport.paths.count >= 1 }
     #expect(await transport.paths == [Routes.projectJira("p")])
 
-    project.setSection(.board)
-    try await refreshEventually { project.board?.snapshot != nil && project.board?.loading == false }
+    // The sprint board lives on the Dashboard's My Tickets now, and follows only its own project.
+    let dashboard = try #require(model.dashboard)
+    model.select(.overview); dashboard.showTickets(); dashboard.setTicketsMode(.board)
+    let board = try #require(dashboard.board.board)
+    try await refreshEventually { board.snapshot != nil && !board.loading }
     await transport.reset()
     runtime.emit("jira-sync", id: "p"); runtime.emit("jira-sync", id: "board:q")
     try await Task.sleep(for: .milliseconds(250))

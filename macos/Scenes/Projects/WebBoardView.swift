@@ -1,29 +1,12 @@
 import AppKit
 import SwiftUI
 
+/// A sprint board's columns and cards. Its filters live with its host, My Tickets' Board.
 struct WebBoardView: View {
     let model: WebBoardViewModel
-    @FocusState private var queryFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                if let title = model.sprintTitle { Text(title).font(.headline) }
-                Spacer()
-                TextField("Filter, e.g. component = iOS", text: Bindable(model).queryDraft)
-                    .textFieldStyle(.roundedBorder).frame(minWidth: 170, maxWidth: 260)
-                    .focused($queryFocused)
-                    .onSubmit { model.applyQuery() }
-                    .help("A JQL clause ANDed into the board and the tickets (blank = everything). Return applies.")
-                    .onChange(of: queryFocused) { _, focused in model.queryEditing = focused }
-                Picker("Assignee", selection: Binding(get: { model.assigneeFilter }, set: model.setAssigneeFilter)) {
-                    Text("All assignees").tag("")
-                    if model.showsUnassignedFilter { Text("Unassigned").tag(WebBoardViewModel.unassigned) }
-                    ForEach(model.assignees, id: \.id) { Text($0.name).tag($0.id) }
-                }.frame(width: 190)
-                if model.loading { ProgressView().controlSize(.small) }
-                Button("Refresh Board", systemImage: "arrow.clockwise") { model.reload() }.labelStyle(.iconOnly)
-            }
             if let error = model.navigation.error { Text(error).foregroundStyle(Theme.warn).textSelection(.enabled) }
             if let error = model.error, model.emptyMessage != error { Text(error).foregroundStyle(Theme.warn).textSelection(.enabled) }
             if let notice = model.notice { Text(notice).font(.callout).foregroundStyle(Theme.textSecondary).transition(.opacity) }
@@ -31,10 +14,10 @@ struct WebBoardView: View {
                 if model.loading {
                     ProgressView(String(localized: "Loading…")).controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ContentUnavailableView("No Active Sprint", systemImage: "rectangle.3.group")
+                    ContentUnavailableView("No Active Sprint", systemImage: "rectangle.3.group").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else if let message = model.emptyMessage {
-                ContentUnavailableView(message, systemImage: "rectangle.3.group")
+                ContentUnavailableView(message, systemImage: "rectangle.3.group").frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 12) {
