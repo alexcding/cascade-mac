@@ -19,6 +19,8 @@ import Observation
 
     static let storageKey = "dashboard.board.project"
     @ObservationIgnored private var service: (any BoardService)?
+    /// A project asked for before the dashboard's projects loaded, chosen once they do.
+    @ObservationIgnored private var requested: String?
     @ObservationIgnored private let pageActions: any PageActionServing
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -41,13 +43,16 @@ import Observation
         guard !retired else { return }
         let projects = all.filter(\.hasJira)
         if self.projects != projects { self.projects = projects }
+        let asked = requested.flatMap { id in projects.first { $0.id == id } }
+        if asked != nil { requested = nil }
         let current = project.flatMap { current in projects.first { $0.id == current.id } }
-        let chosen = current ?? remembered ?? projects.first
+        let chosen = asked ?? current ?? remembered ?? projects.first
         if chosen?.id != project?.id { project = chosen; rebuild() } else if chosen != project { project = chosen }
     }
 
     func select(_ id: String) {
-        guard !retired, id != project?.id, let chosen = projects.first(where: { $0.id == id }) else { return }
+        guard !retired, id != project?.id else { return }
+        guard let chosen = projects.first(where: { $0.id == id }) else { requested = id; return }
         project = chosen
         defaults.set(id, forKey: Self.storageKey)
         rebuild()

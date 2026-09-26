@@ -203,6 +203,14 @@ extension DashboardViewModel {
         updateBoardPresentation()
     }
 
+    /// My Tickets as the sprint board of `projectID`, as a board link opens it.
+    func showBoard(projectID: String) {
+        guard !retired else { return }
+        showTickets()
+        setTicketsMode(.board)
+        board.select(projectID)
+    }
+
     /// Projects My Tickets can narrow to: the list matches tickets by Jira key, the board by project.
     var ticketProjects: [DashboardProject] {
         ticketsMode == .board ? board.projects : prs.projects.filter { !$0.jiraKeys.isEmpty }

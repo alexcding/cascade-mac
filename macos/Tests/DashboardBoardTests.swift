@@ -159,3 +159,25 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     #expect(DashboardProject.keys(fromJQL: "assignee = currentUser()").isEmpty)
     #expect(jiraProject("x", key: "App, ops", jql: "project = IGNORED").jiraKeys == ["APP", "OPS"])
 }
+
+@MainActor @Test(.timeLimit(.minutes(1))) func boardLinkOpensTheDashboardBoardOnItsProjectEvenBeforeProjectsLoad() async throws {
+    let root = makeRoot(), actions = ProjectPageActions()
+    let model = DashboardViewModel(pageActions: actions, defaults: freshDefaults())
+    root.installDashboard(model)
+    // The link lands before the snapshot: the board takes the project once it arrives.
+    root.navigate(to: .dashboardBoard(projectID: "ops"))
+    #expect(root.selection == .overview && model.ticketsShown && model.ticketsMode == .board)
+    model.connect(BoardDashboardFixture(projects: [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")]))
+    while model.prs.loading || model.prs.projects.isEmpty { await Task.yield() }
+    #expect(model.board.project?.id == "ops" && model.board.board?.active == true)
+    // Once loaded, a link switches straight to its project.
+    root.navigate(to: .dashboardBoard(projectID: "web"))
+    #expect(model.board.project?.id == "web")
+}
+
+@MainActor @Test func boardURLsAreAcceptedAsWholeLinks() throws {
+    let link = try #require(CascadeRouter().deepLink(for: URL(string: "cascade://app/projects/ops/board")!))
+    #expect(link.destination == .overview && link.droppingFirst().first == .dashboardBoard(projectID: "ops"))
+    // Only the Dashboard carries a board; the pair is not valid under any other screen.
+    #expect(DeepLink([.destination(.terminal), .dashboardBoard(projectID: "ops")]).destination == nil)
+}

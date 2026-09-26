@@ -15,9 +15,13 @@ import Testing
     #expect(chain.droppingFirst() == DeepLink(.projectSection(.tickets)))
     #expect(chain.droppingFirst().droppingFirst().routes.isEmpty)
     // Sections the project page dropped still open the project.
-    for retired in ["prs", "workflows", "board"] {
+    for retired in ["prs", "workflows"] {
         #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/\(retired)")!) == DeepLink(.destination(.project("p-123"))))
     }
+    // The project's board moved to the Dashboard's My Tickets, and its link follows it there.
+    let board = DeepLink([.destination(.overview), .dashboardBoard(projectID: "p-123")])
+    #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/board")!) == board)
+    #expect(router.url(for: board)?.absoluteString == "cascade://app/projects/p-123/board")
     #expect(router.url(for: DeepLink(.destination(.tab("https://example.test")))) == nil)
     #expect(router.url(for: DeepLink([.destination(.terminal), .projectSection(.tickets)])) == nil)
     #expect(router.url(for: DeepLink(.destination(.session("../s")))) == nil)
@@ -180,6 +184,15 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == nil && runtime.terminals == 0)
     #expect(coordinator.projectCoordinator == nil)
+    // A project's board link opens the Dashboard's board, and only for a project that still exists.
+    let dashboard = DashboardViewModel(pageActions: ProjectPageActions(), defaults: UserDefaults(suiteName: "deeplink-board-\(UUID().uuidString)")!)
+    coordinator.installDashboard(dashboard)
+    coordinator.handle(url: URL(string: "cascade://app/projects/p/board")!)
+    #expect(coordinator.selection == .overview && coordinator.routingError == nil)
+    #expect(dashboard.ticketsShown && dashboard.ticketsMode == .board)
+    coordinator.navigate(to: SidebarDestination.terminal)
+    coordinator.handle(url: URL(string: "cascade://app/projects/gone/board")!)
+    #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked project is no longer available.")
 }
 
 @MainActor @Test func deepLinkCoordinatorKeepsLatestValidIntentAndRevalidatesAfterReconnect() throws {

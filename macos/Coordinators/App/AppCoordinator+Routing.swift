@@ -38,9 +38,15 @@ extension AppCoordinator {
             return
         default: break
         }
+        if case .dashboardBoard(let id) = link.droppingFirst().first,
+           !state.projects.contains(where: { $0.id == id }) {
+            routingError = String(localized: "The linked project is no longer available.")
+            return
+        }
         navigate(to: destination)
         let remainder = link.droppingFirst()
         guard !remainder.routes.isEmpty else { return }
+        if case .dashboardBoard = remainder.first, let route = remainder.first { navigate(to: route); return }
         guard case .project(let id) = destination, let model = runtime.rootState().projectModels[id] else {
             routingError = String(localized: "The linked project section is not available yet.")
             return

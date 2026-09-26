@@ -630,22 +630,20 @@ final class CascadeUITests: XCTestCase {
             try await Task.sleep(for: .milliseconds(50))
         }
         XCTAssertTrue(held)
-        app.radioButtons["Sprint Board"].click()
-        XCTAssertTrue(app.webViews.staticTexts["Native board integration"].waitForExistence(timeout: 10))
+        // Leaving the section cancels the held open; the board is the Dashboard's now, not a section.
+        app.radioButtons["Settings"].click()
         try await post("/fixture/release-project-open")
         XCTAssertFalse(app.webViews.staticTexts["Native ticket fixture"].exists)
         app.radioButtons["Tickets"].click()
         XCTAssertEqual(query.value as? String, "Keep ticket query")
-        app.radioButtons["Sprint Board"].click()
-        XCTAssertTrue(app.webViews.links["REC-1"].waitForExistence(timeout: 10))
-        app.webViews.links["REC-1"].click()
+        ticket.click()
         XCTAssertTrue(app.webViews.staticTexts["Native ticket fixture"].waitForExistence(timeout: 10))
         let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/project-opens")!)
         XCTAssertEqual((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["opens"] as? Int, 2)
     }
 
     @MainActor
-    func testWebSprintBoardMovesAssignsAndOpensNativeTicketContext() throws {
+    func testDashboardSprintBoardMovesAssignsAndOpensNativeTicketContext() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
               let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
@@ -654,26 +652,32 @@ final class CascadeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
-        let project = app.outlines["workspace-sidebar"].staticTexts["Native integration fixture"]
-        XCTAssertTrue(project.waitForExistence(timeout: 10))
-        project.click()
-        app.radioButtons["Sprint Board"].click()
-        XCTAssertTrue(app.webViews.staticTexts["Native board integration"].waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.webViews.staticTexts["Fixture sprint"].exists)
-        app.webViews.buttons["Move REC-1"].click()
-        app.webViews.buttons["Blocked"].click()
-        XCTAssertTrue(app.webViews.staticTexts["Fixture transition rejected"].waitForExistence(timeout: 5))
-        app.webViews.buttons["Move REC-1"].click()
-        app.webViews.buttons["Done"].click()
-        XCTAssertTrue(app.webViews.staticTexts["REC-1 → Done"].waitForExistence(timeout: 5))
-        app.webViews.buttons["Assign"].firstMatch.click()
-        app.webViews.buttons["Alice"].click()
-        XCTAssertTrue(app.webViews.staticTexts["REC-1 → Alice"].waitForExistence(timeout: 5))
-        app.webViews.links["REC-1"].click()
+        let dashboard = app.outlines["workspace-sidebar"].staticTexts["Dashboard"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 10))
+        dashboard.click()
+        app.radioButtons["Tickets"].click()
+        app.descendants(matching: .any)["dashboard-tickets-mode-board"].firstMatch.click()
+        // The fixture's one Jira project is the board's only choice; its sprint heads the page.
+        XCTAssertTrue(app.staticTexts["Sprint board"].waitForExistence(timeout: 10), app.debugDescription)
+        let sprint = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Fixture sprint")).firstMatch
+        XCTAssertTrue(sprint.waitForExistence(timeout: 10))
+        let card = app.buttons["REC-1"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        card.rightClick()
+        app.menuItems["Move To"].click()
+        app.menuItems["Blocked"].click()
+        let rejected = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Fixture transition rejected")).firstMatch
+        XCTAssertTrue(rejected.waitForExistence(timeout: 5))
+        card.rightClick()
+        app.menuItems["Move To"].click()
+        app.menuItems["Done"].click()
+        XCTAssertTrue(app.staticTexts["REC-1 → Done"].waitForExistence(timeout: 5))
+        app.buttons["Assign"].firstMatch.click()
+        app.menuItems["Alice"].click()
+        XCTAssertTrue(app.buttons["Assignee Alice"].waitForExistence(timeout: 10))
+        card.click()
         XCTAssertTrue(app.webViews.staticTexts["Native ticket fixture"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["Create Session"].exists)
-        project.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native board integration"].waitForExistence(timeout: 10))
     }
 
     @MainActor

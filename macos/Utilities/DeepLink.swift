@@ -11,9 +11,11 @@ struct DeepLink: Equatable {
     var destination: SidebarDestination? {
         guard case .destination(let destination) = first else { return nil }
         if routes.count == 1 { return destination }
-        guard routes.count == 2, case .project = destination,
-              case .projectSection = routes[1] else { return nil }
-        return destination
+        guard routes.count == 2 else { return nil }
+        switch (destination, routes[1]) {
+        case (.project, .projectSection), (.overview, .dashboardBoard): return destination
+        default: return nil
+        }
     }
 }
 
@@ -80,15 +82,20 @@ struct ProjectRouteHandler: DeepLinkRouteHandling {
     private let sections: [String: ProjectSection] = ["tickets": .tickets,
                                                      "settings": .settings]
     /// Sections the project page no longer has; their links still open the project.
-    private let retiredSections: Set<String> = ["prs", "workflows", "board"]
+    private let retiredSections: Set<String> = ["prs", "workflows"]
     func parse(_ components: [String]) -> DeepLink? {
         guard (2...3).contains(components.count), components[0] == "projects" else { return nil }
         let root = Route.destination(.project(components[1]))
         if components.count == 2 || retiredSections.contains(components[2]) { return DeepLink(root) }
+        // The project's board moved to the Dashboard's My Tickets; its link follows it there.
+        if components[2] == "board" { return DeepLink([.destination(.overview), .dashboardBoard(projectID: components[1])]) }
         guard let section = sections[components[2]] else { return nil }
         return DeepLink([root, .projectSection(section)])
     }
     func print(_ deepLink: DeepLink) -> [String]? {
+        if deepLink.routes.count == 2, deepLink.destination == .overview, case .dashboardBoard(let id) = deepLink.routes[1] {
+            return ["projects", id, "board"]
+        }
         guard case .project(let id) = deepLink.destination else { return nil }
         if deepLink.routes.count == 1 { return ["projects", id] }
         guard case .projectSection(let section) = deepLink.routes[1],
