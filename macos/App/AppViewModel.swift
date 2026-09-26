@@ -297,7 +297,7 @@ public final class AppViewModel {
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, tabs: shownTabs, status: status,
             workflowProgress: workflowRuns.filter { $0.value.running }.mapValues { "\($0.step)/\($0.total)" },
-            tabIcons: tabIcons, order: sidebarOrder)
+            tabIcons: tabIcons, order: sidebarOrder, canCreateProject: canPerform(.newProject))
     }
     var activeTerminalKey: String? {
         switch selection {

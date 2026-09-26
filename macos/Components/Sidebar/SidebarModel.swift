@@ -149,10 +149,20 @@ struct SidebarPinnedTab: Equatable, Identifiable {
 }
 
 struct SidebarEntry: Equatable {
-    var isHeading: Bool { role == .label || role == .tabsHeader }
+    var isHeading: Bool {
+        switch role { case .label, .tabsHeader, .projectsHeader: true; default: false }
+    }
+    /// A row with a destination, or a heading whose "+" shows on hover.
+    var hoverable: Bool {
+        switch role {
+        case .tabsHeader, .projectsHeader(canCreate: true): true
+        default: destination != nil
+        }
+    }
     enum Role: Equatable {
         case nav                                  // Dashboard
-        case label                                // "Pinned" / "Projects" heading
+        case label                                // "Pinned" heading
+        case projectsHeader(canCreate: Bool)      // "Projects" heading with a hover "+" for a new project
         case tabsHeader                           // "Tabs" heading with a hover "+" for a new tab
         case project(canCreateSession: Bool)
         case session(SidebarSessionStatus, pinned: Bool)
@@ -186,7 +196,8 @@ struct SidebarEntry: Equatable {
     /// are flat rows, not collapsible groups — only a project folder collapses.
     static func make(projects: [Project], sessions: [WorkspaceSession], tabs: [SavedTab],
                      status: [String: SidebarSessionStatus] = [:], workflowProgress: [String: String] = [:],
-                     tabIcons: [String: SidebarTabIcon] = [:], order: SidebarOrder = .init()) -> [Self] {
+                     tabIcons: [String: SidebarTabIcon] = [:], order: SidebarOrder = .init(),
+                     canCreateProject: Bool = false) -> [Self] {
         let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
         let projects = displayOrder(projects, dragged: order.projects)
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
@@ -221,7 +232,8 @@ struct SidebarEntry: Equatable {
             result.append(label("label:pinned", String(localized: "Pinned")))
             result += pinned.map { row($0, pinned: true) }
         }
-        result.append(label("label:projects", String(localized: "Projects")))
+        result.append(Self(id: "label:projects", title: String(localized: "Projects"), symbol: "",
+                           role: .projectsHeader(canCreate: canCreateProject)))
         result += projects.map { project in
             .init(id: "project:\(project.id)", title: project.name, symbol: "folder", detail: project.workspace,
                   destination: .project(project.id), children: ordered.filter { $0.projectId == project.id }.map { row($0) },

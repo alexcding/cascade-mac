@@ -75,8 +75,8 @@ import SwiftUI
                 (index > 0 && item.glass && items[index - 1].glass ? [.space] : []) + [NSToolbarItem.Identifier(item.id)]
             }
         }
-        // The sidebar's section holds its toggle alone, the same over every screen.
-        var identifiers: [NSToolbarItem.Identifier] = [.toggleSidebar, .sidebarTrackingSeparator]
+        // The sidebar's section holds its toggle alone, against the divider, the same over every screen.
+        var identifiers: [NSToolbarItem.Identifier] = [.flexibleSpace, .toggleSidebar, .sidebarTrackingSeparator]
         identifiers += run(toolbar.leading)
         if !toolbar.leading.contains(where: \.fills) { identifiers.append(.flexibleSpace) }
         if !toolbar.center.isEmpty { identifiers += run(toolbar.center) + [.flexibleSpace] }

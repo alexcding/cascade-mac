@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-// The chrome around the outline: a footer of round glass buttons — New Project on the left, the
-// activity bell and Settings (gear only) on the right. The outline itself starts at the top of the column.
+// The chrome around the outline: a footer of round glass buttons — the activity bell on the left,
+// Settings (gear only) on the right. New Project is the "Projects" heading's hover "+"
+// (`SidebarEntry.Role.projectsHeader`). The outline itself starts at the top of the column.
 struct SidebarView: View {
     let viewModel: RootViewModel
     @State private var showingActivity = false
@@ -12,16 +13,13 @@ struct SidebarView: View {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
                          pinnedIDs: viewModel.pinnedIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
-                         onNewSession: viewModel.newSession(in:), onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onMoveTab: viewModel.moveTab,
+                         onNewSession: viewModel.newSession(in:), onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onNewProject: viewModel.newProject, onMoveTab: viewModel.moveTab,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onTogglePinTab: viewModel.togglePinTab, onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)
 
             HStack(spacing: 6) {
-                SidebarAppButton(icon: "plus", label: String(localized: "New Project"), help: String(localized: "New Project")) { viewModel.newProject() }
-                    .disabled(!viewModel.canCreateProject)
-                Spacer()
                 SidebarAppButton(icon: "bell", label: String(localized: "Today's activity"), help: String(localized: "Today's activity")) { showingActivity.toggle() }
                     .popover(isPresented: $showingActivity, arrowEdge: .top) {
                         if let today = viewModel.todayActivity {
@@ -32,6 +30,7 @@ struct SidebarView: View {
                         }
                     }
                     .onChange(of: showingActivity) { _, open in viewModel.todayActivity?.setVisible(open) }
+                Spacer()
                 SidebarAppButton(icon: "gearshape", label: String(localized: "Settings"), help: String(localized: "Settings")) { viewModel.openSettings() }
             }
             .glassIconButtons()

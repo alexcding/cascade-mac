@@ -203,6 +203,45 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     window.close()
 }
 
+/// A section heading is set in the sidebar's own heading font, not the source list's group font:
+/// the list styles a cell's `textField` as it displays a group row, so a heading keeps none.
+@MainActor @Test func sectionHeadingKeepsTheSidebarsHeadingFont() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-heading-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], tabs: []),
+                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.headerView = nil
+    outline.style = .sourceList
+    outline.rowSizeStyle = .medium
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    scroll.documentView = outline
+    let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = scroll
+    coordinator.update(value)
+    outline.expandItem(nil, expandChildren: true)
+    window.layoutIfNeeded(); outline.displayIfNeeded()
+    let expected = SidebarMetrics.headingFont
+    var headings = 0
+    for row in 0..<outline.numberOfRows {
+        guard let node = outline.item(atRow: row) as? CocoaSidebar.Node, node.entry.isHeading,
+              let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCellView else { continue }
+        let title = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == node.entry.title })
+        #expect(title.font == expected, "\(node.entry.title) is set in \(String(describing: title.font))")
+        headings += 1
+    }
+    #expect(headings >= 2)
+    window.close()
+}
+
 @MainActor @Test func sessionReorderStaysInsideItsProjectAndTheDraggedOrderIsTheApps() throws {
     let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("x", created: "2026-02", project: "p2"),
                     workspaceSession("b", created: "2026-03"), workspaceSession("c", created: "2026-04")]
