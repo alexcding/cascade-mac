@@ -3,14 +3,14 @@ import SwiftUI
 
 /// SwiftUI owns the menu bar; standard editing items retain the responder chain.
 struct CascadeCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
     let model: AppViewModel
     let perform: (ShellCommand) -> Void
+    let showHelp: () -> Void
     let canCheckForUpdates: Bool
 
     var body: some Commands {
         CommandGroup(replacing: .help) {
-            Button("Cascade Help") { openWindow(id: "help") }
+            Button("Cascade Help", action: showHelp)
                 .keyboardShortcut("?", modifiers: .command)
             Button("Detailed User Guide (English)") { NSApp.showHelp(nil) }
         }

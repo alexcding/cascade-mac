@@ -159,11 +159,22 @@ extension WorkspaceServing {
     /// The Simulator panel's model, owned by the session's build.
     var simulatorPreview: SimulatorPreviewModel? { build?.preview }
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
-    /// A page-only context (a sidebar tab) draws its compact tab bar in the title-bar zone: the
-    /// window toolbar loses its background, icon and title, and the bar takes the toolbar's row.
-    /// Only a sidebar tab: a session's workspace lives in the deck below the toolbar
-    /// (`SessionWorkspaceDeck`), even while it has no session record to show a terminal for.
-    var fillsTitleBar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
+    /// A page-only context (a sidebar tab) browsing the web has no title: its compact tab bar is the
+    /// screen's whole section of the toolbar, as Safari's is (`SessionWorkspaceToolbar`). Only a
+    /// sidebar tab: a session's workspace keeps its title, even while it has no session record to
+    /// show a terminal for.
+    var barFillsToolbar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
+    /// Beside a terminal the context pane is the window's inspector column, with its own section of
+    /// the toolbar tracking the divider (`MainSplitViewController`).
+    var showsInspector: Bool { showsTerminal && showsPage }
+    /// Keyboard highlight in the address suggestions; nil means Enter submits the typed text. Here
+    /// rather than in the bar: in the toolbar the bar and its list are drawn apart.
+    var addressHighlight: Int?
+    /// Keyboard highlight in the file search results; nil means Enter opens the best match.
+    var fileSearchHighlight: Int?
+    /// Whether the Files bar's field has the keyboard, so its results can be drawn apart from it.
+    private(set) var searchingFiles = false
+    func setSearchingFiles(_ value: Bool) { if searchingFiles != value { searchingFiles = value } }
     var showsFiles: Bool { showsPage && !showsChanges && mode == .files }
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }

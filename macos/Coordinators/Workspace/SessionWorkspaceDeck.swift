@@ -3,15 +3,28 @@ import SwiftUI
 
 /// Every open session workspace, each in its own hosting controller, with only the selected one
 /// shown. One that is not selected is hidden rather than taken down: switching sessions flips
-/// visibility instead of rebuilding the terminal, the split and the pane beside it, and terminals
+/// visibility instead of rebuilding the terminal or the pane beside it, and terminals
 /// and web views never leave the window, which would blank them until they drew again. A workspace
 /// is built the first time it is shown and released when its coordinator goes.
+///
+/// The window keeps two decks of the same workspaces: the screen's column holds each workspace, and
+/// the inspector column each one's context pane (`MainSplitViewController`), so a switch rebuilds
+/// neither.
 struct SessionWorkspaceDeck: NSViewControllerRepresentable {
+    /// What of a workspace a deck's pages show.
+    enum Part {
+        /// The workspace: its terminal, or its page when it has none.
+        case workspace
+        /// The context pane beside its terminal.
+        case pane
+    }
+
     let workspaces: [SessionWorkspaceCoordinator]
     let shown: SessionWorkspaceCoordinator?
+    var part: Part = .workspace
 
     /// A hosting controller starts a new SwiftUI hierarchy, which would otherwise begin with a
-    /// blank environment. Each page carries the surrounding one across, as `NativeSplitView` does.
+    /// blank environment. Each page carries the surrounding one across.
     @Environment(\.self) private var environment
     /// `\.self` only re-runs the update for the keys read here, and handing the environment on reads
     /// none, so a system light/dark switch would never reach the pages. Depend on it by name.
@@ -20,7 +33,21 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
     struct Page: View {
         let environment: EnvironmentValues
         let coordinator: SessionWorkspaceCoordinator
-        var body: some View { coordinator.root.view().environment(\.self, environment) }
+        let part: Part
+
+        var body: some View {
+            Group {
+                switch part {
+                case .workspace:
+                    coordinator.root.view()
+                case .pane:
+                    if coordinator.model.showsTerminal {
+                        SessionWorkspacePane(context: coordinator.context, model: coordinator.model)
+                    }
+                }
+            }
+            .environment(\.self, environment)
+        }
     }
 
     /// Sizes only the page on screen. A hidden one keeps its last size until it is shown again:
@@ -35,6 +62,13 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
         private var pages: [ObjectIdentifier: NSHostingController<Page>] = [:]
         private var shownID: ObjectIdentifier?
         private let container = Container()
+        private let part: Part
+
+        init(part: Part = .workspace) {
+            self.part = part
+            super.init(nibName: nil, bundle: nil)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
         /// The page on screen, for tests.
         var shownPage: NSView? { shownID.flatMap { pages[$0]?.view } }
@@ -51,7 +85,7 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
             let nextID = shown.map(ObjectIdentifier.init).flatMap { live.contains($0) ? $0 : nil }
             if let shown, let nextID {
                 // Only the page on screen follows the environment; a hidden one catches up when shown.
-                if let page = pages[nextID] { page.rootView = Page(environment: environment, coordinator: shown) }
+                if let page = pages[nextID] { page.rootView = Page(environment: environment, coordinator: shown, part: part) }
                 else { add(shown, id: nextID, environment: environment) }
             }
             guard nextID != shownID else { return }
@@ -67,7 +101,7 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
 
         /// Added hidden; `update` sizes and shows it in the same pass.
         private func add(_ coordinator: SessionWorkspaceCoordinator, id: ObjectIdentifier, environment: EnvironmentValues) {
-            let page = NSHostingController(rootView: Page(environment: environment, coordinator: coordinator))
+            let page = NSHostingController(rootView: Page(environment: environment, coordinator: coordinator, part: part))
             page.sizingOptions = []
             // The deck already sits inside the detail column's safe area.
             page.safeAreaRegions = []
@@ -95,7 +129,7 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
         }
     }
 
-    func makeNSViewController(context: Context) -> Controller { Controller() }
+    func makeNSViewController(context: Context) -> Controller { Controller(part: part) }
 
     func updateNSViewController(_ controller: Controller, context: Context) {
         controller.update(workspaces: workspaces, shown: shown, environment: environment)

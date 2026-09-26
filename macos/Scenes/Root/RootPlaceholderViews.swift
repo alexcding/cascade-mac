@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Placeholder screens for sidebar selections whose workspace is not active yet. They read
 /// live state from the root model so pins and titles stay current, and own their own
-/// insets and title like every other detail destination.
+/// insets like every other screen; their title is in the toolbar (`Destination.windowToolbar`).
 
 struct RootTerminalPlaceholderView: View {
     let model: RootViewModel
@@ -15,7 +15,6 @@ struct RootTerminalPlaceholderView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .toolbar { PageTitleToolbarItem(title: model.title) }
     }
 }
 
@@ -37,12 +36,10 @@ struct RootSessionPlaceholderView: View {
             }.textSelection(.enabled)
             .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .toolbar { PageTitleToolbarItem(title: model.title) }
         } else {
             Text("Session is not available.").foregroundStyle(.secondary)
                 .padding(28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .toolbar { PageTitleToolbarItem(title: model.title) }
         }
     }
 }
@@ -61,6 +58,5 @@ struct RootTabPlaceholderView: View {
         }
         .padding(28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .toolbar { PageTitleToolbarItem(title: model.title) }
     }
 }

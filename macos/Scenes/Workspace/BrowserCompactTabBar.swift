@@ -4,29 +4,35 @@ import SwiftUI
 /// raised glass capsule that doubles as the address bar. Its close button is at the leading edge,
 /// the site icon and host are centred, reload is trailing; clicking the host edits the address.
 /// There is no second row for the browser: back/forward lead the pill, New Tab and Recently
-/// Closed trail it.
+/// Closed trail it. In its own row the bar hangs its suggestions under itself; in the toolbar the
+/// page beneath draws them (`BrowserAddressSuggestionList`), from the editing state and highlight
+/// the bar keeps on the models.
 struct BrowserCompactTabBar: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
+    var placement: CompactTabBarPlacement = .row
     @FocusState private var editingAddress: Bool
-    /// Keyboard highlight in the suggestion list; nil means Enter submits the typed text.
-    @State private var highlighted: Int?
-    private var searchSuggestions = SearchSuggestionStore.shared
+
+    private var highlighted: Int? {
+        get { model.addressHighlight }
+        nonmutating set { model.addressHighlight = newValue }
+    }
 
     private var pages: [BrowserPage] { context.pageTabs.compactMap { if case .page(let page) = $0 { page } else { nil } } }
     private var active: BrowserPage? { context.activePage }
     private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
+    private var suggestions: [AddressSuggestion] { BrowserAddressSuggestions(context: context).items }
 
     var body: some View {
         CompactTabBar(newTabTitle: String(localized: "New Tab"), newTabHelp: String(localized: "Open a new web tab"), newTab: model.newTab,
-                      showsNewTab: model.offersNewTab) {
+                      showsNewTab: model.offersNewTab, placement: placement) {
             NavigationCluster(controls: active?.controls)
         } pill: { available in
             tabPill(available)
         } trailing: {
             // Create Session takes the end of the row, where New Tab sits in a panel that has one.
             // A sidebar tab offers the session and no New Tab; a session's panel, the other way round.
-            if model.offersPageSession, model.fillsTitleBar {
+            if model.offersPageSession, model.barFillsToolbar {
                 CreateSessionButton(model: model)
                     .disabled(!model.canCreateSession)
                     .help(String(localized: "Start an agent session for this page in its project"))
@@ -34,20 +40,12 @@ struct BrowserCompactTabBar: View {
                     .barGlass(iconOnly: false)
             }
         } suggestions: {
-            if let controls = active?.controls, editingAddress, !suggestions.isEmpty {
-                CompactSuggestionList(items: suggestions, highlighted: highlighted, accessibilityLabel: String(localized: "Address suggestions"),
-                                      heading: \.heading, title: \.title,
-                                      detail: { $0.isSearch || $0.detail == $0.title ? "" : $0.detail },
-                                      pick: { pick($0, controls) }) { item in
-                    if item.isSearch { CompactSuggestionSymbol(systemImage: "magnifyingglass") }
-                    else { FaviconImage(url: item.url, size: 28, fallbackSize: 15) }
-                }
-            }
+            BrowserAddressSuggestionList(context: context, model: model)
         }
         .onChange(of: suggestions.map(\.id)) { _, _ in highlighted = nil }
         // Fetching is driven from here, once per keystroke, never from the body.
         .onChange(of: active?.controls.address) { _, text in
-            if editingAddress, let text, webAddress(text) == nil { searchSuggestions.prefetch(text) }
+            if editingAddress, let text, webAddress(text) == nil { SearchSuggestionStore.shared.prefetch(text) }
         }
         // On the whole row, so the pill's re-centring animates with its contents: opening a tab
         // moves the existing tabs left as the new one slides in from the right. Keyed on tabs
@@ -91,14 +89,66 @@ struct BrowserCompactTabBar: View {
         }
     }
 
+    /// Down/Up move the highlight; Enter on a highlight opens it. Returns whether the key was used.
+    func moveHighlight(_ delta: Int) -> Bool {
+        guard !suggestions.isEmpty else { return false }
+        highlighted = compactHighlight(highlighted, moving: delta, count: suggestions.count)
+        return true
+    }
+    func submitHighlighted(_ controls: BrowserControlsViewModel) -> Bool {
+        let items = suggestions
+        guard let index = highlighted, items.indices.contains(index) else { return false }
+        if BrowserAddressSuggestions.open(items[index], in: controls) { editingAddress = false }
+        return true
+    }
+
+    // Not while restoring: a blank tab opened before the saved snapshot lands would mark the
+    // context edited and the saved tabs would be skipped.
+    /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
+    /// a blank tab is never saved, so on every launch the filler opened, selected itself and
+    /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
+    private var needsBlankTab: Bool { pages.isEmpty && model.showsBrowser && model.canOpenTab && !context.restoring }
+
     /// Leaving a tab drops any address focus so it does not carry over. A blank tab takes focus
     /// itself when its address field appears in `CompactTab`, once that field exists: a focus binding set before
     /// the bound view is mounted is silently reset.
-    /// One list: a suggested site, the typed text and Google's phrase completions as searches, then
-    /// the bookmarks and the pages visited in any panel that match the text.
-    private var suggestions: [AddressSuggestion] {
+    private func synchronizeEditing() {
+        if active?.controls.isBlank != true { editingAddress = false }
+    }
+}
+
+/// The address suggestions under the field: hung from the bar in its own row, or from the top of
+/// the page while the bar is in the toolbar. Picking one lets go of the field through the model,
+/// which the bar follows wherever it is drawn.
+struct BrowserAddressSuggestionList: View {
+    let context: WorkspaceContext
+    let model: SessionWorkspaceViewModel
+
+    var body: some View {
+        if let controls = context.activePage?.controls, controls.editingAddress {
+            let items = BrowserAddressSuggestions(context: context).items
+            if !items.isEmpty {
+                CompactSuggestionList(items: items, highlighted: model.addressHighlight, accessibilityLabel: String(localized: "Address suggestions"),
+                                      heading: \.heading, title: \.title,
+                                      detail: { $0.isSearch || $0.detail == $0.title ? "" : $0.detail },
+                                      pick: { if BrowserAddressSuggestions.open($0, in: controls) { controls.setEditingAddress(false) } }) { item in
+                    if item.isSearch { CompactSuggestionSymbol(systemImage: "magnifyingglass") }
+                    else { FaviconImage(url: item.url, size: 28, fallbackSize: 15) }
+                }
+            }
+        }
+    }
+}
+
+/// What the address field offers for the active tab's typed text. One list: a suggested site, the
+/// typed text and Google's phrase completions as searches, then the bookmarks and the pages
+/// visited in any panel that match the text.
+@MainActor struct BrowserAddressSuggestions {
+    let context: WorkspaceContext
+
+    var items: [AddressSuggestion] {
         // Focusing the field selects the page's own address; offering that page back is noise.
-        guard let controls = active?.controls, controls.addressEdited else { return [] }
+        guard let controls = context.activePage?.controls, controls.addressEdited else { return [] }
         let text = controls.address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
         let searching = webAddress(text) == nil
@@ -113,7 +163,7 @@ struct BrowserCompactTabBar: View {
         guard searching else { return history }
         // Safari's order: one suggested site, then four searches led by the typed text, then history.
         var items: [AddressSuggestion] = []
-        let completions = searchSuggestions.cached(text)
+        let completions = SearchSuggestionStore.shared.cached(text)
         if let site = completions.first(where: \.isSite), let url = webAddress(site.text), let host = url.host {
             let name = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
             items.append(.init(id: "site:" + site.text, title: site.title.isEmpty ? name : site.title,
@@ -131,31 +181,10 @@ struct BrowserCompactTabBar: View {
         return items
     }
 
-    private func pick(_ item: AddressSuggestion, _ controls: BrowserControlsViewModel) {
+    /// Opens a suggestion in the active tab; whether the address was taken, so the field can let go.
+    static func open(_ item: AddressSuggestion, in controls: BrowserControlsViewModel) -> Bool {
         controls.address = item.url
-        if controls.submitAddress() { editingAddress = false }
-    }
-
-    /// Down/Up move the highlight; Enter on a highlight opens it. Returns whether the key was used.
-    func moveHighlight(_ delta: Int) -> Bool {
-        guard !suggestions.isEmpty else { return false }
-        highlighted = compactHighlight(highlighted, moving: delta, count: suggestions.count)
-        return true
-    }
-    func submitHighlighted(_ controls: BrowserControlsViewModel) -> Bool {
-        guard let index = highlighted, suggestions.indices.contains(index) else { return false }
-        pick(suggestions[index], controls); return true
-    }
-
-    // Not while restoring: a blank tab opened before the saved snapshot lands would mark the
-    // context edited and the saved tabs would be skipped.
-    /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
-    /// a blank tab is never saved, so on every launch the filler opened, selected itself and
-    /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
-    private var needsBlankTab: Bool { pages.isEmpty && model.showsBrowser && model.canOpenTab && !context.restoring }
-
-    private func synchronizeEditing() {
-        if active?.controls.isBlank != true { editingAddress = false }
+        return controls.submitAddress()
     }
 }
 

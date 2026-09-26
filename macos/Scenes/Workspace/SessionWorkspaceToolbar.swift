@@ -1,67 +1,84 @@
 import SwiftUI
 
-/// Toolbar for a session workspace: IDE icon and title flat at the leading edge, the agent's
-/// controls grouped in the centre, run controls in a glass container, session actions trailing.
-struct SessionWorkspaceToolbar: ToolbarContent {
+/// The toolbar of a workspace, a session's or a sidebar tab's: the IDE icon and title, or the run
+/// button and build title, flat at the leading edge; the agent's controls in the middle; the run
+/// controls, the mode picker and the pane toggle trailing, against the context pane when it is open. The pane's
+/// own section holds its tab bar and Hide. A sidebar tab browsing the web has no title: its tab bar
+/// is the whole section, as Safari's is.
+@MainActor struct SessionWorkspaceToolbar {
+    let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
 
-    var body: some ToolbarContent {
-        // A session always shows its terminal, so the bar never fills the title-bar zone here.
+    var toolbar: WindowToolbar {
+        var toolbar = WindowToolbar(leading: leading)
+        if model.offersPageSession, !model.barFillsToolbar {
+            toolbar.trailing.append(item("create-session") {
+                CreateSessionButton(model: model)
+                    .labelStyle(.titleAndIcon)
+                    .disabled(!model.canCreateSession)
+                    .help(String(localized: "Start an agent session for this page in its project"))
+            })
+        }
+        if model.session != nil, model.workflow != nil {
+            // Flat, like the title at the other end: the run controls carry their own shapes, and a
+            // glass capsule around them only boxes in what is already legible.
+            toolbar.trailing.append(item("run-group", style: .plain) { SessionWorkspaceLeadingToolbar(model: model) })
+        }
+        if let driver = model.agentDriver {
+            toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
+        }
+        if model.showsModePicker {
+            toolbar.trailing.append(item("mode-picker") { SessionWorkspaceModePicker(model: model) })
+        }
+        if model.showsInspector {
+            toolbar.pane = pane
+        } else if model.showsTerminal {
+            // Shows the pane; once shown, Hide is the last item of the pane's own section.
+            toolbar.trailing.append(item("show-pane") { SessionWorkspaceContextToggle(model: model) })
+        }
+        return toolbar
+    }
+
+    private var leading: [WindowToolbarItem] {
         if model.showsBuildActions {
-            // Run keeps the system's glass; the title beside it stays flat.
-            ToolbarItem(placement: .navigation) { SessionWorkspaceRunButton(model: model) }
-            if #available(macOS 26.0, *) {
-                ToolbarItem(placement: .navigation) { SessionWorkspaceBuildTitle(model: model) }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .navigation) { SessionWorkspaceBuildTitle(model: model) }
-            }
-        } else if !model.fillsTitleBar {
-            PageTitleToolbarItem(title: model.title, font: .headline) {
+            return [
+                item("run") { SessionWorkspaceRunButton(model: model) },
+                item("build-title", style: .plain, priority: .high) { SessionWorkspaceBuildTitle(model: model) },
+            ]
+        }
+        if model.barFillsToolbar {
+            return [item("page-bar", style: .fill) { BrowserCompactTabBar(context: context, model: model, placement: .toolbar) }]
+        }
+        return [item("title", style: .plain, priority: .high) {
+            PageTitle(title: model.title, font: .headline) {
                 if model.session != nil {
                     SessionWorkspaceEditorButton(model: model)
                 } else if let url = model.activePageURL {
                     FaviconImage(url: url, size: 18)
                 }
             }
+        }]
+    }
+
+    /// An item whose content belongs to this workspace. Another workspace's toolbar can have the
+    /// same items, and AppKit keeps an item across the switch: keyed to the context, the content is
+    /// a new view for the new workspace, and the last one's leaves — releasing its field and its
+    /// suggestions — rather than carrying on with the next workspace's models.
+    private func item<Content: View>(_ id: String, style: WindowToolbarItem.Style = .glass,
+                                     priority: NSToolbarItem.VisibilityPriority = .standard,
+                                     @ViewBuilder content: () -> Content) -> WindowToolbarItem {
+        WindowToolbarItem(id, style: style, priority: priority) { content().id(context.id) }
+    }
+
+    private var pane: [WindowToolbarItem] {
+        var items: [WindowToolbarItem] = []
+        if model.showsBrowser {
+            items.append(item("pane-bar", style: .fill) { BrowserCompactTabBar(context: context, model: model, placement: .toolbar) })
+        } else if model.showsFiles {
+            items.append(item("pane-bar", style: .fill) { FilesCompactTabBar(context: context, model: model, placement: .toolbar) })
         }
-        // The agent's model, effort and context, as one group in the centre.
-        if let driver = model.agentDriver {
-            ToolbarItem(placement: .principal) { SessionAgentControlsView(model: model, driver: driver) }
-        }
-        // With the bar in the title-bar zone, Create Session lives in the bar instead.
-        if model.offersPageSession, !model.fillsTitleBar {
-            if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
-            ToolbarItem(placement: .primaryAction) {
-                CreateSessionButton(model: model)
-                    .labelStyle(.titleAndIcon)
-                    .disabled(!model.canCreateSession)
-                    .help(String(localized: "Start an agent session for this page in its project"))
-            }
-        }
-        let showsRunGroup = model.session != nil && model.workflow != nil
-        if showsRunGroup {
-            // Flat, like the title at the other end: the run controls carry their own
-            // shapes, and a glass capsule around them only boxes in what is already legible.
-            if #available(macOS 26.0, *) {
-                ToolbarSpacer(.flexible)
-                ToolbarItem(placement: .primaryAction) { SessionWorkspaceLeadingToolbar(model: model) }
-                    .sharedBackgroundVisibility(.hidden)
-            } else {
-                ToolbarItem(placement: .primaryAction) { SessionWorkspaceLeadingToolbar(model: model) }
-            }
-        }
-        if model.showsModePicker {
-            // One flexible spacer per trailing run, or two of them split the free space and
-            // leave the run controls stranded mid-bar. When that group is absent, this is the
-            // spacer that does the pushing.
-            if #available(macOS 26.0, *) { ToolbarSpacer(showsRunGroup ? .fixed : .flexible) }
-            ToolbarItem(placement: .primaryAction) { SessionWorkspaceModePicker(model: model) }
-        }
-        if model.showsTerminal {
-            if #available(macOS 26.0, *) { ToolbarSpacer(.fixed) }
-            ToolbarItem(placement: .primaryAction) { SessionWorkspaceContextToggle(model: model) }
-        }
+        items.append(item("hide-pane") { SessionWorkspaceContextToggle(model: model) })
+        return items
     }
 }
 

@@ -13,6 +13,10 @@ enum CompactTabMetrics {
     static let pillHeight: CGFloat = 40
     static let tabHeight: CGFloat = 36
     static let barHeight: CGFloat = 56
+    /// A bar in the toolbar takes its section's slack between these: the least that still shows the
+    /// selected tab, and a ceiling the toolbar never reaches.
+    static let minToolbarBarWidth: CGFloat = 200
+    static let maxToolbarBarWidth: CGFloat = 4000
     static let tabFont = Font.system(size: 15)
     /// The same size as the text. AppKit draws a field's prompt in the field's own font whatever
     /// the prompt asks for, so a smaller placeholder on the resting label sat on a different line
@@ -56,15 +60,24 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     }
 }
 
+/// Where a compact bar sits: its own row over the panel, or an item in the window toolbar's
+/// section over the panel, which gives it the width the section leaves.
+enum CompactTabBarPlacement: Equatable {
+    case row
+    case toolbar
+}
+
 /// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
-/// New Tab, where the panel offers one. The suggestion list hangs under the row, above whatever
-/// the panel shows beneath.
+/// New Tab, where the panel offers one. In its own row the suggestion list hangs under the bar,
+/// above whatever the panel shows beneath; in the toolbar the host draws it in the panel, since a
+/// toolbar item clips anything drawn outside it.
 struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: View>: View {
     let newTabTitle: String
     let newTabHelp: String
     let newTab: () -> Void
     /// False for a panel that is one page — a sidebar tab — which offers no New Tab at all.
     var showsNewTab = true
+    var placement: CompactTabBarPlacement = .row
     @ViewBuilder let leading: Leading
     /// Given the width left between the leading control and the trailing actions.
     @ViewBuilder let pill: (CGFloat) -> Pill
@@ -73,6 +86,20 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
     @ViewBuilder let suggestions: Suggestions
 
     var body: some View {
+        switch placement {
+        case .row:
+            content
+                .padding(.horizontal, 12)
+                .frame(height: CompactTabMetrics.barHeight)
+                // Above the content beneath, or the list would render under it.
+                .zIndex(1)
+                .overlay(alignment: .top) { suggestions.padding(.top, 52) }
+        case .toolbar:
+            content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
+        }
+    }
+
+    private var content: some View {
         HStack(spacing: 8) {
             leading
             // The pill is centred in whatever the row has left, and told how much that is: tabs that
@@ -94,20 +121,16 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 .barGlass()
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: CompactTabMetrics.barHeight)
-        // Above the content beneath, or the list would render under it.
-        .zIndex(1)
-        .overlay(alignment: .top) { suggestions.padding(.top, 52) }
     }
 }
 
 extension CompactTabBar where Trailing == EmptyView {
     /// A bar whose only trailing control is New Tab.
     init(newTabTitle: String, newTabHelp: String, newTab: @escaping () -> Void, showsNewTab: Bool = true,
+         placement: CompactTabBarPlacement = .row,
          @ViewBuilder leading: () -> Leading, @ViewBuilder pill: @escaping (CGFloat) -> Pill,
          @ViewBuilder suggestions: () -> Suggestions) {
-        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, showsNewTab: showsNewTab,
+        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, showsNewTab: showsNewTab, placement: placement,
                   leading: leading, pill: pill, trailing: { EmptyView() }, suggestions: suggestions)
     }
 }
@@ -507,7 +530,8 @@ struct CompactSuggestionList<Item: Identifiable, Icon: View>: View {
             }
         }
         .padding(8)
-        .frame(width: 560)
+        // Up to its width, and no wider than the panel it hangs in.
+        .frame(maxWidth: 560)
         .suggestionGlass()
         .accessibilityLabel(accessibilityLabel)
     }

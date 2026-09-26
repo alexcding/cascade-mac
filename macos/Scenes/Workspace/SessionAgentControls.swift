@@ -41,7 +41,7 @@ struct AgentPresetList: RawRepresentable, Equatable {
     }
 }
 
-/// The agent's controls, one group in the centre of a session's toolbar: what it is running, as a
+/// The agent's controls, one group in the middle of a session's toolbar: what it is running, as a
 /// menu of presets to switch to, then the context readout with its conversation actions. The
 /// toolbar gives the item its glass, so everything inside is flat and shares the one capsule. It
 /// holds a driver and a catalog, and never asks which CLI they belong to.

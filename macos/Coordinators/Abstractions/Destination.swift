@@ -84,11 +84,49 @@ extension Destination {
             Text(message).foregroundStyle(.secondary)
                 .padding(28)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .toolbar { PageTitleToolbarItem(title: title) }
 
         // Empty
         case .none:
             EmptyView()
+        }
+    }
+}
+
+// MARK: - Toolbar
+
+@MainActor
+extension Destination {
+    /// What this destination shows in the window's toolbar, from the same models as `view()`. A
+    /// child coordinator's screens share their coordinator's toolbar, so its screens have none.
+    var windowToolbar: WindowToolbar {
+        switch self {
+        case .dashboardCoordinator(let coordinator):
+            let model = coordinator.model
+            // The tabs stand in for the page title. Tickets is My Tickets, pushed over the home
+            // screen, so choosing any other tab from there pops back to it.
+            return WindowToolbar(
+                leading: [.init("dashboard-tabs") {
+                    DashboardTabBar(selection: coordinator.path.isEmpty ? model.tab : .tickets,
+                                    tickets: model.tickets.available, select: model.selectTab)
+                }],
+                trailing: [.search("dashboard-search", prompt: String(localized: "Search pull requests and tickets"),
+                                   text: Bindable(model).query)])
+        case .automationCoordinator(let coordinator):
+            return coordinator.root.windowToolbar
+        case .automation(let model):
+            // New sits where a page title would, over the list it adds to; the page carries its own title.
+            return WindowToolbar(leading: [.init("automation-new") { AutomationNewMenu(model: model) }],
+                                 trailing: [.init("automation-switch") { AutomationMasterSwitch(model: model) }])
+        case .projectCoordinator(let coordinator):
+            return WindowToolbar(leading: [.title(coordinator.model.project.name)])
+        case .sessionWorkspaceCoordinator(let coordinator):
+            return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
+        case .terminal(let root), .session(_, let root), .tab(_, let root):
+            return WindowToolbar(leading: [.title(root.title)])
+        case .unavailable(let title, _):
+            return WindowToolbar(leading: [.title(title)])
+        case .dashboard, .dashboardTickets, .logs, .project, .sessionWorkspace, .none:
+            return .empty
         }
     }
 }

@@ -7,7 +7,6 @@ struct ProjectCoordinatorView: View {
         coordinator.root.view()
             .padding(28)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .toolbar { PageTitleToolbarItem(title: coordinator.model.project.name) }
             .sheet(item: Binding(get: { coordinator.deletionConfirmation }, set: { value in
                 if value == nil, let request = coordinator.deletionConfirmation { coordinator.cancelDeletion(id: request.id) }
             })) { request in

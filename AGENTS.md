@@ -165,7 +165,7 @@ page, and do not give this one a way to reach the backend.
 `macos/` is a layered tree. Each layer may depend on the ones below it, never above:
 
 - **`App/`** — the process. `CascadeApp.swift` is the entry point; `AppDelegate.swift`
-  owns `AppViewModel` and the app lifetime. `AppViewModel` is split by area into
+  owns `AppViewModel`, the app lifetime and the main window (`MainWindowController`). `AppViewModel` is split by area into
   `AppViewModel+{Root,Workspace,Settings,Tray,Notifications}.swift`; `RootViewModel.swift`
   is what the root view binds to.
 - **`Scenes/`** — one folder per area (`Dashboard`, `Projects`, `Jira`, `Documents`,
@@ -210,7 +210,30 @@ A screen is four things, in this order:
 4. **Navigation** — a `SidebarDestination` case (`Components/Sidebar/SidebarModel.swift`),
    a branch wherever selection is switched (`Coordinators/Abstractions/Destination.swift`,
    `AppCoordinator.navigate`), and a deep-link route in `AppCoordinator+Routing.swift` if
-   the screen should be addressable.
+   the screen should be addressable. Its toolbar is a branch of `Destination.windowToolbar`.
+
+## The main window
+
+The main window is AppKit's, not a SwiftUI scene, so its toolbar can be split where its
+columns are, as Xcode's is. `MainWindowController` owns the window; its content is
+`MainSplitViewController`: the sidebar, the screen (`AppCoordinatorView`), and the shown
+workspace's context pane as the inspector column. AppKit holds each column to its minimum
+width. The pane column follows `SessionWorkspaceViewModel.showsInspector`, and a pane the
+user collapses from the divider is told back to the workspace.
+
+- **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the
+  main window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
+  `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and
+  the pane's section; the sidebar's section is its toggle alone, on every screen — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the
+  SwiftUI content, split by the sidebar and inspector tracking separators. It reads the
+  description under observation, so what it reads redraws the toolbar.
+- **A compact tab bar in the toolbar** (`CompactTabBarPlacement.toolbar`) cannot hang its
+  suggestions under itself: a toolbar item clips what it draws outside. The bar keeps its
+  editing state and highlight on the models, and the page beneath draws the list
+  (`SessionWorkspacePane`).
+- Settings is the app's only SwiftUI scene. SwiftUI opens an app's first window scene at
+  every launch but leaves a lone `Settings` shut, so any other window — Help included
+  (`AppDelegate.showHelp`) — is AppKit's.
 
 **Retired is terminal.** When a coordinator retires a model, that model must refuse every
 entry point afterwards — a retired model that can be reactivated goes back on refresh

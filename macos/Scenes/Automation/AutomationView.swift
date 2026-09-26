@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Automation: the defined pipelines down the left, the open one on the right as a page in the
 /// Dashboard's style. New sits on the toolbar's leading side and the switch for every automation
-/// on its trailing side, so the list holds pipelines and nothing else. Webhook forwarding is under
+/// on its trailing side (`Destination.windowToolbar`), so the list holds pipelines and nothing else. Webhook forwarding is under
 /// Settings → Integrations.
 struct AutomationView: View {
     @Bindable var model: AutomationViewModel
@@ -26,19 +26,13 @@ struct AutomationView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)
         .accessibilityIdentifier("automation-screen")
-        .toolbar {
-            // New sits where a page title would, over the list it adds to; the page carries its own title.
-            ToolbarItem(placement: .navigation) { AutomationNewMenu(model: model) }
-            if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
-            ToolbarItem(placement: .primaryAction) { AutomationMasterSwitch(model: model) }
-        }
         .onAppear { model.setVisible(true) }
         .onDisappear { model.setVisible(false) }
     }
 }
 
 /// Every automation on or paused at once; the one switch that outranks each pipeline's own mode.
-private struct AutomationMasterSwitch: View {
+struct AutomationMasterSwitch: View {
     let model: AutomationViewModel
     private var on: Bool { !(model.settings?.paused ?? false) }
 

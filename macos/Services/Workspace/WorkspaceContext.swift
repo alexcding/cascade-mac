@@ -49,7 +49,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var historyOrder: [String]? = nil
     var legacyDocuments: [SavedTabContent]? = nil
     var legacyFileHistory: [SavedTabContent]? = nil
-    var paneFraction: Double? = nil
 
     static func importing(_ tab: SavedTab) -> Self {
         var result = Self()
@@ -126,7 +125,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private(set) var lastMode: WorkspaceMode = .browser
     @ObservationIgnored private var lastPageID: String?
     @ObservationIgnored private var lastDocumentID: String?
-    private(set) var paneFraction: Double?
     private(set) var reviewSection: ReviewSection = .changes {
         didSet { if oldValue != reviewSection { workspaceViewModel?.reviewStateChanged() } }
     }
@@ -134,11 +132,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         didSet {
             guard oldValue != restoring else { return }
             workspaceViewModel?.documentStateChanged()
-            if !restoring, let value = pendingFraction { pendingFraction = nil; setPaneFraction(value) }
         }
     }
-    /// A divider drag made while restoring, kept until saving it can no longer turn the restore away.
-    @ObservationIgnored private var pendingFraction: Double?
     var findVisible = false
     var findText = ""
     var error: String?
@@ -206,7 +201,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             activeID = tabOrder.contains(snapshot.activeID ?? "") ? snapshot.activeID : tabOrder.first
             pane = WorkspacePane(rawValue: snapshot.pane) ?? .term
             reviewSection = snapshot.reviewSection ?? .changes
-            paneFraction = snapshot.paneFraction
             if pane == .term, activeDocument != nil { pane = .files }
             if pane == .files, activeDocument == nil, activePage != nil { pane = .term }
             lastPageID = activePage?.id; lastDocumentID = activeDocument?.id
@@ -271,13 +265,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         .init(pages: pages.map(\.record), activeID: activeID, history: history,
               pane: pane == .simulator ? WorkspacePane.term.rawValue : pane.rawValue,
               reviewSection: reviewSection, documents: documents.map(\.record), tabOrder: tabOrder, fileHistory: fileHistory, historyOrder: historyOrder,
-              legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory,
-              paneFraction: paneFraction)
-    }
-    func setPaneFraction(_ value: Double) {
-        guard !restoring else { pendingFraction = value; return }
-        guard paneFraction.map({ abs($0 - value) > 0.001 }) ?? true else { return }
-        paneFraction = value; changed()
+              legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory)
     }
     func setReviewSection(_ value: ReviewSection) { reviewSection = value; changed() }
     func setPane(_ value: WorkspacePane) {
@@ -430,7 +418,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         lastPageID = restored.activePage?.id; lastDocumentID = restored.activeDocument?.id
         lastMode = restored.lastMode
         reviewSection = restored.reviewSection
-        paneFraction = restored.paneFraction
         documents = restored.documents; tabOrder = restored.tabOrder; fileHistory = restored.fileHistory; historyOrder = restored.historyOrder
         documents.forEach(wire)
         legacyDocuments = restored.legacyDocuments; legacyFileHistory = restored.legacyFileHistory

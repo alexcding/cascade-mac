@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Hosts the dashboard and owns its toolbar: the tabs where a page title would sit, with the
-/// dashboard's one search field filling the trailing side. My Tickets pushes over the home screen
-/// as the Tickets tab. The search is global: while it holds text its results stand in for
-/// whichever page is up, and clearing it shows that page again.
+/// Hosts the dashboard; its toolbar is the tabs where a page title would sit, with the dashboard's
+/// one search field on the trailing side (`Destination.windowToolbar`). My Tickets pushes over the
+/// home screen as the Tickets tab. The search is global: while it holds text its results stand in
+/// for whichever page is up, and clearing it shows that page again.
 struct DashboardCoordinatorView: View {
     @Bindable var coordinator: DashboardCoordinator
 
@@ -20,15 +20,5 @@ struct DashboardCoordinatorView: View {
             if model.searching { DashboardSearchView(model: model) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .toolbar {
-            // The tabs stand in for the page title. Tickets is My Tickets, pushed over the home
-            // screen, so choosing any other tab from there pops back to it.
-            ToolbarItem(placement: .navigation) {
-                DashboardTabBar(selection: pushed == nil ? model.tab : .tickets,
-                                tickets: model.tickets.available, select: model.selectTab)
-            }
-            if #available(macOS 26.0, *) { ToolbarSpacer(.flexible) }
-        }
-        .searchable(text: Bindable(model).query, placement: .toolbar, prompt: "Search pull requests and tickets")
     }
 }

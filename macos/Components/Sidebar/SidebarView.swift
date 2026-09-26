@@ -38,7 +38,6 @@ struct SidebarView: View {
             .foregroundStyle(Color(nsColor: SidebarPalette.text2))
             .padding(.horizontal, 10).padding(.vertical, 8)
         }
-        .navigationSplitViewColumnWidth(min: 170, ideal: 250, max: 420)
     }
 }
 

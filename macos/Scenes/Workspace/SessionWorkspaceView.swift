@@ -205,25 +205,16 @@ struct SessionWorkspaceView: View {
         }
     }
 
-    private static let defaultPaneFraction = 0.6
-
+    /// Beside a terminal, the context pane is not drawn here: it is the window's inspector column
+    /// (`SessionWorkspacePane`), presented by the app for the workspace on screen.
     @ViewBuilder private var primaryContent: some View {
         if model.showsTerminal {
-            NativeSplitView(showsTrailing: model.showsPage,
-                            identity: context.id,
-                            trailingFraction: Binding(
-                                get: { CGFloat(context.paneFraction ?? Self.defaultPaneFraction) },
-                                set: { context.setPaneFraction(Double($0)) })) {
-                terminalContent
-            } trailing: {
-                SessionWorkspaceContextPane(context: context, model: model)
-            }
+            terminalContent
         } else {
             VStack(spacing: 0) {
-                if !model.fillsTitleBar { Divider() }
+                Divider()
                 SessionWorkspaceContextContent(context: context, model: model)
             }
-            .ignoresSafeArea(.container, edges: model.fillsTitleBar ? .top : [])
         }
     }
 
@@ -253,34 +244,41 @@ struct SessionWorkspaceView: View {
 
 }
 
-struct SessionWorkspaceContextPane: View {
-    let context: WorkspaceContext
-    let model: SessionWorkspaceViewModel
-
-    @ViewBuilder var body: some View {
-        SessionWorkspaceContextContent(context: context, model: model)
-    }
-}
-
 private struct SessionWorkspaceContextContent: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.mode == .browser, !model.showsChanges {
-                // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
-                BrowserCompactTabBar(context: context, model: model)
-                Divider()
-            } else if model.mode == .files, !model.showsChanges {
-                FilesCompactTabBar(context: context, model: model)
-                Divider()
+            if model.barFillsToolbar {
+                // A sidebar tab's browser: its tab bar is the toolbar (`SessionWorkspaceToolbar`), and
+                // the suggestions that bar's field brings up hang over the page.
+                SessionWorkspaceContextBody(context: context, model: model)
+                    .overlay(alignment: .top) {
+                        BrowserAddressSuggestionList(context: context, model: model).padding(.top, 4).padding(.horizontal, 8)
+                    }
+            } else {
+                if model.mode == .browser, !model.showsChanges {
+                    // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
+                    BrowserCompactTabBar(context: context, model: model)
+                    Divider()
+                } else if model.mode == .files, !model.showsChanges {
+                    FilesCompactTabBar(context: context, model: model)
+                    Divider()
+                }
+                SessionWorkspaceContextBody(context: context, model: model)
             }
-            contextBody
         }
     }
+}
 
-    @ViewBuilder private var contextBody: some View {
+/// What the context pane shows under its bar, wherever the bar is: its own row above, or the
+/// inspector's section of the toolbar.
+struct SessionWorkspaceContextBody: View {
+    let context: WorkspaceContext
+    let model: SessionWorkspaceViewModel
+
+    @ViewBuilder var body: some View {
         if model.showsChanges {
             // The review layout: the diff fills the pane, and one footer carries the
             // Changes/History switch and the commit action.
@@ -641,8 +639,10 @@ struct SessionWorkspaceContextToggle: View {
         Button {
             model.setContextPresented(!model.showsPage)
         } label: {
-            Image(systemName: "sidebar.trailing")
+            Label(model.showsPage ? String(localized: "Hide Context Pane") : String(localized: "Show Context Pane"),
+                  systemImage: "sidebar.trailing")
         }
+        .buttonStyle(.toolbarIcon)
         .help(model.showsPage ? String(localized: "Hide Context Pane") : String(localized: "Show Context Pane"))
         .disabled(!model.canToggleContext)
     }

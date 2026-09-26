@@ -9,10 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LegacyIdentity.carryDefaults()
         return AppViewModel()
     }()
-    /// The single SwiftUI `Window("main")` scene, looked up on demand.
-    private var window: NSWindow? {
-        NSApp.windows.first { $0.identifier?.rawValue.hasSuffix("main") == true && !($0 is NSPanel) }
-    }
+    /// The main window, made once the launch has not yielded to another copy.
+    @ObservationIgnored private var mainWindow: MainWindowController?
+    private var window: NSWindow? { mainWindow?.window }
+    @ObservationIgnored private var helpWindow: NSWindow?
     @ObservationIgnored private var statusItem: NSStatusItem?
     /// Whether the status glyph is currently painted for a review, whether a number follows it, and
     /// the menu bar thickness it was drawn for, so it is repainted only when one of them changes.
@@ -76,10 +76,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             LegacyIdentity.carryData()
         }
         model.shell.applyAppearance()
-        // SwiftUI can have made the window key before this runs, so cover both orders.
-        NotificationCenter.default.addObserver(self, selector: #selector(windowDidBecomeKey),
-            name: NSWindow.didBecomeKeyNotification, object: nil)
-        adoptWindow()
+        let mainWindow = MainWindowController(model: model)
+        self.mainWindow = mainWindow
+        mainWindow.window?.makeKeyAndOrderFront(nil)
         NotificationCenter.default.addObserver(self, selector: #selector(sheetDidEnd),
             name: NSWindow.didEndSheetNotification, object: nil)
         // The terminal surface binds ⌘T, ⌘1–9 and the tab-cycling keys itself and would consume
@@ -154,6 +153,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Cascade Help, in an AppKit window as the main window is: a SwiftUI window scene beside Settings
+    /// would be opened by SwiftUI at every launch. Made once and kept, so it reopens where it was.
+    func showHelp() {
+        let help = helpWindow ?? {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 650),
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.title = String(localized: "Cascade Help")
+            window.isReleasedWhenClosed = false
+            let host = NSHostingController(rootView: HelpView())
+            // The window is the user's to size; the page only sets its least.
+            host.sizingOptions = [.minSize]
+            window.contentViewController = host
+            window.setContentSize(NSSize(width: 700, height: 650))
+            window.center()
+            window.setFrameAutosaveName("CascadeHelp")
+            return window
+        }()
+        helpWindow = help
+        help.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
     /// The tray shortcut opens the status item's menu the way a click does.
     @objc func toggleTray() { statusItem?.button?.performClick(nil) }
 
@@ -205,42 +226,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The red close button (and ⌘W with no page open) puts the window away instead of
-    /// closing it: sessions keep running and the app quits only through Quit. `orderOut`
-    /// rather than `miniaturize`, so there is no genie animation and no Dock thumbnail; the
-    /// Dock icon or the tray brings it back. The button is re-targeted rather than the window
-    /// delegate swapped — replacing SwiftUI's delegate mid-layout is what tripped AppKit's
-    /// constraint-pass assertion before (0cfa497).
-    @objc private func windowDidBecomeKey(_ notification: Notification) {
-        if (notification.object as? NSWindow) === window { adoptWindow() }
-    }
-
-    /// One-time setup on the SwiftUI window: the close button hides rather than closes, and
-    /// the frame persists across launches (SwiftUI does not restore it for this scene).
-    private func adoptWindow() {
-        guard let window else { return }
-        if window.frameAutosaveName != "CascadeNativeMain" {
-            // The frame was saved under the name the window had while the app was called Craft.
-            let defaults = UserDefaults.standard
-            if defaults.object(forKey: "NSWindow Frame CascadeNativeMain") == nil,
-               let saved = defaults.object(forKey: "NSWindow Frame CraftNativeMain") {
-                defaults.set(saved, forKey: "NSWindow Frame CascadeNativeMain")
-            }
-            window.setFrameAutosaveName("CascadeNativeMain")
-        }
-        guard let close = window.standardWindowButton(.closeButton), close.target !== self else { return }
-        close.target = self
-        close.action = #selector(hideMainWindow)
-    }
-
-    @objc private func hideMainWindow() { window?.orderOut(nil) }
+    /// ⌘W with no page open puts the window away instead of closing it, as the red button does
+    /// (`MainWindowController`): sessions keep running and the app quits only through Quit.
+    /// `orderOut` rather than `miniaturize`, so there is no genie animation and no Dock thumbnail;
+    /// the Dock icon or the tray brings it back.
+    private func hideMainWindow() { window?.orderOut(nil) }
 
     /// The menu bar stays up after the window is put away, so a menu command can arrive
     /// with nothing on screen; what it does must be visible.
     private func revealWindow() { if window?.isVisible != true { showWindow() } }
 
-    // With no visible window AppKit asks whether to quit, and SwiftUI's own delegate says
-    // yes. The window was only put away, so no: quitting is Quit's job.
+    // With no visible window AppKit asks whether to quit. The window was only put away, so no:
+    // quitting is Quit's job.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
