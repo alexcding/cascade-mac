@@ -13,7 +13,7 @@ extension AppViewModel: WorkspaceCoordinating {
     }
 
     /// Starts the session worktree's IDE preparation, for the session being opened and no other.
-    /// Lazy on purpose: warming every session a workflow creates would run several package
+    /// Lazy on purpose: warming every session at once would run several package
     /// resolves at once over one SwiftPM cache, and most of them for a checkout nobody is about
     /// to build. Creating a session selects it, so the one being worked on is always warmed.
     /// The backend coalesces, so selecting it again costs nothing.

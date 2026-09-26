@@ -93,11 +93,11 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
 }
 
 
-@MainActor @Test func workflowPagePromotionRetainsLiveContextObjectsAndMergesExistingContext() throws {
+@MainActor @Test func pagePromotionRetainsLiveContextObjectsAndMergesExistingContext() throws {
     let viewer = ViewerStore()
     let pageID = "tab:https://jira.test/browse/REC-1"
     let context = viewer.select(id: pageID, url: "", title: "Issue")
-    let document = try #require(context.openFile("/tmp/Workflow.swift"))
+    let document = try #require(context.openFile("/tmp/Page.swift"))
     let selection = context.activeID
     try viewer.promoteContext(from: pageID, to: "task:prepared")
     #expect(viewer.contexts[pageID] == nil)

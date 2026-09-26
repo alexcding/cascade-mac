@@ -1,7 +1,7 @@
 import Foundation
 
 /// Builds backend adapters at the composition boundary. Root and feature models
-/// receive protocols; replacing a service also applies to nested workflow flows.
+/// receive protocols; replacing a service also applies to nested flows.
 @MainActor protocol BackendFeatureFactory {
     func projects(api: APIClient) -> any ProjectService
     func tickets(api: APIClient) -> any JiraService

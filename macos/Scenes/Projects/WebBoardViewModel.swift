@@ -1,21 +1,6 @@
 import Foundation
 import Observation
 
-struct BoardTicketLink: Decodable, Equatable {
-    let type: String
-    let url: String
-    let title: String
-    let external: Bool
-
-    static func parse(_ body: Any, source: URL?, expected: URL, mainFrame: Bool) -> Self? {
-        guard mainFrame, source == expected, JSONSerialization.isValidJSONObject(body),
-              let data = try? JSONSerialization.data(withJSONObject: body), data.count <= 8192,
-              let link = try? JSONDecoder().decode(Self.self, from: data), link.type == "openTicket",
-              SessionPage.parse(link.url)?.kind == "jira" else { return nil }
-        return link
-    }
-}
-
 struct BoardColumn: Decodable, Equatable, Sendable {
     let name: String
     var statusIds: [String] = []
@@ -473,13 +458,5 @@ struct APIBoardService: BoardService {
     }
     private func ticketURL(_ ticket: JiraTicket) -> String? {
         siteURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key).absoluteString
-    }
-    /// Bypasses `open`/`openSession`'s Action emission: a message from the board's own surface, not
-    /// a row click routed through the coordinator, so the board's own `active` gate is what guards it.
-    func request(_ link: BoardTicketLink) {
-        guard !retired, active, safeWebURL(link.url) != nil else { return }
-        var request = OpenPageRequest(url: link.url, kind: "jira", title: link.title)
-        request.projectID = projectID
-        navigation.open(request)
     }
 }
