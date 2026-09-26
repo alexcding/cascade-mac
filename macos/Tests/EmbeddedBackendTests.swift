@@ -24,8 +24,8 @@ struct EmbeddedBackendTests {
         #expect(health.pid == ProcessInfo.processInfo.processIdentifier)
         let projects: [Project] = try await api.get(Routes.PROJECTS)
         #expect(projects.isEmpty)
-        let query: ProjectPRSnapshot? = try? await api.get(APIClient.query(Routes.projectPrs("missing"), ["state": "open", "snapshot": "1"]))
-        #expect(query == nil)
+        let missing: Project? = try? await api.get(Routes.project("missing"))
+        #expect(missing == nil)
         // Errors keep the HTTP contract: a JSON error body becomes BackendError.operation.
         do {
             let _: Project = try await api.get(Routes.project("missing"))

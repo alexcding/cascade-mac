@@ -59,7 +59,6 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var jiraProjectKey: String? = nil
     var jql: String? = nil
     var ideCmd: String? = nil
-    var workflows: [WorkflowRecipe]? = nil
     /// Run in each new worktree after its files are copied; empty runs nothing.
     var worktreeSetup: String? = nil
     /// This project's files-to-copy patterns; empty uses the default in Settings → Worktrees.

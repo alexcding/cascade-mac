@@ -488,3 +488,51 @@ private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
     model.retire()
     #expect(model.prs.retired && model.tickets.retired && model.usage.retired)
 }
+
+@MainActor @Test func deriveListsEveryoneElsesOpenPullRequestsAsOthers() async throws {
+    let project = makeProject("p", prs: [
+        makePR(1), makePR(2, category: "review"), makePR(3, category: "other"),
+        makePR(4, category: "other", state: "MERGED"),
+    ])
+    let snapshot = await DashboardPullRequestsModel.derive([project])
+    #expect(Set(snapshot.others.compactMap(\.pr.number)) == [2, 3])
+    #expect(snapshot.counts[.all] == 1)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func authorAndProjectNarrowGroupsAndCounts() async throws {
+    let p1 = makeProject("p1", name: "One", prs: [makePR(1), makePR(2, category: "other", isDraft: true)])
+    let p2 = makeProject("p2", name: "Two", repo: "o/s", prs: [
+        makePR(3, url: "https://github.com/o/s/pull/3"), makePR(4, category: "other", url: "https://github.com/o/s/pull/4"),
+    ])
+    let model = DashboardPullRequestsModel()
+    model.connect(ModelFixture(projects: [p1, p2]))
+    while model.loading { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(Set(model.groups.flatMap(\.rows).compactMap(\.pr.number)) == [1, 3])
+    model.author = .others
+    #expect(Set(model.groups.flatMap(\.rows).compactMap(\.pr.number)) == [2, 4])
+    #expect(model.counts[.drafts] == 1)
+    #expect(model.count(.mine) == 2 && model.count(.others) == 2)
+    model.project = "p2"
+    #expect(model.count(.mine) == 1 && model.count(.others) == 1)
+    #expect(model.groups.map(\.project.id) == ["p2"])
+    #expect(model.groups.flatMap(\.rows).compactMap(\.pr.number) == [4])
+    #expect(model.counts[.drafts] == 0)
+    await model.stop()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func othersRowsOutsideTheReviewOrbitOpenWithTheirBranchAndTickets() async throws {
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    var emitted: [DashboardViewModel.Action] = []
+    model.onAction = { emitted.append($0) }
+    let json = #"[{"id":"p","name":"Proj","repo":"o/r","lastSynced":"2026-01-01T00:00:00Z","prs":[{"number":7,"title":"Teammate","url":"https://github.com/o/r/pull/7","state":"OPEN","category":"other","awaitingMyReview":false,"headRefName":"REC-1-fix","jiraKeys":["REC-1"]}]}]"#
+    model.connect(ModelFixture(projects: try JSONDecoder().decode([DashboardProject].self, from: Data(json.utf8))))
+    while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.prs.visibleRows.isEmpty)
+    let row = try #require(model.prs.others.first)
+    model.open(row)
+    model.openSession(row)
+    #expect(emitted == [.open(row.openPageRequest), .open(DashboardViewModel.sessionRequest(row))])
+    let session = DashboardViewModel.sessionRequest(row)
+    #expect(session.inSession && session.projectID == "p" && session.branch == "REC-1-fix" && session.jiraKeys == ["REC-1"])
+    await model.stop()
+}

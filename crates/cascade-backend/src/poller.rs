@@ -54,14 +54,6 @@ impl Poller {
         }
     }
 
-    pub fn pr_syncing(&self, project: &Value, state: &str) -> bool {
-        let key = Self::pr_sync_key(
-            project,
-            state,
-            self.generation(project["id"].as_str().unwrap_or("")),
-        );
-        self.in_flight.lock().unwrap().contains(&key)
-    }
     fn current(&self, app: &AppState, id: &str, generation: u64) -> bool {
         self.generation(id) == generation && app.db.project(id).ok().flatten().is_some()
     }
@@ -674,4 +666,34 @@ fn validate_acli_mutation(raw: &str, fallback: &str) -> Result<()> {
 }
 fn now() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// Whether a stored snapshot is missing, or older than `max_age` seconds.
+pub fn stale(snapshot: Option<&Value>, max_age: i64) -> bool {
+    snapshot
+        .and_then(|v| v.get("lastSynced"))
+        .and_then(Value::as_str)
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+        .is_none_or(|v| {
+            chrono::Utc::now()
+                .signed_duration_since(v.with_timezone(&chrono::Utc))
+                .num_seconds()
+                > max_age
+        })
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::stale;
+    use serde_json::json;
+
+    #[test]
+    fn snapshots_are_stale_when_missing_unsynced_or_old() {
+        assert!(stale(None, 60));
+        assert!(stale(Some(&json!({"prs":[]})), 60));
+        let old = (chrono::Utc::now() - chrono::Duration::seconds(120)).to_rfc3339();
+        assert!(stale(Some(&json!({"lastSynced":old})), 60));
+        let fresh = chrono::Utc::now().to_rfc3339();
+        assert!(!stale(Some(&json!({"lastSynced":fresh})), 60));
+    }
 }

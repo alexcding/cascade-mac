@@ -29,33 +29,11 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     }
 }
 
-struct ProjectPRSnapshot: Decodable, Sendable {
-    var prs: [DashboardPR] = []
-    var lastSynced: String? = nil
-    var error: String? = nil
-    var refreshing = false
-}
-
-extension ProjectPRSnapshot {
-    private enum CodingKeys: String, CodingKey { case prs, lastSynced, error, refreshing }
-
-    init(from decoder: any Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        prs = try values.decode([DashboardPR].self, forKey: .prs)
-        lastSynced = try values.decodeIfPresent(String.self, forKey: .lastSynced)
-        error = try values.decodeIfPresent(String.self, forKey: .error)
-        // Older Rust backends return the stored snapshot without live refresh
-        // metadata. Keep those cards readable while the helper is upgraded.
-        refreshing = try values.decodeIfPresent(Bool.self, forKey: .refreshing) ?? false
-    }
-}
-
 protocol ProjectService: Sendable {
     func load(_ id: String) async throws -> Project
     func save(_ draft: ProjectDraft, id: String?) async throws -> Project
     func delete(_ id: String) async throws
     func detectRepository(_ path: String) async throws -> String
-    func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot
     /// What git records for `rel` in `workspace`, which is what a new worktree checks out.
     func trackedFile(workspace: String, rel: String) async throws -> TrackedFile?
     /// The checkout's GitHub repo and a best guess at its IDE ("" when there is no guess).
@@ -97,32 +75,25 @@ struct APIProjectService: ProjectService {
     func detect(_ path: String) async throws -> DetectedWorkspace {
         try await api.get(APIClient.query(Routes.DETECT_REPO, ["path": path]), timeout: 30)
     }
-    func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot {
-        try await api.get(APIClient.query(Routes.projectPrs(id), ["state": state, "snapshot": "1", "refresh": force ? "1" : "0"]))
-    }
 }
 
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case prs = "Pull Requests", tickets = "Tickets", board = "Sprint Board", workflows = "Workflows", settings = "Settings"
+    case tickets = "Tickets", board = "Sprint Board", settings = "Settings"
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .prs: String(localized: "Pull Requests")
         case .tickets: String(localized: "Tickets")
         case .board: String(localized: "Sprint Board")
-        case .workflows: String(localized: "Workflows")
         case .settings: String(localized: "Settings")
         }
     }
 
-    /// The sections a project can show. Pull Requests need GitHub, Tickets and Sprint Board
-    /// need Jira. Workflows and Settings always apply. Automation is its own screen now.
+    /// The sections a project can show. Tickets and Sprint Board need Jira. Settings always applies. Automation is its own screen now.
     static func available(for project: Project) -> [ProjectSection] {
         allCases.filter { section in
             switch section {
-            case .prs: project.hasGitHub
             case .tickets, .board: project.hasJira
-            case .workflows, .settings: true
+            case .settings: true
             }
         }
     }

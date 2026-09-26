@@ -49,76 +49,6 @@ async fn health_identifies_the_rust_backend() {
 }
 
 #[tokio::test]
-async fn project_pr_snapshots_include_refresh_metadata_for_every_scope() {
-    let directory = tempfile::tempdir().unwrap();
-    let db = Database::open(directory.path()).unwrap();
-    let project = db
-        .add_project(
-            json!({"name":"PR contract","repo":"example/repo"})
-                .as_object()
-                .unwrap(),
-        )
-        .unwrap();
-    let id = project["id"].as_str().unwrap();
-    let snapshot = json!({"prs":[{"number":1,"title":"Cached PR"}],
-        "lastSynced":chrono::Utc::now().to_rfc3339(),"error":"Previous sync failed"});
-    db.set_pr_snapshot(id, &snapshot).unwrap();
-    for scope in ["merged", "closed", "all"] {
-        db.set_pr_scope_snapshot(&project, scope, &snapshot)
-            .unwrap();
-    }
-    let app = build_app(AppState::new(db, None));
-    for scope in ["open", "merged", "closed", "all"] {
-        let path = format!("/api/projects/{id}/prs?state={scope}&snapshot=1");
-        let (status, value) = json_request(&app, "GET", &path, Value::Null).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            value["refreshing"], false,
-            "{scope}: missing refresh metadata"
-        );
-        assert_eq!(value["prs"], snapshot["prs"]);
-        assert_eq!(value["error"], snapshot["error"]);
-    }
-    let (_, legacy) =
-        json_request(&app, "GET", &format!("/api/projects/{id}/prs"), Value::Null).await;
-    assert!(legacy.is_array());
-    assert_eq!(legacy[0]["number"], 1);
-    assert_eq!(legacy[1]["error"], snapshot["error"]);
-}
-
-#[tokio::test]
-async fn project_pr_snapshot_refresh_flag_clears_before_completion_event() {
-    let directory = tempfile::tempdir().unwrap();
-    let db = Database::open(directory.path()).unwrap();
-    // Empty repositories complete without invoking GitHub or credentials.
-    let project = db
-        .add_project(
-            json!({"name":"Empty repository","repo":""})
-                .as_object()
-                .unwrap(),
-        )
-        .unwrap();
-    let id = project["id"].as_str().unwrap();
-    let state = AppState::new(db, None);
-    let mut events = state.events.subscribe();
-    let app = build_app(state);
-    let path = format!("/api/projects/{id}/prs?snapshot=1");
-    let (_, initial) = json_request(&app, "GET", &path, Value::Null).await;
-    assert_eq!(initial["prs"], json!([]));
-    assert_eq!(initial["refreshing"], true);
-    let event = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(event, json!({"type":"sync","scope":"prs","projectId":id}));
-    let (_, completed) = json_request(&app, "GET", &path, Value::Null).await;
-    assert_eq!(completed["refreshing"], false);
-    assert!(completed["lastSynced"].is_string());
-    let (_, forced) = json_request(&app, "GET", &(path + "&refresh=1"), Value::Null).await;
-    assert_eq!(forced["refreshing"], true);
-}
-
-#[tokio::test]
 async fn project_task_and_dashboard_contracts_round_trip() {
     let (app, _directory) = app();
     let (_, project) = json_request(&app, "POST", "/api/projects", json!({"name":"Native","repo":"openai/codex","workspace":"/tmp/native","jiraProjectKey":"task"})).await;
@@ -298,4 +228,20 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
     // Dry runs are never recorded.
     let (_, runs) = json_request(&app, "GET", "/api/automations/runs", Value::Null).await;
     assert_eq!(runs, json!([]));
+}
+
+#[tokio::test]
+async fn project_webhook_forwarding_can_be_turned_off_and_on() {
+    let (app, _dir) = app();
+    let (status, created) = json_request(&app, "POST", "/api/projects",
+        json!({"name":"Quiet","repo":"o/r","forwardWebhooks":false})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(created["forwardWebhooks"], false);
+    let path = format!("/api/projects/{}", created["id"].as_str().unwrap());
+    let (_, updated) = json_request(&app, "PUT", &path, json!({"forwardWebhooks":true})).await;
+    assert_eq!(updated["forwardWebhooks"], true);
+    let (status, _) = json_request(&app, "PUT", &path, json!({"forwardWebhooks":"no"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, unchanged) = json_request(&app, "GET", &path, Value::Null).await;
+    assert_eq!(unchanged["forwardWebhooks"], true);
 }

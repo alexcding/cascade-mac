@@ -35,10 +35,6 @@ public enum Routes {
     public static func project(_ value: String) -> String {
         "/api/projects/\(value)"
     }
-    public static let PROJECT_PRS = "/api/projects/:id/prs"
-    public static func projectPrs(_ value: String) -> String {
-        "/api/projects/\(value)/prs"
-    }
     public static let PROJECT_JIRA = "/api/projects/:id/jira"
     public static func projectJira(_ value: String) -> String {
         "/api/projects/\(value)/jira"
@@ -120,7 +116,6 @@ public enum Routes {
     public static let HOOK_TURN_DONE = "/api/hooks/turn-done"
     public static let HOOK_SESSION_START = "/api/hooks/session-start"
     public static let HOOK_OPEN_URL = "/api/hooks/open-url"
-    public static let AGENT_ANALYZE = "/api/agent-analyze"
 
     private static func encodeComponent(_ value: String) -> String {
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")

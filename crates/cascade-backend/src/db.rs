@@ -104,18 +104,13 @@ impl Database {
             .map(str::to_owned)
             .unwrap_or_else(now);
         let get = |key: &str| patch.get(key).and_then(Value::as_str).unwrap_or("");
-        let workflows = patch
-            .get("workflows")
-            .cloned()
-            .unwrap_or_else(|| json!([]))
-            .to_string();
         self.durable().execute(
-            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,workflows,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
             params![
                 id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"), get("jql"),
                 get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
                 bool_int(patch.get("fixVersionEnabled"), false), get("fixVersionPrefix"),
-                get("fixVersionScript"), workflows, get("ide"), get("ideCmd"), get("ideTarget"),
+                get("fixVersionScript"), get("ide"), get("ideCmd"), get("ideTarget"),
                 get("runScheme"), get("runSim"), get("worktreeSetup"), get("worktreeInclude"),
                 created_at,
             ],
@@ -143,7 +138,6 @@ impl Database {
             ("fixVersionEnabled", "fix_version_enabled", FieldKind::Bool),
             ("fixVersionPrefix", "fix_version_prefix", FieldKind::String),
             ("fixVersionScript", "fix_version_script", FieldKind::String),
-            ("workflows", "workflows", FieldKind::Json),
             ("ide", "ide", FieldKind::String),
             ("ideCmd", "ide_cmd", FieldKind::String),
             ("ideTarget", "ide_target", FieldKind::String),
@@ -166,7 +160,6 @@ impl Database {
                 FieldKind::Bool => {
                     rusqlite::types::Value::Integer(i64::from(value.as_bool().unwrap_or(false)))
                 }
-                FieldKind::Json => rusqlite::types::Value::Text(value.to_string()),
             });
         }
         if !sets.is_empty() {
@@ -760,7 +753,6 @@ impl Database {
 enum FieldKind {
     String,
     Bool,
-    Json,
 }
 
 fn migrate_legacy_name(data_dir: &Path) {
@@ -814,7 +806,6 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE projects ADD COLUMN fix_version_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN fix_version_prefix TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN fix_version_script TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE projects ADD COLUMN workflows TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN ide TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN ide_cmd TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN ide_target TEXT NOT NULL DEFAULT ''",
@@ -901,7 +892,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         "jql": row.get::<_,String>("jql")?, "mergeTransition": row.get::<_,String>("merge_transition")?,
         "forwardWebhooks": row.get::<_,i64>("forward_webhooks")? != 0, "created_at": row.get::<_,String>("created_at")?,
         "fixVersionEnabled": row.get::<_,i64>("fix_version_enabled")? != 0,
-        "fixVersionScript": text(row,"fix_version_script")?, "workflows": parse_json(&text(row,"workflows")?, json!([])),
+        "fixVersionScript": text(row,"fix_version_script")?,
         "ide": text(row,"ide")?, "ideCmd": text(row,"ide_cmd")?, "ideTarget": text(row,"ide_target")?,
         "runScheme": text(row,"run_scheme")?, "runSim": text(row,"run_sim")?,
         "worktreeSetup": text(row,"worktree_setup")?, "worktreeInclude": text(row,"worktree_include")?,

@@ -15,7 +15,9 @@ import Observation
     private(set) var mine: [DashboardRow] = []
     /// Pull requests in the user's review orbit, newest first.
     private(set) var reviews: [DashboardRow] = []
-    /// Each Pull Requests tag's count over `mine`.
+    /// Everyone else's open pull requests, review orbit included, newest first.
+    private(set) var others: [DashboardRow] = []
+    /// Each Pull Requests tag's count over the rows `author` and `project` leave.
     private(set) var counts: [Filter: Int] = [:]
     /// Every Jira key a shown pull request references, against that pull request's number. The
     /// lowest number wins when two PRs name one ticket, so the link does not flip between them as
@@ -36,6 +38,10 @@ import Observation
     private(set) var updated: Date?
     private(set) var error: String?
     var filter: Filter = .all { didSet { if filter != oldValue { updateGroups() } } }
+    /// Whose pull requests the Pull Requests tab lists.
+    var author: Author = .mine { didSet { if author != oldValue { updateGroups() } } }
+    /// The one project the Pull Requests tab lists, or nil for every project.
+    var project: String? { didSet { if project != oldValue { updateGroups() } } }
 
     @ObservationIgnored private var service: (any DashboardService)?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -143,10 +149,11 @@ import Observation
         publishedSequence = sequence
         defer { updated = Date(); error = nil }
         self.projects = projects
+        if let project, !projects.contains(where: { $0.id == project }) { self.project = nil }
         if visibleRows != snapshot.visibleRows { visibleRows = snapshot.visibleRows }
         if mine != snapshot.mine { mine = snapshot.mine }
         if reviews != snapshot.reviews { reviews = snapshot.reviews }
-        if counts != snapshot.counts { counts = snapshot.counts }
+        if others != snapshot.others { others = snapshot.others }
         if linkedPRs != snapshot.linkedPRs { linkedPRs = snapshot.linkedPRs }
         if tile != snapshot.tile { tile = snapshot.tile }
         if reviewTile != snapshot.reviewTile { reviewTile = snapshot.reviewTile }
@@ -168,8 +175,16 @@ import Observation
         if avatars != value { avatars = value }
     }
 
+    /// How many open pull requests `author` has in the chosen project, or in every project.
+    func count(_ author: Author) -> Int {
+        (author == .mine ? mine : others).reduce(0) { $0 + (project == nil || $1.projectID == project ? 1 : 0) }
+    }
+
     private func updateGroups() {
-        let value = Self.group(mine, in: projects, by: filter)
+        let rows = (author == .mine ? mine : others).filter { project == nil || $0.projectID == project }
+        let counts = Self.counts(rows)
+        if self.counts != counts { self.counts = counts }
+        let value = Self.group(rows, in: projects, by: filter)
         if groups != value { groups = value }
     }
 }
@@ -181,6 +196,7 @@ extension DashboardPullRequestsModel {
         var visibleRows: [DashboardRow] = []
         var mine: [DashboardRow] = []
         var reviews: [DashboardRow] = []
+        var others: [DashboardRow] = []
         var counts: [Filter: Int] = [:]
         var linkedPRs: [String: String] = [:]
         var tile = Tile()
@@ -202,10 +218,9 @@ extension DashboardPullRequestsModel {
         var snapshot = Snapshot()
         snapshot.mine = rows.filter(\.isMine).sorted { $0.sortDate > $1.sortDate }
         snapshot.reviews = rows.filter { !$0.isMine && $0.inReviewGroup }.sorted { $0.sortDate > $1.sortDate }
+        snapshot.others = rows.filter { !$0.isMine }.sorted { $0.sortDate > $1.sortDate }
         snapshot.visibleRows = rows.filter { $0.isMine || $0.inReviewGroup }
-        snapshot.counts = Dictionary(uniqueKeysWithValues: Filter.allCases.map { filter in
-            (filter, snapshot.mine.reduce(0) { $0 + (filter.matches($1) ? 1 : 0) })
-        })
+        snapshot.counts = counts(snapshot.mine)
         var linked: [String: Int] = [:]
         for row in snapshot.visibleRows {
             guard let number = row.pr.number else { continue }
@@ -223,7 +238,14 @@ extension DashboardPullRequestsModel {
         return snapshot
     }
 
-    /// The user's pull requests under one tag, a group per project in the snapshot's project order.
+    /// Each tag's count over `rows`.
+    nonisolated static func counts(_ rows: [DashboardRow]) -> [Filter: Int] {
+        Dictionary(uniqueKeysWithValues: Filter.allCases.map { filter in
+            (filter, rows.reduce(0) { $0 + (filter.matches($1) ? 1 : 0) })
+        })
+    }
+
+    /// Pull requests under one tag, a group per project in the snapshot's project order.
     nonisolated static func group(_ rows: [DashboardRow], in projects: [DashboardProject], by filter: Filter) -> [ProjectGroup] {
         let rows = Dictionary(grouping: rows.filter(filter.matches), by: \.projectID)
         return projects.compactMap { project in rows[project.id].map { ProjectGroup(project: project, rows: $0) } }
@@ -233,7 +255,14 @@ extension DashboardPullRequestsModel {
 // MARK: - Types
 
 extension DashboardPullRequestsModel {
-    /// The Pull Requests tab's tags, each a check state or review state of the user's own.
+    /// Whose pull requests the Pull Requests tab lists.
+    enum Author: String, CaseIterable, Identifiable, Sendable {
+        case mine, others
+        var id: String { rawValue }
+        var title: String { self == .mine ? String(localized: "Mine") : String(localized: "Others") }
+    }
+
+    /// The Pull Requests tab's tags, each a check state or review state.
     enum Filter: String, CaseIterable, Identifiable, Sendable {
         case all, failing, running, changesRequested, approved, drafts
         var id: String { rawValue }

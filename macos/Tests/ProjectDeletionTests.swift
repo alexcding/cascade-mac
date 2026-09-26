@@ -33,7 +33,6 @@ private actor ProjectDeletionService: ProjectService {
         if let gate { self.gate = nil; try await gate.wait() }
     }
     func detectRepository(_ path: String) -> String { "" }
-    func pullRequests(_ id: String, state: String, force: Bool) -> ProjectPRSnapshot { .init() }
 }
 
 @MainActor private final class ProjectDeletionRuntime: RootCoordinating, ProjectCoordinating {
@@ -59,7 +58,7 @@ private actor ProjectDeletionService: ProjectService {
 }
 
 @MainActor private func deletionModel(service: any ProjectService) -> ProjectPageViewModel {
-    ProjectPageViewModel(project: deletionProject, service: service,
+    ProjectPageViewModel(project: deletionProject,
         editor: ProjectEditorViewModel(project: deletionProject, service: service, chooseFolder: { nil }))
 }
 

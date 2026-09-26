@@ -163,43 +163,7 @@ struct ProjectPageView: View {
             case .board:
                 if let board = model.board { WebBoardView(model: board) }
             case .settings: ProjectEditorView(model: model.editor)
-            case .workflows:
-                if let workflows = model.workflows { WorkflowEditorView(model: workflows) }
-            case .prs:
-                HStack {
-                    TextField("Search project pull requests", text: Binding(get: { model.search }, set: model.setSearch)).textFieldStyle(.roundedBorder)
-                    Picker("State", selection: Binding(get: { model.state }, set: model.setState)) {
-                        Text("Open PRs").tag("open"); Text("Merged").tag("merged"); Text("All").tag("all")
-                    }.frame(width: 140).accessibilityIdentifier("project-pr-state")
-                    if model.loading || model.refreshing { ProgressView().controlSize(.small) }
-                }
-                if let error = model.error {
-                    Text(error).foregroundStyle(.orange).textSelection(.enabled)
-                    Button("Retry pull requests", action: model.retry).disabled(model.refreshing)
-                }
-                if let error = model.actionError { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(model.warnings.enumerated()), id: \.offset) { _, message in
-                            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
-                        }
-                        if model.rows.isEmpty && model.refreshing {
-                            Text("Refreshing pull requests…").foregroundStyle(.secondary).padding(.vertical, 20)
-                        } else if model.rows.isEmpty && !model.loading && model.error == nil {
-                            Text(model.project.repo.isEmpty ? String(localized: "Configure a GitHub repository in Settings to track pull requests.") : String(localized: "No matching pull requests."))
-                                .foregroundStyle(.secondary).padding(.vertical, 20)
-                        }
-                        ForEach(model.rows) { row in
-                            DashboardCard(row: row, opening: model.opening.contains(row.id),
-                                          open: { model.open(row) }, openTab: { model.open(row, inTab: true) },
-                                          session: { model.openSession(row, agent: $0) },
-                                          sessionMark: model.sessionMark(row))
-                            Divider()
-                        }
-                    }
-                }
             }
-        }.task { await model.refresh() }
-        .onDisappear(perform: model.cancelRefresh)
+        }
     }
 }

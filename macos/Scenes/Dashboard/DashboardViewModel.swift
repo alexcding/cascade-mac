@@ -67,7 +67,7 @@ import Observation
         tickets.linkedPRs = prs.linkedPRs
         updateSearch()
         snapshotChanged()
-        if let url = navigation.opening, !prs.visibleRows.contains(where: { $0.url.absoluteString == url }) { cancelActions() }
+        if let url = navigation.opening, !(prs.visibleRows + prs.others).contains(where: { $0.url.absoluteString == url }) { cancelActions() }
     }
 }
 
@@ -199,7 +199,10 @@ extension DashboardViewModel {
 
     func cancelActions() { navigation.cancel() }
 
-    private func currentRow(_ row: DashboardRow) -> DashboardRow? { prs.visibleRows.first { $0.id == row.id } }
+    /// A row still shown anywhere: the user's own and review orbit, or the Pull Requests tab's Others.
+    private func currentRow(_ row: DashboardRow) -> DashboardRow? {
+        prs.visibleRows.first { $0.id == row.id } ?? prs.others.first { $0.id == row.id }
+    }
     private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? { tickets.rows.first { $0.id == row.id } }
 
     /// The one way out for an open: dropped for a row no longer shown, otherwise handed to the

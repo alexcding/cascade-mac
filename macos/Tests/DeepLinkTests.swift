@@ -14,6 +14,10 @@ import Testing
     #expect(chain.first == .destination(.project("p-123")))
     #expect(chain.droppingFirst() == DeepLink(.projectSection(.board)))
     #expect(chain.droppingFirst().droppingFirst().routes.isEmpty)
+    // Sections the project page dropped still open the project.
+    for retired in ["prs", "workflows"] {
+        #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/\(retired)")!) == DeepLink(.destination(.project("p-123"))))
+    }
     #expect(router.url(for: DeepLink(.destination(.tab("https://example.test")))) == nil)
     #expect(router.url(for: DeepLink([.destination(.terminal), .projectSection(.board)])) == nil)
     #expect(router.url(for: DeepLink(.destination(.session("../s")))) == nil)
@@ -70,7 +74,6 @@ private struct DeepLinkProjectService: ProjectService {
     func save(_ draft: ProjectDraft, id: String?) async throws -> Project { throw CancellationError() }
     func delete(_ id: String) async throws {}
     func detectRepository(_ path: String) async throws -> String { "" }
-    func pullRequests(_ id: String, state: String, force: Bool) async throws -> ProjectPRSnapshot { .init() }
 }
 
 private struct DeepLinkLogsService: LogService {
@@ -164,7 +167,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     let project = Project(id: "p", name: "Fixture", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
     let service = DeepLinkProjectService()
     let editor = ProjectEditorViewModel(project: project, service: service, chooseFolder: { nil })
-    let model = ProjectPageViewModel(project: project, service: service, editor: editor)
+    let model = ProjectPageViewModel(project: project, editor: editor)
     runtime.state.projects = [project]; runtime.state.projectModels[project.id] = model
     coordinator.setRoutingReady(true)
     #expect(coordinator.selection == .project("p") && model.section == .board)

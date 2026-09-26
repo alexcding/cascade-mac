@@ -33,7 +33,6 @@ private actor RefreshTransport: BackendTransport {
             body = includesSession ? #"[{"id":"s","projectId":"p","workspace":"/fixture","worktree":"/fixture/work","title":"Session","branch":"feature","url":"","pinned":true}]"# : "[]"
         case Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
         case Routes.projectJira("p"), Routes.projectBoard("p"): body = #"{"items":[]}"#
-        case Routes.projectPrs("p"): body = #"{"prs":[],"refreshing":false}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
         default: body = "{}"
         }

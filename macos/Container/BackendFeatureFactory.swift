@@ -5,7 +5,6 @@ import Foundation
 @MainActor protocol BackendFeatureFactory {
     func projects(api: APIClient) -> any ProjectService
     func tickets(api: APIClient) -> any JiraService
-    func workflows(api: APIClient) -> any WorkflowService
     func automation(api: APIClient) -> any AutomationService
     func dashboard(api: APIClient) -> any DashboardService
     func logs(api: APIClient) -> any LogService
@@ -19,10 +18,6 @@ import Foundation
     func sessions(api: APIClient) -> any SessionServing
     func ideWarmup(api: APIClient) -> any IDEWarmupServing
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving
-    func workflowService(api: APIClient) -> any WorkflowRunService
-    func workflowPreparation(api: APIClient) -> any WorkflowPagePreparing
-    func workflowRun(api: APIClient, recipes: [WorkflowRecipe], context: @escaping () -> [String: String],
-                     prepare: @escaping (WorkflowCLI) async throws -> any WorkflowTerminal) -> WorkflowRunViewModel
 }
 
 @MainActor struct NativeBackendFeatureFactory: BackendFeatureFactory {}
@@ -30,7 +25,6 @@ import Foundation
 extension BackendFeatureFactory {
     func projects(api: APIClient) -> any ProjectService { APIProjectService(api: api) }
     func tickets(api: APIClient) -> any JiraService { APIJiraService(api: api) }
-    func workflows(api: APIClient) -> any WorkflowService { APIWorkflowService(api: api) }
     func automation(api: APIClient) -> any AutomationService { APIAutomationService(api: api) }
     func dashboard(api: APIClient) -> any DashboardService { APIDashboardService(api: api) }
     func logs(api: APIClient) -> any LogService { APILogService(api: api) }
@@ -46,16 +40,8 @@ extension BackendFeatureFactory {
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }
-    func workflowService(api: APIClient) -> any WorkflowRunService { APIWorkflowRunService(api: api) }
-    func workflowPreparation(api: APIClient) -> any WorkflowPagePreparing {
-        APIWorkflowPagePreparation(operations: sessions(api: api))
-    }
-    func workflowRun(api: APIClient, recipes: [WorkflowRecipe], context: @escaping () -> [String: String],
-                     prepare: @escaping (WorkflowCLI) async throws -> any WorkflowTerminal) -> WorkflowRunViewModel {
-        WorkflowRunViewModel(recipes: recipes, service: workflowService(api: api), context: context, prepare: prepare)
-    }
     func projectServices(api: APIClient) -> ProjectFeatureServices {
         ProjectFeatureServices(projects: projects(api: api), tickets: tickets(api: api),
-            workflows: workflows(api: api), api: api, baseURL: api.baseURL)
+            api: api, baseURL: api.baseURL)
     }
 }

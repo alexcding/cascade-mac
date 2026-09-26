@@ -87,9 +87,10 @@ private actor DashboardFixture: DashboardService {
     #expect(model.navigation.error == error && model.prs.error == nil)
     actions.failOpen = false; model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.last?.category == "review" && model.navigation.error == nil)
-    let hiddenProject = try #require(model.prs.projects.first { $0.prs.contains { $0.number == 3 } })
-    let hiddenPR = try #require(hiddenProject.prs.first { $0.number == 3 })
-    let hidden = DashboardRow(projectID: hiddenProject.id, projectName: hiddenProject.name, pr: hiddenPR, url: URL(string: hiddenPR.url!)!)
+    // Every open PR is shown now, Others included, so only a row the snapshot never held is refused.
+    let project = try #require(model.prs.projects.first)
+    let missing = try JSONDecoder().decode(DashboardPR.self, from: Data(#"{"number":999,"title":"Gone","url":"https://github.com/o/r/pull/999","state":"OPEN","category":"other"}"#.utf8))
+    let hidden = DashboardRow(projectID: project.id, projectName: project.name, pr: missing, url: URL(string: missing.url!)!)
     model.open(hidden); model.openSession(hidden); await model.navigation.waitForOpen()
     #expect(!actions.opened.contains { $0.url == hidden.url.absoluteString })
     root.dashboardCoordinator?.retire()

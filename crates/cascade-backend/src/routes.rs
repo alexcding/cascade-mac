@@ -13,7 +13,6 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio_stream::wrappers::BroadcastStream;
 use url::Url;
-use uuid::Uuid;
 
 use crate::{error::ApiError, AppState};
 
@@ -351,77 +350,6 @@ pub async fn delete_project(
     state.db.delete_project(&id)?;
     state.broadcast(json!({ "type": "sync", "projectId": id }));
     Ok(Json(json!({ "ok": true })))
-}
-
-#[derive(Default, Deserialize)]
-pub struct ProjectPrQuery {
-    state: Option<String>,
-    snapshot: Option<String>,
-    refresh: Option<String>,
-}
-
-pub async fn project_prs(
-    State(app): State<AppState>,
-    Path(id): Path<String>,
-    Query(query): Query<ProjectPrQuery>,
-) -> ApiResult<Value> {
-    let project = app
-        .db
-        .project(&id)?
-        .ok_or_else(|| ApiError::not_found("Not found"))?;
-    let state = query.state.as_deref().unwrap_or("open");
-    if !["open", "merged", "closed", "all"].contains(&state) {
-        return Err(ApiError::bad_request("Invalid pull request state"));
-    }
-    let identity = serde_json::to_string(&json!([
-        project["repo"],
-        project["jiraProjectKey"],
-        project["created_at"]
-    ]))
-    .unwrap();
-    let mut snapshot = app
-        .db
-        .pr_snapshot(&id, state, Some(&identity))?
-        .unwrap_or_else(empty_pr_snapshot);
-    let stale = snapshot
-        .get("lastSynced")
-        .and_then(Value::as_str)
-        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
-        .is_none_or(|v| {
-            chrono::Utc::now()
-                .signed_duration_since(v.with_timezone(&chrono::Utc))
-                .num_seconds()
-                > 30
-        });
-    let refresh_requested = query.refresh.as_deref() == Some("1") || stale;
-    if refresh_requested {
-        let app_copy = app.clone();
-        let project_copy = project.clone();
-        let state_copy = state.to_owned();
-        tokio::spawn(async move {
-            let poller = app_copy.poller.clone();
-            if state_copy == "open" {
-                poller.sync_project(&app_copy, project_copy).await
-            } else {
-                poller
-                    .sync_pr_scope(&app_copy, project_copy, &state_copy)
-                    .await
-            }
-        });
-    }
-    if query.snapshot.as_deref() == Some("1") {
-        snapshot["refreshing"] = json!(refresh_requested || app.poller.pr_syncing(&project, state));
-        return Ok(Json(snapshot));
-    }
-    let mut prs = snapshot
-        .get("prs")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if let Some(error) = snapshot.get("error").and_then(Value::as_str) {
-        prs.push(json!({ "repo": project["repo"], "error": error }));
-    }
-    Ok(Json(Value::Array(prs)))
 }
 
 #[derive(Default, Deserialize)]
@@ -861,6 +789,12 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
         }
         patch.insert("ideTarget".into(), Value::String(rel.into()));
     }
+    if let Some(value) = body.get("forwardWebhooks") {
+        let forward = value
+            .as_bool()
+            .ok_or_else(|| ApiError::bad_request("forwardWebhooks must be true or false"))?;
+        patch.insert("forwardWebhooks".into(), Value::Bool(forward));
+    }
     if let Some(value) = body.get("repo") {
         let raw = value.as_str().unwrap_or_default().trim();
         let repo = if raw.is_empty() {
@@ -872,29 +806,7 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
         };
         patch.insert("repo".into(), Value::String(repo));
     }
-    if let Some(workflows) = body.get("workflows") {
-        patch.insert("workflows".into(), sanitize_workflows(workflows));
-    }
     Ok(patch)
-}
-
-fn sanitize_workflows(value: &Value) -> Value {
-    let Some(items) = value.as_array() else {
-        return json!([]);
-    };
-    Value::Array(items.iter().take(20).map(|workflow| {
-        let steps=workflow.get("steps").and_then(Value::as_array).or_else(||workflow.get("commands").and_then(Value::as_array));
-        let steps=steps.into_iter().flatten().filter_map(|step| {
-            let (title,command)=if let Some(command)=step.as_str() { ("",command) } else { (step.get("title").and_then(Value::as_str).unwrap_or(""),step.get("command").and_then(Value::as_str).unwrap_or("")) };
-            if command.trim().is_empty() { None } else { Some(json!({"title":truncate(title,120),"command":truncate(command,500)})) }
-        }).take(20).collect::<Vec<_>>();
-        json!({
-            "id": workflow.get("id").and_then(Value::as_str).filter(|v|!v.is_empty()).map(|v|truncate(v,64)).unwrap_or_else(||Uuid::new_v4().to_string()),
-            "name": truncate(workflow.get("name").and_then(Value::as_str).unwrap_or(""),80),
-            "cli": if workflow.get("cli").and_then(Value::as_str)==Some("codex") {"codex"} else {"claude"},
-            "steps": steps,
-        })
-    }).collect())
 }
 
 fn parse_repo(input: &str) -> Option<String> {
@@ -946,9 +858,6 @@ fn required_string<'a>(body: &'a Value, key: &str, error: &str) -> Result<&'a st
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::bad_request(error))
-}
-fn truncate(value: &str, max: usize) -> String {
-    value.chars().take(max).collect()
 }
 fn empty_pr_snapshot() -> Value {
     json!({"prs":[],"lastSynced":null,"error":null})

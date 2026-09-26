@@ -69,9 +69,9 @@ private actor KeyStartService: SessionCreating {
     private(set) var createdDraft: SessionDraft?
     init(_ draft: SessionDraft) { self.draft = draft }
     func references(_ project: Project) -> GitReferences { GitReferences(branches: [.init(name: "main")], defaultBranch: "main") }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft, workflow: Bool) -> SessionDraft { self.draft }
+    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) -> SessionDraft { self.draft }
     func switchMainCheckout(to branch: String, project: Project) {}
-    func create(project: Project, draft: SessionDraft, requireExactBranch: Bool) -> WorkspaceSession {
+    func create(project: Project, draft: SessionDraft) -> WorkspaceSession {
         createdDraft = draft
         return WorkspaceSession(id: "page", projectId: project.id, workspace: project.workspace, worktree: "/tmp/new",
                                 title: draft.title, branch: draft.branch, url: draft.url, createdAt: nil, pinned: false, jiraKey: draft.jiraKey)
@@ -150,7 +150,7 @@ private struct RoutingRows: DashboardService {
     let factory = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
     var asked: [OpenPageRequest] = []
     let model = factory.project(project, services: .init(projects: ProjectPageService(), tickets: service,
-        workflows: APIWorkflowService(api: api), api: api, baseURL: base),
+        api: api, baseURL: base),
         openPage: { _ in }, session: { asked.append($0); return $0.url.hasSuffix("REC-1") ? PageSessionMark(cli: "") : nil })
     let tickets = try #require(model.tickets)
     tickets.refresh()
@@ -160,17 +160,6 @@ private struct RoutingRows: DashboardService {
     let ticketAsk = try #require(asked.first)
     #expect(ticketAsk.inSession && ticketAsk.projectID == "w" && ticketAsk.kind == "jira" && ticketAsk.url == "https://jira.example.test/browse/REC-1")
     #expect(tickets.sessionMark(JiraTicket(key: "FOREIGN-99")) == nil)
-    // PR rows ask with the row's project and branch.
-    let row = try JSONDecoder().decode([DashboardProject].self, from: Data(#"""
-    [{"id":"w","name":"Widgets","repo":"acme/widgets","prs":[{"number":1,"title":"REC-1 fix","url":"https://github.com/acme/widgets/pull/REC-1","state":"OPEN","category":"mine","headRefName":"REC-1-fix","jiraKeys":["REC-1"]}]}]
-    """#.utf8)).flatMap { project in project.prs.compactMap { pr in
-        URL(string: pr.url ?? "").map { DashboardRow(projectID: project.id, projectName: project.name, pr: pr, url: $0) } } }
-    let pr = try #require(row.first)
-    #expect(model.sessionMark(pr) != nil)
-    let prAsk = try #require(asked.last)
-    #expect(prAsk.inSession && prAsk.projectID == "w" && prAsk.branch == "REC-1-fix" && prAsk.jiraKeys == ["REC-1"])
-    // A project page with no page actions has no sessions to report.
-    #expect(ProjectPageViewModel(project: project, service: ProjectPageService(), editor: model.editor).sessionMark(pr) == nil)
     await tickets.stop()
 }
 

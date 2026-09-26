@@ -9,7 +9,6 @@ import Observation
     var build: BuildWorkspaceViewModel?
     var history: GitHistoryViewModel?
     var diff: DiffViewModel?
-    var workflow: WorkflowRunViewModel?
     var appearance: AppAppearance = .system
     var documentFont = CodeFont(size: 12)
     var editorStyle = EditorStyle()
@@ -113,10 +112,6 @@ extension WorkspaceServing {
     var build: BuildWorkspaceViewModel? { state.build }
     var history: GitHistoryViewModel? { state.history }
     var diff: DiffViewModel? { state.diff }
-    var workflow: WorkflowRunViewModel? {
-        guard let model = state.workflow, !model.recipes.isEmpty || model.running else { return nil }
-        return model
-    }
     var appearance: AppAppearance { state.appearance }
     var launchError: String? { state.launchError }
     var editorID: String? { state.editorID }
@@ -433,8 +428,8 @@ extension WorkspaceServing {
                     let joined = files.map(\.path).joined(separator: " ")
                     // Everything is checked before anything is typed, so a message the terminal
                     // refuses leaves nothing half-written in the agent's prompt.
-                    let paths = try files.isEmpty ? nil : NativeWorkflowTerminal.paste(command ? " " + joined : joined + " ")
-                    let pasted = try text.isEmpty ? nil : NativeWorkflowTerminal.paste(text)
+                    let paths = try files.isEmpty ? nil : TerminalSession.paste(command ? " " + joined : joined + " ")
+                    let pasted = try text.isEmpty ? nil : TerminalSession.paste(text)
                     let multiline = text.contains("\n")
                     if let paths, !command {
                         try await terminal.writeWorkflowInput(paths)

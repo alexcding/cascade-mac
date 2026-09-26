@@ -52,9 +52,6 @@ import Observation
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
             model.cancelActions()
             deletionConfirmation = request
-        case .pullRequest(let request):
-            guard !isPresenting, canPresent(), model.section == .prs else { return }
-            model.openPage(request)
         case .jiraTicket(.open(let request)):
             guard !isPresenting, canPresent(), model.section == .tickets else { return }
             model.tickets?.navigation.open(request)

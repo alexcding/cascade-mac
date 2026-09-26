@@ -21,11 +21,6 @@ import SwiftUI
                     .help(String(localized: "Start an agent session for this page in its project"))
             })
         }
-        if model.session != nil, model.workflow != nil {
-            // Flat, like the title at the other end: the run controls carry their own shapes, and a
-            // glass capsule around them only boxes in what is already legible.
-            toolbar.trailing.append(item("run-group", style: .plain) { SessionWorkspaceLeadingToolbar(model: model) })
-        }
         if let driver = model.agentDriver {
             toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
         }
