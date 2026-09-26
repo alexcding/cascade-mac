@@ -18,6 +18,7 @@ struct CocoaSidebar: NSViewRepresentable {
     var onNewSession: (String) -> Void = { _ in }
     var onCloseTab: (String) -> Void = { _ in }
     var onNewTab: () -> Void = {}
+    var onNewProject: () -> Void = {}
     var onMoveTab: (String, String?) -> Void = { _, _ in }
     var onMoveProject: (String, String?) -> Void = { _, _ in }
     var onMoveSession: (String, String?) -> Void = { _, _ in }
@@ -337,7 +338,7 @@ struct CocoaSidebar: NSViewRepresentable {
         }
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
             let row = SidebarRowView()
-            row.hoverable = (item as? Node).map { $0.entry.destination != nil || $0.entry.role == .tabsHeader } ?? false
+            row.hoverable = (item as? Node).map { $0.entry.hoverable } ?? false
             return row
         }
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -351,8 +352,8 @@ struct CocoaSidebar: NSViewRepresentable {
                 configure(cell, node: node)
                 return cell
             }
-            // Headings never share a cell with rows: the table sets a group row's font when the
-            // cell goes in, and a cell reused from a row would keep the row's.
+            // Headings never share a cell with rows: each kind sets its own font and colour, and a
+            // cell reused from the other kind would start from the wrong one.
             let identifier = NSUserInterfaceItemIdentifier(node.entry.isHeading ? "sidebar-heading" : "sidebar-cell")
             let cell = outlineView.makeView(withIdentifier: identifier, owner: self) as? SidebarCellView ?? {
                 let cell = SidebarCellView()
@@ -388,11 +389,12 @@ struct CocoaSidebar: NSViewRepresentable {
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewSession = { [weak self] id in self?.parent.onNewSession(id) }
             cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
-        cell.onNewTab = { [weak self] in self?.parent.onNewTab() }
+            cell.onNewTab = { [weak self] in self?.parent.onNewTab() }
+            cell.onNewProject = { [weak self] in self?.parent.onNewProject() }
             cell.configure(node.entry, nested: nested, spinFrame: spinFrame,
                            shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
             if row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) as? SidebarRowView {
-                rowView.hoverable = node.entry.destination != nil || node.entry.role == .tabsHeader
+                rowView.hoverable = node.entry.hoverable
                 cell.hovered = rowView.hovered
             }
         }
@@ -470,6 +472,10 @@ struct CocoaSidebar: NSViewRepresentable {
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
+            if case .project = destination, case .project(canCreateSession: true) = node.entry.role {
+                add("New Session", action: #selector(newSession(_:)))
+                menu.addItem(.separator())
+            }
             if node.entry.detail.hasPrefix("/") {
                 if case .session = destination, let title = parent.gitClientLabel {
                     add(title, action: #selector(openGitClient(_:)))
@@ -528,6 +534,10 @@ struct CocoaSidebar: NSViewRepresentable {
                 rename(alert.runModal())
             }
         }
+        @objc private func newSession(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, case .project(let id) = node.entry.destination else { return }
+            parent.onNewSession(id)
+        }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             parent.onRemoveSession(id)
@@ -570,6 +580,8 @@ enum SidebarPalette {
     static let text = dynamic(0x16181d, 0xe8e8e8)      // --text
     static let text2 = dynamic(0x565d68, 0xa2a2a2)     // --text-2
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
+    /// A hover "+" at rest; the section headings and project folders share it.
+    static let accessory = text3.withAlphaComponent(0.8)
     /// A row's symbol, sampled from Finder's own sidebar in each appearance. No one system colour is
     /// both: `systemGray` is this in light mode, but resolves well dimmer than Finder in dark.
     static let icon = dynamic(0x8d8d92, 0xc1c4cb)
@@ -588,7 +600,14 @@ enum SidebarPalette {
 /// A medium source list's own measures, and the few the cell adds inside it.
 enum SidebarMetrics {
     static let rowHeight: CGFloat = 32       // what `.medium` rows measure
-    static let labelHeight: CGFloat = 19     // what a section header measures; the list adds the air above it
+    static let labelHeight: CGFloat = 23     // a section header, at `headingFont`; the list adds the air above it
+    // A point above the rows, and on the system font's weight axis between regular (400) and
+    // medium (510). A `weight:` between two named weights snaps to one of them.
+    nonisolated(unsafe) static let headingFont: NSFont = {
+        let size = NSFont.systemFontSize + 1
+        let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 450]])
+        return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
+    }()
     static let iconSlot: CGFloat = 24        // a row's leading icon; a session's glyph has its own narrower slot
     static let symbolSize: CGFloat = 17      // a row symbol's point size, a step up from the list's 13
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
@@ -654,6 +673,7 @@ enum SidebarGlyphs {
     var onNewSession: (String) -> Void = { _ in }
     var onCloseTab: (String) -> Void = { _ in }
     var onNewTab: () -> Void = {}
+    var onNewProject: () -> Void = {}
     var hovered = false { didSet { if oldValue != hovered { applyState() } } }
 
     private let icon = NSImageView()
@@ -715,11 +735,11 @@ enum SidebarGlyphs {
         shortcut.isHidden = hint == nil
         self.nested = nested
         title.stringValue = entry.title
-        // Only a heading's label is the table's to style. On macOS 27 the table also turns a selected
-        // row's label semibold, which makes the title jump as the selection moves; a row keeps its
-        // label to itself and sets the row size's font, so it reads the same selected or not.
-        textField = entry.isHeading ? title : nil
-        if !entry.isHeading { title.font = .systemFont(ofSize: NSFont.systemFontSize) }
+        // Every label is the cell's own to style. On macOS 27 the table turns a selected row's label
+        // semibold, which makes the title jump as the selection moves, and would set a heading in its
+        // small group font; a heading reads a point larger than the rows, a touch heavier.
+        textField = nil
+        title.font = entry.isHeading ? SidebarMetrics.headingFont : .systemFont(ofSize: NSFont.systemFontSize)
         setAccessibilityLabel(entry.title)
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
@@ -734,6 +754,13 @@ enum SidebarGlyphs {
             accessory.image = SidebarIcons.addSymbol
             accessory.toolTip = String(localized: "New tab")
             accessory.setAccessibilityLabel(String(localized: "New tab"))
+        case .projectsHeader(let canCreate):
+            icon.isHidden = true
+            if canCreate {
+                accessory.image = SidebarIcons.addSymbol
+                accessory.toolTip = String(localized: "New Project")
+                accessory.setAccessibilityLabel(String(localized: "New Project"))
+            }
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project(let canCreate):
@@ -837,14 +864,16 @@ enum SidebarGlyphs {
     }
 
     private func applyState() {
-        // The table never sets a colour, not even for the headings whose font it does set.
-        // These are system label colours, which follow the appearance and the selection by themselves.
-        title.textColor = entry.isHeading ? .secondaryLabelColor : stopped ? .tertiaryLabelColor : .labelColor
-        // Finder's grey, lighter than the title in light mode and dimmer than it in dark. No system
-        // label colour lands on both: secondary label is too dim in dark, --nav-text too dark in light.
-        icon.contentTintColor = SidebarPalette.icon
+        // A heading and a project folder, its name and its symbol, are in the "+"'s resting grey. Any
+        // other title is a system label colour, which follows the appearance and the selection by
+        // itself; any other symbol is Finder's grey, lighter than the title in light mode and dimmer
+        // than it in dark. No system label colour lands on both: secondary label is too dim in dark,
+        // --nav-text too dark in light.
+        let project = if case .project = entry.role { true } else { false }
+        title.textColor = entry.isHeading || project ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
+        icon.contentTintColor = project ? SidebarPalette.accessory : SidebarPalette.icon
         switch entry.role {
-        case .project(let canCreate): accessory.isHidden = !(hovered && canCreate)
+        case .project(let canCreate), .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
         case .session: accessory.isHidden = !hovered
         case .tab, .tabsHeader: accessory.isHidden = !hovered
         default: accessory.isHidden = true
@@ -854,6 +883,7 @@ enum SidebarGlyphs {
 
     @objc private func accessoryPressed() {
         if entry.role == .tabsHeader { onNewTab() }
+        else if case .projectsHeader = entry.role { onNewProject() }
         else if let id = entry.sessionID { onTogglePin(id) }
         else if let id = entry.projectID { onNewSession(id) }
         else if let id = entry.destination?.tabID { onCloseTab(id) }
@@ -886,7 +916,7 @@ enum SidebarGlyphs {
             NSRect(x: x, y: ((height - size) / 2).rounded(), width: size, height: size)
         }
         switch entry.role {
-        case .label, .tabsHeader:
+        case .label, .tabsHeader, .projectsHeader:
             title.sizeToFit()
             let titleHeight = title.frame.height
             // The heading's "+" sits in the same trailing slot as a project row's, centred on the title.
@@ -938,7 +968,7 @@ enum SidebarGlyphs {
 /// that darkens under the pointer — no plate of its own inside the row's highlight.
 @MainActor final class SidebarAccessoryButton: NSButton {
     private var tracking: NSTrackingArea?
-    private var pointed = false { didSet { contentTintColor = pointed ? SidebarPalette.text : SidebarPalette.text3.withAlphaComponent(0.8) } }
+    private var pointed = false { didSet { contentTintColor = pointed ? SidebarPalette.text : SidebarPalette.accessory } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -947,7 +977,7 @@ enum SidebarGlyphs {
         imagePosition = .imageOnly
         imageScaling = .scaleNone
         title = ""
-        contentTintColor = SidebarPalette.text3.withAlphaComponent(0.8)
+        contentTintColor = SidebarPalette.accessory
         focusRingType = .none
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

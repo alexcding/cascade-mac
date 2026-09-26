@@ -224,7 +224,7 @@ user collapses from the divider is told back to the workspace.
 - **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the
   main window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
   `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and
-  the pane's section; the sidebar's section is its toggle alone, on every screen — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the
+  the pane's section; the sidebar's section is its toggle alone, against the divider, on every screen — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the
   SwiftUI content, split by the sidebar and inspector tracking separators. It reads the
   description under observation, so what it reads redraws the toolbar.
 - **The pane draws its own bar, in the title-bar zone.** The pane column runs the window's
