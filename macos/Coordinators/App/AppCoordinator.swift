@@ -179,6 +179,9 @@ import Observation
             navigate(to: SidebarDestination.overview)
             // Through the model, like View All, so the list opens on every ticket, not a stale tag.
             dashboardCoordinator?.model.showTickets()
+        case .dashboardBoard(let id):
+            navigate(to: SidebarDestination.overview)
+            dashboardCoordinator?.model.showBoard(projectID: id)
         }
     }
 
