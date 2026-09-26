@@ -48,13 +48,19 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     }
 
     /// `project = OPS`, `project in (OPS, "WEB")`: the keys a JQL query's project clauses name.
+    /// A clause may name a project by its name or id instead (`project = "Mobile App"`), which no
+    /// ticket key carries; then the keys are unknown and this returns none, so nothing is filtered
+    /// out on a guess. Only an uppercase key-shaped value counts as a key.
     static func keys(fromJQL jql: String) -> [String] {
-        let pattern = #"(?i)\bproject\s*(?:=|\bin\b)\s*(\([^)]*\)|"[^"]*"|'[^']*'|[A-Za-z][A-Za-z0-9_]*)"#
+        let pattern = #"(?i)\bproject\s*(?:=|\bin\b)\s*(\([^)]*\)|"[^"]*"|'[^']*'|[^\s()]+)"#
         guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
         let source = jql as NSString
-        return keys(expression.matches(in: jql, range: NSRange(location: 0, length: source.length)).flatMap { match in
-            source.substring(with: match.range(at: 1)).trimmingCharacters(in: CharacterSet(charactersIn: "()")).split(separator: ",").map(String.init)
-        })
+        let values = expression.matches(in: jql, range: NSRange(location: 0, length: source.length)).flatMap { match in
+            source.substring(with: match.range(at: 1)).trimmingCharacters(in: CharacterSet(charactersIn: "()")).split(separator: ",")
+                .map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))) }
+        }
+        guard values.allSatisfy({ $0.range(of: #"^[A-Z][A-Z0-9_]+$"#, options: .regularExpression) != nil }) else { return [] }
+        return keys(values)
     }
 
     private static func keys(_ values: [String]) -> [String] {

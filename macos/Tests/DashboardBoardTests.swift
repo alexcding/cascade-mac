@@ -65,8 +65,8 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     #expect(!board.active)
     root.navigate(to: .overview)
     #expect(!model.ticketsShown && !board.active, "Overview lands on the Dashboard's home")
-    model.showTickets()
-    #expect(board.active)
+    model.selectTab(.tickets)
+    #expect(board.active, "The Tickets tab returns to the board it was left on")
     root.dashboardCoordinator?.retire()
     #expect(board.retired && !board.active)
 }
@@ -146,7 +146,7 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     #expect(model.tickets.rows.isEmpty && model.tickets.counts[.all] == 0)
     #expect(!model.tickets.fetchedNothing, "Jira did return tickets; none are tracked")
     // A JQL-only project claims the projects its query names.
-    model.tickets.projects = [jiraProject("ops", jql: #"assignee = currentUser() AND project in (WEB, "Other")"#)]
+    model.tickets.projects = [jiraProject("ops", jql: #"assignee = currentUser() AND project in (WEB, "OTHER")"#)]
     #expect(Set(model.tickets.rows.map(\.id)) == ["WEB-1", "OTHER-3"])
     // One whose query names no project could own anything, so nothing is left out.
     model.tickets.projects = [jiraProject("web", key: "WEB"), jiraProject("mine", jql: "assignee = currentUser()")]
@@ -155,8 +155,13 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
 
 @Test func jqlProjectClausesNameTheirKeys() {
     #expect(DashboardProject.keys(fromJQL: "project = OPS AND status != Done") == ["OPS"])
-    #expect(DashboardProject.keys(fromJQL: #"PROJECT IN ("web", ops) ORDER BY rank"#) == ["WEB", "OPS"])
+    #expect(DashboardProject.keys(fromJQL: #"PROJECT IN ("WEB", OPS) ORDER BY rank"#) == ["WEB", "OPS"])
     #expect(DashboardProject.keys(fromJQL: "assignee = currentUser()").isEmpty)
+    // A project named rather than keyed leaves the keys unknown, rather than a key no ticket has.
+    #expect(DashboardProject.keys(fromJQL: #"project = "Mobile App""#).isEmpty)
+    #expect(DashboardProject.keys(fromJQL: "project = 10001").isEmpty)
+    #expect(DashboardProject.keys(fromJQL: #"project in (OPS, "Mobile App")"#).isEmpty)
+    #expect(jiraProject("m", jql: #"project = "Mobile App""#).jiraKeys.isEmpty)
     #expect(jiraProject("x", key: "App, ops", jql: "project = IGNORED").jiraKeys == ["APP", "OPS"])
 }
 
@@ -180,4 +185,34 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     #expect(link.destination == .overview && link.droppingFirst().first == .dashboardBoard(projectID: "ops"))
     // Only the Dashboard carries a board; the pair is not valid under any other screen.
     #expect(DeepLink([.destination(.terminal), .dashboardBoard(projectID: "ops")]).destination == nil)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func overviewEntriesOpenWhatTheyCountWhileTheTabKeepsItsPlace() async throws {
+    let root = makeRoot()
+    let model = await connectedDashboard(root, ProjectPageActions(), freshDefaults(),
+        projects: [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")],
+        tickets: [ticketRow("WEB-1"), ticketRow("OPS-2")])
+    root.navigate(to: .overview)
+    model.showTickets(); model.setTicketsMode(.board); model.selectTicketProject("ops")
+    // The Tickets tab returns to My Tickets as it was left.
+    root.navigate(to: .overview); model.selectTab(.tickets)
+    #expect(model.ticketsMode == .board && model.tickets.project?.id == "ops" && model.board.active)
+    // An overview badge opens the list it counts: every project, under its tag.
+    root.navigate(to: .overview); model.showTickets(.urgent)
+    #expect(model.ticketsMode == .list && model.tickets.project == nil && model.tickets.filter == .urgent && !model.board.active)
+    #expect(model.board.project?.id == "ops", "The board keeps its own project for next time")
+    // The pull request tiles likewise open every project's, unfiltered.
+    model.selectTab(.pullRequests); model.prs.project = "web"; model.prs.filter = .failing
+    model.showPullRequests(.review)
+    #expect(model.prs.author == .review && model.prs.project == nil && model.prs.filter == .all)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aBoardRequestForAProjectWithoutABoardLapsesOnceProjectsLoad() async throws {
+    let board = DashboardBoardModel(pageActions: ProjectPageActions(), defaults: freshDefaults())
+    board.select("plain")
+    board.update(projects: [jiraProject("web", key: "WEB"), jiraProject("plain")])
+    #expect(board.project?.id == "web")
+    // "plain" gaining Jira later must not pull the board away from the one on screen.
+    board.update(projects: [jiraProject("web", key: "WEB"), jiraProject("plain", key: "PLN")])
+    #expect(board.project?.id == "web")
 }

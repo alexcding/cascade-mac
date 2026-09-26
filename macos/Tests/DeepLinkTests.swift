@@ -193,6 +193,9 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.navigate(to: SidebarDestination.terminal)
     coordinator.handle(url: URL(string: "cascade://app/projects/gone/board")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked project is no longer available.")
+    runtime.state.projects.append(Project(id: "plain", name: "No Jira", repo: "", color: nil, workspace: "/tmp"))
+    coordinator.handle(url: URL(string: "cascade://app/projects/plain/board")!)
+    #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked project has no Jira board.")
 }
 
 @MainActor @Test func deepLinkCoordinatorKeepsLatestValidIntentAndRevalidatesAfterReconnect() throws {
