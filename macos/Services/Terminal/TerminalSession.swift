@@ -53,7 +53,7 @@ final class TerminalSession: Identifiable {
         }
     }
     /// Between turns by the agent's own hooks: linked to its shell, and heard at its prompt with
-    /// no turn or workflow step open since. An agent whose hooks it has not heard is never idle.
+    /// no turn open since. An agent whose hooks it has not heard is never idle.
     var agentIdle: Bool { termID != nil && agentTurns.idle }
     private(set) var ready = false
     private(set) var style = TerminalStyle()
@@ -91,8 +91,8 @@ final class TerminalSession: Identifiable {
     /// Called as soon as the daemon has created a shell running `startupCommand`, before it is
     /// attached: whatever the command started is running from here on, attached or not.
     @ObservationIgnored var startupCommandStarted: (() async -> Void)?
-    @ObservationIgnored var launchedAgent: WorkflowCLI?
-    @ObservationIgnored var launchedAgentForeground: WorkflowForeground?
+    @ObservationIgnored var launchedAgent: AgentCLI?
+    @ObservationIgnored var launchedAgentForeground: ForegroundProcess?
 
     init(pairKey: String = "native-terminal-spike", cwd: String = FileManager.default.homeDirectoryForCurrentUser.path, paired: Bool = false,
          configuration: PtydConfiguration? = nil, shellPath: String? = nil,
@@ -461,13 +461,13 @@ final class TerminalSession: Identifiable {
         return result.atShell
     }
 
-    struct WorkflowForeground: Decodable, Equatable, Sendable {
+    struct ForegroundProcess: Decodable, Equatable, Sendable {
         let atShell: Bool
         let process: String
         var processPath: String?
         var pgid: Int32?
     }
-    func workflowForeground() async throws -> WorkflowForeground {
+    func foregroundProcess() async throws -> ForegroundProcess {
         guard ready, let client, let termID else { throw PtyError.closed }
         return try await client.request(.init(op: "foreground", term: termID))
     }
@@ -482,7 +482,7 @@ final class TerminalSession: Identifiable {
         try Task.checkCancellation()
         if let error { throw BackendError.operation(error) }
     }
-    func writeWorkflowInput(_ data: String) async throws {
+    func writeAgentInput(_ data: String) async throws {
         guard ready, let client, let termID else { throw PtyError.closed }
         guard commandWrites == 0 else { throw BackendError.operation(String(localized: "Another terminal command is being delivered.")) }
         commandWrites += 1
@@ -490,7 +490,7 @@ final class TerminalSession: Identifiable {
         do {
             let _: Bool? = try await client.request(.init(op: "write", term: termID, data: data))
         } catch {
-            setError(String(localized: "Workflow input delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting."), prefer: true)
+            setError(String(localized: "Message delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting."), prefer: true)
             throw error
         }
     }

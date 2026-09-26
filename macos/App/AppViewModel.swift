@@ -1177,22 +1177,22 @@ public final class AppViewModel {
         }
     }
 
-    /// Runs an agent's launch line at the shell and notes what came to the foreground, which is
-    /// how a workflow step later tells the agent it launched from one the user started.
+    /// Runs an agent's launch line at the shell and notes what came to the foreground, so the agent
+    /// it launched can later be told apart from one the user started.
     private func enterAgent(_ terminal: TerminalSession, command: String, cli: String) async throws {
         try await terminal.submit(command)
         try await noteAgent(terminal, cli: cli, started: false)
     }
 
     private func noteAgent(_ terminal: TerminalSession, cli: String, started: Bool) async throws {
-        terminal.launchedAgent = WorkflowCLI(rawValue: cli)
+        terminal.launchedAgent = AgentCLI(rawValue: cli)
         terminal.launchedAgentForeground = nil
         // A shell that starts the agent itself runs its startup files first, and what they run
         // holds the foreground briefly; there the agent is the program that keeps it.
         var held = 0
         var candidate: Int32?
         for _ in 0..<(started ? 500 : 100) {
-            let foreground = try await terminal.workflowForeground()
+            let foreground = try await terminal.foregroundProcess()
             if foreground.atShell { held = 0; candidate = nil }
             else {
                 held = foreground.pgid == candidate ? held + 1 : 0
@@ -1277,7 +1277,7 @@ public final class AppViewModel {
         guard let terminal = terminals[key], let agent = terminal.launchedAgentForeground?.pgid,
               changingSessions.insert(id).inserted else { return false }
         func stillIdle() -> Bool { terminals[key] === terminal && sessions.first { $0.id == id }.map(agentIdle) == true }
-        guard let foreground = try? await terminal.workflowForeground(), !foreground.atShell, foreground.pgid == agent,
+        guard let foreground = try? await terminal.foregroundProcess(), !foreground.atShell, foreground.pgid == agent,
               await processes.processGroups(of: agent) == [agent], stillIdle() else {
             changingSessions.remove(id)
             return false

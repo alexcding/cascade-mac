@@ -25,7 +25,7 @@ private final class EventLog: @unchecked Sendable {
 @MainActor @Test(.timeLimit(.minutes(1))) func terminalReportsForegroundAndDeliversBracketedPasteInput() async throws {
     _ = NSApplication.shared
     let root = TestPaths.checkout
-    let directory = URL(fileURLWithPath: "/tmp/th-workflow-\(UUID().uuidString.prefix(10))")
+    let directory = URL(fileURLWithPath: "/tmp/th-agent-\(UUID().uuidString.prefix(10))")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     defer { try? FileManager.default.removeItem(at: directory) }
     let shell = directory.appendingPathComponent("fixture-shell")
@@ -34,7 +34,7 @@ private final class EventLog: @unchecked Sendable {
     let agent = directory.appendingPathComponent("claude")
     let compiler = Process()
     compiler.executableURL = URL(fileURLWithPath: "/usr/bin/cc")
-    compiler.arguments = [root.appendingPathComponent("macos/scripts/workflow-echo-fixture.c").path, "-o", agent.path]
+    compiler.arguments = [root.appendingPathComponent("macos/scripts/agent-echo-fixture.c").path, "-o", agent.path]
     compiler.standardOutput = FileHandle.nullDevice; compiler.standardError = FileHandle.nullDevice
     try compiler.run(); compiler.waitUntilExit()
     try #require(compiler.terminationStatus == 0)
@@ -45,9 +45,9 @@ private final class EventLog: @unchecked Sendable {
     let hello = try await host.connect(client: control)
     defer { control.close(); _ = kill(hello.pid, SIGTERM) }
     let term: PtyInfo = try await control.request(.init(op: "create", opts: .init(cwd: directory.path, shell: shell.path,
-        pairKey: "workflow", stateResponseOwner: PtyHello.stateResponseOwnerVersion)))
+        pairKey: "agent", stateResponseOwner: PtyHello.stateResponseOwnerVersion)))
     defer { _ = kill(Int32(term.pid), SIGTERM) }
-    let session = TerminalSession(pairKey: "workflow", cwd: directory.path, configuration: config)
+    let session = TerminalSession(pairKey: "agent", cwd: directory.path, configuration: config)
     let view = WorkspaceTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
     view.delegate = session.surface; view.controller = session.surface.controller; view.configuration = session.surface.configuration
     let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -57,10 +57,10 @@ private final class EventLog: @unchecked Sendable {
     session.agentTurns.setStreamAvailable(true)
     // This private executable echoes bytes; no real coding agent is launched.
     try await session.submit("/bin/stty raw -echo; " + SessionAgent.quote(agent.path))
-    var foreground = try await session.workflowForeground()
+    var foreground = try await session.foregroundProcess()
     for _ in 0..<100 {
         if foreground.process == "claude" { break }
-        try await Task.sleep(for: .milliseconds(20)); foreground = try await session.workflowForeground()
+        try await Task.sleep(for: .milliseconds(20)); foreground = try await session.foregroundProcess()
     }
     try #require(foreground.process == "claude")
     var observedFile = stat(), fixtureFile = stat()
@@ -70,9 +70,9 @@ private final class EventLog: @unchecked Sendable {
     try #require(foreground.pgid != nil)
     let command = "/check\nSecond line 🦀"
     let pasted = try TerminalSession.paste(command)
-    try await session.writeWorkflowInput(pasted)
+    try await session.writeAgentInput(pasted)
     try await Task.sleep(for: .milliseconds(60))
-    try await session.writeWorkflowInput("\r")
+    try await session.writeAgentInput("\r")
     let expected = pasted + "\r"
     for _ in 0..<100 { if log.text.contains(expected) { break }; try await Task.sleep(for: .milliseconds(20)) }
     try #require(log.text.contains(expected))
@@ -82,7 +82,7 @@ private final class EventLog: @unchecked Sendable {
     #expect(!session.agentBusy)
     _ = kill(try #require(foreground.pgid), SIGTERM)
     for _ in 0..<100 { if try await session.atShell() { break }; try await Task.sleep(for: .milliseconds(20)) }
-    let after = try await session.workflowForeground()
+    let after = try await session.foregroundProcess()
     #expect(after.atShell)
     await session.stopConnecting(); try await host.stopExisting()
 }

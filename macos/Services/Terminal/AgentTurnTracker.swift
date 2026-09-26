@@ -10,7 +10,7 @@ import Observation
     private(set) var betweenTurns = false
     private(set) var revision: UInt64 = 0
     private(set) var streamAvailable = false
-    private(set) var cli: WorkflowCLI?
+    private(set) var cli: AgentCLI?
     private(set) var sessionID: String?
     @ObservationIgnored private var terminalID: String?
 
@@ -45,7 +45,7 @@ import Observation
     // still checks its durable session's CLI before persisting conversation IDs.
     @discardableResult func receive(_ event: ServerEvent) -> Bool {
         guard streamAvailable, let terminalID, event.runId == terminalID,
-              let raw = event.cli, let incomingCLI = WorkflowCLI(rawValue: raw),
+              let raw = event.cli, let incomingCLI = AgentCLI(rawValue: raw),
               ["agent-turn-start", "agent-turn-done"].contains(event.type) else { return false }
         let incomingID = event.sessionId.flatMap { $0.isEmpty ? nil : $0 }
         // A Stop for an older/different CLI conversation must not clear a newer
