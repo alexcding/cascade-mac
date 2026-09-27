@@ -579,8 +579,11 @@ final class CascadeUITests: XCTestCase {
         dashboard.click()
         app.radioButtons["Tickets"].click()
         app.descendants(matching: .any)["dashboard-tickets-mode-board"].firstMatch.click()
-        // The fixture's one Jira project is the board's only choice; its sprint heads the page.
+        // A board shows one project: with every project picked it draws none, so the fixture's
+        // Jira project is picked first, and its sprint then heads the page.
         XCTAssertTrue(app.staticTexts["Sprint board"].waitForExistence(timeout: 10), app.debugDescription)
+        app.descendants(matching: .any)["dashboard-tickets-project"].firstMatch.click()
+        app.menuItems["Native integration fixture"].click()
         let sprint = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Fixture sprint")).firstMatch
         XCTAssertTrue(sprint.waitForExistence(timeout: 10))
         let card = app.buttons["REC-1"].firstMatch

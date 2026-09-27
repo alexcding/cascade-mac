@@ -42,8 +42,11 @@ pub async fn search(repo: &str, query: &str, limit: usize) -> Result<Vec<Value>>
         ],
         Duration::from_secs(30),
     )
-    .await
-    .map_err(friendly)?;
+    .await;
+    let raw = match raw {
+        Ok(raw) => raw,
+        Err(error) => return Err(explain(repo, error).await),
+    };
     let items: Value = serde_json::from_str(&raw)?;
     let array = items
         .as_array()
@@ -59,8 +62,11 @@ pub async fn view(repo: &str, number: u64) -> Result<Vec<Value>> {
         ["issue", "view", &number.to_string(), "--repo", repo, "--json", FIELDS],
         Duration::from_secs(30),
     )
-    .await
-    .map_err(friendly)?;
+    .await;
+    let raw = match raw {
+        Ok(raw) => raw,
+        Err(error) => return Err(explain(repo, error).await),
+    };
     let item: Value = serde_json::from_str(&raw)?;
     if !item["url"].as_str().is_some_and(|url| ISSUE_URL.is_match(url)) {
         return Ok(Vec::new());
@@ -205,11 +211,18 @@ pub fn mark_mine(items: &mut [Value], me: Option<&str>) {
     }
 }
 
-/// `gh` says a repo has issues turned off in a sentence buried in its stderr; say it plainly.
-fn friendly(error: anyhow::Error) -> anyhow::Error {
-    let message = error.to_string();
-    if message.to_ascii_lowercase().contains("disabled issues") {
-        anyhow!("Issues are turned off for this repository on GitHub.")
+/// A failed `gh issue` call, explained when the repo has issues turned off. GitHub is asked
+/// rather than `gh`'s wording matched, which changes between versions; the question is only put
+/// once a call has failed.
+async fn explain(repo: &str, error: anyhow::Error) -> anyhow::Error {
+    let enabled = cli::run(
+        "gh",
+        ["repo", "view", repo, "--json", "hasIssuesEnabled", "--jq", ".hasIssuesEnabled"],
+        Duration::from_secs(15),
+    )
+    .await;
+    if matches!(enabled.as_deref().map(str::trim), Ok("false")) {
+        anyhow!("Issues are turned off for {repo} on GitHub.")
     } else {
         error
     }

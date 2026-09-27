@@ -59,6 +59,16 @@ import Testing
     #expect(SessionResolver.resolve(request, page: page, projectID: "p", sessions: [keyOnly, withPR], pullRequests: [pr])?.id == "pr")
 }
 
+// A PR row's chips name every ticket it stands for: a Jira key as it is, an issue it closes in its
+// own repo as #N, and one in another repo with that repo's name.
+@Test func pullRequestChipsNameTheIssuesItClosesToo() throws {
+    let pr = try JSONDecoder().decode(DashboardPR.self, from: Data(#"""
+    {"number":5,"repo":"o/r","jiraKeys":["REC-1"],"issueKeys":["o/r#12","o/lib#3"]}
+    """#.utf8))
+    #expect(pr.ticketLabels == ["REC-1", "#12", "lib#3"])
+    #expect(pr.ticketKeys == ["REC-1", "o/r#12", "o/lib#3"])
+}
+
 // My Tickets' Mine is every Jira ticket (its search is the user's own) and the issues the backend
 // marked `mine`; Others is every other open issue, unassigned ones included.
 @Test func myTicketsSplitsMineFromOthersByTheBackendsMark() throws {

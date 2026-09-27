@@ -25,7 +25,7 @@ import SwiftUI
     private var hosts: [String: NSHostingView<AnyView>] = [:]
     private var searchTexts: [String: Binding<String>] = [:]
     private var searchItems: [String: NSSearchToolbarItem] = [:]
-    private var segmentGroups: [String: NSToolbarItemGroup] = [:]
+    private var segmentControls: [String: NSSegmentedControl] = [:]
     private var segmentActions: [String: (Int) -> Void] = [:]
 
     init(describe: @escaping () -> WindowToolbar) {
@@ -57,7 +57,7 @@ import SwiftUI
         hosts = [:]
         searchTexts = [:]
         searchItems = [:]
-        segmentGroups = [:]
+        segmentControls = [:]
         segmentActions = [:]
         // Its own identifier: toolbars sharing one keep their items in step, and the old one may
         // not be gone yet.
@@ -106,7 +106,7 @@ import SwiftUI
             }
         case .segments(_, let selected, let select):
             segmentActions[item.id] = select
-            if let group = segmentGroups[item.id], group.selectedIndex != selected { group.selectedIndex = selected }
+            if let control = segmentControls[item.id], control.selectedSegment != selected { control.selectedSegment = selected }
         case .glass, .plain, .fill:
             hosts[item.id]?.rootView = item.content
         }
@@ -136,12 +136,16 @@ import SwiftUI
             searchTexts[spec.id] = text
             item = search
         case .segments(let titles, let selected, let select):
-            let group = NSToolbarItemGroup(itemIdentifier: identifier, titles: titles, selectionMode: .selectOne,
-                                           labels: nil, target: self, action: #selector(segmentChanged(_:)))
-            group.selectedIndex = selected
-            segmentGroups[spec.id] = group
+            // The system control, made here rather than by NSToolbarItemGroup, which builds its own
+            // privately: this one carries the item's id for accessibility, and AppKit still sizes it.
+            let control = NSSegmentedControl(labels: titles, trackingMode: .selectOne, target: self, action: #selector(segmentChanged(_:)))
+            control.selectedSegment = selected
+            control.identifier = NSUserInterfaceItemIdentifier(spec.id)
+            control.setAccessibilityIdentifier(spec.id)
+            item = NSToolbarItem(itemIdentifier: identifier)
+            item.view = control
+            segmentControls[spec.id] = control
             segmentActions[spec.id] = select
-            item = group
         case .glass, .plain, .fill:
             item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: spec.content)
@@ -172,8 +176,9 @@ import SwiftUI
         if let field = notification.object as? NSSearchField { searchFieldChanged(field) }
     }
 
-    @objc private func segmentChanged(_ group: NSToolbarItemGroup) {
-        segmentActions[group.itemIdentifier.rawValue]?(group.selectedIndex)
+    @objc private func segmentChanged(_ control: NSSegmentedControl) {
+        guard let id = control.identifier?.rawValue else { return }
+        segmentActions[id]?(control.selectedSegment)
     }
 
     @objc private func searchFieldChanged(_ field: NSSearchField) {

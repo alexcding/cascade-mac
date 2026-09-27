@@ -403,6 +403,8 @@ struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
     let selection: Value
     let title: (Value) -> String
     var count: ((Value) -> Int)? = nil
+    /// Whether a segment can be picked; one that can't stays in place, dimmed, so nothing moves.
+    var enabled: (Value) -> Bool = { _ in true }
     let id: String
     let select: (Value) -> Void
     @Namespace private var slide
@@ -420,13 +422,9 @@ struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
                     withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { shown = value }
                     select(value)
                 } label: {
-                    HStack(spacing: 7) {
-                        Text(title(value)).fontWeight(.semibold)
-                        if let count { Text("\(count(value))").monospacedDigit().opacity(0.7) }
-                    }
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-                    .padding(.horizontal, 12).frame(height: 26)
+                    // A tag's 30pt, less the group's 2pt inset on each side.
+                    DashboardTagText(title: title(value), count: count?(value), filled: active)
+                        .padding(.horizontal, 12).frame(height: 26)
                     .background {
                         if active {
                             RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary)
@@ -436,6 +434,8 @@ struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!enabled(value))
+                .opacity(enabled(value) || active ? 1 : 0.4)
                 .accessibilityIdentifier("\(id)-\(value.id)")
                 .accessibilityAddTraits(active ? .isSelected : [])
             }
@@ -502,6 +502,25 @@ struct DashboardFilterTags<Value: Hashable>: View {
 }
 
 /// One tag's face: its name, then a count or a symbol; filled when selected.
+/// A tag's words in the tag face: its title, then its count and symbol, light on a filled tag.
+/// Shared by the tags and the segments of `DashboardScopeTags`, so both read the same.
+struct DashboardTagText: View {
+    let title: String
+    var count: Int?
+    var symbol: String?
+    let filled: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(title).fontWeight(.semibold)
+            if let count { Text("\(count)").monospacedDigit().opacity(0.7) }
+            if let symbol { Image(systemName: symbol).font(.system(size: 9, weight: .bold)).opacity(0.7) }
+        }
+        .font(.system(size: 12.5))
+        .foregroundStyle(filled ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+    }
+}
+
 struct DashboardTagLabel: View {
     let title: String
     var count: Int?
@@ -513,14 +532,8 @@ struct DashboardTagLabel: View {
 
     var body: some View {
         let filled = active && !outlined
-        HStack(spacing: 7) {
-            Text(title).fontWeight(.semibold)
-            if let count { Text("\(count)").monospacedDigit().opacity(0.7) }
-            if let symbol { Image(systemName: symbol).font(.system(size: 9, weight: .bold)).opacity(0.7) }
-        }
-        .font(.system(size: 12.5))
-        .foregroundStyle(filled ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-        .padding(.horizontal, 12).frame(height: 30)
+        DashboardTagText(title: title, count: count, symbol: symbol, filled: filled)
+            .padding(.horizontal, 12).frame(height: 30)
         .background(filled ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: active && outlined ? 1.5 : 1))
@@ -774,7 +787,7 @@ struct DashboardPRRow: View {
                 Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !compact {
-                    if let key = row.pr.jiraKeys?.first {
+                    if let key = row.pr.ticketLabels.first {
                         Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(DashboardPalette.link)
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Theme.accentBackground, in: Capsule())
@@ -849,7 +862,7 @@ struct DashboardCard: View {
                 HStack(spacing: 6) {
                     // The PR's own labels are not shown; the session's agent takes their place.
                     if let mark = sessionMark { AgentChip(mark: mark) }
-                    ForEach((row.pr.jiraKeys ?? []).prefix(2), id: \.self) { key in
+                    ForEach(row.pr.ticketLabels.prefix(2), id: \.self) { key in
                         Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(.blue)
                             .padding(.horizontal, 8).padding(.vertical, 2).background(Color.blue.opacity(0.08), in: Capsule())
                     }

@@ -463,8 +463,10 @@ pub async fn issues_search(
             .flatten()
             .filter_map(Value::as_str)
             .filter_map(crate::github::parse_repo)
+            .map(|repo| repo.to_ascii_lowercase())
             .collect()
     };
+    // GitHub repo names ignore case, so `Owner/Repo` and `owner/repo` are searched once.
     repos.sort();
     repos.dedup();
     if repos.is_empty() {
@@ -481,9 +483,14 @@ pub async fn issues_search(
     let mut items = crate::issues::search_repos(&repos, query, limit)
         .await
         .map_err(ApiError::internal)?;
-    crate::issues::mark_mine(&mut items, crate::automation::context::cached_login().await.as_deref());
+    let login = crate::github::cached_login().await;
+    crate::issues::mark_mine(&mut items, login.as_deref());
+    // Without a login nothing can be marked the user's: say so rather than show all as others'.
+    let warning = login
+        .is_none()
+        .then_some("GitHub didn’t say who is signed in, so no issue could be marked yours. Run gh auth login.");
     Ok(Json(
-        json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null}),
+        json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null,"warning":warning}),
     ))
 }
 

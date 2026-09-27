@@ -70,19 +70,16 @@ struct DashboardTicketsView: View {
 
     /// The board fills the page rather than scrolling with it: each column scrolls on its own.
     private var boardPage: some View {
-        let board = model.board.board
+        let board = model.shownBoard
         return VStack(alignment: .leading, spacing: 0) {
             DashboardPageHeader(caption: boardCaption, title: String(localized: "Sprint board")) {
+                // The list's header less Mine / Others: the board is the whole team's, narrowed by
+                // its own Assignee filter. Refresh stays; with no board it refreshes the tickets.
                 HStack(spacing: 8) {
-                    // Kept in place, dimmed, so switching to the board moves nothing in the header;
-                    // the board narrows by its own Assignee filter.
-                    authors.disabled(true).opacity(0.4)
-                        .help(String(localized: "The board shows the whole team. Use Assignee below to narrow it."))
                     modes
                     projectMenu
-                    if let board {
-                        DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board", busy: board.loading, action: board.reload)
-                    }
+                    DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board",
+                                           busy: board?.loading ?? model.tickets.loading, action: board?.reload ?? model.tickets.refresh)
                 }
                 .padding(.bottom, 6)
             }
@@ -95,10 +92,7 @@ struct DashboardTicketsView: View {
             if let board {
                 WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
-                Text(!model.board.available && model.tickets.available
-                     ? String(localized: "Add a Jira project key to a project to see its sprint board.")
-                     : String(localized: "Jira isn’t connected, so there is no board to show."))
-                    .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
+                Text(boardPlaceholder).font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
                 Spacer()
             }
         }
@@ -106,17 +100,28 @@ struct DashboardTicketsView: View {
     }
 
     private var boardCaption: String {
-        guard let project = model.board.project else { return String(localized: "The whole team’s sprint") }
-        guard let sprint = model.board.board?.sprintTitle else { return String(localized: "\(project.name), the whole team") }
+        guard let project = model.tickets.project else { return String(localized: "One project’s sprint at a time") }
+        guard let sprint = model.shownBoard?.sprintTitle else { return String(localized: "\(project.name), the whole team") }
         return String(localized: "\(project.name) · \(sprint)")
+    }
+
+    /// Why no board is drawn: every project is picked, the one picked has no Jira board, or Jira
+    /// is not connected.
+    private var boardPlaceholder: String {
+        guard model.tickets.available else { return String(localized: "Jira isn’t connected, so there is no board to show.") }
+        guard let project = model.tickets.project else { return String(localized: "A board shows one project. Choose one above.") }
+        if !project.hasJira { return String(localized: "\(project.name) has no Jira project key, so it has no sprint board.") }
+        return String(localized: "Loading \(project.name)’s sprint board…")
     }
 
     // MARK: Scope
 
     /// List or Board, first in the header on both views.
     private var modes: some View {
+        // Board needs a project with a Jira board; without one it stays in place, disabled.
         DashboardScopeTags(values: DashboardViewModel.TicketsMode.allCases, selection: model.ticketsMode,
-                           title: \.title, id: "dashboard-tickets-mode") { model.setTicketsMode($0) }
+                           title: \.title, enabled: { $0 != .board || model.board.available },
+                           id: "dashboard-tickets-mode") { model.setTicketsMode($0) }
     }
 
     /// Whose tickets the list shows, as the Pull Requests page has it: in the header, by its refresh.

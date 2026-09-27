@@ -24,6 +24,16 @@ struct DashboardPR: Decodable, Equatable, Sendable {
     var issueKeys: [String]? = nil
     /// Every ticket the PR stands for: its Jira keys and the issues it closes.
     var ticketKeys: [String] { (jiraKeys ?? []) + (issueKeys ?? []) }
+    /// The same tickets as a row's chips show them: a Jira key as it is, an issue in the PR's own
+    /// repo as `#12`, and one elsewhere as `repo#12`.
+    var ticketLabels: [String] {
+        let own = (repo ?? "").lowercased()
+        return (jiraKeys ?? []) + (issueKeys ?? []).map { key in
+            guard let hash = key.lastIndex(of: "#") else { return key }
+            let issueRepo = String(key[..<hash])
+            return issueRepo == own ? String(key[hash...]) : "\(issueRepo.split(separator: "/").last ?? "")\(key[hash...])"
+        }
+    }
 }
 
 struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
@@ -330,26 +340,44 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
     func syncPRs() async throws {
         let _: OperationOK = try await api.request(APIClient.query(Routes.POLL, ["scope": "prs"]), method: "POST", body: [String: String]())
     }
-    static let myIssuesQuery = "is:open sort:updated-desc"
+    /// My Tickets' issues in two searches, so the user's own are never crowded out: every open
+    /// issue assigned to them, and the most recently touched of everyone else's, capped.
+    static let myIssuesQuery = "is:open assignee:@me sort:updated-desc"
+    static let othersIssuesQuery = "is:open -assignee:@me sort:updated-desc"
+    static let othersIssuesLimit = 100
     func myTickets() async throws -> [DashboardTicketRow] { try await myTicketsReport().rows }
-    /// Both sources at once, Jira first. One failing leaves the other's rows, with its error as the warning.
+    /// One search's rows, and what it had to say beside them.
+    private struct Found: Sendable {
+        var rows: [DashboardTicketRow]
+        var note: String? = nil
+    }
+    /// Jira, the user's issues and everyone else's, at once and apart: any one failing leaves the
+    /// others' rows, with its error in the warning, so the user's own never vanish with the rest.
     func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) {
-        async let jira = Self.attempt { try await myJiraTickets() }
-        async let issues = Self.attempt { try await myIssues() }
-        let results = [(TicketSource.jira, await jira), (TicketSource.github, await issues)]
-        var rows: [DashboardTicketRow] = [], failures: [(TicketSource, any Error)] = []
-        for (source, result) in results {
+        async let jira = Self.attempt { Found(rows: try await myJiraTickets()) }
+        async let mine = Self.attempt { try await issues(Self.myIssuesQuery, limit: 200) }
+        async let others = Self.attempt { try await issues(Self.othersIssuesQuery, limit: Self.othersIssuesLimit) }
+        let results = [(TicketSource.jira.label, await jira),
+                       (String(localized: "Your GitHub issues"), await mine),
+                       (String(localized: "Other GitHub issues"), await others)]
+        var rows: [DashboardTicketRow] = [], notes: [String] = [], failures: [any Error] = []
+        var seen = Set<String>()
+        for (label, result) in results {
             switch result {
-            case .success(let found): rows += found
-            case .failure(let error): failures.append((source, error))
+            case .success(let found):
+                // The user's issues come first; one both searches return stays theirs.
+                rows += found.rows.filter { seen.insert($0.id).inserted }
+                if let note = found.note, !notes.contains(note) { notes.append(note) }
+            case .failure(let error):
+                failures.append(error)
+                notes.append("\(label): \(error.localizedDescription)")
             }
         }
-        // Only when every source failed: one that answered with no tickets still answered.
-        if let first = failures.first, failures.count == results.count { throw first.1 }
-        let warning = failures.map { "\($0.0.label): \($0.1.localizedDescription)" }.joined(separator: "\n")
-        return (rows, warning.isEmpty ? nil : warning)
+        // Only when every search failed: one that answered with no tickets still answered.
+        if let first = failures.first, failures.count == results.count { throw first }
+        return (rows, notes.isEmpty ? nil : notes.joined(separator: "\n"))
     }
-    private static func attempt(_ body: @Sendable () async throws -> [DashboardTicketRow]) async -> Result<[DashboardTicketRow], any Error> {
+    private static func attempt(_ body: @Sendable () async throws -> Found) async -> Result<Found, any Error> {
         do { return .success(try await body()) } catch { return .failure(error) }
     }
     private func myJiraTickets() async throws -> [DashboardTicketRow] {
@@ -359,15 +387,16 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
     }
-    /// Every open issue in the project repos that list their issues, each marked `mine` by the
-    /// backend: My Tickets shows the user's under Mine and the rest under Others.
-    private func myIssues() async throws -> [DashboardTicketRow] {
-        struct Body: Encodable, Sendable { let query: String; let allProjects = true; let limit = 200 }
-        let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: Body(query: Self.myIssuesQuery), timeout: 60)
+    /// Open issues in the project repos that list their issues, each marked `mine` by the backend,
+    /// with the backend's warning when it could not tell whose they are.
+    private func issues(_ query: String, limit: Int) async throws -> Found {
+        struct Body: Encodable, Sendable { let query: String; let allProjects = true; let limit: Int }
+        let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: Body(query: query, limit: limit), timeout: 60)
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
-        return result.items.compactMap { ticket in
+        let rows = result.items.compactMap { ticket in
             ticket.url.flatMap(safeWebURL).map { DashboardTicketRow(ticket: ticket, url: $0) }
         }
+        return Found(rows: rows, note: result.warning)
     }
     var boardService: any BoardService { APIBoardService(api: api) }
 }

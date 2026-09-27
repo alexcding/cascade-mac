@@ -839,7 +839,8 @@ public final class AppViewModel {
     /// A Today-popover row: its PR opens by link; a ticket by its key on the configured Jira site.
     func openActivityEntry(_ entry: LogEntry) async throws {
         if let link = entry.link {
-            try await openPage(OpenPageRequest(url: link, kind: "github", title: entry.title)); return
+            // The page's own kind — an issue's tab is an issue tab — and a pull request's otherwise, as before.
+            try await openPage(OpenPageRequest(url: link, kind: SessionPage.parse(link)?.kind ?? "github", title: entry.title)); return
         }
         guard let key = entry.jiraKey, let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)

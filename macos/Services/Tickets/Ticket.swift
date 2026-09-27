@@ -93,4 +93,7 @@ struct TicketSnapshot: Decodable, Sendable {
     var jql: String?
     var lastSynced: String?
     var error: String?
+    /// Something the search could not settle, beside the items it did return: for issues, that
+    /// the GitHub login was unknown, so none could be marked the user's.
+    var warning: String? = nil
 }

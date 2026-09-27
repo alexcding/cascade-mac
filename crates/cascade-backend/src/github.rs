@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::LazyLock, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
 
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
@@ -28,6 +32,27 @@ pub async fn current_user() -> Option<String> {
     .await
     .ok()
     .filter(|v| !v.is_empty())
+}
+
+/// The signed-in login, from `gh api user` at most once every ten minutes: what automations and
+/// My Tickets' Mine compare against, asked for on every run and refresh.
+pub async fn cached_login() -> Option<String> {
+    // Tests pin the login rather than asking `gh` who is signed in.
+    if let Some(login) = std::env::var("CASCADE_AUTOMATION_LOGIN").ok().filter(|v| !v.is_empty()) {
+        return Some(login);
+    }
+    if cfg!(test) {
+        return None;
+    }
+    static CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+    if let Some((login, at)) = CACHE.lock().unwrap().as_ref() {
+        if at.elapsed() < Duration::from_secs(600) {
+            return Some(login.clone());
+        }
+    }
+    let login = current_user().await?;
+    *CACHE.lock().unwrap() = Some((login.clone(), Instant::now()));
+    Some(login)
 }
 
 pub async fn user_name() -> String {

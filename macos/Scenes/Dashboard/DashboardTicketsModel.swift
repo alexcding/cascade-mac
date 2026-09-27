@@ -18,7 +18,7 @@ import Observation
     var author: Author = .mine { didSet { if author != oldValue { updateScreenRows() } } }
     /// Tracked projects, from the dashboard snapshot; `rows` follows them.
     var projects: [DashboardProject] = [] {
-        didSet { if projects != oldValue { publish(Self.tracked(loaded, in: projects), summary: nil) } }
+        didSet { if projects != oldValue { publish(Self.split(Self.tracked(loaded, in: projects)), summary: nil) } }
     }
     /// Everything Jira returned, before `projects` narrows it.
     @ObservationIgnored private var loaded: [DashboardTicketRow] = []
@@ -84,12 +84,12 @@ import Observation
                 guard isCurrent(generation) else { return }
                 self.loaded = loaded
                 let tracked = Self.tracked(loaded, in: projects)
-                let (mine, others) = Self.split(tracked)
-                if self.rows != mine || self.others != others {
-                    let summary = await Self.summarize(mine)
+                let split = Self.split(tracked)
+                if self.rows != split.mine || self.others != split.others {
+                    let summary = await Self.summarize(split.mine)
                     // A project change while summarizing has already published its own narrowing.
                     guard isCurrent(generation), tracked == Self.tracked(self.loaded, in: projects) else { return }
-                    publish(tracked, summary: summary)
+                    publish(split, summary: summary)
                 }
                 // One source failing while the other loaded still says so beside the rows.
                 error = warning
@@ -123,10 +123,10 @@ import Observation
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }
 
-    /// Publishes the tracked tickets split into the user's and the others, with the summary of the
+    /// Publishes the tracked tickets, split into the user's and the others, with the summary of the
     /// user's, worked out here when the caller has none.
-    private func publish(_ tracked: [DashboardTicketRow], summary: Summary?) {
-        let (rows, others) = Self.split(tracked)
+    private func publish(_ split: (mine: [DashboardTicketRow], others: [DashboardTicketRow]), summary: Summary?) {
+        let (rows, others) = split
         guard !retired, self.rows != rows || self.others != others else { return }
         let summary = summary ?? Self.makeSummary(rows)
         self.rows = rows
@@ -145,14 +145,16 @@ import Observation
     }
 
     /// How many tickets `author` has in the project My Tickets is narrowed to.
-    func count(_ author: Author) -> Int { scoped(author == .mine ? rows : others).count }
+    func count(_ author: Author) -> Int { scoped(author).count }
 
-    private func scoped(_ rows: [DashboardTicketRow]) -> [DashboardTicketRow] {
-        project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
+    /// `author`'s tickets in the project My Tickets is narrowed to.
+    private func scoped(_ author: Author) -> [DashboardTicketRow] {
+        let rows = author == .mine ? rows : others
+        return project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
     }
 
     private func updateScreenRows() {
-        let scoped = scoped(author == .mine ? rows : others)
+        let scoped = scoped(author)
         let summary = Self.makeSummary(scoped)
         if pageCounts != summary.counts { pageCounts = summary.counts }
         if pageStages != summary.stages { pageStages = summary.stages }

@@ -1197,6 +1197,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ has no Jira project key, so it has no sprint board." : {
+
+    },
     "%@ held back" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5416,6 +5419,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "A board shows one project. Choose one above." : {
+
+    },
     "A draft PR is marked ready." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7183,9 +7189,6 @@
           }
         }
       }
-    },
-    "Add a Jira project key to a project to see its sprint board." : {
-
     },
     "Add a project and choose its local repository folder. Each project uses one repository. Add GitHub or Jira details if you want pull requests or tickets. Open Settings → Integrations to check your tools or run the setup assistant again. Agents are optional: choose Shell only to use a terminal." : {
       "extractionState" : "manual",
@@ -49587,6 +49590,9 @@
         }
       }
     },
+    "Loading %@’s sprint board…" : {
+
+    },
     "Loading commit…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -63213,6 +63219,9 @@
           }
         }
       }
+    },
+    "One project’s sprint at a time" : {
+
     },
     "One session per worktree" : {
       "extractionState" : "manual",
@@ -95531,9 +95540,6 @@
         }
       }
     },
-    "The board shows the whole team. Use Assignee below to narrow it." : {
-
-    },
     "The branch a new branch forks from" : {
 
     },
@@ -101345,6 +101351,7 @@
       }
     },
     "The whole team’s sprint" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
