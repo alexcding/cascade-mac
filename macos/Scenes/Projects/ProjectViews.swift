@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectEditorView: View {
@@ -203,6 +204,13 @@ struct ProjectComposerView: View {
                     .frame(minHeight: 64, alignment: .topLeading)
                     .focused($focused).disabled(model.creating)
                     .onSubmit { Task { await model.submit() } }
+                    // Return alone creates the session; with any modifier held — Shift, Option,
+                    // Control or Command — it is a new line: the field editor's own, at the cursor.
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard !press.modifiers.subtracting([.capsLock, .numericPad]).isEmpty else { return .ignored }
+                        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                        return .handled
+                    }
                     .accessibilityIdentifier("project-composer")
                 if model.showsPullRequestBranch {
                     TextField(String(localized: "Branch for that pull request"), text: $model.pullRequestBranch)
