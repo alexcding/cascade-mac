@@ -236,13 +236,16 @@ import Observation
             prompt = typed
         }
         guard !retired, !Task.isCancelled, inputGeneration == generation else { return }
-        let usedContext = contextURL
+        let usedContext = contextURL, usedBranch = pullRequestBranch
         do {
             let session = try await operations.create(project: project, draft: creation)
             guard !retired else { return }
             // Only what this session was made from is cleared: text or a page put here while it was
             // being created — Start opened on a link meanwhile — stays for the next one.
-            if inputGeneration == generation { text = ""; pullRequestBranch = "" }
+            if inputGeneration == generation { text = "" }
+            // The branch named for a pull request belongs to that one: it never carries over to a
+            // link opened meanwhile, unless it was typed again since.
+            if pullRequestBranch == usedBranch { pullRequestBranch = "" }
             if contextURL == usedContext { contextURL = nil }
             onAction(.created(session, prompt: prompt))
             // The new branch is the repository's now: the next task must not take its name.
