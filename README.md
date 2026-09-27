@@ -81,8 +81,8 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### Jira without leaving the code
 
-- **Tickets.** Each project lists its tickets from your JQL, with search, filters, and
-  a status menu on every row to transition a ticket.
+- **Tickets.** The Dashboard's Tickets tab lists your Jira tickets across the projects
+  whose Jira project key claims them, with search and filters.
 - **Sprint board.** Drag cards between columns, move or reassign tickets, and filter
   by assignee.
 - **Automatic updates.** [Automation](#automation-across-projects) can move a merged

@@ -147,9 +147,9 @@ uses `awaitingMyReview`, including PRs you have already reviewed; menu-bar alert
 use the narrower active-review-request classification. Failed refreshes preserve
 the last successful snapshot and offer retry.
 
-A project's available sections depend on its integrations: GitHub enables Pull
-Requests and Automation; a Jira project key or JQL enables Tickets and Sprint
-Board. Workflows and Settings remain available for local projects.
+A project's page is a composer that starts a session in it, with the project's
+settings in the window's inspector. A Jira project key gives the project a sprint
+board on the Dashboard's Tickets tab.
 
 Tickets and Sprint Board are native SwiftUI surfaces. They read cached Jira data,
 provide filters, and support ticket actions. The board has status drop targets

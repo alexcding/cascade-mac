@@ -5,7 +5,6 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var workspace = ""
     var repo = ""
     var jiraProjectKey = ""
-    var jql = ""
     var ide = ""
     var ideCmd = ""
     var ideTarget = ""
@@ -16,7 +15,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
-        jiraProjectKey = project.jiraProjectKey ?? ""; jql = project.jql ?? ""
+        jiraProjectKey = project.jiraProjectKey ?? ""
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
@@ -79,8 +78,8 @@ struct APIProjectService: ProjectService {
 
 extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
-    /// A Jira project key or a saved JQL query.
-    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
+    /// A Jira project key: what the sprint board and ticket matching go by.
+    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty }
 }
 
 struct IDEChoice: Identifiable {

@@ -24,9 +24,9 @@ private struct BoardFixture: BoardService {
     func assign(key: String, assignee: String) async throws {}
 }
 
-private func jiraProject(_ id: String, key: String? = nil, jql: String? = nil) -> DashboardProject {
+private func jiraProject(_ id: String, key: String? = nil) -> DashboardProject {
     DashboardProject(id: id, name: id.capitalized, repo: "", prs: [], lastSynced: "2026-01-01T00:00:00Z", syncError: nil,
-                     jiraProjectKey: key, jql: jql)
+                     jiraProjectKey: key)
 }
 
 private func ticketRow(_ key: String) -> DashboardTicketRow {
@@ -50,8 +50,8 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     let root = makeRoot(), actions = ProjectPageActions()
     root.appearance = .dark
     let model = await connectedDashboard(root, actions, freshDefaults(),
-        projects: [jiraProject("web", key: "WEB"), jiraProject("plain"), jiraProject("ops", jql: "project = OPS")])
-    // Only Jira projects get a board, a JQL-only one included.
+        projects: [jiraProject("web", key: "WEB"), jiraProject("plain"), jiraProject("ops", key: "OPS")])
+    // Only Jira projects get a board.
     #expect(model.board.projects.map(\.id) == ["web", "ops"])
     let board = try #require(model.board.board)
     #expect(board.projectID == "web" && !board.active && board.appearance == .dark)
@@ -73,8 +73,7 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
 
 @MainActor @Test(.timeLimit(.minutes(1))) func dashboardBoardSwitchesProjectsRemembersThePickAndSharesItWithTheList() async throws {
     let defaults = freshDefaults(), actions = ProjectPageActions()
-    let projects = [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS"), jiraProject("data", jql: "project = DATA"),
-                    jiraProject("mine", jql: "assignee = currentUser()")]
+    let projects = [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS"), jiraProject("data", key: "DATA")]
     let model = await connectedDashboard(makeRoot(), actions, defaults, projects: projects)
     let first = try #require(model.board.board)
     model.setTicketsMode(.board)
@@ -82,9 +81,8 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     let second = try #require(model.board.board)
     #expect(first.retired && second !== first && second.projectID == "ops")
     #expect(model.tickets.project?.id == "ops", "The list follows the board's project")
-    // A board has no "every project"; the list does. A JQL-only project matches tickets by the
-    // projects its query names, and one naming none only gets a board.
-    #expect(model.ticketProjects.map(\.id) == ["web", "ops", "data", "mine"])
+    // A board has no "every project"; the list does.
+    #expect(model.ticketProjects.map(\.id) == ["web", "ops", "data"])
     model.setTicketsMode(.list)
     #expect(model.ticketProjects.map(\.id) == ["web", "ops", "data"])
     model.selectTicketProject(nil)
@@ -93,7 +91,7 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     let again = await connectedDashboard(makeRoot(), actions, defaults, projects: projects)
     #expect(again.board.project?.id == "ops")
     // A project that loses Jira gives way to the first one left.
-    model.board.update(projects: [projects[0], jiraProject("ops"), projects[2], projects[3]])
+    model.board.update(projects: [projects[0], jiraProject("ops"), projects[2]])
     #expect(model.board.project?.id == "web" && second.retired)
 }
 
@@ -145,24 +143,12 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     model.tickets.projects = [jiraProject("web"), jiraProject("plain")]
     #expect(model.tickets.rows.isEmpty && model.tickets.counts[.all] == 0)
     #expect(!model.tickets.fetchedNothing, "Jira did return tickets; none are tracked")
-    // A JQL-only project claims the projects its query names.
-    model.tickets.projects = [jiraProject("ops", jql: #"assignee = currentUser() AND project in (WEB, "OTHER")"#)]
-    #expect(Set(model.tickets.rows.map(\.id)) == ["WEB-1", "OTHER-3"])
-    // One whose query names no project could own anything, so nothing is left out.
-    model.tickets.projects = [jiraProject("web", key: "WEB"), jiraProject("mine", jql: "assignee = currentUser()")]
-    #expect(model.tickets.rows.count == 3)
 }
 
-@Test func jqlProjectClausesNameTheirKeys() {
-    #expect(DashboardProject.keys(fromJQL: "project = OPS AND status != Done") == ["OPS"])
-    #expect(DashboardProject.keys(fromJQL: #"PROJECT IN ("WEB", OPS) ORDER BY rank"#) == ["WEB", "OPS"])
-    #expect(DashboardProject.keys(fromJQL: "assignee = currentUser()").isEmpty)
-    // A project named rather than keyed leaves the keys unknown, rather than a key no ticket has.
-    #expect(DashboardProject.keys(fromJQL: #"project = "Mobile App""#).isEmpty)
-    #expect(DashboardProject.keys(fromJQL: "project = 10001").isEmpty)
-    #expect(DashboardProject.keys(fromJQL: #"project in (OPS, "Mobile App")"#).isEmpty)
-    #expect(jiraProject("m", jql: #"project = "Mobile App""#).jiraKeys.isEmpty)
-    #expect(jiraProject("x", key: "App, ops", jql: "project = IGNORED").jiraKeys == ["APP", "OPS"])
+@Test func jiraKeysComeFromTheProjectKeyField() {
+    #expect(jiraProject("x", key: "App, ops").jiraKeys == ["APP", "OPS"])
+    #expect(jiraProject("x", key: "App").hasJira && jiraProject("x", key: "App").owns(ticket: "app-12"))
+    #expect(jiraProject("m").jiraKeys.isEmpty && !jiraProject("m").hasJira)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func boardLinkOpensTheDashboardBoardOnItsProjectEvenBeforeProjectsLoad() async throws {

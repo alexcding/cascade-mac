@@ -96,7 +96,7 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 
 ## Conventions / gotchas
 
-- **One repo per project.** A project maps to one GitHub repo, optional Jira JQL,
+- **One repo per project.** A project maps to one GitHub repo, optional Jira project key,
   workspace path, color and merge transition.
 - **Schema is `CREATE TABLE IF NOT EXISTS`** in the three `schema_*.sql` files — no
   migration framework. `data.db` and `logs.db` are regenerable caches; **`cascade.db` is

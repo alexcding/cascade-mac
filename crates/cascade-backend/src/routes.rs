@@ -707,7 +707,6 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
     let mut patch = Map::new();
     for key in [
         "name",
-        "jql",
         "workspace",
         "ide",
         "ideCmd",

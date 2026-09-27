@@ -189,11 +189,9 @@ extension DashboardTicketsModel {
         return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
     }
 
-    /// The tickets some tracked project's Jira keys claim. A Jira project whose keys cannot be told
-    /// (a saved JQL that names no project) could own any ticket, so then nothing is left out.
+    /// The tickets some tracked project's Jira keys claim.
     nonisolated static func tracked(_ rows: [DashboardTicketRow], in projects: [DashboardProject]) -> [DashboardTicketRow] {
-        guard !projects.contains(where: { $0.hasJira && $0.jiraKeys.isEmpty }) else { return rows }
-        return rows.filter { row in projects.contains { $0.owns(ticket: row.ticket.key) } }
+        rows.filter { row in projects.contains { $0.owns(ticket: row.ticket.key) } }
     }
 
     /// The rows with their Pull Request column filled from the PR snapshot's links.

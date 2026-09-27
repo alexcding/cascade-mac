@@ -23,7 +23,6 @@ struct ProjectEditorView: View {
                 }
                 Section("Jira") {
                     TextField("Project key", text: $model.draft.jiraProjectKey)
-                    TextField("Saved JQL", text: $model.draft.jql, axis: .vertical).lineLimit(2...4)
                 }
                 Section("Editor") {
                     Picker("IDE", selection: $model.draft.ide) {
