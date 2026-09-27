@@ -29,7 +29,7 @@ import Testing
     return ProjectFeatureServices(projects: APIProjectService(api: api))
 }
 
-@MainActor @Test func projectCoordinatorFactoryRetainsDraftsAndOwnsTheInspector() async throws {
+@MainActor @Test func projectCoordinatorFactoryRetainsDraftsAndShowsItsTabs() async throws {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let runtime = ProjectRuntimeFixture(); runtime.coordinator = root
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
@@ -37,8 +37,8 @@ import Testing
     root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude, startSession: { _ in })
     let model = try #require(root.projectModels[project.id])
     root.navigate(to: .project(project.id))
-    #expect(root.projectCoordinator?.model === model && root.inspectorOwner === model)
-    #expect(root.windowToolbar.pane?.map(\.id) == ["project-info"])
+    #expect(root.projectCoordinator?.model === model)
+    #expect(root.windowToolbar.leading.map(\.id) == ["project-tabs"] && root.windowToolbar.pane == nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"

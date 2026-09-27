@@ -46,6 +46,7 @@ final class CascadeUITests: XCTestCase {
         let composer = app.descendants(matching: .any)["project-composer"].firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         try await deliver("cascade://app/projects/\(projectID)/settings")
+        app.radioButtons["Settings"].click()
         XCTAssertTrue(app.buttons["Delete Project…"].waitForExistence(timeout: 5))
         app.buttons["Delete Project…"].click()
         XCTAssertTrue(app.sheets.buttons["Delete Project"].waitForExistence(timeout: 5))
@@ -658,8 +659,9 @@ final class CascadeUITests: XCTestCase {
         let row = app.outlines["workspace-sidebar"].staticTexts["UI project"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.click()
-        // The project's settings are in its inspector, which is open until the user closes it.
-        XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.radioButtons["Settings"].waitForExistence(timeout: 5), app.debugDescription)
+        app.radioButtons["Settings"].click()
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.click(); app.typeKey("a", modifierFlags: .command); app.typeText("Renamed UI project")
         app.buttons["Save Project"].click()
         XCTAssertTrue(app.outlines["workspace-sidebar"].staticTexts["Renamed UI project"].waitForExistence(timeout: 10))

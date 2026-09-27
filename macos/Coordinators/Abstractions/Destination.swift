@@ -118,10 +118,11 @@ extension Destination {
             return WindowToolbar(leading: [.init("automation-new") { AutomationNewMenu(model: model) }],
                                  trailing: [.init("automation-switch") { AutomationMasterSwitch(model: model) }])
         case .projectCoordinator(let coordinator):
-            var toolbar = WindowToolbar(leading: [.title(coordinator.model.project.name)])
+            // The tabs stand in for the page title, as the Dashboard's do.
             let model = coordinator.model
-            toolbar.pane = [.init("project-info") { ProjectInspectorToggle(model: model).id(model.project.id) }]
-            return toolbar
+            return WindowToolbar(leading: [.init("project-tabs") {
+                ProjectTabBar(selection: model.section, select: model.selectSection).id(model.project.id)
+            }])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .terminal(let root), .session(_, let root), .tab(_, let root):

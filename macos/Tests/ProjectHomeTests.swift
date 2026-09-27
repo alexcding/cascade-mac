@@ -73,36 +73,28 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(SessionAgent.shell.command(sessionID: nil, prompt: "anything") == nil)
 }
 
-@MainActor private func homeModel(defaults: UserDefaults, start: @escaping (ProjectSessionRequest) async throws -> Void = { _ in },
+@MainActor private func homeModel(start: @escaping (ProjectSessionRequest) async throws -> Void = { _ in },
                                   project: Project = homeProject) -> ProjectPageViewModel {
     let editor = ProjectEditorViewModel(project: project, service: ProjectPageService(), chooseFolder: { nil })
     return ProjectPageViewModel(project: project, editor: editor,
-                                composer: ProjectComposerModel(project: project, agent: .claude, start: start), defaults: defaults)
+                                composer: ProjectComposerModel(project: project, agent: .claude, start: start))
 }
 
-@MainActor @Test func theProjectInspectorIsOpenByDefaultAndRemembersBeingClosed() throws {
-    let suite = "project-home-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-    let first = homeModel(defaults: defaults), other = homeModel(defaults: defaults)
-    #expect(first.showsInspector && first.canToggleInspector)
-    first.setInspectorPresented(false)
-    #expect(!first.showsInspector && !homeModel(defaults: defaults).showsInspector)
-    // A project already built follows the change the next time it is shown.
-    #expect(other.showsInspector)
-    other.update(homeProject)
-    #expect(!other.showsInspector)
-    first.retire()
-    first.setInspectorPresented(true)
-    #expect(!first.showsInspector && !first.canToggleInspector)
+@MainActor @Test func aProjectOpensOnHomeAndItsTabsPickThePageUntilRetired() {
+    let model = homeModel()
+    #expect(model.section == .home && ProjectSection.allCases == [.home, .settings, .orchestration])
+    model.selectSection(.settings)
+    #expect(model.section == .settings)
+    model.update(homeProject)
+    #expect(model.section == .settings, "An update keeps the page the user is on")
+    model.retire()
+    model.selectSection(.orchestration)
+    #expect(model.section == .settings)
 }
 
 @MainActor @Test func theComposerStartsWhatWasTypedAndKeepsItWhenStartingFails() async throws {
-    let suite = "project-composer-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
     var requests: [ProjectSessionRequest] = [], failure: String?
-    let model = homeModel(defaults: defaults) { request in
+    let model = homeModel { request in
         requests.append(request)
         if let failure { throw BackendError.operation(failure) }
     }
@@ -115,7 +107,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     composer.text = "Try again"
     await composer.submit()
     #expect(composer.text == "Try again" && composer.error == "No worktree" && !composer.busy)
-    let folderless = homeModel(defaults: defaults, project: Project(id: "x", name: "X", repo: "", color: nil, workspace: ""))
+    let folderless = homeModel(project: Project(id: "x", name: "X", repo: "", color: nil, workspace: ""))
     folderless.composer.text = "Anything"
     #expect(!folderless.composer.canStart)
     model.retire()

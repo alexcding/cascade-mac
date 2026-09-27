@@ -7,9 +7,9 @@ import SwiftUI
 /// both dividers, so each column has its own section of it (`MainToolbarController`). AppKit keeps
 /// each column to its minimum width, so no drag or window resize can squeeze one to nothing.
 ///
-/// The pane column follows the screen on show (`AppCoordinator.inspectorOwner`): open while its
-/// pane is (`showsInspector`), and the other way round, a pane the user collapses or opens from the
-/// divider or a menu is told to that screen.
+/// The pane column follows the workspace on show: open while its pane is (`showsInspector`), and
+/// the other way round, a pane the user collapses or opens from the divider or a menu is told to
+/// its workspace.
 @MainActor final class MainSplitViewController: NSSplitViewController {
     private let coordinator: AppCoordinator
     private let sidebarItem: NSSplitViewItem
@@ -17,8 +17,8 @@ import SwiftUI
     private let paneItem: NSSplitViewItem
     /// The pane state last asked of the column; a collapse that differs came from the user.
     private var expectedCollapsed = true
-    /// The screen on show when the pane was last set, to tell a toggle from a switch.
-    private var shownOwner: ObjectIdentifier?
+    /// The workspace on show when the pane was last set, to tell a toggle from a switch.
+    private var shownWorkspace: ObjectIdentifier?
     private var collapseObservation: NSKeyValueObservation?
     /// No widths saved yet: the first time the window shows, the sidebar opens at its ideal width.
     private var needsInitialWidths = false
@@ -87,22 +87,19 @@ import SwiftUI
     }
 
     private func observePane() {
-        let (owner, showing) = withObservationTracking {
+        let target = withObservationTracking {
             _ = coordinator.shownDeckWorkspace?.model.showsTerminal
-            let owner = coordinator.inspectorOwner
-            return (owner, owner?.showsInspector == true)
+            return coordinator.inspectorWorkspace
         } onChange: { [weak self] in
             Task { @MainActor in self?.observePane() }
         }
         applyTitlebar()
-        // Shown or hidden on its own screen, the pane slides, as an inspector does. Anything else —
-        // another screen, one with no pane — switches at once, as the toolbar does.
-        // A project's settings are a form, which needs more room than a session's pane.
-        paneItem.minimumThickness = owner is ProjectPageViewModel ? MainWindowMetrics.projectPaneMin : MainWindowMetrics.paneMin
-        let shown = owner.map(ObjectIdentifier.init)
-        let animated = shown != nil && shown == shownOwner && view.window?.isVisible == true
-        shownOwner = shown
-        let collapsed = !showing
+        // Shown or hidden in its own workspace, the pane slides, as an inspector does. Anything
+        // else — another workspace, a screen with no pane — switches at once, as the toolbar does.
+        let shown = coordinator.shownDeckWorkspace.map(ObjectIdentifier.init)
+        let animated = shown != nil && shown == shownWorkspace && view.window?.isVisible == true
+        shownWorkspace = shown
+        let collapsed = target == nil
         expectedCollapsed = collapsed
         guard paneItem.isCollapsed != collapsed else { return }
         if animated { paneItem.animator().isCollapsed = collapsed } else { paneItem.isCollapsed = collapsed }
@@ -116,18 +113,18 @@ import SwiftUI
         view.window?.titlebarAppearsTransparent = coordinator.shownDeckWorkspace?.model.showsTerminal == true
     }
 
-    /// A collapse the column was not asked for came from the divider or a menu: the screen hears of
-    /// it, and its model then asks for the state the column is already in.
+    /// A collapse the column was not asked for came from the divider or a menu: the workspace hears
+    /// of it, and its model then asks for the state the column is already in.
     private func paneCollapsedChanged(_ collapsed: Bool) {
         guard collapsed != expectedCollapsed else { return }
         expectedCollapsed = collapsed
-        guard let owner = coordinator.inspectorOwner, owner.canToggleInspector else {
+        guard let workspace = coordinator.shownDeckWorkspace, workspace.model.canToggleContext else {
             // Nothing to show: the column goes back.
             paneItem.isCollapsed = true
             expectedCollapsed = true
             return
         }
-        owner.setInspectorPresented(!collapsed)
+        workspace.model.setContextPresented(!collapsed)
     }
 }
 
@@ -139,8 +136,6 @@ enum MainWindowMetrics {
     static let contentMin: CGFloat = 360
     /// The least the context pane can be.
     static let paneMin: CGFloat = 320
-    /// The least a project's settings can be: their labels and fields share a row.
-    static let projectPaneMin: CGFloat = 400
 }
 
 /// The screen's column, with the activity toasts over its trailing corner.
@@ -179,7 +174,7 @@ private struct MainSidebarColumn: View {
 
 /// The context pane's column: a deck of every workspace's pane, the one on show on top, so a switch
 /// between sessions rebuilds no pane and takes no web view out of the window, as the screen's deck
-/// does for their terminals. A project on show puts its settings over the deck. The pane stays while the column slides shut, so what closes is the
+/// does for their terminals. The pane stays while the column slides shut, so what closes is the
 /// pane that was open, not an empty one. The column reaches the window's top: each pane draws its
 /// bar in the title-bar zone, which AppKit reports to it as the safe area. It is opaque: AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
@@ -189,19 +184,12 @@ private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
 
     var body: some View {
-        ZStack {
-            SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.shownDeckWorkspace, part: .pane)
-                .ignoresSafeArea(.container, edges: .top)
-            // Inside the safe area: the project's form scrolls under the window's own toolbar.
-            if let project = coordinator.shownProject {
-                ProjectInspectorPane(model: project.model).id(project.model.project.id)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background { Theme.paneBackground.ignoresSafeArea(.container, edges: .top) }
+        SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.shownDeckWorkspace, part: .pane)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.paneBackground)
         .overlay(alignment: .leading) {
             Rectangle().fill(Theme.border).frame(width: Theme.Size.hairline).accessibilityHidden(true)
-                .ignoresSafeArea(.container, edges: .top)
         }
+        .ignoresSafeArea(.container, edges: .top)
     }
 }

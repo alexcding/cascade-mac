@@ -152,11 +152,39 @@ struct NewProjectSheet: View {
     }
 }
 
-/// A project's home: a composer that starts a session in it. The project's settings are in the
-/// window's inspector column (`ProjectInspectorPane`).
+/// A project's screen: the page its toolbar tabs pick (`ProjectTabBar`).
 struct ProjectPageView: View {
     let model: ProjectPageViewModel
-    var body: some View { ProjectComposerView(project: model.project, model: model.composer) }
+    var body: some View {
+        switch model.section {
+        case .home: ProjectComposerView(project: model.project, model: model.composer)
+        case .settings:
+            ProjectEditorView(model: model.editor)
+                .padding(.bottom, 16)
+                .frame(maxWidth: Theme.Size.readableColumn)
+                .frame(maxWidth: .infinity)
+        case .orchestration:
+            ContentUnavailableView(String(localized: "Orchestration"), systemImage: "point.3.connected.trianglepath.dotted")
+        }
+    }
+}
+
+/// The project's pages as the toolbar's leading item, standing in for its title as the
+/// Dashboard's tabs do (`DashboardTabBar`).
+struct ProjectTabBar: View {
+    let selection: ProjectSection
+    let select: (ProjectSection) -> Void
+
+    var body: some View {
+        Picker("Project section", selection: Binding(get: { selection }, set: select)) {
+            ForEach(ProjectSection.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+        .fixedSize()
+        .accessibilityIdentifier("project-tabs")
+    }
 }
 
 struct ProjectComposerView: View {
@@ -196,40 +224,12 @@ struct ProjectComposerView: View {
             if let error = model.error {
                 Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger).textSelection(.enabled)
             } else if project.workspace.isEmpty {
-                Text("Choose the project folder in Project Info to start sessions.")
+                Text("Choose the project folder in Settings to start sessions.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { focused = true }
-    }
-}
-
-/// The project's settings, in the window's inspector column, below the window's toolbar: the form
-/// scrolls under the toolbar as any page's does, so the pane's section of it is the real bar.
-struct ProjectInspectorPane: View {
-    let model: ProjectPageViewModel
-
-    var body: some View {
-        ProjectEditorView(model: model.editor).padding(.bottom, 12)
-    }
-}
-
-/// Project Info, in the toolbar's pane section: shows and hides the project's inspector, with the
-/// session's own pane toggle (`SessionWorkspaceContextToggle`).
-struct ProjectInspectorToggle: View {
-    let model: ProjectPageViewModel
-
-    var body: some View {
-        // A plain button, not a toggle: no pressed-state fill while the pane is shown.
-        Button {
-            model.setInspectorPresented(!model.showsInspector)
-        } label: {
-            Label(model.showsInspector ? String(localized: "Hide Project Info") : String(localized: "Show Project Info"),
-                  systemImage: "sidebar.trailing")
-        }
-        .buttonStyle(.toolbarIcon)
-        .help(model.showsInspector ? String(localized: "Hide Project Info") : String(localized: "Show Project Info"))
     }
 }

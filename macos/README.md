@@ -147,9 +147,9 @@ uses `awaitingMyReview`, including PRs you have already reviewed; menu-bar alert
 use the narrower active-review-request classification. Failed refreshes preserve
 the last successful snapshot and offer retry.
 
-A project's page is a composer that starts a session in it, with the project's
-settings in the window's inspector. A Jira project key gives the project a sprint
-board on the Dashboard's Tickets tab.
+A project's page has three tabs in the toolbar, as the Dashboard has: Home, a
+composer that starts a session in it; Settings; and Orchestration, empty for now.
+A Jira project key gives the project a sprint board on the Dashboard's Tickets tab.
 
 Tickets and Sprint Board are native SwiftUI surfaces. They read cached Jira data,
 provide filters, and support ticket actions. The board has status drop targets

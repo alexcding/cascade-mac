@@ -10,16 +10,8 @@ extension AppCoordinator {
         return root.windowToolbar
     }
 
-    /// The screen on show whose pane the window's inspector column holds: the deck workspace's
-    /// context pane, or the project's settings. The column is open while its `showsInspector` is.
-    var inspectorOwner: (any InspectorPresenting)? {
-        if let shown = shownDeckWorkspace { return shown.model }
-        return shownProject?.model
-    }
-
-    /// The project on screen, when the root shows one.
-    var shownProject: ProjectCoordinator? {
-        guard case .projectCoordinator(let child) = root else { return nil }
-        return child
+    /// The deck workspace whose context pane the window shows as its inspector column, if any.
+    var inspectorWorkspace: SessionWorkspaceCoordinator? {
+        shownDeckWorkspace.flatMap { $0.model.showsInspector ? $0 : nil }
     }
 }
