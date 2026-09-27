@@ -102,7 +102,15 @@ import SwiftUI
         let collapsed = target == nil
         expectedCollapsed = collapsed
         guard paneItem.isCollapsed != collapsed else { return }
-        if animated { paneItem.animator().isCollapsed = collapsed } else { paneItem.isCollapsed = collapsed }
+        if animated {
+            paneItem.animator().isCollapsed = collapsed
+        } else {
+            paneItem.isCollapsed = collapsed
+            // The deck has already sized the workspace it just showed to the column as it was, and
+            // AppKit lays the columns out again only on its next pass: a frame of the new session at
+            // the last one's width, which its chat visibly jumps from. Lay them out before it draws.
+            if view.window?.isVisible == true { splitView.layoutSubtreeIfNeeded() }
+        }
     }
 
     /// The toolbar over a terminal and its pane is the window's own backdrop in both sections. AppKit
