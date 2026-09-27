@@ -6,6 +6,8 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     case shell = "", claude, codex
     var id: String { rawValue }
     var label: String { switch self { case .shell: String(localized: "Shell only"); case .claude: "Claude Code"; case .codex: "Codex" } }
+    /// The chat's empty message field. A shell-only session has no chat.
+    var chatPlaceholder: String { switch self { case .shell: ""; case .claude: String(localized: "Ask Claude"); case .codex: String(localized: "Ask Codex") } }
 
     /// Nil for a shell-only session, which has no agent to drive.
     var driver: (any AgentDriver)? { self == .shell ? nil : AgentDrivers.driver(for: rawValue) }

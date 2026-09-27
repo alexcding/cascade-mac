@@ -18,6 +18,8 @@ struct TranscriptChatOverlay: View {
     /// The workspace is the one on screen. A hidden page cannot take the keyboard, so a focus
     /// request waits for this.
     let active: Bool
+    /// What the empty message field reads.
+    let placeholder: String
     @State private var choosingFiles = false
     @State private var dropTargeted = false
 
@@ -98,7 +100,7 @@ struct TranscriptChatOverlay: View {
                 // underneath and would otherwise keep it.
                 ChatComposerField(chat: chat, text: chat.draft, files: chat.attachments, caret: chat.caret,
                                   focusRequest: chat.focusRequest, active: active,
-                                  placeholder: String(localized: "Ask \(chat.agentName) anything, / for commands, @ for files"),
+                                  placeholder: placeholder,
                                   dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
                     Button { choosingFiles = true } label: {
