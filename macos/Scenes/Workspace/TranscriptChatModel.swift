@@ -108,9 +108,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var hooks: String?
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
-    /// Whether the chat is drawn over the terminal. Not until the agent has been seen at its prompt
-    /// since it started: a question it asks first is the terminal's to show and answer.
-    private(set) var coversTerminal = false
     /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
     /// which the field draws as a chip: deleting that character in any way (Backspace, Cut, Select
     /// All then Delete) drops the file, and Undo brings it back.
@@ -146,8 +143,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var busySince: Date?
     @ObservationIgnored private var transcriptAtPrompt: Date?
     @ObservationIgnored private var agentStartedAt: Date?
+    /// Seen at its prompt since it started. Until then a message is held, not typed: a question the
+    /// agent asks first (trust this folder, review its hooks) sits in the terminal under the chat.
     @ObservationIgnored private var ready = false
-    /// The first report decides the cover even when it matches the defaults.
+    /// The first report decides `ready` even when it matches the defaults.
     @ObservationIgnored private var stateReported = false
     /// The word the list is for, and one the person closed the list on.
     @ObservationIgnored private var completing: ChatCompletion.Word?
@@ -301,22 +300,13 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         settle()
     }
 
-    /// Draws the chat over the terminal now, for an agent past its questions that said nothing.
-    func openChat() {
-        guard !retired, !coversTerminal else { return }
-        ready = true
-        settle()
-    }
-
     /// Past whatever the agent asks before its prompt: a shell that was already running, a turn
     /// the hooks heard, or the transcript showing it at its prompt since it started. Once past,
     /// it stays past for this start.
-    private func updateCover() {
-        if !ready {
-            let seenAtPrompt = agentStartedAt.map { started in transcriptAtPrompt.map { $0 > started } ?? false } ?? true
-            ready = seenAtPrompt || idle || busy
-        }
-        if coversTerminal != ready { coversTerminal = ready }
+    private func updateReady() {
+        guard !ready else { return }
+        let seenAtPrompt = agentStartedAt.map { started in transcriptAtPrompt.map { $0 > started } ?? false } ?? true
+        ready = seenAtPrompt || idle || busy
     }
 
     /// Back at its prompt since it last started work: after its turn's end (the hooks), or after
@@ -326,11 +316,11 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         return busySince.map { transcriptAtPrompt > $0 } ?? true
     }
     /// Known to be at its prompt, where typing into the terminal cannot answer a dialog.
-    var atPrompt: Bool { coversTerminal && (idle || returnedToPrompt) }
+    var atPrompt: Bool { ready && (idle || returnedToPrompt) }
 
     /// Shows the agent's state, and sends a held message once it is at its prompt.
     private func settle() {
-        updateCover()
+        updateReady()
         render()
         if atPrompt, queuedPrompt != nil { Task { await sendQueued() } }
     }

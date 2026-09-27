@@ -209,7 +209,7 @@ private func stamp(_ date: Date) -> String {
     #expect(quarantine?[kLSQuarantineAgentNameKey as String] as? String == "Cascade")
 }
 
-@MainActor @Test func aJustStartedAgentKeepsItsTerminalInViewUntilItIsAtItsPrompt() async {
+@MainActor @Test func aJustStartedAgentHoldsAMessageUntilItIsAtItsPrompt() async {
     let fixture = ChatFixture(), chat = fixture.model()
     let started = Date()
     // Resumed into its old conversation: the transcript's last turn end is from before this start,
@@ -217,33 +217,35 @@ private func stamp(_ date: Date) -> String {
     fixture.transcript = AgentTranscript(revision: "r1", turns: [], hooks: "installed", atPrompt: stamp(started.addingTimeInterval(-60)))
     chat.setAgentState(busy: false, idle: false, startedAt: started)
     await chat.refresh()
-    #expect(!chat.coversTerminal && !chat.atPrompt)
+    #expect(!chat.atPrompt)
     chat.draft = "hello"
     await chat.send()
     #expect(fixture.typed.isEmpty, "Nothing is typed into a question the chat would hide")
     fixture.transcript = AgentTranscript(revision: "r2", turns: [], hooks: "installed", atPrompt: stamp(started.addingTimeInterval(1)))
     await chat.refresh()
-    #expect(chat.coversTerminal)
     try? await eventually { fixture.typed == ["hello"] }
+    #expect(fixture.typed == ["hello"], "Seen at its prompt since it started, so the held message goes")
 }
 
-@MainActor @Test func aTurnTheHooksHearOrOpenChatShowsTheChat() {
+@MainActor @Test func theHooksHearingItAtItsPromptSendsTheHeldMessage() async {
     let fixture = ChatFixture(), chat = fixture.model()
     let started = Date()
     chat.setAgentState(busy: false, idle: false, startedAt: started)
-    #expect(!chat.coversTerminal)
-    chat.setAgentState(busy: true, idle: false, startedAt: started)
-    #expect(chat.coversTerminal, "A turn started, so the agent got past its questions")
-    let other = fixture.model()
-    other.setAgentState(busy: false, idle: false, startedAt: Date())
-    other.openChat()
-    #expect(other.coversTerminal)
+    chat.draft = "hello"
+    await chat.send()
+    #expect(fixture.typed.isEmpty && !chat.atPrompt)
+    chat.setAgentState(busy: false, idle: true, startedAt: started)
+    #expect(chat.atPrompt)
+    try? await eventually { fixture.typed == ["hello"] }
+    #expect(fixture.typed == ["hello"])
 }
 
-@MainActor @Test func aShellThatWasAlreadyRunningShowsTheChatAtOnce() {
-    let chat = ChatFixture().model()
+@MainActor @Test func aShellThatWasAlreadyRunningTakesAMessageAtOnce() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    fixture.transcript = AgentTranscript(revision: "r1", turns: [], hooks: "installed", atPrompt: stamp(Date().addingTimeInterval(-60)))
     chat.setAgentState(busy: false, idle: false, startedAt: nil)
-    #expect(chat.coversTerminal)
+    await chat.refresh()
+    #expect(chat.atPrompt)
 }
 
 @MainActor @Test func filesGoWithTheMessageAndComeBackWithItWhenCancelled() async {

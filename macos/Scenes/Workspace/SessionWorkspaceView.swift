@@ -227,8 +227,7 @@ struct SessionWorkspaceView: View {
                 .overlay(alignment: .top) {
                     if model.showsChat, let chat = model.chat {
                         TranscriptChatOverlay(chat: chat, busy: terminal.agentBusy, idle: terminal.agentTurns.idle,
-                                              startedAt: terminal.agentStartedAt, active: model.isActive,
-                                              coverChanged: model.chatCoverChanged)
+                                              startedAt: terminal.agentStartedAt, active: model.isActive)
                     }
                 }
                 .task(id: terminal.id) { model.restoreChatMode() }

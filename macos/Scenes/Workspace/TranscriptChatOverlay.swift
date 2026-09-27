@@ -5,10 +5,9 @@ import UniformTypeIdentifiers
 /// The session's conversation as a chat, drawn opaquely over its terminal (prototype). The
 /// terminal keeps running underneath at its own size, so switching back shows it unchanged.
 ///
-/// Until the agent has been seen at its prompt since it started, the terminal stays in view with
-/// a banner over its top edge instead: what the agent asks first (trust this folder, review its
-/// hooks) is answered there. One view owns the chat's lifetime either way, so moving from the
-/// banner to the chat neither stops its polling nor hands its approvals back.
+/// It covers the terminal from the moment it is shown, even while the agent is still starting: a
+/// message written before the agent is at its prompt is held (`TranscriptChatModel.atPrompt`), so
+/// it cannot answer a question the agent asks first in the terminal.
 struct TranscriptChatOverlay: View {
     @Bindable var chat: TranscriptChatModel
     let busy: Bool
@@ -19,8 +18,6 @@ struct TranscriptChatOverlay: View {
     /// The workspace is the one on screen. A hidden page cannot take the keyboard, so a focus
     /// request waits for this.
     let active: Bool
-    /// The chat began or stopped covering the terminal, which takes or gives up the keyboard.
-    let coverChanged: () -> Void
     @State private var choosingFiles = false
     @State private var dropTargeted = false
 
@@ -29,16 +26,13 @@ struct TranscriptChatOverlay: View {
     private struct AgentState: Equatable { let busy: Bool, idle: Bool, startedAt: Date? }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            if chat.coversTerminal { conversation } else { waiting }
-        }
-        .onAppear { chat.appear() }
-        .onDisappear { chat.disappear() }
-        .onChange(of: AgentState(busy: busy, idle: idle, startedAt: startedAt), initial: true) { _, state in
-            chat.setAgentState(busy: state.busy, idle: state.idle, startedAt: state.startedAt)
-        }
-        .onChange(of: chat.coversTerminal) { _, _ in coverChanged() }
-        .accessibilityIdentifier("transcript-chat")
+        conversation
+            .onAppear { chat.appear() }
+            .onDisappear { chat.disappear() }
+            .onChange(of: AgentState(busy: busy, idle: idle, startedAt: startedAt), initial: true) { _, state in
+                chat.setAgentState(busy: state.busy, idle: state.idle, startedAt: state.startedAt)
+            }
+            .accessibilityIdentifier("transcript-chat")
     }
 
     private var conversation: some View {
@@ -49,24 +43,6 @@ struct TranscriptChatOverlay: View {
         .font(.system(size: 14))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)
-    }
-
-    /// Only as big as its text, over the terminal's top edge like the terminal's own notices.
-    private var waiting: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Theme.textSecondary)
-            Text(String(localized: "Chat opens once \(chat.agentName) is ready. Answer anything it asks here first."))
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            Button(String(localized: "Open Chat"), action: chat.openChat).buttonStyle(.link)
-        }
-        .font(Theme.Typography.emptyHint)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(Theme.paneBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: Theme.Size.hairline))
-        .padding(10)
-        .accessibilityIdentifier("transcript-chat-waiting")
     }
 
     /// The conversation itself is the bundled chat page (`TranscriptChatPage`); only the composer

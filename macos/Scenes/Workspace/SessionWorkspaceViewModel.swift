@@ -377,8 +377,8 @@ extension WorkspaceServing {
     private(set) var chat: TranscriptChatModel?
     private(set) var showsChat = false
     var canShowChat: Bool { session?.cli != nil && terminal != nil }
-    /// In Chat, and past the agent's startup questions, so the chat is what is on screen.
-    var chatCoversTerminal: Bool { showsChat && chat?.coversTerminal == true }
+    /// In Chat: the chat is what is on screen, over the terminal.
+    var chatCoversTerminal: Bool { showsChat && chat != nil }
 
     /// Each session keeps the mode it was left in, across relaunches; Terminal until it is changed.
     private static func chatModeKey(_ sessionID: String) -> String { "workspace.chatMode.\(sessionID)" }
@@ -394,13 +394,6 @@ extension WorkspaceServing {
     /// The keyboard goes to what is on screen: the chat's message field, or the terminal.
     func focusAgent() {
         if chatCoversTerminal { chat?.requestFocus() } else { terminal?.surface.requestFocus() }
-    }
-
-    /// The chat began or stopped covering the terminal: the terminal gives up or may take the
-    /// keyboard, and it goes to whichever is now on screen.
-    func chatCoverChanged() {
-        terminal?.coveredByChat = chatCoversTerminal
-        if active { focusAgent() }
     }
 
     func toggleChat() { setChatShown(!showsChat) }

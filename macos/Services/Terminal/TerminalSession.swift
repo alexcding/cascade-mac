@@ -43,7 +43,8 @@ final class TerminalSession: Identifiable {
     var agentBusy: Bool { agentTurns.busy }
     /// When this app started the agent in a shell it created. A startup question (trust this
     /// folder, review hooks) comes before the agent's prompt, so until the agent is seen there
-    /// since, the chat leaves the terminal in view. Nil for a shell that was already running.
+    /// since, the chat holds a message rather than type it into that question. Nil for a shell
+    /// that was already running.
     private(set) var agentStartedAt: Date?
     /// The session's chat is drawn over this terminal, which then never takes the keyboard.
     var coveredByChat = false {
