@@ -84,7 +84,6 @@ import Observation
                         repository: project.repo.isEmpty ? String(localized: "No GitHub repository") : project.repo,
                         caches: [
                             CacheRow(id: "github", title: "GitHub", cache: result.snapshots[project.id], kind: .pullRequests),
-                            CacheRow(id: "jira", title: String(localized: "Jira tickets"), cache: result.jiraSnapshots[project.id], kind: .tickets),
                             CacheRow(id: "board", title: String(localized: "Sprint board"), cache: result.jiraSnapshots["board:\(project.id)"], kind: .tickets)
                         ])
                 }

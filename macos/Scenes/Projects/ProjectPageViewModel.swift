@@ -1,14 +1,13 @@
 import Foundation
 import Observation
 
-@MainActor @Observable final class ProjectPageViewModel {
-    /// What the screen asks its coordinator to do. The flow is one way: a ticket action already
-    /// carries the resolved request, and the coordinator never calls back into this model to
-    /// resolve one, following the Dashboard's pattern.
+/// A project's home: the composer that starts its sessions, with the project's settings in the
+/// window's inspector column (`InspectorPresenting`), shown until the user hides it.
+@MainActor @Observable final class ProjectPageViewModel: InspectorPresenting {
+    /// What the screen asks its coordinator to do.
     enum Action: Equatable {
-        case selectSection(ProjectSection), saved(Project, ProjectSaveSource), deleted(String)
+        case saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
-        case jiraTicket(JiraTicketsViewModel.Action)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
@@ -21,49 +20,39 @@ import Observation
                 case .requestDeletion(let request): onAction(.requestDeletion(request))
                 }
             }
-            tickets?.onAction = { [onAction] in onAction(.jiraTicket($0)) }
         }
     }
     private(set) var project: Project
     let editor: ProjectEditorViewModel
-    let tickets: JiraTicketsViewModel?
-    private(set) var section = ProjectSection.tickets {
-        didSet { if oldValue != section { cancelActions() } }
-    }
+    let composer: ProjectComposerModel
+    /// One setting for every project: open until the user closes it. A model re-reads it whenever
+    /// its project is shown again (`update`), so a change made on another project reaches it.
+    private(set) var showsInspector: Bool
     private(set) var retired = false
-    init(project: Project, editor: ProjectEditorViewModel, tickets: JiraTicketsViewModel? = nil) {
-        self.project = project; self.editor = editor; self.tickets = tickets
-        section = Self.resolve(section, for: project)
+    @ObservationIgnored private let defaults: UserDefaults
+    static let inspectorKey = "project.showsInspector"
+
+    init(project: Project, editor: ProjectEditorViewModel, composer: ProjectComposerModel, defaults: UserDefaults = .standard) {
+        self.project = project; self.editor = editor; self.composer = composer; self.defaults = defaults
+        showsInspector = defaults.object(forKey: Self.inspectorKey) as? Bool ?? true
     }
-    /// Sections the picker offers for this project (`ProjectSection.available`).
-    var availableSections: [ProjectSection] { ProjectSection.available(for: project) }
-    /// A section the project cannot show falls back to its first available one, so
-    /// neither a deep link nor an edit in Settings can leave a hidden tab selected.
-    private static func resolve(_ section: ProjectSection, for project: Project) -> ProjectSection {
-        let available = ProjectSection.available(for: project)
-        return available.contains(section) ? section : (available.first ?? .settings)
+    var canToggleInspector: Bool { !retired }
+    func setInspectorPresented(_ presented: Bool) {
+        guard !retired, presented != showsInspector else { return }
+        showsInspector = presented
+        defaults.set(presented, forKey: Self.inspectorKey)
     }
     func connect(_ service: (any ProjectService)?) {
         guard !retired else { return }
-        if service == nil { cancelActions() }
         editor.connect(service)
     }
     func retire() {
         retired = true; onAction = { _ in }
-        cancelActions(); editor.retire()
-        tickets?.retire()
-    }
-    func selectSection(_ section: ProjectSection) { onAction(.selectSection(section)) }
-    func setSection(_ section: ProjectSection) {
-        guard !retired else { return }
-        self.section = Self.resolve(section, for: project)
-    }
-    func cancelActions() {
-        tickets?.cancelActions()
+        editor.retire(); composer.retire()
     }
     func update(_ project: Project) {
         guard !retired else { return }
-        self.project = project; editor.update(project); tickets?.update(project)
-        section = Self.resolve(section, for: project)
+        self.project = project; editor.update(project); composer.update(project)
+        showsInspector = defaults.object(forKey: Self.inspectorKey) as? Bool ?? true
     }
 }

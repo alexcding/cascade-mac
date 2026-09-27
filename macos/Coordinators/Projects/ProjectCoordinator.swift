@@ -31,10 +31,8 @@ import Observation
         model.onAction = { [weak self] in self?.handle($0) }
     }
     func makeDestination(for route: Route) -> Destination { .none }
-    /// Sections are not pushed; the page switches in place.
-    func navigate(to route: Route) {
-        if case .projectSection(let section) = route { handle(.selectSection(section)) }
-    }
+    /// The page is one screen: nothing is pushed on it.
+    func navigate(to route: Route) {}
     func handle(_ action: Action) {
         if case .project(let action) = action { handle(action) } else { self.action?(action) }
     }
@@ -42,7 +40,6 @@ import Observation
     func handle(_ action: ProjectPageViewModel.Action) {
         guard !retired, isOwned() else { return }
         switch action {
-        case .selectSection(let section): model.setSection(section)
         case .saved(let project, let source): onEvent(.saved(project, source))
         case .deleted(let id):
             guard id == model.project.id else { return }
@@ -50,11 +47,7 @@ import Observation
             onEvent(.deleted(id))
         case .requestDeletion(let request):
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
-            model.cancelActions()
             deletionConfirmation = request
-        case .jiraTicket(.open(let request)):
-            guard !isPresenting, canPresent(), model.section == .tickets else { return }
-            model.tickets?.navigation.open(request)
         }
     }
 
@@ -73,7 +66,6 @@ import Observation
 
     /// Leaving the screen ends its presentation; an already started write finishes.
     func endPresentation() {
-        model.cancelActions()
         guard deletionConfirmation != nil else { return }
         deletionConfirmation = nil
         onEvent(.presentationEnded)
@@ -83,11 +75,5 @@ import Observation
         retired = true; deletionConfirmation = nil
         onEvent = { _ in }; canPresent = { false }; isOwned = { false }
         model.retire()
-    }
-
-    @discardableResult func navigate(to deepLink: DeepLink) -> Bool {
-        guard !retired, isOwned(), deepLink.routes.count == 1, case .projectSection(let section) = deepLink.first else { return false }
-        handle(.selectSection(section))
-        return true
     }
 }

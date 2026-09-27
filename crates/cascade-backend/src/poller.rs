@@ -260,24 +260,9 @@ impl Poller {
     pub async fn sync_all_jira(&self, app: &AppState) {
         if let Ok(projects) = app.db.projects() {
             for project in projects {
-                self.sync_project_jira(app, &project).await;
                 self.sync_board(app, &project).await;
             }
         }
-    }
-
-    pub async fn sync_project_jira(&self, app: &AppState, project: &Value) {
-        let id = project["id"].as_str().unwrap_or("");
-        let jql = project_jql(app, project);
-        self.write_jira(
-            app,
-            id,
-            &jql,
-            jira_limit(app, "jira_limit", 100),
-            None,
-            self.generation(id),
-        )
-        .await;
     }
 
     pub async fn sync_board(&self, app: &AppState, project: &Value) {
@@ -483,43 +468,6 @@ impl Poller {
     }
 }
 
-pub fn project_jql(app: &AppState, project: &Value) -> String {
-    let id = project["id"].as_str().unwrap_or("");
-    let clause = app
-        .db
-        .config_value(&format!("board_query_{id}"))
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let base = project["jql"]
-        .as_str()
-        .filter(|v| !v.is_empty())
-        .map(str::to_owned)
-        .or_else(|| {
-            project["jiraProjectKey"]
-                .as_str()
-                .filter(|v| !v.is_empty())
-                .map(|v| format!("project = {v} AND statusCategory != Done ORDER BY updated DESC"))
-        })
-        .unwrap_or_default();
-    with_clause(&base, &clause)
-}
-fn with_clause(base: &str, clause: &str) -> String {
-    if base.is_empty() || clause.is_empty() {
-        return base.into();
-    }
-    let lower = base.to_ascii_lowercase();
-    if let Some(index) = lower.find("order by") {
-        format!(
-            "({}) AND ({}) {}",
-            base[..index].trim(),
-            clause.trim(),
-            base[index..].trim()
-        )
-    } else {
-        format!("({base}) AND ({})", clause.trim())
-    }
-}
 fn jira_limit(app: &AppState, key: &str, default: usize) -> usize {
     app.db
         .config_value(key)

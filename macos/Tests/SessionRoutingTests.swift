@@ -143,26 +143,6 @@ private struct RoutingRows: DashboardService {
     #expect(PageSessionMark(cli: "claude").glyph == "✻" && PageSessionMark(cli: nil).label == "Has a shell session")
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func projectPullRequestAndTicketRowsReportTheirSessions() async throws {
-    let service = JiraFixture()
-    let project = Project(id: "w", name: "Widgets", repo: "acme/widgets", color: nil, workspace: "/tmp", jiraProjectKey: "REC")
-    let base = URL(string: "http://127.0.0.1:1")!, api = try APIClient(baseURL: base)
-    let factory = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { nil }))
-    var asked: [OpenPageRequest] = []
-    let model = factory.project(project, services: .init(projects: ProjectPageService(), tickets: service,
-        api: api, baseURL: base),
-        openPage: { _ in }, session: { asked.append($0); return $0.url.hasSuffix("REC-1") ? PageSessionMark(cli: "") : nil })
-    let tickets = try #require(model.tickets)
-    tickets.refresh()
-    while tickets.baseURL == nil || tickets.loading { await Task.yield() }
-    let login = try #require(tickets.rows.first { $0.key == "REC-1" }), done = try #require(tickets.rows.first { $0.key == "REC-2" })
-    #expect(tickets.sessionMark(login) != nil && tickets.sessionMark(done) == nil)
-    let ticketAsk = try #require(asked.first)
-    #expect(ticketAsk.inSession && ticketAsk.projectID == "w" && ticketAsk.kind == "jira" && ticketAsk.url == "https://jira.example.test/browse/REC-1")
-    #expect(tickets.sessionMark(JiraTicket(key: "FOREIGN-99")) == nil)
-    await tickets.stop()
-}
-
 private struct RoutingBoard: BoardService {
     func snapshot(projectID: String, force: Bool) async throws -> BoardSnapshot {
         BoardSnapshot(items: [JiraTicket(key: "REC-1", summary: "one", status: "Ready", statusId: "1"), JiraTicket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")],

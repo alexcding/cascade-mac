@@ -9,7 +9,6 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating {
                   gitClientLabel: workspaceLaunch.gitClientLabel(shell.gitClient))
     }
     func performRootCommand(_ command: ShellCommand) { perform(command) }
-    func newSession(in projectID: String) { presentNewSession(in: projectID, pageURL: nil) }
 
     /// Sidebar right-click Remove Session. Same sheet the workspace toolbar opens, so a session
     /// can be removed without first opening it.

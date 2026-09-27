@@ -34,7 +34,7 @@ private actor RefreshTransport: BackendTransport {
         case Routes.DASHBOARD:
             body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","jiraProjectKey":"REC","prs":[],"lastSynced":null,"syncError":null}]"# : "[]"
         case Routes.PRS_TRAY: body = "[]"
-        case Routes.projectJira("p"), Routes.projectBoard("p"): body = #"{"items":[]}"#
+        case Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
         default: body = "{}"
         }
@@ -188,18 +188,12 @@ private actor RefreshTransport: BackendTransport {
     let model = refreshApp(runtime, preferences: preferences)
     await model.start()
     try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
+    // A project page lists no tickets, so its own Jira sync fetches nothing.
     model.select(.project("p"))
-    let project = try #require(model.projectModels["p"])
-    project.setSection(.tickets)
-    project.tickets?.refresh()
-    try await refreshEventually { project.tickets?.baseURL != nil && project.tickets?.loading == false }
     await transport.reset()
-    runtime.emit("jira-sync", id: "q"); runtime.emit("jira-sync", id: "board:p")
+    runtime.emit("jira-sync", id: "p"); runtime.emit("jira-sync", id: "q")
     try await Task.sleep(for: .milliseconds(250))
     #expect(await transport.paths.isEmpty)
-    for _ in 0..<10 { runtime.emit("jira-sync", id: "p") }
-    try await refreshEventually { await transport.paths.count >= 1 }
-    #expect(await transport.paths == [Routes.projectJira("p")])
 
     // The sprint board lives on the Dashboard's My Tickets now, and follows only its own project.
     let dashboard = try #require(model.dashboard)
@@ -218,15 +212,6 @@ private actor RefreshTransport: BackendTransport {
     await model.stop()
     try await Task.sleep(for: .milliseconds(200))
     #expect(await transport.paths.isEmpty)
-}
-
-@Test func jiraMutationSyncOnlyForcesTheRequestedProjectsSnapshots() async throws {
-    let transport = RefreshTransport()
-    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:43187")!, transport: transport)
-    try await APIJiraService(api: api).syncAfterMutation(projectID: "p")
-    let requests = await transport.requests
-    #expect(requests.compactMap { $0.url?.path }.sorted() == [Routes.projectJira("p"), Routes.projectBoard("p")].sorted())
-    #expect(requests.allSatisfy { $0.httpMethod == "GET" && $0.url?.query == "refresh=1" })
 }
 
 @MainActor @Test func tabChangeDuringWideRefreshRetriesOnlyTabsAndRejectsTheirStaleResponse() async throws {

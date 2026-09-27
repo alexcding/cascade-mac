@@ -35,10 +35,6 @@ public enum Routes {
     public static func project(_ value: String) -> String {
         "/api/projects/\(value)"
     }
-    public static let PROJECT_JIRA = "/api/projects/:id/jira"
-    public static func projectJira(_ value: String) -> String {
-        "/api/projects/\(value)/jira"
-    }
     public static let PROJECT_BOARD = "/api/projects/:id/board"
     public static func projectBoard(_ value: String) -> String {
         "/api/projects/\(value)/board"

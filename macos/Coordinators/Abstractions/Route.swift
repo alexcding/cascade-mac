@@ -6,8 +6,6 @@ import Foundation
 enum Route: Hashable {
     /// A sidebar-level screen: overview, activity, settings, terminal, a project, session or tab.
     case destination(SidebarDestination)
-    /// A section inside the selected project, consumed by `ProjectCoordinator`.
-    case projectSection(ProjectSection)
     /// The Dashboard's full ticket list, pushed over its home screen.
     case dashboardTickets
     /// My Tickets as one project's sprint board; the old project Sprint Board link lands here.

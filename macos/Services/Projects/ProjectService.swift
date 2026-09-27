@@ -77,27 +77,6 @@ struct APIProjectService: ProjectService {
     }
 }
 
-enum ProjectSection: String, CaseIterable, Identifiable {
-    case tickets = "Tickets", settings = "Settings"
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .tickets: String(localized: "Tickets")
-        case .settings: String(localized: "Settings")
-        }
-    }
-
-    /// The sections a project can show. Tickets need Jira. Settings always applies. Automation is its own screen now.
-    static func available(for project: Project) -> [ProjectSection] {
-        allCases.filter { section in
-            switch section {
-            case .tickets: project.hasJira
-            case .settings: true
-            }
-        }
-    }
-}
-
 extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
     /// A Jira project key or a saved JQL query.

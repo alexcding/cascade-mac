@@ -83,83 +83,6 @@
         }
       }
     },
-    "Message delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "বার্তা পাঠানো বাধাগ্রস্ত হয়েছে। আগের ইনপুট হয়তো পাঠানো হয়েছে। আবার চালু করার আগে টার্মিনাল দেখে নিন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se interrumpió el envío del mensaje. Puede que ya se enviara parte de la entrada. Revisa el terminal antes de reiniciar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’envoi du message a été interrompu. Une partie de la saisie a peut-être déjà été envoyée. Vérifiez le terminal avant de redémarrer."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "संदेश भेजना बाधित हुआ। पहले का इनपुट शायद भेजा जा चुका है। फिर से शुरू करने से पहले टर्मिनल जाँचें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’invio del messaggio è stato interrotto. Parte dell’input potrebbe essere già stata inviata. Controlla il terminale prima di riavviare."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メッセージの送信が中断されました。一部の入力はすでに送信された可能性があります。再起動する前にターミナルを確認してください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "메시지 전송이 중단되었습니다. 앞선 입력이 이미 전송되었을 수 있습니다. 다시 시작하기 전에 터미널을 확인하세요."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O envio da mensagem foi interrompido. Parte da entrada pode já ter sido enviada. Verifique o terminal antes de reiniciar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отправка сообщения прервана. Часть ввода могла уже отправиться. Проверьте терминал перед перезапуском."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Meddelandet kunde inte skickas klart. En del av inmatningen kan redan ha skickats. Kontrollera terminalen innan du startar om."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "消息发送被中断。之前的输入可能已发送。重新启动前请检查终端。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "訊息傳送已中斷。先前的輸入可能已送出。重新啟動前請檢查終端機。"
-          }
-        }
-      }
-    },
     "—" : {
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
@@ -19326,6 +19249,12 @@
         }
       }
     },
+    "Choose the project folder before starting a session." : {
+
+    },
+    "Choose the project folder in Project Info to start sessions." : {
+
+    },
     "Choose what starts this automation." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -24789,6 +24718,9 @@
           }
         }
       }
+    },
+    "Connect before starting a session." : {
+
     },
     "Connect before starting the agent." : {
       "extractionState" : "manual",
@@ -33397,6 +33329,9 @@
           }
         }
       }
+    },
+    "Describe a task, or paste a pull request or Jira link" : {
+
     },
     "Destination" : {
       "extractionState" : "manual",
@@ -43545,6 +43480,9 @@
         }
       }
     },
+    "Hide Project Info" : {
+
+    },
     "Hide token" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -52397,6 +52335,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "訊息"
+          }
+        }
+      }
+    },
+    "Message delivery was interrupted. Earlier input may have been sent. Check the terminal before restarting." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "বার্তা পাঠানো বাধাগ্রস্ত হয়েছে। আগের ইনপুট হয়তো পাঠানো হয়েছে। আবার চালু করার আগে টার্মিনাল দেখে নিন।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se interrumpió el envío del mensaje. Puede que ya se enviara parte de la entrada. Revisa el terminal antes de reiniciar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’envoi du message a été interrompu. Une partie de la saisie a peut-être déjà été envoyée. Vérifiez le terminal avant de redémarrer."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "संदेश भेजना बाधित हुआ। पहले का इनपुट शायद भेजा जा चुका है। फिर से शुरू करने से पहले टर्मिनल जाँचें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’invio del messaggio è stato interrotto. Parte dell’input potrebbe essere già stata inviata. Controlla il terminale prima di riavviare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メッセージの送信が中断されました。一部の入力はすでに送信された可能性があります。再起動する前にターミナルを確認してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "메시지 전송이 중단되었습니다. 앞선 입력이 이미 전송되었을 수 있습니다. 다시 시작하기 전에 터미널을 확인하세요."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O envio da mensagem foi interrompido. Parte da entrada pode já ter sido enviada. Verifique o terminal antes de reiniciar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправка сообщения прервана. Часть ввода могла уже отправиться. Проверьте терминал перед перезапуском."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meddelandet kunde inte skickas klart. En del av inmatningen kan redan ha skickats. Kontrollera terminalen innan du startar om."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "消息发送被中断。之前的输入可能已发送。重新启动前请检查终端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "訊息傳送已中斷。先前的輸入可能已送出。重新啟動前請檢查終端機。"
           }
         }
       }
@@ -67089,6 +67104,9 @@
           }
         }
       }
+    },
+    "Paste a GitHub pull request or Jira issue link, or describe a task." : {
+
     },
     "Patterns" : {
       "extractionState" : "manual",
@@ -87935,6 +87953,9 @@
         }
       }
     },
+    "Show Project Info" : {
+
+    },
     "Show Session %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -89934,6 +89955,9 @@
           }
         }
       }
+    },
+    "Start Session" : {
+
     },
     "Starting" : {
       "extractionState" : "manual",
@@ -97520,6 +97544,7 @@
       }
     },
     "The linked project section is not available yet." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -98589,6 +98614,9 @@
           }
         }
       }
+    },
+    "The project was removed." : {
+
     },
     "The PTY helper did not preserve native color ownership. The created shell has been preserved." : {
       "localizations" : {
@@ -111933,6 +111961,9 @@
           }
         }
       }
+    },
+    "What are we working on in %@?" : {
+
     },
     "When" : {
       "extractionState" : "manual",

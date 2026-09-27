@@ -102,7 +102,6 @@ pub fn build_app(state: AppState) -> Router {
                 .put(routes::update_project)
                 .delete(routes::delete_project),
         )
-        .route("/api/projects/{id}/jira", get(routes::project_jira))
         .route("/api/projects/{id}/board", get(routes::project_board))
         .route("/api/detect-repo", get(routes::detect_repo))
         .route("/api/file", get(local::get_file).put(local::put_file))

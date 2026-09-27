@@ -174,7 +174,6 @@ import Observation
     func navigate(to route: Route) {
         switch route {
         case .destination(let destination): navigate(to: destination)
-        case .projectSection: projectCoordinator?.navigate(to: route)
         case .dashboardTickets:
             navigate(to: SidebarDestination.overview)
             // Through the model, like View All, so the list opens on every ticket, not a stale tag.
@@ -242,7 +241,7 @@ import Observation
 
     private func cancelPageActions() {
         settingsCoordinator?.cancelNavigation()
-        projectCoordinator?.model.cancelActions(); dashboardCoordinator?.model.cancelActions()
+        dashboardCoordinator?.model.cancelActions()
         logsCoordinator?.model.cancelActions()
     }
 

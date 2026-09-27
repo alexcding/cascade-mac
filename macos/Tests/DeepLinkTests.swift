@@ -5,17 +5,12 @@ import Testing
     let router = CascadeRouter()
     let roots: [SidebarDestination] = [.overview, .terminal, .project("p-123"), .session("s_123")]
     let links = roots.map { DeepLink(.destination($0)) }
-        + ProjectSection.allCases.map { DeepLink([.destination(.project("p-123")), .projectSection($0)]) }
     for link in links {
         let url = try #require(router.url(for: link))
         #expect(router.deepLink(for: url) == link)
     }
-    let chain = try #require(router.deepLink(for: URL(string: "cascade://app/projects/p-123/tickets")!))
-    #expect(chain.first == .destination(.project("p-123")))
-    #expect(chain.droppingFirst() == DeepLink(.projectSection(.tickets)))
-    #expect(chain.droppingFirst().droppingFirst().routes.isEmpty)
-    // Sections the project page dropped still open the project.
-    for retired in ["prs", "workflows"] {
+    // Sections the project page dropped still open the project; its settings are in its inspector.
+    for retired in ["prs", "workflows", "tickets", "settings"] {
         #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/\(retired)")!) == DeepLink(.destination(.project("p-123"))))
     }
     // The project's board moved to the Dashboard's My Tickets, and its link follows it there.
@@ -23,7 +18,8 @@ import Testing
     #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/board")!) == board)
     #expect(router.url(for: board)?.absoluteString == "cascade://app/projects/p-123/board")
     #expect(router.url(for: DeepLink(.destination(.tab("https://example.test")))) == nil)
-    #expect(router.url(for: DeepLink([.destination(.terminal), .projectSection(.tickets)])) == nil)
+    #expect(router.url(for: DeepLink([.destination(.terminal), .dashboardBoard(projectID: "p-123")])) == nil)
+    #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/unknown")!) == nil)
     #expect(router.url(for: DeepLink(.destination(.session("../s")))) == nil)
 }
 
@@ -161,24 +157,17 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     document.dispose()
 }
 
-@MainActor @Test func deepLinkCoordinatorDefersUntilSnapshotAndForwardsProjectRemainder() throws {
+@MainActor @Test func deepLinkCoordinatorDefersUntilSnapshotAndOpensRetiredProjectSections() throws {
     let factory = DeepLinkProjectFactory()
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }), projectCoordinatorFactory: factory)
     let runtime = DeepLinkRuntime(); runtime.coordinator = coordinator; coordinator.rootRuntime = runtime
     #expect(coordinator.handle(url: URL(string: "cascade://app/projects/p/settings")!))
     #expect(runtime.selections.isEmpty && coordinator.pendingDeepLink != nil)
-    // Jira sections only exist for a project with Jira configured.
+    // The project page is one screen, so a link to one of its old sections opens the project.
     let project = Project(id: "p", name: "Fixture", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
-    let service = DeepLinkProjectService()
-    let editor = ProjectEditorViewModel(project: project, service: service, chooseFolder: { nil })
-    let model = ProjectPageViewModel(project: project, editor: editor)
-    runtime.state.projects = [project]; runtime.state.projectModels[project.id] = model
+    runtime.state.projects = [project]
     coordinator.setRoutingReady(true)
-    #expect(coordinator.selection == .project("p") && model.section == .settings)
-    #expect(factory.creations == 1 && coordinator.projectCoordinator?.model === model && coordinator.pendingDeepLink == nil)
-    coordinator.handle(url: URL(string: "cascade://app/projects/p/tickets")!)
-    #expect(model.section == .tickets && factory.creations == 1)
-    #expect(coordinator.projectCoordinator?.navigate(to: DeepLink(.destination(.overview))) == false)
+    #expect(coordinator.selection == .project("p") && coordinator.pendingDeepLink == nil && factory.creations == 0)
     coordinator.handle(url: URL(string: "cascade://app/sessions/missing")!)
     #expect(coordinator.selection == .project("p") && coordinator.routingError != nil && runtime.terminals == 0)
     coordinator.handle(url: URL(string: "cascade://app/terminal")!)

@@ -69,6 +69,8 @@ public final class AppViewModel {
     private(set) var changingSessions: Set<String> = []
     /// PR / ticket pages whose session is being created right now (their Create Session is busy).
     private(set) var startingPages: Set<String> = []
+    /// First prompts for sessions the project composer created, by session id, until their agent launches.
+    @ObservationIgnored private var launchPrompts: [String: String] = [:]
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
@@ -420,7 +422,6 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire()
-        Task { await model.tickets?.stop() }
     }
 
     private func savedProject(_ project: Project) {
@@ -503,6 +504,30 @@ public final class AppViewModel {
             case .needsBranch: presentNewSession(in: projectID, pageURL: pageURL, agent: agent)
             case .failed(let message): context?.error = message
             }
+        }
+    }
+
+    /// A session from the project composer (`ProjectSessionStart`). A pull request whose branch
+    /// cannot be looked up opens the sheet to ask for it, as a page's New Session does.
+    func startProjectSession(_ request: ProjectSessionRequest) async throws {
+        guard canStartSession, let operations = sessionOperations else {
+            throw BackendError.operation(String(localized: "Connect before starting a session."))
+        }
+        guard let project = projects.first(where: { $0.id == request.projectID && !$0.workspace.isEmpty }) else {
+            throw BackendError.operation(String(localized: "Choose the project folder before starting a session."))
+        }
+        let outcome = try await ProjectSessionStart.plan(request, project: project, operations: operations)
+        // A lookup can take a while; a project deleted meanwhile gets no session.
+        guard projects.contains(where: { $0.id == project.id }) else {
+            throw BackendError.operation(String(localized: "The project was removed."))
+        }
+        switch outcome {
+        case .needsBranch(let url):
+            presentNewSession(in: project.id, pageURL: url, agent: request.agent)
+        case .planned(let plan):
+            let session = try await operations.create(project: project, draft: plan.draft)
+            if let prompt = plan.prompt { launchPrompts[session.id] = prompt }
+            createdSession(session)
         }
     }
 
@@ -916,10 +941,11 @@ public final class AppViewModel {
             viewer.deactivate()
             if let project = projects.first(where: { $0.id == id }), let api {
                 let services = backendFactory.projectServices(api: api)
-                coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self, openPage: { [weak self] request in
+                coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
+                                           agent: shell.defaultAgent) { [weak self] request in
                     guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
-                    try await self.openPage(request)
-                }, session: { [weak self] request in self?.pageSessionMark(request) })
+                    try await self.startProjectSession(request)
+                }
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
@@ -1087,6 +1113,7 @@ public final class AppViewModel {
         // not once the pane has attached, which can still fail.
         terminal.startupCommandStarted = { [weak self] in
             guard let self, let launch = prepared.launch else { return }
+            if launch.prompted { launchPrompts[record.id] = nil }
             do { try await keepReservedID(launch, record: record) } catch { self.error = error.localizedDescription }
         }
         terminal.onCreated = { [weak self] terminal in
@@ -1098,7 +1125,8 @@ public final class AppViewModel {
     }
 
     /// `reservedID` is a new conversation id the command starts, not yet on the session record.
-    private struct AgentLaunch { let command: String; let agent: SessionAgent; let resuming: Bool; var reservedID: String? }
+    /// `prompted` is a launch carrying the composer's prompt, which is spent once the agent starts.
+    private struct AgentLaunch { let command: String; let agent: SessionAgent; let resuming: Bool; var reservedID: String?; var prompted = false }
     @MainActor private final class PreparedLaunch { var launch: AgentLaunch? }
 
     /// Enters the agent's launch at an existing shell, one whose agent was quit.
@@ -1107,6 +1135,7 @@ public final class AppViewModel {
         guard let launch = try await agentLaunch(record: record, fresh: fresh, afresh: afresh) else { return }
         try await keepReservedID(launch, record: record)
         try await enterAgent(terminal, command: launch.command, cli: launch.agent.rawValue)
+        if launch.prompted { launchPrompts[record.id] = nil }
         watchLaunch(terminal, agent: launch.agent, resuming: launch.resuming, record: record)
     }
 
@@ -1131,8 +1160,12 @@ public final class AppViewModel {
         let script = Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh")
             ?? Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
         let statusLine = script.map { AgentStatusLine(script: $0.path, taskID: latest.id) }
-        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine).map {
-            AgentLaunch(command: $0, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty, reservedID: reservedID)
+        // The composer's prompt opens the conversation, so it goes with the first launch only. It is
+        // kept until that launch has started, so a launch that fails before it can try again with it.
+        let prompt = firstLaunch ? launchPrompts[latest.id] : nil
+        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt).map {
+            AgentLaunch(command: $0, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty, reservedID: reservedID,
+                        prompted: prompt != nil)
         }
     }
 
@@ -1458,10 +1491,7 @@ public final class AppViewModel {
                 usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
-            if let api { for model in projectModels.values {
-                model.connect(backendFactory.projects(api: api))
-                model.tickets?.connect(backendFactory.tickets(api: api))
-            } }
+            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api)) } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
             if let api { for model in historyModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.history(api: api)) } }
@@ -1492,9 +1522,6 @@ public final class AppViewModel {
         shell.refreshUsage()
         dashboard?.reload()
         if coordinator.activityVisible { logs?.refresh() }
-        if case .project(let id) = selection, let model = projectModels[id], model.section == .tickets {
-            model.tickets?.refresh()
-        }
         refreshInventory([.projects, .sessions, .tabs])
     }
 
@@ -1585,12 +1612,6 @@ public final class AppViewModel {
         if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
         let jira = events.filter { $0.type == "jira-sync" }
         for event in jira { dashboard?.board.refresh(event: event.id) }
-        guard case .project(let id) = selection, let model = projectModels[id] else { return }
-        switch model.section {
-        case .tickets:
-            if jira.contains(where: { $0.id == nil || $0.id == id }) { model.tickets?.refresh() }
-        default: break
-        }
     }
 
     public func reconnect() async {
@@ -1724,7 +1745,7 @@ public final class AppViewModel {
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            model.connect(nil); await model.tickets?.stop()
+            model.connect(nil)
         }
         await viewer.stop()
         ideWarmup.connect(nil)

@@ -49,15 +49,7 @@ extension AppCoordinator {
             }
         }
         navigate(to: destination)
-        let remainder = link.droppingFirst()
-        guard !remainder.routes.isEmpty else { return }
-        if case .dashboardBoard = remainder.first, let route = remainder.first { navigate(to: route); return }
-        guard case .project(let id) = destination, let model = runtime.rootState().projectModels[id] else {
-            routingError = String(localized: "The linked project section is not available yet.")
-            return
-        }
-        let child = installProject(model, runtime: runtime as? any ProjectCoordinating)
-        _ = child.navigate(to: remainder)
+        if let route = link.droppingFirst().first, case .dashboardBoard = route { navigate(to: route) }
     }
 
     /// Finish the originating operation's callbacks before applying a queued link.

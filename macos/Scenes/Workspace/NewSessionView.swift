@@ -68,8 +68,9 @@ struct NewSessionView: View {
     }
 }
 
-/// .theme-toggle / .theme-opt: plain text options, the chosen one outlined.
-private struct SegmentedChoice<Value: Hashable>: View {
+/// .theme-toggle / .theme-opt: plain text options, the chosen one outlined. The project composer
+/// uses it too, so an agent is chosen the same way wherever a session starts.
+struct SegmentedChoice<Value: Hashable>: View {
     let options: [(String, Value)]
     @Binding var selection: Value
 

@@ -59,7 +59,8 @@ private actor ProjectDeletionService: ProjectService {
 
 @MainActor private func deletionModel(service: any ProjectService) -> ProjectPageViewModel {
     ProjectPageViewModel(project: deletionProject,
-        editor: ProjectEditorViewModel(project: deletionProject, service: service, chooseFolder: { nil }))
+        editor: ProjectEditorViewModel(project: deletionProject, service: service, chooseFolder: { nil }),
+        composer: ProjectComposerModel(project: deletionProject, agent: .claude, start: { _ in }))
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func projectDeletionCoordinatorCancelsStaleRequestsAndDefersDeepLinks() async throws {

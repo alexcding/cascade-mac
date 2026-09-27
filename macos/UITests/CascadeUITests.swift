@@ -41,8 +41,10 @@ final class CascadeUITests: XCTestCase {
         let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/api/projects")!)
         let projects = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
         let projectID = try XCTUnwrap(projects.first?["id"] as? String)
+        // The project page is one screen: an old section link opens its composer.
         try await deliver("cascade://app/projects/\(projectID)/tickets")
-        XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.waitForExistence(timeout: 10))
+        let composer = app.descendants(matching: .any)["project-composer"].firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
         try await deliver("cascade://app/projects/\(projectID)/settings")
         XCTAssertTrue(app.buttons["Delete Project…"].waitForExistence(timeout: 5))
         app.buttons["Delete Project…"].click()
@@ -53,10 +55,10 @@ final class CascadeUITests: XCTestCase {
         app.sheets.buttons["Cancel"].click()
         XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5))
         try await deliver("cascade://app/projects/\(projectID)/tickets")
-        XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
         try await deliver("cascade://app/sessions/removed")
         XCTAssertTrue(app.staticTexts["The linked session is no longer available."].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch.exists)
+        XCTAssertTrue(composer.exists)
         try await deliver("cascade://app/sessions/sidebar-2")
         XCTAssertTrue(app.buttons["Show Changes"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Open Terminal"].exists, "Selecting a linked session must not spawn a shell")
@@ -519,7 +521,6 @@ final class CascadeUITests: XCTestCase {
         app.radioButtons["System"].click()
         XCTAssertTrue(app.staticTexts["PR–Jira links: 0"].waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(app.staticTexts["GitHub CLI · since backend startup"].exists)
-        XCTAssertTrue(app.staticTexts["Jira tickets"].exists)
         XCTAssertTrue(app.staticTexts["Sprint board"].exists)
         XCTAssertTrue(app.staticTexts["3 tickets"].firstMatch.exists)
         XCTAssertFalse(app.webViews.firstMatch.exists)
@@ -560,86 +561,6 @@ final class CascadeUITests: XCTestCase {
         XCTAssertEqual(interval.value as? String, "90")
         app.radioButtons["Integrations"].click()
         XCTAssertTrue(app.descendants(matching: .any)["settings-default-agent"].firstMatch.waitForExistence(timeout: 5), app.debugDescription)
-    }
-
-    @MainActor
-    func testNativeJiraTicketsSearchTransitionAndOpen() throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let base = environment["CASCADE_UI_BACKEND_URL"],
-              let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
-            throw XCTSkip("Run macos/scripts/test-browser-ui.sh to provide the isolated fixture.")
-        }
-        let app = XCUIApplication()
-        app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.launch()
-        let project = app.outlines["workspace-sidebar"].staticTexts["Native integration fixture"]
-        XCTAssertTrue(project.waitForExistence(timeout: 10))
-        project.click(); app.radioButtons["Tickets"].click()
-        let ticket = app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch
-        XCTAssertTrue(ticket.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertFalse(app.webViews.firstMatch.exists)
-        let status = app.descendants(matching: .any)["jira-status-REC-1"].firstMatch
-        XCTAssertTrue(status.waitForExistence(timeout: 5), app.debugDescription)
-        status.click(); app.menuItems["Blocked"].click()
-        XCTAssertTrue(app.staticTexts["Fixture transition rejected"].waitForExistence(timeout: 5))
-        status.click(); app.menuItems["Done"].click()
-        let changed = expectation(for: NSPredicate(format: "title == 'Done'"), evaluatedWith: status)
-        wait(for: [changed], timeout: 5)
-        let query = app.textFields["jira-query"]
-        query.click(); app.typeText("rec-2"); app.buttons["Search Jira"].click()
-        XCTAssertTrue(app.staticTexts["Search results: rec-2"].waitForExistence(timeout: 5))
-        XCTAssertFalse(ticket.exists)
-        XCTAssertTrue(app.descendants(matching: .any)["jira-ticket-REC-2"].firstMatch.exists)
-        app.buttons["Clear Search"].click()
-        XCTAssertTrue(ticket.waitForExistence(timeout: 5))
-        status.click(); app.menuItems["To Do"].click()
-        let restored = expectation(for: NSPredicate(format: "title == 'To Do'"), evaluatedWith: status)
-        wait(for: [restored], timeout: 5)
-        ticket.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native ticket fixture"].waitForExistence(timeout: 10))
-    }
-
-    @MainActor
-    func testNativeProjectTicketOpenCancelsAcrossSectionChanges() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let base = environment["CASCADE_UI_BACKEND_URL"],
-              let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
-            throw XCTSkip("Run macos/scripts/test-browser-ui.sh with its isolated project action fixture.")
-        }
-        func post(_ route: String) async throws {
-            var request = URLRequest(url: URL(string: base + route)!); request.httpMethod = "POST"
-            _ = try await URLSession.shared.data(for: request)
-        }
-        let app = XCUIApplication()
-        app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.launch()
-        let project = app.outlines["workspace-sidebar"].staticTexts["Native integration fixture"].firstMatch
-        XCTAssertTrue(project.waitForExistence(timeout: 10)); project.click()
-        app.radioButtons["Tickets"].click()
-        let ticket = app.descendants(matching: .any)["jira-ticket-REC-1"].firstMatch
-        XCTAssertTrue(ticket.waitForExistence(timeout: 10), app.debugDescription)
-        let query = app.textFields["jira-query"]
-        query.click(); app.typeText("Keep ticket query")
-        try await post("/fixture/arm-ticket-open")
-        ticket.click()
-        var held = false
-        for _ in 0..<100 {
-            let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/project-opens")!)
-            held = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["held"] as? Bool == true
-            if held { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertTrue(held)
-        // Leaving the section cancels the held open; the board is the Dashboard's now, not a section.
-        app.radioButtons["Settings"].click()
-        try await post("/fixture/release-project-open")
-        XCTAssertFalse(app.webViews.staticTexts["Native ticket fixture"].exists)
-        app.radioButtons["Tickets"].click()
-        XCTAssertEqual(query.value as? String, "Keep ticket query")
-        ticket.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native ticket fixture"].waitForExistence(timeout: 10))
-        let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/project-opens")!)
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["opens"] as? Int, 2)
     }
 
     @MainActor
@@ -737,9 +658,8 @@ final class CascadeUITests: XCTestCase {
         let row = app.outlines["workspace-sidebar"].staticTexts["UI project"]
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.click()
-        XCTAssertTrue(app.radioButtons["Settings"].waitForExistence(timeout: 5), app.debugDescription)
-        app.radioButtons["Settings"].click()
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        // The project's settings are in its inspector, which is open until the user closes it.
+        XCTAssertTrue(name.waitForExistence(timeout: 5), app.debugDescription)
         name.click(); app.typeKey("a", modifierFlags: .command); app.typeText("Renamed UI project")
         app.buttons["Save Project"].click()
         XCTAssertTrue(app.outlines["workspace-sidebar"].staticTexts["Renamed UI project"].waitForExistence(timeout: 10))
@@ -952,7 +872,8 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Open Terminal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.webViews.firstMatch.exists)
         XCTAssertNotEqual(app.state, .notRunning)
-        app.typeKey("n", modifierFlags: .command)
+        // New Session has no shortcut: it is the File menu's.
+        app.menuBars.menuItems["New Session…"].click()
         XCTAssertTrue(app.sheets.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'New session on '")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.sheets.popUpButtons["Project"].exists) // the project is fixed by where the sheet opened
         let sessionBranch = app.textFields["session-branch"]
@@ -963,7 +884,7 @@ final class CascadeUITests: XCTestCase {
         app.buttons["Cancel"].click()
         let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.sheets.firstMatch)
         wait(for: [dismissed], timeout: 5)
-        app.typeKey("n", modifierFlags: .command)
+        app.menuBars.menuItems["New Session…"].click()
         XCTAssertTrue(sessionBranch.waitForExistence(timeout: 5))
         XCTAssertEqual(sessionBranch.value as? String, "")
         app.buttons["Cancel"].click()

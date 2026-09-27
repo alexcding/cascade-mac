@@ -52,8 +52,10 @@ struct ProjectEditorView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.formStyle(.grouped).disabled(model.busy)
+            // Under the form, level with its sections' edges: the grouped form insets them 10pt.
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled)
+                    .padding(.horizontal, 10)
             }
             HStack {
                 if model.id != nil {
@@ -66,6 +68,7 @@ struct ProjectEditorView: View {
                 Button(model.id == nil ? String(localized: "Create Project") : String(localized: "Save Project")) { Task { await model.save() } }
                     .buttonStyle(.borderedProminent).disabled(!model.canSave)
             }
+            .padding(.horizontal, 10)
         }
     }
 }
@@ -150,18 +153,84 @@ struct NewProjectSheet: View {
     }
 }
 
+/// A project's home: a composer that starts a session in it. The project's settings are in the
+/// window's inspector column (`ProjectInspectorPane`).
 struct ProjectPageView: View {
-    @Bindable var model: ProjectPageViewModel
+    let model: ProjectPageViewModel
+    var body: some View { ProjectComposerView(project: model.project, model: model.composer) }
+}
+
+struct ProjectComposerView: View {
+    let project: Project
+    @Bindable var model: ProjectComposerModel
+    @FocusState private var focused: Bool
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Picker("Project section", selection: Binding(get: { model.section }, set: model.selectSection)) {
-                ForEach(model.availableSections) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden()
-            switch model.section {
-            case .tickets:
-                if let tickets = model.tickets { JiraTicketsView(model: tickets) }
-            case .settings: ProjectEditorView(model: model.editor)
+        VStack(spacing: 18) {
+            Text("What are we working on in \(project.name)?")
+                .font(.system(size: 24, weight: .semibold)).multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 10) {
+                TextField(model.placeholder, text: $model.text, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(2...8)
+                    .focused($focused).disabled(model.busy)
+                    .onSubmit { Task { await model.submit() } }
+                    .accessibilityIdentifier("project-composer")
+                HStack(spacing: 8) {
+                    SegmentedChoice(options: [("Claude", SessionAgent.claude), ("Codex", .codex), (String(localized: "Shell only"), .shell)],
+                                    selection: Binding(get: { model.agent }, set: model.select))
+                    Spacer()
+                    if model.busy { ProgressView().controlSize(.small) }
+                    Button { Task { await model.submit() } } label: {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 26))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+                    .disabled(!model.canStart)
+                    .help(String(localized: "Start Session"))
+                    .accessibilityLabel(String(localized: "Start Session"))
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
+            .frame(maxWidth: 620)
+            if let error = model.error {
+                Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger).textSelection(.enabled)
+            } else if project.workspace.isEmpty {
+                Text("Choose the project folder in Project Info to start sessions.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { focused = true }
+    }
+}
+
+/// The project's settings, in the window's inspector column, below the window's toolbar: the form
+/// scrolls under the toolbar as any page's does, so the pane's section of it is the real bar.
+struct ProjectInspectorPane: View {
+    let model: ProjectPageViewModel
+
+    var body: some View {
+        ProjectEditorView(model: model.editor).padding(.bottom, 12)
+    }
+}
+
+/// Project Info, in the toolbar's pane section: shows and hides the project's inspector, with the
+/// session's own pane toggle (`SessionWorkspaceContextToggle`).
+struct ProjectInspectorToggle: View {
+    let model: ProjectPageViewModel
+
+    var body: some View {
+        // A plain button, not a toggle: no pressed-state fill while the pane is shown.
+        Button {
+            model.setInspectorPresented(!model.showsInspector)
+        } label: {
+            Label(model.showsInspector ? String(localized: "Hide Project Info") : String(localized: "Show Project Info"),
+                  systemImage: "sidebar.trailing")
+        }
+        .buttonStyle(.toolbarIcon)
+        .help(model.showsInspector ? String(localized: "Hide Project Info") : String(localized: "Show Project Info"))
     }
 }

@@ -7,7 +7,6 @@ import Foundation
     func togglePin(_ id: String)
     func openTerminal()
     func openRootBrowser(_ url: URL)
-    func newSession(in projectID: String)
     func closeTab(_ url: String)
     func newTab()
     func moveTab(_ id: String, before: String?)
@@ -21,7 +20,6 @@ import Foundation
 }
 
 extension RootCoordinating {
-    func newSession(in projectID: String) {}
     func newTab() {}
     func moveTab(_ id: String, before: String?) {}
     func moveProject(_ id: String, before: String?) {}
@@ -58,7 +56,6 @@ extension AppCoordinator {
         case .select(let destination): discardQueuedDeepLink(); navigate(to: destination)
         case .command(let command): rootRuntime?.performRootCommand(command)
         case .togglePin(let id): rootRuntime?.togglePin(id)
-        case .newSession(let projectID): rootRuntime?.newSession(in: projectID)
         case .closeTab(let url): rootRuntime?.closeTab(url)
         case .newTab: rootRuntime?.newTab()
         case .moveTab(let id, let before): rootRuntime?.moveTab(id, before: before)
