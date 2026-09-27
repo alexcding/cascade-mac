@@ -254,7 +254,8 @@ struct ProjectComposerView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { focused = true }
+        .onAppear { focused = true; model.setShown(true) }
+        .onDisappear { model.setShown(false) }
         .onChange(of: model.focusRequest) { _, _ in focused = true }
     }
 

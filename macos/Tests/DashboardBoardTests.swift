@@ -149,6 +149,11 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     #expect(jiraProject("x", key: "App, ops").jiraKeys == ["APP", "OPS"])
     #expect(jiraProject("x", key: "App").hasJira && jiraProject("x", key: "App").owns(ticket: "app-12"))
     #expect(jiraProject("m").jiraKeys.isEmpty && !jiraProject("m").hasJira)
+    // A field of only commas and spaces names no key, so the project has no Jira rather than
+    // one that silently claims no tickets.
+    #expect(!jiraProject("c", key: " , ").hasJira && jiraProject("c", key: " , ").jiraKeys.isEmpty)
+    #expect(!Project(id: "c", name: "C", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: ",").hasJira)
+    #expect(Project(id: "k", name: "K", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "app").hasJira)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func boardLinkOpensTheDashboardBoardOnItsProjectEvenBeforeProjectsLoad() async throws {

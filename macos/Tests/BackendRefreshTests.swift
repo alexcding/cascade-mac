@@ -188,10 +188,9 @@ private actor RefreshTransport: BackendTransport {
     let model = refreshApp(runtime, preferences: preferences)
     await model.start()
     try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
-    // A project page lists no tickets, so its own Jira sync fetches nothing. Its Start reads the
-    // branch list once, on opening; that settles first.
+    // A project page lists no tickets, so its own Jira sync fetches nothing; and Start reads no
+    // branch list until it is on screen.
     model.select(.project("p"))
-    try await refreshEventually { model.projectModels["p"].map { $0.composer.referenceError != nil || !$0.composer.branches.isEmpty } == true }
     await transport.reset()
     runtime.emit("jira-sync", id: "p"); runtime.emit("jira-sync", id: "q")
     try await Task.sleep(for: .milliseconds(250))

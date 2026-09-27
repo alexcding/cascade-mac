@@ -18,7 +18,6 @@ struct ProjectFeatureServices {
     func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent) -> ProjectPageViewModel {
         let editor = creation.projectEditor(project: project, service: services.projects)
         let composer = ProjectComposerModel(project: project, agent: agent, operations: services.sessions)
-        composer.connect(services.sessions)
         return ProjectPageViewModel(project: project, editor: editor, composer: composer)
     }
 }

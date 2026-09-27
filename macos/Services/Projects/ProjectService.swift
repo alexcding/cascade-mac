@@ -78,8 +78,8 @@ struct APIProjectService: ProjectService {
 
 extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
-    /// A Jira project key: what the sprint board and ticket matching go by.
-    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty }
+    /// A Jira project key: what the sprint board and ticket matching go by (`JiraKeys`).
+    var hasJira: Bool { !JiraKeys.parse(jiraProjectKey).isEmpty }
 }
 
 struct IDEChoice: Identifiable {

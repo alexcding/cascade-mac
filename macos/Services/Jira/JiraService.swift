@@ -20,6 +20,16 @@ struct JiraTicket: Decodable, Identifiable, Equatable, Sendable {
     var projectKey: String { String(key.split(separator: "-").first ?? "") }
 }
 
+/// A project's Jira project key field, which may list several keys comma-separated: the keys in it,
+/// uppercased. A field of only commas, spaces or quotes names none, so it is no Jira project at all.
+enum JiraKeys {
+    static func parse(_ field: String?) -> [String] {
+        (field ?? "").split(separator: ",")
+            .map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))).uppercased() }
+            .filter { !$0.isEmpty }
+    }
+}
+
 struct JiraSnapshot: Decodable, Sendable {
     var items: [JiraTicket]
     var jql: String?

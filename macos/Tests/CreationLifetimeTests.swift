@@ -169,3 +169,41 @@ func creationLifetimeInputChangeDuringResolutionCannotCreateWorktree(failing: Bo
     #expect(created == 1 && model.text.isEmpty && model.error == nil)
     #expect(await service.creations == 2)
 }
+
+@MainActor @Test(.timeLimit(.minutes(1))) func creationLifetimeKeepsWhatWasPutOnStartWhileCreating() async throws {
+    let gate = CreationGate<WorkspaceSession>(), service = LifetimeSessionService(creation: gate)
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
+    var created = 0
+    model.onAction = { _ in created += 1 }
+    model.prepare(text: "first-branch", contextURL: "https://docs.example.test/one", agent: nil)
+    let creating = Task { await model.submit() }
+    await gate.waitForStart()
+    // Start is opened on a link while the first session is still being made.
+    model.prepare(text: "https://github.com/fixture/repo/pull/43", contextURL: "https://docs.example.test/two", agent: nil)
+    await gate.finish(.success(WorkspaceSession(id: "one", projectId: lifetimeProject.id, workspace: lifetimeProject.workspace,
+        worktree: "/tmp/one", title: "", branch: "first-branch", url: "", createdAt: nil, pinned: false)))
+    await creating.value
+    #expect(created == 1)
+    #expect(model.text == "https://github.com/fixture/repo/pull/43" && model.contextURL == "https://docs.example.test/two")
+    model.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func startReadsTheBranchListOnlyWhileItIsOnScreen() async throws {
+    let service = LifetimeSessionService()
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .claude, operations: nil)
+    model.connect(service)
+    model.update(Project(id: lifetimeProject.id, name: "Moved", repo: "", color: nil, workspace: "/tmp/elsewhere"))
+    await Task.yield()
+    #expect(await service.references == 0, "Connecting or moving a project nobody is looking at reads nothing")
+    model.setShown(true)
+    while await service.references < 1 { await Task.yield() }
+    while model.loading { await Task.yield() }
+    #expect(model.branches == ["main"] && model.base == "main")
+    model.connect(service) // a reconnect while it is on screen reads it again
+    while await service.references < 2 { await Task.yield() }
+    model.setShown(false)
+    model.connect(service)
+    await Task.yield()
+    #expect(await service.references == 2)
+    model.retire()
+}

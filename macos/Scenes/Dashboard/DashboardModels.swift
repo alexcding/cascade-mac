@@ -32,20 +32,14 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     var jiraProjectKey: String? = nil
 
     /// A Jira project key, which is what a sprint board needs.
-    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty }
-    /// The Jira project keys this project's tickets carry: the key field, which may list several
-    /// comma-separated as page matching reads it.
-    var jiraKeys: [String] { Self.keys((jiraProjectKey ?? "").split(separator: ",").map(String.init)) }
+    var hasJira: Bool { !jiraKeys.isEmpty }
+    /// The Jira project keys this project's tickets carry (`JiraKeys`).
+    var jiraKeys: [String] { JiraKeys.parse(jiraProjectKey) }
 
     /// Whether `key`, a Jira issue key such as `APP-12`, belongs to one of this project's Jira keys.
     func owns(ticket key: String) -> Bool {
         guard let prefix = key.split(separator: "-").first?.uppercased() else { return false }
         return jiraKeys.contains(prefix)
-    }
-
-    private static func keys(_ values: [String]) -> [String] {
-        values.map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))).uppercased() }
-            .filter { !$0.isEmpty }
     }
 }
 

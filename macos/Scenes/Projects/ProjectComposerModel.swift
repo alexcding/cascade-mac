@@ -32,6 +32,9 @@ import Observation
     private(set) var referenceError: String?
     /// Bumped to put the keyboard in the field, when the page is opened to start something.
     private(set) var focusRequest = 0
+    /// Start is on screen. Only then is the branch list read: a project opened once and left
+    /// does not reread it on every reconnect.
+    private(set) var shown = false
     private(set) var retired = false
     private var project: Project
     private var operations: (any SessionCreating)?
@@ -89,14 +92,27 @@ import Observation
     func connect(_ operations: (any SessionCreating)?) {
         guard !retired else { return }
         self.operations = operations
-        if operations == nil { cancel() } else { referenceTask = Task { [weak self] in await self?.loadReferences() } }
+        if operations == nil { cancel() } else { reloadReferencesIfShown() }
     }
 
     func update(_ project: Project) {
         guard !retired else { return }
         let moved = project.workspace != self.project.workspace
         self.project = project
-        if moved, operations != nil { referenceTask = Task { [weak self] in await self?.loadReferences() } }
+        if moved { reloadReferencesIfShown() }
+    }
+
+    /// Start came on screen or left it. Coming on reads the branch list afresh, since branches
+    /// change while it is away.
+    func setShown(_ shown: Bool) {
+        guard !retired, shown != self.shown else { return }
+        self.shown = shown
+        reloadReferencesIfShown()
+    }
+
+    private func reloadReferencesIfShown() {
+        guard shown, operations != nil else { return }
+        referenceTask = Task { [weak self] in await self?.loadReferences() }
     }
 
     func select(_ agent: SessionAgent) {
@@ -220,10 +236,14 @@ import Observation
             prompt = typed
         }
         guard !retired, !Task.isCancelled, inputGeneration == generation else { return }
+        let usedContext = contextURL
         do {
             let session = try await operations.create(project: project, draft: creation)
             guard !retired else { return }
-            text = ""; pullRequestBranch = ""; contextURL = nil
+            // Only what this session was made from is cleared: text or a page put here while it was
+            // being created — Start opened on a link meanwhile — stays for the next one.
+            if inputGeneration == generation { text = ""; pullRequestBranch = "" }
+            if contextURL == usedContext { contextURL = nil }
             onAction(.created(session, prompt: prompt))
             // The new branch is the repository's now: the next task must not take its name.
             referenceTask = nil
