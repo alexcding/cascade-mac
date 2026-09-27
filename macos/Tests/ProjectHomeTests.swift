@@ -56,7 +56,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     let (model, created) = await composer(operations)
     #expect(model.base == "develop" && model.branches.contains("main"))
     model.text = "  fix login\nIt fails on the second try  "
-    #expect(model.hint?.text == "New branch fix-login-it-fails-on-the-second-try from develop; Claude Code starts with your text")
+    #expect(model.hint == nil, "Plain text needs no explaining")
     model.base = "main"
     await model.submit()
     let draft = try #require(await operations.drafts.first)
@@ -64,8 +64,6 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(draft.title == "fix login" && draft.agent == .claude && draft.url.isEmpty)
     #expect(created().first?.1 == "fix login\nIt fails on the second try" && model.text.isEmpty)
     // A name a branch or a worktree already has gets the next free one: a task is always new work.
-    model.text = "Fix login two"
-    #expect(model.hint?.text.hasPrefix("New branch fix-login-two from") == true)
     model.text = "fix login"
     await model.submit()
     #expect(await operations.drafts.last?.branch == "fix-login-3")
@@ -75,12 +73,11 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     let operations = StartOperations()
     let (model, created) = await composer(operations)
     model.text = "develop"
-    #expect(model.hint?.text == "Opens develop")
     await model.submit()
     #expect(await operations.drafts.last.map { ($0.branch, $0.createBranch) } ?? ("", true) == ("develop", false))
     #expect(created().last.map { $0.1 == nil } == true, "An existing branch starts with no prompt")
     model.select(.shell)
-    #expect(model.canStart && model.hint?.text == "New branch worktree1 from develop")
+    #expect(!model.canStart && model.hint == nil, "Shell only needs a branch name too")
     model.text = "feature/new thing"
     await model.submit()
     #expect(await operations.drafts.last.map { ($0.branch, $0.createBranch, $0.agent) } ?? ("", false, .claude) == ("feature/new-thing", true, .shell))

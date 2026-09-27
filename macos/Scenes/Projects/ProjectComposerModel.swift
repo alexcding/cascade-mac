@@ -18,7 +18,6 @@ import Observation
     /// A plain page the session was asked for from: its context, when no PR or ticket is typed.
     private(set) var contextURL: String?
     private(set) var branches: [String] = []
-    private(set) var placeholder = "worktree1"
     /// The typed address, resolved: its title, branch, and an existing checkout to reuse.
     private(set) var resolved: SessionDraft?
     /// A pasted PR whose lookup failed — the page then asks for its branch.
@@ -56,16 +55,17 @@ import Observation
     var showsPullRequestBranch: Bool { unresolvedPullRequest && page != nil }
     var canStart: Bool {
         !retired && operations != nil && !busy && !project.workspace.isEmpty
-            && !(urlish && page == nil) && (agent == .shell || !typed.isEmpty)
+            && !typed.isEmpty && !(urlish && page == nil)
     }
     var placeholderText: String {
-        agent == .shell ? String(localized: "Branch name or pull request / Jira link (\(placeholder))")
+        agent == .shell ? String(localized: "Branch name, or a pull request or Jira link")
             : String(localized: "Describe a task, or paste a pull request or Jira link")
     }
 
-    /// The line under the field: what Create Session will do with the text, or why it can't.
+    /// The line under the field: what a pasted link resolved to, or why the text can't start a session.
     var hint: (text: String, isError: Bool)? {
         if let inputError { return (inputError, true) }
+        if typed.isEmpty { return nil }
         if urlish && page == nil { return (String(localized: "Not a GitHub pull request or Jira issue link"), true) }
         if let page {
             if resolving { return (String(localized: "Looking it up…"), false) }
@@ -77,19 +77,12 @@ import Observation
                 return (String(localized: "Opens \(name) on \(resolved.branch)"), false)
             }
             if unresolvedPullRequest { return (String(localized: "Name that pull request’s branch below"), false) }
-            return nil
         }
-        if typed.isEmpty && agent != .shell { return nil }
-        if namesBranch {
-            let branch = shellBranch
-            return branches.contains(branch) ? (String(localized: "Opens \(branch)"), false)
-                : (String(localized: "New branch \(branch) from \(base)"), false)
-        }
-        return (String(localized: "New branch \(taskBranch) from \(base); \(agent.label) starts with your text"), false)
+        return nil
     }
 
     private var shellBranch: String {
-        (typed.isEmpty ? placeholder : typed).replacingOccurrences(of: "\\s+", with: "-", options: .regularExpression)
+        typed.replacingOccurrences(of: "\\s+", with: "-", options: .regularExpression)
     }
     private var taskBranch: String {
         ProjectSessionStart.uniqueBranch(ProjectSessionStart.branchName(for: typed), taken: Set(branches + worktreeBranches))
@@ -160,10 +153,6 @@ import Observation
             branches = names
             worktreeBranches = (refs.worktrees ?? []).compactMap(\.branch)
             if base.isEmpty || !names.contains(base) { base = sessionBase }
-            let taken = Set(names + worktreeBranches)
-            var index = 1
-            while taken.contains("worktree\(index)") { index += 1 }
-            placeholder = "worktree\(index)"
         } catch {
             if !retired && !Task.isCancelled && self.generation == generation { referenceError = error.localizedDescription }
         }

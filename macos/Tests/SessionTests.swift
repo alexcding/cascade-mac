@@ -47,7 +47,7 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     let model = ProjectComposerModel(project: project, agent: .claude, operations: operations)
     model.onAction = { if case .created(let session, _) = $0 { created = session } }
     await model.loadReferences()
-    #expect(model.placeholder == "worktree1" && model.base == "main" && model.text.isEmpty)
+    #expect(model.base == "main" && model.text.isEmpty && model.hint == nil)
     model.select(.shell)
     model.text = "https://github.com/fixture/repo/pull/42"
     await model.submit()
@@ -68,14 +68,14 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     var created = 0
     model.onAction = { _ in created += 1 }
     await model.loadReferences()
-    #expect(model.hint?.text == "New branch worktree1 from main" && model.hint?.isError == false)
+    #expect(model.hint == nil && !model.canStart, "Nothing typed, nothing to say or start")
     model.text = "https://example.com/not-a-page"
     #expect(model.hint?.isError == true && !model.canStart)
     model.text = "https://jira.test/browse/RECORD-12"
     #expect(await model.resolve())
     #expect(model.hint?.text == "Opens RECORD-12 Native sidebar in existing on RECORD-12-existing")
     model.text = "bad..name"
-    #expect(model.resolved == nil && model.hint?.text == "New branch bad..name from main")
+    #expect(model.resolved == nil && model.hint == nil)
     await model.submit()
     #expect(model.hint?.isError == true && created == 0)
     #expect(ProjectSessionStart.branchNameError("feature/ok-1") == nil)

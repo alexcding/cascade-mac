@@ -199,7 +199,8 @@ struct ProjectComposerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let context = model.contextURL { contextChip(context) }
                 TextField(model.placeholderText, text: $model.text, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(2...8)
+                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(4...10)
+                    .frame(minHeight: 84, alignment: .topLeading)
                     .focused($focused).disabled(model.creating)
                     .onSubmit { Task { await model.submit() } }
                     .accessibilityIdentifier("project-composer")
@@ -222,12 +223,10 @@ struct ProjectComposerView: View {
                     if model.busy { ProgressView().controlSize(.small) }
                     // Creates a session rather than sending a message, so it is not a send arrow.
                     Button { Task { await model.submit() } } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background(Circle().fill(model.canStart ? Color.accentColor : Color(nsColor: .tertiaryLabelColor)))
+                        Image(systemName: "plus.circle.fill").font(.system(size: 26))
                     }
                     .buttonStyle(.plain)
+                    .foregroundStyle(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor))
                     .disabled(!model.canStart)
                     .help(String(localized: "Create Session"))
                     .accessibilityLabel(String(localized: "Create Session"))

@@ -15480,9 +15480,6 @@
         }
       }
     },
-    "Branch name or pull request / Jira link (%@)" : {
-
-    },
     "Branch name or URL" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15559,6 +15556,9 @@
           }
         }
       }
+    },
+    "Branch name, or a pull request or Jira link" : {
+
     },
     "Bring the PR branch up to date with its base." : {
       "extractionState" : "manual",
