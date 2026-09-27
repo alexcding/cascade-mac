@@ -103,9 +103,7 @@ pub fn build_app(state: AppState) -> Router {
                 .put(routes::update_project)
                 .delete(routes::delete_project),
         )
-        .route("/api/projects/{id}/jira", get(routes::project_jira))
         .route("/api/projects/{id}/board", get(routes::project_board))
-        .route("/api/projects/{id}/issues", get(routes::project_issues))
         .route("/api/detect-repo", get(routes::detect_repo))
         .route("/api/file", get(local::get_file).put(local::put_file))
         .route("/api/files", get(local::list_files))
@@ -160,7 +158,6 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/jira/{key}/assign", post(routes::jira_assign))
         .route("/api/issues/search", post(routes::issues_search))
         .route("/api/issues/lookup", get(routes::issue_lookup))
-        .route("/api/issues/{number}/status", post(routes::issue_status))
         .route("/api/stream", get(routes::stream))
         .route("/api/usage", get(usage::get))
         .route("/api/agent/catalog", get(agents::catalog))

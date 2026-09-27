@@ -35,17 +35,9 @@ public enum Routes {
     public static func project(_ value: String) -> String {
         "/api/projects/\(value)"
     }
-    public static let PROJECT_JIRA = "/api/projects/:id/jira"
-    public static func projectJira(_ value: String) -> String {
-        "/api/projects/\(value)/jira"
-    }
     public static let PROJECT_BOARD = "/api/projects/:id/board"
     public static func projectBoard(_ value: String) -> String {
         "/api/projects/\(value)/board"
-    }
-    public static let PROJECT_ISSUES = "/api/projects/:id/issues"
-    public static func projectIssues(_ value: String) -> String {
-        "/api/projects/\(value)/issues"
     }
     public static let DETECT_REPO = "/api/detect-repo"
     public static let WORKTREE = "/api/worktree"
@@ -79,10 +71,6 @@ public enum Routes {
     }
     public static let ISSUES_SEARCH = "/api/issues/search"
     public static let ISSUE_LOOKUP = "/api/issues/lookup"
-    public static let ISSUE_NUMBER_STATUS = "/api/issues/:number/status"
-    public static func issueNumberStatus(_ value: Int) -> String {
-        "/api/issues/\(value)/status"
-    }
     public static let LINKS = "/api/links"
     public static let LINK = "/api/links/:id"
     public static let WHOAMI = "/api/whoami"

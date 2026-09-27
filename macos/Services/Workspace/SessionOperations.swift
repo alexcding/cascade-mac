@@ -10,10 +10,21 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     /// Nil for a shell-only session, which has no agent to drive.
     var driver: (any AgentDriver)? { self == .shell ? nil : AgentDrivers.driver(for: rawValue) }
 
-    func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil) -> String? {
-        driver?.launchCommand(sessionID: sessionID, fresh: fresh, selection: nil, effort: nil, statusLine: statusLine)
+    /// `prompt` is the new conversation's first message: both CLIs take it as their last argument.
+    func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil, prompt: String? = nil) -> String? {
+        guard let command = driver?.launchCommand(sessionID: sessionID, fresh: fresh, selection: nil, effort: nil, statusLine: statusLine) else { return nil }
+        guard let prompt = Self.launchPrompt(prompt) else { return command }
+        return command + " " + Self.quote(prompt)
     }
     static func quote(_ value: String) -> String { AgentDrivers.quote(value) }
+
+    /// A first prompt as a launch argument: on one line, as the shell types it, and never taken
+    /// for an option — one that starts with a dash gets a space before it.
+    static func launchPrompt(_ text: String?) -> String? {
+        let line = (text ?? "").split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        guard !line.isEmpty else { return nil }
+        return line.hasPrefix("-") ? " " + line : line
+    }
 }
 
 extension WorkspaceSession {
@@ -21,8 +32,8 @@ extension WorkspaceSession {
     var agent: SessionAgent { SessionAgent(rawValue: cli ?? "") ?? .shell }
 }
 
-/// A pull request whose head branch nothing could tell us — the only resolution failure the
-/// New Session sheet answers by asking for the branch. Every other failure is a real error.
+/// A pull request whose head branch nothing could tell us — the only resolution failure a
+/// project's Start answers by asking for the branch. Every other failure is a real error.
 struct PullRequestBranchUnknown: LocalizedError, Sendable {
     var errorDescription: String? { String(localized: "Could not look up this pull request’s branch.") }
 }
@@ -69,7 +80,7 @@ protocol SessionCreating: Sendable {
 enum PageSessionStart {
     enum Outcome: Sendable {
         case created(WorkspaceSession)
-        /// The PR's head branch couldn't be looked up — the New Session sheet asks for it.
+        /// The PR's head branch couldn't be looked up — the project's Start asks for it.
         case needsBranch
         case failed(String)
     }

@@ -81,9 +81,9 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### Jira and GitHub issues without leaving the code
 
-- **Tickets.** Each project lists its tickets from your JQL and its repository's GitHub
-  issues, with search, filters, and a status menu on every row to transition a ticket or
-  close and reopen an issue. Start a session from either, and My Tickets gathers both.
+- **Tickets.** The Dashboard's Tickets tab lists your Jira tickets across the projects
+  whose Jira project key claims them, and the open GitHub issues assigned to you in their
+  repositories, with search and filters. Paste an issue link into Start to work on it.
 - **Sprint board.** Drag cards between columns, move or reassign tickets, and filter
   by assignee.
 - **Automatic updates.** [Automation](#automation-across-projects) can move a merged

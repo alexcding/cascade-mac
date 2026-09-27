@@ -4,8 +4,6 @@ import Foundation
 /// receive protocols; replacing a service also applies to nested flows.
 @MainActor protocol BackendFeatureFactory {
     func projects(api: APIClient) -> any ProjectService
-    func tickets(api: APIClient) -> any JiraService
-    func issues(api: APIClient) -> any IssueService
     func automation(api: APIClient) -> any AutomationService
     func dashboard(api: APIClient) -> any DashboardService
     func logs(api: APIClient) -> any LogService
@@ -25,8 +23,6 @@ import Foundation
 
 extension BackendFeatureFactory {
     func projects(api: APIClient) -> any ProjectService { APIProjectService(api: api) }
-    func tickets(api: APIClient) -> any JiraService { APIJiraService(api: api) }
-    func issues(api: APIClient) -> any IssueService { APIIssueService(api: api) }
     func automation(api: APIClient) -> any AutomationService { APIAutomationService(api: api) }
     func dashboard(api: APIClient) -> any DashboardService { APIDashboardService(api: api) }
     func logs(api: APIClient) -> any LogService { APILogService(api: api) }
@@ -43,7 +39,6 @@ extension BackendFeatureFactory {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }
     func projectServices(api: APIClient) -> ProjectFeatureServices {
-        ProjectFeatureServices(projects: projects(api: api), tickets: tickets(api: api),
-            api: api, baseURL: api.baseURL, issues: issues(api: api))
+        ProjectFeatureServices(projects: projects(api: api), sessions: sessions(api: api))
     }
 }

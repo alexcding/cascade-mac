@@ -408,48 +408,6 @@ fn poll_targets(scope: Option<&str>) -> (bool, bool) {
     (scope != "jira", scope != "prs")
 }
 
-pub async fn project_jira(
-    State(app): State<AppState>,
-    Path(id): Path<String>,
-    Query(query): Query<PathQuery>,
-) -> ApiResult<Value> {
-    let project = app
-        .db
-        .project(&id)?
-        .ok_or_else(|| ApiError::not_found("Not found"))?;
-    let effective = crate::poller::project_jql(&app, &project);
-    let snapshot = app.db.jira_snapshot(&id)?;
-    let stale = snapshot
-        .as_ref()
-        .and_then(|v| v.get("lastSynced"))
-        .and_then(Value::as_str)
-        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
-        .is_none_or(|v| {
-            chrono::Utc::now()
-                .signed_duration_since(v.with_timezone(&chrono::Utc))
-                .num_seconds()
-                > 90
-        });
-    if !effective.is_empty() && (stale || query.refresh.is_some()) {
-        if query.refresh.is_some() {
-            app.poller.sync_project_jira(&app, &project).await
-        } else {
-            let copy = app.clone();
-            tokio::spawn(async move {
-                let poller = copy.poller.clone();
-                poller.sync_project_jira(&copy, &project).await;
-            });
-        }
-    }
-    let mut result = app
-        .db
-        .jira_snapshot(&id)?
-        .unwrap_or_else(|| json!({"items":[],"jql":effective,"lastSynced":null,"error":null}));
-    if result["jql"].as_str().unwrap_or("").is_empty() {
-        result["jql"] = json!(effective)
-    }
-    Ok(Json(result))
-}
 pub async fn project_board(
     State(app): State<AppState>,
     Path(id): Path<String>,
@@ -479,48 +437,6 @@ pub async fn project_board(
     Ok(Json(app.db.jira_snapshot(&key)?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
 }
 
-/// The project's GitHub issues snapshot, served like `project_jira`: stale after 90 seconds, which
-/// starts a sync in the background, or synced first with `?refresh`. `jql` holds the gh search.
-pub async fn project_issues(
-    State(app): State<AppState>,
-    Path(id): Path<String>,
-    Query(query): Query<PathQuery>,
-) -> ApiResult<Value> {
-    let project = app
-        .db
-        .project(&id)?
-        .ok_or_else(|| ApiError::not_found("Not found"))?;
-    let key = format!("issues:{id}");
-    let effective = crate::issues::project_query(&project);
-    let stale = app.db.jira_snapshot(&key)?.as_ref().is_none_or(|snapshot| {
-        snapshot["lastSynced"]
-            .as_str()
-            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
-            .is_none_or(|time| {
-                (chrono::Utc::now() - time.with_timezone(&chrono::Utc)).num_seconds() > 90
-            })
-    });
-    if !effective.is_empty() && (stale || query.refresh.is_some()) {
-        if query.refresh.is_some() {
-            app.poller.sync_project_issues(&app, &project).await
-        } else {
-            let copy = app.clone();
-            tokio::spawn(async move {
-                let poller = copy.poller.clone();
-                poller.sync_project_issues(&copy, &project).await;
-            });
-        }
-    }
-    let mut result = app
-        .db
-        .jira_snapshot(&key)?
-        .unwrap_or_else(|| json!({"items":[],"jql":effective,"lastSynced":null,"error":null}));
-    if result["jql"].as_str().unwrap_or("").is_empty() {
-        result["jql"] = json!(effective)
-    }
-    Ok(Json(result))
-}
-
 /// A live issue search (never snapshotted) over `repos`, or with `allProjects` over every project
 /// repo that lists its issues: `#123` or `123` looks one issue up in each repo, anything else is a
 /// GitHub search. With `allProjects` and no such repo, the result is empty rather than an error.
@@ -537,7 +453,7 @@ pub async fn issues_search(
         app.db
             .projects()?
             .iter()
-            .filter(|project| !crate::issues::project_query(project).is_empty())
+            .filter(|project| crate::issues::lists_issues(project))
             .filter_map(|project| project["repo"].as_str().map(str::to_ascii_lowercase))
             .collect()
     } else {
@@ -575,31 +491,6 @@ pub async fn issue_lookup(Query(query): Query<PathQuery>) -> ApiResult<Value> {
         Some(url) => crate::issues::lookup(&url).await.unwrap_or(Value::Null),
         None => Value::Null,
     }))
-}
-
-/// Reopens or closes an issue: `status` is one of the ticket statuses `issues.rs` reports.
-pub async fn issue_status(
-    State(app): State<AppState>,
-    Path(number): Path<u64>,
-    Json(body): Json<Value>,
-) -> ApiResult<Value> {
-    let repo = body
-        .get("repo")
-        .and_then(Value::as_str)
-        .and_then(crate::github::parse_repo)
-        .ok_or_else(|| ApiError::bad_request("repo is required"))?;
-    let status = body.get("status").and_then(Value::as_str).unwrap_or("");
-    if number == 0 || ![crate::issues::OPEN, crate::issues::CLOSED, crate::issues::NOT_PLANNED].contains(&status) {
-        return Err(ApiError::bad_request("an issue number and a known status are required"));
-    }
-    crate::issues::set_status(&repo, number, status)
-        .await
-        .map_err(ApiError::internal)?;
-    let payload = json!({"key":crate::issues::key(&repo, number),"transition":status,"url":format!("https://github.com/{repo}/issues/{number}"),"trigger":"manual"});
-    if let Ok(event) = app.db.add_event("issue_status_changed", &payload) {
-        app.broadcast(json!({"type":"activity","event":event}))
-    }
-    Ok(Json(json!({"ok":true})))
 }
 
 pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
@@ -872,8 +763,6 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
     let mut patch = Map::new();
     for key in [
         "name",
-        "jql",
-        "issueQuery",
         "workspace",
         "ide",
         "ideCmd",

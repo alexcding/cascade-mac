@@ -81,7 +81,7 @@ xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
 - `ffi.rs` - the C ABI the app links: start/stop/request plus the event callback.
 - `routes.rs` - thin handlers; `local.rs` - git, worktrees, files, diffs, Xcode;
   `github.rs` - `gh` wrapper, `lean()`, PR classification; `issues.rs` - GitHub issues as
-  tickets (`gh issue`), snapshotted beside Jira as `issues:<projectId>`; `jira.rs` - `acli`;
+  tickets (`gh issue`), searched live for My Tickets and never snapshotted; `jira.rs` - `acli`;
   `poller.rs` - the sync engine and merge automation; `warmup.rs` - IDE warm-up;
   `integrations.rs` - webhook forwarders; `usage.rs` - agent usage; `recovery.rs` - packaged-start data checks.
 - `db.rs` + `schema_durable.sql` / `schema_cache.sql` / `schema_logs.sql` - the three
@@ -97,7 +97,7 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 
 ## Conventions / gotchas
 
-- **One repo per project.** A project maps to one GitHub repo, optional Jira JQL,
+- **One repo per project.** A project maps to one GitHub repo, optional Jira project key,
   workspace path, color and merge transition.
 - **Schema is `CREATE TABLE IF NOT EXISTS`** in the three `schema_*.sql` files — no
   migration framework. `data.db` and `logs.db` are regenerable caches; **`cascade.db` is

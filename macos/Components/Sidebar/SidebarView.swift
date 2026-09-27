@@ -13,7 +13,7 @@ struct SidebarView: View {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
                          pinnedIDs: viewModel.pinnedIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
-                         onNewSession: viewModel.newSession(in:), onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onNewProject: viewModel.newProject, onMoveTab: viewModel.moveTab,
+                         onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onNewProject: viewModel.newProject, onMoveTab: viewModel.moveTab,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onTogglePinTab: viewModel.togglePinTab, onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession,

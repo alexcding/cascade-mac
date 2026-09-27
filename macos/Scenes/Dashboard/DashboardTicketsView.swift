@@ -83,7 +83,7 @@ struct DashboardTicketsView: View {
                 WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 Text(!model.board.available && model.tickets.available
-                     ? String(localized: "Add a Jira project key or saved JQL to a project to see its sprint board.")
+                     ? String(localized: "Add a Jira project key to a project to see its sprint board.")
                      : String(localized: "Jira isn’t connected, so there is no board to show."))
                     .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
                 Spacer()

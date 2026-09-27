@@ -57,7 +57,6 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var runScheme: String? = nil
     var runSim: String? = nil
     var jiraProjectKey: String? = nil
-    var jql: String? = nil
     var ideCmd: String? = nil
     /// Run in each new worktree after its files are copied; empty runs nothing.
     var worktreeSetup: String? = nil
@@ -65,10 +64,8 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var worktreeInclude: String? = nil
     /// Whether pull request events on the repo are forwarded to automations, which puts a webhook on it.
     var forwardWebhooks: Bool? = nil
-    /// Whether the repo's GitHub issues are listed as tickets; nil (an older backend) reads as on.
+    /// Whether the repo's GitHub issues appear in My Tickets; nil (an older backend) reads as on.
     var issuesEnabled: Bool? = nil
-    /// The GitHub search the issue list runs; empty lists open issues, newest activity first.
-    var issueQuery: String? = nil
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots

@@ -89,7 +89,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(rows.first { $0.id == "session:stopped" }?.role == .session(.init(), pinned: false))
     #expect(rows.first { $0.id == "session:stopped" }?.tooltip?.contains("Stopped") == true)
     #expect(rows.first { $0.id == "tab:https://github.com/o/r/pull/1" }?.role == .tab(.init(kind: "github", login: "octocat", url: "https://github.com/o/r/pull/1")))
-    #expect(rows.first { $0.id == "project:p1" }?.role == .project(canCreateSession: true))
+    #expect(rows.first { $0.id == "project:p1" }?.role == .project)
 }
 
 @Test func pinnedTabsFormOneGridRowUnderDashboardAndLeaveTheTabsList() {

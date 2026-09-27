@@ -105,14 +105,14 @@ impl Database {
             .unwrap_or_else(now);
         let get = |key: &str| patch.get(key).and_then(Value::as_str).unwrap_or("");
         self.durable().execute(
-            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,issues_enabled,issue_query,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,issues_enabled,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
             params![
-                id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"), get("jql"),
+                id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"),
                 get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
                 bool_int(patch.get("fixVersionEnabled"), false), get("fixVersionPrefix"),
                 get("fixVersionScript"), get("ide"), get("ideCmd"), get("ideTarget"),
                 get("runScheme"), get("runSim"), get("worktreeSetup"), get("worktreeInclude"),
-                bool_int(patch.get("issuesEnabled"), true), get("issueQuery"),
+                bool_int(patch.get("issuesEnabled"), true),
                 created_at,
             ],
         )?;
@@ -133,7 +133,6 @@ impl Database {
             ("repo", "repo", FieldKind::String),
             ("workspace", "workspace", FieldKind::String),
             ("jiraProjectKey", "jira_project_key", FieldKind::String),
-            ("jql", "jql", FieldKind::String),
             ("mergeTransition", "merge_transition", FieldKind::String),
             ("forwardWebhooks", "forward_webhooks", FieldKind::Bool),
             ("fixVersionEnabled", "fix_version_enabled", FieldKind::Bool),
@@ -147,7 +146,6 @@ impl Database {
             ("worktreeSetup", "worktree_setup", FieldKind::String),
             ("worktreeInclude", "worktree_include", FieldKind::String),
             ("issuesEnabled", "issues_enabled", FieldKind::Bool),
-            ("issueQuery", "issue_query", FieldKind::String),
         ];
         let mut sets = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
@@ -180,8 +178,8 @@ impl Database {
         cache.execute("DELETE FROM pr_snapshots WHERE id=?1", [id])?;
         cache.execute("DELETE FROM pr_scope_snapshots WHERE id=?1", [id])?;
         cache.execute(
-            "DELETE FROM jira_snapshots WHERE id=?1 OR id=?2 OR id=?3",
-            params![id, format!("board:{id}"), format!("issues:{id}")],
+            "DELETE FROM jira_snapshots WHERE id=?1 OR id=?2",
+            params![id, format!("board:{id}")],
         )?;
         Ok(())
     }
@@ -195,8 +193,8 @@ impl Database {
         let cache = self.cache();
         cache.execute("DELETE FROM pr_snapshots WHERE id=?1", [id])?;
         cache.execute(
-            "DELETE FROM jira_snapshots WHERE id=?1 OR id=?2 OR id=?3",
-            params![id, format!("board:{id}"), format!("issues:{id}")],
+            "DELETE FROM jira_snapshots WHERE id=?1 OR id=?2",
+            params![id, format!("board:{id}")],
         )?;
         cache.execute("DELETE FROM pr_scope_snapshots WHERE id=?1", [id])?;
         Ok(())
@@ -823,7 +821,6 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tasks ADD COLUMN name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE projects ADD COLUMN issue_query TEXT NOT NULL DEFAULT ''",
     ] {
         let _ = conn.execute(migration, []);
     }
@@ -894,14 +891,14 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
     Ok(json!({
         "id": row.get::<_,String>("id")?, "name": row.get::<_,String>("name")?, "repo": row.get::<_,String>("repo")?,
         "workspace": row.get::<_,String>("workspace")?, "jiraProjectKey": row.get::<_,String>("jira_project_key")?,
-        "jql": row.get::<_,String>("jql")?, "mergeTransition": row.get::<_,String>("merge_transition")?,
+        "mergeTransition": row.get::<_,String>("merge_transition")?,
         "forwardWebhooks": row.get::<_,i64>("forward_webhooks")? != 0, "created_at": row.get::<_,String>("created_at")?,
         "fixVersionEnabled": row.get::<_,i64>("fix_version_enabled")? != 0,
         "fixVersionScript": text(row,"fix_version_script")?,
         "ide": text(row,"ide")?, "ideCmd": text(row,"ide_cmd")?, "ideTarget": text(row,"ide_target")?,
         "runScheme": text(row,"run_scheme")?, "runSim": text(row,"run_sim")?,
         "worktreeSetup": text(row,"worktree_setup")?, "worktreeInclude": text(row,"worktree_include")?,
-        "issuesEnabled": row.get::<_,i64>("issues_enabled")? != 0, "issueQuery": text(row,"issue_query")?,
+        "issuesEnabled": row.get::<_,i64>("issues_enabled")? != 0,
     }))
 }
 

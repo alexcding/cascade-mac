@@ -117,7 +117,7 @@ struct APIBoardService: BoardService {
     func site() async throws -> JiraSite { try await api.get(Routes.JIRA_SITE, timeout: 30) }
     func settings() async throws -> [String: String] { try await api.get(Routes.SETTINGS) }
     func saveFilter(_ value: String, projectID: String) async throws { try await api.setSetting("board_filter_" + projectID, value: value) }
-    // The poller reads `board_query_<id>` from config and ANDs it into the board and Tickets JQL.
+    // The poller reads `board_query_<id>` from config and ANDs it into the board's JQL.
     func saveQuery(_ value: String, projectID: String) async throws {
         let _: OperationOK = try await api.request(Routes.CONFIG, method: "POST", body: ["board_query_" + projectID: value], timeout: 10)
     }

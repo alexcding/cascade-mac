@@ -142,7 +142,6 @@ extension ShellCommand {
         case .tray: KeyShortcut(key: "u", command: true, shift: true)
         case .biggerFont: KeyShortcut(key: "=", command: true)
         case .smallerFont: KeyShortcut(key: "-", command: true)
-        case .newSession: KeyShortcut(key: "n", command: true)
         case .newProject: KeyShortcut(key: "p", command: true)
         case .newTab: KeyShortcut(key: "t", command: true)
         case .newSidebarTab: KeyShortcut(key: "t", command: true, option: true)

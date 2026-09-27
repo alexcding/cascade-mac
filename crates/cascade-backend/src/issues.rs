@@ -1,22 +1,21 @@
 //! GitHub issues as tickets. `gh issue` is the source; every issue is mapped onto the ticket
 //! shape the Jira source returns (`poller::search_jira`), with `source: "github"`, so the app
-//! lists, filters and opens both through one model. GitHub has no priority or sprint, so those
-//! fields stay empty rather than being made up.
+//! lists and opens both through one model. GitHub has no priority or sprint, so those fields
+//! stay empty rather than being made up. Issues are searched live, never snapshotted: nothing
+//! lists one project's tickets any more, only the Dashboard's My Tickets across all of them.
 
 use std::{sync::LazyLock, time::Duration};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use regex::Regex;
 use serde_json::{json, Value};
 
-use crate::{cli, AppState};
+use crate::cli;
 
 const FIELDS: &str = "number,title,state,stateReason,labels,assignees,author,url,updatedAt,issueType";
-/// A project that sets no query of its own lists what is open, most recently touched first.
-pub const DEFAULT_QUERY: &str = "is:open sort:updated-desc";
 
-/// The status names the app shows and moves between. A closed issue is "Closed" unless it was
-/// closed as not planned; GitHub's `DUPLICATE` reason reads as closed.
+/// The status names the app shows. A closed issue is "Closed" unless it was closed as not
+/// planned; GitHub's `DUPLICATE` reason reads as closed.
 pub const OPEN: &str = "Open";
 pub const CLOSED: &str = "Closed";
 pub const NOT_PLANNED: &str = "Not planned";
@@ -27,30 +26,9 @@ static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| {
 });
 static NUMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?(\d+)$").unwrap());
 
-/// The search a project's issue snapshot runs, or empty when the project has no repo or has
-/// turned issues off. The board filter (`board_query_<id>`) is Jira's and is not applied here.
-pub fn project_query(project: &Value) -> String {
-    let repo = project["repo"].as_str().unwrap_or("");
-    let enabled = project["issuesEnabled"].as_bool().unwrap_or(true);
-    if repo.is_empty() || !enabled {
-        return String::new();
-    }
-    project["issueQuery"]
-        .as_str()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .unwrap_or(DEFAULT_QUERY)
-        .to_owned()
-}
-
-pub fn issue_limit(app: &AppState) -> usize {
-    app.db
-        .config_value("issue_limit")
-        .ok()
-        .flatten()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(100usize)
-        .max(1)
+/// Whether a project's repo takes part in issue searches: it has one, and has not turned issues off.
+pub fn lists_issues(project: &Value) -> bool {
+    !project["repo"].as_str().unwrap_or("").is_empty() && project["issuesEnabled"].as_bool().unwrap_or(true)
 }
 
 /// `gh issue list --search` over one repo. The query decides the state (`is:open`, `is:closed`),
@@ -166,22 +144,6 @@ pub async fn lookup(url: &str) -> Option<Value> {
     view(&repo, number).await.ok()?.into_iter().next()
 }
 
-/// Moves an issue to one of the three statuses: reopening, closing as completed, or closing
-/// as not planned.
-pub async fn set_status(repo: &str, number: u64, status: &str) -> Result<()> {
-    let number = number.to_string();
-    let args: Vec<&str> = match status {
-        OPEN => vec!["issue", "reopen", &number, "--repo", repo],
-        CLOSED => vec!["issue", "close", &number, "--repo", repo, "--reason", "completed"],
-        NOT_PLANNED => vec!["issue", "close", &number, "--repo", repo, "--reason", "not planned"],
-        other => bail!("unknown issue status {other:?}"),
-    };
-    cli::run("gh", args, Duration::from_secs(30))
-        .await
-        .map_err(friendly)?;
-    Ok(())
-}
-
 pub fn status(state: &str, reason: &str) -> &'static str {
     if state.eq_ignore_ascii_case("open") {
         OPEN
@@ -270,11 +232,10 @@ mod tests {
     }
 
     #[test]
-    fn project_query_follows_repo_and_toggle() {
-        assert_eq!(project_query(&json!({"repo":"o/r"})), DEFAULT_QUERY);
-        assert_eq!(project_query(&json!({"repo":"o/r","issueQuery":" label:bug "})), "label:bug");
-        assert_eq!(project_query(&json!({"repo":"o/r","issuesEnabled":false})), "");
-        assert_eq!(project_query(&json!({"repo":"","issuesEnabled":true})), "");
+    fn a_project_lists_issues_with_a_repo_unless_turned_off() {
+        assert!(lists_issues(&json!({"repo":"o/r"})));
+        assert!(!lists_issues(&json!({"repo":"o/r","issuesEnabled":false})));
+        assert!(!lists_issues(&json!({"repo":"","issuesEnabled":true})));
     }
 
     #[test]

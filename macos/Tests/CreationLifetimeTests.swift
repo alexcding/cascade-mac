@@ -116,25 +116,22 @@ private actor LifetimeSessionService: SessionCreating {
 }
 
 @MainActor @Test(.timeLimit(.minutes(1)), arguments: [false, true])
-func creationLifetimeDismissedSessionIgnoresPendingResolution(failing: Bool) async throws {
+func creationLifetimeRetiredStartIgnoresPendingResolution(failing: Bool) async throws {
     let gate = CreationGate<SessionDraft>(), service = LifetimeSessionService(resolution: gate)
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let request = SessionCreationRequest(project: lifetimeProject, agent: .shell, pageURL: "https://github.com/fixture/repo/pull/42")
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
     var created = 0
-    coordinator.presentNewSession(request: request, operations: service, didCreate: { _ in created += 1 })
-    let sheet = try #require(coordinator.sheet)
-    guard case .newSession(let model) = sheet.destination else { Issue.record("Wrong destination"); return }
+    model.onAction = { _ in created += 1 }
+    model.text = "https://github.com/fixture/repo/pull/42"
     let resolving = Task { await model.resolve() }
     await gate.waitForStart()
-    let original = model.draft
-    coordinator.dismissSheet(id: sheet.id)
-    var resolved = original; resolved.branch = "obsolete-branch"
+    model.retire()
+    var resolved = SessionDraft(); resolved.branch = "obsolete-branch"
     await gate.finish(failing ? .failure(BackendError.operation("Obsolete lookup failed")) : .success(resolved))
     #expect(await resolving.value == false)
-    await model.loadReferences(); await model.create(); await model.resolve()
+    await model.loadReferences(); await model.submit(); await model.resolve()
     await Task.yield()
-    #expect(model.retired && !model.canCreate && !model.loading && !model.resolving)
-    #expect(model.draft == original && model.error == nil && created == 0 && coordinator.sheet == nil)
+    #expect(model.retired && !model.canStart && !model.loading && !model.resolving)
+    #expect(model.resolved == nil && model.error == nil && created == 0)
     #expect(await service.references == 0)
     #expect(await service.resolutions == 1)
     #expect(await service.creations == 0)
@@ -143,36 +140,72 @@ func creationLifetimeDismissedSessionIgnoresPendingResolution(failing: Bool) asy
 @MainActor @Test(.timeLimit(.minutes(1)), arguments: [false, true])
 func creationLifetimeInputChangeDuringResolutionCannotCreateWorktree(failing: Bool) async {
     let gate = CreationGate<SessionDraft>(), service = LifetimeSessionService(resolution: gate)
-    let model = NewSessionViewModel(project: lifetimeProject, operations: service)
-    model.input = "https://github.com/fixture/repo/pull/42"
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
+    model.text = "https://github.com/fixture/repo/pull/42"
     let resolving = Task { await model.resolve() }
     await gate.waitForStart()
-    model.input = "https://github.com/fixture/repo/pull/43" // A new address is a new request.
-    var resolved = model.draft; resolved.branch = "obsolete-branch"
+    model.text = "https://github.com/fixture/repo/pull/43" // A new address is a new request.
+    var resolved = SessionDraft(); resolved.branch = "obsolete-branch"
     await gate.finish(failing ? .failure(BackendError.operation("Obsolete lookup failed")) : .success(resolved))
     #expect(await resolving.value == false)
-    #expect(model.resolved == nil && model.error == nil && model.unresolvedPullRequest == nil)
+    #expect(model.resolved == nil && model.error == nil && !model.unresolvedPullRequest)
     #expect(await service.creations == 0)
     model.retire()
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func creationLifetimeSessionFailureCanRetryButCompletedModelCannotCreateAgain() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func creationLifetimeSessionFailureKeepsTheTextAndCanRetry() async throws {
     let gate = CreationGate<WorkspaceSession>(), service = LifetimeSessionService(creation: gate)
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
     var created = 0
-    coordinator.presentNewSession(request: .init(project: lifetimeProject, agent: .shell, pageURL: nil),
-        operations: service, didCreate: { _ in created += 1 })
-    let sheet = try #require(coordinator.sheet)
-    guard case .newSession(let model) = sheet.destination else { Issue.record("Wrong destination"); return }
-    model.input = "keep-draft"
-    let creating = Task { await model.create() }
+    model.onAction = { _ in created += 1 }
+    model.text = "keep-draft"
+    let creating = Task { await model.submit() }
     await gate.waitForStart()
-    coordinator.dismissSheet(id: sheet.id)
-    #expect(coordinator.sheet?.id == sheet.id && !sheet.canDismiss)
+    #expect(model.creating && !model.canStart)
+    await model.submit()
     await gate.finish(.failure(BackendError.operation("Fixture create failed"))); await creating.value
-    #expect(model.canCreate && !model.retired && model.error == "Fixture create failed" && model.input == "keep-draft")
-    await model.create(); await model.create(); await model.loadReferences()
-    #expect(created == 1 && model.completed && model.retired && !model.canCreate && coordinator.sheet == nil)
+    #expect(model.canStart && !model.retired && model.error == "Fixture create failed" && model.text == "keep-draft")
+    await model.submit()
+    #expect(created == 1 && model.text.isEmpty && model.error == nil)
     #expect(await service.creations == 2)
-    #expect(await service.references == 0)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func creationLifetimeKeepsWhatWasPutOnStartWhileCreating() async throws {
+    let gate = CreationGate<WorkspaceSession>(), service = LifetimeSessionService(creation: gate)
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
+    var created = 0
+    model.onAction = { _ in created += 1 }
+    model.prepare(text: "first-branch", contextURL: "https://docs.example.test/one", agent: nil)
+    model.pullRequestBranch = "feature-a"
+    let creating = Task { await model.submit() }
+    await gate.waitForStart()
+    // Start is opened on a link while the first session is still being made.
+    model.prepare(text: "https://github.com/fixture/repo/pull/43", contextURL: "https://docs.example.test/two", agent: nil)
+    await gate.finish(.success(WorkspaceSession(id: "one", projectId: lifetimeProject.id, workspace: lifetimeProject.workspace,
+        worktree: "/tmp/one", title: "", branch: "first-branch", url: "", createdAt: nil, pinned: false)))
+    await creating.value
+    #expect(created == 1)
+    #expect(model.text == "https://github.com/fixture/repo/pull/43" && model.contextURL == "https://docs.example.test/two")
+    #expect(model.pullRequestBranch.isEmpty, "A branch named for one pull request is not offered for the next")
+    model.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func startReadsTheBranchListOnlyWhileItIsOnScreen() async throws {
+    let service = LifetimeSessionService()
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .claude, operations: nil)
+    model.connect(service)
+    model.update(Project(id: lifetimeProject.id, name: "Moved", repo: "", color: nil, workspace: "/tmp/elsewhere"))
+    await Task.yield()
+    #expect(await service.references == 0, "Connecting or moving a project nobody is looking at reads nothing")
+    model.setShown(true)
+    while await service.references < 1 { await Task.yield() }
+    while model.loading { await Task.yield() }
+    #expect(model.branches == ["main"] && model.base == "main")
+    model.connect(service) // a reconnect while it is on screen reads it again
+    while await service.references < 2 { await Task.yield() }
+    model.setShown(false)
+    model.connect(service)
+    await Task.yield()
+    #expect(await service.references == 2)
+    model.retire()
 }

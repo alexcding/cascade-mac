@@ -34,15 +34,16 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     let lastSynced: String?
     let syncError: String?
     var jiraProjectKey: String? = nil
-    var jql: String? = nil
     var issuesEnabled: Bool? = nil
 
-    /// A Jira project key or a saved JQL query, which is what a sprint board needs.
-    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
-    /// A repo whose GitHub issues this project lists.
+    /// A Jira project key, which is what a sprint board needs.
+    var hasJira: Bool { !jiraKeys.isEmpty }
+    /// The Jira project keys this project's tickets carry (`JiraKeys`).
+    var jiraKeys: [String] { JiraKeys.parse(jiraProjectKey) }
+    /// A repo whose GitHub issues appear in My Tickets.
     var hasIssues: Bool { !repo.isEmpty && issuesEnabled != false }
     /// Whether My Tickets can narrow to this project: its Jira keys or its repo claim tickets.
-    var claimsTickets: Bool { !jiraKeys.isEmpty || hasIssues }
+    var claimsTickets: Bool { hasJira || hasIssues }
 
     /// Whether `ticket` is this project's: a Jira key under one of its keys, or an issue in its repo.
     func owns(_ ticket: Ticket) -> Bool {
@@ -51,38 +52,11 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
         case .github: hasIssues && (ticket.repo ?? "").lowercased() == repo.lowercased()
         }
     }
-    /// The Jira project keys this project's tickets carry: the key field, which may list several
-    /// comma-separated as page matching reads it, or else the projects its saved JQL names.
-    var jiraKeys: [String] {
-        let listed = Self.keys((jiraProjectKey ?? "").split(separator: ",").map(String.init))
-        return listed.isEmpty ? Self.keys(fromJQL: jql ?? "") : listed
-    }
 
     /// Whether `key`, a Jira issue key such as `APP-12`, belongs to one of this project's Jira keys.
     func owns(ticket key: String) -> Bool {
         guard let prefix = key.split(separator: "-").first?.uppercased() else { return false }
         return jiraKeys.contains(prefix)
-    }
-
-    /// `project = OPS`, `project in (OPS, "WEB")`: the keys a JQL query's project clauses name.
-    /// A clause may name a project by its name or id instead (`project = "Mobile App"`), which no
-    /// ticket key carries; then the keys are unknown and this returns none, so nothing is filtered
-    /// out on a guess. Only an uppercase key-shaped value counts as a key.
-    static func keys(fromJQL jql: String) -> [String] {
-        let pattern = #"(?i)\bproject\s*(?:=|\bin\b)\s*(\([^)]*\)|"[^"]*"|'[^']*'|[^\s()]+)"#
-        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
-        let source = jql as NSString
-        let values = expression.matches(in: jql, range: NSRange(location: 0, length: source.length)).flatMap { match in
-            source.substring(with: match.range(at: 1)).trimmingCharacters(in: CharacterSet(charactersIn: "()")).split(separator: ",")
-                .map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))) }
-        }
-        guard values.allSatisfy({ $0.range(of: #"^[A-Z][A-Z0-9_]+$"#, options: .regularExpression) != nil }) else { return [] }
-        return keys(values)
-    }
-
-    private static func keys(_ values: [String]) -> [String] {
-        values.map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))).uppercased() }
-            .filter { !$0.isEmpty }
     }
 }
 
@@ -387,7 +361,8 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
     }
     /// Open issues assigned to the user in every project repo that lists its issues.
     private func myIssues() async throws -> [DashboardTicketRow] {
-        let result = try await APIIssueService(api: api).searchAllProjects(Self.myIssuesQuery)
+        struct Body: Encodable, Sendable { let query: String; let allProjects = true }
+        let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: Body(query: Self.myIssuesQuery), timeout: 60)
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.compactMap { ticket in
             ticket.url.flatMap(safeWebURL).map { DashboardTicketRow(ticket: ticket, url: $0) }

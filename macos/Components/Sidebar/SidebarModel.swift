@@ -164,7 +164,7 @@ struct SidebarEntry: Equatable {
         case label                                // "Pinned" heading
         case projectsHeader(canCreate: Bool)      // "Projects" heading with a hover "+" for a new project
         case tabsHeader                           // "Tabs" heading with a hover "+" for a new tab
-        case project(canCreateSession: Bool)
+        case project
         case session(SidebarSessionStatus, pinned: Bool)
         case tab(SidebarTabIcon)
         case pinnedTabs([SidebarPinnedTab])       // Arc-style favourites grid right under Dashboard
@@ -236,7 +236,7 @@ struct SidebarEntry: Equatable {
         result += projects.map { project in
             .init(id: "project:\(project.id)", title: project.name, symbol: "folder", detail: project.workspace,
                   destination: .project(project.id), children: ordered.filter { $0.projectId == project.id }.map { row($0) },
-                  role: .project(canCreateSession: !project.workspace.isEmpty))
+                  role: .project)
         }
         let projectIDs = Set(projects.map(\.id))
         result += ordered.filter { !projectIDs.contains($0.projectId) }.map { row($0) }

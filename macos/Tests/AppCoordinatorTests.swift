@@ -140,15 +140,9 @@ private actor CreationProjectService: ProjectService {
 @MainActor private final class RecordingCreationFactory: CreationFlowFactory {
     let native = NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-folder" })
     var projectCompletions: [(Project) -> Void] = []
-    var sessionCompletions: [(WorkspaceSession) -> Void] = []
     func projectEditor(project: Project?, service: any ProjectService) -> ProjectEditorViewModel {
         let model = native.projectEditor(project: project, service: service)
         projectCompletions.append { [weak model] in model?.onAction(.saved($0)) }
-        return model
-    }
-    func newSession(request: SessionCreationRequest, operations: (any SessionCreating)?) -> NewSessionViewModel {
-        let model = native.newSession(request: request, operations: operations)
-        sessionCompletions.append { [weak model] in model?.onAction(.created($0)) }
         return model
     }
 }
@@ -200,33 +194,4 @@ private actor CreationProjectService: ProjectService {
     await service.finish(failing: false)
     await retry.value
     #expect(coordinator.sheet == nil && saved?.id == "created")
-}
-
-@MainActor @Test func creationCoordinatorInjectsSessionContextAndCompletesOnlyItsOwnPresentation() throws {
-    let factory = RecordingCreationFactory(), coordinator = AppCoordinator(factory: factory)
-    let project = CreationProjectService.project
-    let url = "https://github.com/fixture/repo/pull/42"
-    let request = SessionCreationRequest(project: project, agent: .codex, pageURL: url)
-    var created = 0
-    let open = { coordinator.presentNewSession(request: request, operations: nil, didCreate: { _ in created += 1 }) }
-    open()
-    let first = try #require(coordinator.sheet)
-    guard case .newSession(let model) = first.destination else { Issue.record("Wrong destination"); return }
-    #expect(model.project.id == project.id && model.draft.agent == .codex)
-    #expect(model.input == url)
-    model.pullRequestBranch = "Draft branch"
-    coordinator.presentNewProject(service: CreationProjectService(), didSave: { _ in })
-    open()
-    #expect(factory.projectCompletions.isEmpty && factory.sessionCompletions.count == 1)
-    #expect(coordinator.sheet?.id == first.id && model.pullRequestBranch == "Draft branch")
-    coordinator.dismissSheet(id: first.id)
-    open()
-    let second = try #require(coordinator.sheet)
-    let session = WorkspaceSession(id: "session", projectId: project.id, workspace: project.workspace, worktree: "/tmp/worktree",
-                                   title: "Session", branch: "feature", url: url, createdAt: nil, pinned: false)
-    factory.sessionCompletions[0](session)
-    #expect(coordinator.sheet?.id == second.id && created == 0)
-    factory.sessionCompletions[1](session)
-    factory.sessionCompletions[1](session)
-    #expect(coordinator.sheet == nil && created == 1)
 }

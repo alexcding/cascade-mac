@@ -3,7 +3,7 @@ import Observation
 
 /// My Tickets' Board: one project's sprint board at a time. It owns that board's model, builds a
 /// new one when the project changes and retires the old, and remembers the pick across launches.
-/// Only Jira projects are offered; a board needs a Jira key or a saved JQL query.
+/// Only Jira projects are offered; a board needs a Jira project key.
 @MainActor @Observable final class DashboardBoardModel {
     /// A board's card asked to open; the owner gates it before the board opens it.
     @ObservationIgnored var onAction: (WebBoardViewModel.Action) -> Void = { _ in }

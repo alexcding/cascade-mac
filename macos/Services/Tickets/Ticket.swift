@@ -1,8 +1,7 @@
 import Foundation
 
 /// Where a ticket comes from. Both sources arrive in the one `Ticket` shape the backend maps them
-/// onto; what differs — how a search is written, which statuses a ticket moves between, where its
-/// page is — is answered here and by each source's `TicketProvider`, never by a view.
+/// onto; what differs — its name and the kind of page it opens as — is answered here, never by a view.
 enum TicketSource: String, Codable, CaseIterable, Identifiable, Sendable {
     case jira, github
     var id: String { rawValue }
@@ -17,32 +16,6 @@ enum TicketSource: String, Codable, CaseIterable, Identifiable, Sendable {
         switch self {
         case .jira: "jira"
         case .github: "issue"
-        }
-    }
-    /// The filters the list offers. GitHub has no priority, and one repo is one project.
-    var facets: [TicketFacet] {
-        switch self {
-        case .jira: [.project, .status, .type, .priority]
-        case .github: [.status, .type, .assignee]
-        }
-    }
-    /// The setting a project's saved filter selections are kept under, before its id.
-    var filterSetting: String {
-        switch self {
-        case .jira: "ticket_filter_"
-        case .github: "issue_filter_"
-        }
-    }
-    var searchPrompt: String {
-        switch self {
-        case .jira: String(localized: "Keywords, ticket key, or JQL")
-        case .github: String(localized: "Keywords, #number, or GitHub search")
-        }
-    }
-    var searchTitle: String {
-        switch self {
-        case .jira: String(localized: "Search Jira")
-        case .github: String(localized: "Search GitHub")
         }
     }
 }
@@ -114,44 +87,4 @@ struct TicketSnapshot: Decodable, Sendable {
     var jql: String?
     var lastSynced: String?
     var error: String?
-}
-
-enum TicketFacet: String, CaseIterable, Identifiable {
-    case project, status, type, priority, assignee
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .project: String(localized: "Projects")
-        case .status: String(localized: "Statuses")
-        case .type: String(localized: "Types")
-        case .priority: String(localized: "Priorities")
-        case .assignee: String(localized: "Assignees")
-        }
-    }
-    var allLabel: String {
-        switch self {
-        case .project: String(localized: "All projects")
-        case .status: String(localized: "All statuses")
-        case .type: String(localized: "All types")
-        case .priority: String(localized: "All priorities")
-        case .assignee: String(localized: "All assignees")
-        }
-    }
-    func value(_ ticket: Ticket) -> String {
-        switch self {
-        case .project: ticket.projectKey
-        case .status: ticket.status ?? ""
-        case .type: ticket.type ?? ""
-        case .priority: ticket.priority ?? ""
-        case .assignee: ticket.assignee ?? ""
-        }
-    }
-}
-
-/// The GitHub issue statuses, as the backend reports them (`issues.rs`).
-enum IssueStatus {
-    static let open = "Open"
-    static let closed = "Closed"
-    static let notPlanned = "Not planned"
-    static let all = [open, closed, notPlanned]
 }
