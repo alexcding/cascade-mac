@@ -27,8 +27,13 @@ const MAX_FILE_TEXT: usize = 20_000;
 /// shows up within this.
 const LOOKUP: Duration = Duration::from_secs(5);
 
-/// The worktree's transcript, found at most once per `LOOKUP`.
-fn locate(home: &Path, cli: &str, worktree: &str) -> Option<PathBuf> {
+/// The worktree's transcript, found at most once per `LOOKUP`. A Claude conversation the app knows
+/// the agent is in is that one's file alone, looked for on every read: the newest file would be an
+/// older conversation until the new one's first message is written.
+fn locate(home: &Path, cli: &str, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
+    if let Some(id) = conversation.filter(|_| cli != "codex") {
+        return super::claude::conversation_file(home, worktree, id);
+    }
     static FOUND: OnceLock<Mutex<HashMap<(PathBuf, String, String), (Instant, Option<PathBuf>)>>> = OnceLock::new();
     let key = (home.to_path_buf(), cli.to_string(), worktree.to_string());
     let found = FOUND.get_or_init(Default::default);
@@ -59,9 +64,9 @@ fn line_id(line: &str) -> String {
 /// `turns` and `atPrompt` are left out. `atPrompt` is when the transcript last showed the agent
 /// back at its prompt with no turn begun since, or null: Codex marks every turn's start and end,
 /// Claude only an interrupt, which no hook reports.
-pub fn read(home: &Path, cli: &str, worktree: &str, since: Option<&str>) -> Value {
+pub fn read(home: &Path, cli: &str, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
     let codex = cli == "codex";
-    let Some(path) = locate(home, cli, worktree) else {
+    let Some(path) = locate(home, cli, worktree, conversation) else {
         return json!({"revision": "", "turns": []});
     };
     let revision = fs::metadata(&path)
@@ -409,6 +414,25 @@ fn slash_command(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_known_conversation_is_read_and_one_not_yet_written_reads_empty() {
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join(".claude/projects/-w-known");
+        fs::create_dir_all(&project).unwrap();
+        let line = |text: &str| {
+            json!({"type":"user","uuid":text,"timestamp":"T1","message":{"role":"user","content":text}}).to_string() + "\n"
+        };
+        fs::write(project.join("older.jsonl"), line("from an older conversation")).unwrap();
+        fs::write(project.join("live.jsonl"), line("from the live one")).unwrap();
+        let read = |conversation| read(home.path(), "claude", "/w/known", None, conversation);
+        let live = read(Some("live"));
+        assert_eq!(live["turns"].as_array().map(Vec::len), Some(1));
+        assert!(live.to_string().contains("from the live one") && !live.to_string().contains("older"));
+        let unwritten = read(Some("reserved"));
+        assert_eq!(unwritten["turns"], json!([]), "a conversation with no message yet has no turns");
+        assert_eq!(unwritten["revision"], "");
+    }
 
     fn summary(turns: &[Value]) -> Vec<String> {
         turns

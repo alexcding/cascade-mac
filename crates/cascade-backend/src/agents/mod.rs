@@ -103,6 +103,9 @@ pub struct TranscriptQuery {
     worktree: String,
     #[serde(default)]
     since: Option<String>,
+    /// The conversation the agent is in, when the app knows it.
+    #[serde(default)]
+    session: Option<String>,
 }
 
 /// The session's conversation as chat turns, for the chat view over its terminal. `hooks` is the
@@ -114,7 +117,8 @@ pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
         if !query.worktree.starts_with('/') {
             return None;
         }
-        let mut found = transcript::read(&home, &query.cli, &query.worktree, query.since.as_deref());
+        let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
+        let mut found = transcript::read(&home, &query.cli, &query.worktree, query.since.as_deref(), conversation);
         found["hooks"] = json!(crate::integrations::hook_status_for(&query.cli));
         Some(found)
     })

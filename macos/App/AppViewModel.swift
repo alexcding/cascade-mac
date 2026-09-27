@@ -328,10 +328,11 @@ public final class AppViewModel {
         return value ?? nil
     }
 
-    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
+    func agentTranscript(cli: String, worktree: String, since: String?, conversation: String?) async throws -> AgentTranscript {
         guard let api else { throw BackendError.operation(String(localized: "Connect to the backend to read the conversation.")) }
         var query = ["cli": cli, "worktree": worktree]
         if let since { query["since"] = since }
+        if let conversation { query["session"] = conversation }
         return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, query))
     }
 

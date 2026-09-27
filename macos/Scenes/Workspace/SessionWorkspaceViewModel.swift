@@ -53,7 +53,8 @@ struct PermissionWatcher {
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState
     func agentCatalog(cli: String) async -> AgentCatalog?
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus?
-    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript
+    /// `conversation` is the one the agent is in, when known: its transcript alone is read.
+    func agentTranscript(cli: String, worktree: String, since: String?, conversation: String?) async throws -> AgentTranscript
     /// The CLI's slash commands in this worktree, for the chat's `/` suggestions.
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand]
     /// Files of the worktree matching a query, best first, for the chat's `@` suggestions.
@@ -68,7 +69,7 @@ extension WorkspaceServing {
     func answerPermission(_ id: String, decision: String) async throws {}
     func agentCatalog(cli: String) async -> AgentCatalog? { nil }
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus? { nil }
-    func agentTranscript(cli: String, worktree: String, since: String?) async throws -> AgentTranscript {
+    func agentTranscript(cli: String, worktree: String, since: String?, conversation: String?) async throws -> AgentTranscript {
         AgentTranscript(revision: "", turns: [], hooks: nil)
     }
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand] { [] }
@@ -398,6 +399,12 @@ extension WorkspaceServing {
 
     func toggleChat() { setChatShown(!showsChat) }
 
+    /// The conversation the terminal's agent is in: as its hooks last said, or as it was launched.
+    /// Read on every poll: `/clear` starts a new one under the same agent.
+    private var agentConversation: String? {
+        [terminal?.agentTurns.sessionID, session?.sessionId].compactMap { $0 }.first { !$0.isEmpty }
+    }
+
     func setChatShown(_ shown: Bool) {
         guard canShowChat, let session, let cli = session.cli else { return }
         UserDefaults.standard.set(shown, forKey: Self.chatModeKey(session.id))
@@ -407,7 +414,8 @@ extension WorkspaceServing {
                 agentName: SessionAgent(rawValue: cli)?.label ?? cli.capitalized,
                 load: { [weak self] since in
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
-                    return try await service.agentTranscript(cli: cli, worktree: worktree, since: since)
+                    return try await service.agentTranscript(cli: cli, worktree: worktree, since: since,
+                                                             conversation: self?.agentConversation)
                 },
                 deliver: { [weak self] text, files in
                     guard let terminal = self?.terminal else { throw BackendError.operation(String(localized: "The terminal is not open.")) }

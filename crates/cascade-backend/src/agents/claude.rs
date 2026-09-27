@@ -109,11 +109,22 @@ fn input_tokens(usage: &Value) -> u64 {
 
 /// The worktree's live transcript; `last_turn` says how Claude files them.
 pub(super) fn transcript_file(home: &Path, worktree: &str) -> Option<PathBuf> {
+    newest_jsonl(&project_dir(home, worktree))
+}
+
+/// One conversation's transcript, which Claude writes only once its first message is sent: until
+/// then there is none, whatever older conversations the worktree has.
+pub(super) fn conversation_file(home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+    let file = project_dir(home, worktree).join(format!("{id}.jsonl"));
+    file.is_file().then_some(file)
+}
+
+fn project_dir(home: &Path, worktree: &str) -> PathBuf {
     let project: String = worktree
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    newest_jsonl(&home.join(".claude/projects").join(project))
+    home.join(".claude/projects").join(project)
 }
 
 /// The last main-thread turn of the worktree's live conversation. Claude files a directory's
