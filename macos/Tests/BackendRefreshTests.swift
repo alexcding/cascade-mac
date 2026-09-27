@@ -198,7 +198,8 @@ private actor RefreshTransport: BackendTransport {
 
     // The sprint board lives on the Dashboard's My Tickets now, and follows only its own project.
     let dashboard = try #require(model.dashboard)
-    model.select(.overview); dashboard.showTickets(); dashboard.setTicketsMode(.board)
+    // A board is drawn, and so loads, only for a picked project, never for every project.
+    model.select(.overview); dashboard.showTickets(); dashboard.setTicketsMode(.board); dashboard.selectTicketProject("p")
     let board = try #require(dashboard.board.board)
     try await refreshEventually { board.snapshot != nil && !board.loading }
     await transport.reset()

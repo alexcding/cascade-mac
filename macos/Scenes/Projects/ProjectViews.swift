@@ -25,6 +25,13 @@ struct ProjectEditorView: View {
                 Section("Jira") {
                     TextField("Project key", text: $model.draft.jiraProjectKey)
                 }
+                Section("GitHub Issues") {
+                    Toggle("Show the repository's issues in My Tickets", isOn: $model.draft.issuesEnabled)
+                        .disabled(model.draft.repo.isEmpty)
+                        .accessibilityIdentifier("project-issues-enabled")
+                    Text("Open issues assigned to you appear beside your Jira tickets on the Dashboard.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Editor") {
                     Picker("IDE", selection: $model.draft.ide) {
                         ForEach(model.ideChoices) { Text($0.title).tag($0.id) }

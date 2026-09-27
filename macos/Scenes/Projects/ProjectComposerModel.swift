@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// A project's Start page: where every session in the project begins. One field takes a task for
-/// the agent, a GitHub pull request or Jira link to start on, or — with Shell only, or when it names
+/// the agent, a GitHub pull request, GitHub issue or Jira link to start on, or — with Shell only, or when it names
 /// a branch the repository has — a branch, read by shape, with a hint saying which reading won.
 /// A task gets a new branch named from its words, and becomes the agent's first prompt.
 @MainActor @Observable final class ProjectComposerModel {
@@ -61,17 +61,17 @@ import Observation
             && !typed.isEmpty && !(urlish && page == nil)
     }
     /// The same for every agent: what is typed is read by its shape, not by who runs it.
-    var placeholderText: String { String(localized: "Describe a task or branch, or paste a pull request or Jira link") }
+    var placeholderText: String { String(localized: "Describe a task or branch, or paste a pull request, issue or Jira link") }
 
     /// The line under the field: what a pasted link resolved to, or why the text can't start a session.
     var hint: (text: String, isError: Bool)? {
         if let inputError { return (inputError, true) }
         if typed.isEmpty { return nil }
-        if urlish && page == nil { return (String(localized: "Not a GitHub pull request or Jira issue link"), true) }
+        if urlish && page == nil { return (String(localized: "Not a GitHub pull request, GitHub issue or Jira issue link"), true) }
         if let page {
             if resolving { return (String(localized: "Looking it up…"), false) }
             if let resolved {
-                let name = resolved.title.isEmpty ? (page.kind == "jira" ? page.key : String(localized: "that pull request")) : resolved.title
+                let name = resolved.title.isEmpty ? (page.kind == "github" ? String(localized: "that pull request") : page.key) : resolved.title
                 if let path = resolved.reuseWorktree {
                     return (String(localized: "Opens \(name) in \((path as NSString).lastPathComponent) on \(resolved.branch)"), false)
                 }

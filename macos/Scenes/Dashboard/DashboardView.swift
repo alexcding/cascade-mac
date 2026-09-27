@@ -49,9 +49,19 @@ struct DashboardView: View {
     // MARK: Header
 
     /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
-    private var header: some View {
+    @ViewBuilder private var header: some View {
         switch model.tab {
-        case .pullRequests: DashboardPageHeader(caption: pullRequestsCaption, title: String(localized: "Pull requests"))
+        case .pullRequests:
+            // Whose, which project and refresh sit by the title, as on My Tickets: the tag row
+            // below keeps its width for the check and review filters.
+            DashboardPageHeader(caption: pullRequestsCaption, title: String(localized: "Pull requests")) {
+                HStack(spacing: 8) {
+                    pullRequestScope
+                    DashboardRefreshButton(name: String(localized: "Pull requests"), id: "prs",
+                                           busy: model.prs.loading || model.prs.syncing, action: { model.prs.sync() })
+                }
+                .padding(.bottom, 6)
+            }
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
         }
@@ -243,24 +253,20 @@ struct DashboardView: View {
     private var pullRequestsPage: some View {
         let groups = model.prs.groups
         return VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top, spacing: 12) {
-                DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
-                                    title: \.title, count: { model.prs.counts[$0] ?? 0 },
-                                    id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                pullRequestScope
-            }
-            .padding(.bottom, 24)
+            DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
+                                title: \.title, count: { model.prs.counts[$0] ?? 0 },
+                                id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 24)
             if model.prs.projects.isEmpty {
                 noProjects
             } else if groups.isEmpty {
                 placeholder(String(localized: "No pull requests here."))
             } else {
                 VStack(alignment: .leading, spacing: 44) {
-                    ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                    ForEach(groups, id: \.id) { group in
                         VStack(alignment: .leading, spacing: 0) {
                             DashboardSectionHeader(title: group.project.name, detail: group.project.repo,
-                                                   refresh: index == 0 ? { model.prs.sync() } : nil,
                                                    busy: model.prs.loading || model.prs.syncing, id: "prs")
                             prRows(group.rows, author: model.prs.author != .mine)
                         }
@@ -270,32 +276,13 @@ struct DashboardView: View {
         }
     }
 
-    /// Whose pull requests, and from which project, beside the tags and drawn as tags.
+    /// Whose pull requests and from which project, as outlined tags in the page header.
     private var pullRequestScope: some View {
         let prs = model.prs
-        let project = prs.projects.first { $0.id == prs.project }
         return HStack(spacing: 8) {
-            ForEach(DashboardPullRequestsModel.Author.allCases) { author in
-                let active = prs.author == author
-                Button { prs.author = author } label: {
-                    DashboardTagLabel(title: author.title, count: prs.count(author), active: active)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("dashboard-pr-author-\(author.id)")
-                .accessibilityAddTraits(active ? .isSelected : [])
-            }
-            Menu {
-                Picker("Project", selection: Binding(get: { prs.project }, set: { prs.project = $0 })) {
-                    Text("All Projects").tag(String?.none)
-                    Divider()
-                    ForEach(prs.projects) { Text($0.name).tag(Optional($0.id)) }
-                }
-                .pickerStyle(.inline).labelsHidden()
-            } label: {
-                DashboardTagLabel(title: project?.name ?? String(localized: "All Projects"), symbol: "chevron.down", active: project != nil)
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .accessibilityIdentifier("dashboard-pr-project")
+            DashboardScopeTags(values: DashboardPullRequestsModel.Author.allCases, selection: prs.author,
+                               title: \.title, count: prs.count, id: "dashboard-pr-author") { prs.author = $0 }
+            DashboardProjectTag(projects: prs.projects, selection: prs.project, id: "dashboard-pr-project") { prs.project = $0 }
         }
     }
 
@@ -407,24 +394,86 @@ extension DashboardPageHeader where Trailing == EmptyView {
     init(caption: String, title: String) { self.init(caption: caption, title: title) { EmptyView() } }
 }
 
-/// The Dashboard's tabs as the system's segmented picker, so it takes Liquid Glass on macOS 26
-/// like the toolbar around it. Tickets joins once a Jira-capable service connects.
-struct DashboardTabBar: View {
-    let selection: DashboardViewModel.Tab
-    var tickets = true
-    let select: @MainActor @Sendable (DashboardViewModel.Tab) -> Void
+/// One choice of several as a segmented control drawn like the Dashboard's tags: an outlined group
+/// the height of a tag, the selected segment filled as a selected tag is, and that fill sliding to
+/// the next choice. The page header's controls: List or Board, and whose items. `count`, when
+/// given, follows each title; `id` prefixes each segment's accessibility id.
+struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
+    let values: [Value]
+    let selection: Value
+    let title: (Value) -> String
+    var count: ((Value) -> Int)? = nil
+    /// Whether a segment can be picked; one that can't stays in place, dimmed, so nothing moves.
+    var enabled: (Value) -> Bool = { _ in true }
+    let id: String
+    let select: (Value) -> Void
+    @Namespace private var slide
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The segment the fill sits on. Its own state, animated alone: the page's list, which the
+    /// same click changes, redraws at once instead of animating with it.
+    @State private var shown: Value?
 
     var body: some View {
-        Picker("Dashboard section", selection: Binding(get: { selection }, set: select)) {
-            ForEach(DashboardViewModel.Tab.allCases.filter { tickets || $0 != .tickets }) { tab in
-                Text(tab.title).tag(tab)
+        let current = shown ?? selection
+        HStack(spacing: 0) {
+            ForEach(values) { value in
+                let active = current == value
+                Button {
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { shown = value }
+                    select(value)
+                } label: {
+                    // A tag's 30pt, less the group's 2pt inset on each side.
+                    DashboardTagText(title: title(value), count: count?(value), filled: active)
+                        .padding(.horizontal, 12).frame(height: 26)
+                    .background {
+                        if active {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary)
+                                .matchedGeometryEffect(id: "selection", in: slide)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled(value))
+                .opacity(enabled(value) || active ? 1 : 0.4)
+                .accessibilityIdentifier("\(id)-\(value.id)")
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.large)
+        .padding(2)
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
         .fixedSize()
-        .accessibilityIdentifier("dashboard-tabs")
+        // A selection made elsewhere (a deep link, a tile's click) moves the fill without a slide.
+        .onChange(of: selection) { _, value in shown = value }
+    }
+}
+
+/// The project a page narrows to, as an outlined tag that opens a menu. `allowsAll` offers All
+/// Projects first; a sprint board always shows one project, so it does not.
+struct DashboardProjectTag: View {
+    let projects: [DashboardProject]
+    let selection: String?
+    var allowsAll = true
+    let id: String
+    let select: (String?) -> Void
+
+    var body: some View {
+        let selected = projects.first { $0.id == selection }
+        Menu {
+            Picker("Project", selection: Binding(get: { selection }, set: select)) {
+                if allowsAll {
+                    Text("All Projects").tag(String?.none)
+                    Divider()
+                }
+                ForEach(projects) { Text($0.name).tag(Optional($0.id)) }
+            }
+            .pickerStyle(.inline).labelsHidden()
+        } label: {
+            DashboardTagLabel(title: selected?.name ?? String(localized: "All Projects"), symbol: "chevron.down",
+                              active: allowsAll && selected != nil, outlined: true)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .accessibilityIdentifier(id)
     }
 }
 
@@ -453,11 +502,13 @@ struct DashboardFilterTags<Value: Hashable>: View {
 }
 
 /// One tag's face: its name, then a count or a symbol; filled when selected.
-struct DashboardTagLabel: View {
+/// A tag's words in the tag face: its title, then its count and symbol, light on a filled tag.
+/// Shared by the tags and the segments of `DashboardScopeTags`, so both read the same.
+struct DashboardTagText: View {
     let title: String
     var count: Int?
     var symbol: String?
-    let active: Bool
+    let filled: Bool
 
     var body: some View {
         HStack(spacing: 7) {
@@ -466,11 +517,26 @@ struct DashboardTagLabel: View {
             if let symbol { Image(systemName: symbol).font(.system(size: 9, weight: .bold)).opacity(0.7) }
         }
         .font(.system(size: 12.5))
-        .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
-        .padding(.horizontal, 12).frame(height: 30)
-        .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .foregroundStyle(filled ? Color(nsColor: .windowBackgroundColor) : Color.primary)
+    }
+}
+
+struct DashboardTagLabel: View {
+    let title: String
+    var count: Int?
+    var symbol: String?
+    let active: Bool
+    /// The page header's scope tags (whose, which project): selected is a heavier ring, never a
+    /// fill, so they read apart from the filled filter tags below them.
+    var outlined = false
+
+    var body: some View {
+        let filled = active && !outlined
+        DashboardTagText(title: title, count: count, symbol: symbol, filled: filled)
+            .padding(.horizontal, 12).frame(height: 30)
+        .background(filled ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: 1))
+            .strokeBorder(active ? Color.primary : DashboardPalette.buttonBorder, lineWidth: active && outlined ? 1.5 : 1))
         .contentShape(Rectangle())
     }
 }
@@ -721,7 +787,7 @@ struct DashboardPRRow: View {
                 Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !compact {
-                    if let key = row.pr.jiraKeys?.first {
+                    if let key = row.pr.ticketLabels.first {
                         Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(DashboardPalette.link)
                             .padding(.horizontal, 8).padding(.vertical, 2)
                             .background(Theme.accentBackground, in: Capsule())
@@ -796,7 +862,7 @@ struct DashboardCard: View {
                 HStack(spacing: 6) {
                     // The PR's own labels are not shown; the session's agent takes their place.
                     if let mark = sessionMark { AgentChip(mark: mark) }
-                    ForEach((row.pr.jiraKeys ?? []).prefix(2), id: \.self) { key in
+                    ForEach(row.pr.ticketLabels.prefix(2), id: \.self) { key in
                         Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(.blue)
                             .padding(.horizontal, 8).padding(.vertical, 2).background(Color.blue.opacity(0.08), in: Capsule())
                     }

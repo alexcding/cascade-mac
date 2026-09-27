@@ -150,6 +150,9 @@ the last successful snapshot and offer retry.
 A project's page has three tabs in the toolbar, as the Dashboard has: Start, a
 composer that starts a session in it; Orchestration, empty for now; and Settings.
 A Jira project key gives the project a sprint board on the Dashboard's Tickets tab.
+My Tickets there also lists the open GitHub issues assigned to you in each project's
+repository, unless the project turns issues off in Settings; the backend maps them onto
+the Jira ticket shape (`issues.rs`), so both arrive as one `Ticket` with its `TicketSource`.
 
 Tickets and Sprint Board are native SwiftUI surfaces. They read cached Jira data,
 provide filters, and support ticket actions. The board has status drop targets

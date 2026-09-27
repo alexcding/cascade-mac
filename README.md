@@ -79,10 +79,11 @@ queue, and Jira tickets one click away. It's free and open source under the
 - GitHub refreshes in the background every minute and Jira every two minutes; change
   both in **Settings → Integrations**.
 
-### Jira without leaving the code
+### Jira and GitHub issues without leaving the code
 
 - **Tickets.** The Dashboard's Tickets tab lists your Jira tickets across the projects
-  whose Jira project key claims them, with search and filters.
+  whose Jira project key claims them, and the open GitHub issues assigned to you in their
+  repositories, with search and filters. Paste an issue link into Start to work on it.
 - **Sprint board.** Drag cards between columns, move or reassign tickets, and filter
   by assignee.
 - **Automatic updates.** [Automation](#automation-across-projects) can move a merged

@@ -457,11 +457,11 @@ public final class AppViewModel {
         }
     }
 
-    /// The local project a GitHub PR or Jira ticket page belongs to, or nil for any other page.
+    /// The local project a GitHub PR or issue, or a Jira ticket page, belongs to, or nil for any other page.
     static func pageProject(_ url: String, in projects: [Project]) -> Project? {
         guard let page = SessionPage.parse(url) else { return nil }
         let local = projects.filter { !$0.workspace.isEmpty }
-        if page.kind == "github" {
+        if page.kind == "github" || page.kind == "issue" {
             let path = URL(string: page.url)?.path.split(separator: "/").prefix(2).joined(separator: "/").lowercased()
             return local.first { !$0.repo.isEmpty && $0.repo.lowercased() == path }
         }
@@ -839,7 +839,8 @@ public final class AppViewModel {
     /// A Today-popover row: its PR opens by link; a ticket by its key on the configured Jira site.
     func openActivityEntry(_ entry: LogEntry) async throws {
         if let link = entry.link {
-            try await openPage(OpenPageRequest(url: link, kind: "github", title: entry.title)); return
+            // The page's own kind — an issue's tab is an issue tab — and a pull request's otherwise, as before.
+            try await openPage(OpenPageRequest(url: link, kind: SessionPage.parse(link)?.kind ?? "github", title: entry.title)); return
         }
         guard let key = entry.jiraKey, let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)

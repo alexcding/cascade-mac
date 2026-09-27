@@ -2,11 +2,7 @@
 //! filters, so later Jira actions act only on the tickets that passed), and lazily fetched
 //! extras such as changed files.
 
-use std::{
-    collections::HashMap,
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Duration};
 
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
@@ -25,7 +21,7 @@ pub struct Ctx<'a> {
 
 impl<'a> Ctx<'a> {
     pub async fn new(app: &'a AppState, event: &'a Event) -> Ctx<'a> {
-        let me = cached_login().await;
+        let me = github::cached_login().await;
         let mut tickets = HashMap::new();
         let jira_keys = if let Some(ticket) = &event.ticket {
             let key = ticket["key"].as_str().unwrap_or("").to_owned();
@@ -236,26 +232,6 @@ fn linked_keys(app: &AppState, event: &Event) -> Vec<String> {
         }
     }
     keys
-}
-
-/// `gh api user` once every ten minutes, not once per run.
-async fn cached_login() -> Option<String> {
-    // Tests pin the login rather than asking `gh` who is signed in.
-    if let Some(login) = std::env::var("CASCADE_AUTOMATION_LOGIN").ok().filter(|v| !v.is_empty()) {
-        return Some(login);
-    }
-    if cfg!(test) {
-        return None;
-    }
-    static CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
-    if let Some((login, at)) = CACHE.lock().unwrap().as_ref() {
-        if at.elapsed() < Duration::from_secs(600) {
-            return Some(login.clone());
-        }
-    }
-    let login = github::current_user().await?;
-    *CACHE.lock().unwrap() = Some((login.clone(), Instant::now()));
-    Some(login)
 }
 
 #[cfg(test)]

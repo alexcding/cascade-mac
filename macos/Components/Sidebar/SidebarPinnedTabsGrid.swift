@@ -113,6 +113,7 @@ private struct SidebarPinnedTabIcon: View {
                 brand("github")
             }
         case "jira": brand("jira")
+        case "issue": brand("github")
         default: FaviconImage(url: url, size: size)
         }
     }

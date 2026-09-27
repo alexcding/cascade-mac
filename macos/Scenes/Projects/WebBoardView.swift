@@ -147,7 +147,7 @@ private struct BoardDropZone: View {
 
 private struct BoardCard: View {
     let model: WebBoardViewModel
-    let ticket: JiraTicket
+    let ticket: Ticket
     @State private var hovering = false
 
     var body: some View {

@@ -11,11 +11,12 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var worktreeSetup = ""
     var worktreeInclude = ""
     var forwardWebhooks = true
+    var issuesEnabled = true
 
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
-        jiraProjectKey = project.jiraProjectKey ?? ""
+        jiraProjectKey = project.jiraProjectKey ?? ""; issuesEnabled = project.issuesEnabled ?? true
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true

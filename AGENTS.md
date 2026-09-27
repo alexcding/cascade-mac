@@ -6,7 +6,7 @@ native app's architecture. Read `README.md` for the product and setup, and
 
 ## What this is
 
-A native macOS app that tracks GitHub PRs and Jira tickets per project, shows CI status,
+A native macOS app that tracks GitHub PRs, GitHub issues and Jira tickets per project, shows CI status,
 runs agent sessions in worktrees, and auto-transitions Jira tickets when a PR merges.
 
 The app and backend have two main languages:
@@ -80,7 +80,8 @@ xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
   Swift route constants against the routes actually served.
 - `ffi.rs` - the C ABI the app links: start/stop/request plus the event callback.
 - `routes.rs` - thin handlers; `local.rs` - git, worktrees, files, diffs, Xcode;
-  `github.rs` - `gh` wrapper, `lean()`, PR classification; `jira.rs` - `acli`;
+  `github.rs` - `gh` wrapper, `lean()`, PR classification; `issues.rs` - GitHub issues as
+  tickets (`gh issue`), searched live for My Tickets and never snapshotted; `jira.rs` - `acli`;
   `poller.rs` - the sync engine and merge automation; `warmup.rs` - IDE warm-up;
   `integrations.rs` - webhook forwarders; `usage.rs` - agent usage; `recovery.rs` - packaged-start data checks.
 - `db.rs` + `schema_durable.sql` / `schema_cache.sql` / `schema_logs.sql` - the three

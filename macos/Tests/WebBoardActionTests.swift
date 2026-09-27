@@ -19,7 +19,7 @@ private struct BoardTicketActionService: BoardService {
     while board.loading { await Task.yield() }
     var emitted: [WebBoardViewModel.Action] = []
     board.onAction = { emitted.append($0) }
-    let ticket = JiraTicket(key: "REC-1", summary: "Login crash")
+    let ticket = Ticket(key: "REC-1", summary: "Login crash")
     board.open(ticket, inTab: true)
     board.openSession(ticket, agent: .claude)
     var tab = OpenPageRequest(url: "https://jira.example.test/browse/REC-1", kind: "jira", title: "REC-1")

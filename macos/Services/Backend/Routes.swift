@@ -69,6 +69,8 @@ public enum Routes {
     public static func jiraKeyAssign(_ value: String) -> String {
         "/api/jira/\(encodeComponent(value))/assign"
     }
+    public static let ISSUES_SEARCH = "/api/issues/search"
+    public static let ISSUE_LOOKUP = "/api/issues/lookup"
     public static let LINKS = "/api/links"
     public static let LINK = "/api/links/:id"
     public static let WHOAMI = "/api/whoami"

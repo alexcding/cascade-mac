@@ -437,6 +437,70 @@ pub async fn project_board(
     Ok(Json(app.db.jira_snapshot(&key)?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
 }
 
+/// A live issue search (never snapshotted) over `repos`, or with `allProjects` over every project
+/// repo that lists its issues: `#123` or `123` looks one issue up in each repo, anything else is a
+/// GitHub search. With `allProjects` and no such repo, the result is empty rather than an error.
+pub async fn issues_search(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
+    let query = body.get("query").and_then(Value::as_str).unwrap_or("").trim();
+    if query.is_empty() {
+        return Err(ApiError::bad_request("query is required"));
+    }
+    let all_projects = body.get("allProjects").and_then(Value::as_bool).unwrap_or(false);
+    let mut repos: Vec<String> = if all_projects {
+        app.db
+            .projects()?
+            .iter()
+            .filter(|project| crate::issues::lists_issues(project))
+            .filter_map(|project| project["repo"].as_str().map(str::to_ascii_lowercase))
+            .collect()
+    } else {
+        body.get("repos")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(crate::github::parse_repo)
+            .map(|repo| repo.to_ascii_lowercase())
+            .collect()
+    };
+    // GitHub repo names ignore case, so `Owner/Repo` and `owner/repo` are searched once.
+    repos.sort();
+    repos.dedup();
+    if repos.is_empty() {
+        if all_projects {
+            return Ok(Json(json!({"items":[],"jql":query,"lastSynced":null,"error":null})));
+        }
+        return Err(ApiError::bad_request("repos is required"));
+    }
+    let limit = body
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(50)
+        .clamp(1, 200) as usize;
+    let mut items = crate::issues::search_repos(&repos, query, limit)
+        .await
+        .map_err(ApiError::internal)?;
+    let login = crate::github::cached_login().await;
+    crate::issues::mark_mine(&mut items, login.as_deref());
+    // Without a login nothing can be marked the user's: say so rather than show all as others'.
+    let warning = login
+        .is_none()
+        .then_some("GitHub didn’t say who is signed in, so no issue could be marked yours. Run gh auth login.");
+    Ok(Json(
+        json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null,"warning":warning}),
+    ))
+}
+
+pub async fn issue_lookup(Query(query): Query<PathQuery>) -> ApiResult<Value> {
+    Ok(Json(match query.url {
+        Some(url) => crate::issues::lookup(&url).await.unwrap_or(Value::Null),
+        None => Value::Null,
+    }))
+}
+
 pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
     let jql = body.get("jql").and_then(Value::as_str).unwrap_or("").trim();
     if jql.is_empty() {
@@ -691,7 +755,7 @@ fn validate_open_tab(tab: &Map<String, Value>) -> Result<(), ApiError> {
     });
     if !valid_fields
         || !valid_url
-        || !kind.is_some_and(|kind| ["github", "jira", "web"].contains(&kind))
+        || !kind.is_some_and(|kind| ["github", "issue", "jira", "web"].contains(&kind))
     {
         return Err(ApiError::bad_request(
             "A web URL, tab kind, and string metadata are required",
@@ -751,6 +815,12 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
             .as_bool()
             .ok_or_else(|| ApiError::bad_request("forwardWebhooks must be true or false"))?;
         patch.insert("forwardWebhooks".into(), Value::Bool(forward));
+    }
+    if let Some(value) = body.get("issuesEnabled") {
+        let enabled = value
+            .as_bool()
+            .ok_or_else(|| ApiError::bad_request("issuesEnabled must be true or false"))?;
+        patch.insert("issuesEnabled".into(), Value::Bool(enabled));
     }
     if let Some(value) = body.get("repo") {
         let raw = value.as_str().unwrap_or_default().trim();

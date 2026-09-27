@@ -1197,6 +1197,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ has no Jira project key, so it has no sprint board." : {
+
+    },
     "%@ held back" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4136,6 +4139,19 @@
         }
       }
     },
+    "%lld open issues assigned to others or no one" : {
+
+    },
+    "%lld open issues in %@ assigned to others or no one" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld open issues in %2$@ assigned to others or no one"
+          }
+        }
+      }
+    },
     "%lld percent left" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5402,6 +5418,9 @@
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "A board shows one project. Choose one above." : {
+
     },
     "A draft PR is marked ready." : {
       "extractionState" : "manual",
@@ -7170,9 +7189,6 @@
           }
         }
       }
-    },
-    "Add a Jira project key to a project to see its sprint board." : {
-
     },
     "Add a project and choose its local repository folder. Each project uses one repository. Add GitHub or Jira details if you want pull requests or tickets. Open Settings → Integrations to check your tools or run the setup assistant again. Agents are optional: choose Shell only to use a terminal." : {
       "extractionState" : "manual",
@@ -33331,7 +33347,7 @@
         }
       }
     },
-    "Describe a task or branch, or paste a pull request or Jira link" : {
+    "Describe a task or branch, or paste a pull request, issue or Jira link" : {
 
     },
     "Destination" : {
@@ -36482,6 +36498,9 @@
           }
         }
       }
+    },
+    "Enter a GitHub pull request or issue URL or a Jira issue URL, or type a branch name." : {
+
     },
     "Enter a GitHub pull request or Jira issue URL, or type a branch name." : {
       "extractionState" : "manual",
@@ -41325,6 +41344,9 @@
           }
         }
       }
+    },
+    "GitHub Issues" : {
+
     },
     "GitHub poll interval" : {
       "extractionState" : "manual",
@@ -46863,6 +46885,9 @@
         }
       }
     },
+    "Issue" : {
+
+    },
     "It needs Node.js 20 or later, from Homebrew, the Node.js installer or a version manager. Cascade checks again when you come back to it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -49564,6 +49589,9 @@
           }
         }
       }
+    },
+    "Loading %@’s sprint board…" : {
+
     },
     "Loading commit…" : {
       "extractionState" : "manual",
@@ -61107,9 +61135,6 @@
         }
       }
     },
-    "Not a GitHub pull request or Jira issue link" : {
-
-    },
     "Not a GitHub pull request or Jira issue URL" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -61187,6 +61212,9 @@
         }
       }
     },
+    "Not a GitHub pull request, GitHub issue or Jira issue link" : {
+
+    },
     "Not checked" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -61263,6 +61291,9 @@
           }
         }
       }
+    },
+    "Not connected, so there are no tickets to show." : {
+
     },
     "Not found" : {
       "extractionState" : "manual",
@@ -63189,6 +63220,9 @@
         }
       }
     },
+    "One project’s sprint at a time" : {
+
+    },
     "One session per worktree" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -64649,6 +64683,9 @@
           }
         }
       }
+    },
+    "Open issues assigned to you appear beside your Jira tickets on the Dashboard." : {
+
     },
     "Open Link" : {
       "localizations" : {
@@ -88208,6 +88245,9 @@
         }
       }
     },
+    "Show the repository's issues in My Tickets" : {
+
+    },
     "Show urgent tickets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -101311,6 +101351,7 @@
       }
     },
     "The whole team’s sprint" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -102385,6 +102426,9 @@
           }
         }
       }
+    },
+    "This issue belongs to %@. Choose its project before creating the session." : {
+
     },
     "This page stopped responding. Reload to recover it." : {
       "extractionState" : "manual",

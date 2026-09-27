@@ -8,6 +8,8 @@ import Observation
 @MainActor @Observable final class DashboardViewModel {
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     @ObservationIgnored var snapshotChanged: () -> Void = {}
+    /// A board link's project, when it lands before the projects load (`showBoard`).
+    @ObservationIgnored fileprivate var pendingTicketProject: String?
     let navigation: PageActionViewModel
     let prs = DashboardPullRequestsModel()
     let tickets = DashboardTicketsModel()
@@ -81,8 +83,12 @@ import Observation
         tickets.linkedPRs = prs.linkedPRs
         tickets.projects = prs.projects
         // Projects come with the PR snapshot; a renamed or removed one updates both scopes.
-        tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && !$0.jiraKeys.isEmpty } }
+        tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && $0.claimsTickets } }
+        if let id = pendingTicketProject, let project = prs.projects.first(where: { $0.id == id && $0.claimsTickets }) {
+            tickets.project = project; pendingTicketProject = nil
+        }
         board.update(projects: prs.projects)
+        updateBoardPresentation()
         updateSearch()
         snapshotChanged()
         if let url = navigation.opening, !(prs.visibleRows + prs.others).contains(where: { $0.url.absoluteString == url }) { cancelActions() }
@@ -217,23 +223,39 @@ extension DashboardViewModel {
         showTickets()
         setTicketsMode(.board)
         board.select(projectID)
+        // The page shows a board only for the project it is narrowed to; a link that lands before
+        // the projects load narrows to it once they do.
+        if let project = prs.projects.first(where: { $0.id == projectID && $0.claimsTickets }) { tickets.project = project }
+        else { pendingTicketProject = projectID }
+        updateBoardPresentation()
     }
 
-    /// Projects My Tickets can narrow to: the list matches tickets by Jira key, the board by project.
-    var ticketProjects: [DashboardProject] {
-        ticketsMode == .board ? board.projects : prs.projects.filter { !$0.jiraKeys.isEmpty }
+    /// Projects My Tickets can narrow to, the same on the list and the board: the list matches
+    /// tickets by Jira key or issue repo; the board shows the one picked, when it has a Jira board.
+    var ticketProjects: [DashboardProject] { prs.projects.filter(\.claimsTickets) }
+
+    /// The sprint board for the project the page is narrowed to; nil with every project, or for a
+    /// project that has no Jira board.
+    var shownBoard: WebBoardViewModel? {
+        guard let project = tickets.project, board.project?.id == project.id else { return nil }
+        return board.board
     }
 
     /// One project for either view, or nil for the list's every project.
     func selectTicketProject(_ id: String?) {
         guard !retired else { return }
-        tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && !$0.jiraKeys.isEmpty } }
+        pendingTicketProject = nil
+        tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && $0.claimsTickets } }
         if let id { board.select(id) }
+        updateBoardPresentation()
     }
 
+    /// The board loads and follows Jira only while it is drawn: on screen, in Board, and for the
+    /// project the page is narrowed to. With every project picked it stays idle.
     private func updateBoardPresentation() {
         guard !retired else { return }
-        board.active = shown && ticketsShown && ticketsMode == .board
+        let picked = tickets.project.map { $0.id == board.project?.id } ?? false
+        board.active = shown && ticketsShown && ticketsMode == .board && picked
     }
 }
 
@@ -279,7 +301,10 @@ extension DashboardViewModel {
     private func currentRow(_ row: DashboardRow) -> DashboardRow? {
         prs.visibleRows.first { $0.id == row.id } ?? prs.others.first { $0.id == row.id }
     }
-    private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? { tickets.rows.first { $0.id == row.id } }
+    /// A ticket still shown: the user's own, or one under My Tickets' Others.
+    private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? {
+        tickets.rows.first { $0.id == row.id } ?? tickets.others.first { $0.id == row.id }
+    }
 
     /// The one way out for an open: dropped for a row no longer shown, otherwise handed to the
     /// coordinator, which decides whether it may present, then opens it or says why not.

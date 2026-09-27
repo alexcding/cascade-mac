@@ -7,6 +7,7 @@ pub mod ffi;
 mod github;
 mod http_client;
 mod integrations;
+mod issues;
 mod jira;
 mod local;
 mod poller;
@@ -155,6 +156,8 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/jira/site", get(integrations::jira_site))
         .route("/api/jira/{key}/transition", post(routes::jira_transition))
         .route("/api/jira/{key}/assign", post(routes::jira_assign))
+        .route("/api/issues/search", post(routes::issues_search))
+        .route("/api/issues/lookup", get(routes::issue_lookup))
         .route("/api/stream", get(routes::stream))
         .route("/api/usage", get(usage::get))
         .route("/api/agent/catalog", get(agents::catalog))

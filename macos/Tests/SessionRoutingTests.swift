@@ -145,7 +145,7 @@ private struct RoutingRows: DashboardService {
 
 private struct RoutingBoard: BoardService {
     func snapshot(projectID: String, force: Bool) async throws -> BoardSnapshot {
-        BoardSnapshot(items: [JiraTicket(key: "REC-1", summary: "one", status: "Ready", statusId: "1"), JiraTicket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")],
+        BoardSnapshot(items: [Ticket(key: "REC-1", summary: "one", status: "Ready", statusId: "1"), Ticket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")],
                       sprint: nil, query: "", columns: [BoardColumn(name: "To Do", statusIds: ["1"], statuses: [.init(id: "1", name: "Ready")])])
     }
     func site() async throws -> JiraSite { JiraSite(baseUrl: "https://jira.test") }
@@ -160,12 +160,12 @@ private struct RoutingBoard: BoardService {
     let actions = RoutingPageActions()
     actions.sessionURLs = ["https://jira.test/browse/REC-1"]
     let model = WebBoardViewModel(projectID: "w", service: RoutingBoard(), pageActions: actions)
-    let one = JiraTicket(key: "REC-1", summary: "one", status: "Ready", statusId: "1")
+    let one = Ticket(key: "REC-1", summary: "one", status: "Ready", statusId: "1")
     // Before the site is known there is no ticket URL, so no session either — and nothing is asked.
     #expect(model.sessionMark(one) == nil && actions.asked.isEmpty)
     model.active = true
     while model.loading || model.siteURL == nil { await Task.yield() }
-    #expect(model.sessionMark(one)?.cli == "claude" && model.sessionMark(JiraTicket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")) == nil)
+    #expect(model.sessionMark(one)?.cli == "claude" && model.sessionMark(Ticket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")) == nil)
     let asked = actions.asked.first
     #expect(asked?.inSession == true && asked?.projectID == "w" && asked?.kind == "jira" && asked?.url == "https://jira.test/browse/REC-1")
 }

@@ -18,7 +18,7 @@ struct BoardSprint: Decodable, Equatable, Sendable {
 }
 
 struct BoardSnapshot: Decodable, Sendable {
-    var items: [JiraTicket]
+    var items: [Ticket]
     var lastSynced: String?
     var error: String?
     var sprint: BoardSprint?
@@ -31,7 +31,7 @@ struct BoardSnapshot: Decodable, Sendable {
 struct BoardLane: Equatable, Identifiable {
     let status: String
     let statusId: String
-    var tickets: [JiraTicket] = []
+    var tickets: [Ticket] = []
     var id: String { statusId.isEmpty ? "status:" + status : statusId }
 }
 
@@ -52,7 +52,7 @@ struct BoardGroup: Equatable, Identifiable {
     /// holding "Ready for Dev" and "In Specification"). Tickets whose status no column claims
     /// collect in a trailing "Other" column. Without config, one column per status name, ordered by
     /// workflow category.
-    static func build(_ tickets: [JiraTicket], columns config: [BoardColumn]?) -> [BoardGroup] {
+    static func build(_ tickets: [Ticket], columns config: [BoardColumn]?) -> [BoardGroup] {
         guard let config, !config.isEmpty else {
             var groups: [(category: String, lane: BoardLane)] = []
             for ticket in tickets {
@@ -178,8 +178,8 @@ struct APIBoardService: BoardService {
     }
 
     /// Snapshot items with unconfirmed moves applied.
-    private(set) var items: [JiraTicket] = []
-    private(set) var tickets: [JiraTicket] = []
+    private(set) var items: [Ticket] = []
+    private(set) var tickets: [Ticket] = []
     private(set) var groups: [BoardGroup] = []
     /// Every status a card can be moved to, in board order.
     private(set) var columns: [String] = []
@@ -205,7 +205,7 @@ struct APIBoardService: BoardService {
         updateGroups()
     }
     private func updateGroups() {
-        let tickets: [JiraTicket]
+        let tickets: [Ticket]
         if assigneeFilter == Self.unassigned { tickets = items.filter { ($0.assigneeId ?? "").isEmpty } }
         else if !assigneeFilter.isEmpty { tickets = items.filter { $0.assigneeId == assigneeFilter } }
         else { tickets = items }
@@ -247,7 +247,7 @@ struct APIBoardService: BoardService {
         if let query = snapshot.query, !query.isEmpty { return String(localized: "No tickets match “\(query)” in the active sprint.") }
         return String(localized: "No active sprint, or no tickets in it.")
     }
-    func isMine(_ ticket: JiraTicket) -> Bool {
+    func isMine(_ ticket: Ticket) -> Bool {
         guard let account else { return false }
         if let id = account.accountId, !id.isEmpty, ticket.assigneeId == id { return true }
         guard let email = account.email, !email.isEmpty, let assignee = ticket.assigneeEmail else { return false }
@@ -384,7 +384,7 @@ struct APIBoardService: BoardService {
         }
     }
 
-    func beginDrag(_ ticket: JiraTicket) {
+    func beginDrag(_ ticket: Ticket) {
         guard !retired, active else { return }
         draggingKey = ticket.key; dragID = UUID(); dropTarget = nil
     }
@@ -409,7 +409,7 @@ struct APIBoardService: BoardService {
     }
 
     /// Moves the card at once and transitions in the background; a failure puts it back.
-    func move(_ ticket: JiraTicket, to status: String, statusId: String? = nil) {
+    func move(_ ticket: Ticket, to status: String, statusId: String? = nil) {
         guard !retired, active, !status.isEmpty, ticket.status != status, !busy.contains(ticket.key) else { return }
         busy.insert(ticket.key); error = nil
         let move = PendingBoardMove(status: status, statusId: statusId.flatMap { $0.isEmpty ? nil : $0 } ?? statusID(named: status), at: now())
@@ -429,7 +429,7 @@ struct APIBoardService: BoardService {
             }
         }
     }
-    func assign(_ ticket: JiraTicket, to assignee: String) {
+    func assign(_ ticket: Ticket, to assignee: String) {
         guard !retired, active, !busy.contains(ticket.key) else { return }
         busy.insert(ticket.key); error = nil
         let service = service
@@ -439,10 +439,10 @@ struct APIBoardService: BoardService {
             catch { self.error = error.localizedDescription }
         }
     }
-    func open(_ ticket: JiraTicket, inTab: Bool = false) { emit(ticket) { $0.inTab = inTab } }
-    func openSession(_ ticket: JiraTicket, agent: SessionAgent? = nil) { emit(ticket) { $0.inSession = true; $0.agent = agent } }
+    func open(_ ticket: Ticket, inTab: Bool = false) { emit(ticket) { $0.inTab = inTab } }
+    func openSession(_ ticket: Ticket, agent: SessionAgent? = nil) { emit(ticket) { $0.inSession = true; $0.agent = agent } }
     /// A missing site sets `error` rather than opening nothing silently.
-    private func emit(_ ticket: JiraTicket, configure: (inout OpenPageRequest) -> Void) {
+    private func emit(_ ticket: Ticket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired else { return }
         guard let url = ticketURL(ticket) else { error = String(localized: "Configure the Jira site before opening a ticket."); return }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
@@ -450,13 +450,13 @@ struct APIBoardService: BoardService {
         configure(&request)
         onAction(.open(request))
     }
-    func sessionMark(_ ticket: JiraTicket) -> PageSessionMark? {
+    func sessionMark(_ ticket: Ticket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
         request.inSession = true; request.projectID = projectID
         return navigation.pageSession(request)
     }
-    private func ticketURL(_ ticket: JiraTicket) -> String? {
+    private func ticketURL(_ ticket: Ticket) -> String? {
         siteURL?.appendingPathComponent("browse").appendingPathComponent(ticket.key).absoluteString
     }
 }

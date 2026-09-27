@@ -105,13 +105,14 @@ impl Database {
             .unwrap_or_else(now);
         let get = |key: &str| patch.get(key).and_then(Value::as_str).unwrap_or("");
         self.durable().execute(
-            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,issues_enabled,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
             params![
                 id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"),
                 get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
                 bool_int(patch.get("fixVersionEnabled"), false), get("fixVersionPrefix"),
                 get("fixVersionScript"), get("ide"), get("ideCmd"), get("ideTarget"),
                 get("runScheme"), get("runSim"), get("worktreeSetup"), get("worktreeInclude"),
+                bool_int(patch.get("issuesEnabled"), true),
                 created_at,
             ],
         )?;
@@ -144,6 +145,7 @@ impl Database {
             ("runSim", "run_sim", FieldKind::String),
             ("worktreeSetup", "worktree_setup", FieldKind::String),
             ("worktreeInclude", "worktree_include", FieldKind::String),
+            ("issuesEnabled", "issues_enabled", FieldKind::Bool),
         ];
         let mut sets = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
@@ -818,6 +820,7 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         // A name the user gave the session; empty means it is shown by its worktree folder.
         "ALTER TABLE tasks ADD COLUMN name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
     ] {
         let _ = conn.execute(migration, []);
     }
@@ -895,6 +898,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         "ide": text(row,"ide")?, "ideCmd": text(row,"ide_cmd")?, "ideTarget": text(row,"ide_target")?,
         "runScheme": text(row,"run_scheme")?, "runSim": text(row,"run_sim")?,
         "worktreeSetup": text(row,"worktree_setup")?, "worktreeInclude": text(row,"worktree_include")?,
+        "issuesEnabled": row.get::<_,i64>("issues_enabled")? != 0,
     }))
 }
 
@@ -934,6 +938,7 @@ fn insert_tab(
     };
     let kind = match get("kind") {
         "jira" => "jira",
+        "issue" => "issue",
         "web" => "web",
         _ => "github",
     };

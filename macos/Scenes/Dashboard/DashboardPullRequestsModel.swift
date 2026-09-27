@@ -232,7 +232,8 @@ extension DashboardPullRequestsModel {
         var linked: [String: Int] = [:]
         for row in snapshot.visibleRows {
             guard let number = row.pr.number else { continue }
-            for key in row.pr.jiraKeys ?? [] where number < linked[key] ?? .max { linked[key] = number }
+            // Keyed as `DashboardTicketRow.linkKey`: Jira keys and `OWNER/REPO#12`, uppercased.
+            for key in row.pr.ticketKeys.map({ $0.uppercased() }) where number < linked[key] ?? .max { linked[key] = number }
         }
         snapshot.linkedPRs = linked.mapValues { "#\($0)" }
         snapshot.tile = Tile(mine: snapshot.mine, counts: snapshot.counts)

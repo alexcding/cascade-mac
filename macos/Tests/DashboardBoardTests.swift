@@ -30,7 +30,7 @@ private func jiraProject(_ id: String, key: String? = nil) -> DashboardProject {
 }
 
 private func ticketRow(_ key: String) -> DashboardTicketRow {
-    DashboardTicketRow(ticket: JiraTicket(key: key, summary: key, status: "To Do"), url: URL(string: "https://jira.example.test/browse/\(key)")!)
+    DashboardTicketRow(ticket: Ticket(key: key, summary: key, status: "To Do"), url: URL(string: "https://jira.example.test/browse/\(key)")!)
 }
 
 private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboard-board-\(UUID().uuidString)")! }
@@ -58,6 +58,8 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     root.navigate(to: .overview); model.showTickets()
     #expect(model.ticketsShown && !board.active, "The list is showing, not the board")
     model.setTicketsMode(.board)
+    #expect(!board.active, "Every project is picked, so no board is drawn or loaded")
+    model.selectTicketProject("web")
     #expect(board.active)
     root.appearance = .light
     #expect(board.appearance == .light)
@@ -111,7 +113,7 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     let root = makeRoot(), actions = ProjectPageActions()
     let model = await connectedDashboard(root, actions, freshDefaults(), projects: [jiraProject("web", key: "WEB")])
     let board = try #require(model.board.board)
-    root.navigate(to: .overview); model.showTickets(); model.setTicketsMode(.board)
+    root.navigate(to: .overview); model.showTickets(); model.setTicketsMode(.board); model.selectTicketProject("web")
     while board.siteURL == nil || board.tickets.isEmpty { await Task.yield() }
     let ticket = try #require(board.tickets.first)
     board.open(ticket); await board.navigation.waitForOpen()
@@ -206,4 +208,21 @@ private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboar
     // "plain" gaining Jira later must not pull the board away from the one on screen.
     board.update(projects: [jiraProject("web", key: "WEB"), jiraProject("plain", key: "PLN")])
     #expect(board.project?.id == "web")
+}
+
+// The board and the list share one project picker with All Projects in it; a board shows one
+// project, so with every project picked the page draws none, and the list's pick carries over.
+@MainActor @Test(.timeLimit(.minutes(1))) func theBoardShowsOnlyForTheProjectThePageIsNarrowedTo() async throws {
+    let projects = [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")]
+    let model = await connectedDashboard(makeRoot(), ProjectPageActions(), freshDefaults(), projects: projects)
+    model.setTicketsMode(.board)
+    #expect(model.ticketProjects.map(\.id) == ["web", "ops"])
+    #expect(model.tickets.project == nil && model.shownBoard == nil)
+    model.selectTicketProject("ops")
+    #expect(model.shownBoard?.projectID == "ops")
+    model.setTicketsMode(.list)
+    model.setTicketsMode(.board)
+    #expect(model.shownBoard?.projectID == "ops", "The list and board keep one pick")
+    model.selectTicketProject(nil)
+    #expect(model.shownBoard == nil)
 }

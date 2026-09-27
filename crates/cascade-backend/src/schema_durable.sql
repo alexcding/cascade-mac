@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS projects (
   fix_version_script TEXT NOT NULL DEFAULT '', ide TEXT NOT NULL DEFAULT '',
   ide_cmd TEXT NOT NULL DEFAULT '', ide_target TEXT NOT NULL DEFAULT '', run_scheme TEXT NOT NULL DEFAULT '',
   run_sim TEXT NOT NULL DEFAULT '', worktree_setup TEXT NOT NULL DEFAULT '',
-  worktree_include TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+  worktree_include TEXT NOT NULL DEFAULT '', issues_enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS links (
   id TEXT PRIMARY KEY, pr_number INTEGER, pr_repo TEXT, jira_key TEXT, project_id TEXT, created_at TEXT NOT NULL
