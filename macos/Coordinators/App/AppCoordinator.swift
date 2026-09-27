@@ -84,7 +84,7 @@ import Observation
     var appearance = AppAppearance.system {
         didSet {
             guard oldValue != appearance else { return }
-            dashboardCoordinator?.model.appearance = appearance
+            projectModels.values.forEach { $0.appearance = appearance }
         }
     }
     var dashboardCoordinator: DashboardCoordinator?
@@ -160,7 +160,7 @@ import Observation
         }
         routingError = nil
         selection = destination
-        dashboardCoordinator?.model.shown = destination == .overview
+        for (id, child) in projectCoordinators { child.model.active = destination == .project(id) }
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()
         refreshRoot()
@@ -175,9 +175,10 @@ import Observation
             navigate(to: SidebarDestination.overview)
             // Through the model, like View All, so the list opens on every ticket, not a stale tag.
             dashboardCoordinator?.model.showTickets()
-        case .dashboardBoard(let id):
-            navigate(to: SidebarDestination.overview)
-            dashboardCoordinator?.model.showBoard(projectID: id)
+        case .projectBoard(let id):
+            navigate(to: SidebarDestination.project(id))
+            // A project that has its board turned off opens on Start.
+            projectCoordinators[id]?.model.selectSection(.board)
         }
     }
 

@@ -892,6 +892,14 @@ public final class AppViewModel {
     /// For the area extensions: `error` is only settable from this file.
     func reportRootError(_ message: String) { error = message }
 
+    /// Opens a page's link as the Dashboard's rows do, marking the session it already has.
+    private func projectPageActions() -> any PageActionServing {
+        platformFactory.pageActions(open: { [weak self] request in
+            guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
+            try await self.openPage(request)
+        }, session: { [weak self] request in self?.pageSessionMark(request) })
+    }
+
     private func showSelectedContext() {
         switch selection {
         case .project(let id):
@@ -899,7 +907,7 @@ public final class AppViewModel {
             if let project = projects.first(where: { $0.id == id }), let api {
                 let services = backendFactory.projectServices(api: api)
                 coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
-                                           agent: shell.defaultAgent)
+                                           agent: shell.defaultAgent, pageActions: projectPageActions())
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
@@ -1452,7 +1460,7 @@ public final class AppViewModel {
                 usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
-            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api)) } }
+            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api), boards: backendFactory.projectServices(api: api).boards) } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
             if let api { for model in historyModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.history(api: api)) } }
@@ -1482,6 +1490,7 @@ public final class AppViewModel {
         shell.refresh()
         shell.refreshUsage()
         dashboard?.reload()
+        if case .project(let id) = selection { projectModels[id]?.board?.refresh() }
         if coordinator.activityVisible { logs?.refresh() }
         refreshInventory([.projects, .sessions, .tabs])
     }
@@ -1572,7 +1581,7 @@ public final class AppViewModel {
         if !prs.isEmpty || events.contains(where: { $0.type == "reviews" }) { shell.refresh() }
         if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
         let jira = events.filter { $0.type == "jira-sync" }
-        for event in jira { dashboard?.board.refresh(event: event.id) }
+        for event in jira { for model in projectModels.values { model.refreshBoard(event: event.id) } }
     }
 
     public func reconnect() async {

@@ -24,6 +24,11 @@ struct ProjectEditorView: View {
                 }
                 Section("Jira") {
                     TextField("Project key", text: $model.draft.jiraProjectKey)
+                    Toggle("Show board", isOn: $model.draft.boardEnabled)
+                        .disabled(JiraKeys.parse(model.draft.jiraProjectKey).isEmpty)
+                        .accessibilityIdentifier("project-board-enabled")
+                    Text("Adds a Board tab to this project with its Jira sprint board.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("GitHub Issues") {
                     Toggle("Show the repository's issues in My Tickets", isOn: $model.draft.issuesEnabled)
@@ -166,6 +171,8 @@ struct ProjectPageView: View {
     var body: some View {
         switch model.section {
         case .start: ProjectComposerView(project: model.project, model: model.composer)
+        case .board:
+            if let board = model.board { ProjectBoardView(project: model.project, board: board) }
         case .settings:
             ProjectEditorView(model: model.editor)
                 .padding(.bottom, 16)
@@ -180,12 +187,13 @@ struct ProjectPageView: View {
 /// The project's pages as the toolbar's leading item, standing in for its title as the
 /// Dashboard's tabs do (`DashboardTabBar`).
 struct ProjectTabBar: View {
+    let sections: [ProjectSection]
     let selection: ProjectSection
     let select: (ProjectSection) -> Void
 
     var body: some View {
         Picker("Project section", selection: Binding(get: { selection }, set: select)) {
-            ForEach(ProjectSection.allCases) { Text($0.title).tag($0) }
+            ForEach(sections) { Text($0.title).tag($0) }
         }
         .pickerStyle(.segmented)
         .labelsHidden()

@@ -396,7 +396,7 @@ extension DashboardPageHeader where Trailing == EmptyView {
 
 /// One choice of several as a segmented control drawn like the Dashboard's tags: an outlined group
 /// the height of a tag, the selected segment filled as a selected tag is, and that fill sliding to
-/// the next choice. The page header's controls: List or Board, and whose items. `count`, when
+/// the next choice. The page header's control for whose items. `count`, when
 /// given, follows each title; `id` prefixes each segment's accessibility id.
 struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
     let values: [Value]
@@ -448,12 +448,10 @@ struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
     }
 }
 
-/// The project a page narrows to, as an outlined tag that opens a menu. `allowsAll` offers All
-/// Projects first; a sprint board always shows one project, so it does not.
+/// The project a page narrows to, as an outlined tag that opens a menu, All Projects first.
 struct DashboardProjectTag: View {
     let projects: [DashboardProject]
     let selection: String?
-    var allowsAll = true
     let id: String
     let select: (String?) -> Void
 
@@ -461,16 +459,14 @@ struct DashboardProjectTag: View {
         let selected = projects.first { $0.id == selection }
         Menu {
             Picker("Project", selection: Binding(get: { selection }, set: select)) {
-                if allowsAll {
-                    Text("All Projects").tag(String?.none)
-                    Divider()
-                }
+                Text("All Projects").tag(String?.none)
+                Divider()
                 ForEach(projects) { Text($0.name).tag(Optional($0.id)) }
             }
             .pickerStyle(.inline).labelsHidden()
         } label: {
             DashboardTagLabel(title: selected?.name ?? String(localized: "All Projects"), symbol: "chevron.down",
-                              active: allowsAll && selected != nil, outlined: true)
+                              active: selected != nil, outlined: true)
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .accessibilityIdentifier(id)

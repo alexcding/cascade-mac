@@ -8,21 +8,11 @@ import Observation
 @MainActor @Observable final class DashboardViewModel {
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     @ObservationIgnored var snapshotChanged: () -> Void = {}
-    /// A board link's project, when it lands before the projects load (`showBoard`).
-    @ObservationIgnored fileprivate var pendingTicketProject: String?
     let navigation: PageActionViewModel
     let prs = DashboardPullRequestsModel()
     let tickets = DashboardTicketsModel()
     let usage = DashboardUsageModel()
-    let board: DashboardBoardModel
     private(set) var retired = false
-    /// My Tickets as a list of the user's tickets, or as one project's sprint board.
-    private(set) var ticketsMode = TicketsMode.list
-    /// Whether the Dashboard is the selected screen, and whether My Tickets is pushed over its
-    /// home; the board only runs while both hold and it is the mode shown.
-    var shown = false { didSet { if shown != oldValue { updateBoardPresentation() } } }
-    var ticketsShown = false { didSet { if ticketsShown != oldValue { updateBoardPresentation() } } }
-    var appearance = AppAppearance.system { didSet { if appearance != oldValue { board.appearance = appearance } } }
 
     var tab: Tab = .overview
     /// The number each overview tile last showed, so a tile only rolls from one value to the next
@@ -33,10 +23,8 @@ import Observation
     var query = "" { didSet { if query != oldValue { updateSearch() } } }
     private(set) var search = SearchResults()
 
-    init(pageActions: any PageActionServing, defaults: UserDefaults = .standard) {
+    init(pageActions: any PageActionServing) {
         navigation = PageActionViewModel(service: pageActions, failureDescription: String(localized: "Could not open pull request"))
-        board = DashboardBoardModel(pageActions: pageActions, defaults: defaults)
-        board.onAction = { [weak self] in self?.onAction(.board($0)) }
         prs.onChange = { [weak self] in self?.pullRequestsChanged() }
         tickets.onChange = { [weak self] in self?.updateSearch() }
     }
@@ -48,7 +36,6 @@ import Observation
         cancelActions()
         prs.connect(service)
         tickets.connect(service as? DashboardTicketService)
-        board.connect((service as? DashboardBoardSource)?.boardService)
     }
 
     /// Everything the dashboard shows, side by side: the PR snapshot and Jira load independently.
@@ -56,14 +43,12 @@ import Observation
         guard !retired else { return }
         prs.refresh()
         tickets.refresh()
-        board.board?.refresh()
     }
 
     /// Both children cancel before the first suspension, so no load queued behind this call can
     /// publish afterwards; then wait for them to wind down.
     func stop() async {
         cancelActions()
-        board.board?.pause()
         let pending = prs.halt() + [tickets.halt()].compactMap { $0 }
         for task in pending { await task.value }
     }
@@ -76,7 +61,6 @@ import Observation
         prs.retire()
         tickets.retire()
         usage.retire()
-        board.retire()
     }
 
     private func pullRequestsChanged() {
@@ -84,11 +68,6 @@ import Observation
         tickets.projects = prs.projects
         // Projects come with the PR snapshot; a renamed or removed one updates both scopes.
         tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && $0.claimsTickets } }
-        if let id = pendingTicketProject, let project = prs.projects.first(where: { $0.id == id && $0.claimsTickets }) {
-            tickets.project = project; pendingTicketProject = nil
-        }
-        board.update(projects: prs.projects)
-        updateBoardPresentation()
         updateSearch()
         snapshotChanged()
         if let url = navigation.opening, !(prs.visibleRows + prs.others).contains(where: { $0.url.absoluteString == url }) { cancelActions() }
@@ -105,8 +84,6 @@ extension DashboardViewModel {
         case open(OpenPageRequest)
         case showTickets
         case closeTickets
-        /// A sprint board card, to open once the coordinator allows it.
-        case board(WebBoardViewModel.Action)
     }
 }
 
@@ -185,13 +162,12 @@ extension DashboardViewModel {
 
     /// My Tickets as the list of every tracked project's tickets under `filter`: what the overview's
     /// tile, badges and stage strip count, and what a tickets link means. The Tickets tab instead
-    /// returns to My Tickets as it was left, board or list.
+    /// returns to My Tickets as it was left.
     func showTickets(_ filter: DashboardTicketsModel.Filter = .all) {
         guard !retired else { return }
         clearFilter()
         tickets.filter = filter
         tickets.project = nil
-        setTicketsMode(.list)
         onAction(.showTickets)
     }
 
@@ -200,62 +176,13 @@ extension DashboardViewModel {
         onAction(.closeTickets)
     }
 
-    /// My Tickets' two views of the same work.
-    enum TicketsMode: String, CaseIterable, Identifiable {
-        case list, board
-        var id: String { rawValue }
-        var title: String { self == .list ? String(localized: "List") : String(localized: "Board") }
-    }
-
-    func setTicketsMode(_ mode: TicketsMode) {
-        guard !retired, mode != ticketsMode else { return }
-        cancelActions()
-        ticketsMode = mode
-        // The list's project carries over to the board; the list's "every project" leaves the
-        // board on the one it last showed.
-        if mode == .board, let id = tickets.project?.id { board.select(id) }
-        updateBoardPresentation()
-    }
-
-    /// My Tickets as the sprint board of `projectID`, as a board link opens it.
-    func showBoard(projectID: String) {
-        guard !retired else { return }
-        showTickets()
-        setTicketsMode(.board)
-        board.select(projectID)
-        // The page shows a board only for the project it is narrowed to; a link that lands before
-        // the projects load narrows to it once they do.
-        if let project = prs.projects.first(where: { $0.id == projectID && $0.claimsTickets }) { tickets.project = project }
-        else { pendingTicketProject = projectID }
-        updateBoardPresentation()
-    }
-
-    /// Projects My Tickets can narrow to, the same on the list and the board: the list matches
-    /// tickets by Jira key or issue repo; the board shows the one picked, when it has a Jira board.
+    /// Projects My Tickets can narrow to: those whose tickets it matches by Jira key or issue repo.
     var ticketProjects: [DashboardProject] { prs.projects.filter(\.claimsTickets) }
 
-    /// The sprint board for the project the page is narrowed to; nil with every project, or for a
-    /// project that has no Jira board.
-    var shownBoard: WebBoardViewModel? {
-        guard let project = tickets.project, board.project?.id == project.id else { return nil }
-        return board.board
-    }
-
-    /// One project for either view, or nil for the list's every project.
+    /// One project, or nil for every project.
     func selectTicketProject(_ id: String?) {
         guard !retired else { return }
-        pendingTicketProject = nil
         tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && $0.claimsTickets } }
-        if let id { board.select(id) }
-        updateBoardPresentation()
-    }
-
-    /// The board loads and follows Jira only while it is drawn: on screen, in Board, and for the
-    /// project the page is narrowed to. With every project picked it stays idle.
-    private func updateBoardPresentation() {
-        guard !retired else { return }
-        let picked = tickets.project.map { $0.id == board.project?.id } ?? false
-        board.active = shown && ticketsShown && ticketsMode == .board && picked
     }
 }
 
@@ -295,7 +222,7 @@ extension DashboardViewModel {
         return request
     }
 
-    func cancelActions() { navigation.cancel(); board.cancelActions() }
+    func cancelActions() { navigation.cancel() }
 
     /// A row still shown anywhere: the user's own and review orbit, or the Pull Requests tab's Others.
     private func currentRow(_ row: DashboardRow) -> DashboardRow? {

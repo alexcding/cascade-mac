@@ -19,9 +19,10 @@ import Testing
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {
     let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }))
     var creations = 0
-    func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent) -> ProjectPageViewModel {
+    func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent,
+                 pageActions: any PageActionServing) -> ProjectPageViewModel {
         creations += 1
-        return native.project(project, services: services, agent: agent)
+        return native.project(project, services: services, agent: agent, pageActions: pageActions)
     }
 }
 
@@ -61,7 +62,7 @@ import Testing
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
     root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     let obsolete = try #require(root.projectCoordinators[project.id])
-    let replacement = factory.project(project, services: services, agent: .claude)
+    let replacement = factory.project(project, services: services, agent: .claude, pageActions: ProjectPageActions())
     let current = root.installProject(replacement, runtime: runtime)
     obsolete.model.editor.onAction(.saved(project))
     obsolete.model.editor.onAction(.deleted(project.id))
@@ -103,7 +104,7 @@ import Testing
 @MainActor @Test func projectActionRebindingForwardsCurrentCallbackWithoutRetainingParent() throws {
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    var model: ProjectPageViewModel? = factory.project(project, services: services, agent: .claude)
+    var model: ProjectPageViewModel? = factory.project(project, services: services, agent: .claude, pageActions: ProjectPageActions())
     weak var released = model
     let editor = try #require(model?.editor)
     var first = 0, actions: [ProjectPageViewModel.Action] = []

@@ -46,7 +46,7 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     var jiraProjectKey: String? = nil
     var issuesEnabled: Bool? = nil
 
-    /// A Jira project key, which is what a sprint board needs.
+    /// A Jira project key, which is what My Tickets matches Jira tickets by.
     var hasJira: Bool { !jiraKeys.isEmpty }
     /// The Jira project keys this project's tickets carry (`JiraKeys`).
     var jiraKeys: [String] { JiraKeys.parse(jiraProjectKey) }
@@ -328,12 +328,7 @@ extension DashboardTicketService {
     func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) { (try await myTickets(), nil) }
 }
 
-/// A dashboard service that can also serve sprint boards.
-protocol DashboardBoardSource: Sendable {
-    var boardService: any BoardService { get }
-}
-
-struct APIDashboardService: DashboardService, DashboardTicketService, DashboardBoardSource {
+struct APIDashboardService: DashboardService, DashboardTicketService {
     static let myTicketsJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     let api: APIClient
     func snapshot() async throws -> [DashboardProject] { try await api.get(Routes.DASHBOARD) }
@@ -398,7 +393,6 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
         }
         return Found(rows: rows, note: result.warning)
     }
-    var boardService: any BoardService { APIBoardService(api: api) }
 }
 
 enum DashboardTicketError: LocalizedError {

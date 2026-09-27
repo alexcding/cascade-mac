@@ -66,6 +66,8 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var forwardWebhooks: Bool? = nil
     /// Whether the repo's GitHub issues appear in My Tickets; nil (an older backend) reads as on.
     var issuesEnabled: Bool? = nil
+    /// Whether the project page shows its Jira sprint board as a tab; nil (an older backend) reads as off.
+    var boardEnabled: Bool? = nil
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots

@@ -822,6 +822,12 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
             .ok_or_else(|| ApiError::bad_request("issuesEnabled must be true or false"))?;
         patch.insert("issuesEnabled".into(), Value::Bool(enabled));
     }
+    if let Some(value) = body.get("boardEnabled") {
+        let enabled = value
+            .as_bool()
+            .ok_or_else(|| ApiError::bad_request("boardEnabled must be true or false"))?;
+        patch.insert("boardEnabled".into(), Value::Bool(enabled));
+    }
     if let Some(value) = body.get("repo") {
         let raw = value.as_str().unwrap_or_default().trim();
         let repo = if raw.is_empty() {

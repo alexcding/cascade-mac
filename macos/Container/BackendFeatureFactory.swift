@@ -39,6 +39,6 @@ extension BackendFeatureFactory {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }
     func projectServices(api: APIClient) -> ProjectFeatureServices {
-        ProjectFeatureServices(projects: projects(api: api), sessions: sessions(api: api))
+        ProjectFeatureServices(projects: projects(api: api), sessions: sessions(api: api), boards: APIBoardService(api: api))
     }
 }

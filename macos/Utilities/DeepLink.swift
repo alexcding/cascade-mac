@@ -13,7 +13,7 @@ struct DeepLink: Equatable {
         if routes.count == 1 { return destination }
         guard routes.count == 2 else { return nil }
         switch (destination, routes[1]) {
-        case (.overview, .dashboardBoard): return destination
+        case (.project(let id), .projectBoard(let board)) where id == board: return destination
         default: return nil
         }
     }
@@ -86,12 +86,11 @@ struct ProjectRouteHandler: DeepLinkRouteHandling {
         guard (2...3).contains(components.count), components[0] == "projects" else { return nil }
         let root = Route.destination(.project(components[1]))
         if components.count == 2 || retiredSections.contains(components[2]) { return DeepLink(root) }
-        // The project's board moved to the Dashboard's My Tickets; its link follows it there.
-        if components[2] == "board" { return DeepLink([.destination(.overview), .dashboardBoard(projectID: components[1])]) }
+        if components[2] == "board" { return DeepLink([root, .projectBoard(projectID: components[1])]) }
         return nil
     }
     func print(_ deepLink: DeepLink) -> [String]? {
-        if deepLink.routes.count == 2, deepLink.destination == .overview, case .dashboardBoard(let id) = deepLink.routes[1] {
+        if deepLink.routes.count == 2, case .projectBoard(let id) = deepLink.routes[1], deepLink.destination == .project(id) {
             return ["projects", id, "board"]
         }
         guard case .project(let id) = deepLink.destination, deepLink.routes.count == 1 else { return nil }
