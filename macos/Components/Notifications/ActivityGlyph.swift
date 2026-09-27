@@ -10,10 +10,10 @@ import SwiftUI
             (Image(nsImage: SidebarIcons.brand("github", size: 15) ?? NSImage()).renderingMode(.template), .accentColor)
         case "pr_merged": (Image(systemName: "arrow.triangle.merge"), .purple)
         case "pr_closed": (Image(systemName: "xmark"), .secondary)
-        case "jira_transitioned": (Image(systemName: "arrow.clockwise"), .green)
+        case "jira_transitioned", "issue_status_changed": (Image(systemName: "arrow.clockwise"), .green)
         case "jira_version_created": (Image(systemName: "plus"), .accentColor)
         case "jira_fixversion_set": (Image(systemName: "checkmark.circle"), .green)
-        case "jira_transition_failed", "jira_fixversion_failed", "sync_failed": (Image(systemName: "exclamationmark.triangle"), .red)
+        case "jira_transition_failed", "jira_fixversion_failed", "sync_failed", "issue_sync_failed": (Image(systemName: "exclamationmark.triangle"), .red)
         default: (Image(systemName: "clock"), level == "error" ? .red : level == "warn" ? .orange : .secondary)
         }
     }

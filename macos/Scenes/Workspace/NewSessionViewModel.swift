@@ -7,7 +7,7 @@ import Observation
 // PR / ticket address the session is for, read by shape, with the hint saying which reading won.
 @MainActor @Observable final class NewSessionViewModel {
     enum Action { case created(WorkspaceSession) }
-    static let hint = String(localized: "Also names the worktree folder — or paste a GitHub PR / Jira URL to start on that page.")
+    static let hint = String(localized: "Also names the worktree folder — or paste a GitHub PR, GitHub issue or Jira URL to start on that page.")
 
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let project: Project
@@ -60,11 +60,11 @@ import Observation
     var fieldHint: (text: String, isError: Bool) {
         if let inputError { return (inputError, true) }
         guard !typed.isEmpty else { return (Self.hint, false) }
-        if urlish && page == nil { return (String(localized: "Not a GitHub pull request or Jira issue URL"), true) }
+        if urlish && page == nil { return (String(localized: "Not a GitHub pull request, GitHub issue or Jira issue URL"), true) }
         guard let page else { return (Self.hint, false) }
         if resolving { return (String(localized: "Looking it up…"), false) }
         if let resolved {
-            let name = resolved.title.isEmpty ? (page.kind == "jira" ? page.key : String(localized: "that pull request")) : resolved.title
+            let name = resolved.title.isEmpty ? (page.kind == "github" ? String(localized: "that pull request") : page.key) : resolved.title
             return (String(localized: "Opens \(name) — branch \(resolved.branch)"), false)
         }
         if unresolvedPullRequest != nil { return (String(localized: "Opens that pull request — name its branch below"), false) }

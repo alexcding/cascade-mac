@@ -12,6 +12,8 @@ author{ login __typename ... on User{ name } }
 labels(first:20){ nodes{ name color description } }
 reviewRequests(first:20){ nodes{ requestedReviewer{ ... on User{ login } } } }
 latestReviews(first:20){ nodes{ state author{ login } commit{ oid } } }"#;
+/// The issues a PR closes when it merges — what `issueKeys` is read from.
+const CLOSING_FIELDS: &str = "closingIssuesReferences(first:10){ nodes{ number repository{ nameWithOwner } } }";
 const CI_FIELDS: &str = r#"commits(last:1){ nodes{ commit{ statusCheckRollup{ contexts(first:100){ nodes{
 ... on CheckRun{ status conclusion }
 ... on StatusContext{ state }
@@ -131,9 +133,9 @@ pub async fn fetch_prs(
         _ => "OPEN",
     };
     let fields = if ci {
-        format!("{CORE_FIELDS}\n{CI_FIELDS}")
+        format!("{CORE_FIELDS}\n{CLOSING_FIELDS}\n{CI_FIELDS}")
     } else {
-        CORE_FIELDS.to_owned()
+        format!("{CORE_FIELDS}\n{CLOSING_FIELDS}")
     };
     let nodes = fetch_pages(repo, states, &fields, limit, None).await?;
     let me = current_user().await;
@@ -147,7 +149,7 @@ pub async fn fetch_recent_closed(repo: &str, since: Option<&str>) -> Result<Vec<
     fetch_pages(
         repo,
         "MERGED,CLOSED",
-        "number title body state url mergedAt updatedAt author{ login }",
+        &format!("number title body state url mergedAt updatedAt author{{ login }} {CLOSING_FIELDS}"),
         if since.is_some() { None } else { Some(30) },
         since,
     )
@@ -278,7 +280,26 @@ fn flatten(mut node: Value) -> Value {
         object.insert("statusCheckRollup".into(), Value::Array(checks));
         object.remove("commits");
     }
+    if let Some(references) = object.remove("closingIssuesReferences") {
+        object.insert("issueKeys".into(), json!(issue_keys(&references)));
+    }
     node
+}
+
+/// `closingIssuesReferences` as ticket keys, `owner/repo#12`, lowercased so they compare as the
+/// app's session keys do.
+fn issue_keys(references: &Value) -> Vec<String> {
+    references
+        .get("nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|node| {
+            let number = node.get("number").and_then(Value::as_u64).filter(|n| *n > 0)?;
+            let repo = node.pointer("/repository/nameWithOwner").and_then(Value::as_str)?;
+            Some(crate::issues::key(repo, number))
+        })
+        .collect()
 }
 
 fn enrich(mut pr: Value, me: Option<&str>, project_key: &str, with_ci: bool) -> Value {
@@ -340,6 +361,7 @@ pub fn lean(pr: &Value, repo: &str) -> Value {
         "isDraft",
         "labels",
         "jiraKeys",
+        "issueKeys",
         "ci",
         "category",
         "awaitingMyReview",
@@ -507,6 +529,21 @@ pub async fn review_requested_at(repo: &str, me: &str) -> Result<HashMap<i64, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_issues_a_pr_closes_reach_the_snapshot_as_keys() {
+        let node = json!({
+            "number": 4,
+            "closingIssuesReferences": {"nodes": [
+                {"number": 12, "repository": {"nameWithOwner": "Owner/Repo"}},
+                {"number": 0, "repository": {"nameWithOwner": "owner/repo"}},
+                null,
+            ]},
+        });
+        let out = lean(&flatten(node), "owner/repo");
+        assert_eq!(out["issueKeys"], json!(["owner/repo#12"]));
+        assert!(out.get("closingIssuesReferences").is_none());
+    }
 
     #[test]
     fn my_latest_review_and_its_commit_reach_the_snapshot() {

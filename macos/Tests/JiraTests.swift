@@ -12,25 +12,25 @@ actor JiraFixture: JiraService {
     func fail(_ value: Bool) { fails = value }
     func reject(_ value: Bool) { rejectMove = value }
     func confirm(_ value: String) { status = value }
-    func snapshot(projectID: String) async throws -> JiraSnapshot {
+    func snapshot(projectID: String) async throws -> TicketSnapshot {
         reads += 1
         try await Task.sleep(for: .milliseconds(20))
         if fails { throw BackendError.operation("Jira snapshot offline") }
-        return JiraSnapshot(items: [
-            JiraTicket(key: "REC-1", summary: "Login crash", status: status, type: "Bug", priority: "High", assignee: "Alice"),
-            JiraTicket(key: "REC-2", summary: "Completed task", status: "Done", type: "Task", priority: "Low"),
-            JiraTicket(key: "OTHER-3", summary: "Other project", status: "Blocked", type: "Task", priority: "High")
+        return TicketSnapshot(items: [
+            Ticket(key: "REC-1", summary: "Login crash", status: status, type: "Bug", priority: "High", assignee: "Alice"),
+            Ticket(key: "REC-2", summary: "Completed task", status: "Done", type: "Task", priority: "Low"),
+            Ticket(key: "OTHER-3", summary: "Other project", status: "Blocked", type: "Task", priority: "High")
         ], jql: "project = REC")
     }
     func site() async throws -> JiraSite {
         try await Task.sleep(for: .milliseconds(100))
         return JiraSite(baseUrl: "https://jira.example.test")
     }
-    func search(jql: String) async throws -> JiraSnapshot {
+    func search(jql: String) async throws -> TicketSnapshot {
         searches.append(jql)
         if jql.contains("slow") { try await Task.sleep(for: .milliseconds(100)) }
         if fails { throw BackendError.operation("Jira search offline") }
-        return JiraSnapshot(items: [JiraTicket(key: "REC-1", summary: jql, status: status)], jql: jql)
+        return TicketSnapshot(items: [Ticket(key: "REC-1", summary: jql, status: status)], jql: jql)
     }
     func transition(key: String, status: String) async throws {
         moves.append(status)
@@ -58,8 +58,8 @@ actor JiraFixture: JiraService {
 }
 
 @MainActor private func jiraModel(_ service: JiraFixture, now: @escaping () -> Date = Date.init,
-                                 open: @escaping (OpenPageRequest) async throws -> Void = { _ in }) -> JiraTicketsViewModel {
-    JiraTicketsViewModel(project: Project(id: "p", name: "Native", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "REC"),
+                                 open: @escaping (OpenPageRequest) async throws -> Void = { _ in }) -> TicketsViewModel {
+    TicketsViewModel(project: Project(id: "p", name: "Native", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "REC"),
                          service: service, pageActions: JiraFixturePageActions(open: open), now: now)
 }
 
@@ -86,11 +86,11 @@ actor JiraFixture: JiraService {
     let expected = ["project": "REC", "status": "Done"]
     let deadline = Date().addingTimeInterval(3)
     var saved = await service.saved
-    while saved.last.map(JiraTicketsViewModel.parseFilters) != expected && Date() < deadline {
+    while saved.last.map(TicketsViewModel.parseFilters) != expected && Date() < deadline {
         try await Task.sleep(for: .milliseconds(10))
         saved = await service.saved
     }
-    #expect(JiraTicketsViewModel.parseFilters(try #require(saved.last)) == expected)
+    #expect(TicketsViewModel.parseFilters(try #require(saved.last)) == expected)
     await service.fail(true)
     model.refresh()
     try await waitForJira { !model.loading }
@@ -110,10 +110,10 @@ actor JiraFixture: JiraService {
     try await Task.sleep(for: .milliseconds(10))
     model.query = "rec-42"
     await model.search(); await old.value
-    #expect(model.source?.jql == "key = REC-42" && model.searchedQuery == "rec-42")
+    #expect(model.shown?.jql == "key = REC-42" && model.searchedQuery == "rec-42")
     model.refresh()
     try await waitForJira { !model.loading }
-    #expect(await service.searches.count == 2 && model.source?.jql == "key = REC-42")
+    #expect(await service.searches.count == 2 && model.shown?.jql == "key = REC-42")
     await service.fail(true)
     model.query = "another"
     await model.search()
@@ -146,13 +146,13 @@ actor JiraFixture: JiraService {
     // Compare the cached presentation to a direct scan across combinations, including
     // selected options with no matches and tickets missing facet values.
     func check() {
-        func matches(_ ticket: JiraTicket, except: JiraFacet? = nil) -> Bool {
-            JiraFacet.allCases.allSatisfy {
+        func matches(_ ticket: Ticket, except: TicketFacet? = nil) -> Bool {
+            TicketFacet.allCases.allSatisfy {
                 $0 == except || (model.filters[$0.rawValue] ?? "").isEmpty || $0.value(ticket) == model.filters[$0.rawValue]
             } && (model.filterText.isEmpty || "\(ticket.key) \(ticket.summary ?? "") \(ticket.assignee ?? "")".localizedStandardContains(model.filterText))
         }
         #expect(model.rows == model.items.filter { matches($0) })
-        for facet in JiraFacet.allCases {
+        for facet in TicketFacet.allCases {
             let matching = model.items.filter { matches($0, except: facet) }
             var options = Set(matching.map { facet.value($0) }.filter { !$0.isEmpty })
             if let selected = model.filters[facet.rawValue], !selected.isEmpty { options.insert(selected) }
@@ -212,7 +212,7 @@ actor JiraFixture: JiraService {
     model.onAction = { [weak model] in if case .open(let request) = $0 { model?.navigation.open(request) } }
     model.open(ticket); await model.navigation.waitForOpen()
     #expect(opened?.url == "https://jira.example.test/browse/REC-1")
-    #expect(model.ticketURL(JiraTicket(key: "../secret")) == nil)
+    #expect(model.ticketURL(Ticket(key: "../secret")) == nil)
     await model.stop()
 }
 

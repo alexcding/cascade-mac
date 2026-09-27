@@ -3,7 +3,7 @@ import Foundation
 /// Which session a PR or ticket page belongs to.
 ///
 /// A PR, a ticket and a session are all described by up to three identities: the page URL, the git
-/// branch, and the Jira key. A session's own identities come from its record; it also inherits the
+/// branch, and the ticket key — a Jira key, or `owner/repo#12` for a GitHub issue. A session's own identities come from its record; it also inherits the
 /// identities of the open PRs it is tied to — a PR on its branch lends its URL and keys, the PR it
 /// was started from lends its branch and keys. A ticket page inherits the branch and URL of every
 /// open PR that references it. The page and each session then share some identities, weighted by
@@ -31,7 +31,7 @@ enum SessionResolver {
         projects.flatMap { project in
             project.prs.compactMap { pr -> PullRequest? in
                 guard pr.state == nil || pr.state == "OPEN", let url = pr.url, !url.isEmpty else { return nil }
-                return .init(projectID: project.id, url: url, branch: pr.headRefName ?? "", jiraKeys: pr.jiraKeys ?? [])
+                return .init(projectID: project.id, url: url, branch: pr.headRefName ?? "", jiraKeys: pr.ticketKeys)
             }
         }
     }
@@ -60,10 +60,11 @@ enum SessionResolver {
 
     private static func identities(page: SessionPage, request: OpenPageRequest, pullRequests: [PullRequest]) -> Set<Identity> {
         var set = Set<Identity>([Identity.url(page.url)].compactMap { $0 })
-        if page.kind == "jira" {
+        if page.kind == "jira" || page.kind == "issue" {
             set.formUnion([Identity.key(page.key)].compactMap { $0 })
             // A ticket with a PR is that PR's page too.
-            for pr in pullRequests where pr.jiraKeys.contains(where: { $0.uppercased() == page.key }) {
+            // An issue page's key is lowercase (`owner/repo#12`); a Jira key is already uppercase.
+            for pr in pullRequests where pr.jiraKeys.contains(where: { $0.uppercased() == page.key.uppercased() }) {
                 set.formUnion([Identity.url(pr.url), Identity.branch(pr.branch)].compactMap { $0 })
             }
         } else {

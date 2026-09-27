@@ -479,6 +479,129 @@ pub async fn project_board(
     Ok(Json(app.db.jira_snapshot(&key)?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
 }
 
+/// The project's GitHub issues snapshot, served like `project_jira`: stale after 90 seconds, which
+/// starts a sync in the background, or synced first with `?refresh`. `jql` holds the gh search.
+pub async fn project_issues(
+    State(app): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<PathQuery>,
+) -> ApiResult<Value> {
+    let project = app
+        .db
+        .project(&id)?
+        .ok_or_else(|| ApiError::not_found("Not found"))?;
+    let key = format!("issues:{id}");
+    let effective = crate::issues::project_query(&project);
+    let stale = app.db.jira_snapshot(&key)?.as_ref().is_none_or(|snapshot| {
+        snapshot["lastSynced"]
+            .as_str()
+            .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
+            .is_none_or(|time| {
+                (chrono::Utc::now() - time.with_timezone(&chrono::Utc)).num_seconds() > 90
+            })
+    });
+    if !effective.is_empty() && (stale || query.refresh.is_some()) {
+        if query.refresh.is_some() {
+            app.poller.sync_project_issues(&app, &project).await
+        } else {
+            let copy = app.clone();
+            tokio::spawn(async move {
+                let poller = copy.poller.clone();
+                poller.sync_project_issues(&copy, &project).await;
+            });
+        }
+    }
+    let mut result = app
+        .db
+        .jira_snapshot(&key)?
+        .unwrap_or_else(|| json!({"items":[],"jql":effective,"lastSynced":null,"error":null}));
+    if result["jql"].as_str().unwrap_or("").is_empty() {
+        result["jql"] = json!(effective)
+    }
+    Ok(Json(result))
+}
+
+/// A live issue search (never snapshotted) over `repos`, or with `allProjects` over every project
+/// repo that lists its issues: `#123` or `123` looks one issue up in each repo, anything else is a
+/// GitHub search. With `allProjects` and no such repo, the result is empty rather than an error.
+pub async fn issues_search(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
+    let query = body.get("query").and_then(Value::as_str).unwrap_or("").trim();
+    if query.is_empty() {
+        return Err(ApiError::bad_request("query is required"));
+    }
+    let all_projects = body.get("allProjects").and_then(Value::as_bool).unwrap_or(false);
+    let mut repos: Vec<String> = if all_projects {
+        app.db
+            .projects()?
+            .iter()
+            .filter(|project| !crate::issues::project_query(project).is_empty())
+            .filter_map(|project| project["repo"].as_str().map(str::to_ascii_lowercase))
+            .collect()
+    } else {
+        body.get("repos")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter_map(crate::github::parse_repo)
+            .collect()
+    };
+    repos.sort();
+    repos.dedup();
+    if repos.is_empty() {
+        if all_projects {
+            return Ok(Json(json!({"items":[],"jql":query,"lastSynced":null,"error":null})));
+        }
+        return Err(ApiError::bad_request("repos is required"));
+    }
+    let limit = body
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(50)
+        .clamp(1, 200) as usize;
+    let items = crate::issues::search_repos(&repos, query, limit)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(
+        json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null}),
+    ))
+}
+
+pub async fn issue_lookup(Query(query): Query<PathQuery>) -> ApiResult<Value> {
+    Ok(Json(match query.url {
+        Some(url) => crate::issues::lookup(&url).await.unwrap_or(Value::Null),
+        None => Value::Null,
+    }))
+}
+
+/// Reopens or closes an issue: `status` is one of the ticket statuses `issues.rs` reports.
+pub async fn issue_status(
+    State(app): State<AppState>,
+    Path(number): Path<u64>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
+    let repo = body
+        .get("repo")
+        .and_then(Value::as_str)
+        .and_then(crate::github::parse_repo)
+        .ok_or_else(|| ApiError::bad_request("repo is required"))?;
+    let status = body.get("status").and_then(Value::as_str).unwrap_or("");
+    if number == 0 || ![crate::issues::OPEN, crate::issues::CLOSED, crate::issues::NOT_PLANNED].contains(&status) {
+        return Err(ApiError::bad_request("an issue number and a known status are required"));
+    }
+    crate::issues::set_status(&repo, number, status)
+        .await
+        .map_err(ApiError::internal)?;
+    let payload = json!({"key":crate::issues::key(&repo, number),"transition":status,"url":format!("https://github.com/{repo}/issues/{number}"),"trigger":"manual"});
+    if let Ok(event) = app.db.add_event("issue_status_changed", &payload) {
+        app.broadcast(json!({"type":"activity","event":event}))
+    }
+    Ok(Json(json!({"ok":true})))
+}
+
 pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
     let jql = body.get("jql").and_then(Value::as_str).unwrap_or("").trim();
     if jql.is_empty() {
@@ -733,7 +856,7 @@ fn validate_open_tab(tab: &Map<String, Value>) -> Result<(), ApiError> {
     });
     if !valid_fields
         || !valid_url
-        || !kind.is_some_and(|kind| ["github", "jira", "web"].contains(&kind))
+        || !kind.is_some_and(|kind| ["github", "issue", "jira", "web"].contains(&kind))
     {
         return Err(ApiError::bad_request(
             "A web URL, tab kind, and string metadata are required",
@@ -750,6 +873,7 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
     for key in [
         "name",
         "jql",
+        "issueQuery",
         "workspace",
         "ide",
         "ideCmd",
@@ -794,6 +918,12 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
             .as_bool()
             .ok_or_else(|| ApiError::bad_request("forwardWebhooks must be true or false"))?;
         patch.insert("forwardWebhooks".into(), Value::Bool(forward));
+    }
+    if let Some(value) = body.get("issuesEnabled") {
+        let enabled = value
+            .as_bool()
+            .ok_or_else(|| ApiError::bad_request("issuesEnabled must be true or false"))?;
+        patch.insert("issuesEnabled".into(), Value::Bool(enabled));
     }
     if let Some(value) = body.get("repo") {
         let raw = value.as_str().unwrap_or_default().trim();

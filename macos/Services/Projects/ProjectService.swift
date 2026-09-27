@@ -12,11 +12,14 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var worktreeSetup = ""
     var worktreeInclude = ""
     var forwardWebhooks = true
+    var issuesEnabled = true
+    var issueQuery = ""
 
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
         jiraProjectKey = project.jiraProjectKey ?? ""; jql = project.jql ?? ""
+        issuesEnabled = project.issuesEnabled ?? true; issueQuery = project.issueQuery ?? ""
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
@@ -87,11 +90,11 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The sections a project can show. Tickets need Jira. Settings always applies. Automation is its own screen now.
+    /// The sections a project can show. Tickets need Jira or GitHub issues. Settings always applies. Automation is its own screen now.
     static func available(for project: Project) -> [ProjectSection] {
         allCases.filter { section in
             switch section {
-            case .tickets: project.hasJira
+            case .tickets: project.hasTickets
             case .settings: true
             }
         }
@@ -102,6 +105,12 @@ extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
     /// A Jira project key or a saved JQL query.
     var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
+    /// A GitHub repo whose issues are not turned off for this project.
+    var hasIssues: Bool { hasGitHub && issuesEnabled != false }
+    /// Any ticket source: the Tickets section lists each one the project has.
+    var hasTickets: Bool { hasJira || hasIssues }
+    /// The ticket sources this project lists, Jira first.
+    var ticketSources: [TicketSource] { (hasJira ? [.jira] : []) + (hasIssues ? [.github] : []) }
 }
 
 struct IDEChoice: Identifiable {

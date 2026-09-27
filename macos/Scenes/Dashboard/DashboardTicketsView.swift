@@ -42,7 +42,7 @@ struct DashboardTicketsView: View {
                 }
                 .padding(.bottom, 24)
                 if rows.isEmpty {
-                    Text(!model.tickets.available ? String(localized: "Jira isn’t connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
+                    Text(!model.tickets.available ? String(localized: "Not connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
                 } else {
                     DashboardTicketTable(rows: rows, opening: model.navigation.opening,
@@ -283,7 +283,7 @@ struct DashboardTicketTable: View {
     }
 }
 
-/// A ticket's Jira labels. Jira labels carry no colour of their own, so unlike the pull request
+/// A ticket's labels. Jira labels carry no colour of their own, so unlike the pull request
 /// Tags column there is no dot to draw; past two the rest go to the tooltip.
 private struct JiraLabelList: View {
     let labels: [String]

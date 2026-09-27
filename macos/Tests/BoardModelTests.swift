@@ -32,8 +32,8 @@ private struct BoardPageActions: PageActionServing {
     func openBrowser(_ url: URL) -> Bool { true }
 }
 
-private func ticket(_ key: String, _ status: String, _ statusId: String, category: String? = nil, email: String? = nil) -> JiraTicket {
-    JiraTicket(key: key, summary: key, status: status, statusId: statusId, statusCategory: category, assigneeEmail: email)
+private func ticket(_ key: String, _ status: String, _ statusId: String, category: String? = nil, email: String? = nil) -> Ticket {
+    Ticket(key: key, summary: key, status: status, statusId: statusId, statusCategory: category, assigneeEmail: email)
 }
 
 /// "To Do" holds two statuses, "Done" one; REC-9 sits in a status no column claims.

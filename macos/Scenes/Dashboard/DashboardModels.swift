@@ -20,6 +20,10 @@ struct DashboardPR: Decodable, Equatable, Sendable {
     let jiraKeys: [String]?
     let ci: TrayPR.CI?
     let error: String?
+    /// The GitHub issues the PR closes when it merges, as `owner/repo#12`.
+    var issueKeys: [String]? = nil
+    /// Every ticket the PR stands for: its Jira keys and the issues it closes.
+    var ticketKeys: [String] { (jiraKeys ?? []) + (issueKeys ?? []) }
 }
 
 struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
@@ -31,9 +35,22 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     let syncError: String?
     var jiraProjectKey: String? = nil
     var jql: String? = nil
+    var issuesEnabled: Bool? = nil
 
     /// A Jira project key or a saved JQL query, which is what a sprint board needs.
     var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
+    /// A repo whose GitHub issues this project lists.
+    var hasIssues: Bool { !repo.isEmpty && issuesEnabled != false }
+    /// Whether My Tickets can narrow to this project: its Jira keys or its repo claim tickets.
+    var claimsTickets: Bool { !jiraKeys.isEmpty || hasIssues }
+
+    /// Whether `ticket` is this project's: a Jira key under one of its keys, or an issue in its repo.
+    func owns(_ ticket: Ticket) -> Bool {
+        switch ticket.source {
+        case .jira: owns(ticket: ticket.key)
+        case .github: hasIssues && (ticket.repo ?? "").lowercased() == repo.lowercased()
+        }
+    }
     /// The Jira project keys this project's tickets carry: the key field, which may list several
     /// comma-separated as page matching reads it, or else the projects its saved JQL names.
     var jiraKeys: [String] {
@@ -188,9 +205,9 @@ struct OpenPageRequest: Encodable, Equatable, Sendable {
     }
 }
 
-/// A Jira ticket assigned to the user, as the home screen's Tickets section and My Tickets show it.
+/// A Jira ticket or GitHub issue assigned to the user, as the home screen's Tickets section and My Tickets show it.
 struct DashboardTicketRow: Identifiable, Equatable, Sendable {
-    let ticket: JiraTicket
+    let ticket: Ticket
     let url: URL
     /// My Tickets' Session column sort key. A row cannot know its own session — the lookup lives on
     /// the view model — and `Table` orders only by key path, so the table fills this in before sorting.
@@ -198,7 +215,9 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     /// The number of the pull request that references this ticket, `#123`, or empty for none.
     /// Also filled by the table: the link is drawn from the dashboard's rows, not from Jira.
     var pullRequest = ""
-    var id: String { ticket.key }
+    var id: String { ticket.id }
+    /// The key pull requests link this ticket by: the Jira key, or `owner/repo#12`.
+    var linkKey: String { ticket.sessionKey.uppercased() }
     var title: String { ticket.summary ?? ticket.key }
     var status: String { ticket.status ?? "" }
     var type: String { ticket.type ?? "" }
@@ -212,7 +231,7 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     /// What the dashboard's search reads: the key, words and people a ticket is known by.
     let searchText: String
 
-    init(ticket: JiraTicket, url: URL) {
+    init(ticket: Ticket, url: URL) {
         self.ticket = ticket
         self.url = url
         stage = TicketStage(status: ticket.status ?? "", category: ticket.statusCategory)
@@ -234,14 +253,15 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
         if stage == .toDo && urgent { return 3 }
         return nil
     }
-    /// The key's project prefix — the Project column, which earns its place only once the
-    /// dashboard tracks more than one Jira project, so it opens hidden.
+    /// The key's project prefix, or an issue's repository — the Project column, which earns its
+    /// place only once the dashboard tracks more than one project, so it opens hidden.
     var project: String { ticket.projectKey }
     var labels: [String] { ticket.labels ?? [] }
     var reporter: String { ticket.reporter ?? "" }
-    /// The project is resolved from the key when the page opens, so none is fixed here.
+    /// The project is resolved from the key or repo when the page opens, so none is fixed here.
     var openPageRequest: OpenPageRequest {
-        OpenPageRequest(url: url.absoluteString, kind: "jira", title: "\(ticket.key) \(ticket.summary ?? "")", jiraKeys: [ticket.key])
+        OpenPageRequest(url: url.absoluteString, kind: ticket.source.pageKind, title: "\(ticket.key) \(ticket.summary ?? "")",
+                        repo: ticket.repo ?? "", jiraKeys: [ticket.sessionKey])
     }
 }
 
@@ -311,10 +331,17 @@ extension DashboardService {
     func syncPRs() async throws {}
 }
 
-/// The dashboard's Jira section: the tickets assigned to the user across every project.
-/// Separate from `DashboardService` so fixtures without Jira keep conforming.
+/// The dashboard's Tickets section: the Jira tickets and GitHub issues assigned to the user across
+/// every project. Separate from `DashboardService` so fixtures without tickets keep conforming.
 protocol DashboardTicketService: Sendable {
     func myTickets() async throws -> [DashboardTicketRow]
+    /// The tickets, and what one source could not load while another did. Throws only when
+    /// every source failed.
+    func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?)
+}
+
+extension DashboardTicketService {
+    func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) { (try await myTickets(), nil) }
 }
 
 /// A dashboard service that can also serve sprint boards.
@@ -329,12 +356,42 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
     func syncPRs() async throws {
         let _: OperationOK = try await api.request(APIClient.query(Routes.POLL, ["scope": "prs"]), method: "POST", body: [String: String]())
     }
-    func myTickets() async throws -> [DashboardTicketRow] {
+    static let myIssuesQuery = "assignee:@me is:open sort:updated-desc"
+    func myTickets() async throws -> [DashboardTicketRow] { try await myTicketsReport().rows }
+    /// Both sources at once, Jira first. One failing leaves the other's rows, with its error as the warning.
+    func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) {
+        async let jira = Self.attempt { try await myJiraTickets() }
+        async let issues = Self.attempt { try await myIssues() }
+        let results = [(TicketSource.jira, await jira), (TicketSource.github, await issues)]
+        var rows: [DashboardTicketRow] = [], failures: [(TicketSource, any Error)] = []
+        for (source, result) in results {
+            switch result {
+            case .success(let found): rows += found
+            case .failure(let error): failures.append((source, error))
+            }
+        }
+        // Only when every source failed: one that answered with no tickets still answered.
+        if let first = failures.first, failures.count == results.count { throw first.1 }
+        let warning = failures.map { "\($0.0.label): \($0.1.localizedDescription)" }.joined(separator: "\n")
+        return (rows, warning.isEmpty ? nil : warning)
+    }
+    private static func attempt(_ body: @Sendable () async throws -> [DashboardTicketRow]) async -> Result<[DashboardTicketRow], any Error> {
+        do { return .success(try await body()) } catch { return .failure(error) }
+    }
+    private func myJiraTickets() async throws -> [DashboardTicketRow] {
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
         guard let base = URL(string: site.baseUrl) else { return [] }
-        let result: JiraSnapshot = try await api.request(Routes.JIRA_SEARCH, method: "POST", body: ["jql": Self.myTicketsJQL])
+        let result: TicketSnapshot = try await api.request(Routes.JIRA_SEARCH, method: "POST", body: ["jql": Self.myTicketsJQL])
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
+    }
+    /// Open issues assigned to the user in every project repo that lists its issues.
+    private func myIssues() async throws -> [DashboardTicketRow] {
+        let result = try await APIIssueService(api: api).searchAllProjects(Self.myIssuesQuery)
+        if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
+        return result.items.compactMap { ticket in
+            ticket.url.flatMap(safeWebURL).map { DashboardTicketRow(ticket: ticket, url: $0) }
+        }
     }
     var boardService: any BoardService { APIBoardService(api: api) }
 }

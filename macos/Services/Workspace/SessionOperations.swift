@@ -156,7 +156,7 @@ struct SessionOperations: SessionServing {
         let path: String; let branch: String; let matched: Bool; let isWorktree: Bool
     }
     func resolvePage(_ raw: String, project: Project, draft: SessionDraft) async throws -> SessionDraft {
-        guard let page = SessionPage.parse(raw) else { throw BackendError.operation(String(localized: "Enter a GitHub pull request or Jira issue URL, or type a branch name.")) }
+        guard let page = SessionPage.parse(raw) else { throw BackendError.operation(String(localized: "Enter a GitHub pull request or issue URL or a Jira issue URL, or type a branch name.")) }
         var result = draft
         result.url = page.url; result.kind = page.kind; result.jiraKey = page.key
         result.reuseWorktree = nil
@@ -171,6 +171,16 @@ struct SessionOperations: SessionServing {
                 throw BackendError.operation(String(localized: "This pull request belongs to \(pr.repo). Choose its project before creating the session."))
             }
             result.branch = pr.headRefName; result.title = pr.title; result.createBranch = false
+        } else if page.kind == "issue", let number = page.issueNumber, let repo = page.issueRepo {
+            guard project.repo.isEmpty || project.repo.lowercased() == repo else {
+                throw BackendError.operation(String(localized: "This issue belongs to \(repo). Choose its project before creating the session."))
+            }
+            struct Issue: Decodable, Sendable { let summary: String? }
+            let issue: Issue? = try? await api.get(APIClient.query(Routes.ISSUE_LOOKUP, ["url": page.url]), timeout: 30)
+            let title = issue?.summary ?? ""
+            result.title = title.isEmpty ? "#\(number)" : "#\(number) \(title)"
+            result.branch = SessionPage.issueBranch(number: number, title: title)
+            result.createBranch = true
         } else {
             struct Issue: Decodable, Sendable { let summary: String? }
             struct Search: Decodable, Sendable { let items: [Issue] }

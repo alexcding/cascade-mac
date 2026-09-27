@@ -81,7 +81,7 @@ import Observation
         tickets.linkedPRs = prs.linkedPRs
         tickets.projects = prs.projects
         // Projects come with the PR snapshot; a renamed or removed one updates both scopes.
-        tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && !$0.jiraKeys.isEmpty } }
+        tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && $0.claimsTickets } }
         board.update(projects: prs.projects)
         updateSearch()
         snapshotChanged()
@@ -219,15 +219,15 @@ extension DashboardViewModel {
         board.select(projectID)
     }
 
-    /// Projects My Tickets can narrow to: the list matches tickets by Jira key, the board by project.
+    /// Projects My Tickets can narrow to: the list matches tickets by Jira key or issue repo, the board by project.
     var ticketProjects: [DashboardProject] {
-        ticketsMode == .board ? board.projects : prs.projects.filter { !$0.jiraKeys.isEmpty }
+        ticketsMode == .board ? board.projects : prs.projects.filter(\.claimsTickets)
     }
 
     /// One project for either view, or nil for the list's every project.
     func selectTicketProject(_ id: String?) {
         guard !retired else { return }
-        tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && !$0.jiraKeys.isEmpty } }
+        tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && $0.claimsTickets } }
         if let id { board.select(id) }
     }
 

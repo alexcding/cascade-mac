@@ -420,7 +420,7 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire()
-        Task { await model.tickets?.stop() }
+        Task { await model.stop() }
     }
 
     private func savedProject(_ project: Project) {
@@ -456,11 +456,11 @@ public final class AppViewModel {
         }
     }
 
-    /// The local project a GitHub PR or Jira ticket page belongs to, or nil for any other page.
+    /// The local project a GitHub PR or issue, or a Jira ticket page, belongs to, or nil for any other page.
     static func pageProject(_ url: String, in projects: [Project]) -> Project? {
         guard let page = SessionPage.parse(url) else { return nil }
         let local = projects.filter { !$0.workspace.isEmpty }
-        if page.kind == "github" {
+        if page.kind == "github" || page.kind == "issue" {
             let path = URL(string: page.url)?.path.split(separator: "/").prefix(2).joined(separator: "/").lowercased()
             return local.first { !$0.repo.isEmpty && $0.repo.lowercased() == path }
         }
@@ -1461,6 +1461,7 @@ public final class AppViewModel {
             if let api { for model in projectModels.values {
                 model.connect(backendFactory.projects(api: api))
                 model.tickets?.connect(backendFactory.tickets(api: api))
+                model.issues?.connect(backendFactory.issues(api: api))
             } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
@@ -1493,7 +1494,7 @@ public final class AppViewModel {
         dashboard?.reload()
         if coordinator.activityVisible { logs?.refresh() }
         if case .project(let id) = selection, let model = projectModels[id], model.section == .tickets {
-            model.tickets?.refresh()
+            model.shownTickets?.refresh()
         }
         refreshInventory([.projects, .sessions, .tabs])
     }
@@ -1588,7 +1589,9 @@ public final class AppViewModel {
         guard case .project(let id) = selection, let model = projectModels[id] else { return }
         switch model.section {
         case .tickets:
+            // One event type announces both sources; an issues snapshot is `issues:<projectId>`.
             if jira.contains(where: { $0.id == nil || $0.id == id }) { model.tickets?.refresh() }
+            if jira.contains(where: { $0.id == nil || $0.id == "issues:\(id)" }) { model.issues?.refresh() }
         default: break
         }
     }
@@ -1724,7 +1727,7 @@ public final class AppViewModel {
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            model.connect(nil); await model.tickets?.stop()
+            model.connect(nil); await model.stop()
         }
         await viewer.stop()
         ideWarmup.connect(nil)

@@ -25,6 +25,17 @@ struct ProjectEditorView: View {
                     TextField("Project key", text: $model.draft.jiraProjectKey)
                     TextField("Saved JQL", text: $model.draft.jql, axis: .vertical).lineLimit(2...4)
                 }
+                Section("GitHub Issues") {
+                    Toggle("List the repository's issues as tickets", isOn: $model.draft.issuesEnabled)
+                        .disabled(model.draft.repo.isEmpty)
+                        .accessibilityIdentifier("project-issues-enabled")
+                    TextField("Issue search", text: $model.draft.issueQuery, prompt: Text("is:open sort:updated-desc  (the default)"), axis: .vertical)
+                        .lineLimit(1...3).font(.system(.body, design: .monospaced))
+                        .disabled(model.draft.repo.isEmpty || !model.draft.issuesEnabled)
+                        .accessibilityIdentifier("project-issue-query")
+                    Text("GitHub search syntax, such as is:open label:bug or assignee:@me. Leave blank to list open issues.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Section("Editor") {
                     Picker("IDE", selection: $model.draft.ide) {
                         ForEach(model.ideChoices) { Text($0.title).tag($0.id) }
@@ -159,7 +170,13 @@ struct ProjectPageView: View {
             }.pickerStyle(.segmented).labelsHidden()
             switch model.section {
             case .tickets:
-                if let tickets = model.tickets { JiraTicketsView(model: tickets) }
+                if model.ticketSources.count > 1 {
+                    Picker("Ticket source", selection: Binding(get: { model.ticketSource }, set: model.selectTicketSource)) {
+                        ForEach(model.ticketSources) { Text($0.label).tag($0) }
+                    }.pickerStyle(.segmented).labelsHidden().fixedSize()
+                        .accessibilityIdentifier("project-ticket-source")
+                }
+                if let tickets = model.shownTickets { TicketsView(model: tickets).id(tickets.source) }
             case .settings: ProjectEditorView(model: model.editor)
             }
         }

@@ -269,7 +269,7 @@ private actor HeldDashboardSnapshot: DashboardService {
 
     // `acli` allows only a fixed field set on a search; labels and reporter are in it, and a
     // ticket without labels reports none rather than nil.
-    let tickets = try JSONDecoder().decode([JiraTicket].self, from: Data(#"""
+    let tickets = try JSONDecoder().decode([Ticket].self, from: Data(#"""
     [{"key":"REC-1","summary":"Ship it","status":"In Progress","type":"Task","priority":"Highest",
       "labels":["ios","created-via-claude"],"reporter":"Chen Ding"},
      {"key":"OPS-7","summary":"Rotate keys","status":"To Do","type":"Bug","priority":"Low"}]
@@ -289,7 +289,7 @@ private actor HeldDashboardSnapshot: DashboardService {
 
 @MainActor @Test func dashboardTicketStagesPrioritiesAndMyTicketsTags() async throws {
     func row(_ key: String, _ status: String, _ category: String?, _ priority: String) -> DashboardTicketRow {
-        let ticket = JiraTicket(key: key, summary: key, status: status, type: "Task", priority: priority, statusCategory: category)
+        let ticket = Ticket(key: key, summary: key, status: status, type: "Task", priority: priority, statusCategory: category)
         return DashboardTicketRow(ticket: ticket, url: URL(string: "https://j/browse/\(key)")!)
     }
     // Status names win over Jira's category: Ready for Development is "indeterminate" on the board
@@ -345,7 +345,7 @@ private actor TicketFixture: DashboardService, DashboardTicketService {
         if failSync { throw BackendError.operation("Sync failed") }
     }
     func myTickets() async throws -> [DashboardTicketRow] {
-        let tickets = try JSONDecoder().decode([JiraTicket].self, from: Data(#"""
+        let tickets = try JSONDecoder().decode([Ticket].self, from: Data(#"""
         [{"key":"REC-7","summary":"Later","status":"Open","statusCategory":"new","priority":"Medium"},
          {"key":"REC-6","summary":"Start next","status":"Open","statusCategory":"new","priority":"Urgent"},
          {"key":"REC-1","summary":"Has a PR","status":"In PR Review","statusCategory":"indeterminate","priority":"High"},

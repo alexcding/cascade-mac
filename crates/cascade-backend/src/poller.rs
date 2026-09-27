@@ -260,8 +260,14 @@ impl Poller {
     pub async fn sync_all_jira(&self, app: &AppState) {
         if let Ok(projects) = app.db.projects() {
             for project in projects {
-                self.sync_project_jira(app, &project).await;
-                self.sync_board(app, &project).await;
+                // Issues come from `gh`, Jira from `acli`: neither waits on the other.
+                tokio::join!(
+                    async {
+                        self.sync_project_jira(app, &project).await;
+                        self.sync_board(app, &project).await;
+                    },
+                    self.sync_project_issues(app, &project),
+                );
             }
         }
     }
@@ -276,6 +282,25 @@ impl Poller {
             jira_limit(app, "jira_limit", 100),
             None,
             self.generation(id),
+        )
+        .await;
+    }
+
+    /// The project's GitHub issues, kept under `issues:<projectId>` beside its Jira tickets and
+    /// announced with the same `jira-sync` event, so everything listening for tickets hears both.
+    pub async fn sync_project_issues(&self, app: &AppState, project: &Value) {
+        let id = project["id"].as_str().unwrap_or("");
+        let repo = project["repo"].as_str().unwrap_or("").to_owned();
+        let query = crate::issues::project_query(project);
+        let limit = crate::issues::issue_limit(app);
+        self.write_tickets(
+            app,
+            &format!("issues:{id}"),
+            &query,
+            None,
+            self.generation(id),
+            "issue_sync_failed",
+            |query| async move { crate::issues::search(&repo, &query, limit).await },
         )
         .await;
     }
@@ -363,7 +388,33 @@ impl Poller {
         meta: Option<Value>,
         generation: u64,
     ) {
-        let project_id = id.strip_prefix("board:").unwrap_or(id);
+        self.write_tickets(app, id, jql, meta, generation, "jira_sync_failed", |jql| async move {
+            search_jira(&jql, limit).await
+        })
+        .await;
+    }
+
+    /// Runs one ticket search and stores it as snapshot `id`. A failed search keeps the previous
+    /// items and records the error; `failure` names the activity event, logged once per new error.
+    /// The query is kept in the snapshot's `jql` column whichever source wrote it.
+    #[allow(clippy::too_many_arguments)]
+    async fn write_tickets<F, Fut>(
+        &self,
+        app: &AppState,
+        id: &str,
+        jql: &str,
+        meta: Option<Value>,
+        generation: u64,
+        failure: &str,
+        fetch: F,
+    ) where
+        F: FnOnce(String) -> Fut,
+        Fut: std::future::Future<Output = Result<Vec<Value>>>,
+    {
+        let project_id = id
+            .strip_prefix("board:")
+            .or_else(|| id.strip_prefix("issues:"))
+            .unwrap_or(id);
         if !self.current(app, project_id, generation) {
             return;
         }
@@ -375,7 +426,7 @@ impl Poller {
         let snapshot = if jql.is_empty() {
             json!({"items":[],"jql":"","lastSynced":now(),"error":null,"meta":meta})
         } else {
-            match search_jira(jql, limit).await {
+            match fetch(jql.to_owned()).await {
                 Ok(items) => {
                     json!({"items":items,"jql":jql,"lastSynced":now(),"error":null,"meta":meta})
                 }
@@ -389,7 +440,7 @@ impl Poller {
                     {
                         self.event(
                             app,
-                            "jira_sync_failed",
+                            failure,
                             json!({"id":id,"jql":jql,"error":message}),
                         );
                     }
@@ -551,7 +602,7 @@ pub async fn search_jira(jql: &str, limit: usize) -> Result<Vec<Value>> {
     let array = items
         .as_array()
         .ok_or_else(|| anyhow!("unexpected acli search response"))?;
-    Ok(array.iter().map(|item|{let fields=&item["fields"];json!({"key":item["key"],"summary":fields["summary"].as_str().unwrap_or(""),"status":fields.pointer("/status/name").and_then(Value::as_str).unwrap_or(""),"statusCategory":fields.pointer("/status/statusCategory/key").and_then(Value::as_str).unwrap_or(""),"statusId":fields.pointer("/status/id").and_then(Value::as_str).unwrap_or(""),"type":fields.pointer("/issuetype/name").and_then(Value::as_str).unwrap_or(""),"priority":fields.pointer("/priority/name").and_then(Value::as_str).unwrap_or(""),"assignee":fields.pointer("/assignee/displayName").or_else(||fields.pointer("/assignee/emailAddress")).and_then(Value::as_str).unwrap_or(""),"assigneeId":fields.pointer("/assignee/accountId").and_then(Value::as_str).unwrap_or(""),"assigneeEmail":fields.pointer("/assignee/emailAddress").and_then(Value::as_str).unwrap_or(""),"labels":fields["labels"].as_array().map(|v|v.iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_default(),"reporter":fields.pointer("/reporter/displayName").or_else(||fields.pointer("/reporter/emailAddress")).and_then(Value::as_str).unwrap_or("")})}).collect())
+    Ok(array.iter().map(|item|{let fields=&item["fields"];json!({"source":"jira","key":item["key"],"summary":fields["summary"].as_str().unwrap_or(""),"status":fields.pointer("/status/name").and_then(Value::as_str).unwrap_or(""),"statusCategory":fields.pointer("/status/statusCategory/key").and_then(Value::as_str).unwrap_or(""),"statusId":fields.pointer("/status/id").and_then(Value::as_str).unwrap_or(""),"type":fields.pointer("/issuetype/name").and_then(Value::as_str).unwrap_or(""),"priority":fields.pointer("/priority/name").and_then(Value::as_str).unwrap_or(""),"assignee":fields.pointer("/assignee/displayName").or_else(||fields.pointer("/assignee/emailAddress")).and_then(Value::as_str).unwrap_or(""),"assigneeId":fields.pointer("/assignee/accountId").and_then(Value::as_str).unwrap_or(""),"assigneeEmail":fields.pointer("/assignee/emailAddress").and_then(Value::as_str).unwrap_or(""),"labels":fields["labels"].as_array().map(|v|v.iter().filter_map(Value::as_str).collect::<Vec<_>>()).unwrap_or_default(),"reporter":fields.pointer("/reporter/displayName").or_else(||fields.pointer("/reporter/emailAddress")).and_then(Value::as_str).unwrap_or("")})}).collect())
 }
 async fn active_sprint(key: &str) -> Result<Value> {
     if key.is_empty() {

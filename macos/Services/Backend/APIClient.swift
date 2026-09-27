@@ -65,6 +65,10 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var worktreeInclude: String? = nil
     /// Whether pull request events on the repo are forwarded to automations, which puts a webhook on it.
     var forwardWebhooks: Bool? = nil
+    /// Whether the repo's GitHub issues are listed as tickets; nil (an older backend) reads as on.
+    var issuesEnabled: Bool? = nil
+    /// The GitHub search the issue list runs; empty lists open issues, newest activity first.
+    var issueQuery: String? = nil
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots

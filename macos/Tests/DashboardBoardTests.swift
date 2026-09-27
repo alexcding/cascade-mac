@@ -30,7 +30,7 @@ private func jiraProject(_ id: String, key: String? = nil, jql: String? = nil) -
 }
 
 private func ticketRow(_ key: String) -> DashboardTicketRow {
-    DashboardTicketRow(ticket: JiraTicket(key: key, summary: key, status: "To Do"), url: URL(string: "https://jira.example.test/browse/\(key)")!)
+    DashboardTicketRow(ticket: Ticket(key: key, summary: key, status: "To Do"), url: URL(string: "https://jira.example.test/browse/\(key)")!)
 }
 
 private func freshDefaults() -> UserDefaults { UserDefaults(suiteName: "dashboard-board-\(UUID().uuidString)")! }

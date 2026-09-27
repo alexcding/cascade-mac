@@ -74,7 +74,7 @@ import Observation
         task = Task {
             defer { if self.generation == generation { task = nil; loading = false } }
             do {
-                let loaded = try await service.myTickets()
+                let (loaded, warning) = try await service.myTicketsReport()
                 try Task.checkCancellation()
                 guard isCurrent(generation) else { return }
                 self.loaded = loaded
@@ -85,7 +85,8 @@ import Observation
                     guard isCurrent(generation), rows == Self.tracked(self.loaded, in: projects) else { return }
                     publish(rows, summary: summary)
                 }
-                error = nil
+                // One source failing while the other loaded still says so beside the rows.
+                error = warning
             } catch {
                 if !Task.isCancelled && self.generation == generation { self.error = error.localizedDescription }
             }
@@ -135,7 +136,7 @@ import Observation
     }
 
     private func updateScreenRows() {
-        let scoped = project.map { project in rows.filter { project.owns(ticket: $0.ticket.key) } } ?? rows
+        let scoped = project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
         let summary = Self.makeSummary(scoped)
         if pageCounts != summary.counts { pageCounts = summary.counts }
         if pageStages != summary.stages { pageStages = summary.stages }
@@ -183,24 +184,27 @@ extension DashboardTicketsModel {
     /// pull request's row already stands for that work. Nothing else is padded in.
     nonisolated static func rankAttention(_ rows: [DashboardTicketRow], linked: [String: String], limit: Int) -> [DashboardTicketRow] {
         let ranked = rows.enumerated().compactMap { offset, row -> (rank: Int, offset: Int, row: DashboardTicketRow)? in
-            guard let rank = row.attentionRank, !(rank == 2 && linked[row.ticket.key] != nil) else { return nil }
+            guard let rank = row.attentionRank, !(rank == 2 && linked[row.linkKey] != nil) else { return nil }
             return (rank, offset, row)
         }
         return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
     }
 
-    /// The tickets some tracked project's Jira keys claim. A Jira project whose keys cannot be told
-    /// (a saved JQL that names no project) could own any ticket, so then nothing is left out.
+    /// The tickets some tracked project claims: by Jira key, or an issue by its repo. A Jira
+    /// project whose keys cannot be told (a saved JQL that names no project) could own any Jira
+    /// ticket, so then no Jira ticket is left out.
     nonisolated static func tracked(_ rows: [DashboardTicketRow], in projects: [DashboardProject]) -> [DashboardTicketRow] {
-        guard !projects.contains(where: { $0.hasJira && $0.jiraKeys.isEmpty }) else { return rows }
-        return rows.filter { row in projects.contains { $0.owns(ticket: row.ticket.key) } }
+        let anyJira = projects.contains { $0.hasJira && $0.jiraKeys.isEmpty }
+        return rows.filter { row in
+            (anyJira && row.ticket.source == .jira) || projects.contains { $0.owns(row.ticket) }
+        }
     }
 
     /// The rows with their Pull Request column filled from the PR snapshot's links.
     nonisolated static func stamp(_ rows: [DashboardTicketRow], linked: [String: String]) -> [DashboardTicketRow] {
         rows.map { row in
             var row = row
-            row.pullRequest = linked[row.ticket.key] ?? ""
+            row.pullRequest = linked[row.linkKey] ?? ""
             return row
         }
     }

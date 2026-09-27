@@ -57,6 +57,8 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case "jira_transitioned":
             title = "\(p?.key ?? String(localized: "Ticket")) → \(p?.transition ?? "?")"
             body = p?.version.map { String(localized: "Fix Version \($0)") } ?? ""
+        case "issue_status_changed":
+            title = "\(p?.key ?? String(localized: "Issue")) → \(p?.transition ?? "?")"; body = ""; url = p?.url
         case "jira_version_created": title = String(localized: "Fix Version \(p?.version ?? "?") created"); body = p?.project ?? ""
         case "jira_fixversion_set": title = String(localized: "Fix Version \(p?.version ?? "?") set"); body = p?.key ?? ""
         case "jira_transition_failed": title = String(localized: "Failed to transition \(p?.key ?? String(localized: "Ticket"))"); body = p?.error ?? ""

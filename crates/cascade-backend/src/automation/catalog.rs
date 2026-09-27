@@ -156,6 +156,18 @@ static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         node("action", "github.update_branch", "GitHub", "Update branch", "Bring the PR branch up to date with its base.", "pr", vec![param("rebase", "Rebase instead of merge", "bool")]),
         node("action", "github.rerun_failed", "GitHub", "Re-run failed checks", "Re-run failed GitHub Actions jobs on the head commit.", "pr", vec![]),
         node("action", "github.mark_ready", "GitHub", "Mark ready for review", "Take the PR out of draft.", "pr", vec![]),
+        node(
+            "action",
+            "github.close_issues",
+            "GitHub",
+            "Close linked issues",
+            "Close each issue the PR closes (Closes #12). GitHub does this itself only when merging into the default branch.",
+            "pr",
+            vec![
+                with(param("reason", "Reason", "enum"), json!({"options":options(&[("completed","Completed"),("not planned","Not planned")]),"default":"completed"})),
+                body("Comment (optional)"),
+            ],
+        ),
         node("action", "jira.transition", "Jira", "Transition ticket", "Move each ticket to a status.", "any", vec![with(param("status", "Status", "text"), json!({"placeholder":"Done"}))]),
         node(
             "action",

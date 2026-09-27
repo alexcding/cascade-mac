@@ -32,7 +32,7 @@ import Testing
     tickets.openSession(ticket); await tickets.navigation.waitForOpen()
     #expect(actions.opened.count == 2 && actions.opened.last?.inSession == true && actions.opened.last?.projectID == "ticket-actions")
     #expect(actions.opened.last?.url == "https://jira.example.test/browse/REC-1")
-    tickets.openSession(JiraTicket(key: "FOREIGN-99")); await tickets.navigation.waitForOpen()
+    tickets.openSession(Ticket(key: "FOREIGN-99")); await tickets.navigation.waitForOpen()
     #expect(actions.opened.count == 2)
     root.presentNewProject(service: ProjectPageService(), didSave: { _ in })
     tickets.open(ticket); tickets.openSession(ticket); await tickets.navigation.waitForOpen()
@@ -93,7 +93,7 @@ func projectTicketNavigationCancelsWithoutClearingDrafts(change: String) async t
 @MainActor @Test(.timeLimit(.minutes(1))) func jiraTicketOpenEmitsTheResolvedRequestAndSkipsRowsNoLongerShown() async throws {
     let actions = ProjectPageActions(), (model, _) = try await ticketProject(actions)
     let tickets = try #require(model.tickets), ticket = try #require(tickets.rows.first { $0.key == "REC-1" })
-    var emitted: [JiraTicketsViewModel.Action] = []
+    var emitted: [TicketsViewModel.Action] = []
     tickets.onAction = { emitted.append($0) }
     tickets.open(ticket, inTab: true)
     tickets.openSession(ticket, agent: .claude)
@@ -103,7 +103,7 @@ func projectTicketNavigationCancelsWithoutClearingDrafts(change: String) async t
     #expect(emitted == [.open(tab), .open(session)])
     // A key these rows no longer hold resolves to nothing, so nothing reaches the coordinator.
     emitted = []
-    tickets.open(JiraTicket(key: "FOREIGN-99")); tickets.openSession(JiraTicket(key: "FOREIGN-99"))
+    tickets.open(Ticket(key: "FOREIGN-99")); tickets.openSession(Ticket(key: "FOREIGN-99"))
     #expect(emitted.isEmpty)
     await tickets.stop()
 }
@@ -126,7 +126,7 @@ private struct BoardTicketActionService: BoardService {
     while board.loading { await Task.yield() }
     var emitted: [WebBoardViewModel.Action] = []
     board.onAction = { emitted.append($0) }
-    let ticket = JiraTicket(key: "REC-1", summary: "Login crash")
+    let ticket = Ticket(key: "REC-1", summary: "Login crash")
     board.open(ticket, inTab: true)
     board.openSession(ticket, agent: .claude)
     var tab = OpenPageRequest(url: "https://jira.example.test/browse/REC-1", kind: "jira", title: "REC-1")

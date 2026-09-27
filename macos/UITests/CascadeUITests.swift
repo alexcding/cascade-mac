@@ -563,7 +563,7 @@ final class CascadeUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeJiraTicketsSearchTransitionAndOpen() throws {
+    func testNativeTicketsSearchTransitionAndOpen() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
               let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {

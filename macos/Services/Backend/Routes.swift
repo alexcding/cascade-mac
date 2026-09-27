@@ -43,6 +43,10 @@ public enum Routes {
     public static func projectBoard(_ value: String) -> String {
         "/api/projects/\(value)/board"
     }
+    public static let PROJECT_ISSUES = "/api/projects/:id/issues"
+    public static func projectIssues(_ value: String) -> String {
+        "/api/projects/\(value)/issues"
+    }
     public static let DETECT_REPO = "/api/detect-repo"
     public static let WORKTREE = "/api/worktree"
     public static let WORKTREES = "/api/worktrees"
@@ -72,6 +76,12 @@ public enum Routes {
     public static let JIRA_KEY_ASSIGN = "/api/jira/:key/assign"
     public static func jiraKeyAssign(_ value: String) -> String {
         "/api/jira/\(encodeComponent(value))/assign"
+    }
+    public static let ISSUES_SEARCH = "/api/issues/search"
+    public static let ISSUE_LOOKUP = "/api/issues/lookup"
+    public static let ISSUE_NUMBER_STATUS = "/api/issues/:number/status"
+    public static func issueNumberStatus(_ value: Int) -> String {
+        "/api/issues/\(value)/status"
     }
     public static let LINKS = "/api/links"
     public static let LINK = "/api/links/:id"

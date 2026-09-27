@@ -13,6 +13,8 @@ use crate::{cli, http_client, integrations::render_version_template, jira, polle
 #[derive(Clone, Debug)]
 pub enum Plan {
     Gh(Vec<String>),
+    /// `gh issue close` on an issue the PR closes; `reason` is `completed` or `not planned`.
+    CloseIssue { repo: String, number: u64, reason: String, comment: String },
     /// `gh pr review --approve`, at most once per commit: `claim` is `repo#number@sha`.
     Approve { args: Vec<String>, claim: String },
     Transition { key: String, status: String },
@@ -57,6 +59,7 @@ const NODES: &[&str] = &[
     "github.update_branch",
     "github.rerun_failed",
     "github.mark_ready",
+    "github.close_issues",
     "jira.transition",
     "jira.fix_version",
     "jira.comment",
@@ -226,6 +229,7 @@ async fn github(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>> {
         }
         "mark_ready" => pr("ready"),
         "rerun_failed" => return rerun_plans(ctx, &number, &repo).await,
+        "close_issues" => return close_issue_plans(step, ctx, &number, &repo).await,
         other => bail!("unknown action github.{other}"),
     };
     Ok(vec![Plan::Gh(args)])
@@ -265,6 +269,35 @@ async fn rerun_plans(ctx: &Ctx<'_>, number: &str, repo: &str) -> Result<Vec<Plan
     } else {
         Ok(plans)
     }
+}
+
+/// One close per issue the PR closes when it merges (`Closes #12`). GitHub closes them itself only
+/// on a merge into the default branch; this closes them on any merge, such as into `develop`.
+async fn close_issue_plans(step: &Step, ctx: &Ctx<'_>, number: &str, repo: &str) -> Result<Vec<Plan>> {
+    let keys: Vec<String> = match ctx.pr()?.get("issueKeys").and_then(Value::as_array) {
+        Some(keys) => keys.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        None => crate::issues::closing_keys(repo, number).await?,
+    };
+    let reason = if step.text("reason") == "not planned" { "not planned" } else { "completed" };
+    let comment = ctx.render(step.text("body"));
+    let plans: Vec<Plan> = keys
+        .iter()
+        .filter_map(|key| crate::issues::parse_key(key))
+        .map(|(repo, number)| Plan::CloseIssue { repo, number, reason: reason.into(), comment: comment.clone() })
+        .collect();
+    if plans.is_empty() {
+        Ok(vec![Plan::Skip("the PR closes no issues".into())])
+    } else {
+        Ok(plans)
+    }
+}
+
+fn close_issue_args(repo: &str, number: u64, reason: &str, comment: &str) -> Vec<String> {
+    let mut args = vec!["issue".into(), "close".into(), number.to_string(), "-R".into(), repo.into(), "--reason".into(), reason.into()];
+    if !comment.is_empty() {
+        args.extend(["-c".into(), comment.into()]);
+    }
+    args
 }
 
 async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>> {
@@ -378,6 +411,9 @@ impl Plan {
         };
         match self {
             Plan::Gh(args) | Plan::Approve { args, .. } => command("gh", &args.iter().map(String::as_str).collect::<Vec<_>>()),
+            Plan::CloseIssue { repo, number, reason, comment } => {
+                command("gh", &close_issue_args(repo, *number, reason, comment).iter().map(String::as_str).collect::<Vec<_>>())
+            }
             Plan::Transition { key, status } => {
                 command("acli", &["jira", "workitem", "transition", "--key", key, "--status", status, "--yes"])
             }
@@ -414,6 +450,21 @@ impl Plan {
     pub async fn execute(&self, app: &AppState, trigger: &str) -> Result<String> {
         match self {
             Plan::Gh(args) => cli::run("gh", args, Duration::from_secs(60)).await,
+            Plan::CloseIssue { repo, number, reason, comment } => {
+                // A merge into the default branch lets GitHub close it first; `gh issue close` then
+                // succeeds without closing or commenting, so say that instead of a status change.
+                let current = crate::issues::view(repo, *number).await.ok().and_then(|items| items.into_iter().next());
+                if current.is_some_and(|issue| issue["status"] != crate::issues::OPEN) {
+                    return Ok(format!("{repo}#{number} was already closed"));
+                }
+                cli::run("gh", close_issue_args(repo, *number, reason, comment), Duration::from_secs(60)).await?;
+                let status = if reason == "not planned" { crate::issues::NOT_PLANNED } else { crate::issues::CLOSED };
+                activity(app, "issue_status_changed", json!({
+                    "key": crate::issues::key(repo, *number), "transition": status,
+                    "url": format!("https://github.com/{repo}/issues/{number}"), "trigger": trigger,
+                }));
+                Ok(format!("{repo}#{number} → {status}"))
+            }
             Plan::Approve { args, claim } => {
                 // Two events from one poll (a new commit, then its green CI) both reach here with the
                 // same snapshot; the claim lets only the first approve.
@@ -561,6 +612,30 @@ mod tests {
         let plans = plan(&step, &ctx).await.unwrap();
         assert_eq!(plans.len(), 1);
         assert!(matches!(&plans[0], Plan::Skip(why) if why.contains("OPS-12") && why.contains("only made in CASCADE")), "{}", plans[0].describe());
+    }
+
+    #[tokio::test]
+    async fn closing_linked_issues_plans_one_close_per_issue_the_pr_closes() {
+        let event = crate::automation::model::Event {
+            kind: "pr.merged".into(), key: "pr.merged:a/b#5".into(), at: chrono::Utc::now(),
+            project: json!({"id": "p"}),
+            pr: Some(json!({"number": 5, "repo": "a/b", "issueKeys": ["a/b#3", "c/d#9", "not-a-key"]})), ticket: None,
+        };
+        let ctx = crate::automation::context::Ctx::with_keys(&event, vec![]);
+        let step = Step { node: "github.close_issues".into(), params: json!({"reason": "not planned", "body": "Shipped in #{{pr.number}}"}).as_object().unwrap().clone(), ..Default::default() };
+        let plans = plan(&step, &ctx).await.unwrap();
+        let described: Vec<String> = plans.iter().map(Plan::describe).collect();
+        assert_eq!(described, [
+            "gh issue close 3 -R a/b --reason 'not planned' -c 'Shipped in #5'",
+            "gh issue close 9 -R c/d --reason 'not planned' -c 'Shipped in #5'",
+        ]);
+
+        let none = crate::automation::model::Event {
+            pr: Some(json!({"number": 5, "repo": "a/b", "issueKeys": []})), ..event
+        };
+        let ctx = crate::automation::context::Ctx::with_keys(&none, vec![]);
+        let plans = plan(&Step { node: "github.close_issues".into(), ..Default::default() }, &ctx).await.unwrap();
+        assert!(matches!(&plans[..], [Plan::Skip(why)] if why.contains("closes no issues")));
     }
 
     #[test]

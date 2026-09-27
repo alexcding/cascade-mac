@@ -149,7 +149,12 @@ the last successful snapshot and offer retry.
 
 A project's available sections depend on its integrations: GitHub enables Pull
 Requests and Automation; a Jira project key or JQL enables Tickets and Sprint
-Board. Workflows and Settings remain available for local projects.
+Board; a GitHub repository with issues turned on (the default) enables Tickets too.
+Workflows and Settings remain available for local projects.
+
+Tickets lists each source the project has, Jira and GitHub issues, through one
+`TicketsViewModel` per source; the backend maps issues onto the Jira ticket shape
+(`issues.rs`), so what differs lives in `TicketSource` and its `TicketProvider`.
 
 Tickets and Sprint Board are native SwiftUI surfaces. They read cached Jira data,
 provide filters, and support ticket actions. The board has status drop targets

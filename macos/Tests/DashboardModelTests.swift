@@ -83,12 +83,12 @@ private func rows(_ project: DashboardProject) -> [DashboardRow] {
 }
 
 private func makeTicket(_ key: String, status: String, category: String? = nil, priority: String = "Medium",
-                         summary: String? = nil, reporter: String? = nil) -> JiraTicket {
-    JiraTicket(key: key, summary: summary ?? key, status: status, type: "Task", priority: priority,
+                         summary: String? = nil, reporter: String? = nil) -> Ticket {
+    Ticket(key: key, summary: summary ?? key, status: status, type: "Task", priority: priority,
                statusCategory: category, reporter: reporter)
 }
 
-private func makeTicketRow(_ ticket: JiraTicket) -> DashboardTicketRow {
+private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     DashboardTicketRow(ticket: ticket, url: URL(string: "https://j/browse/\(ticket.key)")!)
 }
 

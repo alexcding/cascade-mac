@@ -841,6 +841,7 @@ enum SidebarGlyphs {
                 badge.layer?.borderColor = NSColor.windowBackgroundColor.cgColor
             }
         case "jira": icon.image = SidebarIcons.brand("jira", size: SidebarMetrics.brandSize)
+        case "issue": icon.image = SidebarIcons.brand("github", size: SidebarMetrics.brandSize)
         default:
             if let url = tab.url, let favicon = FaviconStore.shared.image(forURL: url) {
                 icon.image = favicon
