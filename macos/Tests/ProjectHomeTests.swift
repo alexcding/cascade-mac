@@ -80,9 +80,9 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
                                 composer: ProjectComposerModel(project: project, agent: .claude, start: start))
 }
 
-@MainActor @Test func aProjectOpensOnHomeAndItsTabsPickThePageUntilRetired() {
+@MainActor @Test func aProjectOpensOnStartAndItsTabsPickThePageUntilRetired() {
     let model = homeModel()
-    #expect(model.section == .home && ProjectSection.allCases == [.home, .orchestration, .settings])
+    #expect(model.section == .start && ProjectSection.allCases == [.start, .orchestration, .settings])
     model.selectSection(.settings)
     #expect(model.section == .settings)
     model.update(homeProject)

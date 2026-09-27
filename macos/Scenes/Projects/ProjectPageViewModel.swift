@@ -3,18 +3,18 @@ import Observation
 
 /// The pages of a project, picked from the toolbar as the Dashboard's are.
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case home, orchestration, settings
+    case start, orchestration, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .home: String(localized: "Home")
+        case .start: String(localized: "Start")
         case .settings: String(localized: "Settings")
         case .orchestration: String(localized: "Orchestration")
         }
     }
 }
 
-/// A project's screen: Home, the composer that starts its sessions; Orchestration; and Settings.
+/// A project's screen: Start, the composer that starts its sessions; Orchestration; and Settings.
 @MainActor @Observable final class ProjectPageViewModel {
     /// What the screen asks its coordinator to do.
     enum Action: Equatable {
@@ -37,7 +37,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     private(set) var project: Project
     let editor: ProjectEditorViewModel
     let composer: ProjectComposerModel
-    private(set) var section = ProjectSection.home
+    private(set) var section = ProjectSection.start
     private(set) var retired = false
 
     init(project: Project, editor: ProjectEditorViewModel, composer: ProjectComposerModel) {

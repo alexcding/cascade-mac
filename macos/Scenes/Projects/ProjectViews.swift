@@ -157,7 +157,7 @@ struct ProjectPageView: View {
     let model: ProjectPageViewModel
     var body: some View {
         switch model.section {
-        case .home: ProjectComposerView(project: model.project, model: model.composer)
+        case .start: ProjectComposerView(project: model.project, model: model.composer)
         case .settings:
             ProjectEditorView(model: model.editor)
                 .padding(.bottom, 16)

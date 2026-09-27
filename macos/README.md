@@ -147,7 +147,7 @@ uses `awaitingMyReview`, including PRs you have already reviewed; menu-bar alert
 use the narrower active-review-request classification. Failed refreshes preserve
 the last successful snapshot and offer retry.
 
-A project's page has three tabs in the toolbar, as the Dashboard has: Home, a
+A project's page has three tabs in the toolbar, as the Dashboard has: Start, a
 composer that starts a session in it; Orchestration, empty for now; and Settings.
 A Jira project key gives the project a sprint board on the Dashboard's Tickets tab.
 
