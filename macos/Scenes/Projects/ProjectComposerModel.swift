@@ -57,10 +57,8 @@ import Observation
         !retired && operations != nil && !busy && !project.workspace.isEmpty
             && !typed.isEmpty && !(urlish && page == nil)
     }
-    var placeholderText: String {
-        agent == .shell ? String(localized: "Branch name, or a pull request or Jira link")
-            : String(localized: "Describe a task, or paste a pull request or Jira link")
-    }
+    /// The same for every agent: what is typed is read by its shape, not by who runs it.
+    var placeholderText: String { String(localized: "Describe a task or branch, or paste a pull request or Jira link") }
 
     /// The line under the field: what a pasted link resolved to, or why the text can't start a session.
     var hint: (text: String, isError: Bool)? {
