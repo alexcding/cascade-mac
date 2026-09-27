@@ -521,6 +521,28 @@ impl Database {
         Ok(())
     }
 
+    /// The last turn hook the agent in terminal `run_id` sent.
+    pub fn agent_hook(&self, run_id: &str) -> rusqlite::Result<Option<Value>> {
+        let raw: Option<String> = self
+            .cache()
+            .query_row("SELECT event FROM agent_hooks WHERE run_id=?1", [run_id], |row| row.get(0))
+            .optional()?;
+        Ok(raw.and_then(|raw| serde_json::from_str(&raw).ok()))
+    }
+
+    /// Keeps `event` as terminal `run_id`'s last hook, and lets go of terminals not heard from in
+    /// a month: a shell that old is long gone.
+    pub fn set_agent_hook(&self, run_id: &str, event: &Value) -> rusqlite::Result<()> {
+        let now = Utc::now().timestamp();
+        let cache = self.cache();
+        cache.execute(
+            "INSERT INTO agent_hooks(run_id,event,at) VALUES (?1,?2,?3) ON CONFLICT(run_id) DO UPDATE SET event=excluded.event,at=excluded.at",
+            params![run_id, event.to_string(), now],
+        )?;
+        cache.execute("DELETE FROM agent_hooks WHERE at<?1", [now - 30 * 86_400])?;
+        Ok(())
+    }
+
     /// Drops every answer whose key starts with `prefix`: one worktree's.
     pub fn forget_xcode_answers(&self, prefix: &str) -> rusqlite::Result<()> {
         self.cache().execute(
@@ -1050,6 +1072,18 @@ mod tests {
         assert_eq!(tab["url"], "https://example.test/a");
         assert_eq!(tab["standalone"], false);
         assert!(!tab["id"].as_str().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_terminal_keeps_only_its_last_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let opened = Database::open(dir.path()).unwrap();
+        assert_eq!(opened.agent_hook("pty1-1").unwrap(), None, "nothing heard, nothing kept");
+        opened.set_agent_hook("pty1-1", &json!({"type": "agent-turn-start"})).unwrap();
+        opened.set_agent_hook("pty1-1", &json!({"type": "agent-turn-done"})).unwrap();
+        opened.set_agent_hook("pty1-2", &json!({"type": "agent-session"})).unwrap();
+        assert_eq!(opened.agent_hook("pty1-1").unwrap(), Some(json!({"type": "agent-turn-done"})));
+        assert_eq!(opened.agent_hook("pty1-2").unwrap(), Some(json!({"type": "agent-session"})));
     }
 
     #[test]

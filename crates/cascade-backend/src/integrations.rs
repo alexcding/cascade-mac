@@ -767,8 +767,33 @@ pub struct HookQuery {
 }
 async fn relay(app: AppState, query: HookQuery, body: Value, kind: &str) -> StatusCode {
     let session = body["session_id"].as_str().unwrap_or("");
-    app.broadcast(json!({"type":kind,"cli":query.cli.unwrap_or_default(),"runId":query.run_id.unwrap_or_default(),"sessionId":session,"source":body["source"].as_str().unwrap_or(""),"payload":body}));
+    let mut event = json!({"type":kind,"cli":query.cli.unwrap_or_default(),"runId":query.run_id.unwrap_or_default(),"sessionId":session,"source":body["source"].as_str().unwrap_or("")});
+    // Kept without its payload, which can carry the prompt: the app reads it back only to know
+    // where the agent stands.
+    if let Some(run) = event["runId"].as_str().filter(|run| is_run_id(run)) {
+        let _ = app.db.set_agent_hook(run, &event);
+    }
+    event["payload"] = body;
+    app.broadcast(event);
     StatusCode::NO_CONTENT
+}
+
+/// A terminal id as cascade-ptyd makes them. Anything else posting here keeps nothing.
+fn is_run_id(run: &str) -> bool {
+    !run.is_empty() && run.len() <= 64 && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+#[derive(Deserialize)]
+pub struct LastHookQuery {
+    #[serde(rename = "runId")]
+    run_id: String,
+}
+
+/// The last turn hook a terminal's agent sent, as it was relayed: `{"event": …}`, null when none
+/// was heard. For an app that has just attached again to a shell it did not see the hook of.
+pub async fn last_hook(State(app): State<AppState>, Query(query): Query<LastHookQuery>) -> Json<Value> {
+    let event = if is_run_id(&query.run_id) { app.db.agent_hook(&query.run_id).ok().flatten() } else { None };
+    Json(json!({ "event": event }))
 }
 #[derive(Deserialize)]
 pub struct OpenUrlQuery {

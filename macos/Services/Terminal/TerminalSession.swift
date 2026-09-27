@@ -86,6 +86,9 @@ final class TerminalSession: Identifiable {
     var outputDiagnostics: TerminalPipe.Diagnostics { pipe.diagnostics }
     @ObservationIgnored var openLink: (String, String, Bool) -> Void = { _, _, _ in }
     @ObservationIgnored var onCreated: ((TerminalSession) async throws -> Void)?
+    /// Called once a shell that was already running is attached: after a relaunch, or a lost
+    /// connection. What it did meanwhile was not seen here.
+    @ObservationIgnored var onReattached: ((TerminalSession) async -> Void)?
     /// The command a new shell starts with, worked out before the shell exists. The daemon runs
     /// it once the shell's startup files have loaded, instead of it being typed ahead of a prompt.
     @ObservationIgnored var startupCommand: (() async throws -> String?)?
@@ -312,6 +315,9 @@ final class TerminalSession: Identifiable {
                 self.connectionState = .connected
                 self.ready = true
                 self.presentation.becameReady()
+                if !created, let onReattached = self.onReattached {
+                    Task { await onReattached(self) }
+                }
                 if created, let onCreated = self.onCreated {
                     self.launchTask = Task {
                         defer { self.launchTask = nil }

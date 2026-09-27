@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS pr_scope_snapshots (
 CREATE TABLE IF NOT EXISTS xcode_answers (
   key TEXT PRIMARY KEY, stamp TEXT NOT NULL, value TEXT NOT NULL, at INTEGER NOT NULL DEFAULT 0
 );
+-- The last turn hook each terminal's agent sent (`agent-turn-start`, `agent-turn-done`,
+-- `agent-session`), so an app relaunched under a running agent knows whether it is at its prompt.
+-- Key: the terminal's run id. `at`: when it was heard, in Unix seconds.
+CREATE TABLE IF NOT EXISTS agent_hooks (run_id TEXT PRIMARY KEY, event TEXT NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_pr_state (key TEXT PRIMARY KEY, repo TEXT NOT NULL, state TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_jira_state (
   automation_id TEXT NOT NULL, key TEXT NOT NULL, status TEXT NOT NULL DEFAULT '',

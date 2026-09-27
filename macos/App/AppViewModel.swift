@@ -1069,6 +1069,7 @@ public final class AppViewModel {
             if launch.prompted { launchPrompts[record.id] = nil }
             do { try await keepReservedID(launch, record: record) } catch { self.error = error.localizedDescription }
         }
+        terminal.onReattached = { [weak self] terminal in await self?.replayLastHook(terminal) }
         terminal.onCreated = { [weak self] terminal in
             guard let self, let launch = prepared.launch else { return }
             try await noteAgent(terminal, cli: launch.agent.rawValue, started: true)
@@ -1602,6 +1603,21 @@ public final class AppViewModel {
         // open sessions ask for their state rather than showing a run that already finished.
         ideWarmup.resync(worktrees: sessions.filter { viewer.contexts["task:\($0.id)"] != nil }.map(\.worktree))
         settings?.diagnostics.invalidate()
+    }
+
+    private struct LastHook: Decodable { let event: ServerEvent? }
+
+    /// A shell that outlived the app, or its connection, is attached again with its agent's hooks
+    /// unheard: until its next turn, nothing would say whether it is working or at its prompt, and
+    /// the chat would hold every message. The backend kept the last hook it relayed for this
+    /// terminal, which is taken as if it had just arrived — unless the live stream has spoken
+    /// since, which is newer.
+    private func replayLastHook(_ terminal: TerminalSession) async {
+        guard let api, let runID = terminal.termID,
+              let reply: LastHook = try? await api.get(APIClient.query(Routes.AGENT_LAST_HOOK, ["runId": runID])),
+              let event = reply.event, event.runId == runID, terminal.termID == runID,
+              !terminal.agentTurns.busy, !terminal.agentTurns.betweenTurns else { return }
+        received(event)
     }
 
     private func saveConversation(_ id: String, for session: WorkspaceSession) {
