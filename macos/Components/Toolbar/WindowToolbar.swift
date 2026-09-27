@@ -30,6 +30,10 @@ struct WindowToolbarItem: Identifiable {
         /// The system search field, bound to the screen's query. The text is read as the toolbar is
         /// described, so a query the screen changes itself reaches the field.
         case search(prompt: String, value: String, text: Binding<String>)
+        /// The system's toolbar segmented control, one segment per title: AppKit sizes and draws
+        /// it, so it is never clipped the way hosted content measured once can be. `selected` is
+        /// read as the toolbar is described, like a search field's text.
+        case segments(titles: [String], selected: Int, select: (Int) -> Void)
     }
 
     let id: String
@@ -48,6 +52,13 @@ struct WindowToolbarItem: Identifiable {
 
     static func search(_ id: String, prompt: String, text: Binding<String>) -> Self {
         Self(id, style: .search(prompt: prompt, value: text.wrappedValue, text: text)) { EmptyView() }
+    }
+
+    /// Tabs as the system's toolbar segmented control. `id` names the item, so a different set of
+    /// titles should come with a different id: the toolbar is then rebuilt rather than resized.
+    static func segments(_ id: String, titles: [String], selected: Int, priority: NSToolbarItem.VisibilityPriority = .standard,
+                         select: @escaping (Int) -> Void) -> Self {
+        Self(id, style: .segments(titles: titles, selected: selected, select: select), priority: priority) { EmptyView() }
     }
 
     /// The page name, flat at the leading edge: the window's own title is hidden.

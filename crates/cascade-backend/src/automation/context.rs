@@ -239,7 +239,7 @@ fn linked_keys(app: &AppState, event: &Event) -> Vec<String> {
 }
 
 /// `gh api user` once every ten minutes, not once per run.
-async fn cached_login() -> Option<String> {
+pub(crate) async fn cached_login() -> Option<String> {
     // Tests pin the login rather than asking `gh` who is signed in.
     if let Some(login) = std::env::var("CASCADE_AUTOMATION_LOGIN").ok().filter(|v| !v.is_empty()) {
         return Some(login);

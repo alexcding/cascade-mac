@@ -279,7 +279,10 @@ extension DashboardViewModel {
     private func currentRow(_ row: DashboardRow) -> DashboardRow? {
         prs.visibleRows.first { $0.id == row.id } ?? prs.others.first { $0.id == row.id }
     }
-    private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? { tickets.rows.first { $0.id == row.id } }
+    /// A ticket still shown: the user's own, or one under My Tickets' Others.
+    private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? {
+        tickets.rows.first { $0.id == row.id } ?? tickets.others.first { $0.id == row.id }
+    }
 
     /// The one way out for an open: dropped for a row no longer shown, otherwise handed to the
     /// coordinator, which decides whether it may present, then opens it or says why not.

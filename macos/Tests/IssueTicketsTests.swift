@@ -58,3 +58,18 @@ import Testing
     let keyOnly = session("key", branch: "other", url: "session:key", createdAt: "2026-09-03")
     #expect(SessionResolver.resolve(request, page: page, projectID: "p", sessions: [keyOnly, withPR], pullRequests: [pr])?.id == "pr")
 }
+
+// My Tickets' Mine is every Jira ticket (its search is the user's own) and the issues the backend
+// marked `mine`; Others is every other open issue, unassigned ones included.
+@Test func myTicketsSplitsMineFromOthersByTheBackendsMark() throws {
+    let tickets = try JSONDecoder().decode([Ticket].self, from: Data(#"""
+    [{"key":"REC-1"},
+     {"source":"github","key":"#1","number":1,"repo":"o/r","url":"https://github.com/o/r/issues/1","mine":true},
+     {"source":"github","key":"#2","number":2,"repo":"o/r","url":"https://github.com/o/r/issues/2","mine":false},
+     {"source":"github","key":"#3","number":3,"repo":"o/r","url":"https://github.com/o/r/issues/3"}]
+    """#.utf8))
+    let rows = tickets.map { DashboardTicketRow(ticket: $0, url: URL(string: $0.url ?? "https://jira.example.test/browse/\($0.key)")!) }
+    let (mine, others) = DashboardTicketsModel.split(rows)
+    #expect(mine.map(\.ticket.key) == ["REC-1", "#1"])
+    #expect(others.map(\.ticket.key) == ["#2", "#3"])
+}

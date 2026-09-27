@@ -187,7 +187,22 @@ pub fn ticket(item: &Value, repo: &str) -> Value {
         "labels": item["labels"].as_array().map(|v| v.iter().filter_map(|l| l["name"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
         "reporter": person(&item["author"]),
         "updated": item["updatedAt"].as_str().unwrap_or(""),
+        "mine": false,
+        "assignees": item["assignees"].as_array().map(|v| v.iter().filter_map(|a| a["login"].as_str()).collect::<Vec<_>>()).unwrap_or_default(),
     })
+}
+
+/// Marks each issue `mine` when `me` is among its assignees, as the PR snapshot's `category`
+/// does for authors: the app splits Mine from Others on it and never compares logins itself.
+pub fn mark_mine(items: &mut [Value], me: Option<&str>) {
+    for item in items {
+        let mine = me.is_some_and(|me| {
+            item["assignees"].as_array().is_some_and(|logins| {
+                logins.iter().filter_map(Value::as_str).any(|login| login.eq_ignore_ascii_case(me))
+            })
+        });
+        item["mine"] = json!(mine);
+    }
 }
 
 /// `gh` says a repo has issues turned off in a sentence buried in its stderr; say it plainly.
@@ -221,6 +236,16 @@ mod tests {
         assert_eq!(ticket["reporter"], "alice");
         assert_eq!(ticket["labels"], json!(["bug"]));
         assert_eq!(ticket["repo"], "o/r");
+    }
+
+    #[test]
+    fn an_issue_is_mine_only_when_i_am_among_its_assignees() {
+        let assigned = |logins: &[&str]| ticket(&json!({"number":1,"state":"OPEN","assignees":logins.iter().map(|l| json!({"login":l})).collect::<Vec<_>>()}), "o/r");
+        let mut items = vec![assigned(&["octo", "Me"]), assigned(&["octo"]), assigned(&[])];
+        mark_mine(&mut items, Some("me"));
+        assert_eq!(items.iter().map(|i| i["mine"].as_bool().unwrap()).collect::<Vec<_>>(), [true, false, false]);
+        mark_mine(&mut items, None);
+        assert!(items.iter().all(|i| i["mine"] == false), "no login, nothing is mine");
     }
 
     #[test]

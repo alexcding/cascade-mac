@@ -44,6 +44,11 @@ struct Ticket: Identifiable, Equatable, Sendable {
     var repo: String? = nil
     var url: String? = nil
     var updated: String? = nil
+    /// Whether the backend found the user among an issue's assignees. Nil for Jira, whose My
+    /// Tickets search only returns the user's own tickets.
+    var mine: Bool? = nil
+    /// The user's: every Jira ticket My Tickets returns, and an issue the backend marked `mine`.
+    var isMine: Bool { source == .jira || mine == true }
     /// Unique across sources and repos: two repos both have a `#12`.
     var id: String { source == .github ? "\(repo ?? "")\(key)" : key }
     /// The Jira project a key belongs to, or the repository an issue is in.
@@ -57,7 +62,7 @@ struct Ticket: Identifiable, Equatable, Sendable {
 extension Ticket: Decodable {
     private enum CodingKeys: String, CodingKey {
         case key, summary, status, type, priority, assignee, assigneeId, statusId, statusCategory, assigneeEmail
-        case labels, reporter, source, number, repo, url, updated
+        case labels, reporter, source, number, repo, url, updated, mine
     }
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -78,6 +83,7 @@ extension Ticket: Decodable {
         repo = try values.decodeIfPresent(String.self, forKey: .repo)
         url = try values.decodeIfPresent(String.self, forKey: .url)
         updated = try values.decodeIfPresent(String.self, forKey: .updated)
+        mine = try values.decodeIfPresent(Bool.self, forKey: .mine)
     }
 }
 

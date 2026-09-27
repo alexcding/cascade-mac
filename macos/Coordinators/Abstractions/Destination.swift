@@ -102,12 +102,14 @@ extension Destination {
         switch self {
         case .dashboardCoordinator(let coordinator):
             let model = coordinator.model
-            // The tabs stand in for the page title. Tickets is My Tickets, pushed over the home
-            // screen, so choosing any other tab from there pops back to it.
+            // The tabs stand in for the page title, as the system's toolbar segmented control. Tickets
+            // is always one of them, so the control never changes width. Tickets is My Tickets,
+            // pushed over the home screen, so choosing any other tab from there pops back to it.
+            let tabs = DashboardViewModel.Tab.allCases
+            let selected = coordinator.path.isEmpty ? model.tab : .tickets
             return WindowToolbar(
-                leading: [.init("dashboard-tabs") {
-                    DashboardTabBar(selection: coordinator.path.isEmpty ? model.tab : .tickets,
-                                    tickets: model.tickets.available, select: model.selectTab)
+                leading: [.segments("dashboard-tabs", titles: tabs.map(\.title), selected: tabs.firstIndex(of: selected) ?? 0) {
+                    model.selectTab(tabs[$0])
                 }],
                 trailing: [.search("dashboard-search", prompt: String(localized: "Search pull requests and tickets"),
                                    text: Bindable(model).query)])

@@ -478,9 +478,10 @@ pub async fn issues_search(
         .and_then(Value::as_u64)
         .unwrap_or(50)
         .clamp(1, 200) as usize;
-    let items = crate::issues::search_repos(&repos, query, limit)
+    let mut items = crate::issues::search_repos(&repos, query, limit)
         .await
         .map_err(ApiError::internal)?;
+    crate::issues::mark_mine(&mut items, crate::automation::context::cached_login().await.as_deref());
     Ok(Json(
         json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null}),
     ))

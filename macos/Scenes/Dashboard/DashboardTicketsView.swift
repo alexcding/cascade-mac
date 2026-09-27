@@ -23,8 +23,13 @@ struct DashboardTicketsView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 DashboardPageHeader(caption: listCaption, title: String(localized: "My tickets")) {
-                    DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
-                        .padding(.bottom, 6)
+                    HStack(spacing: 8) {
+                        authors
+                        modes
+                        projectMenu
+                        DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
+                    }
+                    .padding(.bottom, 6)
                 }
                 .padding(.top, 12).padding(.bottom, 24)
                 if let error = model.navigation.error { warning(error) }
@@ -33,14 +38,11 @@ struct DashboardTicketsView: View {
                     TicketStageBar(stages: model.tickets.pageStages) { model.tickets.filter = .stage($0) }
                         .padding(.bottom, 24)
                 }
-                HStack(alignment: .top, spacing: 12) {
-                    DashboardFilterTags(values: DashboardTicketsModel.Filter.allCases, selection: model.tickets.filter,
-                                        title: \.title, count: { counts[$0] ?? 0 },
-                                        id: { "dashboard-ticket-filter-\($0.id)" }) { model.tickets.filter = $0 }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    scope
-                }
-                .padding(.bottom, 24)
+                DashboardFilterTags(values: DashboardTicketsModel.Filter.allCases, selection: model.tickets.filter,
+                                    title: \.title, count: { counts[$0] ?? 0 },
+                                    id: { "dashboard-ticket-filter-\($0.id)" }) { model.tickets.filter = $0 }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 24)
                 if rows.isEmpty {
                     Text(!model.tickets.available ? String(localized: "Not connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
@@ -56,8 +58,12 @@ struct DashboardTicketsView: View {
 
     private var listCaption: String {
         let count = model.tickets.pageCounts[.all] ?? 0
-        guard let project = model.tickets.project else { return String(localized: "\(count) assigned to you, urgent first") }
-        return String(localized: "\(count) assigned to you in \(project.name), urgent first")
+        switch (model.tickets.author, model.tickets.project) {
+        case (.mine, nil): return String(localized: "\(count) assigned to you, urgent first")
+        case (.mine, let project?): return String(localized: "\(count) assigned to you in \(project.name), urgent first")
+        case (.others, nil): return String(localized: "\(count) open issues assigned to others or no one")
+        case (.others, let project?): return String(localized: "\(count) open issues in \(project.name) assigned to others or no one")
+        }
     }
 
     // MARK: Board
@@ -67,18 +73,25 @@ struct DashboardTicketsView: View {
         let board = model.board.board
         return VStack(alignment: .leading, spacing: 0) {
             DashboardPageHeader(caption: boardCaption, title: String(localized: "Sprint board")) {
-                if let board {
-                    DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board", busy: board.loading, action: board.reload)
-                        .padding(.bottom, 6)
+                HStack(spacing: 8) {
+                    // Kept in place, dimmed, so switching to the board moves nothing in the header;
+                    // the board narrows by its own Assignee filter.
+                    authors.disabled(true).opacity(0.4)
+                        .help(String(localized: "The board shows the whole team. Use Assignee below to narrow it."))
+                    modes
+                    projectMenu
+                    if let board {
+                        DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board", busy: board.loading, action: board.reload)
+                    }
                 }
+                .padding(.bottom, 6)
             }
             .padding(.top, 12).padding(.bottom, 24)
-            HStack(alignment: .center, spacing: 8) {
-                if let board { DashboardBoardFilters(board: board) }
-                Spacer(minLength: 12)
-                scope
+            if let board {
+                DashboardBoardFilters(board: board)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 20)
             }
-            .padding(.bottom, 20)
             if let board {
                 WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
@@ -100,39 +113,30 @@ struct DashboardTicketsView: View {
 
     // MARK: Scope
 
-    /// List or Board, then the project, drawn as the page's tags.
-    private var scope: some View {
+    /// List or Board, first in the header on both views.
+    private var modes: some View {
+        DashboardScopeTags(values: DashboardViewModel.TicketsMode.allCases, selection: model.ticketsMode,
+                           title: \.title, id: "dashboard-tickets-mode") { model.setTicketsMode($0) }
+    }
+
+    /// Whose tickets the list shows, as the Pull Requests page has it: in the header, by its refresh.
+    private var authors: some View {
+        let tickets = model.tickets
+        return DashboardScopeTags(values: DashboardTicketsModel.Author.allCases, selection: tickets.author,
+                                  title: \.title, count: tickets.count, id: "dashboard-tickets-author") { tickets.author = $0 }
+    }
+
+    /// The project the page narrows to, in the header by its refresh on either view. A board always
+    /// shows one project; only the list can span them all. Always drawn, so the header keeps its
+    /// place between List and Board: the board lists only Jira projects, and with none the tag
+    /// stays, disabled.
+    private var projectMenu: some View {
         let boardMode = model.ticketsMode == .board
-        let selected = boardMode ? model.board.project : model.tickets.project
-        return HStack(spacing: 8) {
-            ForEach(DashboardViewModel.TicketsMode.allCases) { mode in
-                let active = model.ticketsMode == mode
-                Button { model.setTicketsMode(mode) } label: {
-                    DashboardTagLabel(title: mode.title, active: active)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("dashboard-tickets-mode-\(mode.id)")
-                .accessibilityAddTraits(active ? .isSelected : [])
-            }
-            if !model.ticketProjects.isEmpty {
-                Menu {
-                    Picker("Project", selection: Binding(get: { selected?.id }, set: { model.selectTicketProject($0) })) {
-                        // A board always shows one project; only the list can span them all.
-                        if !boardMode {
-                            Text("All Projects").tag(String?.none)
-                            Divider()
-                        }
-                        ForEach(model.ticketProjects) { Text($0.name).tag(Optional($0.id)) }
-                    }
-                    .pickerStyle(.inline).labelsHidden()
-                } label: {
-                    DashboardTagLabel(title: selected?.name ?? String(localized: "All Projects"), symbol: "chevron.down",
-                                      active: !boardMode && selected != nil)
-                }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                .accessibilityIdentifier("dashboard-tickets-project")
-            }
-        }
+        return DashboardProjectTag(projects: model.ticketProjects,
+                                   selection: (boardMode ? model.board.project : model.tickets.project)?.id,
+                                   allowsAll: !boardMode, id: "dashboard-tickets-project") { model.selectTicketProject($0) }
+            .disabled(model.ticketProjects.isEmpty)
+            .opacity(model.ticketProjects.isEmpty ? 0.4 : 1)
     }
 
     private func warning(_ text: String) -> some View {

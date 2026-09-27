@@ -9,8 +9,13 @@ import Observation
     @ObservationIgnored var onChange: () -> Void = {}
     private(set) var retired = false
 
-    /// The user's tickets in the tracked projects: one no project's Jira key claims is left out.
+    /// The user's tickets in the tracked projects: one no project claims is left out. These are
+    /// what the tile, stage bar and short list count.
     private(set) var rows: [DashboardTicketRow] = []
+    /// Open issues in the tracked repos that are someone else's or no one's: My Tickets' Others.
+    private(set) var others: [DashboardTicketRow] = []
+    /// Whose tickets My Tickets lists.
+    var author: Author = .mine { didSet { if author != oldValue { updateScreenRows() } } }
     /// Tracked projects, from the dashboard snapshot; `rows` follows them.
     var projects: [DashboardProject] = [] {
         didSet { if projects != oldValue { publish(Self.tracked(loaded, in: projects), summary: nil) } }
@@ -78,12 +83,13 @@ import Observation
                 try Task.checkCancellation()
                 guard isCurrent(generation) else { return }
                 self.loaded = loaded
-                let rows = Self.tracked(loaded, in: projects)
-                if self.rows != rows {
-                    let summary = await Self.summarize(rows)
+                let tracked = Self.tracked(loaded, in: projects)
+                let (mine, others) = Self.split(tracked)
+                if self.rows != mine || self.others != others {
+                    let summary = await Self.summarize(mine)
                     // A project change while summarizing has already published its own narrowing.
-                    guard isCurrent(generation), rows == Self.tracked(self.loaded, in: projects) else { return }
-                    publish(rows, summary: summary)
+                    guard isCurrent(generation), tracked == Self.tracked(self.loaded, in: projects) else { return }
+                    publish(tracked, summary: summary)
                 }
                 // One source failing while the other loaded still says so beside the rows.
                 error = warning
@@ -117,11 +123,14 @@ import Observation
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }
 
-    /// Publishes `rows` with their summary, worked out here when the caller has none.
-    private func publish(_ rows: [DashboardTicketRow], summary: Summary?) {
-        guard !retired, self.rows != rows else { return }
+    /// Publishes the tracked tickets split into the user's and the others, with the summary of the
+    /// user's, worked out here when the caller has none.
+    private func publish(_ tracked: [DashboardTicketRow], summary: Summary?) {
+        let (rows, others) = Self.split(tracked)
+        guard !retired, self.rows != rows || self.others != others else { return }
         let summary = summary ?? Self.makeSummary(rows)
         self.rows = rows
+        self.others = others
         if counts != summary.counts { counts = summary.counts }
         if tile != summary.tile { tile = summary.tile }
         if stages != summary.stages { stages = summary.stages }
@@ -135,8 +144,15 @@ import Observation
         if attention != value { attention = value }
     }
 
+    /// How many tickets `author` has in the project My Tickets is narrowed to.
+    func count(_ author: Author) -> Int { scoped(author == .mine ? rows : others).count }
+
+    private func scoped(_ rows: [DashboardTicketRow]) -> [DashboardTicketRow] {
+        project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
+    }
+
     private func updateScreenRows() {
-        let scoped = project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
+        let scoped = scoped(author == .mine ? rows : others)
         let summary = Self.makeSummary(scoped)
         if pageCounts != summary.counts { pageCounts = summary.counts }
         if pageStages != summary.stages { pageStages = summary.stages }
@@ -190,6 +206,11 @@ extension DashboardTicketsModel {
         return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
     }
 
+    /// The user's tickets and everyone else's, in their order.
+    nonisolated static func split(_ rows: [DashboardTicketRow]) -> (mine: [DashboardTicketRow], others: [DashboardTicketRow]) {
+        (rows.filter(\.ticket.isMine), rows.filter { !$0.ticket.isMine })
+    }
+
     /// The tickets some tracked project claims: by Jira key, or an issue by its repo.
     nonisolated static func tracked(_ rows: [DashboardTicketRow], in projects: [DashboardProject]) -> [DashboardTicketRow] {
         rows.filter { row in projects.contains { $0.owns(row.ticket) } }
@@ -208,6 +229,20 @@ extension DashboardTicketsModel {
 // MARK: - Types
 
 extension DashboardTicketsModel {
+    /// Whose tickets My Tickets lists, as the Pull Requests tab has it: the user's own — every
+    /// Jira ticket assigned to them and the issues they are an assignee of — or everyone else's
+    /// open issues, unassigned ones included.
+    enum Author: String, CaseIterable, Identifiable, Sendable {
+        case mine, others
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .mine: String(localized: "Mine")
+            case .others: String(localized: "Others")
+            }
+        }
+    }
+
     /// The My Tickets screen's tags: every ticket, one workflow stage, or the urgent ones.
     enum Filter: Hashable, Identifiable, Sendable {
         case all, stage(TicketStage), urgent

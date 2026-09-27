@@ -330,7 +330,7 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
     func syncPRs() async throws {
         let _: OperationOK = try await api.request(APIClient.query(Routes.POLL, ["scope": "prs"]), method: "POST", body: [String: String]())
     }
-    static let myIssuesQuery = "assignee:@me is:open sort:updated-desc"
+    static let myIssuesQuery = "is:open sort:updated-desc"
     func myTickets() async throws -> [DashboardTicketRow] { try await myTicketsReport().rows }
     /// Both sources at once, Jira first. One failing leaves the other's rows, with its error as the warning.
     func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) {
@@ -359,9 +359,10 @@ struct APIDashboardService: DashboardService, DashboardTicketService, DashboardB
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
     }
-    /// Open issues assigned to the user in every project repo that lists its issues.
+    /// Every open issue in the project repos that list their issues, each marked `mine` by the
+    /// backend: My Tickets shows the user's under Mine and the rest under Others.
     private func myIssues() async throws -> [DashboardTicketRow] {
-        struct Body: Encodable, Sendable { let query: String; let allProjects = true }
+        struct Body: Encodable, Sendable { let query: String; let allProjects = true; let limit = 200 }
         let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: Body(query: Self.myIssuesQuery), timeout: 60)
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.compactMap { ticket in

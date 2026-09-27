@@ -25,6 +25,8 @@ import SwiftUI
     private var hosts: [String: NSHostingView<AnyView>] = [:]
     private var searchTexts: [String: Binding<String>] = [:]
     private var searchItems: [String: NSSearchToolbarItem] = [:]
+    private var segmentGroups: [String: NSToolbarItemGroup] = [:]
+    private var segmentActions: [String: (Int) -> Void] = [:]
 
     init(describe: @escaping () -> WindowToolbar) {
         self.describe = describe
@@ -55,6 +57,8 @@ import SwiftUI
         hosts = [:]
         searchTexts = [:]
         searchItems = [:]
+        segmentGroups = [:]
+        segmentActions = [:]
         // Its own identifier: toolbars sharing one keep their items in step, and the old one may
         // not be gone yet.
         let toolbar = NSToolbar(identifier: "CascadeMain.\(UUID().uuidString)")
@@ -94,12 +98,16 @@ import SwiftUI
     }
 
     private func refresh(_ item: WindowToolbarItem) {
-        if case .search(_, let value, let text) = item.style {
+        switch item.style {
+        case .search(_, let value, let text):
             searchTexts[item.id] = text
             if let field = searchItems[item.id]?.searchField, field.stringValue != value {
                 field.stringValue = value
             }
-        } else {
+        case .segments(_, let selected, let select):
+            segmentActions[item.id] = select
+            if let group = segmentGroups[item.id], group.selectedIndex != selected { group.selectedIndex = selected }
+        case .glass, .plain, .fill:
             hosts[item.id]?.rootView = item.content
         }
     }
@@ -127,6 +135,13 @@ import SwiftUI
             searchItems[spec.id] = search
             searchTexts[spec.id] = text
             item = search
+        case .segments(let titles, let selected, let select):
+            let group = NSToolbarItemGroup(itemIdentifier: identifier, titles: titles, selectionMode: .selectOne,
+                                           labels: nil, target: self, action: #selector(segmentChanged(_:)))
+            group.selectedIndex = selected
+            segmentGroups[spec.id] = group
+            segmentActions[spec.id] = select
+            item = group
         case .glass, .plain, .fill:
             item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: spec.content)
@@ -155,6 +170,10 @@ import SwiftUI
 
     func controlTextDidChange(_ notification: Notification) {
         if let field = notification.object as? NSSearchField { searchFieldChanged(field) }
+    }
+
+    @objc private func segmentChanged(_ group: NSToolbarItemGroup) {
+        segmentActions[group.itemIdentifier.rawValue]?(group.selectedIndex)
     }
 
     @objc private func searchFieldChanged(_ field: NSSearchField) {
