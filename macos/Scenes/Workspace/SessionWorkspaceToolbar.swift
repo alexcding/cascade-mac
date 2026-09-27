@@ -65,13 +65,11 @@ import SwiftUI
     }
 }
 
-/// Create Session as a dropdown: every click asks which agent runs the session.
+/// Create Session: opens the page's project on Start with this page, where the agent is picked.
 struct CreateSessionButton: View {
     let model: SessionWorkspaceViewModel
     var body: some View {
-        Menu {
-            ForEach(PageRowMenu.agents) { agent in Button(agent.label) { model.createSession(agent: agent) } }
-        } label: {
+        Button { model.createSession() } label: {
             Label(String(localized: "Create Session"), systemImage: "terminal")
         }
     }

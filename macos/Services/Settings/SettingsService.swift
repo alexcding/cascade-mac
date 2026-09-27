@@ -3,7 +3,6 @@ import Foundation
 struct AppConfigDraft: Equatable, Sendable {
     var pollInterval = "60"
     var jiraPollInterval = "120"
-    var jiraLimit = "100"
     var jiraBaseURL = ""
     var jiraAPIToken = ""
     var worktreeLocation = WorktreeLocation.sibling
@@ -15,7 +14,6 @@ struct AppConfigDraft: Equatable, Sendable {
     init(_ values: [String: String] = [:]) {
         pollInterval = values["poll_interval"] ?? "60"
         jiraPollInterval = values["jira_poll_interval"] ?? "120"
-        jiraLimit = values["jira_limit"] ?? "100"
         jiraBaseURL = values["jira_base_url"] ?? ""
         jiraAPIToken = values["jira_api_token"] ?? ""
         worktreeLocation = values["worktree_location"].flatMap(WorktreeLocation.init(rawValue:)) ?? .sibling
@@ -25,7 +23,7 @@ struct AppConfigDraft: Equatable, Sendable {
         worktreeFetch = values["worktree_fetch"] == "true"
     }
     var values: [String: String] {
-        ["poll_interval": pollInterval, "jira_poll_interval": jiraPollInterval, "jira_limit": jiraLimit,
+        ["poll_interval": pollInterval, "jira_poll_interval": jiraPollInterval,
          "jira_base_url": jiraBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
          "jira_api_token": jiraAPIToken.trimmingCharacters(in: .whitespacesAndNewlines),
          "worktree_location": worktreeLocation.rawValue,
@@ -37,7 +35,6 @@ struct AppConfigDraft: Equatable, Sendable {
     var validationError: String? {
         guard let interval = Int(pollInterval), (15...86400).contains(interval) else { return String(localized: "PR polling must be between 15 and 86400 seconds.") }
         guard let interval = Int(jiraPollInterval), (30...86400).contains(interval) else { return String(localized: "Jira polling must be between 30 and 86400 seconds.") }
-        guard let limit = Int(jiraLimit), (1...10000).contains(limit) else { return String(localized: "The ticket limit must be between 1 and 10000.") }
         let raw = jiraBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !raw.isEmpty {
             guard let url = safeWebURL(raw), let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),

@@ -57,7 +57,6 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var runScheme: String? = nil
     var runSim: String? = nil
     var jiraProjectKey: String? = nil
-    var jql: String? = nil
     var ideCmd: String? = nil
     /// Run in each new worktree after its files are copied; empty runs nothing.
     var worktreeSetup: String? = nil

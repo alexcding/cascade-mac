@@ -46,4 +46,5 @@ struct ProjectPageService: ProjectService {
     func ownsProject(_ id: String) -> Bool { owns }
     func applyProjectSave(_ project: Project, source: ProjectSaveSource) {}
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) {}
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) {}
 }

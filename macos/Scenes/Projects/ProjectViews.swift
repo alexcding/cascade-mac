@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ProjectEditorView: View {
@@ -23,7 +24,6 @@ struct ProjectEditorView: View {
                 }
                 Section("Jira") {
                     TextField("Project key", text: $model.draft.jiraProjectKey)
-                    TextField("Saved JQL", text: $model.draft.jql, axis: .vertical).lineLimit(2...4)
                 }
                 Section("Editor") {
                     Picker("IDE", selection: $model.draft.ide) {
@@ -52,8 +52,10 @@ struct ProjectEditorView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }.formStyle(.grouped).disabled(model.busy)
+            // Under the form, level with its sections' edges: the grouped form insets them 10pt.
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled)
+                    .padding(.horizontal, 10)
             }
             HStack {
                 if model.id != nil {
@@ -66,6 +68,7 @@ struct ProjectEditorView: View {
                 Button(model.id == nil ? String(localized: "Create Project") : String(localized: "Save Project")) { Task { await model.save() } }
                     .buttonStyle(.borderedProminent).disabled(!model.canSave)
             }
+            .padding(.horizontal, 10)
         }
     }
 }
@@ -150,18 +153,173 @@ struct NewProjectSheet: View {
     }
 }
 
+/// A project's screen: the page its toolbar tabs pick (`ProjectTabBar`).
 struct ProjectPageView: View {
-    @Bindable var model: ProjectPageViewModel
+    let model: ProjectPageViewModel
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Picker("Project section", selection: Binding(get: { model.section }, set: model.selectSection)) {
-                ForEach(model.availableSections) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden()
-            switch model.section {
-            case .tickets:
-                if let tickets = model.tickets { JiraTicketsView(model: tickets) }
-            case .settings: ProjectEditorView(model: model.editor)
+        switch model.section {
+        case .start: ProjectComposerView(project: model.project, model: model.composer)
+        case .settings:
+            ProjectEditorView(model: model.editor)
+                .padding(.bottom, 16)
+                .frame(maxWidth: Theme.Size.readableColumn)
+                .frame(maxWidth: .infinity)
+        case .orchestration:
+            ContentUnavailableView(String(localized: "Orchestration"), systemImage: "point.3.connected.trianglepath.dotted")
+        }
+    }
+}
+
+/// The project's pages as the toolbar's leading item, standing in for its title as the
+/// Dashboard's tabs do (`DashboardTabBar`).
+struct ProjectTabBar: View {
+    let selection: ProjectSection
+    let select: (ProjectSection) -> Void
+
+    var body: some View {
+        Picker("Project section", selection: Binding(get: { selection }, set: select)) {
+            ForEach(ProjectSection.allCases) { Text($0.title).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.large)
+        .fixedSize()
+        .accessibilityIdentifier("project-tabs")
+    }
+}
+
+struct ProjectComposerView: View {
+    let project: Project
+    @Bindable var model: ProjectComposerModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("What are we working on in \(project.name)?")
+                .font(.system(size: 24, weight: .semibold)).multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 10) {
+                if let context = model.contextURL { contextChip(context) }
+                TextField(model.placeholderText, text: $model.text, axis: .vertical)
+                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(3...10)
+                    .frame(minHeight: 64, alignment: .topLeading)
+                    .focused($focused).disabled(model.creating)
+                    .onSubmit { Task { await model.submit() } }
+                    // Return alone creates the session; with any modifier held — Shift, Option,
+                    // Control or Command — it is a new line: the field editor's own, at the cursor.
+                    .onKeyPress(.return, phases: .down) { press in
+                        guard !press.modifiers.subtracting([.capsLock, .numericPad]).isEmpty else { return .ignored }
+                        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                        return .handled
+                    }
+                    .accessibilityIdentifier("project-composer")
+                if model.showsPullRequestBranch {
+                    TextField(String(localized: "Branch for that pull request"), text: $model.pullRequestBranch)
+                        .textFieldStyle(.roundedBorder).font(.system(size: 13))
+                        .onSubmit { Task { await model.submit() } }
+                        .accessibilityIdentifier("project-composer-pr-branch")
+                }
+                if let hint = model.hint {
+                    Text(hint.text).font(.system(size: 12))
+                        .foregroundStyle(hint.isError ? Theme.danger : Color.secondary)
+                        .accessibilityIdentifier("project-composer-hint")
+                }
+                HStack(spacing: 8) {
+                    SegmentedChoice(options: [("Claude", SessionAgent.claude), ("Codex", .codex), (String(localized: "Shell only"), .shell)],
+                                    selection: Binding(get: { model.agent }, set: model.select))
+                    Spacer()
+                    if !model.branches.isEmpty { baseMenu }
+                    if model.busy { ProgressView().controlSize(.small) }
+                    // Creates a session rather than sending a message, so it is not a send arrow.
+                    Button { Task { await model.submit() } } label: {
+                        Image(systemName: "plus.circle.fill").font(.system(size: 26))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+                    .disabled(!model.canStart)
+                    .help(String(localized: "Create Session"))
+                    .accessibilityLabel(String(localized: "Create Session"))
+                    .accessibilityIdentifier("project-composer-create")
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
+            .frame(maxWidth: 620)
+            if let error = model.error ?? model.referenceError {
+                Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger).textSelection(.enabled)
+            } else if project.workspace.isEmpty {
+                Text("Choose the project folder in Settings to start sessions.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { focused = true; model.setShown(true) }
+        .onDisappear { model.setShown(false) }
+        .onChange(of: model.focusRequest) { _, _ in focused = true }
+    }
+
+    /// "Branch from", drawn as the agent choice beside it is: plain text in an outline.
+    private var baseMenu: some View {
+        Menu {
+            ForEach(model.branches, id: \.self) { branch in
+                Button { model.base = branch } label: {
+                    if branch == model.base { Label(branch, systemImage: "checkmark") } else { Text(branch) }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.triangle.branch")
+                Text(model.base)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 11).padding(.vertical, 5)
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor)))
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .help(String(localized: "The branch a new branch forks from"))
+        .accessibilityLabel(String(localized: "Branch from \(model.base)"))
+    }
+
+    /// The plain page this start was asked from: the session opens beside it, unless removed.
+    private func contextChip(_ url: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "globe").foregroundStyle(.secondary)
+            Text(URL(string: url)?.host() ?? url).lineLimit(1).truncationMode(.middle)
+            Button { model.clearContext() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .help(String(localized: "Start without this page"))
+                .accessibilityLabel(String(localized: "Start without this page"))
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill(Theme.surfaceHover))
+    }
+}
+
+/// .theme-toggle / .theme-opt: plain text options, the chosen one outlined.
+struct SegmentedChoice<Value: Hashable>: View {
+    let options: [(String, Value)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(options, id: \.1) { label, value in
+                let on = value == selection
+                Button { selection = value } label: {
+                    Text(LocalizedStringKey(label)).font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(on ? Color.primary : Color(nsColor: .tertiaryLabelColor))
+                        .padding(.horizontal, 11).padding(.vertical, 5)
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(on ? Color(nsColor: .separatorColor) : .clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .accessibilityElement(children: .contain)
     }
 }

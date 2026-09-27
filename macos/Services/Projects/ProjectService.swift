@@ -5,7 +5,6 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var workspace = ""
     var repo = ""
     var jiraProjectKey = ""
-    var jql = ""
     var ide = ""
     var ideCmd = ""
     var ideTarget = ""
@@ -16,7 +15,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
-        jiraProjectKey = project.jiraProjectKey ?? ""; jql = project.jql ?? ""
+        jiraProjectKey = project.jiraProjectKey ?? ""
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
@@ -77,31 +76,10 @@ struct APIProjectService: ProjectService {
     }
 }
 
-enum ProjectSection: String, CaseIterable, Identifiable {
-    case tickets = "Tickets", settings = "Settings"
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .tickets: String(localized: "Tickets")
-        case .settings: String(localized: "Settings")
-        }
-    }
-
-    /// The sections a project can show. Tickets need Jira. Settings always applies. Automation is its own screen now.
-    static func available(for project: Project) -> [ProjectSection] {
-        allCases.filter { section in
-            switch section {
-            case .tickets: project.hasJira
-            case .settings: true
-            }
-        }
-    }
-}
-
 extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
-    /// A Jira project key or a saved JQL query.
-    var hasJira: Bool { !(jiraProjectKey ?? "").isEmpty || !(jql ?? "").isEmpty }
+    /// A Jira project key: what the sprint board and ticket matching go by (`JiraKeys`).
+    var hasJira: Bool { !JiraKeys.parse(jiraProjectKey).isEmpty }
 }
 
 struct IDEChoice: Identifiable {

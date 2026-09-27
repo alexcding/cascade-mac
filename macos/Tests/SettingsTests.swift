@@ -87,9 +87,7 @@ actor SettingsFixture: SettingsService {
     #expect(draft.validationError != nil)
     draft.pollInterval = "90"; draft.jiraPollInterval = "not a number"
     #expect(draft.validationError != nil)
-    draft.jiraPollInterval = "120"; draft.jiraLimit = "0"
-    #expect(draft.validationError != nil)
-    draft.jiraLimit = "100"
+    draft.jiraPollInterval = "120"
     for raw in ["file:///tmp", "https://user:secret@jira.test", "https://jira.test/?secret=1"] {
         draft.jiraBaseURL = raw; #expect(draft.validationError != nil)
     }

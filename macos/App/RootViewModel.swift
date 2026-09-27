@@ -24,7 +24,7 @@ import Observation
 
 @MainActor @Observable final class RootViewModel {
     enum Action: Equatable {
-        case select(SidebarDestination), command(ShellCommand), togglePin(String), newSession(projectID: String)
+        case select(SidebarDestination), command(ShellCommand), togglePin(String)
         case closeTab(String), newTab, moveTab(String, before: String?), togglePinTab(String)
         case moveProject(String, before: String?), moveSession(String, before: String?), movePinned(String, before: String?)
         case reconnect, openTerminal, openBrowser(URL), removeSession(String), openGitClient(String)
@@ -107,7 +107,6 @@ import Observation
     func newProject() { if canCreateProject { onAction(.command(.newProject)) } }
     func newSession() { if canCreateSession { onAction(.command(.newSession)) } }
     /// A project folder's hover "+": New Session on that project, wherever the window is.
-    func newSession(in projectID: String) { onAction(.newSession(projectID: projectID)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     func openTerminal() { onAction(.openTerminal) }
     func openBrowser(_ url: URL) { onAction(.openBrowser(url)) }

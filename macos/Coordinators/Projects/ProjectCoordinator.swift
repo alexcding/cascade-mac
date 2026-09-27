@@ -11,8 +11,9 @@ import Observation
 
 /// Consumes the project-owned remainder after the root has selected its project.
 @MainActor @Observable final class ProjectCoordinator: Coordinatable {
-    /// Lifecycle events the parent needs: a save, a deletion, or the end of a presentation.
-    enum Event { case saved(Project, ProjectSaveSource), deleted(String), presentationEnded }
+    /// Lifecycle events the parent needs: a save, a deletion, the end of a presentation, or a
+    /// session Start made.
+    enum Event { case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?) }
     var root: Destination = .none
     var path: [Destination] = []
     @ObservationIgnored var action: ((Action) -> Void)?
@@ -31,10 +32,8 @@ import Observation
         model.onAction = { [weak self] in self?.handle($0) }
     }
     func makeDestination(for route: Route) -> Destination { .none }
-    /// Sections are not pushed; the page switches in place.
-    func navigate(to route: Route) {
-        if case .projectSection(let section) = route { handle(.selectSection(section)) }
-    }
+    /// The page is one screen: nothing is pushed on it.
+    func navigate(to route: Route) {}
     func handle(_ action: Action) {
         if case .project(let action) = action { handle(action) } else { self.action?(action) }
     }
@@ -42,19 +41,15 @@ import Observation
     func handle(_ action: ProjectPageViewModel.Action) {
         guard !retired, isOwned() else { return }
         switch action {
-        case .selectSection(let section): model.setSection(section)
         case .saved(let project, let source): onEvent(.saved(project, source))
+        case .sessionCreated(let session, let prompt): onEvent(.sessionCreated(session, prompt: prompt))
         case .deleted(let id):
             guard id == model.project.id else { return }
             deletionConfirmation = nil
             onEvent(.deleted(id))
         case .requestDeletion(let request):
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
-            model.cancelActions()
             deletionConfirmation = request
-        case .jiraTicket(.open(let request)):
-            guard !isPresenting, canPresent(), model.section == .tickets else { return }
-            model.tickets?.navigation.open(request)
         }
     }
 
@@ -73,7 +68,6 @@ import Observation
 
     /// Leaving the screen ends its presentation; an already started write finishes.
     func endPresentation() {
-        model.cancelActions()
         guard deletionConfirmation != nil else { return }
         deletionConfirmation = nil
         onEvent(.presentationEnded)
@@ -83,11 +77,5 @@ import Observation
         retired = true; deletionConfirmation = nil
         onEvent = { _ in }; canPresent = { false }; isOwned = { false }
         model.retire()
-    }
-
-    @discardableResult func navigate(to deepLink: DeepLink) -> Bool {
-        guard !retired, isOwned(), deepLink.routes.count == 1, case .projectSection(let section) = deepLink.first else { return false }
-        handle(.selectSection(section))
-        return true
     }
 }

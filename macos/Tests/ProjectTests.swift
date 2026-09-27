@@ -11,7 +11,7 @@ private actor ProjectFixture: ProjectService {
         if fails { throw BackendError.operation("Save unavailable") }
         project = Project(id: id ?? "created", name: draft.name, repo: draft.repo, color: nil,
                           workspace: draft.workspace, ide: draft.ide, ideTarget: draft.ideTarget,
-                          jiraProjectKey: draft.jiraProjectKey, jql: draft.jql, ideCmd: draft.ideCmd)
+                          jiraProjectKey: draft.jiraProjectKey, ideCmd: draft.ideCmd)
         return project
     }
     func delete(_ id: String) throws {

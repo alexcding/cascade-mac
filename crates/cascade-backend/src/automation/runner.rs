@@ -165,10 +165,7 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
     trace.finished_at = now();
     if touched_jira && !event.project.is_null() {
         let (app, project) = (app.clone(), event.project.clone());
-        tokio::spawn(async move {
-            app.poller.sync_project_jira(&app, &project).await;
-            app.poller.sync_board(&app, &project).await;
-        });
+        tokio::spawn(async move { app.poller.sync_board(&app, &project).await });
     }
     trace
 }

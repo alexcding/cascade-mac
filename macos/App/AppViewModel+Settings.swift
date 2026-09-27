@@ -20,11 +20,8 @@ extension AppViewModel: SettingsCoordinating {
         openSettingsWindow?()
         NSApp?.activate(ignoringOtherApps: true)
     }
-    func applySettingsSave(_ patch: [String: String]) async {
-        if patch["jira_base_url"] != nil || patch["jira_api_token"] != nil {
-            for model in projectModels.values { await model.tickets?.invalidateSite() }
-        }
-    }
+    /// Nothing on screen holds the saved connections: each reads them when it asks the backend.
+    func applySettingsSave(_ patch: [String: String]) async {}
     func clearBrowsingData(_ scope: BrowsingDataScope) async {
         switch scope {
         case .history:

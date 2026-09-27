@@ -20,6 +20,16 @@ struct JiraTicket: Decodable, Identifiable, Equatable, Sendable {
     var projectKey: String { String(key.split(separator: "-").first ?? "") }
 }
 
+/// A project's Jira project key field, which may list several keys comma-separated: the keys in it,
+/// uppercased. A field of only commas, spaces or quotes names none, so it is no Jira project at all.
+enum JiraKeys {
+    static func parse(_ field: String?) -> [String] {
+        (field ?? "").split(separator: ",")
+            .map { $0.trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\"'"))).uppercased() }
+            .filter { !$0.isEmpty }
+    }
+}
+
 struct JiraSnapshot: Decodable, Sendable {
     var items: [JiraTicket]
     var jql: String?
@@ -36,80 +46,4 @@ struct JiraSite: Decodable, Sendable {
 struct JiraAccount: Decodable, Equatable, Sendable {
     var email: String?
     var accountId: String?
-}
-
-enum JiraFacet: String, CaseIterable, Identifiable {
-    case project, status, type, priority
-    var id: String { rawValue }
-    var label: String {
-        switch self { case .project: String(localized: "Projects"); case .status: String(localized: "Statuses"); case .type: String(localized: "Types"); case .priority: String(localized: "Priorities") }
-    }
-    var allLabel: String {
-        switch self {
-        case .project: String(localized: "All projects")
-        case .status: String(localized: "All statuses")
-        case .type: String(localized: "All types")
-        case .priority: String(localized: "All priorities")
-        }
-    }
-    func value(_ ticket: JiraTicket) -> String {
-        switch self {
-        case .project: ticket.projectKey
-        case .status: ticket.status ?? ""
-        case .type: ticket.type ?? ""
-        case .priority: ticket.priority ?? ""
-        }
-    }
-}
-
-protocol JiraService: Sendable {
-    func snapshot(projectID: String) async throws -> JiraSnapshot
-    func site() async throws -> JiraSite
-    func search(jql: String) async throws -> JiraSnapshot
-    func transition(key: String, status: String) async throws
-    func syncAfterMutation(projectID: String) async throws
-    func settings() async throws -> [String: String]
-    func saveFilters(_ filters: String, projectID: String) async throws
-}
-
-struct APIJiraService: JiraService {
-    let api: APIClient
-    func snapshot(projectID: String) async throws -> JiraSnapshot { try await api.get(Routes.projectJira(projectID)) }
-    func site() async throws -> JiraSite { try await api.get(Routes.JIRA_SITE, timeout: 30) }
-    func search(jql: String) async throws -> JiraSnapshot {
-        try await api.request(Routes.JIRA_SEARCH, method: "POST", body: ["jql": jql])
-    }
-    func transition(key: String, status: String) async throws {
-        let _: OperationOK = try await api.request(Routes.jiraKeyTransition(key), method: "POST", body: ["transition": status])
-    }
-    func syncAfterMutation(projectID: String) async throws {
-        async let tickets: JiraSnapshot = api.get(APIClient.query(Routes.projectJira(projectID), ["refresh": "1"]), timeout: 130)
-        async let board: BoardSnapshot = api.get(APIClient.query(Routes.projectBoard(projectID), ["refresh": "1"]), timeout: 130)
-        _ = try await (tickets, board)
-    }
-    func settings() async throws -> [String: String] { try await api.get(Routes.SETTINGS) }
-    func saveFilters(_ filters: String, projectID: String) async throws {
-        try await api.setSetting("ticket_filter_" + projectID, value: filters)
-    }
-}
-
-// Keyword/key/JQL interpretation is owned here now; the shared jql.mjs it was written
-// against went with the node backend.
-enum JiraQuery {
-    static func looksLikeJQL(_ text: String) -> Bool {
-        if text.range(of: #"[=~<>!]|(?:^|\s)order\s+by\s"#, options: [.regularExpression, .caseInsensitive]) != nil { return true }
-        return text.range(of: #"(?:^|\s|\()[\w.\"'\[\]]+\s+(?:not\s+)?(?:in|is|was|changed)\s+(?:\(|not\s|empty\b|null\b|\"|'|\w+\(|-?\d)"#,
-                          options: [.regularExpression, .caseInsensitive]) != nil
-    }
-    static func make(_ input: String, projectKey: String) -> String {
-        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return "" }
-        if text.range(of: #"^[A-Z][A-Z0-9_]+-\d+$"#, options: [.regularExpression, .caseInsensitive]) != nil {
-            return "key = \(text.uppercased())"
-        }
-        if looksLikeJQL(text) { return text }
-        let words = text.replacingOccurrences(of: #"[\"\\]"#, with: " ", options: .regularExpression)
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return (projectKey.isEmpty ? "" : "project = \(projectKey) AND ") + "text ~ \"\(words)\" ORDER BY updated DESC"
-    }
 }

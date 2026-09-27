@@ -172,10 +172,6 @@ struct SettingsView: View {
                 SettingsRow(title: String(localized: "Jira site URL"), caption: String(localized: "Leave blank to use the site acli is signed in to.")) {
                     TextField("Use the signed-in Jira site", text: $model.draft.jiraBaseURL).accessibilityIdentifier("settings-jira-site")
                 }
-                SettingsRow(title: String(localized: "Result limit"), caption: String(localized: "Maximum number of tickets to fetch per refresh.")) {
-                    TextField("100", text: $model.draft.jiraLimit)
-                        .accessibilityIdentifier("settings-jira-limit")
-                }
                 SettingsRow(title: String(localized: "API token"), caption: String(localized: "Create one at id.atlassian.com. Stored with your other settings.")) {
                     RevealableSecureField(prompt: "API token", text: $model.draft.jiraAPIToken).accessibilityIdentifier("settings-jira-token")
                 }

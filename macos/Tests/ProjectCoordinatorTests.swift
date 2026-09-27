@@ -12,47 +12,43 @@ import Testing
         coordinator?.projectModels[project.id]?.update(project)
     }
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) { ids.remove(id); deletions.append(id) }
+    var created: [(String, String?)] = []
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) { created.append((session.id, prompt)) }
 }
 
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {
     let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }))
     var creations = 0
-    func project(_ project: Project, services: ProjectFeatureServices,
-                 openPage: @escaping (OpenPageRequest) async throws -> Void,
-                 session: @escaping (OpenPageRequest) -> PageSessionMark?) -> ProjectPageViewModel {
+    func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent) -> ProjectPageViewModel {
         creations += 1
-        return native.project(project, services: services, openPage: openPage, session: session)
+        return native.project(project, services: services, agent: agent)
     }
 }
 
 @MainActor private func projectCoordinatorServices() throws -> ProjectFeatureServices {
-    let baseURL = URL(string: "http://127.0.0.1:12345")!
-    let api = try APIClient(baseURL: baseURL)
-    return ProjectFeatureServices(projects: APIProjectService(api: api), tickets: APIJiraService(api: api),
-        api: api, baseURL: baseURL)
+    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!)
+    return ProjectFeatureServices(projects: APIProjectService(api: api), sessions: SessionOperations(api: api))
 }
 
-@MainActor @Test func projectCoordinatorFactoryRetainsDraftsAndSharesSectionRoutes() async throws {
+@MainActor @Test func projectCoordinatorFactoryRetainsDraftsAndShowsItsTabs() async throws {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let runtime = ProjectRuntimeFixture(); runtime.coordinator = root
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     var project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    root.prepareProject(project, services: services, factory: factory, runtime: runtime, openPage: { _ in })
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     let model = try #require(root.projectModels[project.id])
     root.navigate(to: .project(project.id))
-    model.selectSection(.settings)
-    #expect(root.projectCoordinator?.model === model && model.section == .settings)
-    #expect(model.tickets != nil)
+    #expect(root.projectCoordinator?.model === model)
+    #expect(root.windowToolbar.leading.map(\.id) == ["project-tabs"] && root.windowToolbar.pane == nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"
     root.navigate(to: .overview)
     project = Project(id: "p", name: "External update", repo: "", color: nil, workspace: "/tmp")
-    root.prepareProject(project, services: services, factory: factory, runtime: runtime, openPage: { _ in })
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     root.navigate(to: .project(project.id))
     #expect(factory.creations == 1 && root.projectModels[project.id] === model)
     #expect(model.editor.draft.name == "Keep this draft" && model.project.name == "External update")
-    #expect(model.section == .settings)
     model.editor.onAction(.saved(project))
     #expect(runtime.saves.map(\.1) == [.configuration])
     #expect(model.editor.draft.name == "Keep this draft")
@@ -63,9 +59,9 @@ import Testing
     let runtime = ProjectRuntimeFixture(); runtime.coordinator = root
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    root.prepareProject(project, services: services, factory: factory, runtime: runtime, openPage: { _ in })
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     let obsolete = try #require(root.projectCoordinators[project.id])
-    let replacement = factory.project(project, services: services, openPage: { _ in })
+    let replacement = factory.project(project, services: services, agent: .claude)
     let current = root.installProject(replacement, runtime: runtime)
     obsolete.model.editor.onAction(.saved(project))
     obsolete.model.editor.onAction(.deleted(project.id))
@@ -84,10 +80,30 @@ import Testing
     #expect(runtime.saves.count == 1)
 }
 
+@MainActor @Test func aSessionStartMadeReachesTheRuntimeOnlyFromTheCurrentOwnedProject() throws {
+    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let runtime = ProjectRuntimeFixture(); runtime.coordinator = root
+    let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
+    let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
+    let model = try #require(root.projectModels[project.id])
+    func session(_ id: String, in projectID: String = "p") -> WorkspaceSession {
+        WorkspaceSession(id: id, projectId: projectID, workspace: "/tmp", worktree: "/tmp/\(id)", title: id, branch: id,
+                         url: "", createdAt: nil, pinned: false)
+    }
+    model.composer.onAction(.created(session("s1"), prompt: "Fix login"))
+    // A session filed under another project is not this one's to report.
+    model.composer.onAction(.created(session("s2", in: "other"), prompt: nil))
+    #expect(runtime.created.map(\.0) == ["s1"] && runtime.created.first?.1 == "Fix login")
+    root.removeMissingProjects([])
+    model.composer.onAction(.created(session("s3"), prompt: nil))
+    #expect(runtime.created.count == 1)
+}
+
 @MainActor @Test func projectActionRebindingForwardsCurrentCallbackWithoutRetainingParent() throws {
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    var model: ProjectPageViewModel? = factory.project(project, services: services, openPage: { _ in })
+    var model: ProjectPageViewModel? = factory.project(project, services: services, agent: .claude)
     weak var released = model
     let editor = try #require(model?.editor)
     var first = 0, actions: [ProjectPageViewModel.Action] = []
@@ -104,14 +120,14 @@ import Testing
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let runtime = ProjectRuntimeFixture(), factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    root.prepareProject(project, services: services, factory: factory, runtime: runtime, openPage: { _ in })
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     let original = try #require(root.projectModels[project.id])
     original.editor.draft.name = "Old draft"
     #expect(root.removeMissingProjects([project.id]).isEmpty)
     #expect(root.removeMissingProjects([]).first === original && root.projectModels.isEmpty)
     original.editor.onAction(.saved(project))
     #expect(runtime.saves.isEmpty)
-    root.prepareProject(project, services: services, factory: factory, runtime: runtime, openPage: { _ in })
+    root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     #expect(factory.creations == 2 && root.projectModels[project.id] !== original)
     #expect(root.projectModels[project.id]?.editor.draft.name == "Project")
     root.navigate(to: .project(project.id))

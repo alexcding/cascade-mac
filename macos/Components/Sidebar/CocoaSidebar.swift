@@ -15,7 +15,6 @@ struct CocoaSidebar: NSViewRepresentable {
     var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
     let onTogglePin: (String) -> Void
-    var onNewSession: (String) -> Void = { _ in }
     var onCloseTab: (String) -> Void = { _ in }
     var onNewTab: () -> Void = {}
     var onNewProject: () -> Void = {}
@@ -387,7 +386,6 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let outline else { return }
             let nested = outline.parent(forItem: node) != nil
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
-            cell.onNewSession = { [weak self] id in self?.parent.onNewSession(id) }
             cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
             cell.onNewTab = { [weak self] in self?.parent.onNewTab() }
             cell.onNewProject = { [weak self] in self?.parent.onNewProject() }
@@ -472,10 +470,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
-            if case .project = destination, case .project(canCreateSession: true) = node.entry.role {
-                add("New Session", action: #selector(newSession(_:)))
-                menu.addItem(.separator())
-            }
             if node.entry.detail.hasPrefix("/") {
                 if case .session = destination, let title = parent.gitClientLabel {
                     add(title, action: #selector(openGitClient(_:)))
@@ -533,10 +527,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 alert.window.initialFirstResponder = field
                 rename(alert.runModal())
             }
-        }
-        @objc private func newSession(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .project(let id) = node.entry.destination else { return }
-            parent.onNewSession(id)
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
@@ -670,7 +660,6 @@ enum SidebarGlyphs {
 
 @MainActor final class SidebarCellView: NSTableCellView {
     var onTogglePin: (String) -> Void = { _ in }
-    var onNewSession: (String) -> Void = { _ in }
     var onCloseTab: (String) -> Void = { _ in }
     var onNewTab: () -> Void = {}
     var onNewProject: () -> Void = {}
@@ -763,13 +752,9 @@ enum SidebarGlyphs {
             }
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
-        case .project(let canCreate):
+        case .project:
+            // A project's sessions start from its page's composer, so its row has no "+".
             icon.image = SidebarIcons.rowSymbol("folder")
-            if canCreate {
-                accessory.image = SidebarIcons.addSymbol
-                accessory.toolTip = String(localized: "New session on a new worktree")
-                accessory.setAccessibilityLabel(String(localized: "New session"))
-            }
         case .session(let status, let pinned):
             icon.isHidden = true
             // The ⌘-held hint takes the glyph's place.
@@ -873,7 +858,7 @@ enum SidebarGlyphs {
         title.textColor = entry.isHeading || project ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
         icon.contentTintColor = project ? SidebarPalette.accessory : SidebarPalette.icon
         switch entry.role {
-        case .project(let canCreate), .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
+        case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
         case .session: accessory.isHidden = !hovered
         case .tab, .tabsHeader: accessory.isHidden = !hovered
         default: accessory.isHidden = true
@@ -885,7 +870,6 @@ enum SidebarGlyphs {
         if entry.role == .tabsHeader { onNewTab() }
         else if case .projectsHeader = entry.role { onNewProject() }
         else if let id = entry.sessionID { onTogglePin(id) }
-        else if let id = entry.projectID { onNewSession(id) }
         else if let id = entry.destination?.tabID { onCloseTab(id) }
     }
 

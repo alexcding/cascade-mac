@@ -105,9 +105,9 @@ impl Database {
             .unwrap_or_else(now);
         let get = |key: &str| patch.get(key).and_then(Value::as_str).unwrap_or("");
         self.durable().execute(
-            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,jql,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+            "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
             params![
-                id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"), get("jql"),
+                id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"),
                 get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
                 bool_int(patch.get("fixVersionEnabled"), false), get("fixVersionPrefix"),
                 get("fixVersionScript"), get("ide"), get("ideCmd"), get("ideTarget"),
@@ -132,7 +132,6 @@ impl Database {
             ("repo", "repo", FieldKind::String),
             ("workspace", "workspace", FieldKind::String),
             ("jiraProjectKey", "jira_project_key", FieldKind::String),
-            ("jql", "jql", FieldKind::String),
             ("mergeTransition", "merge_transition", FieldKind::String),
             ("forwardWebhooks", "forward_webhooks", FieldKind::Bool),
             ("fixVersionEnabled", "fix_version_enabled", FieldKind::Bool),
@@ -889,7 +888,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
     Ok(json!({
         "id": row.get::<_,String>("id")?, "name": row.get::<_,String>("name")?, "repo": row.get::<_,String>("repo")?,
         "workspace": row.get::<_,String>("workspace")?, "jiraProjectKey": row.get::<_,String>("jira_project_key")?,
-        "jql": row.get::<_,String>("jql")?, "mergeTransition": row.get::<_,String>("merge_transition")?,
+        "mergeTransition": row.get::<_,String>("merge_transition")?,
         "forwardWebhooks": row.get::<_,i64>("forward_webhooks")? != 0, "created_at": row.get::<_,String>("created_at")?,
         "fixVersionEnabled": row.get::<_,i64>("fix_version_enabled")? != 0,
         "fixVersionScript": text(row,"fix_version_script")?,

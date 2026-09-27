@@ -408,48 +408,6 @@ fn poll_targets(scope: Option<&str>) -> (bool, bool) {
     (scope != "jira", scope != "prs")
 }
 
-pub async fn project_jira(
-    State(app): State<AppState>,
-    Path(id): Path<String>,
-    Query(query): Query<PathQuery>,
-) -> ApiResult<Value> {
-    let project = app
-        .db
-        .project(&id)?
-        .ok_or_else(|| ApiError::not_found("Not found"))?;
-    let effective = crate::poller::project_jql(&app, &project);
-    let snapshot = app.db.jira_snapshot(&id)?;
-    let stale = snapshot
-        .as_ref()
-        .and_then(|v| v.get("lastSynced"))
-        .and_then(Value::as_str)
-        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
-        .is_none_or(|v| {
-            chrono::Utc::now()
-                .signed_duration_since(v.with_timezone(&chrono::Utc))
-                .num_seconds()
-                > 90
-        });
-    if !effective.is_empty() && (stale || query.refresh.is_some()) {
-        if query.refresh.is_some() {
-            app.poller.sync_project_jira(&app, &project).await
-        } else {
-            let copy = app.clone();
-            tokio::spawn(async move {
-                let poller = copy.poller.clone();
-                poller.sync_project_jira(&copy, &project).await;
-            });
-        }
-    }
-    let mut result = app
-        .db
-        .jira_snapshot(&id)?
-        .unwrap_or_else(|| json!({"items":[],"jql":effective,"lastSynced":null,"error":null}));
-    if result["jql"].as_str().unwrap_or("").is_empty() {
-        result["jql"] = json!(effective)
-    }
-    Ok(Json(result))
-}
 pub async fn project_board(
     State(app): State<AppState>,
     Path(id): Path<String>,
@@ -749,7 +707,6 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
     let mut patch = Map::new();
     for key in [
         "name",
-        "jql",
         "workspace",
         "ide",
         "ideCmd",
