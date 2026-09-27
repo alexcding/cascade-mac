@@ -439,7 +439,7 @@ public final class AppViewModel {
         refresh()
     }
 
-    /// The project a new session is created under, from where it was asked for — the sheet never
+    /// The project a new session is created under, from where it was asked for — Start never
     /// offers another. A PR page belongs to the project of its repository, a ticket to the project
     /// on its Jira key; failing that, the only project there is.
     func sessionProject(for destination: SidebarDestination) -> Project? {
@@ -476,59 +476,21 @@ public final class AppViewModel {
             && !(selection.tabID.flatMap(tabURL).map(startingPages.contains) ?? false)
     }
 
-    /// New Session for the selection: the page in view when it is a PR or ticket, else the sheet.
-    /// `agent` is the one picked from the Create Session dropdown; nil is the default.
+    /// New Session for the selection: its project's Start, on the page in view when that is a PR or
+    /// ticket, or with the plain page in view as the session's context. `agent` picks Start's agent;
+    /// nil keeps the one it has.
     func newSession(agent: SessionAgent?) {
         guard canPerform(.newSession), let project = sessionProject(for: selection) else { return }
         let pageURL: String? = if case .tab(let id) = selection { tabURL(id) } else { nil }
-        startSession(in: project.id, pageURL: pageURL, agent: agent)
+        let onPage = pageURL.map { SessionPage.parse($0) != nil } ?? false
+        openStart(in: project.id, text: onPage ? pageURL : nil, contextURL: onPage ? nil : pageURL, agent: agent)
     }
 
-    /// New Session from where it was asked. A PR or ticket page already decides its branch, so its
-    /// session is created at once (viewer.js newSession); anything else opens the sheet.
-    func startSession(in projectID: String, pageURL: String?, agent: SessionAgent? = nil) {
-        guard let pageURL, SessionPage.parse(pageURL) != nil else { presentNewSession(in: projectID, pageURL: pageURL, agent: agent); return }
-        guard canStartSession, let operations = sessionOperations,
-              let project = projects.first(where: { $0.id == projectID && !$0.workspace.isEmpty }),
-              startingPages.insert(pageURL).inserted else { return }
-        let context = viewer.active
-        context?.error = nil
-        let agent = agent ?? shell.defaultAgent
-        Task {
-            let outcome = await PageSessionStart.run(url: pageURL, project: project, agent: agent, operations: operations)
-            // Release the page BEFORE acting: the sheet fallback checks canStartSession, which is
-            // false while this page is still marked as starting.
-            startingPages.remove(pageURL)
-            switch outcome {
-            case .created(let session): createdSession(session)
-            case .needsBranch: presentNewSession(in: projectID, pageURL: pageURL, agent: agent)
-            case .failed(let message): context?.error = message
-            }
-        }
-    }
-
-    /// A session from the project composer (`ProjectSessionStart`). A pull request whose branch
-    /// cannot be looked up opens the sheet to ask for it, as a page's New Session does.
-    func startProjectSession(_ request: ProjectSessionRequest) async throws {
-        guard canStartSession, let operations = sessionOperations else {
-            throw BackendError.operation(String(localized: "Connect before starting a session."))
-        }
-        guard let project = projects.first(where: { $0.id == request.projectID && !$0.workspace.isEmpty }) else {
-            throw BackendError.operation(String(localized: "Choose the project folder before starting a session."))
-        }
-        let outcome = try await ProjectSessionStart.plan(request, project: project, operations: operations)
-        // A lookup can take a while; a project deleted meanwhile gets no session.
-        guard projects.contains(where: { $0.id == project.id }) else {
-            throw BackendError.operation(String(localized: "The project was removed."))
-        }
-        switch outcome {
-        case .needsBranch(let url):
-            presentNewSession(in: project.id, pageURL: url, agent: request.agent)
-        case .planned(let plan):
-            let session = try await operations.create(project: project, draft: plan.draft)
-            if let prompt = plan.prompt { launchPrompts[session.id] = prompt }
-            createdSession(session)
-        }
+    /// Every session starts on its project's Start page: this opens it, filled in.
+    func openStart(in projectID: String, text: String? = nil, contextURL: String? = nil, agent: SessionAgent? = nil) {
+        guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
+        select(.project(projectID))
+        projectModels[projectID]?.start(text: text, contextURL: contextURL, agent: agent)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,
@@ -551,8 +513,7 @@ public final class AppViewModel {
     }
     @ObservationIgnored private var cachedResolverPullRequests: [SessionResolver.PullRequest]?
 
-    /// The row's own project when it names one — a JQL project lists tickets no key prefix
-    /// would find — else the project the page belongs to.
+    /// The row's own project when it names one, else the project the page belongs to.
     static func pageSessionProject(for request: OpenPageRequest, in projects: [Project]) -> Project? {
         if let id = request.projectID { return projects.first { $0.id == id && !$0.workspace.isEmpty } }
         return pageProject(request.url, in: projects)
@@ -576,7 +537,7 @@ public final class AppViewModel {
             throw BackendError.operation(String(localized: "A session cannot be started right now."))
         }
         startingPages.insert(request.url)
-        // Its own task, as in startSession: the row's action is cancelled by any navigation, and a
+        // Its own task: the row's action is cancelled by any navigation, and a
         // create cancelled between the worktree and its record would leave a checkout with no session.
         let agent = request.agent ?? shell.defaultAgent
         let jiraKey = request.jiraKeys.first ?? ""
@@ -584,16 +545,10 @@ public final class AppViewModel {
         startingPages.remove(request.url)
         switch outcome {
         case .created(let session): createdSession(session)
-        case .needsBranch: presentNewSession(in: project.id, pageURL: request.url, agent: agent)
+        // Start looks the pull request up again and asks for the branch nothing could name.
+        case .needsBranch: openStart(in: project.id, text: request.url, agent: agent)
         case .failed(let message): throw BackendError.operation(message)
         }
-    }
-
-    /// Present New Session for `project`. `pageURL` is the page it was asked from, if any.
-    func presentNewSession(in projectID: String, pageURL: String?, agent: SessionAgent? = nil) {
-        guard canStartSession, let project = projects.first(where: { $0.id == projectID && !$0.workspace.isEmpty }) else { return }
-        coordinator.presentNewSession(request: .init(project: project, agent: agent ?? shell.defaultAgent, pageURL: pageURL),
-                                      operations: sessionOperations, didCreate: { [weak self] in self?.createdSession($0) })
     }
 
     public func canPerform(_ command: ShellCommand) -> Bool {
@@ -942,10 +897,7 @@ public final class AppViewModel {
             if let project = projects.first(where: { $0.id == id }), let api {
                 let services = backendFactory.projectServices(api: api)
                 coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
-                                           agent: shell.defaultAgent) { [weak self] request in
-                    guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
-                    try await self.startProjectSession(request)
-                }
+                                           agent: shell.defaultAgent)
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
@@ -1253,6 +1205,12 @@ public final class AppViewModel {
         }
     }
 
+    /// A session a project's Start made: its prompt waits for the agent's first launch.
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) {
+        if let prompt { launchPrompts[session.id] = prompt }
+        createdSession(session)
+    }
+
     func createdSession(_ session: WorkspaceSession) {
         if !sessions.contains(where: { $0.id == session.id }) { sessions.append(session) }
         terminals["task:\(session.id)"] = makeTerminal(session, fresh: true)
@@ -1491,7 +1449,7 @@ public final class AppViewModel {
                 usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
-            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api)) } }
+            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api)) } }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
             if let api { for model in historyModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.history(api: api)) } }
@@ -1745,7 +1703,7 @@ public final class AppViewModel {
         await settings?.stop()
         await coordinator.welcomeModel?.stop()
         for model in projectModels.values {
-            model.connect(nil)
+            model.connect(nil, sessions: nil)
         }
         await viewer.stop()
         ideWarmup.connect(nil)

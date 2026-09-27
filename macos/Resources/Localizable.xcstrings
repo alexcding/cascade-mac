@@ -15323,6 +15323,9 @@
         }
       }
     },
+    "Branch from %@" : {
+
+    },
     "Branch name can’t contain spaces, “..” or ~ ^ : ? * [ \\" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15476,6 +15479,9 @@
           }
         }
       }
+    },
+    "Branch name or pull request / Jira link (%@)" : {
+
     },
     "Branch name or URL" : {
       "extractionState" : "manual",
@@ -19252,9 +19258,6 @@
           }
         }
       }
-    },
-    "Choose the project folder before starting a session." : {
-
     },
     "Choose the project folder in Settings to start sessions." : {
 
@@ -24722,9 +24725,6 @@
           }
         }
       }
-    },
-    "Connect before starting a session." : {
-
     },
     "Connect before starting the agent." : {
       "extractionState" : "manual",
@@ -43869,9 +43869,6 @@
         }
       }
     },
-    "Home" : {
-
-    },
     "Hook Settings" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54493,6 +54490,9 @@
         }
       }
     },
+    "Name that pull request’s branch below" : {
+
+    },
     "Name the pull request’s branch" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -55028,6 +55028,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新自動化 · 未儲存"
+          }
+        }
+      }
+    },
+    "New branch %@ from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "New branch %1$@ from %2$@"
+          }
+        }
+      }
+    },
+    "New branch %@ from %@; %@ starts with your text" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "New branch %1$@ from %2$@; %3$@ starts with your text"
           }
         }
       }
@@ -61110,6 +61130,9 @@
         }
       }
     },
+    "Not a GitHub pull request or Jira issue link" : {
+
+    },
     "Not a GitHub pull request or Jira issue URL" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -65495,6 +65518,9 @@
         }
       }
     },
+    "Opens %@" : {
+
+    },
     "Opens %@ — branch %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -65568,6 +65594,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開啟 %@ — 分支 %@"
+          }
+        }
+      }
+    },
+    "Opens %@ in %@ on %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Opens %1$@ in %2$@ on %3$@"
+          }
+        }
+      }
+    },
+    "Opens %@ on %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Opens %1$@ on %2$@"
           }
         }
       }
@@ -67111,9 +67157,6 @@
           }
         }
       }
-    },
-    "Paste a GitHub pull request or Jira issue link, or describe a task." : {
-
     },
     "Patterns" : {
       "extractionState" : "manual",
@@ -89729,6 +89772,9 @@
         }
       }
     },
+    "Start" : {
+
+    },
     "Start an agent session for this page in its project" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -89960,7 +90006,7 @@
         }
       }
     },
-    "Start Session" : {
+    "Start without this page" : {
 
     },
     "Starting" : {
@@ -95480,6 +95526,9 @@
         }
       }
     },
+    "The branch a new branch forks from" : {
+
+    },
     "The changes view stopped. Reload to restore it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -98618,9 +98667,6 @@
           }
         }
       }
-    },
-    "The project was removed." : {
-
     },
     "The PTY helper did not preserve native color ownership. The created shell has been preserved." : {
       "localizations" : {

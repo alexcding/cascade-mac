@@ -32,8 +32,8 @@ extension WorkspaceSession {
     var agent: SessionAgent { SessionAgent(rawValue: cli ?? "") ?? .shell }
 }
 
-/// A pull request whose head branch nothing could tell us — the only resolution failure the
-/// New Session sheet answers by asking for the branch. Every other failure is a real error.
+/// A pull request whose head branch nothing could tell us — the only resolution failure a
+/// project's Start answers by asking for the branch. Every other failure is a real error.
 struct PullRequestBranchUnknown: LocalizedError, Sendable {
     var errorDescription: String? { String(localized: "Could not look up this pull request’s branch.") }
 }
@@ -80,7 +80,7 @@ protocol SessionCreating: Sendable {
 enum PageSessionStart {
     enum Outcome: Sendable {
         case created(WorkspaceSession)
-        /// The PR's head branch couldn't be looked up — the New Session sheet asks for it.
+        /// The PR's head branch couldn't be looked up — the project's Start asks for it.
         case needsBranch
         case failed(String)
     }

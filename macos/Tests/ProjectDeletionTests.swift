@@ -48,6 +48,7 @@ private actor ProjectDeletionService: ProjectService {
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) {
         projects.removeAll { $0.id == id }; removed.append(id)
     }
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) {}
     func activateRootDestination() {}
     func performRootCommand(_ command: ShellCommand) {}
     func reconnect() async {}
@@ -60,7 +61,7 @@ private actor ProjectDeletionService: ProjectService {
 @MainActor private func deletionModel(service: any ProjectService) -> ProjectPageViewModel {
     ProjectPageViewModel(project: deletionProject,
         editor: ProjectEditorViewModel(project: deletionProject, service: service, chooseFolder: { nil }),
-        composer: ProjectComposerModel(project: deletionProject, agent: .claude, start: { _ in }))
+        composer: ProjectComposerModel(project: deletionProject, agent: .claude, operations: nil))
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func projectDeletionCoordinatorCancelsStaleRequestsAndDefersDeepLinks() async throws {
@@ -124,7 +125,7 @@ private actor ProjectDeletionService: ProjectService {
     let model = deletionModel(service: service), child = root.installProject(model, runtime: runtime)
     root.navigate(to: .project(deletionProject.id)); model.editor.requestDeletion()
     let oldConnection = try #require(child.deletionConfirmation)
-    model.connect(nil); model.connect(service)
+    model.connect(nil, sessions: nil); model.connect(service, sessions: nil)
     #expect(!model.editor.canDelete(oldConnection) && model.editor.deletionError(for: oldConnection) != nil)
     await child.confirmDeletion(id: oldConnection.id)
     #expect(child.deletionConfirmation == nil && root.canPresent)

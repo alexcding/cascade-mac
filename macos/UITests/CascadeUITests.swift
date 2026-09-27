@@ -874,22 +874,14 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Open Terminal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.webViews.firstMatch.exists)
         XCTAssertNotEqual(app.state, .notRunning)
-        // New Session has no shortcut: it is the File menu's.
+        // New Session has no shortcut and no sheet: the File menu's opens the session's project on Start.
         app.menuBars.menuItems["New Session…"].click()
-        XCTAssertTrue(app.sheets.staticTexts.matching(NSPredicate(format: "value BEGINSWITH 'New session on '")).firstMatch.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.sheets.popUpButtons["Project"].exists) // the project is fixed by where the sheet opened
-        let sessionBranch = app.textFields["session-branch"]
-        XCTAssertTrue(sessionBranch.waitForExistence(timeout: 5), app.debugDescription)
-        let editableBranch = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: sessionBranch)
-        wait(for: [editableBranch], timeout: 5)
-        sessionBranch.click(); sessionBranch.typeText("cancelled-session")
-        app.buttons["Cancel"].click()
-        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.sheets.firstMatch)
-        wait(for: [dismissed], timeout: 5)
-        app.menuBars.menuItems["New Session…"].click()
-        XCTAssertTrue(sessionBranch.waitForExistence(timeout: 5))
-        XCTAssertEqual(sessionBranch.value as? String, "")
-        app.buttons["Cancel"].click()
+        let composer = app.descendants(matching: .any)["project-composer"].firstMatch
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.sheets.firstMatch.exists)
+        composer.click(); composer.typeText("cancelled-session")
+        session.click()
+        XCTAssertTrue(app.buttons["Remove Session"].waitForExistence(timeout: 5))
         app.buttons["Remove Session"].click()
         XCTAssertTrue(app.buttons["Forget Session"].waitForExistence(timeout: 10))
         app.sheets.buttons["Cancel"].click()

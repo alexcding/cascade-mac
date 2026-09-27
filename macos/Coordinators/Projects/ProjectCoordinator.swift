@@ -11,8 +11,9 @@ import Observation
 
 /// Consumes the project-owned remainder after the root has selected its project.
 @MainActor @Observable final class ProjectCoordinator: Coordinatable {
-    /// Lifecycle events the parent needs: a save, a deletion, or the end of a presentation.
-    enum Event { case saved(Project, ProjectSaveSource), deleted(String), presentationEnded }
+    /// Lifecycle events the parent needs: a save, a deletion, the end of a presentation, or a
+    /// session Start made.
+    enum Event { case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?) }
     var root: Destination = .none
     var path: [Destination] = []
     @ObservationIgnored var action: ((Action) -> Void)?
@@ -41,6 +42,7 @@ import Observation
         guard !retired, isOwned() else { return }
         switch action {
         case .saved(let project, let source): onEvent(.saved(project, source))
+        case .sessionCreated(let session, let prompt): onEvent(.sessionCreated(session, prompt: prompt))
         case .deleted(let id):
             guard id == model.project.id else { return }
             deletionConfirmation = nil

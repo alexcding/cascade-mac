@@ -4,6 +4,8 @@ import Foundation
     func ownsProject(_ id: String) -> Bool
     func applyProjectSave(_ project: Project, source: ProjectSaveSource)
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel)
+    /// A session the project's Start made, with its agent's first prompt when it has one.
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?)
 }
 
 extension AppCoordinator {
@@ -21,10 +23,9 @@ extension AppCoordinator {
     }
 
     func prepareProject(_ project: Project, services: ProjectFeatureServices, factory: any ProjectFeatureFactory,
-                        runtime: any ProjectCoordinating, agent: SessionAgent,
-                        startSession: @escaping (ProjectSessionRequest) async throws -> Void) {
+                        runtime: any ProjectCoordinating, agent: SessionAgent) {
         if let existing = projectCoordinators[project.id] { existing.model.update(project); return }
-        let model = factory.project(project, services: services, agent: agent, startSession: startSession)
+        let model = factory.project(project, services: services, agent: agent)
         installProject(model, runtime: runtime)
     }
 
@@ -61,6 +62,9 @@ extension AppCoordinator {
         case .saved(let project, let source):
             guard project.id == id else { return }
             runtime.applyProjectSave(project, source: source)
+        case .sessionCreated(let session, let prompt):
+            guard session.projectId == id else { return }
+            runtime.projectSessionCreated(session, prompt: prompt)
         case .deleted(let deletedID):
             guard deletedID == id else { return }
             projectCoordinators.removeValue(forKey: id)?.retire()

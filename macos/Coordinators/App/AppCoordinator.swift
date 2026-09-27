@@ -12,7 +12,6 @@ import Observation
     struct Sheet: Identifiable {
         enum Destination {
             case newProject(ProjectEditorViewModel)
-            case newSession(NewSessionViewModel)
             case build(BuildDestinationViewModel)
             case welcome(WelcomeViewModel)
         }
@@ -22,7 +21,6 @@ import Observation
         @MainActor func retire() {
             switch destination {
             case .newProject(let model): model.retire()
-            case .newSession(let model): model.retire()
             case .build(let model): model.retire()
             case .welcome(let model): model.retire()
             }
@@ -31,7 +29,6 @@ import Observation
         @MainActor var canDismiss: Bool {
             switch destination {
             case .newProject(let model): !model.busy
-            case .newSession(let model): !model.creating
             case .build(let model): !model.starting
             case .welcome(let model): !model.busy
             }
@@ -255,19 +252,6 @@ import Observation
             didSave(project)
         }
         sheet = Sheet(id: id, destination: .newProject(model))
-    }
-
-    func presentNewSession(request: SessionCreationRequest, operations: (any SessionCreating)?,
-                           didCreate: @escaping (WorkspaceSession) -> Void) {
-        guard canPresent else { return }
-        cancelPageActions()
-        let id = UUID()
-        let model = factory.newSession(request: request, operations: operations)
-        model.onAction = { [weak self] action in
-            guard case .created(let session) = action, self?.complete(id) == true else { return }
-            didCreate(session)
-        }
-        sheet = Sheet(id: id, destination: .newSession(model))
     }
 
     /// The first-run welcome, or a rerun from Settings. Returns whether it went up, so the

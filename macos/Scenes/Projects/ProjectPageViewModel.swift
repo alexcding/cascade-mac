@@ -20,6 +20,8 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     enum Action: Equatable {
         case saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
+        /// Start made a session; `prompt` is its agent's first message, when it has one.
+        case sessionCreated(WorkspaceSession, prompt: String?)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
@@ -30,6 +32,11 @@ enum ProjectSection: String, CaseIterable, Identifiable {
                 case .saved(let project): onAction(.saved(project, .configuration))
                 case .deleted(let id): onAction(.deleted(id))
                 case .requestDeletion(let request): onAction(.requestDeletion(request))
+                }
+            }
+            composer.onAction = { [onAction] action in
+                switch action {
+                case .created(let session, let prompt): onAction(.sessionCreated(session, prompt: prompt))
                 }
             }
         }
@@ -47,9 +54,15 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         guard !retired else { return }
         self.section = section
     }
-    func connect(_ service: (any ProjectService)?) {
+    func connect(_ service: (any ProjectService)?, sessions: (any SessionCreating)?) {
         guard !retired else { return }
-        editor.connect(service)
+        editor.connect(service); composer.connect(sessions)
+    }
+    /// Opens Start to begin a session: on a link, or from the plain page it was asked from.
+    func start(text: String? = nil, contextURL: String? = nil, agent: SessionAgent? = nil) {
+        guard !retired else { return }
+        section = .start
+        composer.prepare(text: text, contextURL: contextURL, agent: agent)
     }
     func retire() {
         retired = true; onAction = { _ in }

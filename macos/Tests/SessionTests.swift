@@ -44,15 +44,14 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     let project = Project(id: "fixture", name: "Fixture", repo: "fixture/repo", color: nil, workspace: "/tmp/fixture")
     let operations = SessionOperations(api: api)
     var created: WorkspaceSession?
-    let model = NewSessionViewModel(project: project, operations: operations)
-    model.onAction = { if case .created(let session) = $0 { created = session } }
+    let model = ProjectComposerModel(project: project, agent: .claude, operations: operations)
+    model.onAction = { if case .created(let session, _) = $0 { created = session } }
     await model.loadReferences()
-    #expect(model.title == "New session on Fixture")
-    #expect(model.placeholder == "worktree1" && model.draft.base == "main" && model.input.isEmpty)
-    model.draft.agent = .shell
-    model.input = "https://github.com/fixture/repo/pull/42"
-    await model.create()
-    #expect(model.completed)
+    #expect(model.placeholder == "worktree1" && model.base == "main" && model.text.isEmpty)
+    model.select(.shell)
+    model.text = "https://github.com/fixture/repo/pull/42"
+    await model.submit()
+    #expect(created != nil && model.text.isEmpty)
     #expect(created?.branch == "feature/native" && created?.kind == "github")
     #expect(created?.url == "https://github.com/fixture/repo/pull/42" && created?.projectId == project.id)
     let jira = try await operations.resolvePage("https://jira.test/browse/RECORD-12", project: project, draft: SessionDraft())
@@ -65,22 +64,23 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     configuration.protocolClasses = [SessionHTTPFixture.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
     let project = Project(id: "fixture", name: "Fixture", repo: "fixture/repo", color: nil, workspace: "/tmp/fixture")
-    let model = NewSessionViewModel(project: project, operations: SessionOperations(api: api))
+    let model = ProjectComposerModel(project: project, agent: .shell, operations: SessionOperations(api: api))
+    var created = 0
+    model.onAction = { _ in created += 1 }
     await model.loadReferences()
-    #expect(model.fieldHint.text == NewSessionViewModel.hint && !model.fieldHint.isError)
-    model.input = "https://example.com/not-a-page"
-    #expect(model.fieldHint.isError && !model.canCreate)
-    model.input = "https://jira.test/browse/RECORD-12"
+    #expect(model.hint?.text == "New branch worktree1 from main" && model.hint?.isError == false)
+    model.text = "https://example.com/not-a-page"
+    #expect(model.hint?.isError == true && !model.canStart)
+    model.text = "https://jira.test/browse/RECORD-12"
     #expect(await model.resolve())
-    #expect(model.fieldHint.text == "Opens RECORD-12 Native sidebar — branch RECORD-12-existing")
-    #expect(model.worktreeHint == "Runs in existing on RECORD-12-existing")
-    model.input = "bad..name"
-    #expect(model.resolved == nil && model.worktreeHint == nil)
-    await model.create()
-    #expect(model.fieldHint.isError && !model.completed)
-    #expect(NewSessionViewModel.branchNameError("feature/ok-1") == nil)
-    #expect(NewSessionViewModel.branchNameError("feature/.hidden") != nil)
-    #expect(NewSessionViewModel.branchNameError("has space") != nil)
+    #expect(model.hint?.text == "Opens RECORD-12 Native sidebar in existing on RECORD-12-existing")
+    model.text = "bad..name"
+    #expect(model.resolved == nil && model.hint?.text == "New branch bad..name from main")
+    await model.submit()
+    #expect(model.hint?.isError == true && created == 0)
+    #expect(ProjectSessionStart.branchNameError("feature/ok-1") == nil)
+    #expect(ProjectSessionStart.branchNameError("feature/.hidden") != nil)
+    #expect(ProjectSessionStart.branchNameError("has space") != nil)
 }
 
 @Test func agentCommandsResumeExactIDsAndQuoteShellMetacharacters() {
@@ -142,45 +142,46 @@ private let scriptedProject = Project(id: "fixture", name: "Fixture", repo: "fix
 
 @MainActor @Test(.timeLimit(.minutes(1))) func sessionCreateRetriesAFailedTicketLookupAndKeepsItsError() async {
     let service = ScriptedSessionService(resolutionError: BackendError.operation("Worktree lookup failed"))
-    let model = NewSessionViewModel(project: scriptedProject, operations: service)
-    model.input = "https://jira.test/browse/RECORD-12"
+    let model = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: service)
+    model.text = "https://jira.test/browse/RECORD-12"
     #expect(await model.resolve() == false)
-    #expect(model.error == "Worktree lookup failed" && model.canCreate && !model.showsPullRequestBranch)
-    await model.create()
-    await model.create()
-    #expect(model.error == "Worktree lookup failed" && !model.completed)
+    #expect(model.error == "Worktree lookup failed" && model.canStart && !model.showsPullRequestBranch)
+    await model.submit()
+    await model.submit()
+    #expect(model.error == "Worktree lookup failed" && !model.text.isEmpty)
     #expect(await service.resolutions == 3) // each Create looks the page up again
     #expect(await service.creations == 0)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func sessionAsksForThePullRequestBranchOnlyWhenTheBranchIsUnknown() async {
     let mismatch = ScriptedSessionService(resolutionError: BackendError.operation("This pull request belongs to other/repo."))
-    let wrongProject = NewSessionViewModel(project: scriptedProject, operations: mismatch)
-    wrongProject.input = "https://github.com/other/repo/pull/7"
+    let wrongProject = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: mismatch)
+    wrongProject.text = "https://github.com/other/repo/pull/7"
     _ = await wrongProject.resolve()
     #expect(!wrongProject.showsPullRequestBranch && wrongProject.error == "This pull request belongs to other/repo.")
-    await wrongProject.create()
+    await wrongProject.submit()
     #expect(await mismatch.creations == 0)
 
     let unknown = ScriptedSessionService(resolutionError: PullRequestBranchUnknown())
-    let model = NewSessionViewModel(project: scriptedProject, operations: unknown)
-    var created: WorkspaceSession?
-    model.onAction = { if case .created(let session) = $0 { created = session } }
-    model.input = "https://github.com/fixture/repo/pull/42"
+    let model = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: unknown)
+    var created: WorkspaceSession?, prompt: String??
+    model.onAction = { if case .created(let session, let first) = $0 { created = session; prompt = first } }
+    model.text = "https://github.com/fixture/repo/pull/42"
     _ = await model.resolve()
     #expect(model.showsPullRequestBranch && model.error == nil)
-    await model.create()
-    #expect(model.fieldHint.isError && created == nil)
+    await model.submit()
+    #expect(model.hint?.isError == true && created == nil)
     model.pullRequestBranch = "feature/known"
-    await model.create()
+    await model.submit()
     #expect(created?.branch == "feature/known" && created?.url == "https://github.com/fixture/repo/pull/42")
+    #expect(prompt == .some(nil), "A link starts on its page, with no prompt")
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func sessionBranchListErrorSurvivesEditingTheField() async {
-    let model = NewSessionViewModel(project: scriptedProject, operations: ScriptedSessionService(referencesFail: true))
+    let model = ProjectComposerModel(project: scriptedProject, agent: .shell, operations: ScriptedSessionService(referencesFail: true))
     await model.loadReferences()
     #expect(model.referenceError == "Could not read refs" && model.error == nil)
-    model.input = "feature/x"
+    model.text = "feature/x"
     #expect(model.referenceError == "Could not read refs")
 }
 
@@ -305,7 +306,7 @@ private actor PageStartService: SessionCreating {
     }
 }
 
-@Test func pageSessionStartCreatesAtOnceFallsBackToTheSheetAndReportsFailures() async {
+@Test func pageSessionStartCreatesAtOnceFallsBackToStartAndReportsFailures() async {
     var ticket = SessionDraft(); ticket.url = "https://jira.test/browse/REC-1"; ticket.kind = "jira"; ticket.branch = "REC-1-fix"; ticket.createBranch = true
     let fresh = PageSessionStart.self
     let newBranch = PageStartService(.success(ticket))
@@ -326,7 +327,7 @@ private actor PageStartService: SessionCreating {
 
     guard case .needsBranch = await fresh.run(url: "https://github.com/fixture/repo/pull/1", project: scriptedProject, agent: .shell,
                                               operations: PageStartService(.failure(PullRequestBranchUnknown()))) else {
-        Issue.record("An unknown PR branch should fall back to the sheet"); return
+        Issue.record("An unknown PR branch should fall back to Start"); return
     }
     guard case .failed(let message) = await fresh.run(url: ticket.url, project: scriptedProject, agent: .shell,
                                                       operations: PageStartService(.failure(BackendError.operation("feature/x is checked out in the main repo — switch it away there first.")))) else {
