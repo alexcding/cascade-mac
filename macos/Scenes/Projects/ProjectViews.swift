@@ -199,8 +199,8 @@ struct ProjectComposerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 if let context = model.contextURL { contextChip(context) }
                 TextField(model.placeholderText, text: $model.text, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(4...10)
-                    .frame(minHeight: 84, alignment: .topLeading)
+                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(3...10)
+                    .frame(minHeight: 64, alignment: .topLeading)
                     .focused($focused).disabled(model.creating)
                     .onSubmit { Task { await model.submit() } }
                     .accessibilityIdentifier("project-composer")

@@ -15557,9 +15557,6 @@
         }
       }
     },
-    "Branch name, or a pull request or Jira link" : {
-
-    },
     "Bring the PR branch up to date with its base." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -33334,7 +33331,7 @@
         }
       }
     },
-    "Describe a task, or paste a pull request or Jira link" : {
+    "Describe a task or branch, or paste a pull request or Jira link" : {
 
     },
     "Destination" : {
@@ -55032,26 +55029,6 @@
         }
       }
     },
-    "New branch %@ from %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "New branch %1$@ from %2$@"
-          }
-        }
-      }
-    },
-    "New branch %@ from %@; %@ starts with your text" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "New branch %1$@ from %2$@; %3$@ starts with your text"
-          }
-        }
-      }
-    },
     "New Commit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -65517,9 +65494,6 @@
           }
         }
       }
-    },
-    "Opens %@" : {
-
     },
     "Opens %@ — branch %@" : {
       "extractionState" : "manual",
