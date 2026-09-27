@@ -58,6 +58,7 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.contextMenu = { [weak coordinator = context.coordinator] item in coordinator?.menu(for: item) }
         outline.onReselect = { [weak coordinator = context.coordinator] item in coordinator?.reselected(item) }
         outline.onMiddleClick = { [weak coordinator = context.coordinator] item in coordinator?.middleClicked(item) }
+        outline.canDrag = { [weak coordinator = context.coordinator] item in coordinator?.canDrag(item) ?? false }
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -242,8 +243,9 @@ struct CocoaSidebar: NSViewRepresentable {
             }
         }
         private func home(of node: Node) -> Node? { homes[ObjectIdentifier(node)] }
+        func canDrag(_ node: Node) -> Bool { drag(for: node) != nil }
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? Node, drag(for: node) != nil else { return nil }
+            guard let node = item as? Node, canDrag(node) else { return nil }
             let pasteboardItem = NSPasteboardItem()
             pasteboardItem.setString(node.entry.id, forType: CocoaSidebar.dragType)
             return pasteboardItem
@@ -982,9 +984,18 @@ enum SidebarGlyphs {
     var contextMenu: ((CocoaSidebar.Node) -> NSMenu?)?
     var onReselect: ((CocoaSidebar.Node) -> Void)?
     var onMiddleClick: ((CocoaSidebar.Node) -> Void)?
+    var canDrag: ((CocoaSidebar.Node) -> Bool)?
 
     // No disclosure triangles: a project folder collapses by clicking it again.
     override func frameOfOutlineCell(atRow row: Int) -> NSRect { .zero }
+
+    // The gap style hides the pressed row as soon as the pointer moves 4pt, before it asks for a
+    // pasteboard writer. For a row with none, no drag begins, so nothing ever shows the row again:
+    // a click that wobbled on Automation left an empty slot. Refuse those rows up front.
+    override func canDragRows(with rowIndexes: IndexSet, at mouseDownPoint: NSPoint) -> Bool {
+        rowIndexes.allSatisfy { (item(atRow: $0) as? CocoaSidebar.Node).map { canDrag?($0) == true } ?? false }
+            && super.canDragRows(with: rowIndexes, at: mouseDownPoint)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let row = row(at: convert(event.locationInWindow, from: nil))

@@ -421,6 +421,44 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(rows().sorted() == before.sorted())
 }
 
+/// The gap style hides the pressed row before any pasteboard writer is asked for, so a row with
+/// nothing to drag has to refuse the drag itself, or a wobbly click leaves its slot empty.
+@MainActor @Test func aRowThatCannotMoveRefusesTheDragBeforeTheTableHidesIt() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("pa", created: "2026-02", pinned: true),
+                    workspaceSession("orphan", created: "2026-05", project: "deleted")]
+    let tabs = [SavedTab(id: "t1", kind: "web", title: "One", url: "https://example.com/1"),
+                SavedTab(id: "t2", kind: "web", title: "Two", url: "https://example.com/2", pinned: true)]
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs),
+                             selection: .overview, pinnedIDs: ["pa"], onSelect: { _ in }, onTogglePin: { _ in })
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = SidebarOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    outline.canDrag = { coordinator.canDrag($0) }
+    // In a window, as on screen: out of one the table refuses every drag by itself.
+    let window = NSWindow(contentRect: outline.frame, styleMask: [.titled], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = outline
+    coordinator.outline = outline
+    coordinator.update(value)
+    outline.layoutSubtreeIfNeeded()
+    func canDrag(_ id: String) throws -> Bool {
+        let row = try #require((0..<outline.numberOfRows).first { (outline.item(atRow: $0) as? CocoaSidebar.Node)?.entry.id == id })
+        return outline.canDragRows(with: [row], at: NSPoint(x: 40, y: outline.rect(ofRow: row).midY))
+    }
+
+    for id in ["overview", "automation", "pinned-tabs", "label:pinned", "label:projects", "label:tabs", "session:orphan"] {
+        #expect(try !canDrag(id), "\(id)")
+    }
+    for id in ["pin:pa", "project:p1", "session:a", "tab:t1"] { #expect(try canDrag(id), "\(id)") }
+    window.close()
+}
+
 @MainActor @Test func aDraggedSidebarRowCarriesAPictureOfItself() throws {
     _ = NSApplication.shared
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")], tabs: [])
