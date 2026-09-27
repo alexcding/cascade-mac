@@ -82,7 +82,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
 
 @MainActor @Test func aProjectOpensOnHomeAndItsTabsPickThePageUntilRetired() {
     let model = homeModel()
-    #expect(model.section == .home && ProjectSection.allCases == [.home, .settings, .orchestration])
+    #expect(model.section == .home && ProjectSection.allCases == [.home, .orchestration, .settings])
     model.selectSection(.settings)
     #expect(model.section == .settings)
     model.update(homeProject)

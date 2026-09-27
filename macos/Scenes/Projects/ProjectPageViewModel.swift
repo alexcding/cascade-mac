@@ -3,7 +3,7 @@ import Observation
 
 /// The pages of a project, picked from the toolbar as the Dashboard's are.
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case home, settings, orchestration
+    case home, orchestration, settings
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -14,7 +14,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     }
 }
 
-/// A project's screen: Home, the composer that starts its sessions; Settings; and Orchestration.
+/// A project's screen: Home, the composer that starts its sessions; Orchestration; and Settings.
 @MainActor @Observable final class ProjectPageViewModel {
     /// What the screen asks its coordinator to do.
     enum Action: Equatable {

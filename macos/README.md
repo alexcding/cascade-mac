@@ -148,7 +148,7 @@ use the narrower active-review-request classification. Failed refreshes preserve
 the last successful snapshot and offer retry.
 
 A project's page has three tabs in the toolbar, as the Dashboard has: Home, a
-composer that starts a session in it; Settings; and Orchestration, empty for now.
+composer that starts a session in it; Orchestration, empty for now; and Settings.
 A Jira project key gives the project a sprint board on the Dashboard's Tickets tab.
 
 Tickets and Sprint Board are native SwiftUI surfaces. They read cached Jira data,
