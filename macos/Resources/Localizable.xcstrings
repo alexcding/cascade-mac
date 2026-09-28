@@ -960,6 +960,16 @@
         }
       }
     },
+    "%@ asked something in the terminal as this message was typed. It was not sent: what was typed is in %@'s prompt there." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ asked something in the terminal as this message was typed. It was not sent: what was typed is in %2$@'s prompt there."
+          }
+        }
+      }
+    },
     "%@ at %@" : {
       "comment" : "Chat date line: a day, then a time",
       "extractionState" : "manual",
@@ -1196,9 +1206,6 @@
       "comment" : "Value with the standard GB unit symbol.",
       "extractionState" : "manual",
       "shouldTranslate" : false
-    },
-    "%@ has no Jira project key, so it has no sprint board." : {
-
     },
     "%@ held back" : {
       "extractionState" : "manual",
@@ -5419,9 +5426,6 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
-    "A board shows one project. Choose one above." : {
-
-    },
     "A draft PR is marked ready." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8418,6 +8422,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "網址建議"
+          }
+        }
+      }
+    },
+    "Adds a Board tab to this project with its Jira sprint board." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এই প্রজেক্টে এর Jira স্প্রিন্ট বোর্ডসহ একটি বোর্ড ট্যাব যোগ করে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade a este proyecto una pestaña Tablero con su tablero de sprint de Jira."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajoute à ce projet un onglet Tableau avec son tableau de sprint Jira."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इस प्रोजेक्ट में इसके Jira स्प्रिंट बोर्ड के साथ एक बोर्ड टैब जोड़ता है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiunge a questo progetto una scheda Board con la sua board dello sprint Jira."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このプロジェクトに、Jira のスプリントボードを表示するボードタブを追加します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 프로젝트에 Jira 스프린트 보드를 보여 주는 보드 탭을 추가합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adiciona a este projeto uma aba Quadro com o quadro de sprint do Jira."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавляет в проект вкладку «Доска» с доской спринта Jira."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lägger till en Tavla-flik i projektet med dess Jira-sprinttavla."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为此项目添加一个“看板”标签页，显示其 Jira 冲刺看板。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "為此專案新增一個「看板」分頁，顯示其 Jira 衝刺看板。"
           }
         }
       }
@@ -47363,6 +47443,7 @@
       }
     },
     "Jira isn’t connected, so there is no board to show." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -49291,6 +49372,7 @@
       }
     },
     "List" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -49596,9 +49678,6 @@
           }
         }
       }
-    },
-    "Loading %@’s sprint board…" : {
-
     },
     "Loading commit…" : {
       "extractionState" : "manual",
@@ -63226,9 +63305,6 @@
           }
         }
       }
-    },
-    "One project’s sprint at a time" : {
-
     },
     "One session per worktree" : {
       "extractionState" : "manual",
@@ -85409,83 +85485,6 @@
         }
       }
     },
-    "Sends when %@ is back at its prompt" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ প্রম্পটে ফিরলে পাঠাবে"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se envía cuando %@ vuelva a su prompt"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Envoi quand %@ revient à son invite"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ के प्रॉम्प्ट पर लौटने पर भेजेगा"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invia quando %@ torna al prompt"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ がプロンプトに戻ると送信します"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@이(가) 프롬프트로 돌아오면 전송"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Envia quando %@ voltar ao prompt"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отправится, когда %@ вернётся к приглашению"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skickas när %@ återgår till sin prompt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 返回提示符后发送"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 回到提示符號後傳送"
-          }
-        }
-      }
-    },
     "serve-sim answered with an address that is not on this Mac." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -87408,6 +87407,82 @@
         }
       }
     },
+    "Show board" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "বোর্ড দেখান"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar tablero"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher le tableau"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "बोर्ड दिखाएँ"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra board"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボードを表示"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "보드 표시"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar quadro"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать доску"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Visa tavla"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示看板"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "顯示看板"
+          }
+        }
+      }
+    },
     "Show code preview" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -88251,158 +88326,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "顯示建置設定：配置與模擬器"
-          }
-        }
-      }
-    },
-    "Adds a Board tab to this project with its Jira sprint board." : {
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "এই প্রজেক্টে এর Jira স্প্রিন্ট বোর্ডসহ একটি বোর্ড ট্যাব যোগ করে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Añade a este proyecto una pestaña Tablero con su tablero de sprint de Jira."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajoute à ce projet un onglet Tableau avec son tableau de sprint Jira."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "इस प्रोजेक्ट में इसके Jira स्प्रिंट बोर्ड के साथ एक बोर्ड टैब जोड़ता है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aggiunge a questo progetto una scheda Board con la sua board dello sprint Jira."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このプロジェクトに、Jira のスプリントボードを表示するボードタブを追加します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 프로젝트에 Jira 스프린트 보드를 보여 주는 보드 탭을 추가합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Adiciona a este projeto uma aba Quadro com o quadro de sprint do Jira."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Добавляет в проект вкладку «Доска» с доской спринта Jira."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lägger till en Tavla-flik i projektet med dess Jira-sprinttavla."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为此项目添加一个“看板”标签页，显示其 Jira 冲刺看板。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "為此專案新增一個「看板」分頁，顯示其 Jira 衝刺看板。"
-          }
-        }
-      }
-    },
-    "Show board" : {
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "বোর্ড দেখান"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar tablero"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher le tableau"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "बोर्ड दिखाएँ"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostra board"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ボードを表示"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "보드 표시"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar quadro"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показывать доску"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Visa tavla"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示看板"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "顯示看板"
           }
         }
       }
