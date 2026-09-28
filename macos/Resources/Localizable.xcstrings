@@ -11805,6 +11805,7 @@
       }
     },
     "Ask %@ anything, / for commands, @ for files" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -11879,6 +11880,12 @@
           }
         }
       }
+    },
+    "Ask Claude" : {
+
+    },
+    "Ask Codex" : {
+
     },
     "Ask users or org/team slugs to review." : {
       "extractionState" : "manual",
