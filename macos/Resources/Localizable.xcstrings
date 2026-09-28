@@ -5257,6 +5257,82 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ hooks updated" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ হুক আপডেট হয়েছে"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks de %@ actualizados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks de %@ mis à jour"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ हुक अपडेट हुए"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook di %@ aggiornati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ のフックを更新しました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 훅이 업데이트됨"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks do %@ atualizados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хуки %@ обновлены"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hookar för %@ uppdaterade"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 钩子已更新"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 掛鉤已更新"
+          }
+        }
+      }
+    },
     "5-hour periods until reset: %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20209,6 +20285,82 @@
         }
       }
     },
+    "Claude Code may ask you to review the change: allow it in /hooks." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code আপনাকে পরিবর্তনটি পর্যালোচনা করতে বলতে পারে: /hooks-এ এটির অনুমতি দিন।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code puede pedirte que revises el cambio: permítelo en /hooks."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code peut vous demander de vérifier la modification : autorisez-la dans /hooks."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code आपसे बदलाव की समीक्षा करने को कह सकता है: /hooks में इसे अनुमति दें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code potrebbe chiederti di rivedere la modifica: consentila in /hooks."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code で変更の確認を求められることがあります。/hooks で許可してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code에서 변경 사항 검토를 요청할 수 있습니다. /hooks에서 허용하세요."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Claude Code pode pedir que você revise a alteração: permita-a em /hooks."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code может попросить проверить изменение: разрешите его в /hooks."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code kan be dig granska ändringen: tillåt den i /hooks."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 可能会要求你审核此更改：请在 /hooks 中允许。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 可能會要求你審核此變更：請在 /hooks 中允許。"
+          }
+        }
+      }
+    },
     "Claude Code status line installed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -22822,6 +22974,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "程式碼主題預覽"
+          }
+        }
+      }
+    },
+    "Codex may ask you to review the change before it uses them." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex ব্যবহারের আগে আপনাকে পরিবর্তনটি পর্যালোচনা করতে বলতে পারে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex puede pedirte que revises el cambio antes de usarlos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex peut vous demander de vérifier la modification avant de les utiliser."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex उपयोग से पहले आपसे बदलाव की समीक्षा करने को कह सकता है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex potrebbe chiederti di rivedere la modifica prima di usarli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex で使用前に変更の確認を求められることがあります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex에서 사용하기 전에 변경 사항 검토를 요청할 수 있습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Codex pode pedir que você revise a alteração antes de usá-los."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex может попросить проверить изменение, прежде чем их использовать."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex kan be dig granska ändringen innan den använder dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 可能会在使用前要求你审核此更改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Codex 可能會在使用前要求你審核此變更。"
           }
         }
       }
@@ -30124,6 +30352,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法更新釘選狀態：%@"
+          }
+        }
+      }
+    },
+    "Could not update the %@ hooks" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ হুক আপডেট করা যায়নি"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudieron actualizar los hooks de %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de mettre à jour les hooks de %@"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ हुक अपडेट नहीं हो सके"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile aggiornare gli hook di %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ のフックを更新できませんでした"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 훅을 업데이트할 수 없습니다"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível atualizar os hooks do %@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось обновить хуки %@"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det gick inte att uppdatera hookarna för %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法更新 %@ 钩子"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法更新 %@ 掛鉤"
           }
         }
       }

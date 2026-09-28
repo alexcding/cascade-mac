@@ -624,11 +624,15 @@ fn is_our_entry(entry: &Value) -> bool {
         })
     })
 }
+/// The CLI's hooks file as it is now, or None when it is missing or not JSON.
+fn hooks_config(agent: Agent) -> Option<Value> {
+    hook_file(agent).ok().and_then(|(file, _)| read_json(&file))
+}
 pub(crate) fn hook_status_for(agent: Agent) -> String {
-    let Ok((file, _)) = hook_file(agent) else {
-        return "absent".into();
-    };
-    let Some(value) = read_json(&file) else {
+    hook_status_in(agent, hooks_config(agent).as_ref())
+}
+fn hook_status_in(agent: Agent, config: Option<&Value>) -> String {
+    let Some(value) = config else {
         return "absent".into();
     };
     let ours = |event: &str| {
@@ -761,21 +765,38 @@ fn has_our_hooks(config: &Value) -> bool {
 
 /// Brings up to date the hooks the person installed, at each start: an app that changed how its
 /// hooks report updates its own. It never adds hooks nobody installed, and hooks removed in Settings
-/// are gone from the file, so they stay removed.
+/// are gone from the file, so they stay removed. Each update is told as activity, a toast: a CLI
+/// may ask its user to review hook changes it did not make.
 pub(crate) fn ensure_hooks(app: &AppState) {
     for agent in Agent::ALL {
         let profile = agent.profile();
-        let status = hook_status_for(agent);
-        let installed_once = hook_file(agent).ok().and_then(|(file, _)| read_json(&file)).is_some_and(|config| has_our_hooks(&config));
-        if !installed_once || status == "installed" {
+        // Read once: whether they were installed, and whether they are current.
+        let config = hooks_config(agent);
+        let status = hook_status_in(agent, config.as_ref());
+        if !config.as_ref().is_some_and(has_our_hooks) || status == "installed" {
             continue;
         }
-        let entry = json!({"cli": profile.id, "was": status});
-        let _ = match change_hooks(app, profile.id, true) {
-            Ok(_) => app.db.add_log("hooks", "info", "hooks_installed", &entry),
-            Err(error) => app.db.add_log("hooks", "error", "hooks_install_failed", &json!({"cli": profile.id, "error": error.to_string()})),
+        let (kind, payload) = match change_hooks(app, profile.id, true) {
+            Ok(_) => ("hooks_updated", json!({"cli": profile.id})),
+            Err(error) => ("hooks_update_failed", json!({"cli": profile.id, "error": error.to_string()})),
         };
+        if let Ok(event) = app.db.add_event(kind, &payload) {
+            app.broadcast(json!({"type": "activity", "event": event}));
+        }
     }
+}
+/// Brings the installed hooks up to date, asked by the app once it can show the toasts that say so.
+pub async fn update_hooks(State(app): State<AppState>, headers: axum::http::HeaderMap) -> ApiResult<Value> {
+    if crate::local::foreign_origin(&headers) {
+        return Err(ApiError::forbidden("Hooks are the app's to change"));
+    }
+    let status = tokio::task::spawn_blocking(move || {
+        ensure_hooks(&app);
+        hook_status()
+    })
+    .await
+    .map_err(ApiError::internal)?;
+    Ok(Json(status))
 }
 pub async fn agent_hooks() -> ApiResult<Value> {
     Ok(Json(hook_status()))

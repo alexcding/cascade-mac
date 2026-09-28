@@ -95,6 +95,9 @@ protocol AgentDriver: Sendable {
     var namesConversationAtLaunch: Bool { get }
     /// It runs the app's status line wrapper, which is how it reports its real context window.
     var takesStatusLine: Bool { get }
+    /// What to tell a person after the app updated this CLI's hooks, which it may not use until
+    /// they allow the change.
+    var hooksChangedNotice: String { get }
     func launchCommand(sessionID: String?, fresh: Bool, selection: AgentCatalog.Model?, effort: String?,
                        statusLine: AgentStatusLine?) -> String
     /// What to type at the running agent to move it to `model`, without leaving the conversation.
@@ -142,6 +145,8 @@ struct ClaudeDriver: AgentDriver {
     let namesConversationAtLaunch = true
     /// `--settings` gives it a status line for this launch only.
     let takesStatusLine = true
+    /// It holds hooks changed outside it until they are reviewed in its `/hooks` menu.
+    var hooksChangedNotice: String { String(localized: "Claude Code may ask you to review the change: allow it in /hooks.") }
     let compactCommand = "/compact"
     let clearCommand = "/clear"
 
@@ -188,6 +193,7 @@ struct CodexDriver: AgentDriver {
     /// It names its own sessions, and `resume` takes the one it reports.
     let namesConversationAtLaunch = false
     let takesStatusLine = false
+    var hooksChangedNotice: String { String(localized: "Codex may ask you to review the change before it uses them.") }
     let compactCommand = "/compact"
     let clearCommand = "/clear"
 

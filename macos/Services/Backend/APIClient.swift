@@ -132,6 +132,13 @@ public actor APIClient {
         try await send(Routes.AGENT_PERMISSION, method: "POST", body: Payload(id: id, decision: decision))
     }
 
+    /// Has the backend bring the agent hooks the person installed up to date. Each update, or a
+    /// failed one, arrives as activity: a toast.
+    func updateAgentHooks() async throws {
+        struct Nothing: Encodable, Sendable {}
+        try await send(Routes.AGENT_HOOKS, method: "POST", body: Nothing())
+    }
+
     func setSetting(_ key: String, value: String) async throws {
         struct Payload: Encodable, Sendable { let value: String }
         try await send(Routes.settingsKey(key), method: "PUT", body: Payload(value: value))

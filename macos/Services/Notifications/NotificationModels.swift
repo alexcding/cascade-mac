@@ -35,6 +35,8 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         var automation: String? = nil
         var subject: String? = nil
         var mode: String? = nil
+        /// `hooks_updated` and `hooks_update_failed`: the agent CLI whose hooks the app updated.
+        var cli: String? = nil
     }
     let type: String
     let payload: Payload?
@@ -48,6 +50,13 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         let body: String
         var url: String?
         switch type {
+        case "hooks_updated":
+            let agent = AgentDrivers.of(p?.cli)
+            title = String(localized: "\(agent?.name ?? p?.cli ?? "") hooks updated")
+            body = agent?.hooksChangedNotice ?? ""
+        case "hooks_update_failed":
+            title = String(localized: "Could not update the \(AgentDrivers.of(p?.cli)?.name ?? p?.cli ?? "") hooks")
+            body = p?.error ?? ""
         case "pr_opened":
             title = String(localized: "Pull request opened in \(repo)"); body = prBody; url = p?.pr?.url
         case "pr_merged":

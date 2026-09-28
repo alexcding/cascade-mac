@@ -64,8 +64,6 @@ impl Poller {
         }
         crate::automation::start(&app);
         crate::agents::warm();
-        let hooks_app = app.clone();
-        tokio::task::spawn_blocking(move || crate::integrations::ensure_hooks(&hooks_app));
         let pr_app = app.clone();
         tokio::spawn(async move {
             loop {

@@ -1614,6 +1614,9 @@ public final class AppViewModel {
         // open sessions ask for their state rather than showing a run that already finished.
         ideWarmup.resync(worktrees: sessions.filter { viewer.contexts["task:\($0.id)"] != nil }.map(\.worktree))
         settings?.diagnostics.invalidate()
+        // Now that it can say so: the agent hooks the person installed are brought up to date, and
+        // each update comes back as a toast, since the CLI may ask them to allow it.
+        if let api { Task { try? await api.updateAgentHooks() } }
     }
 
     private struct LastHook: Decodable { let event: ServerEvent? }

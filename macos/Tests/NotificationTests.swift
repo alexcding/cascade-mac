@@ -145,3 +145,16 @@ private func activity(_ stamp: String, type: String = "pr_merged", url: String =
     #expect(preview.body == "PR #42")
     #expect(try notice(mode: "live").title == "Release notes ran")
 }
+
+/// As `integrations::ensure_hooks` sends it: the CLI whose hooks the app brought up to date.
+@Test func anUpdateToAnAgentsHooksSaysWhoseAndThatItMayNeedAllowing() throws {
+    func event(_ type: String, _ payload: [String: String]) throws -> NativeNotice {
+        let data = try JSONSerialization.data(withJSONObject: ["type": type, "created_at": "now", "payload": payload])
+        return try JSONDecoder().decode(ActivityEvent.self, from: data).message
+    }
+    let updated = try event("hooks_updated", ["cli": "claude"])
+    #expect(updated.title == "Claude Code hooks updated" && updated.body.contains("/hooks"))
+    #expect(try event("hooks_updated", ["cli": "codex"]).title == "Codex hooks updated")
+    let failed = try event("hooks_update_failed", ["cli": "claude", "error": "invalid JSON"])
+    #expect(failed.title == "Could not update the Claude Code hooks" && failed.body == "invalid JSON")
+}
