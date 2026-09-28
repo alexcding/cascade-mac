@@ -336,23 +336,6 @@ private struct ReviewFooter: View {
     }
 }
 
-struct SessionWorkspaceModePicker: View {
-    let model: SessionWorkspaceViewModel
-
-    var body: some View {
-        Picker(String(localized: "Panel"), selection: Binding(get: { model.mode }, set: model.selectMode)) {
-            ForEach(model.modes) { mode in
-                Image(systemName: mode.symbol).help(mode.title).tag(mode)
-                    .disabled(!model.canSelectMode(mode))
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        .accessibilityIdentifier("workspace-mode-picker")
-    }
-}
-
 /// The right pane with nothing in it: a real surface that names what
 /// the pane is for, not a void. It gives the open/close animation something to resize.
 struct BlankPane: View {

@@ -25,7 +25,7 @@ import SwiftUI
             toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
         }
         if model.showsModePicker {
-            toolbar.trailing.append(item("mode-picker") { SessionWorkspaceModePicker(model: model) })
+            toolbar.trailing.append(modePicker)
         }
         if model.showsTerminal {
             toolbar.pane = [item("pane-toggle") { SessionWorkspaceContextToggle(model: model) }]
@@ -52,6 +52,18 @@ import SwiftUI
                 }
             }
         }]
+    }
+
+    /// Tabs, Diff and Simulator: segments while the screen's section has room, one pop-up button
+    /// with the chosen mode's symbol when it has not.
+    private var modePicker: WindowToolbarItem {
+        let modes = model.modes
+        return .picker("mode-picker",
+                       label: String(localized: "Panel"),
+                       choices: modes.map { .init(title: $0.title, symbol: $0.symbol, enabled: model.canSelectMode($0)) },
+                       selected: modes.firstIndex(of: model.mode) ?? 0) { index in
+            if modes.indices.contains(index) { model.selectMode(modes[index]) }
+        }
     }
 
     /// An item whose content belongs to this workspace. Another workspace's toolbar can have the

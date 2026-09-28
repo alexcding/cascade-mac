@@ -34,6 +34,17 @@ struct WindowToolbarItem: Identifiable {
         /// it, so it is never clipped the way hosted content measured once can be. `selected` is
         /// read as the toolbar is described, like a search field's text.
         case segments(titles: [String], selected: Int, select: (Int) -> Void)
+        /// A choice of one as the system's toolbar item group: segments of symbols while the
+        /// section has room, one pop-up button showing the chosen symbol when it is short of it.
+        /// AppKit decides which. `selected` and each choice's `enabled` are read as the toolbar is
+        /// described. One choice is always selected: AppKit ignores -1 here.
+        case picker(label: String, choices: [Choice], selected: Int, select: (Int) -> Void)
+    }
+
+    struct Choice {
+        let title: String
+        let symbol: String
+        var enabled = true
     }
 
     let id: String
@@ -59,6 +70,13 @@ struct WindowToolbarItem: Identifiable {
     static func segments(_ id: String, titles: [String], selected: Int, priority: NSToolbarItem.VisibilityPriority = .standard,
                          select: @escaping (Int) -> Void) -> Self {
         Self(id, style: .segments(titles: titles, selected: selected, select: select), priority: priority) { EmptyView() }
+    }
+
+    /// A choice of one that collapses to a pop-up button when short of room. A different set of
+    /// choices rebuilds the toolbar itself, so the id can stay the same.
+    static func picker(_ id: String, label: String, choices: [Choice], selected: Int,
+                       priority: NSToolbarItem.VisibilityPriority = .standard, select: @escaping (Int) -> Void) -> Self {
+        Self(id, style: .picker(label: label, choices: choices, selected: selected, select: select), priority: priority) { EmptyView() }
     }
 
     /// The page name, flat at the leading edge: the window's own title is hidden.

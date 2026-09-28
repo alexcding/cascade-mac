@@ -26,6 +26,7 @@ import SwiftUI
     private var searchTexts: [String: Binding<String>] = [:]
     private var searchItems: [String: NSSearchToolbarItem] = [:]
     private var segmentControls: [String: NSSegmentedControl] = [:]
+    private var pickers: [String: (group: NSToolbarItemGroup, choices: [WindowToolbarItem.Choice])] = [:]
     private var segmentActions: [String: (Int) -> Void] = [:]
 
     init(describe: @escaping () -> WindowToolbar) {
@@ -44,7 +45,8 @@ import SwiftUI
     private func apply(_ next: WindowToolbar) {
         current = next
         let identifiers = Self.identifiers(for: next)
-        guard identifiers == self.identifiers else {
+        // A group's choices are fixed once it is made, so a picker offering others is a new toolbar too.
+        guard identifiers == self.identifiers, !allItems(next).contains(where: reshapesPicker) else {
             self.identifiers = identifiers
             install()
             return
@@ -58,6 +60,7 @@ import SwiftUI
         searchTexts = [:]
         searchItems = [:]
         segmentControls = [:]
+        pickers = [:]
         segmentActions = [:]
         // Its own identifier: toolbars sharing one keep their items in step, and the old one may
         // not be gone yet.
@@ -97,6 +100,13 @@ import SwiftUI
         toolbar.leading + toolbar.center + toolbar.trailing + (toolbar.pane ?? [])
     }
 
+    /// A picker whose choices are no longer the ones its group was made with; which are enabled
+    /// is updated in place.
+    private func reshapesPicker(_ item: WindowToolbarItem) -> Bool {
+        guard case .picker(_, let choices, _, _) = item.style, let built = pickers[item.id]?.choices else { return false }
+        return built.map(\.title) != choices.map(\.title) || built.map(\.symbol) != choices.map(\.symbol)
+    }
+
     private func refresh(_ item: WindowToolbarItem) {
         switch item.style {
         case .search(_, let value, let text):
@@ -107,6 +117,14 @@ import SwiftUI
         case .segments(_, let selected, let select):
             segmentActions[item.id] = select
             if let control = segmentControls[item.id], control.selectedSegment != selected { control.selectedSegment = selected }
+        case .picker(let label, let choices, let selected, let select):
+            segmentActions[item.id] = select
+            guard let group = pickers[item.id]?.group else { break }
+            if group.label != label { group.label = label }
+            if group.selectedIndex != selected { group.selectedIndex = selected }
+            for (subitem, choice) in zip(group.subitems, choices) where subitem.isEnabled != choice.enabled {
+                subitem.isEnabled = choice.enabled
+            }
         case .glass, .plain, .fill:
             hosts[item.id]?.rootView = item.content
         }
@@ -146,6 +164,29 @@ import SwiftUI
             item.view = control
             segmentControls[spec.id] = control
             segmentActions[spec.id] = select
+        case .picker(let label, let choices, let selected, let select):
+            // AppKit's own group, not a control made here: only the group collapses to one pop-up
+            // button when its section is short of room, rather than leaving for the overflow menu.
+            // It builds that control privately, so it carries no identifier for accessibility and
+            // none can be set on it: it is a radio group whose buttons are named by the images'
+            // descriptions, each choice's title.
+            let group = NSToolbarItemGroup(itemIdentifier: identifier,
+                                           images: choices.map { NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.title) ?? NSImage() },
+                                           selectionMode: .selectOne, labels: choices.map(\.title),
+                                           target: self, action: #selector(pickerChanged(_:)))
+            group.label = label
+            group.controlRepresentation = .automatic
+            group.selectedIndex = selected
+            // Validation would enable every choice again: the description says which are.
+            group.autovalidates = false
+            for (subitem, choice) in zip(group.subitems, choices) {
+                subitem.autovalidates = false
+                subitem.isEnabled = choice.enabled
+                subitem.toolTip = choice.title
+            }
+            item = group
+            pickers[spec.id] = (group, choices)
+            segmentActions[spec.id] = select
         case .glass, .plain, .fill:
             item = NSToolbarItem(itemIdentifier: identifier)
             let host = NSHostingView(rootView: spec.content)
@@ -181,6 +222,10 @@ import SwiftUI
         segmentActions[id]?(control.selectedSegment)
     }
 
+    @objc private func pickerChanged(_ group: NSToolbarItemGroup) {
+        segmentActions[group.itemIdentifier.rawValue]?(group.selectedIndex)
+    }
+
     @objc private func searchFieldChanged(_ field: NSSearchField) {
         guard let id = field.identifier?.rawValue, let text = searchTexts[id], text.wrappedValue != field.stringValue else { return }
         text.wrappedValue = field.stringValue
@@ -189,5 +234,11 @@ import SwiftUI
 
 private extension WindowToolbarItem {
     var fills: Bool { if case .fill = style { true } else { false } }
-    var glass: Bool { if case .glass = style { true } else { false } }
+    /// Drawn in the toolbar's own capsule: a picker's group is, like a hosted glass item.
+    var glass: Bool {
+        switch style {
+        case .glass, .picker: true
+        default: false
+        }
+    }
 }
