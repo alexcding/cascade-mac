@@ -8,6 +8,6 @@ enum Route: Hashable {
     case destination(SidebarDestination)
     /// The Dashboard's full ticket list, pushed over its home screen.
     case dashboardTickets
-    /// My Tickets as one project's sprint board; the old project Sprint Board link lands here.
-    case dashboardBoard(projectID: String)
+    /// A project's Board tab, opened over its project.
+    case projectBoard(projectID: String)
 }

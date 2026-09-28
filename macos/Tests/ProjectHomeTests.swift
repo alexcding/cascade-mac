@@ -158,7 +158,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
 
 @MainActor @Test func aProjectOpensOnStartAndItsTabsPickThePageUntilRetired() {
     let model = pageModel()
-    #expect(model.section == .start && ProjectSection.allCases == [.start, .orchestration, .settings])
+    #expect(model.section == .start && model.sections == [.start, .orchestration, .settings], "Board is offered only when turned on")
     model.selectSection(.settings)
     #expect(model.section == .settings)
     model.update(homeProject)

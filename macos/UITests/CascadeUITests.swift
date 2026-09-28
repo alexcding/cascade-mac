@@ -565,7 +565,7 @@ final class CascadeUITests: XCTestCase {
     }
 
     @MainActor
-    func testDashboardSprintBoardMovesAssignsAndOpensNativeTicketContext() throws {
+    func testProjectSprintBoardMovesAssignsAndOpensNativeTicketContext() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
               let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
@@ -574,16 +574,20 @@ final class CascadeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
-        let dashboard = app.outlines["workspace-sidebar"].staticTexts["Dashboard"]
-        XCTAssertTrue(dashboard.waitForExistence(timeout: 10))
-        dashboard.click()
-        app.radioButtons["Tickets"].click()
-        app.descendants(matching: .any)["dashboard-tickets-mode-board"].firstMatch.click()
-        // A board shows one project: with every project picked it draws none, so the fixture's
-        // Jira project is picked first, and its sprint then heads the page.
+        let project = app.outlines["workspace-sidebar"].staticTexts["Native integration fixture"]
+        XCTAssertTrue(project.waitForExistence(timeout: 10))
+        project.click()
+        // The board is a project's tab, offered once its Jira settings turn it on.
+        XCTAssertTrue(app.radioButtons["Settings"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.radioButtons["Board"].exists)
+        app.radioButtons["Settings"].click()
+        let toggle = app.checkBoxes["project-board-enabled"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        if (toggle.value as? Int) != 1 { toggle.click() }
+        app.buttons["Save Project"].click()
+        XCTAssertTrue(app.radioButtons["Board"].waitForExistence(timeout: 10), app.debugDescription)
+        app.radioButtons["Board"].click()
         XCTAssertTrue(app.staticTexts["Sprint board"].waitForExistence(timeout: 10), app.debugDescription)
-        app.descendants(matching: .any)["dashboard-tickets-project"].firstMatch.click()
-        app.menuItems["Native integration fixture"].click()
         let sprint = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Fixture sprint")).firstMatch
         XCTAssertTrue(sprint.waitForExistence(timeout: 10))
         let card = app.buttons["REC-1"].firstMatch

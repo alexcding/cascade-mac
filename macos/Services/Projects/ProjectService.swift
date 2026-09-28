@@ -12,11 +12,13 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var worktreeInclude = ""
     var forwardWebhooks = true
     var issuesEnabled = true
+    var boardEnabled = false
 
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
         jiraProjectKey = project.jiraProjectKey ?? ""; issuesEnabled = project.issuesEnabled ?? true
+        boardEnabled = project.boardEnabled ?? false
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
@@ -81,6 +83,8 @@ extension Project {
     var hasGitHub: Bool { !repo.isEmpty }
     /// A Jira project key: what the sprint board and ticket matching go by (`JiraKeys`).
     var hasJira: Bool { !JiraKeys.parse(jiraProjectKey).isEmpty }
+    /// Whether the project page offers its Board tab: switched on, and a Jira key to draw it from.
+    var showsBoard: Bool { hasJira && boardEnabled == true }
 }
 
 struct IDEChoice: Identifiable {

@@ -1,21 +1,16 @@
 import SwiftUI
 
-/// My Tickets, pushed over the Dashboard's home, in two views of the same work. List is every
-/// ticket assigned to the user: the stage bar, a tag per stage and one for urgent, then the
-/// sortable table. Board is one project's sprint board, the whole team's, to move and assign.
-/// Either narrows to one project from the menu beside the view tags.
+/// My Tickets, pushed over the Dashboard's home: every ticket assigned to the user, as the stage
+/// bar, a tag per stage and one for urgent, then the sortable table. It narrows to one project
+/// from the menu by its refresh. A project's sprint board is its own Board tab.
 struct DashboardTicketsView: View {
     @Bindable var model: DashboardViewModel
 
     var body: some View {
-        Group {
-            if model.ticketsMode == .board { boardPage } else { listPage }
-        }
-        .accessibilityIdentifier("dashboard-tickets")
-        .onDisappear(perform: model.cancelActions)
+        listPage
+            .accessibilityIdentifier("dashboard-tickets")
+            .onDisappear(perform: model.cancelActions)
     }
-
-    // MARK: List
 
     private var listPage: some View {
         let rows = model.tickets.screenRows
@@ -25,7 +20,6 @@ struct DashboardTicketsView: View {
                 DashboardPageHeader(caption: listCaption, title: String(localized: "My tickets")) {
                     HStack(spacing: 8) {
                         authors
-                        modes
                         projectMenu
                         DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
                     }
@@ -66,63 +60,7 @@ struct DashboardTicketsView: View {
         }
     }
 
-    // MARK: Board
-
-    /// The board fills the page rather than scrolling with it: each column scrolls on its own.
-    private var boardPage: some View {
-        let board = model.shownBoard
-        return VStack(alignment: .leading, spacing: 0) {
-            DashboardPageHeader(caption: boardCaption, title: String(localized: "Sprint board")) {
-                // The list's header less Mine / Others: the board is the whole team's, narrowed by
-                // its own Assignee filter. Refresh stays; with no board it refreshes the tickets.
-                HStack(spacing: 8) {
-                    modes
-                    projectMenu
-                    DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board",
-                                           busy: board?.loading ?? model.tickets.loading, action: board?.reload ?? model.tickets.refresh)
-                }
-                .padding(.bottom, 6)
-            }
-            .padding(.top, 12).padding(.bottom, 24)
-            if let board {
-                DashboardBoardFilters(board: board)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 20)
-            }
-            if let board {
-                WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            } else {
-                Text(boardPlaceholder).font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
-                Spacer()
-            }
-        }
-        .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 20)
-    }
-
-    private var boardCaption: String {
-        guard let project = model.tickets.project else { return String(localized: "One project’s sprint at a time") }
-        guard let sprint = model.shownBoard?.sprintTitle else { return String(localized: "\(project.name), the whole team") }
-        return String(localized: "\(project.name) · \(sprint)")
-    }
-
-    /// Why no board is drawn: every project is picked, the one picked has no Jira board, or Jira
-    /// is not connected.
-    private var boardPlaceholder: String {
-        guard model.tickets.available else { return String(localized: "Jira isn’t connected, so there is no board to show.") }
-        guard let project = model.tickets.project else { return String(localized: "A board shows one project. Choose one above.") }
-        if !project.hasJira { return String(localized: "\(project.name) has no Jira project key, so it has no sprint board.") }
-        return String(localized: "Loading \(project.name)’s sprint board…")
-    }
-
     // MARK: Scope
-
-    /// List or Board, first in the header on both views.
-    private var modes: some View {
-        // Board needs a project with a Jira board; without one it stays in place, disabled.
-        DashboardScopeTags(values: DashboardViewModel.TicketsMode.allCases, selection: model.ticketsMode,
-                           title: \.title, enabled: { $0 != .board || model.board.available },
-                           id: "dashboard-tickets-mode") { model.setTicketsMode($0) }
-    }
 
     /// Whose tickets the list shows, as the Pull Requests page has it: in the header, by its refresh.
     private var authors: some View {
@@ -131,15 +69,11 @@ struct DashboardTicketsView: View {
                                   title: \.title, count: tickets.count, id: "dashboard-tickets-author") { tickets.author = $0 }
     }
 
-    /// The project the page narrows to, in the header by its refresh on either view. A board always
-    /// shows one project; only the list can span them all. Always drawn, so the header keeps its
-    /// place between List and Board: the board lists only Jira projects, and with none the tag
-    /// stays, disabled.
+    /// The project the page narrows to, in the header by its refresh. Always drawn, so the header
+    /// keeps its shape: with no project to narrow to, the tag stays, disabled.
     private var projectMenu: some View {
-        let boardMode = model.ticketsMode == .board
-        return DashboardProjectTag(projects: model.ticketProjects,
-                                   selection: (boardMode ? model.board.project : model.tickets.project)?.id,
-                                   allowsAll: !boardMode, id: "dashboard-tickets-project") { model.selectTicketProject($0) }
+        DashboardProjectTag(projects: model.ticketProjects, selection: model.tickets.project?.id,
+                            id: "dashboard-tickets-project") { model.selectTicketProject($0) }
             .disabled(model.ticketProjects.isEmpty)
             .opacity(model.ticketProjects.isEmpty ? 0.4 : 1)
     }
@@ -148,50 +82,6 @@ struct DashboardTicketsView: View {
         Label(text, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.orange).padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).padding(.bottom, 12)
-    }
-}
-
-/// The board's own filters in the Dashboard's tag style: a JQL clause, applied on Return, and
-/// whose cards to show.
-private struct DashboardBoardFilters: View {
-    let board: WebBoardViewModel
-    @FocusState private var queryFocused: Bool
-
-    var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease").font(.system(size: 10, weight: .bold)).foregroundStyle(DashboardPalette.ink3)
-                TextField("Filter, e.g. component = iOS", text: Bindable(board).queryDraft)
-                    .textFieldStyle(.plain).font(.system(size: 12.5))
-                    .focused($queryFocused)
-                    .onSubmit { board.applyQuery() }
-                    .onChange(of: queryFocused) { _, focused in board.queryEditing = focused }
-            }
-            .padding(.horizontal, 10).frame(width: 240, height: 30)
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(queryFocused ? Color.primary.opacity(0.5) : DashboardPalette.buttonBorder, lineWidth: 1))
-            .help("A JQL clause ANDed into the board (blank = everything). Return applies.")
-            Menu {
-                Picker("Assignee", selection: Binding(get: { board.assigneeFilter }, set: board.setAssigneeFilter)) {
-                    Text("All assignees").tag("")
-                    if board.showsUnassignedFilter { Text("Unassigned").tag(WebBoardViewModel.unassigned) }
-                    ForEach(board.assignees, id: \.id) { Text($0.name).tag($0.id) }
-                }
-                .pickerStyle(.inline).labelsHidden()
-            } label: {
-                DashboardTagLabel(title: assigneeTitle, symbol: "chevron.down", active: !board.assigneeFilter.isEmpty)
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            .accessibilityIdentifier("dashboard-board-assignee")
-        }
-    }
-
-    private var assigneeTitle: String {
-        switch board.assigneeFilter {
-        case "": String(localized: "All assignees")
-        case WebBoardViewModel.unassigned: String(localized: "Unassigned")
-        case let id: board.assignees.first { $0.id == id }?.name ?? String(localized: "All assignees")
-        }
     }
 }
 

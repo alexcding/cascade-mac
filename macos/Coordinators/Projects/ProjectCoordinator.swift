@@ -50,6 +50,9 @@ import Observation
         case .requestDeletion(let request):
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
             deletionConfirmation = request
+        case .board(.open(let request)):
+            guard !isPresenting, canPresent(), model.section == .board else { return }
+            model.board?.navigation.open(request)
         }
     }
 

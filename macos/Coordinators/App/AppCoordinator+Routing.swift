@@ -38,7 +38,7 @@ extension AppCoordinator {
             return
         default: break
         }
-        if case .dashboardBoard(let id) = link.droppingFirst().first {
+        if case .projectBoard(let id) = link.droppingFirst().first {
             guard let project = state.projects.first(where: { $0.id == id }) else {
                 routingError = String(localized: "The linked project is no longer available.")
                 return
@@ -49,7 +49,7 @@ extension AppCoordinator {
             }
         }
         navigate(to: destination)
-        if let route = link.droppingFirst().first, case .dashboardBoard = route { navigate(to: route) }
+        if let route = link.droppingFirst().first, case .projectBoard = route { navigate(to: route) }
     }
 
     /// Finish the originating operation's callbacks before applying a queued link.

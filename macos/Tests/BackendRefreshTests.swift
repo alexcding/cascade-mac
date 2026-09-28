@@ -26,7 +26,7 @@ private actor RefreshTransport: BackendTransport {
         let body: String
         switch url.path {
         case Routes.PROJECTS:
-            body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC"}]"# : "[]"
+            body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC","boardEnabled":true}]"# : "[]"
         case Routes.TABS:
             body = includesTab ? #"{"tabs":[{"id":"t","kind":"web","title":"New tab","url":"https://example.test"}]}"# : #"{"tabs":[]}"#
         case Routes.TASKS:
@@ -196,11 +196,11 @@ private actor RefreshTransport: BackendTransport {
     try await Task.sleep(for: .milliseconds(250))
     #expect(await transport.paths.isEmpty)
 
-    // The sprint board lives on the Dashboard's My Tickets now, and follows only its own project.
-    let dashboard = try #require(model.dashboard)
-    // A board is drawn, and so loads, only for a picked project, never for every project.
-    model.select(.overview); dashboard.showTickets(); dashboard.setTicketsMode(.board); dashboard.selectTicketProject("p")
-    let board = try #require(dashboard.board.board)
+    // The sprint board is the project's Board tab: it loads only while shown, and follows only
+    // its own project's syncs.
+    let page = try #require(model.projectModels["p"])
+    page.selectSection(.board)
+    let board = try #require(page.board)
     try await refreshEventually { board.snapshot != nil && !board.loading }
     await transport.reset()
     runtime.emit("jira-sync", id: "p"); runtime.emit("jira-sync", id: "board:q")

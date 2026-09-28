@@ -13,12 +13,13 @@ import Testing
     for retired in ["prs", "workflows", "tickets", "settings"] {
         #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/\(retired)")!) == DeepLink(.destination(.project("p-123"))))
     }
-    // The project's board moved to the Dashboard's My Tickets, and its link follows it there.
-    let board = DeepLink([.destination(.overview), .dashboardBoard(projectID: "p-123")])
+    // A project's board link opens the project on its Board tab.
+    let board = DeepLink([.destination(.project("p-123")), .projectBoard(projectID: "p-123")])
     #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/board")!) == board)
     #expect(router.url(for: board)?.absoluteString == "cascade://app/projects/p-123/board")
     #expect(router.url(for: DeepLink(.destination(.tab("https://example.test")))) == nil)
-    #expect(router.url(for: DeepLink([.destination(.terminal), .dashboardBoard(projectID: "p-123")])) == nil)
+    #expect(router.url(for: DeepLink([.destination(.terminal), .projectBoard(projectID: "p-123")])) == nil)
+    #expect(router.url(for: DeepLink([.destination(.project("other")), .projectBoard(projectID: "p-123")])) == nil)
     #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/unknown")!) == nil)
     #expect(router.url(for: DeepLink(.destination(.session("../s")))) == nil)
 }
@@ -173,12 +174,9 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == nil && runtime.terminals == 0)
     #expect(coordinator.projectCoordinator == nil)
-    // A project's board link opens the Dashboard's board, and only for a project that still exists.
-    let dashboard = DashboardViewModel(pageActions: ProjectPageActions(), defaults: UserDefaults(suiteName: "deeplink-board-\(UUID().uuidString)")!)
-    coordinator.installDashboard(dashboard)
+    // A project's board link opens the project, and only for a project that still exists.
     coordinator.handle(url: URL(string: "cascade://app/projects/p/board")!)
-    #expect(coordinator.selection == .overview && coordinator.routingError == nil)
-    #expect(dashboard.ticketsShown && dashboard.ticketsMode == .board)
+    #expect(coordinator.selection == .project("p") && coordinator.routingError == nil)
     coordinator.navigate(to: SidebarDestination.terminal)
     coordinator.handle(url: URL(string: "cascade://app/projects/gone/board")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked project is no longer available.")

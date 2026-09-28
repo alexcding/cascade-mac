@@ -123,7 +123,7 @@ extension Destination {
             // The tabs stand in for the page title, as the Dashboard's do.
             let model = coordinator.model
             return WindowToolbar(leading: [.init("project-tabs") {
-                ProjectTabBar(selection: model.section, select: model.selectSection).id(model.project.id)
+                ProjectTabBar(sections: model.sections, selection: model.section, select: model.selectSection).id(model.project.id)
             }])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar

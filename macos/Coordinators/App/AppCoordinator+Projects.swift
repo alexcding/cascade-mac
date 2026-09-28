@@ -23,9 +23,10 @@ extension AppCoordinator {
     }
 
     func prepareProject(_ project: Project, services: ProjectFeatureServices, factory: any ProjectFeatureFactory,
-                        runtime: any ProjectCoordinating, agent: SessionAgent) {
+                        runtime: any ProjectCoordinating, agent: SessionAgent,
+                        pageActions: any PageActionServing = NativePageActionService(open: { _ in })) {
         if let existing = projectCoordinators[project.id] { existing.model.update(project); return }
-        let model = factory.project(project, services: services, agent: agent)
+        let model = factory.project(project, services: services, agent: agent, pageActions: pageActions)
         installProject(model, runtime: runtime)
     }
 
@@ -49,6 +50,8 @@ extension AppCoordinator {
         }
         projectRuntimes[id] = runtime.map { WeakProjectRuntime(runtime: $0) }
         projectCoordinators[id] = child
+        model.appearance = appearance
+        model.active = selection == .project(id)
         refreshRoot()
         schedulePendingDeepLink()
         return child
