@@ -1,4 +1,4 @@
-use super::{percent, tail, AgentProbe};
+use super::{percent, tail, AgentProbe, Profile};
 use crate::cli;
 use serde_json::{json, Value};
 use std::{
@@ -11,6 +11,15 @@ use std::{
 pub struct Codex;
 
 impl AgentProbe for Codex {
+    /// What Codex does with a message typed mid-turn has not been checked here, so the chat holds
+    /// one until its turn ends.
+    const PROFILE: Profile = Profile { id: "codex", queues_mid_turn: false };
+
+    /// Codex names a session file by its start, not by a conversation the app could ask for.
+    fn transcript_file(home: &Path, worktree: &str, _conversation: Option<&str>) -> Option<PathBuf> {
+        session_file(home, worktree)
+    }
+
     /// `codex debug models` is the CLI's own catalog, reasoning levels included.
     async fn catalog(_home: &Path) -> Value {
         let raw = cli::run("codex", ["debug", "models"], Duration::from_secs(20)).await;

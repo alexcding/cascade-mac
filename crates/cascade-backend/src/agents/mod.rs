@@ -18,14 +18,109 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// What a CLI has to be able to tell the app. `catalog` runs the CLI or reads its cache, so it is
-/// async; `status` only reads files, and runs on the blocking pool.
+/// What a CLI has to be able to tell the app: each CLI is one adapter (`claude.rs`, `codex.rs`)
+/// implementing it, and `Agent` picks the adapter. `catalog` and `reported_commands` may run the
+/// CLI, so they are async; the rest only read files, and run on the blocking pool.
 pub trait AgentProbe {
+    /// What the app may count on from the CLI, so that it never needs to know which one it has.
+    const PROFILE: Profile;
+    /// It keeps each conversation in a file its id names, found without a search. One that does
+    /// not has its newest transcript searched for, which is slow, so the search is kept a while.
+    const NAMES_CONVERSATION_FILES: bool = false;
     /// `{"models":[{"id","alias","name","efforts":[{"id","name"}],"defaultEffort"}]}`. `alias` is
     /// what the CLI accepts when asked to switch; `id` is what `status` reports back.
     async fn catalog(home: &Path) -> Value;
     /// `{"model","effort","tokens","window","percent"}`, each null when the CLI has not said.
     fn status(home: &Path, worktree: &str, task: &str) -> Option<Value>;
+    /// The file the conversation in `worktree` is written to: `conversation`, when the app knows it
+    /// and the CLI keeps conversations by id, or the newest.
+    fn transcript_file(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<PathBuf>;
+    /// Whether the CLI can still resume conversation `id`; None when the app does not read its
+    /// storage, and takes it at its word.
+    fn has_conversation(_home: &Path, _id: &str) -> Option<bool> {
+        None
+    }
+    /// The slash commands the CLI reports itself, ahead of those found on disk.
+    async fn reported_commands() -> Value {
+        Value::Null
+    }
+}
+
+/// What the app may count on from a CLI. It travels with the CLI's transcript, and the app acts on
+/// it rather than on the CLI's name.
+#[derive(serde::Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Profile {
+    /// The name sessions, hooks and requests carry.
+    pub id: &'static str,
+    /// It keeps a message typed while it works and takes it in, mid-turn or after, so the chat may
+    /// type one then.
+    pub queues_mid_turn: bool,
+}
+
+/// A CLI Cascade runs agents in: the one place that tells them apart by name. Callers take
+/// `Agent::of(cli)` and ask it, and never compare names themselves.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Agent {
+    Claude,
+    Codex,
+}
+
+impl Agent {
+    const ALL: [Agent; 2] = [Agent::Claude, Agent::Codex];
+
+    pub fn of(cli: &str) -> Option<Agent> {
+        Self::ALL.into_iter().find(|agent| agent.profile().id == cli)
+    }
+
+    pub fn profile(self) -> Profile {
+        match self {
+            Agent::Claude => claude::Claude::PROFILE,
+            Agent::Codex => codex::Codex::PROFILE,
+        }
+    }
+
+    async fn catalog(self, home: &Path) -> Value {
+        match self {
+            Agent::Claude => claude::Claude::catalog(home).await,
+            Agent::Codex => codex::Codex::catalog(home).await,
+        }
+    }
+
+    fn status(self, home: &Path, worktree: &str, task: &str) -> Option<Value> {
+        match self {
+            Agent::Claude => claude::Claude::status(home, worktree, task),
+            Agent::Codex => codex::Codex::status(home, worktree, task),
+        }
+    }
+
+    fn names_conversation_files(self) -> bool {
+        match self {
+            Agent::Claude => claude::Claude::NAMES_CONVERSATION_FILES,
+            Agent::Codex => codex::Codex::NAMES_CONVERSATION_FILES,
+        }
+    }
+
+    fn transcript_file(self, home: &Path, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
+        match self {
+            Agent::Claude => claude::Claude::transcript_file(home, worktree, conversation),
+            Agent::Codex => codex::Codex::transcript_file(home, worktree, conversation),
+        }
+    }
+
+    fn has_conversation(self, home: &Path, id: &str) -> Option<bool> {
+        match self {
+            Agent::Claude => claude::Claude::has_conversation(home, id),
+            Agent::Codex => codex::Codex::has_conversation(home, id),
+        }
+    }
+
+    async fn reported_commands(self) -> Value {
+        match self {
+            Agent::Claude => claude::Claude::reported_commands().await,
+            Agent::Codex => codex::Codex::reported_commands().await,
+        }
+    }
 }
 
 /// Asks Claude Code for its models and commands in the background at start, so the first model
@@ -48,13 +143,10 @@ pub struct StatusQuery {
 }
 
 pub async fn catalog(Query(query): Query<CatalogQuery>) -> Json<Value> {
-    let Some(home) = home() else {
+    let (Some(home), Some(agent)) = (home(), Agent::of(&query.cli)) else {
         return Json(json!({"models":[]}));
     };
-    Json(match query.cli.as_str() {
-        "codex" => codex::Codex::catalog(&home).await,
-        _ => claude::Claude::catalog(&home).await,
-    })
+    Json(agent.catalog(&home).await)
 }
 
 #[derive(serde::Deserialize)]
@@ -68,11 +160,8 @@ pub struct ConversationQuery {
 /// A CLI whose storage the app does not read is taken at its word.
 pub async fn conversation(Query(query): Query<ConversationQuery>) -> Json<Value> {
     let exists = tokio::task::spawn_blocking(move || {
-        if query.cli != "claude" {
-            return true;
-        }
-        let Some(home) = home() else { return true };
-        !query.id.is_empty() && is_name(&query.id) && claude::has_conversation(&home, &query.id)
+        let (Some(agent), Some(home)) = (Agent::of(&query.cli), home()) else { return true };
+        agent.has_conversation(&home, &query.id).unwrap_or(true)
     })
     .await
     .unwrap_or(true);
@@ -86,10 +175,7 @@ pub async fn status(Query(query): Query<StatusQuery>) -> Json<Value> {
         if !query.worktree.starts_with('/') || !is_name(&query.task) {
             return None;
         }
-        match query.cli.as_str() {
-            "codex" => codex::Codex::status(&home, &query.worktree, &query.task),
-            _ => claude::Claude::status(&home, &query.worktree, &query.task),
-        }
+        Agent::of(&query.cli)?.status(&home, &query.worktree, &query.task)
     })
     .await
     .ok()
@@ -110,16 +196,19 @@ pub struct TranscriptQuery {
 
 /// The session's conversation as chat turns, for the chat view over its terminal. `hooks` is the
 /// CLI's hook install: without it the chat cannot tell a working agent from one at its prompt,
-/// and without the current permission hook approvals stay in the terminal.
+/// and without the current permission hook approvals stay in the terminal. `agent` is the CLI's
+/// `Profile`, which the chat goes by instead of the CLI's name.
 pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
     let found = tokio::task::spawn_blocking(move || {
         let home = home()?;
         if !query.worktree.starts_with('/') {
             return None;
         }
+        let agent = Agent::of(&query.cli)?;
         let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
-        let mut found = transcript::read(&home, &query.cli, &query.worktree, query.since.as_deref(), conversation);
+        let mut found = transcript::read(&home, agent, &query.worktree, query.since.as_deref(), conversation);
         found["hooks"] = json!(crate::integrations::hook_status_for(&query.cli));
+        found["agent"] = json!(agent.profile());
         Some(found)
     })
     .await
@@ -136,10 +225,10 @@ pub struct CommandsQuery {
 
 /// The slash commands the CLI offers in this worktree, for the chat's `/` suggestions.
 pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
-    let reported = match query.cli.as_str() {
-        "codex" => Value::Null,
-        _ => claude::initialize().await.map(|reply| reply["commands"].clone()).unwrap_or_default(),
+    let Some(agent) = Agent::of(&query.cli) else {
+        return Json(json!({"commands": []}));
     };
+    let reported = agent.reported_commands().await;
     let found = tokio::task::spawn_blocking(move || {
         let home = home()?;
         if !query.worktree.starts_with('/') {
@@ -191,5 +280,50 @@ fn percent(tokens: u64, window: Option<u64>) -> Value {
     match window {
         Some(window) if window > 0 => json!((tokens as f64 / window as f64 * 100.0).min(100.0)),
         _ => Value::Null,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_cli_is_found_by_the_name_it_carries_and_no_other() {
+        for agent in Agent::ALL {
+            assert_eq!(Agent::of(agent.profile().id), Some(agent));
+        }
+        assert_eq!(Agent::of(""), None);
+        assert_eq!(Agent::of("gemini"), None);
+    }
+
+    /// The app starts sessions in the CLIs `SessionAgent` lists; each but the plain shell must be
+    /// one this registry knows, or every request for it answers empty. Asserted against the Swift
+    /// source, as `route_contract` asserts `Routes.swift`.
+    #[test]
+    fn every_cli_the_native_app_starts_is_known_here() {
+        let swift = include_str!("../../../../macos/Services/Workspace/SessionOperations.swift");
+        let cases = swift
+            .split("enum SessionAgent")
+            .nth(1)
+            .and_then(|body| body.lines().map(str::trim).find(|line| line.starts_with("case ")))
+            .expect("SessionAgent's cases");
+        // `case shell = "", claude, codex`: each a name, or a name and its raw value.
+        let names: Vec<&str> = cases["case ".len()..]
+            .split(',')
+            .map(|case| match case.split_once('=') {
+                Some((_, raw)) => raw.trim().trim_matches('"'),
+                None => case.trim(),
+            })
+            .filter(|name| !name.is_empty())
+            .collect();
+        assert!(names.len() >= 2, "parsed too few CLIs: {names:?}");
+        let unknown: Vec<_> = names.iter().filter(|name| Agent::of(name).is_none()).collect();
+        assert!(unknown.is_empty(), "the native app starts CLIs this backend does not know: {unknown:?}");
+    }
+
+    #[test]
+    fn a_profile_is_what_the_app_reads() {
+        assert_eq!(json!(Agent::Claude.profile()), json!({"id": "claude", "queuesMidTurn": true}));
+        assert_eq!(json!(Agent::Codex.profile())["queuesMidTurn"], false);
     }
 }

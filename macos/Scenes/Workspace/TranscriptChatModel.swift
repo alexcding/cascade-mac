@@ -55,6 +55,8 @@ struct AgentTranscript: Decodable, Sendable {
     let hooks: String?
     /// When the transcript last showed the agent back at its prompt, with no turn since.
     var atPrompt: String? = nil
+    /// What its CLI can do, which the chat goes by instead of the CLI's name.
+    var agent: AgentProfile? = nil
 }
 
 /// A file a message carries: placed in the message as a chip, and pasted into the terminal ahead
@@ -112,6 +114,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var permission: AgentPermissionPrompt?
     /// The CLI's hook install, as the last read reported it.
     private(set) var hooks: String?
+    /// What the CLI can do, as the last read reported it.
+    @ObservationIgnored private var profile: AgentProfile?
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
     /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
@@ -129,9 +133,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var suggestions: [ChatSuggestion] = []
     private(set) var highlighted = 0
     let agentName: String
-    /// The CLI queues a message typed while it works, as Claude does, taking it in mid-turn or
-    /// after. One that does not is typed into only at its prompt.
-    let queuesMidTurn: Bool
 
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private var sentAt: Date?
@@ -186,7 +187,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     init(agentName: String,
-         queuesMidTurn: Bool = false,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
          deliver: @escaping Deliver,
          completions: Completions = Completions(),
@@ -195,7 +195,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          openHookSettings: @escaping () -> Void = {},
          openLink: @escaping (URL) -> Bool = { _ in false }) {
         self.agentName = agentName
-        self.queuesMidTurn = queuesMidTurn
         self.load = load
         self.deliver = deliver
         self.completions = completions
@@ -344,7 +343,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Working, in a CLI that queues what it is sent meanwhile, with nothing asked in the terminal.
     /// Only the installed hook reports every approval and question as it goes up.
     private var takesMidTurn: Bool {
-        queuesMidTurn && ready && busy && !asking && hooks == "installed"
+        profile?.queuesMidTurn == true && ready && busy && !asking && hooks == "installed"
     }
 
     /// A message typed now reaches the agent, not a prompt of its own.
@@ -430,6 +429,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             }
             revision = transcript.revision
             hooks = transcript.hooks
+            profile = transcript.agent
             error = nil
         } catch {
             guard !retired else { return }

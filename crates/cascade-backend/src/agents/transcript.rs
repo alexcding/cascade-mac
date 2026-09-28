@@ -5,6 +5,7 @@
 //! A turn is one bubble: a person's prompt, or everything the agent did until the next prompt —
 //! its text, its thinking, and each tool call with that call's output attached.
 
+use super::Agent;
 use serde_json::{json, Map, Value};
 use std::{
     collections::HashMap,
@@ -30,23 +31,21 @@ const LOOKUP: Duration = Duration::from_secs(5);
 /// The worktree's transcript, found at most once per `LOOKUP`. A Claude conversation the app knows
 /// the agent is in is that one's file alone, looked for on every read: the newest file would be an
 /// older conversation until the new one's first message is written.
-fn locate(home: &Path, cli: &str, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
-    if let Some(id) = conversation.filter(|_| cli != "codex") {
-        return super::claude::conversation_file(home, worktree, id);
+fn locate(home: &Path, agent: Agent, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
+    // A conversation its CLI names a file after is found at once; the newest is searched for, and
+    // the search kept. A CLI that names none is searched whatever conversation the app knows.
+    if let Some(id) = conversation.filter(|_| agent.names_conversation_files()) {
+        return agent.transcript_file(home, worktree, Some(id));
     }
-    static FOUND: OnceLock<Mutex<HashMap<(PathBuf, String, String), (Instant, Option<PathBuf>)>>> = OnceLock::new();
-    let key = (home.to_path_buf(), cli.to_string(), worktree.to_string());
+    static FOUND: OnceLock<Mutex<HashMap<(PathBuf, Agent, String), (Instant, Option<PathBuf>)>>> = OnceLock::new();
+    let key = (home.to_path_buf(), agent, worktree.to_string());
     let found = FOUND.get_or_init(Default::default);
     if let Some((at, path)) = found.lock().unwrap().get(&key) {
         if at.elapsed() < LOOKUP {
             return path.clone();
         }
     }
-    let path = if cli == "codex" {
-        super::codex::session_file(home, worktree)
-    } else {
-        super::claude::transcript_file(home, worktree)
-    };
+    let path = agent.transcript_file(home, worktree, None);
     found.lock().unwrap().insert(key, (Instant::now(), path.clone()));
     path
 }
@@ -64,9 +63,8 @@ fn line_id(line: &str) -> String {
 /// `turns` and `atPrompt` are left out. `atPrompt` is when the transcript last showed the agent
 /// back at its prompt with no turn begun since, or null: both mark every turn's end, an
 /// interrupt's included, which no hook reports.
-pub fn read(home: &Path, cli: &str, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
-    let codex = cli == "codex";
-    let Some(path) = locate(home, cli, worktree, conversation) else {
+pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
+    let Some(path) = locate(home, agent, worktree, conversation) else {
         return json!({"revision": "", "turns": []});
     };
     let revision = fs::metadata(&path)
@@ -86,10 +84,9 @@ pub fn read(home: &Path, cli: &str, worktree: &str, since: Option<&str>, convers
     // A window that starts mid-file starts mid-line; that fragment fails to parse and is skipped.
     for line in text.lines() {
         if let Ok(value) = serde_json::from_str::<Value>(line) {
-            if codex {
-                builder.codex(&value, line_id(line));
-            } else {
-                builder.claude(&value, line_id(line));
+            match agent {
+                Agent::Claude => builder.claude(&value, line_id(line)),
+                Agent::Codex => builder.codex(&value, line_id(line)),
             }
         }
     }
@@ -446,7 +443,7 @@ mod tests {
         };
         fs::write(project.join("older.jsonl"), line("from an older conversation")).unwrap();
         fs::write(project.join("live.jsonl"), line("from the live one")).unwrap();
-        let read = |conversation| read(home.path(), "claude", "/w/known", None, conversation);
+        let read = |conversation| read(home.path(), Agent::Claude, "/w/known", None, conversation);
         let live = read(Some("live"));
         assert_eq!(live["turns"].as_array().map(Vec::len), Some(1));
         assert!(live.to_string().contains("from the live one") && !live.to_string().contains("older"));

@@ -412,7 +412,6 @@ extension WorkspaceServing {
             let worktree = session.worktree
             chat = TranscriptChatModel(
                 agentName: SessionAgent(rawValue: cli)?.label ?? cli.capitalized,
-                queuesMidTurn: SessionAgent(rawValue: cli) == .claude,
                 load: { [weak self] since in
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since,

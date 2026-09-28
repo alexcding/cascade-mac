@@ -19,7 +19,7 @@ import Testing
     var commandsDelay: Duration = .zero
     var files: [String] = []
     var fileQueries: [String] = []
-    /// Claude's: a message typed while it works goes into its own queue.
+    /// What the CLI's profile says: a message typed while it works goes into its own queue.
     var queuesMidTurn = false
     /// The messages whose Enter was pressed.
     var entered: [String] = []
@@ -30,8 +30,11 @@ import Testing
     func model() -> TranscriptChatModel {
         TranscriptChatModel(
             agentName: "Claude",
-            queuesMidTurn: queuesMidTurn,
-            load: { _ in self.transcript },
+            load: { _ in
+                var transcript = self.transcript
+                transcript.agent = AgentProfile(id: "cli", queuesMidTurn: self.queuesMidTurn)
+                return transcript
+            },
             deliver: { text, files, clear in
                 try await clear()
                 self.pasted.append(files.map(\.path))
@@ -153,6 +156,13 @@ private func stamp(_ date: Date) -> String {
     fixture.transcript = AgentTranscript(revision: "r2", turns: [], hooks: "installed", atPrompt: stamp(Date().addingTimeInterval(-30)))
     await chat.refresh()
     #expect(fixture.typed.isEmpty && chat.queuedPrompt == "wait for it")
+}
+
+@Test func theTranscriptCarriesTheProfileTheBackendSends() throws {
+    // `Profile` in crates/cascade-backend/src/agents/mod.rs, as it serializes.
+    let json = #"{"revision":"r","turns":[],"hooks":"installed","agent":{"id":"claude","queuesMidTurn":true}}"#
+    let transcript = try JSONDecoder().decode(AgentTranscript.self, from: Data(json.utf8))
+    #expect(transcript.agent == AgentProfile(id: "claude", queuesMidTurn: true))
 }
 
 @MainActor @Test func claudeTakesAMessageWhileItWorksAsItsTerminalWould() async {

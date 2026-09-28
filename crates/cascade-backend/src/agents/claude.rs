@@ -1,4 +1,4 @@
-use super::{newest_jsonl, percent, tail, AgentProbe};
+use super::{newest_jsonl, percent, tail, AgentProbe, Profile};
 use crate::cli;
 use serde_json::{json, Value};
 use std::{
@@ -13,6 +13,26 @@ pub struct Claude;
 const STATUS_DIR: &str = "Library/Application Support/Cascade/statusline";
 
 impl AgentProbe for Claude {
+    /// Claude Code keeps what is typed while it works (`queue-operation` in its transcript) and
+    /// takes it in mid-turn, as a `queued_command` attachment, or when the turn ends.
+    const PROFILE: Profile = Profile { id: "claude", queues_mid_turn: true };
+    const NAMES_CONVERSATION_FILES: bool = true;
+
+    fn transcript_file(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
+        match conversation {
+            Some(id) => conversation_file(home, worktree, id),
+            None => newest_transcript(home, worktree),
+        }
+    }
+
+    fn has_conversation(home: &Path, id: &str) -> Option<bool> {
+        Some(!id.is_empty() && super::is_name(id) && has_conversation(home, id))
+    }
+
+    async fn reported_commands() -> Value {
+        initialize().await.map(|reply| reply["commands"].clone()).unwrap_or_default()
+    }
+
     async fn catalog(_home: &Path) -> Value {
         let models = initialize().await.map(|reply| models(&reply["models"])).unwrap_or_default();
         json!({ "models": models })
@@ -108,7 +128,7 @@ fn input_tokens(usage: &Value) -> u64 {
 }
 
 /// The worktree's live transcript; `last_turn` says how Claude files them.
-pub(super) fn transcript_file(home: &Path, worktree: &str) -> Option<PathBuf> {
+pub(super) fn newest_transcript(home: &Path, worktree: &str) -> Option<PathBuf> {
     newest_jsonl(&project_dir(home, worktree))
 }
 
@@ -132,7 +152,7 @@ fn project_dir(home: &Path, worktree: &str) -> PathBuf {
 /// also leaves nothing of the path to climb out with. The newest transcript is the live one: a
 /// worktree runs one session, and the id a session was created with goes stale at `/clear`.
 fn last_turn(home: &Path, worktree: &str) -> Option<Value> {
-    let path = transcript_file(home, worktree)?;
+    let path = newest_transcript(home, worktree)?;
     let text = tail(&path)?;
     let turn = text.lines().rev().find_map(|line| {
         if !line.contains("\"usage\"") {

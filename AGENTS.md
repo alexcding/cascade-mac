@@ -139,6 +139,10 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **A session is one task record per worktree** — the agent running on a worktree, live or
   stopped, linked to its context and titled by the page it was started from. A git worktree
   with no session is invisible to the app.
+- **CLI differences live in the agent adapters** (`crates/cascade-backend/src/agents/`). Each CLI
+  implements `AgentProbe`, and `Agent::of(cli)` is the one place that tells them apart by name.
+  The app goes by the `AgentProfile` the backend reports (`queuesMidTurn`, …), never by the CLI's
+  name. Name checks still elsewhere predate this and are being moved behind it; add no new ones.
 - **Views present what the API returns.** No view computes `gh`/`acli`-shaped logic or
   reaches for a CLI; that belongs in the backend.
 - **Theme tokens only** (`Theme/`). The dark theme is a palette swap, never per-widget
