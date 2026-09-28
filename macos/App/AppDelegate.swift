@@ -4,11 +4,7 @@ import Observation
 
 @MainActor @Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let model: AppViewModel = {
-        // Before the model: it reads preferences as it is built.
-        LegacyIdentity.carryDefaults()
-        return AppViewModel()
-    }()
+    let model = AppViewModel()
     /// The main window, made once the launch has not yielded to another copy.
     @ObservationIgnored private var mainWindow: MainWindowController?
     private var window: NSWindow? { mainWindow?.window }
@@ -45,15 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private var forwardedURLs: [URL] = []
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        let explicit = LegacyIdentity.explicitDataDirectory
-        let folder = explicit.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? LegacyIdentity.supportDirectory
+        let folder = DataDirectory.explicit.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? DataDirectory.standard
         if case .held(let pid) = InstanceLock.acquire(in: folder) {
             yielding = true
             runningCopy = pid.flatMap(NSRunningApplication.init(processIdentifier:))
-        } else if explicit == nil {
-            // A copy still running under the app's old name has the default data open too.
-            runningCopy = LegacyIdentity.runningOldCopy()
-            yielding = runningCopy != nil
         }
     }
 
@@ -68,13 +59,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if yielding { yield(to: runningCopy); return }
-        // Looked for again: an old copy can have started since. With none running, the old data is
-        // carried now, before anything below starts the backend or the terminal daemon. A run given
-        // its own data folder never moves the default one.
-        if LegacyIdentity.explicitDataDirectory == nil {
-            if let other = LegacyIdentity.runningOldCopy() { yield(to: other); return }
-            LegacyIdentity.carryData()
-        }
         model.shell.applyAppearance()
         let mainWindow = MainWindowController(model: model)
         self.mainWindow = mainWindow

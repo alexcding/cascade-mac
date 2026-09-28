@@ -31,9 +31,9 @@ public struct BackendConfiguration: Sendable {
             _ = try APIClient(baseURL: url)
             return Self(baseURL: url, mode: .external)
         }
-        let dataPath = try argument("--data-dir") ?? environment["CASCADE_DATA_DIR"] ?? environment["CRAFT_DATA_DIR"]
+        let dataPath = try argument("--data-dir") ?? environment["CASCADE_DATA_DIR"]
         let dataDirectory = dataPath.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? LegacyIdentity.supportDirectory
+            ?? DataDirectory.standard
         // A checkout run (--backend-root) is development; a bare launch is the packaged app.
         let root = try argument("--backend-root")
         if let path = try argument("--backend-path") {

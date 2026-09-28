@@ -23,7 +23,7 @@ esac
 own=$(/usr/bin/plutil -extract command raw -o - "$dir/original.json" 2>/dev/null)
 [ -z "$own" ] && own=$(/usr/bin/plutil -extract statusLine.command raw -o - "$HOME/.claude/settings.json" 2>/dev/null)
 case "$own" in
-    "" | *cascade-statusline* | *craft-statusline* | *taskhub-statusline*) ;;
+    "" | *cascade-statusline*) ;;
     *) printf '%s' "$input" | /bin/sh -c "$own" ;;
 esac
 exit 0

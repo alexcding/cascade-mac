@@ -524,13 +524,6 @@ pub async fn cli_tools() -> ApiResult<Value> {
 }
 
 const MARKER: &str = "cascade-workflow-hook";
-/// The marker from when the app was called Craft. Those hooks read `CRAFT_RUN_ID`, which every
-/// terminal still sets, so they report here and count as installed; installing replaces them.
-const CRAFT_MARKER: &str = "craft-workflow-hook";
-/// The marker from when the app was called TaskHub. Those entries are ours to replace and remove,
-/// but they report nothing here: they read the old run-id variable, so every event they send
-/// names no terminal. They count as absent, and installing replaces them.
-const LEGACY_MARKER: &str = "taskhub-workflow-hook";
 const EVENTS: [(&str, &str); 2] = [
     ("UserPromptSubmit", "/api/hooks/turn-start"),
     ("Stop", "/api/hooks/turn-done"),
@@ -564,7 +557,7 @@ fn is_current(entry: &Value, agent: Agent) -> bool {
             hook["command"]
                 .as_str()
                 .is_some_and(|command| {
-                    (command.contains(MARKER) || command.contains(CRAFT_MARKER))
+                    command.contains(MARKER)
                         && command.contains(PORT_FILE_VAR)
                         && (!agent.hooks().foreground_only || command.contains("tpgid"))
                 })
@@ -601,27 +594,9 @@ pub(crate) fn read_json(path: &PathBuf) -> Option<Value> {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
 }
-/// An entry whose events reach this app with a run id: ours, and not from under the old name.
-fn reports_here(entry: &Value) -> bool {
-    entry["hooks"].as_array().is_some_and(|hooks| {
-        hooks
-            .iter()
-            .any(|hook| {
-                hook["command"]
-                    .as_str()
-                    .is_some_and(|command| command.contains(MARKER) || command.contains(CRAFT_MARKER))
-            })
-    })
-}
 fn is_our_entry(entry: &Value) -> bool {
     entry["hooks"].as_array().is_some_and(|hooks| {
-        hooks.iter().any(|hook| {
-            hook["command"]
-                .as_str()
-                .is_some_and(|command| {
-                    command.contains(MARKER) || command.contains(CRAFT_MARKER) || command.contains(LEGACY_MARKER)
-                })
-        })
+        hooks.iter().any(|hook| hook["command"].as_str().is_some_and(|command| command.contains(MARKER)))
     })
 }
 /// The CLI's hooks file as it is now, or None when it is missing or not JSON.
@@ -638,7 +613,7 @@ fn hook_status_in(agent: Agent, config: Option<&Value>) -> String {
     let ours = |event: &str| {
         value["hooks"][event]
             .as_array()
-            .is_some_and(|items| items.iter().any(reports_here))
+            .is_some_and(|items| items.iter().any(is_our_entry))
     };
     let current = |event: &str| {
         value["hooks"][event]
@@ -1046,16 +1021,6 @@ mod forwarder_tests {
         assert!(!has_our_hooks(&json!({})) && !has_our_hooks(&json!({"hooks":{}})));
         let ours = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}, hook_entry(Agent::Claude, "/api/hooks/turn-done", &port)]}});
         assert!(has_our_hooks(&ours));
-        let legacy = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":format!("curl x # {LEGACY_MARKER}")}]}]}});
-        assert!(has_our_hooks(&legacy), "installed under the app's old name");
-    }
-
-    #[test]
-    fn a_hook_installed_under_the_old_name_is_ours_to_replace_but_reports_nothing() {
-        let legacy = json!({"hooks":[{"type":"command",
-            "command":format!("sh -c 'ps -o tpgid= ; curl x?runId=${{TASKHUB_RUN_ID:-}} # {LEGACY_MARKER}'")}]});
-        assert!(is_our_entry(&legacy) && !reports_here(&legacy));
-        assert!(!is_current(&legacy, Agent::Claude) && !is_current(&legacy, Agent::Codex));
     }
 
     #[test]

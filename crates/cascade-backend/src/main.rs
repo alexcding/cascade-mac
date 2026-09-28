@@ -20,7 +20,6 @@ async fn main() -> Result<()> {
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(3000);
     let data_dir = env::var_os("CASCADE_DATA_DIR")
-        .or_else(|| env::var_os("CRAFT_DATA_DIR"))
         .map(PathBuf::from)
         .unwrap_or_else(default_data_dir);
     std::fs::create_dir_all(&data_dir)

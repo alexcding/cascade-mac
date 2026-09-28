@@ -31,12 +31,6 @@ import AppKit
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     private static func restoreFrame(of window: NSWindow) {
-        // The frame was saved under the name the window had while the app was called Craft.
-        let defaults = UserDefaults.standard
-        if defaults.object(forKey: "NSWindow Frame \(frameName)") == nil,
-           let saved = defaults.object(forKey: "NSWindow Frame CraftNativeMain") {
-            defaults.set(saved, forKey: "NSWindow Frame \(frameName)")
-        }
         if !window.setFrameUsingName(frameName) {
             window.setContentSize(NSSize(width: 1000, height: 680))
             window.center()

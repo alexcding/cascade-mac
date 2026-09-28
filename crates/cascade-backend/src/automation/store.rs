@@ -18,13 +18,6 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Automation> {
     let steps: String = row.get("steps")?;
     let mode: String = row.get("mode")?;
     let mut steps: Vec<Step> = serde_json::from_str(&steps).unwrap_or_default();
-    // The app's own actions were `craft.*` while it was called Craft; a pipeline saved then keeps
-    // running, and is written back under the new names the next time it is saved.
-    for step in steps.iter_mut() {
-        if let Some(action) = step.node.strip_prefix("craft.") {
-            step.node = format!("cascade.{action}");
-        }
-    }
     for step in steps.iter_mut().filter(|s| s.node == "jira.fix_version" && !s.params.contains_key("source")) {
         let source = step.version_source().to_owned();
         step.params.insert("source".into(), Value::String(source));
@@ -330,20 +323,5 @@ mod tests {
         assert!(!claim(&db, "github.approve", "a/b#1@s").unwrap());
         release(&db, "github.approve", "a/b#1@s").unwrap();
         assert!(claim(&db, "github.approve", "a/b#1@s").unwrap());
-    }
-
-    #[test]
-    fn a_pipeline_saved_while_the_app_was_craft_runs_its_actions_under_the_new_names() {
-        let directory = tempfile::tempdir().unwrap();
-        let db = Database::open(directory.path()).unwrap();
-        let mut pipeline = jira_pipeline("project = X", Mode::Off);
-        pipeline.steps = ["craft.notify", "craft.shell", "github.approve"]
-            .into_iter()
-            .map(|node| Step { node: node.into(), ..Default::default() })
-            .collect();
-        let saved = save(&db, pipeline).unwrap();
-        let loaded = get(&db, &saved.id).unwrap().unwrap();
-        let nodes: Vec<&str> = loaded.steps.iter().map(|step| step.node.as_str()).collect();
-        assert_eq!(nodes, ["cascade.notify", "cascade.shell", "github.approve"]);
     }
 }

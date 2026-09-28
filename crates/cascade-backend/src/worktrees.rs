@@ -313,10 +313,6 @@ pub(crate) fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch:
                 ("CASCADE_ROOT_PATH", source.as_str()),
                 ("CASCADE_WORKTREE_PATH", worktree.as_str()),
                 ("CASCADE_BRANCH", branch.as_str()),
-                // Setup scripts written while the app was Craft.
-                ("CRAFT_ROOT_PATH", source.as_str()),
-                ("CRAFT_WORKTREE_PATH", worktree.as_str()),
-                ("CRAFT_BRANCH", branch.as_str()),
             ],
         )
         .await;

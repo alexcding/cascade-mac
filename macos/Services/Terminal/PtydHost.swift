@@ -5,9 +5,6 @@ struct PtydConfiguration: Sendable {
     let executable: URL
     let directory: URL
     let socketPath: String
-    /// Only the app's own default socket has predecessors under the old name. A test, the stress
-    /// harness or `--pty-socket` names its own, and must never reach for anyone else's daemon.
-    var hasLegacySockets = false
 
     static func current() throws -> Self {
         let env = ProcessInfo.processInfo.environment
@@ -16,14 +13,13 @@ struct PtydConfiguration: Sendable {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
             return args[i + 1]
         }
-        let explicit = LegacyIdentity.explicitDataDirectory
-        let data = explicit ?? LegacyIdentity.supportDirectory.path
+        let explicit = DataDirectory.explicit
+        let data = explicit ?? DataDirectory.standard.path
         let executable = argument("--ptyd-path").map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cascade-ptyd")
         let chosen = argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"]
         return Self(executable: executable, directory: URL(fileURLWithPath: data).appendingPathComponent("ptyd-native-spike"),
-                    socketPath: try chosen ?? defaultSocket(environment: env, dataDirectory: explicit),
-                    hasLegacySockets: chosen == nil && explicit == nil)
+                    socketPath: try chosen ?? defaultSocket(environment: env, dataDirectory: explicit))
     }
 
     /// A run given its own data folder gets its own daemon, named for that folder, so quitting it
@@ -82,7 +78,6 @@ actor PtydHost {
             do { return try await client.connect(path: configuration.socketPath) }
             catch { if !Self.mayStartDaemon(after: error) { throw error } }
         }
-        await stopLegacy()
         guard FileManager.default.isExecutableFile(atPath: configuration.executable.path) else {
             throw PtyError.connection(String(localized: "PTY helper is missing. Bundle it or pass --ptyd-path."))
         }
@@ -125,7 +120,6 @@ actor PtydHost {
     // or after its old connection failed. This path never starts a new helper.
     func stopExisting() async throws {
         try configuration.validateSocket()
-        await stopLegacy()
         let client = PtydClient(onEvent: { _ in })
         defer { client.close() }
         let hello: PtyHello
@@ -172,30 +166,6 @@ actor PtydHost {
         try? await terminate(client: client, hello: hello)
         client.close()
         child = nil
-    }
-
-    /// Where the daemon listened while the app was called Craft, and in Cascade 0.1.0: beside the
-    /// current socket, or in `/tmp/craft-<uid>`.
-    var legacySockets: Set<String> {
-        guard configuration.hasLegacySockets else { return [] }
-        let beside = URL(fileURLWithPath: configuration.socketPath).deletingLastPathComponent()
-            .appendingPathComponent("craft-native-ptyd.sock").path
-        return Set([beside, "/tmp/craft-\(getuid())/craft-native-ptyd.sock"]).subtracting([configuration.socketPath])
-    }
-
-    /// Stops a daemon still listening under an old name, which only a crash leaves behind: nothing
-    /// else would ever reach it, and its shells would outlive every Quit. Never while an old copy of
-    /// the app is running, since those shells are that app's.
-    private func stopLegacy() async {
-        guard LegacyIdentity.runningOldCopy() == nil else { return }
-        for path in legacySockets where FileManager.default.fileExists(atPath: path) {
-            // The folder must be this user's own before anything listening in it is trusted.
-            guard PtydConfiguration.privateDirectory((path as NSString).deletingLastPathComponent) else { continue }
-            let client = PtydClient(onEvent: { _ in })
-            defer { client.close() }
-            guard let hello = try? await client.connect(path: path) else { continue }
-            try? await terminate(client: client, hello: hello)
-        }
     }
 
     private func terminate(client: PtydClient, hello: PtyHello) async throws {

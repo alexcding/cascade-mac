@@ -129,14 +129,10 @@ pub async fn plan(step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>> {
             Ok(vec![Plan::Notify { title, body: ctx.render(step.text("body")), url }])
         }
         "cascade.shell" => {
-            // Scripts written while the app was Craft read CRAFT_*; both prefixes carry the event.
             let env = ctx
                 .variables()
                 .into_iter()
-                .flat_map(|(name, value)| {
-                    let key = name.replace('.', "_").to_ascii_uppercase();
-                    [(format!("CASCADE_{key}"), value.clone()), (format!("CRAFT_{key}"), value)]
-                })
+                .map(|(name, value)| (format!("CASCADE_{}", name.replace('.', "_").to_ascii_uppercase()), value))
                 .collect();
             Ok(vec![Plan::Shell { script: step.text("script").to_owned(), cwd: ctx.workspace(), env }])
         }

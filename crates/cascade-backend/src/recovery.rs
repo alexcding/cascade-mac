@@ -39,14 +39,12 @@ struct Entry {
     sha256: String,
 }
 
-/// The durable database under every name it has had, newest first. Older data directories and
-/// older backups still carry the earlier names; `Database::open` renames the file it finds.
-pub(crate) const DURABLE_NAMES: [&str; 4] = ["cascade.db", "craft.db", "taskhub.db", "config.db"];
+/// The durable database.
+const DURABLE: &str = "cascade.db";
 
 fn kind(name: &str) -> Option<&'static str> {
     match name {
-        name if DURABLE_NAMES.contains(&name) => Some("sqlite"),
-        "logs.db" => Some("sqlite"),
+        DURABLE | "logs.db" => Some("sqlite"),
         PAGE_CACHE => Some("json"),
         _ => None,
     }
@@ -232,18 +230,11 @@ fn snapshot_database(source: &Path, destination: &Path) -> Result<()> {
 
 pub fn backup(source: &Path, destination: &Path) -> Result<Manifest> {
     let source = directory(source)?;
-    let mut primary = None;
-    for name in DURABLE_NAMES {
-        if regular_file(&source, name)?.is_some() {
-            primary = Some(name);
-            break;
-        }
+    if regular_file(&source, DURABLE)?.is_none() {
+        bail!("No durable cascade.db was found")
     }
-    let Some(primary) = primary else {
-        bail!("No durable cascade.db or legacy craft.db, taskhub.db or config.db was found")
-    };
     let mut inputs = Vec::new();
-    for name in [primary, "logs.db", PAGE_CACHE] {
+    for name in [DURABLE, "logs.db", PAGE_CACHE] {
         if let Some(path) = regular_file(&source, name)? {
             inputs.push((name, path));
         }
@@ -318,8 +309,8 @@ pub fn verify(source: &Path) -> Result<Manifest> {
         check_entry(&root, entry)?;
     }
     ensure!(
-        DURABLE_NAMES.iter().filter(|name| seen.contains(**name)).count() == 1,
-        "Snapshot must contain exactly one durable database"
+        seen.contains(DURABLE),
+        "Snapshot must contain the durable database"
     );
     Ok(manifest)
 }
@@ -424,11 +415,7 @@ pub fn prepare_packaged(data: &Path) -> Result<NativeLease> {
             return Ok(lease);
         }
     }
-    let mut has_data = false;
-    for name in DURABLE_NAMES {
-        has_data = has_data || regular_file(&data, name)?.is_some();
-    }
-    let snapshot = if has_data {
+    let snapshot = if regular_file(&data, DURABLE)?.is_some() {
         let name = format!("checkpoint-{}", Uuid::new_v4());
         backup(&data, &root.join(&name))?;
         verify(&root.join(&name))?;

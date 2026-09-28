@@ -26,14 +26,8 @@ fn support(home: &PathBuf) -> PathBuf {
     home.join("Library/Application Support/Cascade")
 }
 
-/// The script's names when the app was called Craft, and TaskHub before that. A status line
-/// installed back then is still ours: replacing it must not file it away as the user's original.
-const LEGACY_SCRIPT_NAMES: [&str; 2] = ["craft-statusline.sh", "taskhub-statusline.sh"];
-
 fn is_ours(line: &Value) -> bool {
-    line["command"]
-        .as_str()
-        .is_some_and(|command| std::iter::once(SCRIPT_NAME).chain(LEGACY_SCRIPT_NAMES).any(|name| command.contains(name)))
+    line["command"].as_str().is_some_and(|command| command.contains(SCRIPT_NAME))
 }
 
 pub fn status() -> String {
@@ -100,23 +94,6 @@ fn change_in(home: &PathBuf, install: bool) -> Result<(), ApiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_status_line_installed_under_the_old_name_is_replaced_not_kept_as_the_original() {
-        let home = std::env::temp_dir().join(format!("cascade-statusline-legacy-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&home);
-        fs::create_dir_all(home.join(".claude")).unwrap();
-        let file = home.join(".claude/settings.json");
-        let legacy = json!({"type":"command",
-            "command":"/bin/sh '/Users/x/Library/Application Support/TaskHub/taskhub-statusline.sh'"});
-        fs::write(&file, json!({"statusLine":legacy}).to_string()).unwrap();
-
-        change_in(&home, true).unwrap();
-        let installed = read_json(&file).unwrap();
-        assert!(installed["statusLine"]["command"].as_str().unwrap().contains(SCRIPT_NAME));
-        assert!(!support(&home).join("statusline/original.json").exists());
-        let _ = fs::remove_dir_all(&home);
-    }
 
     #[test]
     fn install_keeps_the_users_status_line_and_removal_restores_it() {

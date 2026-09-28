@@ -792,8 +792,6 @@ impl Daemon {
     if let Some(data) = self.dir.parent() {
       cmd.env("CASCADE_PORT_FILE", data.join(".server-port"));
     }
-    // Hooks installed while the app was Craft read the old name; they keep reporting until replaced.
-    cmd.env("CRAFT_RUN_ID", &id);
     if let Some(browser) = &self.browser {
       cmd.env("BROWSER", browser);
     }

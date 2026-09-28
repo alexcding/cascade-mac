@@ -1184,7 +1184,7 @@ mod tests {
     #[test]
     fn derived_data_folders_are_named_the_way_xcode_names_them() {
         let name = |path: &str| derived_data_name(Path::new(path)).unwrap();
-        assert_eq!(name("/Users/chen/Workspace/craft-mac/macos/Craft.xcodeproj"), "Craft-fzidscgpprcwypbzmzmgubqwsvlr");
+        assert_eq!(name("/Users/chen/Workspace/cascade-mac/macos/Cascade.xcodeproj"), "Cascade-ffxxggnawvboapbwvklfahyteawf");
         assert_eq!(name("/tmp/worktrees/feature/App.xcodeproj"), "App-frmzzoohvmzijudjgdkmnbaiecav");
     }
 

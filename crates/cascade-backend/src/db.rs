@@ -20,7 +20,6 @@ pub struct Database {
 impl Database {
     pub fn open(data_dir: &Path) -> Result<Self> {
         fs::create_dir_all(data_dir)?;
-        migrate_legacy_name(data_dir);
         let durable = open_db(&data_dir.join("cascade.db"))?;
         let cache = open_db(&data_dir.join("data.db"))?;
         let logs = open_db(&data_dir.join("logs.db"))?;
@@ -780,25 +779,6 @@ enum FieldKind {
     Bool,
 }
 
-fn migrate_legacy_name(data_dir: &Path) {
-    let [current, legacy @ ..] = crate::recovery::DURABLE_NAMES;
-    if data_dir.join(current).exists() {
-        return;
-    }
-    // The newest earlier name wins; a directory never held two of them at once.
-    let Some(found) = legacy.into_iter().find(|name| data_dir.join(name).exists()) else {
-        return;
-    };
-    // The main file last: once it has the current name the rename is never tried again, so its
-    // log must already be beside it.
-    for suffix in ["-wal", "-shm", "-journal", ""] {
-        let from = data_dir.join(format!("{found}{suffix}"));
-        if from.exists() {
-            let _ = fs::rename(&from, data_dir.join(format!("{current}{suffix}")));
-        }
-    }
-}
-
 fn open_db(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path).with_context(|| format!("open {}", path.display()))?;
     let _ = conn.execute_batch("PRAGMA journal_mode=WAL;");
@@ -1135,28 +1115,5 @@ mod tests {
         let id = saved["tabs"][0]["id"].as_str().unwrap().to_owned();
         assert_eq!(saved["tabs"][0]["standalone"], true);
         assert_eq!(opened.adopt_tab(&id).unwrap()["tabs"][0]["standalone"], false);
-    }
-
-    #[test]
-    fn a_database_under_an_earlier_name_is_carried_to_the_current_one() {
-        for legacy in ["craft.db", "taskhub.db", "config.db"] {
-            let dir = tempfile::tempdir().unwrap();
-            fs::write(dir.path().join(legacy), b"rows").unwrap();
-            fs::write(dir.path().join(format!("{legacy}-wal")), b"log").unwrap();
-            migrate_legacy_name(dir.path());
-            assert_eq!(fs::read(dir.path().join("cascade.db")).unwrap(), b"rows");
-            assert_eq!(fs::read(dir.path().join("cascade.db-wal")).unwrap(), b"log");
-            assert!(!dir.path().join(legacy).exists());
-        }
-    }
-
-    #[test]
-    fn a_current_database_is_never_replaced_by_an_earlier_one() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("cascade.db"), b"new").unwrap();
-        fs::write(dir.path().join("taskhub.db"), b"old").unwrap();
-        migrate_legacy_name(dir.path());
-        assert_eq!(fs::read(dir.path().join("cascade.db")).unwrap(), b"new");
-        assert!(dir.path().join("taskhub.db").exists());
     }
 }

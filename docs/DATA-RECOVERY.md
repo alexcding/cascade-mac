@@ -38,8 +38,7 @@ checks SHA-256 digests and SQLite integrity, and publishes a manifest or restore
 receipt only after the copied data has been flushed. Interrupted operations may
 leave incomplete output for inspection. Choose a fresh path for a retry.
 
-Format-1 snapshots from the old Node tool remain readable, including `config.db`
-under its original filename. Restoring never overwrites the source or a live data
+Restoring never overwrites the source or a live data
 directory. Use a **pre-upgrade** snapshot for rollback and keep the matching old
 app: a newer database is not guaranteed to work with an older backend.
 
@@ -78,7 +77,6 @@ up to two minutes for startup; cancellation terminates its owned backend.
 | Pending native context writes | `ptyd-native-spike/page-tabs.json`; included when present. This is page metadata, not unsaved editor text. |
 | Review requested/viewed timestamps | `cascade.db`; included, avoiding an artificial reset of acknowledged reviews on restore. |
 | Activity and diagnostic history | `logs.db`; included when present as a separate consistent SQLite snapshot. |
-| Older durable filename | If `cascade.db` is absent, `config.db` is captured/restored under its original name. Backup does not trigger the application's legacy rename or destructive schema changes. |
 | GitHub/Jira snapshots | `data.db`; regenerable, omitted. The normal poller repopulates the restored installation. |
 | Terminal screen state and live process metadata | Daemon memory and PTY manifests; omitted. Closing or updating Cascade terminates its PTYs; saved CLI conversation IDs recreate and resume sessions on launch. |
 | Native sidebar selection/collapse, window geometry | AppKit/UserDefaults in `com.alexcding.cascade`; left in place during same-bundle upgrades. Not part of this data-directory snapshot. |
