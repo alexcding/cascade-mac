@@ -171,7 +171,7 @@ private struct WelcomeHooksPage: View {
                           subtitle: "Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration.") {
                 // An agent's turn ending, arriving at the app.
                 HStack(spacing: 18) {
-                    WelcomeTerminalCard(lines: ["claude", "turn finished"])
+                    WelcomeTerminalCard(lines: [AgentDrivers.primary.cli, "turn finished"])
                     Image(systemName: "arrow.right").font(.system(size: 20, weight: .medium)).foregroundStyle(Theme.accent)
                     WelcomeAppIcon(size: 64)
                         .overlay(alignment: .topTrailing) {
@@ -193,7 +193,7 @@ private struct WelcomeHooksPage: View {
                             Button(model.clis.hookAction(cli)) { model.clis.requestToggleHook(cli) }
                                 .disabled(!model.canChangeHook(cli)).accessibilityIdentifier("welcome-hook-toggle-\(cli.rawValue)")
                         }
-                        if cli == .claude { statusLine }
+                        if cli.agent?.takesStatusLine == true { statusLine }
                     }
                 }
                 if let error = model.clis.hookError {

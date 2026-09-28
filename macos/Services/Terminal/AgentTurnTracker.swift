@@ -10,7 +10,8 @@ import Observation
     private(set) var betweenTurns = false
     private(set) var revision: UInt64 = 0
     private(set) var streamAvailable = false
-    private(set) var cli: AgentCLI?
+    /// The CLI its hooks named, as the id its driver answers to.
+    private(set) var cli: String?
     private(set) var sessionID: String?
     /// Approvals and questions the agent's hook has put to the app and nobody has answered yet, by
     /// request id. Claude draws its own prompt in the terminal as the hook starts, not after it.
@@ -64,7 +65,7 @@ import Observation
     // still checks its durable session's CLI before persisting conversation IDs.
     @discardableResult func receive(_ event: ServerEvent) -> Bool {
         guard streamAvailable, let terminalID, event.runId == terminalID,
-              let raw = event.cli, let incomingCLI = AgentCLI(rawValue: raw),
+              let incomingCLI = AgentDrivers.of(event.cli)?.cli,
               ["agent-turn-start", "agent-turn-done"].contains(event.type) else { return false }
         let incomingID = event.sessionId.flatMap { $0.isEmpty ? nil : $0 }
         // A Stop for an older/different CLI conversation must not clear a newer

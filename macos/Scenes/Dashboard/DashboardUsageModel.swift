@@ -8,8 +8,8 @@ import Observation
 
     func update(_ usage: UsageSnapshot?) {
         guard !retired else { return }
-        let agents = Theme.usageAgents.compactMap { agent -> (key: String, title: String, history: [UsageSnapshot.Day])? in
-            let history = agent.key == "codex" ? usage?.codex?.history : usage?.claude?.history
+        let agents = AgentDrivers.choices.compactMap { agent -> (key: String, title: String, history: [UsageSnapshot.Day])? in
+            let history = usage?.usage(of: agent.key)?.history
             return history.map { (agent.key, agent.title, $0) }
         }
         var value = Tile()

@@ -709,7 +709,7 @@ private struct DashboardSpendLines: View {
                         index == 0 ? path.move(to: point) : path.addLine(to: point)
                     }
                 }
-                .stroke(Theme.agentTint(line.key), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(AgentDrivers.driver(for: line.key).tint, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             }
         }
         .frame(minWidth: 40, maxWidth: 100, minHeight: 34, maxHeight: 34)
@@ -906,5 +906,5 @@ struct AgentChip: View {
         .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: Theme.Size.hairline))
         .help(mark.label).accessibilityLabel(mark.label)
     }
-    private var tint: Color { mark.cli.isEmpty ? Theme.textSecondary : Theme.agentTint(mark.cli) }
+    private var tint: Color { mark.cli.isEmpty ? Theme.textSecondary : AgentDrivers.driver(for: mark.cli).tint }
 }

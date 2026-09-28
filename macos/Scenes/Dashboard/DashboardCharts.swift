@@ -113,11 +113,10 @@ struct DashboardRefreshButton: View {
     }
 
     static func plans(_ usage: UsageSnapshot?) -> [Plan] {
-        Theme.usageAgents.compactMap { agent in
-            let codex = agent.key == "codex"
-            guard let limits = codex ? usage?.codexLimits : usage?.limits,
+        AgentDrivers.choices.compactMap { agent in
+            guard let limits = usage?.limits(of: agent.key),
                   limits.session != nil || limits.weekly != nil || !(limits.scoped ?? []).isEmpty else { return nil }
-            return Plan(key: agent.key, title: agent.title, limits: limits, agent: codex ? usage?.codex : usage?.claude)
+            return Plan(key: agent.key, title: agent.title, limits: limits, agent: usage?.usage(of: agent.key))
         }
     }
 
@@ -154,7 +153,7 @@ private struct AgentUsageRow: View {
     @State private var hovering = false
 
     var body: some View {
-        let accent = Theme.agentTint(plan.key)
+        let accent = AgentDrivers.driver(for: plan.key).tint
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let lead = plan.lead
             let left = lead?.window.remaining ?? 100
@@ -225,7 +224,7 @@ private struct UsageRing: View {
 private struct AgentUsageDetails: View {
     let plan: DashboardUsage.Plan
     var body: some View {
-        let accent = Theme.agentTint(plan.key)
+        let accent = AgentDrivers.driver(for: plan.key).tint
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 AgentMark(key: plan.key, size: 15)
@@ -252,7 +251,7 @@ struct AgentMark: View {
     var body: some View {
         if let asset = PageSessionMark(cli: key).asset {
             Image(asset).renderingMode(.template).resizable().scaledToFit()
-                .frame(width: size, height: size).foregroundStyle(Theme.agentTint(key)).accessibilityHidden(true)
+                .frame(width: size, height: size).foregroundStyle(AgentDrivers.driver(for: key).tint).accessibilityHidden(true)
         }
     }
 }

@@ -26,6 +26,7 @@ use tokio::{
 };
 use uuid::Uuid;
 
+use crate::agents::Agent;
 use crate::{cli, error::ApiError, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
@@ -494,9 +495,9 @@ pub async fn cli_tools() -> ApiResult<Value> {
             Err(_) => json!({"present":false}),
         }
     };
-    let (claude, codex, gh, acli, gh_webhook, node) = tokio::join!(
-        probe("claude", None),
-        probe("codex", None),
+    let agents = futures_util::future::join_all(Agent::ALL.map(|agent| probe(agent.profile().command, None)));
+    let (agents, gh, acli, gh_webhook, node) = tokio::join!(
+        agents,
         probe("gh", Some(vec!["auth", "status"])),
         probe("acli", Some(vec!["jira", "auth", "status"])),
         gh_webhook,
@@ -513,10 +514,13 @@ pub async fn cli_tools() -> ApiResult<Value> {
         None
     };
     let serve_sim = json!({"present":needs.is_none(),"source":if installed { "installed" } else { "npx" },"needs":needs});
-    Ok(Json(
-        json!({"claude":claude,"codex":codex,"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook},
-               "node":node,"serveSim":serve_sim,"brew":{"present":cli::installed("brew")}}),
-    ))
+    let mut found = json!({"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook},
+               "node":node,"serveSim":serve_sim,"brew":{"present":cli::installed("brew")}});
+    // Each agent's CLI under its own name.
+    for (agent, probed) in Agent::ALL.into_iter().zip(agents) {
+        found[agent.profile().id] = probed;
+    }
+    Ok(Json(found))
 }
 
 const MARKER: &str = "cascade-workflow-hook";
@@ -531,61 +535,60 @@ const EVENTS: [(&str, &str); 2] = [
     ("UserPromptSubmit", "/api/hooks/turn-start"),
     ("Stop", "/api/hooks/turn-done"),
 ];
-/// Claude also says when its conversation changes under a running agent: at launch, and on
-/// `/resume` and `/clear`. It is not part of `EVENTS`: an install from before it existed reads as
-/// outdated rather than absent, and keeps reporting turns, which is all a workflow needs.
-/// Checked against Claude Code 2.1.278: the payload carries top-level `session_id` and `source`
-/// (`startup` on a fresh launch, `resume` with the same id on `--resume`).
-const CLAUDE_SESSION: (&str, &str) = ("SessionStart", "/api/hooks/session-start");
+/// A CLI that reports sessions (`Hooks::reports_sessions`) says when its conversation changes under
+/// a running agent: at launch, and on `/resume` and `/clear`. It is not part of `EVENTS`: an install
+/// from before it existed reads as outdated rather than absent, and keeps reporting turns, which is
+/// all a workflow needs. Checked against Claude Code 2.1.278: the payload carries top-level
+/// `session_id` and `source` (`startup` on a fresh launch, `resume` with the same id on `--resume`).
+const SESSION: (&str, &str) = ("SessionStart", "/api/hooks/session-start");
 /// Both CLIs ask this hook before showing their approval prompt (checked against Claude Code
 /// 2.1.282 and Codex 0.156.1), so the chat view can answer it. Outside `EVENTS` for the same
-/// reason as `CLAUDE_SESSION`: an install without it still reports turns.
+/// reason as `SESSION`: an install without it still reports turns.
 const PERMISSION: (&str, &str) = ("PermissionRequest", "/api/hooks/permission");
 /// Whatever the agent runs inherits this terminal's `CASCADE_RUN_ID`, so a nested `claude -p`
 /// would report as the session's own conversation and take it over. The hook's parent is the
-/// `claude` that fired it, and only the session's own is the terminal's foreground job: a nested
-/// one runs in its tool's process group with no controlling terminal. Checked against Claude Code
-/// 2.1.278 (`tpgid == pgid` for the session's, `tpgid 0` for the nested one). Codex is left
-/// alone: how it spawns its hooks has not been checked, and a wrong guard would silence them.
+/// CLI that fired it, and only the session's own is the terminal's foreground job: a nested one
+/// runs in its tool's process group with no controlling terminal. Checked against Claude Code
+/// 2.1.278 (`tpgid == pgid` for the session's, `tpgid 0` for the nested one); a CLI gets it when
+/// its adapter says so (`Hooks::foreground_only`).
 const FOREGROUND_GUARD: &str =
     "set -- $(ps -o tpgid=,pgid= -p $PPID 2>/dev/null); [ -n \"$1\" ] && [ \"$1\" = \"$2\" ] || exit 0; ";
-fn is_current(entry: &Value, cli: &str) -> bool {
+fn is_current(entry: &Value, agent: Agent) -> bool {
     entry["hooks"].as_array().is_some_and(|hooks| {
         hooks.iter().any(|hook| {
             hook["command"]
                 .as_str()
                 .is_some_and(|command| {
-                    (command.contains(MARKER) || command.contains(CRAFT_MARKER)) && (cli != "claude" || command.contains("tpgid"))
+                    (command.contains(MARKER) || command.contains(CRAFT_MARKER))
+                        && (!agent.hooks().foreground_only || command.contains("tpgid"))
                 })
         })
     })
 }
 /// The permission hook's reply is the CLI's decision; one installed before it failed on errors
 /// and stopped at a missing port file must be installed again.
-fn is_current_for(entry: &Value, cli: &str, event: &str) -> bool {
-    is_current(entry, cli)
+fn is_current_for(entry: &Value, agent: Agent, event: &str) -> bool {
+    is_current(entry, agent)
         && (event != PERMISSION.0
             || entry["hooks"].as_array().is_some_and(|hooks| {
                 hooks.iter().any(|hook| hook["command"].as_str().is_some_and(|command| command.contains("curl -sf")))
             }))
 }
-fn events(cli: &str) -> Vec<(&'static str, &'static str)> {
+fn events(agent: Agent) -> Vec<(&'static str, &'static str)> {
     let mut events = EVENTS.to_vec();
-    if cli == "claude" {
-        events.push(CLAUDE_SESSION)
+    if agent.hooks().reports_sessions {
+        events.push(SESSION)
     }
     events.push(PERMISSION);
     events
 }
-fn hook_file(cli: &str) -> Result<(PathBuf, Value), ApiError> {
+fn hook_file(agent: Agent) -> Result<(PathBuf, Value), ApiError> {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| ApiError::bad_request("Home directory is unavailable"))?;
-    match cli {
-        "claude" => Ok((home.join(".claude/settings.json"), json!({}))),
-        "codex" => Ok((home.join(".codex/hooks.json"), json!({"hooks":{}}))),
-        _ => Err(ApiError::bad_request(format!("unknown CLI: {cli}"))),
-    }
+    let hooks = agent.hooks();
+    let empty = serde_json::from_str(hooks.empty).map_err(ApiError::internal)?;
+    Ok((home.join(hooks.file), empty))
 }
 pub(crate) fn read_json(path: &PathBuf) -> Option<Value> {
     fs::read_to_string(path)
@@ -615,8 +618,8 @@ fn is_our_entry(entry: &Value) -> bool {
         })
     })
 }
-pub(crate) fn hook_status_for(cli: &str) -> String {
-    let Ok((file, _)) = hook_file(cli) else {
+pub(crate) fn hook_status_for(agent: Agent) -> String {
+    let Ok((file, _)) = hook_file(agent) else {
         return "absent".into();
     };
     let Some(value) = read_json(&file) else {
@@ -630,11 +633,11 @@ pub(crate) fn hook_status_for(cli: &str) -> String {
     let current = |event: &str| {
         value["hooks"][event]
             .as_array()
-            .is_some_and(|items| items.iter().any(|entry| is_current_for(entry, cli, event)))
+            .is_some_and(|items| items.iter().any(|entry| is_current_for(entry, agent, event)))
     };
     if !EVENTS.iter().all(|(event, _)| ours(event)) {
         "absent".into()
-    } else if events(cli).iter().all(|(event, _)| current(event)) {
+    } else if events(agent).iter().all(|(event, _)| current(event)) {
         "installed".into()
     } else {
         // Still reporting turns, but from before a hook or its guard was added. Installing again
@@ -643,14 +646,19 @@ pub(crate) fn hook_status_for(cli: &str) -> String {
     }
 }
 fn hook_status() -> Value {
-    json!({"claude":hook_status_for("claude"),"codex":hook_status_for("codex"),
-        crate::agents::statusline::KEY:crate::agents::statusline::status()})
+    let mut status = json!({crate::agents::statusline::KEY: crate::agents::statusline::status()});
+    for agent in Agent::ALL {
+        status[agent.profile().id] = json!(hook_status_for(agent));
+    }
+    status
 }
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace(char::from(39), "'\"'\"'"))
 }
-fn hook_entry(cli: &str, endpoint: &str, port_file: &PathBuf) -> Value {
-    let guard = if cli == "claude" { FOREGROUND_GUARD } else { "" };
+fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
+    let hooks = agent.hooks();
+    let cli = agent.profile().id;
+    let guard = if hooks.foreground_only { FOREGROUND_GUARD } else { "" };
     // Every other hook only reports, so it is quick and silent. The permission hook waits for an
     // answer and prints it, which is the decision the CLI reads; an empty reply decides nothing.
     let asks = endpoint == PERMISSION.1;
@@ -673,7 +681,7 @@ fn hook_entry(cli: &str, endpoint: &str, port_file: &PathBuf) -> Value {
         hook["timeout"] = json!(crate::agents::permission::HOOK_TIMEOUT)
     }
     let mut entry = json!({"hooks":[hook]});
-    if cli == "claude" {
+    if hooks.matches_tools {
         entry["matcher"] = json!(".*")
     }
     entry
@@ -691,8 +699,9 @@ pub(crate) fn write_json(path: &PathBuf, value: &Value) -> Result<(), ApiError> 
         .map_err(ApiError::internal)?;
     fs::rename(temporary, destination).map_err(ApiError::internal)
 }
-fn change_hooks(app: &AppState, cli_name: &str, install: bool) -> Result<Value, ApiError> {
-    let (file, base) = hook_file(cli_name)?;
+fn change_hooks(app: &AppState, cli: &str, install: bool) -> Result<Value, ApiError> {
+    let agent = Agent::of(cli).ok_or_else(|| ApiError::bad_request(format!("unknown CLI: {cli}")))?;
+    let (file, base) = hook_file(agent)?;
     let mut config = match fs::read_to_string(&file) {
         Ok(raw) => serde_json::from_str(&raw).map_err(|_| {
             ApiError::bad_request(format!(
@@ -711,7 +720,7 @@ fn change_hooks(app: &AppState, cli_name: &str, install: bool) -> Result<Value, 
         config["hooks"] = json!({})
     }
     let port_file = app.db.data_dir.join(".server-port");
-    for (event, endpoint) in events(cli_name) {
+    for (event, endpoint) in events(agent) {
         let mut entries = config["hooks"][event]
             .as_array()
             .cloned()
@@ -722,7 +731,7 @@ fn change_hooks(app: &AppState, cli_name: &str, install: bool) -> Result<Value, 
             continue;
         }
         if install {
-            entries.push(hook_entry(cli_name, endpoint, &port_file))
+            entries.push(hook_entry(agent, endpoint, &port_file))
         }
         config["hooks"][event] = Value::Array(entries)
     }
@@ -926,15 +935,15 @@ mod forwarder_tests {
     #[test]
     fn claude_hooks_drop_nested_runs_and_older_entries_read_as_outdated() {
         let port = PathBuf::from("/tmp/.server-port");
-        let claude = hook_entry("claude", "/api/hooks/turn-start", &port);
+        let claude = hook_entry(Agent::Claude, "/api/hooks/turn-start", &port);
         let command = claude["hooks"][0]["command"].as_str().unwrap();
         assert!(command.contains("ps -o tpgid=,pgid= -p $PPID") && command.contains("|| exit 0;"));
-        assert!(is_current(&claude, "claude"));
+        assert!(is_current(&claude, Agent::Claude));
         let older = json!({"hooks":[{"type":"command","command":format!("sh -c 'curl x # {MARKER}'")}]});
-        assert!(is_our_entry(&older) && !is_current(&older, "claude"));
-        let codex = hook_entry("codex", "/api/hooks/turn-start", &port);
+        assert!(is_our_entry(&older) && !is_current(&older, Agent::Claude));
+        let codex = hook_entry(Agent::Codex, "/api/hooks/turn-start", &port);
         assert!(!codex["hooks"][0]["command"].as_str().unwrap().contains("tpgid"));
-        assert!(is_current(&codex, "codex") && is_current(&older, "codex"));
+        assert!(is_current(&codex, Agent::Codex) && is_current(&older, Agent::Codex));
     }
 
     #[test]
@@ -942,19 +951,19 @@ mod forwarder_tests {
         let legacy = json!({"hooks":[{"type":"command",
             "command":format!("sh -c 'ps -o tpgid= ; curl x?runId=${{TASKHUB_RUN_ID:-}} # {LEGACY_MARKER}'")}]});
         assert!(is_our_entry(&legacy) && !reports_here(&legacy));
-        assert!(!is_current(&legacy, "claude") && !is_current(&legacy, "codex"));
+        assert!(!is_current(&legacy, Agent::Claude) && !is_current(&legacy, Agent::Codex));
     }
 
     #[test]
-    fn only_claude_is_asked_for_session_starts() {
-        assert!(events("claude").contains(&CLAUDE_SESSION));
-        assert!(!events("codex").contains(&CLAUDE_SESSION));
+    fn only_a_cli_that_reports_sessions_is_asked_for_them() {
+        assert!(events(Agent::Claude).contains(&SESSION));
+        assert!(!events(Agent::Codex).contains(&SESSION));
     }
 
     #[test]
     fn both_clis_ask_for_permission_and_wait_for_the_answer() {
         let port = PathBuf::from("/tmp/.server-port");
-        for cli in ["claude", "codex"] {
+        for cli in Agent::ALL {
             assert!(events(cli).contains(&PERMISSION));
             let entry = hook_entry(cli, PERMISSION.1, &port);
             let hook = &entry["hooks"][0];
@@ -968,7 +977,7 @@ mod forwarder_tests {
             let before = json!({"hooks":[{"type":"command","command":command.replace("curl -sf", "curl -s")}]});
             assert!(is_current(&before, cli) && !is_current_for(&before, cli, PERMISSION.0));
         }
-        let quiet = hook_entry("codex", "/api/hooks/turn-start", &port);
+        let quiet = hook_entry(Agent::Codex, "/api/hooks/turn-start", &port);
         assert!(quiet["hooks"][0].get("timeout").is_none());
     }
 

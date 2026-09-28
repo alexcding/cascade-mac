@@ -259,7 +259,7 @@ public final class AppViewModel {
             let terminal = terminals["task:\(session.id)"]
             let live = terminal?.isLive ?? false
             let busy = terminal?.agentBusy == true
-            status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli?.rawValue ?? session.cli)
+            status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli ?? session.cli)
         }
         let prs = Dictionary((dashboard?.prs.projects ?? []).flatMap(\.prs).compactMap { pr in pr.url.map { ($0, pr) } },
                              uniquingKeysWith: { first, _ in first })
@@ -1108,11 +1108,12 @@ public final class AppViewModel {
         var id = latest.sessionId
         var firstLaunch = fresh
         var reservedID: String?
-        if agent == .claude && (afresh || id == nil || id == "") {
+        let names = agent.driver?.namesConversationAtLaunch == true
+        if names && (afresh || id == nil || id == "") {
             guard self.sessionOperations != nil else { throw BackendError.operation(String(localized: "Connect before starting the agent.")) }
             id = UUID().uuidString.lowercased(); firstLaunch = true
             reservedID = id
-        } else if agent == .claude, !firstLaunch, let id, let operations = self.sessionOperations,
+        } else if names, !firstLaunch, let id, let operations = self.sessionOperations,
                   (try? await operations.conversationExists(cli: agent.rawValue, id: id)) == false {
             // The id was reserved at a launch that never sent a prompt, so nothing is on disk
             // under it and `--resume` would fail hard. Reserving it again starts it for real.
@@ -1160,10 +1161,10 @@ public final class AppViewModel {
             }
             guard let self, let terminal, (try? await terminal.atShell()) == true else { return }
             let current = sessions.first { $0.id == record.id }?.sessionId
-            if resuming, agent == .claude, let current, let operations = sessionOperations,
+            if resuming, agent.driver?.namesConversationAtLaunch == true, let current, let operations = sessionOperations,
                (try? await operations.conversationExists(cli: agent.rawValue, id: current)) == false {
                 do { try await launchAgent(terminal, record: record, fresh: true, afresh: true) }
-                catch { self.error = String(localized: "Claude could not resume its conversation, and starting a new one failed: \(error.localizedDescription)") }
+                catch { self.error = String(localized: "\(agent.label) could not resume its conversation, and starting a new one failed: \(error.localizedDescription)") }
                 return
             }
             // Quitting the agent within the window reads the same, so this does not claim a failure.
@@ -1181,7 +1182,7 @@ public final class AppViewModel {
     }
 
     private func noteAgent(_ terminal: TerminalSession, cli: String, started: Bool) async throws {
-        terminal.launchedAgent = AgentCLI(rawValue: cli)
+        terminal.launchedAgent = AgentDrivers.of(cli)?.cli
         terminal.launchedAgentForeground = nil
         // A shell that starts the agent itself runs its startup files first, and what they run
         // holds the foreground briefly; there the agent is the program that keeps it.

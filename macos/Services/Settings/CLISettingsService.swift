@@ -8,13 +8,17 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     /// `node` and `serveSim` are the Simulator panel's: optional, so first-run setup never asks for them.
     case claude, codex, gh, ghWebhook, acli, node, serveSim
     var id: String { rawValue }
+    /// The agent CLI's driver, for the tools that are agents; its facts are the driver's.
+    var agent: (any AgentDriver)? { AgentDrivers.of(rawValue) }
     var title: String {
-        switch self {
-        case .claude: "Claude Code"; case .codex: "Codex"; case .gh: "GitHub CLI"; case .ghWebhook: String(localized: "gh webhook extension")
+        if let agent { return agent.name }
+        return switch self {
+        case .gh: "GitHub CLI"; case .ghWebhook: String(localized: "gh webhook extension")
         case .acli: "Atlassian CLI"; case .node: String(localized: "Node.js 20 or later"); case .serveSim: "serve-sim"
+        default: rawValue
         }
     }
-    var supportsHooks: Bool { self == .claude || self == .codex }
+    var supportsHooks: Bool { agent != nil }
     /// An extension is only ever installed or not: it has no sign-in of its own to report.
     var isExtension: Bool { self == .ghWebhook }
     var isSimulatorPreview: Bool { self == .node || self == .serveSim }
@@ -27,14 +31,14 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     /// has none — `npx` fetches it, so Node is all it needs.
     var installCommand: String? { self == .ghWebhook ? "gh extension install cli/gh-webhook" : nil }
     var installationGuide: URL {
+        if let agent { return agent.installationGuide }
         let address: String = switch self {
-        case .claude: "https://docs.claude.com/en/docs/claude-code/setup"
-        case .codex: "https://github.com/openai/codex"
         case .gh: "https://cli.github.com"
         case .ghWebhook: "https://github.com/cli/gh-webhook"
         case .acli: "https://developer.atlassian.com/cloud/acli/guides/install-macos/"
         case .node: "https://nodejs.org/en/download"
         case .serveSim: "https://github.com/expo/serve-sim"
+        default: "https://github.com"
         }
         return URL(string: address)!
     }

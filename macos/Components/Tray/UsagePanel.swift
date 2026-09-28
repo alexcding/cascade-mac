@@ -13,8 +13,8 @@ struct UsagePanel: View {
             }
             if let error = shell.usageError { Text(error).font(.caption).foregroundStyle(.orange) }
             let snapshot = shell.usage
-            let agent = shell.usageAgent == "codex" ? snapshot?.codex : snapshot?.claude
-            let limits = shell.usageAgent == "codex" ? snapshot?.codexLimits : snapshot?.limits
+            let agent = snapshot?.usage(of: shell.usageAgent)
+            let limits = snapshot?.limits(of: shell.usageAgent)
             if let session = limits?.session {
                 UsageBar(title: String(localized: "Session"), window: session, duration: UsageWindowMath.session, weekly: nil, accent: accent)
             }
@@ -34,7 +34,7 @@ struct UsagePanel: View {
     }
 
     /// Each agent's own accent, the Dashboard's.
-    private var accent: Color { Theme.agentTint(shell.usageAgent) }
+    private var accent: Color { AgentDrivers.driver(for: shell.usageAgent).tint }
 }
 
 enum UsageWindowMath {

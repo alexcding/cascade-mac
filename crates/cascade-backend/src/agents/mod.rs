@@ -24,6 +24,8 @@ use std::{
 pub trait AgentProbe {
     /// What the app may count on from the CLI, so that it never needs to know which one it has.
     const PROFILE: Profile;
+    /// How the CLI takes Cascade's hooks.
+    const HOOKS: Hooks;
     /// It keeps each conversation in a file its id names, found without a search. One that does
     /// not has its newest transcript searched for, which is slow, so the search is kept a while.
     const NAMES_CONVERSATION_FILES: bool = false;
@@ -52,6 +54,14 @@ pub trait AgentProbe {
     fn tool_change(_name: &str, _input: &Value) -> Option<(String, String, String)> {
         None
     }
+    /// The last 30 days of its use (`usage::daily`), or None when it cannot be read.
+    async fn usage() -> Option<Value> {
+        None
+    }
+    /// Its plan's allowance windows, `{"session","weekly","scoped"}`, or None when unknown.
+    async fn limits() -> Option<Value> {
+        None
+    }
 }
 
 /// What the app may count on from a CLI. It travels with the CLI's transcript, and the app acts on
@@ -61,9 +71,27 @@ pub trait AgentProbe {
 pub struct Profile {
     /// The name sessions, hooks and requests carry.
     pub id: &'static str,
+    /// The executable the CLI runs as.
+    pub command: &'static str,
     /// It keeps a message typed while it works and takes it in, mid-turn or after, so the chat may
     /// type one then.
     pub queues_mid_turn: bool,
+}
+
+/// How a CLI takes Cascade's hooks (`integrations`).
+#[derive(Clone, Copy, Debug)]
+pub struct Hooks {
+    /// Its hooks file, from the home directory.
+    pub file: &'static str,
+    /// What that file holds with nothing in it.
+    pub empty: &'static str,
+    /// It says when its conversation changes under a running agent (`SessionStart`).
+    pub reports_sessions: bool,
+    /// A run of it nested in one of the agent's tools fires hooks too, so each hook answers only
+    /// for the terminal's own agent (`FOREGROUND_GUARD`).
+    pub foreground_only: bool,
+    /// Each entry names the tools it applies to.
+    pub matches_tools: bool,
 }
 
 /// A CLI Cascade runs agents in: the one place that tells them apart by name. Callers take
@@ -75,7 +103,7 @@ pub enum Agent {
 }
 
 impl Agent {
-    const ALL: [Agent; 2] = [Agent::Claude, Agent::Codex];
+    pub const ALL: [Agent; 2] = [Agent::Claude, Agent::Codex];
 
     pub fn of(cli: &str) -> Option<Agent> {
         Self::ALL.into_iter().find(|agent| agent.profile().id == cli)
@@ -99,6 +127,13 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::status(home, worktree, task),
             Agent::Codex => codex::Codex::status(home, worktree, task),
+        }
+    }
+
+    pub fn hooks(self) -> Hooks {
+        match self {
+            Agent::Claude => claude::Claude::HOOKS,
+            Agent::Codex => codex::Codex::HOOKS,
         }
     }
 
@@ -134,6 +169,20 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::tool_change(name, input),
             Agent::Codex => codex::Codex::tool_change(name, input),
+        }
+    }
+
+    pub async fn usage(self) -> Option<Value> {
+        match self {
+            Agent::Claude => claude::Claude::usage().await,
+            Agent::Codex => codex::Codex::usage().await,
+        }
+    }
+
+    pub async fn limits(self) -> Option<Value> {
+        match self {
+            Agent::Claude => claude::Claude::limits().await,
+            Agent::Codex => codex::Codex::limits().await,
         }
     }
 
@@ -229,7 +278,7 @@ pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
         let agent = Agent::of(&query.cli)?;
         let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
         let mut found = transcript::read(&home, agent, &query.worktree, query.since.as_deref(), conversation);
-        found["hooks"] = json!(crate::integrations::hook_status_for(&query.cli));
+        found["hooks"] = json!(crate::integrations::hook_status_for(agent));
         found["agent"] = json!(agent.profile());
         Some(found)
     })
@@ -256,7 +305,7 @@ pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
         if !query.worktree.starts_with('/') {
             return None;
         }
-        Some(commands::list(&home, &query.cli, Path::new(&query.worktree), &reported))
+        Some(commands::list(&home, agent, Path::new(&query.worktree), &reported))
     })
     .await
     .ok()
@@ -345,7 +394,7 @@ mod tests {
 
     #[test]
     fn a_profile_is_what_the_app_reads() {
-        assert_eq!(json!(Agent::Claude.profile()), json!({"id": "claude", "queuesMidTurn": true}));
+        assert_eq!(json!(Agent::Claude.profile()), json!({"id": "claude", "command": "claude", "queuesMidTurn": true}));
         assert_eq!(json!(Agent::Codex.profile())["queuesMidTurn"], false);
     }
 }

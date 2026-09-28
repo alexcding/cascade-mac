@@ -1,3 +1,4 @@
+use crate::agents::Agent;
 use crate::{cli, http_client, AppState};
 use axum::{extract::State, Json};
 use chrono::{Local, Utc};
@@ -31,25 +32,25 @@ pub async fn get(State(app): State<AppState>) -> Json<Value> {
         state.busy = true;
         let app = app.clone();
         tokio::spawn(async move {
-            let (claude, codex, block, limits, codex_limits) = tokio::join!(
-                agent_stats("claude"),
-                agent_stats("codex"),
-                active_block(),
-                claude_limits(),
-                codex_limits()
+            // Each agent's CLI reads its own; a read that fails keeps what was read before.
+            let agents = futures_util::future::join_all(
+                Agent::ALL.map(|agent| async move { (agent, tokio::join!(agent.usage(), agent.limits())) }),
             );
+            let (agents, block) = tokio::join!(agents, active_block());
             let mut state = app.usage.state.lock().unwrap();
             let mut value = state.value.take().unwrap_or_else(empty);
-            for (name, result) in [
-                ("claude", claude),
-                ("codex", codex),
-                ("block", block),
-                ("limits", limits),
-                ("codexLimits", codex_limits),
-            ] {
-                if let Some(result) = result {
-                    value[name] = result;
+            for (agent, (usage, limits)) in agents {
+                let entry = &mut value["agents"][agent.profile().id];
+                for (name, result) in [("usage", usage), ("limits", limits)] {
+                    match result {
+                        Some(result) => entry[name] = result,
+                        None if entry.get(name).is_none() => entry[name] = Value::Null,
+                        None => {}
+                    }
                 }
+            }
+            if let Some(block) = block {
+                value["block"] = block;
             }
             value["asOf"] = json!(Utc::now().to_rfc3339());
             state.value = Some(value);
@@ -62,8 +63,9 @@ pub async fn get(State(app): State<AppState>) -> Json<Value> {
     Json(state.value.clone().unwrap_or_else(empty))
 }
 
+/// `{"agents":{id:{"usage","limits"}},"block","asOf"}`: each agent's CLI under its own id.
 fn empty() -> Value {
-    json!({"claude":null,"codex":null,"block":null,"limits":null,"codexLimits":null,"asOf":null})
+    json!({"agents":{},"block":null,"asOf":null})
 }
 
 async fn ccusage(args: &[&str]) -> Option<Value> {
@@ -82,7 +84,8 @@ async fn ccusage(args: &[&str]) -> Option<Value> {
     None
 }
 
-async fn agent_stats(agent: &str) -> Option<Value> {
+/// The last 30 days of an agent's use, as `ccusage` reads it for that CLI.
+pub(crate) async fn daily(agent: &str) -> Option<Value> {
     let today = Local::now().date_naive();
     let since = (today - chrono::Duration::days(29))
         .format("%Y%m%d")
@@ -129,7 +132,7 @@ fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
-async fn claude_limits() -> Option<Value> {
+pub(crate) async fn claude_limits() -> Option<Value> {
     let credentials = home()
         .and_then(|home| fs::read(home.join(".claude/.credentials.json")).ok())
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
@@ -219,7 +222,7 @@ fn find_limits(value: &Value) -> Option<Value> {
 
 /// Codex's rate limits: live from its CLI, or failing that (no `codex`, signed out, offline) the
 /// last ones a session log recorded.
-async fn codex_limits() -> Option<Value> {
+pub(crate) async fn codex_limits() -> Option<Value> {
     match codex_live_limits().await {
         Some(limits) => Some(limits),
         None => tokio::task::spawn_blocking(codex_logged_limits).await.ok().flatten(),
@@ -238,7 +241,7 @@ async fn codex_live_limits() -> Option<Value> {
         "\n",
     );
     let line = cli::first_line(
-        "codex",
+        Agent::Codex.profile().command,
         ["-s", "read-only", "-a", "never", "app-server"],
         requests.as_bytes(),
         Duration::from_secs(15),

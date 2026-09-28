@@ -183,7 +183,7 @@ struct SessionAgentControlsView: View {
             Button(String(localized: "Clear Conversation…"), systemImage: "eraser", role: .destructive) { confirmingClear = true }
         } label: {
             HStack(spacing: 6) {
-                if let fraction = model.agentStatus?.fraction { ContextRing(fraction: fraction, brand: Theme.agentTint(driver.cli)) }
+                if let fraction = model.agentStatus?.fraction { ContextRing(fraction: fraction, brand: AgentDrivers.driver(for: driver.cli).tint) }
                 // Quieter than the model: it is a gauge to glance at, not the control's name.
                 Text(contextTitle).font(.callout).monospacedDigit().foregroundStyle(Theme.textSecondary)
             }

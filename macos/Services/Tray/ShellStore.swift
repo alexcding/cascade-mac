@@ -82,8 +82,8 @@ import Observation
         self.preferences = preferences
         pendingSettings = preferences.dictionary(forKey: "native.pendingSettings") as? [String: String] ?? [:]
         appearance = AppAppearance(rawValue: preferences.string(forKey: "native.theme") ?? "auto") ?? .system
-        usageAgent = preferences.string(forKey: "native.usageAgent") == "codex" ? "codex" : "claude"
-        defaultAgent = SessionAgent(rawValue: preferences.string(forKey: "native.defaultCli") ?? "claude") ?? .claude
+        usageAgent = AgentDrivers.driver(for: preferences.string(forKey: "native.usageAgent")).cli
+        defaultAgent = preferences.string(forKey: "native.defaultCli").flatMap(SessionAgent.init(rawValue:)) ?? .primary
         activityNotify = preferences.string(forKey: "native.activityNotify") != "off"
         reviewSound = preferences.string(forKey: "native.reviewSound") ?? "system"
         gitClient = preferences.string(forKey: "native.gitClient") ?? ""
@@ -176,7 +176,7 @@ import Observation
     /// The window the menu-bar item shows for the agent the usage panel follows: the session, or the
     /// week on a plan with no session limit (some Codex plans report only a weekly window).
     var menuBarUsage: (window: UsageSnapshot.Window, weekly: Bool)? {
-        let limits = usageAgent == "codex" ? usage?.codexLimits : usage?.limits
+        let limits = usage?.limits(of: usageAgent)
         if let session = limits?.session { return (session, false) }
         return limits?.weekly.map { ($0, true) }
     }
@@ -235,7 +235,7 @@ import Observation
     }
 
     func setUsageAgent(_ value: String) {
-        usageAgent = value == "codex" ? "codex" : "claude"
+        usageAgent = AgentDrivers.driver(for: value).cli
         preferences.set(usageAgent, forKey: "native.usageAgent")
         saveSetting("usageAgent", value: usageAgent)
     }
@@ -403,11 +403,11 @@ import Observation
                     appearance = AppAppearance(rawValue: (settings["theme"] ?? nil) ?? "auto") ?? .system
                 }
                 if pendingSettings["usageAgent"] == nil {
-                    usageAgent = (settings["usageAgent"] ?? nil) == "codex" ? "codex" : "claude"
+                    usageAgent = AgentDrivers.driver(for: settings["usageAgent"] ?? nil).cli
                 }
                 if pendingSettings["activityNotify"] == nil { activityNotify = (settings["activityNotify"] ?? nil) != "off" }
                 if pendingSettings["reviewSound"] == nil { reviewSound = (settings["reviewSound"] ?? nil) ?? "system" }
-                if pendingSettings["defaultCli"] == nil { defaultAgent = SessionAgent(rawValue: (settings["defaultCli"] ?? nil) ?? "claude") ?? .claude }
+                if pendingSettings["defaultCli"] == nil { defaultAgent = (settings["defaultCli"] ?? nil).flatMap(SessionAgent.init(rawValue:)) ?? .primary }
                 if pendingSettings["gitClient"] == nil { gitClient = (settings["gitClient"] ?? nil) ?? "" }
                 if pendingSettings["gitClientCmd"] == nil {
                     let dirty = gitClientCommandDirty

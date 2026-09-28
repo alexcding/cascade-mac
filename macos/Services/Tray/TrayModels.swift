@@ -104,9 +104,15 @@ struct UsageSnapshot: Decodable, Equatable, Sendable {
         let weekly: Window?
         let scoped: [Window]?
     }
-    let claude: Agent?
-    let codex: Agent?
-    let limits: Limits?
-    let codexLimits: Limits?
+    /// One agent CLI's figures: its use, and its plan's allowance windows.
+    struct AgentUsage: Decodable, Equatable, Sendable {
+        var usage: Agent? = nil
+        var limits: Limits? = nil
+    }
+    /// Each agent CLI's, under its id (`usage::empty` in the backend).
+    var agents: [String: AgentUsage]? = nil
     let asOf: String?
+
+    func usage(of cli: String) -> Agent? { agents?[cli]?.usage }
+    func limits(of cli: String) -> Limits? { agents?[cli]?.limits }
 }

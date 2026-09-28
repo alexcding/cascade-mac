@@ -278,7 +278,8 @@ pub async fn patch_task(
         ));
     }
     if let Some(cli) = patch.get("cli").and_then(Value::as_str) {
-        if !["", "claude", "codex"].contains(&cli) {
+        // No agent at all, a plain shell, or one the registry knows.
+        if !cli.is_empty() && crate::agents::Agent::of(cli).is_none() {
             return Err(ApiError::bad_request("Unsupported agent"));
         }
     }

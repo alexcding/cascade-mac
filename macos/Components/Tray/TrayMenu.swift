@@ -206,7 +206,7 @@ struct TrayAgentRow: View {
     let shell: ShellStore
     var body: some View {
         HStack(spacing: 2) {
-            ForEach(Theme.usageAgents, id: \.key) { agent in
+            ForEach(AgentDrivers.choices, id: \.key) { agent in
                 let selected = shell.usageAgent == agent.key
                 Button { shell.setUsageAgent(agent.key) } label: {
                     Text(agent.title)

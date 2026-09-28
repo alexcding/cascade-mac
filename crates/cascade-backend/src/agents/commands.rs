@@ -2,6 +2,7 @@
 //! from the files the CLI reads itself, then its built-ins. Claude Code reports its built-ins when
 //! asked (`claude::initialize`); Codex has no way to, so its are written down here.
 
+use super::Agent;
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
@@ -34,10 +35,10 @@ impl Command {
 /// `{"commands":[…]}`: the worktree's own first, then the person's, their plugins', and the
 /// CLI's built-ins. A name offered twice keeps its first. `reported` is what Claude Code's
 /// `initialize` listed, or null when it could not be asked.
-pub fn list(home: &Path, cli: &str, worktree: &Path, reported: &Value) -> Value {
-    let found = match cli {
-        "codex" => codex(home),
-        _ => claude(home, worktree, reported),
+pub fn list(home: &Path, agent: Agent, worktree: &Path, reported: &Value) -> Value {
+    let found = match agent {
+        Agent::Claude => claude(home, worktree, reported),
+        Agent::Codex => codex(home),
     };
     let mut seen = HashSet::new();
     let commands: Vec<Value> = found
@@ -376,7 +377,7 @@ mod tests {
             {"name": "__remote-workflow", "description": "Internal", "argumentHint": "", "builtin": true},
             {"name": "off:hidden", "description": "Turned off here", "argumentHint": ""},
         ]);
-        let listed = list(&home, "claude", &worktree, &reported);
+        let listed = list(&home, Agent::Claude, &worktree, &reported);
         let found = names(&listed);
         assert_eq!(found, ["ship", "standup", "pdf", "tools:deploy", "compact", "docs"]);
         assert!(!found.iter().any(|name| name.contains("hidden")), "a turned-off plugin is left out");
@@ -402,7 +403,7 @@ mod tests {
         fs::create_dir_all(&commands).unwrap();
         std::os::unix::fs::symlink(root.join("dotfiles/standup.md"), commands.join("standup.md")).unwrap();
         std::os::unix::fs::symlink(root.join("dotfiles/team"), commands.join("team")).unwrap();
-        let found = names(&list(&root.join("home"), "claude", &root.join("worktree"), &Value::Null));
+        let found = names(&list(&root.join("home"), Agent::Claude, &root.join("worktree"), &Value::Null));
         assert!(found.contains(&"standup".to_string()) && found.contains(&"triage".to_string()));
     }
 
@@ -422,9 +423,9 @@ mod tests {
             }})
             .to_string(),
         );
-        assert!(names(&list(&home, "claude", &worktree, &Value::Null)).contains(&"tools:deploy".to_string()));
-        assert!(names(&list(&home, "claude", &project, &Value::Null)).contains(&"tools:deploy".to_string()));
-        assert!(!names(&list(&home, "claude", &other, &Value::Null)).contains(&"tools:deploy".to_string()));
+        assert!(names(&list(&home, Agent::Claude, &worktree, &Value::Null)).contains(&"tools:deploy".to_string()));
+        assert!(names(&list(&home, Agent::Claude, &project, &Value::Null)).contains(&"tools:deploy".to_string()));
+        assert!(!names(&list(&home, Agent::Claude, &other, &Value::Null)).contains(&"tools:deploy".to_string()));
     }
 
     #[test]
@@ -432,7 +433,7 @@ mod tests {
         let root = scratch("override");
         write(root.join("worktree/.claude/commands/review.md"), "Our review\n");
         let reported = json!([{"name": "review", "description": "Review a pull request", "builtin": true}]);
-        let listed = list(&root.join("home"), "claude", &root.join("worktree"), &reported);
+        let listed = list(&root.join("home"), Agent::Claude, &root.join("worktree"), &reported);
         let reviews: Vec<&Value> =
             listed["commands"].as_array().unwrap().iter().filter(|c| c["name"] == "review").collect();
         assert_eq!(reviews.len(), 1);
@@ -443,7 +444,7 @@ mod tests {
     fn codex_offers_saved_prompts_under_prompts() {
         let root = scratch("codex");
         write(root.join(".codex/prompts/triage.md"), "---\ndescription: Triage an issue\n---\n");
-        let listed = list(&root, "codex", &root.join("worktree"), &json!([{"name": "add-dir", "builtin": true}]));
+        let listed = list(&root, Agent::Codex, &root.join("worktree"), &json!([{"name": "add-dir", "builtin": true}]));
         let found = names(&listed);
         assert_eq!(found[0], "prompts:triage");
         assert!(found.contains(&"approvals".to_string()));

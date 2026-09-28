@@ -215,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // white; the share left of the session (or the week) sits beside it.
             applyStatusImage(review: reviews > 0, titled: left != nil)
             applyStatusTitle(left: left)
-            let name = Theme.usageAgents.first { $0.key == agent }?.title ?? agent
+            let name = AgentDrivers.of(agent)?.shortName ?? agent
             let status = reviews > 0 ? String(localized: "Cascade · Pending reviews: \(reviews)") : "Cascade"
             statusItem?.button?.toolTip = left.map {
                 status + " · " + (usage?.weekly == true ? String(localized: "\(name) weekly: \($0)% left")

@@ -1,4 +1,4 @@
-use super::{newest_jsonl, percent, tail, AgentProbe, Profile};
+use super::{newest_jsonl, percent, tail, AgentProbe, Hooks, Profile};
 use crate::cli;
 use serde_json::{json, Value};
 use std::{
@@ -15,7 +15,17 @@ const STATUS_DIR: &str = "Library/Application Support/Cascade/statusline";
 impl AgentProbe for Claude {
     /// Claude Code keeps what is typed while it works (`queue-operation` in its transcript) and
     /// takes it in mid-turn, as a `queued_command` attachment, or when the turn ends.
-    const PROFILE: Profile = Profile { id: "claude", queues_mid_turn: true };
+    const PROFILE: Profile = Profile { id: "claude", command: "claude", queues_mid_turn: true };
+    /// Checked against Claude Code 2.1.278: it reports `SessionStart` at launch, `/resume` and
+    /// `/clear`, and a nested `claude -p` fires the session's hooks from outside the terminal's
+    /// foreground job.
+    const HOOKS: Hooks = Hooks {
+        file: ".claude/settings.json",
+        empty: "{}",
+        reports_sessions: true,
+        foreground_only: true,
+        matches_tools: true,
+    };
     const NAMES_CONVERSATION_FILES: bool = true;
 
     fn transcript_file(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<PathBuf> {
@@ -31,6 +41,14 @@ impl AgentProbe for Claude {
 
     async fn reported_commands() -> Value {
         initialize().await.map(|reply| reply["commands"].clone()).unwrap_or_default()
+    }
+
+    async fn usage() -> Option<Value> {
+        crate::usage::daily(Self::PROFILE.id).await
+    }
+
+    async fn limits() -> Option<Value> {
+        crate::usage::claude_limits().await
     }
 
     fn tool_kind(name: &str) -> &'static str {

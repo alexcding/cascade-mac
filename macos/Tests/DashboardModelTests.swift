@@ -357,10 +357,10 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
 
 @MainActor @Test func updateWithASnapshotComputesMonthFootnoteLinesAndPeak() throws {
     let json = """
-    {"claude":{"tokens":100,"cost":13,"history":[
-      {"date":"2026-09-20","tokens":50,"cost":5},{"date":"2026-09-21","tokens":50,"cost":8}]},
-     "codex":{"tokens":110,"cost":9,"history":[
-      {"date":"2026-09-20","tokens":40,"cost":3},{"date":"2026-09-21","tokens":70,"cost":6}]}}
+    {"agents":{"claude":{"usage":{"tokens":100,"cost":13,"history":[
+      {"date":"2026-09-20","tokens":50,"cost":5},{"date":"2026-09-21","tokens":50,"cost":8}]}},
+     "codex":{"usage":{"tokens":110,"cost":9,"history":[
+      {"date":"2026-09-20","tokens":40,"cost":3},{"date":"2026-09-21","tokens":70,"cost":6}]}}}}
     """
     let usage = try JSONDecoder().decode(UsageSnapshot.self, from: Data(json.utf8))
     let model = DashboardUsageModel()
@@ -375,7 +375,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
 }
 
 @MainActor @Test func retiredUsageModelIgnoresUpdate() throws {
-    let json = #"{"claude":{"tokens":10,"cost":1,"history":[{"date":"2026-09-20","tokens":10,"cost":1}]}}"#
+    let json = #"{"agents":{"claude":{"usage":{"tokens":10,"cost":1,"history":[{"date":"2026-09-20","tokens":10,"cost":1}]}}}}"#
     let usage = try JSONDecoder().decode(UsageSnapshot.self, from: Data(json.utf8))
     let model = DashboardUsageModel()
     model.retire()

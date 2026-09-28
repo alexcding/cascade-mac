@@ -95,7 +95,8 @@ final class TerminalSession: Identifiable {
     /// Called as soon as the daemon has created a shell running `startupCommand`, before it is
     /// attached: whatever the command started is running from here on, attached or not.
     @ObservationIgnored var startupCommandStarted: (() async -> Void)?
-    @ObservationIgnored var launchedAgent: AgentCLI?
+    /// The CLI this app launched in it, by its driver's id.
+    @ObservationIgnored var launchedAgent: String?
     @ObservationIgnored var launchedAgentForeground: ForegroundProcess?
 
     init(pairKey: String = "native-terminal-spike", cwd: String = FileManager.default.homeDirectoryForCurrentUser.path, paired: Bool = false,

@@ -577,10 +577,6 @@ enum SidebarPalette {
     /// A row's symbol, sampled from Finder's own sidebar in each appearance. No one system colour is
     /// both: `systemGray` is this in light mode, but resolves well dimmer than Finder in dark.
     static let icon = dynamic(0x8d8d92, 0xc1c4cb)
-    /// Each CLI's own brand colour, matching `Theme.agentTint`: one agent reads the same in the
-    /// sidebar spinner, on the Dashboard and in its context ring.
-    static let spinClaude = dynamic(0xd97757, 0xd97757)
-    static let spinCodex = dynamic(0x707af0, 0x707af0)
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
     static let danger = dynamic(0xdc2626, 0xf87171)
@@ -613,22 +609,14 @@ enum SidebarMetrics {
     static let radius: CGFloat = 8
 }
 
-/// Busy-spinner frames per CLI (sidebar.js SPIN_FRAMES): Claude Code's blooming asterisk for
-/// Claude, a braille cycle otherwise; the resting glyph is the full-bloom frame held still.
+/// Busy-spinner frames per CLI (sidebar.js SPIN_FRAMES), from each agent's driver; the resting
+/// glyph is the full-bloom frame held still. A plain shell spins a braille cycle.
 enum SidebarGlyphs {
     static let frameCount = 10
-    static func frames(_ cli: String?) -> [String] {
-        cli == "claude" ? ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
-            : ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    }
-    static func resting(_ cli: String?) -> String { cli == "claude" ? "✻" : "⠿" }
-    static func tint(_ cli: String?) -> NSColor {
-        switch cli {
-        case "claude": SidebarPalette.spinClaude
-        case "codex": SidebarPalette.spinCodex
-        default: SidebarPalette.text3
-        }
-    }
+    private static let shellFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    static func frames(_ cli: String?) -> [String] { AgentDrivers.of(cli)?.spinnerFrames ?? shellFrames }
+    static func resting(_ cli: String?) -> String { AgentDrivers.of(cli)?.restingGlyph ?? "⠿" }
+    static func tint(_ cli: String?) -> NSColor { AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3 }
 }
 
 // MARK: - Views
@@ -782,19 +770,12 @@ enum SidebarGlyphs {
 
     /// Shared by the glyph label and the slot measured for it, so the two cannot drift apart.
     private static let glyphFont = NSFont.monospacedSystemFont(ofSize: 14.7, weight: .bold)
-    /// Codex's braille dots are thin at the shared weight; it gets a heavier, larger face so its
-    /// dots carry the same weight as Claude's asterisk.
-    private static func glyphFont(_ cli: String?) -> NSFont {
-        switch cli {
-        case "codex": NSFont.monospacedSystemFont(ofSize: 16, weight: .black)
-        case "claude": NSFont.systemFont(ofSize: 14, weight: .light)
-        default: glyphFont
-        }
-    }
+    /// Each agent's own face for its glyph (`AgentDriver.sidebarGlyphFont`); a shell's is the shared one.
+    private static func glyphFont(_ cli: String?) -> NSFont { AgentDrivers.of(cli)?.sidebarGlyphFont ?? glyphFont }
     /// The status glyph's slot: the widest glyph either CLI shows, fixed so a spinner frame of another
     /// width cannot nudge the title.
     private static let glyphSlot: CGFloat = {
-        let widths = ["claude", "codex"].flatMap { cli in
+        let widths = AgentDrivers.all.map(\.cli).flatMap { cli in
             (SidebarGlyphs.frames(cli) + [SidebarGlyphs.resting(cli)]).map { ($0 as NSString).size(withAttributes: [.font: glyphFont(cli)]).width }
         }
         return (widths.max() ?? 10).rounded(.up)

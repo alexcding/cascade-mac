@@ -1,4 +1,4 @@
-use super::{percent, tail, AgentProbe, Profile};
+use super::{percent, tail, AgentProbe, Hooks, Profile};
 use crate::cli;
 use serde_json::{json, Value};
 use std::{
@@ -13,7 +13,24 @@ pub struct Codex;
 impl AgentProbe for Codex {
     /// What Codex does with a message typed mid-turn has not been checked here, so the chat holds
     /// one until its turn ends.
-    const PROFILE: Profile = Profile { id: "codex", queues_mid_turn: false };
+    const PROFILE: Profile = Profile { id: "codex", command: "codex", queues_mid_turn: false };
+    /// How Codex spawns its hooks has not been checked, so none is guarded: a wrong guard would
+    /// silence them.
+    const HOOKS: Hooks = Hooks {
+        file: ".codex/hooks.json",
+        empty: r#"{"hooks":{}}"#,
+        reports_sessions: false,
+        foreground_only: false,
+        matches_tools: false,
+    };
+
+    async fn usage() -> Option<Value> {
+        crate::usage::daily(Self::PROFILE.id).await
+    }
+
+    async fn limits() -> Option<Value> {
+        crate::usage::codex_limits().await
+    }
 
     /// `apply_patch` has a kind of its own: a patch may touch several files, and asks as one.
     fn tool_kind(name: &str) -> &'static str {

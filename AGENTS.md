@@ -139,12 +139,14 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **A session is one task record per worktree** — the agent running on a worktree, live or
   stopped, linked to its context and titled by the page it was started from. A git worktree
   with no session is invisible to the app.
-- **CLI differences live in the agent adapters** (`crates/cascade-backend/src/agents/`). Each CLI
-  implements `AgentProbe`, and `Agent::of(cli)` is the one place that tells them apart by name.
-  The app goes by the `AgentProfile` the backend reports (`queuesMidTurn`, …), never by the CLI's
-  name, and the chat page draws a tool call by the `kind` its adapter gives it (`run`, `edit`, …)
-  and the agent's `activity`, never by the tool's name. Name checks still elsewhere predate this
-  and are being moved behind it; add no new ones.
+- **CLI differences live in the agent adapters and drivers, nowhere else.** In the backend each
+  CLI implements `AgentProbe` (`crates/cascade-backend/src/agents/`: its profile, hooks, tools,
+  commands, usage, transcript), and `Agent::of(cli)` is the one place that tells them apart by
+  name. In the app each is an `AgentDriver` (`Services/Agents/AgentDriver.swift`: launch, model
+  switching, names, glyphs, colour), and `AgentDrivers.of(cli)` is the one place. The chat goes by
+  the `AgentProfile` the backend reports, and draws a tool call by its `kind` and the agent's
+  `activity`. Nothing else compares a CLI's name. A new CLI is one adapter and one driver; tests
+  fail until `SessionAgent`, `ManagedCLI` and the backend's registry all name it.
 - **Views present what the API returns.** No view computes `gh`/`acli`-shaped logic or
   reaches for a CLI; that belongs in the backend.
 - **Theme tokens only** (`Theme/`). The dark theme is a palette swap, never per-widget

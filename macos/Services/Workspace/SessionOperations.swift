@@ -5,12 +5,14 @@ struct OperationOK: Decodable, Sendable { let ok: Bool? }
 enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     case shell = "", claude, codex
     var id: String { rawValue }
-    var label: String { switch self { case .shell: String(localized: "Shell only"); case .claude: "Claude Code"; case .codex: "Codex" } }
+    var label: String { driver?.name ?? String(localized: "Shell only") }
     /// The chat's empty message field. A shell-only session has no chat.
-    var chatPlaceholder: String { switch self { case .shell: ""; case .claude: String(localized: "Ask Claude"); case .codex: String(localized: "Ask Codex") } }
+    var chatPlaceholder: String { driver?.chatPlaceholder ?? "" }
+    /// The CLI new sessions start in when none is chosen: the first the app offers.
+    static var primary: SessionAgent { SessionAgent(rawValue: AgentDrivers.primary.cli) ?? .shell }
 
     /// Nil for a shell-only session, which has no agent to drive.
-    var driver: (any AgentDriver)? { self == .shell ? nil : AgentDrivers.driver(for: rawValue) }
+    var driver: (any AgentDriver)? { AgentDrivers.of(rawValue) }
 
     /// `prompt` is the new conversation's first message: both CLIs take it as their last argument.
     func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil, prompt: String? = nil) -> String? {
@@ -159,7 +161,7 @@ struct SessionOperations: SessionServing {
             title: draft.title.isEmpty ? branch : draft.title, branch: branch,
             url: sourceURL.isEmpty ? "session:\(id)" : sourceURL, createdAt: ISO8601DateFormatter().string(from: Date()),
             pinned: false, kind: draft.kind, jiraKey: draft.jiraKey, cli: draft.agent.rawValue,
-            sessionId: draft.agent == .claude ? UUID().uuidString.lowercased() : "")
+            sessionId: draft.agent.driver?.namesConversationAtLaunch == true ? UUID().uuidString.lowercased() : "")
         do { let _: OperationOK = try await api.request(Routes.TASKS, method: "POST", body: session) }
         catch { throw BackendError.operation(String(localized: "Worktree created at \(worktree.path), but the session could not be saved: \(error.localizedDescription). Use this branch again to recover it.")) }
         return session

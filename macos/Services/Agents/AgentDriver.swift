@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// A model and effort pairing, by the ids the CLI's catalog lists.
 struct AgentSelection: Codable, Equatable, Sendable {
@@ -63,10 +64,37 @@ struct AgentStatusLine: Equatable, Sendable {
 }
 
 /// One per agent CLI. Everything the app does differently between CLIs is behind this: how a
-/// session is launched, how its model is switched, and what its conversation commands are
-/// called. The rest of the app holds a driver and never asks which CLI it is.
+/// session is launched, how its model is switched, what its conversation commands are called, and
+/// how the app draws it. The rest of the app holds a driver and never asks which CLI it is. What
+/// the backend knows of a CLI comes with its transcript instead (`AgentProfile`); the backend's
+/// registry lists the same CLIs (`every_cli_the_native_app_starts_is_known_here`).
 protocol AgentDriver: Sendable {
+    /// Its id: what sessions, hooks and requests carry, and the backend's `Agent` answers to.
     var cli: String { get }
+    /// Its name, as a person knows it.
+    var name: String { get }
+    /// The one-word form, for tight columns and pickers.
+    var shortName: String { get }
+    /// What the chat's empty message field reads.
+    var chatPlaceholder: String { get }
+    /// Its mark in the asset catalogue.
+    var asset: String { get }
+    /// Its brand colour, 0xRRGGBB, for what is that agent's and not the app's: its usage, its used
+    /// context, its spinner. Not a palette colour, so it does not swap with the theme; it reads on
+    /// light and dark.
+    var brandColor: UInt32 { get }
+    /// Its busy spinner, frame by frame, and the glyph it rests on.
+    var spinnerFrames: [String] { get }
+    var restingGlyph: String { get }
+    /// The sidebar's face for its glyph, and a list row's lighter one.
+    var sidebarGlyphFont: NSFont { get }
+    var markGlyphFont: Font { get }
+    var installationGuide: URL { get }
+    /// The app names its conversation at launch, so a session keeps one conversation across
+    /// restarts, and the app can check the CLI still has it before resuming it.
+    var namesConversationAtLaunch: Bool { get }
+    /// It runs the app's status line wrapper, which is how it reports its real context window.
+    var takesStatusLine: Bool { get }
     func launchCommand(sessionID: String?, fresh: Bool, selection: AgentCatalog.Model?, effort: String?,
                        statusLine: AgentStatusLine?) -> String
     /// What to type at the running agent to move it to `model`, without leaving the conversation.
@@ -77,13 +105,43 @@ protocol AgentDriver: Sendable {
 }
 
 enum AgentDrivers {
-    /// A session with no `cli` recorded runs Claude, as the backend assumes.
-    static func driver(for cli: String?) -> any AgentDriver { cli == "codex" ? CodexDriver() : ClaudeDriver() }
+    /// Every agent CLI the app runs, in the order it offers them. The first is the default.
+    static let all: [any AgentDriver] = [ClaudeDriver(), CodexDriver()]
+    static var primary: any AgentDriver { all[0] }
+    /// The CLI with this id; nil for a plain shell or a CLI the app does not run.
+    static func of(_ cli: String?) -> (any AgentDriver)? { all.first { $0.cli == cli } }
+    /// A session with no `cli` recorded runs the default CLI, as the backend assumes.
+    static func driver(for cli: String?) -> any AgentDriver { of(cli) ?? primary }
+    /// Each CLI as (id, short name), for pickers of one agent's usage.
+    static var choices: [(key: String, title: String)] { all.map { ($0.cli, $0.shortName) } }
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+}
+
+extension AgentDriver {
+    var tint: Color { Color(nsColor: sidebarTint) }
+    var sidebarTint: NSColor {
+        NSColor(srgbRed: CGFloat(brandColor >> 16 & 0xff) / 255, green: CGFloat(brandColor >> 8 & 0xff) / 255,
+                blue: CGFloat(brandColor & 0xff) / 255, alpha: 1)
+    }
 }
 
 struct ClaudeDriver: AgentDriver {
     let cli = "claude"
+    let name = "Claude Code"
+    let shortName = "Claude"
+    var chatPlaceholder: String { String(localized: "Ask Claude") }
+    let asset = "AgentClaude"
+    let brandColor: UInt32 = 0xd97757
+    /// Claude Code's own blooming asterisk; at rest, full bloom held still.
+    let spinnerFrames = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
+    let restingGlyph = "✻"
+    var sidebarGlyphFont: NSFont { .systemFont(ofSize: 14, weight: .light) }
+    var markGlyphFont: Font { .system(size: 14, weight: .ultraLight) }
+    let installationGuide = URL(string: "https://docs.claude.com/en/docs/claude-code/setup")!
+    /// `--session-id` takes an id the app chooses, and `--resume` finds it again.
+    let namesConversationAtLaunch = true
+    /// `--settings` gives it a status line for this launch only.
+    let takesStatusLine = true
     let compactCommand = "/compact"
     let clearCommand = "/clear"
 
@@ -115,6 +173,21 @@ struct ClaudeDriver: AgentDriver {
 
 struct CodexDriver: AgentDriver {
     let cli = "codex"
+    let name = "Codex"
+    let shortName = "Codex"
+    var chatPlaceholder: String { String(localized: "Ask Codex") }
+    let asset = "AgentCodex"
+    let brandColor: UInt32 = 0x707af0
+    let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    let restingGlyph = "⠿"
+    /// Braille dots are thin at the sidebar's weight: a heavier, larger face gives them the weight
+    /// of Claude's asterisk.
+    var sidebarGlyphFont: NSFont { .monospacedSystemFont(ofSize: 16, weight: .black) }
+    var markGlyphFont: Font { .system(size: 16) }
+    let installationGuide = URL(string: "https://github.com/openai/codex")!
+    /// It names its own sessions, and `resume` takes the one it reports.
+    let namesConversationAtLaunch = false
+    let takesStatusLine = false
     let compactCommand = "/compact"
     let clearCommand = "/clear"
 

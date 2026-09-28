@@ -12,17 +12,20 @@ extension PageActionServing {
 
 /// What a list row shows of the session its page has: the agent running it.
 struct PageSessionMark: Equatable, Sendable {
-    /// `claude`, `codex`, or empty for a plain shell.
+    /// The agent CLI's id, or empty for a plain shell.
     let cli: String
     init(cli: String?) { self.cli = cli ?? "" }
     init(_ session: WorkspaceSession) { self.init(cli: session.cli) }
+    private var agent: (any AgentDriver)? { AgentDrivers.of(cli) }
     /// The agent's glyph, as the sidebar draws it.
-    var glyph: String { switch cli { case "claude": "✻"; case "codex": "⠿"; default: "❯" } }
+    var glyph: String { agent?.restingGlyph ?? "❯" }
     /// The agent's mark in the asset catalogue; a shell has none.
-    var asset: String? { switch cli { case "claude": "AgentClaude"; case "codex": "AgentCodex"; default: nil } }
-    var agentName: String { switch cli { case "claude": "Claude Code"; case "codex": "Codex"; default: String(localized: "Shell") } }
-    /// The one-word form for tight columns: "Claude", "Codex" or "Shell".
-    var shortName: String { switch cli { case "claude": "Claude"; case "codex": "Codex"; default: String(localized: "Shell") } }
+    var asset: String? { agent?.asset }
+    var agentName: String { agent?.name ?? String(localized: "Shell") }
+    /// The one-word form for tight columns: the agent's, or "Shell".
+    var shortName: String { agent?.shortName ?? String(localized: "Shell") }
+    /// The face its glyph is set in.
+    var glyphFont: Font { agent?.markGlyphFont ?? .system(size: 14) }
     var label: String { asset == nil ? String(localized: "Has a shell session") : String(localized: "Has a \(agentName) session") }
 }
 
@@ -41,7 +44,7 @@ struct PageDestinationMark: View {
     var body: some View {
         Group {
             if let mark {
-                Text(mark.glyph).font(.system(size: mark.cli == "codex" ? 16 : 14, weight: mark.cli == "claude" ? .ultraLight : .regular)).foregroundStyle(.secondary)
+                Text(mark.glyph).font(mark.glyphFont).foregroundStyle(.secondary)
                     .help(mark.label).accessibilityLabel(mark.label)
             } else {
                 Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
@@ -57,7 +60,7 @@ struct PageDestinationMark: View {
 /// from the submenu.
 struct PageRowMenu: View {
     /// The agents a New Session menu offers, in menu order.
-    static let agents: [SessionAgent] = [.claude, .codex, .shell]
+    static let agents: [SessionAgent] = AgentDrivers.all.compactMap { SessionAgent(rawValue: $0.cli) } + [.shell]
     let hasSession: Bool
     let open: () -> Void
     let session: (SessionAgent?) -> Void
