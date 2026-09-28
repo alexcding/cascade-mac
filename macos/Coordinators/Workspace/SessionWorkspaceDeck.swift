@@ -15,7 +15,9 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
     enum Part {
         /// The workspace: its terminal, or its page when it has none.
         case workspace
-        /// The context pane beside its terminal.
+        /// The context pane beside its terminal: the one the column is open for. With none, the deck
+        /// keeps the pane it has, so a column that closes, or has closed, shows the pane that was
+        /// open — never the hidden pane of a session just switched to, drawn until the column shuts.
         case pane
     }
 
@@ -61,6 +63,9 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
     final class Controller: NSViewController {
         private var pages: [ObjectIdentifier: NSHostingController<Page>] = [:]
         private var shownID: ObjectIdentifier?
+        /// A pane deck's pane on screen, kept while no pane is open (`Part.pane`). Always nil in the
+        /// screen's deck.
+        private weak var keptPane: SessionWorkspaceCoordinator?
         private let container = Container()
         private let part: Part
 
@@ -80,8 +85,9 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
             let live = Set(workspaces.map(ObjectIdentifier.init))
             for (id, page) in pages where !live.contains(id) {
                 release(page); pages[id] = nil
-                if shownID == id { shownID = nil }
+                if shownID == id { shownID = nil; keptPane = nil }
             }
+            let shown = shown ?? keptPane
             let nextID = shown.map(ObjectIdentifier.init).flatMap { live.contains($0) ? $0 : nil }
             if let shown, let nextID {
                 // Only the page on screen follows the environment; a hidden one catches up when shown.
@@ -102,6 +108,7 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
             }
             container.shown = nextID.flatMap { pages[$0]?.view }
             shownID = nextID
+            keptPane = part == .pane && nextID != nil ? shown : nil
         }
 
         /// A page shown again, sized to the column once the column has settled: after the context

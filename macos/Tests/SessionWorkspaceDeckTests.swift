@@ -65,6 +65,58 @@ import WebKit
     #expect(controller.shownPage === paneA && controller.pageCount == 2)
 }
 
+// A pane deck told no pane is open keeps the one it has: switching to a session whose pane is hidden
+// leaves the last pane in the column while it shuts, rather than showing the hidden one.
+@MainActor @Test func paneDeckWithNoPaneKeepsTheLastOne() {
+    let runtime = DeckRuntimeFixture()
+    let a = deckCoordinator(id: "task:a", title: "A", runtime: runtime)
+    let b = deckCoordinator(id: "task:b", title: "B", runtime: runtime)
+    let controller = SessionWorkspaceDeck.Controller(part: .pane)
+    let environment = EnvironmentValues()
+    controller.update(workspaces: [a, b], shown: a, environment: environment)
+    let paneA = controller.shownPage
+    controller.update(workspaces: [a, b], shown: nil, environment: environment)
+    #expect(controller.shownPage === paneA && paneA?.isHidden == false && controller.pageCount == 1)
+    controller.update(workspaces: [a, b], shown: b, environment: environment)
+    #expect(paneA?.isHidden == true && controller.pageCount == 2)
+    controller.update(workspaces: [b], shown: nil, environment: environment)
+    #expect(controller.pageCount == 1 && controller.shownPage != nil, "Still the pane it had")
+    controller.update(workspaces: [a], shown: nil, environment: environment)
+    #expect(controller.shownPage == nil, "A dropped workspace's pane goes with it")
+}
+
+// A dropped workspace's pane is not kept: back in the deck with no pane open, it is not shown.
+@MainActor @Test func paneDeckForgetsADroppedWorkspacesPane() {
+    let runtime = DeckRuntimeFixture()
+    let a = deckCoordinator(id: "task:a", title: "A", runtime: runtime)
+    let controller = SessionWorkspaceDeck.Controller(part: .pane)
+    let environment = EnvironmentValues()
+    controller.update(workspaces: [a], shown: a, environment: environment)
+    controller.update(workspaces: [], shown: nil, environment: environment)
+    controller.update(workspaces: [a], shown: nil, environment: environment)
+    #expect(controller.shownPage == nil && controller.pageCount == 0)
+}
+
+// The pane deck sizes as the screen's does: a pane shown again keeps its size until the column has
+// settled, then takes the column's.
+@MainActor @Test func paneDeckSizesAPaneShownAgainOnceTheColumnSettles() async throws {
+    let runtime = DeckRuntimeFixture()
+    let a = deckCoordinator(id: "task:a", title: "A", runtime: runtime)
+    let b = deckCoordinator(id: "task:b", title: "B", runtime: runtime)
+    let controller = SessionWorkspaceDeck.Controller(part: .pane)
+    controller.view.frame = NSRect(x: 0, y: 0, width: 320, height: 600)
+    let environment = EnvironmentValues()
+    controller.update(workspaces: [a, b], shown: a, environment: environment)
+    let paneA = try #require(controller.shownPage)
+    #expect(paneA.frame.size == NSSize(width: 320, height: 600))
+    controller.update(workspaces: [a, b], shown: b, environment: environment)
+    controller.view.setFrameSize(NSSize(width: 400, height: 600))
+    controller.update(workspaces: [a, b], shown: a, environment: environment)
+    #expect(paneA.frame.size == NSSize(width: 320, height: 600) && !paneA.isHidden, "Not the column's size before it settles")
+    await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+    #expect(paneA.frame.size == NSSize(width: 400, height: 600))
+}
+
 @MainActor @Test func deckDroppingAWorkspaceRemovesItsPage() {
     let runtime = DeckRuntimeFixture()
     let a = deckCoordinator(id: "task:a", title: "A", runtime: runtime)

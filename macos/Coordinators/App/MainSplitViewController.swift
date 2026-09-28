@@ -180,10 +180,10 @@ private struct MainSidebarColumn: View {
     }
 }
 
-/// The context pane's column: a deck of every workspace's pane, the one on show on top, so a switch
-/// between sessions rebuilds no pane and takes no web view out of the window, as the screen's deck
-/// does for their terminals. The pane stays while the column slides shut, so what closes is the
-/// pane that was open, not an empty one. The column reaches the window's top: each pane draws its
+/// The context pane's column: a deck of every workspace's pane, the one the column is open for on
+/// top, so a switch between sessions rebuilds no pane and takes no web view out of the window, as the
+/// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
+/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The column reaches the window's top: each pane draws its
 /// bar in the title-bar zone, which AppKit reports to it as the safe area. It is opaque: AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
 /// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
@@ -192,7 +192,7 @@ private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
 
     var body: some View {
-        SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.shownDeckWorkspace, part: .pane)
+        SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.inspectorWorkspace, part: .pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)
         .overlay(alignment: .leading) {
