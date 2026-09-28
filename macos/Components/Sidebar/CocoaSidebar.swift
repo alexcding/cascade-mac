@@ -833,13 +833,13 @@ enum SidebarGlyphs {
     }
 
     private func applyState() {
-        // A heading and a project folder, its name and its symbol, are in the "+"'s resting grey. Any
-        // other title is a system label colour, which follows the appearance and the selection by
-        // itself; any other symbol is Finder's grey, lighter than the title in light mode and dimmer
-        // than it in dark. No system label colour lands on both: secondary label is too dim in dark,
-        // --nav-text too dark in light.
+        // A heading, and a project folder's symbol, are in the "+"'s resting grey. Any other title,
+        // a project's included, is a system label colour, which follows the appearance and the
+        // selection by itself; any other symbol is Finder's grey, lighter than the title in light
+        // mode and dimmer than it in dark. No system label colour lands on both: secondary label is
+        // too dim in dark, --nav-text too dark in light.
         let project = if case .project = entry.role { true } else { false }
-        title.textColor = entry.isHeading || project ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
+        title.textColor = entry.isHeading ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
         icon.contentTintColor = project ? SidebarPalette.accessory : SidebarPalette.icon
         switch entry.role {
         case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
