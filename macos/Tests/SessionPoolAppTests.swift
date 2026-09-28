@@ -135,7 +135,7 @@ private struct RefusedStops: TerminalRuntimeControlling {
         self.backgroundJobs = backgroundJobs
         runtime = PoolRuntime(worktree: fixture.directory.path, ids: ids, unreserved: unreserved, missing: missingOnDisk)
         model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), backendRuntime: runtime,
-            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: PoolPlatform(fixture: fixture, refusesStops: refusingStops, refusedShell: refusedShell),
+            shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil), platformFactory: PoolPlatform(fixture: fixture, refusesStops: refusingStops, refusedShell: refusedShell),
             welcomeStore: TransientWelcomeStore(shown: true),
             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     }

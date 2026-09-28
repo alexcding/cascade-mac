@@ -183,10 +183,12 @@ struct ChatSuggestionList: View {
 
     private func label(_ row: ChatSuggestion, highlighted: Bool) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: row.kind == .command ? "command" : "doc")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textSecondary)
-                .frame(width: 16)
+            if row.kind == .command {
+                symbol("command")
+            } else {
+                // The title is the mention: "@" and the path, each escaped character after a backslash.
+                FileIcon(name: String(row.title.dropFirst()).replacing(/\\(.)/) { String($0.1) }) { symbol("doc") }
+            }
             Text(row.title)
                 .font(.system(size: 14))
                 .lineLimit(1)
@@ -206,6 +208,10 @@ struct ChatSuggestionList: View {
         .background(highlighted ? Theme.surfaceHover : .clear, in: RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
+    }
+
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 13)).foregroundStyle(Theme.textSecondary).frame(width: 16)
     }
 }
 

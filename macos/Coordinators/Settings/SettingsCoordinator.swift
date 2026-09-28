@@ -11,12 +11,16 @@ import Observation
     var fontCatalog: any CodeFontCatalog = InstalledCodeFontCatalog()
     /// Nil builds an inert blocker, the way `BrowserPageFactory` leaves pages unattached.
     var adBlocker: BrowserAdBlocker?
+    /// The icon themes Settings installs into. Tests substitute it; the app's views and
+    /// `ShellStore` always draw with `.shared`.
+    var fileIconStore: FileIconStore = .shared
 
     func settings() -> SettingsViewModel {
         SettingsViewModel(clis: CLISettingsViewModel(copy: copy, openBrowser: desktop.openBrowser), diagnostics: DiagnosticsViewModel(),
             loginItem: LoginItemViewModel(service: loginItem), fonts: FontSettingsViewModel(catalog: fontCatalog),
             resources: ResourceUsageViewModel(),
             adBlock: BrowserSettingsViewModel(blocker: adBlocker ?? .inert(), openBrowser: desktop.openBrowser),
+            fileIcons: FileIconSettingsViewModel(library: fileIconStore.library, store: fileIconStore),
             microphone: MicrophoneAccessViewModel(service: microphone))
     }
 }

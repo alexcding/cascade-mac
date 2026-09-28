@@ -39,7 +39,7 @@ private actor ControlledShellData: ShellDataServing {
     defer { preferences.removePersistentDomain(forName: suite) }
     preferences.set("dark", forKey: "native.theme")
     let platform = RecordingShellAppearance()
-    let factory = NativeShellFeatureFactory(preferences: preferences, appearance: platform)
+    let factory = NativeShellFeatureFactory(preferences: preferences, appearance: platform, fileIcons: nil)
     let shell = factory.shell(notifications: NotificationStore())
     shell.applyAppearance()
     #expect(platform.applied.isEmpty)

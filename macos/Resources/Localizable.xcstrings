@@ -247,6 +247,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "‘%@’ is not a VS Code Marketplace or Open VSX link, or an extension ID like publisher.name." : {
+
+    },
     "%@\n\nYour changes have not been discarded." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1665,6 +1668,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已移除 %@ 的掛鉤。"
+          }
+        }
+      }
+    },
+    "%@ hooks updated" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ হুক আপডেট হয়েছে"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks de %@ actualizados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks de %@ mis à jour"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ हुक अपडेट हुए"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hook di %@ aggiornati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ のフックを更新しました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 훅이 업데이트됨"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hooks do %@ atualizados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хуки %@ обновлены"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hookar för %@ uppdaterade"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 钩子已更新"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 掛鉤已更新"
           }
         }
       }
@@ -5256,82 +5335,6 @@
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
       "shouldTranslate" : false
-    },
-    "%@ hooks updated" : {
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ হুক আপডেট হয়েছে"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks de %@ actualizados"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks de %@ mis à jour"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ हुक अपडेट हुए"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hook di %@ aggiornati"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ のフックを更新しました"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 훅이 업데이트됨"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hooks do %@ atualizados"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Хуки %@ обновлены"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hookar för %@ uppdaterade"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 钩子已更新"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 掛鉤已更新"
-          }
-        }
-      }
     },
     "5-hour periods until reset: %lld" : {
       "extractionState" : "manual",
@@ -16893,6 +16896,9 @@
           }
         }
       }
+    },
+    "Cascade comes with vscode-icons. Others install from Open VSX; themes only on the VS Code Marketplace, and themes that draw their icons with a font, are not supported." : {
+
     },
     "Cascade could not quit" : {
       "extractionState" : "manual",
@@ -39352,6 +39358,9 @@
         }
       }
     },
+    "File Icons" : {
+
+    },
     "Files" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -44664,6 +44673,9 @@
         }
       }
     },
+    "Icon theme" : {
+
+    },
     "IDE" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46509,6 +46521,9 @@
           }
         }
       }
+    },
+    "Installing…" : {
+
     },
     "Integrations" : {
       "extractionState" : "manual",
@@ -66073,6 +66088,9 @@
         }
       }
     },
+    "Open VSX has no extension ‘%@’. Themes only on the VS Code Marketplace cannot be installed." : {
+
+    },
     "Opening Terminal…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -77557,6 +77575,9 @@
           }
         }
       }
+    },
+    "Removing %@…" : {
+
     },
     "Removing Session…" : {
       "extractionState" : "manual",
@@ -97237,6 +97258,9 @@
         }
       }
     },
+    "The download failed (HTTP %lld)." : {
+
+    },
     "The editor is no longer available." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -103201,6 +103225,9 @@
         }
       }
     },
+    "This extension has no file icon theme." : {
+
+    },
     "This file is already being closed." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -103356,6 +103383,15 @@
       }
     },
     "This issue belongs to %@. Choose its project before creating the session." : {
+
+    },
+    "This package could not be read." : {
+
+    },
+    "This package has files outside its own folder, or links, so it was not installed." : {
+
+    },
+    "This package is too large to be an icon theme." : {
 
     },
     "This page stopped responding. Reload to recover it." : {
@@ -104884,6 +104920,12 @@
           }
         }
       }
+    },
+    "This theme draws its icons with a font, which Cascade cannot show." : {
+
+    },
+    "This theme has no icons Cascade can show." : {
+
     },
     "Thought" : {
       "localizations" : {
@@ -111880,6 +111922,9 @@
           }
         }
       }
+    },
+    "VS Code Marketplace or Open VSX link" : {
+
     },
     "Wait for the Git operation to finish before removing this worktree." : {
       "extractionState" : "manual",

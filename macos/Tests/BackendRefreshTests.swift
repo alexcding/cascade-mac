@@ -63,7 +63,7 @@ private actor RefreshTransport: BackendTransport {
 @MainActor private func refreshApp(_ runtime: RefreshRuntime, preferences: UserDefaults) -> AppViewModel {
     _ = NSApplication.shared
     return AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), backendRuntime: runtime,
-        shellFactory: NativeShellFeatureFactory(preferences: preferences),
+        shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil),
         platformFactory: NativeAppPlatformFactory(configuration: { throw BackendError.configuration("No test terminal") }),
         welcomeStore: TransientWelcomeStore(shown: true),
         selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())

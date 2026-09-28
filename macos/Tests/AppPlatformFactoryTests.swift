@@ -45,7 +45,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     defer { preferences.removePersistentDomain(forName: suite) }
     let platform = RecordingAppPlatform()
     let model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }),
-                            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: platform,
+                            shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil), platformFactory: platform,
                             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     #expect(platform.viewerCreations == 1 && platform.launcherCreations == 1 && platform.actionCreations == 2)
     model.select(.terminal)
@@ -77,7 +77,7 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     defer { preferences.removePersistentDomain(forName: suite) }
     let platform = RecordingAppPlatform()
     let model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }),
-                            shellFactory: NativeShellFeatureFactory(preferences: preferences), platformFactory: platform,
+                            shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil), platformFactory: platform,
                             selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
     if update { try await model.prepareForUpdate() } else { try await model.quit() }
     #expect(await platform.control.quits == 1)

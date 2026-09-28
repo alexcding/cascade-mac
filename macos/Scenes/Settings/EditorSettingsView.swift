@@ -4,6 +4,7 @@ import SwiftUI
 /// Ordered as Terminal is: preview, font, theme, then what only this surface has.
 struct EditorSettingsView: View {
     let fonts: FontSettingsViewModel
+    let icons: FileIconSettingsViewModel
     let shell: ShellStore
 
     var body: some View {
@@ -18,6 +19,7 @@ struct EditorSettingsView: View {
                     .labelsHidden().accessibilityIdentifier("settings-editor-minimap")
             }
         }
+        FileIconSettingsSection(model: icons, shell: shell)
         if let error = shell.settingsError {
             Section { Text(error).foregroundStyle(Theme.danger) }
         }

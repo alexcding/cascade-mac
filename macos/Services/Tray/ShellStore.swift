@@ -22,6 +22,10 @@ import Observation
     private(set) var usageAgent: String
     private(set) var defaultAgent: SessionAgent
     private(set) var gitClient: String
+    /// The installed icon theme files are drawn with, as `<extension>/<theme>`; empty for none.
+    private(set) var fileIconTheme: String {
+        didSet { if oldValue != fileIconTheme { fileIcons?.select(fileIconTheme) } }
+    }
     private(set) var gitClientCommand: String
     var gitClientCommandDraft: String
     private(set) var gitClientCommandError: String?
@@ -74,12 +78,15 @@ import Observation
     @ObservationIgnored private var settingsRevision = 0
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let preferences: UserDefaults
+    /// Where the chosen icon theme is loaded for the app's views; nil where nothing draws files.
+    @ObservationIgnored private let fileIcons: FileIconStore?
     @ObservationIgnored private var pendingSettings: [String: String]
     @ObservationIgnored private var pendingReviewOpens: [String: (repo: String, number: Int)] = [:]
 
-    public init(preferences: UserDefaults = .standard, notifications: NotificationStore? = nil) {
+    init(preferences: UserDefaults = .standard, notifications: NotificationStore? = nil, fileIcons: FileIconStore? = nil) {
         self.notifications = notifications ?? NotificationStore()
         self.preferences = preferences
+        self.fileIcons = fileIcons
         pendingSettings = preferences.dictionary(forKey: "native.pendingSettings") as? [String: String] ?? [:]
         appearance = AppAppearance(rawValue: preferences.string(forKey: "native.theme") ?? "auto") ?? .system
         usageAgent = AgentDrivers.driver(for: preferences.string(forKey: "native.usageAgent")).cli
@@ -87,6 +94,8 @@ import Observation
         activityNotify = preferences.string(forKey: "native.activityNotify") != "off"
         reviewSound = preferences.string(forKey: "native.reviewSound") ?? "system"
         gitClient = preferences.string(forKey: "native.gitClient") ?? ""
+        // Never chosen: the bundled theme. Chosen None: empty.
+        fileIconTheme = preferences.string(forKey: "native.fileIconTheme") ?? IconThemeLibrary.bundledTheme
         let command = preferences.string(forKey: "native.gitClientCmd") ?? ""
         gitClientCommand = command; gitClientCommandDraft = command
         func savedFont(_ kind: CodeFontKind) -> CodeFont {
@@ -111,6 +120,7 @@ import Observation
         editorStyle = EditorStyle(darkTheme: savedTheme("editorThemeDark", dark: true),
                                   lightTheme: savedTheme("editorThemeLight", dark: false),
                                   showMinimap: preferences.string(forKey: "native.editorMinimap") != "off")
+        fileIcons?.select(fileIconTheme)
     }
 
     private(set) var pendingReviews: [TrayPR] = []
@@ -252,6 +262,12 @@ import Observation
         gitClient = value
         preferences.set(value, forKey: "native.gitClient")
         saveSetting("gitClient", value: value)
+    }
+    /// Draws files with an installed icon theme, `<extension>/<theme>`, or with none when empty.
+    func setFileIconTheme(_ id: String) {
+        fileIconTheme = id
+        preferences.set(id, forKey: "native.fileIconTheme")
+        saveSetting("fileIconTheme", value: id)
     }
     func saveGitClientCommand() {
         do {
@@ -409,6 +425,7 @@ import Observation
                 if pendingSettings["reviewSound"] == nil { reviewSound = (settings["reviewSound"] ?? nil) ?? "system" }
                 if pendingSettings["defaultCli"] == nil { defaultAgent = (settings["defaultCli"] ?? nil).flatMap(SessionAgent.init(rawValue:)) ?? .primary }
                 if pendingSettings["gitClient"] == nil { gitClient = (settings["gitClient"] ?? nil) ?? "" }
+                if pendingSettings["fileIconTheme"] == nil { fileIconTheme = (settings["fileIconTheme"] ?? nil) ?? IconThemeLibrary.bundledTheme }
                 if pendingSettings["gitClientCmd"] == nil {
                     let dirty = gitClientCommandDirty
                     gitClientCommand = (settings["gitClientCmd"] ?? nil) ?? ""
@@ -445,6 +462,7 @@ import Observation
                 preferences.set(reviewSound, forKey: "native.reviewSound")
                 preferences.set(defaultAgent.rawValue, forKey: "native.defaultCli")
                 preferences.set(gitClient, forKey: "native.gitClient")
+                preferences.set(fileIconTheme, forKey: "native.fileIconTheme")
                 preferences.set(gitClientCommand, forKey: "native.gitClientCmd")
                 preferences.set(terminalFontThicken ? "on" : "off", forKey: "native.terminalThicken")
                 preferences.set(String(terminalFontThickenStrength), forKey: "native.terminalThickenStrength")

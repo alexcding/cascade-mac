@@ -13,7 +13,11 @@ import Foundation
 @MainActor struct NativeShellFeatureFactory: ShellFeatureFactory {
     var preferences: UserDefaults = .standard
     var appearance: any ShellAppearanceApplying = NativeShellAppearance()
-    func shell(notifications: NotificationStore) -> ShellStore { ShellStore(preferences: preferences, notifications: notifications) }
+    /// Where the chosen icon theme is loaded; nil in tests, which leave the app's own alone.
+    var fileIcons: FileIconStore? = .shared
+    func shell(notifications: NotificationStore) -> ShellStore {
+        ShellStore(preferences: preferences, notifications: notifications, fileIcons: fileIcons)
+    }
     func coordinator(model: ShellStore) -> ShellCoordinator { ShellCoordinator(model: model, appearance: appearance) }
     func data(api: APIClient) -> any ShellDataServing { APIShellDataService(api: api) }
 }

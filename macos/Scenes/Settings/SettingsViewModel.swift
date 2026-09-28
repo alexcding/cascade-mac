@@ -31,6 +31,7 @@ import Observation
     let fonts: FontSettingsViewModel
     let resources: ResourceUsageViewModel
     let adBlock: BrowserSettingsViewModel
+    let fileIcons: FileIconSettingsViewModel
     var draft = AppConfigDraft() {
         didSet { if oldValue != draft { revision += 1; saved = false } }
     }
@@ -53,11 +54,11 @@ import Observation
     @ObservationIgnored private var readGeneration = UUID()
 
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
-         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, microphone: MicrophoneAccessViewModel,
+         resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, fileIcons: FileIconSettingsViewModel, microphone: MicrophoneAccessViewModel,
          webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel()) {
         self.clis = clis; self.webhooks = webhooks; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
-        self.resources = resources; self.adBlock = adBlock
+        self.resources = resources; self.adBlock = adBlock; self.fileIcons = fileIcons
     }
     var dirty: Bool { draft != baseline }
     func clearBrowsingData(_ scope: BrowsingDataScope) {
@@ -95,6 +96,7 @@ import Observation
         if active && (section == .editor || section == .terminal) { fonts.refresh() } else { _ = fonts.cancelRead() }
         // The app may have been installed or removed since the last look.
         if active && section == .browser { adBlock.refresh() }
+        if active && section == .editor { Task { await fileIcons.refresh() } }
         if active && section == .clis { clis.refresh(); webhooks.refresh() } else { clis.cancelReads() }
     }
     func applicationActiveChanged(_ value: Bool) {
@@ -102,6 +104,7 @@ import Observation
         resources.setForeground(value)
         if value && active && section == .general { loginItem.refresh(); microphone.refresh() }
         if value && active && section == .browser { adBlock.refresh() }
+        if value && active && section == .editor { Task { await fileIcons.refresh() } }
         // A tool installed from a terminal shows up on return, without pressing Refresh.
         if value && active && section == .clis { clis.refresh() }
     }
@@ -161,7 +164,7 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()

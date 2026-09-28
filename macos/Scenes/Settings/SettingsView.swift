@@ -45,7 +45,7 @@ struct SettingsView: View {
                 browser
                 BrowserAdBlockSection(model: model.adBlock)
             case .terminal: TerminalSettingsView(fonts: model.fonts, shell: shell)
-            case .editor: EditorSettingsView(fonts: model.fonts, shell: shell)
+            case .editor: EditorSettingsView(fonts: model.fonts, icons: model.fileIcons, shell: shell)
             case .worktrees: WorktreeSettingsView(model: model) { saveRow }
             case .shortcuts: ShortcutsSettingsView(registry: .shared)
             case .clis: clis

@@ -343,7 +343,9 @@ final class ChatFileAttachment: NSTextAttachment {
     @MainActor init(file: ChatAttachment) {
         self.file = file
         super.init(data: nil, ofType: nil)
-        let chip = ChatFileChip(name: file.name)
+        let icons = FileIconStore.shared
+        let chip = ChatFileChip(name: file.name, lightIcon: icons.image(forFile: file.name, light: true),
+                                darkIcon: icons.image(forFile: file.name, light: false))
         let size = chip.size
         // Drawn when shown, so its colours follow the appearance it is shown in. AppKit may call
         // this off the main thread, so drawing a chip touches nothing tied to it.
@@ -361,19 +363,16 @@ final class ChatFileAttachment: NSTextAttachment {
 /// Icon and name in a rounded box, as wide as the name up to a limit.
 struct ChatFileChip: Sendable {
     let name: String
-    let symbol: String
+    /// The icon theme's images for the file when the chip was made, loaded then rather than at
+    /// every draw; without them the chip draws a symbol.
+    let lightIcon: NSImage?
+    let darkIcon: NSImage?
 
     private static let height: CGFloat = 20
     private static let maxNameWidth: CGFloat = 180
     /// Room between a chip and the text either side of it.
     private static let margin: CGFloat = 2
     private static let icon: CGFloat = 14
-
-    init(name: String) {
-        self.name = name
-        let isImage = UTType(filenameExtension: (name as NSString).pathExtension)?.conforms(to: .image) ?? false
-        symbol = isImage ? "photo" : "doc"
-    }
 
     private static var font: NSFont { NSFont.systemFont(ofSize: 12) }
 
@@ -394,9 +393,13 @@ struct ChatFileChip: Sendable {
         outline.lineWidth = 1
         outline.stroke()
 
-        let tint = NSImage.SymbolConfiguration(paletteColors: [Theme.palette.textSecondary.nsColor])
-        let configuration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular).applying(tint)
-        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) {
+        let light = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .aqua
+        let isImage = UTType(filenameExtension: (name as NSString).pathExtension)?.conforms(to: .image) ?? false
+        if let image = light ? lightIcon : darkIcon {
+            image.draw(in: NSRect(x: box.minX + 8, y: box.midY - Self.icon / 2, width: Self.icon, height: Self.icon))
+        } else if let image = NSImage(systemSymbolName: isImage ? "photo" : "doc", accessibilityDescription: nil)?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
+                .applying(NSImage.SymbolConfiguration(paletteColors: [Theme.palette.textSecondary.nsColor]))) {
             let size = image.size
             image.draw(in: NSRect(x: box.minX + 8 + (Self.icon - size.width) / 2, y: box.midY - size.height / 2,
                                   width: size.width, height: size.height))

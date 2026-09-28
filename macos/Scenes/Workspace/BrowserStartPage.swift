@@ -372,7 +372,8 @@ private struct RecentFileRow: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text").font(.system(size: 17)).foregroundStyle(Theme.textTertiary).frame(width: 24)
+                FileIcon(name: file.path, size: 20) { Image(systemName: "doc.text").font(.system(size: 17)).foregroundStyle(Theme.textTertiary) }
+                    .frame(width: 24)
                 Text(file.title).font(.body).lineLimit(1)
                 Text(folder).font(.body).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.head)
                 Spacer(minLength: 8)

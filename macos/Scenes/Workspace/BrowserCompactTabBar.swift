@@ -157,7 +157,9 @@ struct BrowserAddressSuggestionList: View {
                                       heading: \.heading, title: \.title,
                                       detail: { $0.isSearch || $0.detail == $0.title ? "" : $0.detail },
                                       pick: { if BrowserAddressSuggestions.open($0, in: controls, context: context) { controls.setEditingAddress(false) } }) { item in
-                    if item.kind == .file { CompactSuggestionSymbol(systemImage: "doc.text") }
+                    if item.kind == .file {
+                        FileIcon(name: item.title, size: 22) { CompactSuggestionSymbol(systemImage: "doc.text") }.frame(width: 28, height: 28)
+                    }
                     else if item.isSearch { CompactSuggestionSymbol(systemImage: "magnifyingglass") }
                     else { FaviconImage(url: item.url, size: 28, fallbackSize: 15) }
                 }
@@ -351,7 +353,7 @@ private struct CompactFileTab: View {
                         active: active, workspaceActive: workspaceActive, blank: false, autoFocus: false,
                         closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
                         moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
-            Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+            FileIcon(name: file.record.path) { Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
         } accessories: { _ in
             Circle().fill(Theme.textSecondary).frame(width: 7, height: 7).frame(width: 24, height: 24)
                 .opacity(file.dirty ? 1 : 0)
