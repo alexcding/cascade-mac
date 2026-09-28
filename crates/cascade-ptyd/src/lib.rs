@@ -786,6 +786,12 @@ impl Daemon {
     cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".into()));
     // CASCADE_RUN_ID lets an installed Claude/Codex hook ping back tagged with THIS terminal's id.
     cmd.env("CASCADE_RUN_ID", &id);
+    // And CASCADE_PORT_FILE says which app to ping: this daemon's, whose backend writes its port
+    // beside the daemon's directory. A development build and the installed app each run their own
+    // daemon and data directory, and share the one hooks file.
+    if let Some(data) = self.dir.parent() {
+      cmd.env("CASCADE_PORT_FILE", data.join(".server-port"));
+    }
     // Hooks installed while the app was Craft read the old name; they keep reporting until replaced.
     cmd.env("CRAFT_RUN_ID", &id);
     if let Some(browser) = &self.browser {

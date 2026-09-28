@@ -192,9 +192,11 @@ fn startup_command_runs_after_zsh_startup_and_leaves_an_interactive_shell() {
     let mut peer = Peer::connect(&socket);
     assert_eq!(peer.request(json!({"op":"hello","dataEncoding":"base64"}))["ok"]["startupCommand"], true);
     let marker = fixture.directory.join("started");
+    let port_file = fixture.directory.join("port-file");
     let created = peer.request(json!({"op":"create","opts":{
         "cwd":fixture.directory,"shell":"/bin/zsh",
-        "startupCommand":format!("printf %s \"$CASCADE_STARTUP_ORDER\" > '{}'; /bin/sleep 30", marker.display())
+        "startupCommand":format!("printf %s \"$CASCADE_PORT_FILE\" > '{}'; printf %s \"$CASCADE_STARTUP_ORDER\" > '{}'; /bin/sleep 30",
+            port_file.display(), marker.display())
     }}));
     let id = created["ok"]["id"].as_str().unwrap().to_string();
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -202,6 +204,8 @@ fn startup_command_runs_after_zsh_startup_and_leaves_an_interactive_shell() {
         assert!(Instant::now() < deadline, "the startup command did not run after .zshrc");
         std::thread::sleep(Duration::from_millis(20));
     }
+    // The shell is told whose app to report to: the one whose data directory holds the daemon's.
+    assert_eq!(std::fs::read_to_string(&port_file).unwrap(), fixture.directory.parent().unwrap().join(".server-port").to_str().unwrap());
     assert_eq!(peer.request(json!({"op":"foreground","term":id}))["ok"]["atShell"], false);
     // Ctrl-C ends the command, not the shell: it is still there, interactive, and takes input.
     peer.request(json!({"op":"write","term":id,"data":"\u{3}"}));

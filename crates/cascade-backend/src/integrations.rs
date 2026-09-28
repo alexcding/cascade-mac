@@ -551,6 +551,11 @@ const PERMISSION: (&str, &str) = ("PermissionRequest", "/api/hooks/permission");
 /// runs in its tool's process group with no controlling terminal. Checked against Claude Code
 /// 2.1.278 (`tpgid == pgid` for the session's, `tpgid 0` for the nested one); a CLI gets it when
 /// its adapter says so (`Hooks::foreground_only`).
+/// The terminal names its own app's port file (`cascade-ptyd` sets it): a development build and the
+/// installed app run side by side with their own data directories, and share the CLI's one hooks
+/// file. A hook that reads only the port file it was installed with reaches one of them; one from
+/// before this reads as outdated, so it is installed again.
+const PORT_FILE_VAR: &str = "CASCADE_PORT_FILE";
 const FOREGROUND_GUARD: &str =
     "set -- $(ps -o tpgid=,pgid= -p $PPID 2>/dev/null); [ -n \"$1\" ] && [ \"$1\" = \"$2\" ] || exit 0; ";
 fn is_current(entry: &Value, agent: Agent) -> bool {
@@ -560,6 +565,7 @@ fn is_current(entry: &Value, agent: Agent) -> bool {
                 .as_str()
                 .is_some_and(|command| {
                     (command.contains(MARKER) || command.contains(CRAFT_MARKER))
+                        && command.contains(PORT_FILE_VAR)
                         && (!agent.hooks().foreground_only || command.contains("tpgid"))
                 })
         })
@@ -670,10 +676,13 @@ fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
     // Its reply is trusted as the decision, so it goes to Cascade or nowhere: no port file means no
     // Cascade to ask, not the old default port, and `-f` turns an error page into no reply.
     let port = shell_quote(&port_file.to_string_lossy());
+    // The terminal's own app first; the one that installed the hook when the terminal names none.
+    // Assigned, so a path with a space in it is one word.
+    let find = format!("F=${{{PORT_FILE_VAR}:-{port}}};");
     let (read_port, flags) = if asks {
-        (format!("P=$(cat {port} 2>/dev/null) || exit 0;"), "-sf")
+        (format!("{find} P=$(cat \"$F\" 2>/dev/null) || exit 0;"), "-sf")
     } else {
-        (format!("P=$(cat {port} 2>/dev/null || echo 3000);"), "-s")
+        (format!("{find} P=$(cat \"$F\" 2>/dev/null || echo 3000);"), "-s")
     };
     let script=format!("{guard}{read_port} curl {flags} -m {wait} -X POST \"http://127.0.0.1:$P{endpoint}?cli={cli}&runId=${{CASCADE_RUN_ID:-}}\" -H \"Content-Type: application/json\" --data-binary @- {output} || true # {MARKER}");
     let mut hook = json!({"type":"command","command":format!("sh -c {}",shell_quote(&script))});
@@ -943,7 +952,43 @@ mod forwarder_tests {
         assert!(is_our_entry(&older) && !is_current(&older, Agent::Claude));
         let codex = hook_entry(Agent::Codex, "/api/hooks/turn-start", &port);
         assert!(!codex["hooks"][0]["command"].as_str().unwrap().contains("tpgid"));
-        assert!(is_current(&codex, Agent::Codex) && is_current(&older, Agent::Codex));
+        assert!(is_current(&codex, Agent::Codex) && !is_current(&older, Agent::Codex), "from before terminals named their app");
+    }
+
+    /// Runs the hook as the CLI would, with a `curl` that writes down where it was sent.
+    fn run_hook(entry: &Value, env: &[(&str, &str)], scratch: &std::path::Path) -> String {
+        let bin = scratch.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let curl = bin.join("curl");
+        fs::write(&curl, "#!/bin/sh\necho \"$@\" > \"$CURL_SENT\"\n").unwrap();
+        fs::set_permissions(&curl, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut command = std::process::Command::new("/bin/sh");
+        command.arg("-c").arg(entry["hooks"][0]["command"].as_str().unwrap());
+        let _ = fs::remove_file(scratch.join("sent"));
+        command.env_clear().env("PATH", format!("{}:/usr/bin:/bin", bin.display())).env("CURL_SENT", scratch.join("sent"));
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.stdin(std::process::Stdio::null()).status().unwrap();
+        fs::read_to_string(scratch.join("sent")).unwrap_or_default()
+    }
+
+    #[test]
+    fn a_hook_reaches_the_app_that_started_its_terminal() {
+        let scratch = std::env::temp_dir().join(format!("hook port '{}", std::process::id()));
+        let installed = scratch.join("installed app/.server-port");
+        let running = scratch.join("dev build/.server-port");
+        fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        fs::create_dir_all(running.parent().unwrap()).unwrap();
+        fs::write(&installed, "1111").unwrap();
+        fs::write(&running, "2222").unwrap();
+        // Codex's: Claude's also asks that the hook's parent be the terminal's foreground job.
+        let entry = hook_entry(Agent::Codex, "/api/hooks/turn-start", &installed);
+        let named = run_hook(&entry, &[("CASCADE_PORT_FILE", running.to_str().unwrap()), ("CASCADE_RUN_ID", "pty9")], &scratch);
+        assert!(named.contains("http://127.0.0.1:2222/api/hooks/turn-start?cli=codex&runId=pty9"), "{named}");
+        let unnamed = run_hook(&entry, &[("CASCADE_RUN_ID", "pty9")], &scratch);
+        assert!(unnamed.contains("http://127.0.0.1:1111/"), "a terminal that names no app: {unnamed}");
+        let _ = fs::remove_dir_all(&scratch);
     }
 
     #[test]
