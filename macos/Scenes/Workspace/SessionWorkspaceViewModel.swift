@@ -466,7 +466,6 @@ extension WorkspaceServing {
                         try await service.answerPermission(id, decision: decision)
                     }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
-                openHookSettings: { [weak self] in self?.openHookSettings() },
                 openLink: { [weak self] url in self?.openInBrowser(url) ?? false })
         }
         defer {

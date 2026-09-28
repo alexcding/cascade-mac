@@ -751,6 +751,32 @@ fn change_hooks(app: &AppState, cli: &str, install: bool) -> Result<Value, ApiEr
     }
     Ok(hook_status())
 }
+/// Whether the hooks file holds any entry of this app's, under any of its names: the person
+/// installed its hooks once.
+fn has_our_hooks(config: &Value) -> bool {
+    config["hooks"].as_object().is_some_and(|events| {
+        events.values().any(|entries| entries.as_array().is_some_and(|entries| entries.iter().any(is_our_entry)))
+    })
+}
+
+/// Brings up to date the hooks the person installed, at each start: an app that changed how its
+/// hooks report updates its own. It never adds hooks nobody installed, and hooks removed in Settings
+/// are gone from the file, so they stay removed.
+pub(crate) fn ensure_hooks(app: &AppState) {
+    for agent in Agent::ALL {
+        let profile = agent.profile();
+        let status = hook_status_for(agent);
+        let installed_once = hook_file(agent).ok().and_then(|(file, _)| read_json(&file)).is_some_and(|config| has_our_hooks(&config));
+        if !installed_once || status == "installed" {
+            continue;
+        }
+        let entry = json!({"cli": profile.id, "was": status});
+        let _ = match change_hooks(app, profile.id, true) {
+            Ok(_) => app.db.add_log("hooks", "info", "hooks_installed", &entry),
+            Err(error) => app.db.add_log("hooks", "error", "hooks_install_failed", &json!({"cli": profile.id, "error": error.to_string()})),
+        };
+    }
+}
 pub async fn agent_hooks() -> ApiResult<Value> {
     Ok(Json(hook_status()))
 }
@@ -989,6 +1015,18 @@ mod forwarder_tests {
         let unnamed = run_hook(&entry, &[("CASCADE_RUN_ID", "pty9")], &scratch);
         assert!(unnamed.contains("http://127.0.0.1:1111/"), "a terminal that names no app: {unnamed}");
         let _ = fs::remove_dir_all(&scratch);
+    }
+
+    #[test]
+    fn only_hooks_the_person_installed_are_updated_unasked() {
+        let port = PathBuf::from("/tmp/.server-port");
+        let theirs = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}});
+        assert!(!has_our_hooks(&theirs), "their own hooks only: never installed");
+        assert!(!has_our_hooks(&json!({})) && !has_our_hooks(&json!({"hooks":{}})));
+        let ours = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}, hook_entry(Agent::Claude, "/api/hooks/turn-done", &port)]}});
+        assert!(has_our_hooks(&ours));
+        let legacy = json!({"hooks":{"Stop":[{"hooks":[{"type":"command","command":format!("curl x # {LEGACY_MARKER}")}]}]}});
+        assert!(has_our_hooks(&legacy), "installed under the app's old name");
     }
 
     #[test]

@@ -68,14 +68,6 @@ struct TranscriptChatOverlay: View {
             if let error = chat.error {
                 Text(error).font(.caption).foregroundStyle(Theme.danger).lineLimit(2).padding(.horizontal, 4)
             }
-            if let notice = chat.hookNotice {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(notice).font(.caption).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    Button(String(localized: "Hook Settings"), action: chat.openHookSettings).buttonStyle(.link).font(.caption)
-                }
-                .padding(.horizontal, 4)
-            }
             // The conversation shows a held message as waiting; these take it back or push it on.
             if chat.queuedPrompt != nil {
                 HStack(spacing: 10) {

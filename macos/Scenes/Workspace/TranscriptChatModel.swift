@@ -157,7 +157,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private let completions: Completions
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
-    @ObservationIgnored let openHookSettings: () -> Void
     /// Opens a link from the conversation beside it; false when it cannot, and the system browser does.
     @ObservationIgnored private let openLink: (URL) -> Bool
     @ObservationIgnored private var watchedRun: String?
@@ -207,7 +206,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          completions: Completions = Completions(),
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
-         openHookSettings: @escaping () -> Void = {},
          openLink: @escaping (URL) -> Bool = { _ in false }) {
         self.agentName = agentName
         self.load = load
@@ -215,7 +213,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         self.completions = completions
         self.permissions = permissions
         self.showTerminal = showTerminal
-        self.openHookSettings = openHookSettings
         self.openLink = openLink
     }
 
@@ -278,15 +275,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// A held message can be pushed through by hand, except while an approval card is up: the
     /// agent is stopped on that, and typed keys would land in its prompt.
     var canSendQueuedNow: Bool { !retired && !sending && queuedPrompt != nil && permission == nil }
-
-    /// Why the chat cannot do everything the terminal does, when it cannot.
-    var hookNotice: String? {
-        switch hooks {
-        case "absent": String(localized: "Without the \(agentName) hook, Cascade can't always tell when \(agentName) is working: a message may wait for Send Now, and approvals appear in the terminal.")
-        case "outdated": String(localized: "Update the \(agentName) hook to answer approvals here. Until then they appear in the terminal: if \(agentName) seems stuck, switch to it.")
-        default: nil
-        }
-    }
 
     func requestFocus() { if !retired { focusRequest &+= 1 } }
     func zoom(_ delta: Double?) { if !retired { page?.zoom(delta) } }

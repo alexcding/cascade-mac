@@ -302,18 +302,6 @@ private func stamp(_ date: Date) -> String {
     #expect(fixture.typed.isEmpty && chat.queuedPrompt == "and the tests")
 }
 
-@MainActor @Test func theHookInstallDecidesWhatTheChatOwnsUpTo() async {
-    let fixture = ChatFixture(), chat = fixture.model()
-    await chat.refresh()
-    #expect(chat.hookNotice == nil)
-    fixture.transcript = AgentTranscript(revision: "r0", turns: nil, hooks: "outdated")
-    await chat.refresh()
-    #expect(chat.hookNotice?.contains("terminal") == true)
-    fixture.transcript = AgentTranscript(revision: "r0", turns: nil, hooks: "absent")
-    await chat.refresh()
-    #expect(chat.hookNotice?.contains("Send Now") == true)
-}
-
 @MainActor @Test func approvalsFollowARestartedTerminalAndATerminalFallbackShowsIt() async throws {
     let fixture = ChatFixture(), chat = fixture.model()
     chat.appear()

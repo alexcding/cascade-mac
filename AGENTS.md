@@ -129,6 +129,11 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **Child processes get their own process group** (`cli.rs`). The backend runs inside the
   app, so a child left in the app's group can take the app down with it, and a timeout
   kills the whole group rather than leaving a helper holding the output pipe.
+- **Installed agent hooks keep themselves current.** At startup the backend brings up to date the
+  hooks a person installed (`integrations::ensure_hooks`); it never installs hooks nobody
+  installed, and removing them in Settings takes them out for good. Each hook reports to the app
+  that started its terminal (`CASCADE_PORT_FILE`, set by `cascade-ptyd`), so a development build
+  and the installed app can run side by side.
 - **`acli` flags**: `workitem transition --key K --status S --yes`; use `--json` for reads.
 - **`gh webhook` extension may be missing.** Polling still catches merges. Install it with
   `gh extension install cli/gh-webhook`.
