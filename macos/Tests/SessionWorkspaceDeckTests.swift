@@ -169,9 +169,10 @@ private final class ProbeView: NSView {
     window.close()
 }
 
-// A hidden page keeps its size through a window resize and takes the deck's size when shown again:
-// resizing it while hidden would lay out a page nobody sees and resize the terminal in it.
-@MainActor @Test func deckSizesOnlyThePageOnScreen() throws {
+// A hidden page keeps its size through a window resize: resizing it while hidden would lay out a page
+// nobody sees and resize the terminal in it. Shown again, it keeps it until the column has settled,
+// so a web page in it never lays out for a width it is not given to keep.
+@MainActor @Test func deckSizesOnlyThePageOnScreen() async throws {
     let runtime = DeckRuntimeFixture()
     let a = deckCoordinator(id: "task:a", title: "A", runtime: runtime)
     let b = deckCoordinator(id: "task:b", title: "B", runtime: runtime)
@@ -187,7 +188,9 @@ private final class ProbeView: NSView {
     #expect(pageB.frame.size == NSSize(width: 600, height: 500))
     #expect(pageA.frame.size == NSSize(width: 400, height: 300))
     controller.update(workspaces: [a, b], shown: a, environment: environment)
-    #expect(pageA.frame.size == NSSize(width: 600, height: 500) && !pageA.isHidden)
+    #expect(pageA.frame.size == NSSize(width: 400, height: 300) && !pageA.isHidden, "Not the column's size before it settles")
+    await withCheckedContinuation { done in DispatchQueue.main.async { done.resume() } }
+    #expect(pageA.frame.size == NSSize(width: 600, height: 500))
     controller.view.setFrameSize(NSSize(width: 500, height: 400))
     #expect(pageA.frame.size == NSSize(width: 500, height: 400))
     #expect(pageB.frame.size == NSSize(width: 600, height: 500) && pageB.isHidden)

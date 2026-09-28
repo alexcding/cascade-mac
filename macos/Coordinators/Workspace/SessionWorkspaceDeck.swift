@@ -91,12 +91,27 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
             guard nextID != shownID else { return }
             if let previous = shownID.flatMap({ pages[$0] }) { hide(previous) }
             if let nextID, let page = pages[nextID] {
-                page.view.frame = container.bounds
+                // A page shown before keeps its last size: the column may be about to change width
+                // for it, as the context pane opens or closes for this session, and sized now it would
+                // take the last session's width for a moment. A web page lays itself out for every
+                // width it is given and paints each a frame late, so the chat would jump sideways.
+                // The column's resize sizes it; anything still off once it has settled is set then.
+                if page.view.frame.isEmpty { page.view.frame = container.bounds } else { settle(page) }
                 page.view.isHidden = false
                 WorkspaceSwitchSignpost.endAfterCommit()
             }
             container.shown = nextID.flatMap { pages[$0]?.view }
             shownID = nextID
+        }
+
+        /// A page shown again, sized to the column once the column has settled: after the context
+        /// pane, which follows the same switch a main-queue turn later (`MainSplitViewController`).
+        /// Only a window resized while it was hidden leaves it off by then.
+        private func settle(_ page: NSHostingController<Page>) {
+            DispatchQueue.main.async { [weak self, weak page] in
+                guard let self, let page, container.shown === page.view, page.view.frame != container.bounds else { return }
+                page.view.frame = container.bounds
+            }
         }
 
         /// Added hidden; `update` sizes and shows it in the same pass.
