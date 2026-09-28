@@ -289,61 +289,151 @@ const SEPARATOR_GAP = 30 * 60 * 1000;
 function separator(turns, index) {
   const turn = turns[index];
   if (turn.role !== "user" || !turn.timestamp) return null;
-  if (index === 0) return turn.timestamp;
-  const previous = turns[index - 1];
-  const before = previous.ended || previous.timestamp;
-  if (!before) return turn.timestamp;
-  return new Date(turn.timestamp) - new Date(before) > SEPARATOR_GAP ? turn.timestamp : null;
+  return opens(turns[index - 1], turn.timestamp) ? turn.timestamp : null;
 }
+
+// A prompt at `at` opens the page, or comes a long while after what was before it.
+function opens(previous, at) {
+  const before = previous && (previous.ended || previous.timestamp);
+  return !before || new Date(at) - new Date(before) > SEPARATOR_GAP;
+}
+
+// Glides the page to `top`, easing out, as a chat app does; WebKit's own `smooth` scrolling is
+// not on in every web view. A new glide, or the reader's own scrolling, stops the one under way.
+let glide = 0;
+function glideTo(top) {
+  cancelAnimationFrame(glide);
+  const from = window.scrollY;
+  const distance = top - from;
+  if (Math.abs(distance) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    window.scrollTo(0, top);
+    return;
+  }
+  const duration = Math.min(480, 220 + Math.abs(distance) / 5);
+  const start = performance.now();
+  const step = (now) => {
+    const progress = Math.min(1, (now - start) / duration);
+    window.scrollTo(0, from + distance * (1 - Math.pow(1 - progress, 3)));
+    if (progress < 1) glide = requestAnimationFrame(step);
+  };
+  glide = requestAnimationFrame(step);
+}
+const stopGlide = () => cancelAnimationFrame(glide);
+
+// How far below the window's top edge the newest prompt rests.
+const TOP_GAP = 16;
 
 function Chat({ state }) {
   const { turns, busy, pending, queued, loaded, permission } = state;
-  const stick = useRef(true);
+  // Where the view goes as the conversation changes. `anchor`: a prompt just went in, and it rests
+  // at the top while its answer comes in below, as in a chat app. `follow`: the reader went down
+  // to the latest themselves, so it keeps there. `free`: the reader scrolled up, so it stays put.
+  const mode = useRef("follow");
+  const shown = useRef(false);
+  const anchored = useRef(null);
+  // The next scroll is the reader's: a wheel, a key or the scroller, not one of the page's own.
+  const reader = useRef(false);
+  const tail = useRef(null);
+  const card = useRef(null);
   // Scrolled up, a button over the bottom edge goes back down to the latest.
   const [away, setAway] = useState(false);
-  // Follows the conversation down while the reader is at the bottom; scrolled up, it stays put.
+
+  // The newest prompt and everything after it: kept at least a screen high, so the prompt can
+  // rest at the top however short its answer, and the page does not shrink under it when the
+  // work above the answer folds away.
+  let start = turns.length;
+  if (!pending) {
+    for (let index = turns.length - 1; index >= 0; index--) {
+      if (turns[index].role === "user") { start = index; break; }
+    }
+  }
+  const key = pending ? `pending:${pending}` : turns[start]?.id ?? null;
+
+  const scroll = (top, smooth) => {
+    reader.current = false;
+    if (smooth) glideTo(top);
+    else { stopGlide(); window.scrollTo(0, top); }
+  };
+  const bottom = () => document.documentElement.scrollHeight - document.documentElement.clientHeight;
+
   useLayoutEffect(() => {
-    if (stick.current) window.scrollTo(0, document.documentElement.scrollHeight);
+    if (!shown.current) {
+      if (!loaded) return;
+      // Opened at the latest, at once.
+      shown.current = true;
+      anchored.current = key;
+      scroll(bottom(), false);
+      return;
+    }
+    if (key !== anchored.current) {
+      anchored.current = key;
+      if (key !== null && tail.current) {
+        mode.current = "anchor";
+        scroll(tail.current.getBoundingClientRect().top + window.scrollY - TOP_GAP, true);
+        return;
+      }
+    }
+    if (mode.current === "follow" && window.scrollY < bottom() - 1) scroll(bottom(), true);
   });
+  // A question the agent waits on is never left below the fold.
+  useLayoutEffect(() => {
+    if (!permission || !card.current) return;
+    const box = card.current.getBoundingClientRect();
+    if (box.bottom > window.innerHeight) scroll(window.scrollY + box.bottom - window.innerHeight + TOP_GAP, true);
+  }, [permission?.id]);
   useLayoutEffect(() => {
     const onScroll = () => {
       const root = document.documentElement;
-      stick.current = root.scrollHeight - root.scrollTop - root.clientHeight < 40;
-      setAway(!stick.current);
+      const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 40;
+      if (reader.current) mode.current = atBottom ? "follow" : "free";
+      setAway(!atBottom);
     };
+    const onInput = () => { reader.current = true; stopGlide(); };
     window.addEventListener("scroll", onScroll, { passive: true });
     // The composer growing shrinks the page from below without a scroll.
     window.addEventListener("resize", onScroll);
+    for (const input of ["wheel", "keydown", "pointerdown"]) window.addEventListener(input, onInput, { passive: true });
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      for (const input of ["wheel", "keydown", "pointerdown"]) window.removeEventListener(input, onInput);
     };
   }, []);
 
   const last = turns[turns.length - 1];
+  // A prompt not in the transcript yet gets the date line it will have there, so nothing shifts
+  // under it when it arrives.
+  const now = new Date().toISOString();
+  const pendingDate = pending && opens(last, now) ? now : null;
+  const row = (turn, index) => {
+    const date = separator(turns, index);
+    return (
+      <div key={turn.id}>
+        {date && <div className="date">{dateLine(date)}</div>}
+        {/* A prompt sent after it is what the agent works on, not this turn. */}
+        <Turn turn={turn} working={busy && !pending && index === turns.length - 1} />
+      </div>
+    );
+  };
   return (
     <div className="column">
       {loaded && turns.length === 0 && !pending && <div className="empty">{t("No conversation yet. Send a message to start.")}</div>}
-      {turns.map((turn, index) => {
-        const date = separator(turns, index);
-        return (
-          <div key={turn.id}>
-            {date && <div className="date">{dateLine(date)}</div>}
-            <Turn turn={turn} working={busy && index === turns.length - 1} />
+      {turns.slice(0, start).map((turn, index) => row(turn, index))}
+      <div ref={tail} className={key === null ? "tail" : "tail anchored"}>
+        {turns.slice(start).map((turn, index) => row(turn, start + index))}
+        {pendingDate && <div className="date">{dateLine(pendingDate)}</div>}
+        {pending && (
+          <div className={`turn prompt${queued ? " queued" : ""}`}>
+            <div className="pill">{pending}</div>
+            {queued && <div className="actions"><span>{t("Waiting to send")}</span></div>}
           </div>
-        );
-      })}
-      {pending && (
-        <div className={`turn prompt${queued ? " queued" : ""}`}>
-          <div className="pill">{pending}</div>
-          {queued && <div className="actions"><span>{t("Waiting to send")}</span></div>}
-        </div>
-      )}
-      {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">{t("Working")}</span></div>}
-      {permission && <Permission key={permission.id} permission={permission} />}
+        )}
+        {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">{t("Working")}</span></div>}
+        {permission && <div ref={card}><Permission key={permission.id} permission={permission} /></div>}
+      </div>
       {away && (
         <button className="to-latest" aria-label={t("Scroll to latest")} title={t("Scroll to latest")}
-                onClick={() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" })}>
+                onClick={() => { mode.current = "follow"; scroll(bottom(), true); }}>
           <DownIcon />
         </button>
       )}

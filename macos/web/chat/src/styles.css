@@ -45,7 +45,9 @@
   --color-primary-foreground: var(--ground);
 }
 
-html, body { background: transparent; color: var(--ink); }
+/* The page places the view itself (Chat in main.jsx); WebKit's scroll anchoring would pin it to
+   the bottom as the conversation grows, ahead of the glide to the newest prompt. */
+html, body { background: transparent; color: var(--ink); overflow-anchor: none; }
 body {
   margin: 0;
   font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -54,6 +56,9 @@ body {
 
 .column { max-width: 740px; margin: 0 auto; padding: 28px 24px 24px; }
 .turn { margin-bottom: 28px; }
+/* The newest prompt and what follows it: at least a screen high, less the prompt's gap above
+   (TOP_GAP) and the column's padding below, so the prompt can rest at the top. */
+.tail.anchored { min-height: calc(100vh - 40px); display: flow-root; }
 
 .date { text-align: center; color: var(--ink-3); margin: 8px 0 28px; }
 
