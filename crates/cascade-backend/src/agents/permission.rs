@@ -24,6 +24,7 @@ use serde_json::{json, Value};
 use tokio::sync::{broadcast, oneshot};
 use uuid::Uuid;
 
+use super::Agent;
 use crate::AppState;
 
 /// Under the hook's own timeout (`HOOK_TIMEOUT`), so the answer — or the pass — gets back to it.
@@ -62,23 +63,15 @@ fn bounded(text: &str) -> (String, bool) {
     }
 }
 
-/// What a person needs to decide: the tool, what it would touch, the agent's own reason, and for
-/// a file change both sides of it, as the terminal's own prompt shows them.
-fn describe(payload: &Value) -> Value {
+/// What a person needs to decide: the tool and what it does, what it would touch, the agent's own
+/// reason, and for a file change both sides of it, as the terminal's own prompt shows them. The
+/// CLI's adapter reads its own tools; one the app does not know has its tool shown by name.
+fn describe(payload: &Value, agent: Option<Agent>) -> Value {
     let tool = payload["tool_name"].as_str().unwrap_or("Tool");
     let input = &payload["tool_input"];
     let text = |key: &str| input[key].as_str();
-    let change = match tool {
-        "Edit" => text("file_path").map(|path| (path, text("old_string").unwrap_or("").to_string(), text("new_string").unwrap_or("").to_string())),
-        "MultiEdit" => text("file_path").map(|path| {
-            let edits = input["edits"].as_array().map(Vec::as_slice).unwrap_or_default();
-            let side = |key: &str| edits.iter().filter_map(|edit| edit[key].as_str()).collect::<Vec<_>>().join("\n⋯\n");
-            (path, side("old_string"), side("new_string"))
-        }),
-        "Write" => text("file_path").map(|path| (path, String::new(), text("content").unwrap_or("").to_string())),
-        "NotebookEdit" => text("notebook_path").map(|path| (path, String::new(), text("new_source").unwrap_or("").to_string())),
-        _ => None,
-    };
+    let kind = agent.map_or("other", |agent| agent.tool_kind(tool));
+    let change = agent.and_then(|agent| agent.tool_change(tool, input));
     let detail = ["command", "file_path", "notebook_path", "path", "url", "pattern", "query"]
         .iter()
         .find_map(|key| match &input[*key] {
@@ -90,7 +83,7 @@ fn describe(payload: &Value) -> Value {
         .unwrap_or_default();
     let (detail, mut truncated) = bounded(&detail);
     let reason = text("description").or_else(|| text("justification")).unwrap_or("");
-    let mut request = json!({"tool": tool, "detail": detail, "reason": reason});
+    let mut request = json!({"tool": tool, "kind": kind, "detail": detail, "reason": reason});
     if let Some((_, old, new)) = change {
         let (old, cut_old) = bounded(&old);
         let (new, cut_new) = bounded(&new);
@@ -152,7 +145,7 @@ pub async fn request(
     pending().lock().unwrap().insert(offer.id.clone(), sender);
     let offered = app.events.send(json!({
         "type": "agent-permission", "id": offer.id, "runId": offer.run_id,
-        "cli": query.cli.unwrap_or_default(), "request": describe(&payload),
+        "request": describe(&payload, query.cli.as_deref().and_then(Agent::of)), "cli": query.cli.unwrap_or_default(),
     }));
     let answer = if offered.is_ok() {
         tokio::time::timeout(WAIT, receiver).await.ok().and_then(Result::ok)
@@ -201,25 +194,29 @@ mod tests {
 
     #[test]
     fn describes_a_command_and_a_file_edit() {
-        let bash = describe(&json!({"tool_name":"Bash","tool_input":{"command":"gh repo view","description":"Check the branch"}}));
-        assert_eq!(bash, json!({"tool":"Bash","detail":"gh repo view","reason":"Check the branch","truncated":false}));
-        let edit = describe(&json!({"tool_name":"Edit","tool_input":{"file_path":"/a/b.rs","old_string":"x","new_string":"y"}}));
+        let claude = Some(Agent::Claude);
+        let bash = describe(&json!({"tool_name":"Bash","tool_input":{"command":"gh repo view","description":"Check the branch"}}), claude);
+        assert_eq!(bash, json!({"tool":"Bash","kind":"run","detail":"gh repo view","reason":"Check the branch","truncated":false}));
+        let edit = describe(&json!({"tool_name":"Edit","tool_input":{"file_path":"/a/b.rs","old_string":"x","new_string":"y"}}), claude);
         assert_eq!((edit["detail"].as_str(), edit["old"].as_str(), edit["new"].as_str()), (Some("/a/b.rs"), Some("x"), Some("y")));
-        let multi = describe(&json!({"tool_name":"MultiEdit","tool_input":{"file_path":"/a","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]}}));
+        let multi = describe(&json!({"tool_name":"MultiEdit","tool_input":{"file_path":"/a","edits":[{"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]}}), claude);
         assert_eq!((multi["old"].as_str(), multi["new"].as_str()), (Some("a\n⋯\nc"), Some("b\n⋯\nd")));
-        let write = describe(&json!({"tool_name":"Write","tool_input":{"file_path":"/n.txt","content":"hi"}}));
+        let write = describe(&json!({"tool_name":"Write","tool_input":{"file_path":"/n.txt","content":"hi"}}), claude);
         assert_eq!((write["old"].as_str(), write["new"].as_str()), (Some(""), Some("hi")));
-        let argv = describe(&json!({"tool_name":"shell","tool_input":{"command":["git","push"]}}));
+        let argv = describe(&json!({"tool_name":"shell","tool_input":{"command":["git","push"]}}), Some(Agent::Codex));
         assert_eq!(argv["detail"], "git push");
         assert!(argv.get("old").is_none());
+        assert_eq!(argv["kind"], "run", "another CLI's name for the same kind of tool");
+        let unknown = describe(&json!({"tool_name":"Edit","tool_input":{"file_path":"/a"}}), None);
+        assert_eq!((unknown["kind"].as_str(), unknown.get("old")), (Some("other"), None), "a CLI the app does not know");
     }
 
     #[test]
     fn a_request_too_long_to_show_says_so() {
         let long = "x".repeat(MAX_DETAIL + 1);
-        let bash = describe(&json!({"tool_name":"Bash","tool_input":{"command":long}}));
+        let bash = describe(&json!({"tool_name":"Bash","tool_input":{"command":long}}), Some(Agent::Claude));
         assert_eq!((bash["truncated"].as_bool(), bash["detail"].as_str().map(str::len)), (Some(true), Some(MAX_DETAIL)));
-        let write = describe(&json!({"tool_name":"Write","tool_input":{"file_path":"/a","content":long}}));
+        let write = describe(&json!({"tool_name":"Write","tool_input":{"file_path":"/a","content":long}}), Some(Agent::Claude));
         assert_eq!(write["truncated"], true);
     }
 

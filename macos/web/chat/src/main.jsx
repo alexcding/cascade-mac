@@ -153,12 +153,16 @@ function diff(oldText, newText) {
 // A tool by what it does, not by its name: the backend gives each call a `kind` every CLI shares,
 // so nothing here knows one CLI from another. A kind not listed shows the tool's own name.
 const DONE = {
-  run: "Ran", read: "Read", edit: "Edited", create: "Created", search: "Searched", fetch: "Fetched",
-  web: "Searched the web", delegate: "Delegated", plan: "Updated plan",
+  run: "Ran", read: "Read", edit: "Edited", patch: "Edited", create: "Created", search: "Searched",
+  fetch: "Fetched", web: "Searched the web", delegate: "Delegated", plan: "Updated plan",
 };
 const DOING = {
-  run: "Running", read: "Reading", edit: "Editing", create: "Creating", search: "Searching", fetch: "Fetching",
-  web: "Searching the web", delegate: "Delegating", plan: "Updating plan",
+  run: "Running", read: "Reading", edit: "Editing", patch: "Editing", create: "Creating", search: "Searching",
+  fetch: "Fetching", web: "Searching the web", delegate: "Delegating", plan: "Updating plan",
+};
+const ASKS = {
+  run: "Run this command?", edit: "Edit this file?", patch: "Apply this patch?", create: "Create this file?",
+  fetch: "Fetch this page?", web: "Search the web?",
 };
 
 // What the agent is doing while it works: thinking, or the call it is waiting on and what that
@@ -263,12 +267,6 @@ const Turn = memo(function Turn({ turn, working, activity }) {
 }, (before, after) => before.working === after.working && JSON.stringify(before.turn) === JSON.stringify(after.turn)
   && (!after.working || JSON.stringify(before.activity) === JSON.stringify(after.activity)));
 
-const ASKS = {
-  Bash: "Run this command?", shell: "Run this command?", exec: "Run this command?", exec_command: "Run this command?",
-  Edit: "Edit this file?", MultiEdit: "Edit this file?", Write: "Create this file?", apply_patch: "Apply this patch?",
-  WebFetch: "Fetch this page?", WebSearch: "Search the web?",
-};
-
 // The agent is stopped on this until it is answered; the terminal shows nothing meanwhile. What
 // is allowed is shown whole: a file change as its diff, and a request too long for the card goes
 // to the terminal's own prompt instead of being allowed half-read.
@@ -281,7 +279,7 @@ function Permission({ permission }) {
   const change = permission.new != null ? diff(permission.old || "", permission.new) : null;
   return (
     <div className="turn permission">
-      <div className="ask">{ASKS[permission.tool] ? t(ASKS[permission.tool]) : t("Allow %@?", permission.tool)}</div>
+      <div className="ask">{ASKS[permission.kind] ? t(ASKS[permission.kind]) : t("Allow %@?", permission.tool)}</div>
       {permission.reason && <div className="reason">{permission.reason}</div>}
       {permission.detail && <pre className="mono">{permission.detail}</pre>}
       {change && (

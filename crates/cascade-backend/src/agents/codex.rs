@@ -15,6 +15,18 @@ impl AgentProbe for Codex {
     /// one until its turn ends.
     const PROFILE: Profile = Profile { id: "codex", queues_mid_turn: false };
 
+    /// `apply_patch` has a kind of its own: a patch may touch several files, and asks as one.
+    fn tool_kind(name: &str) -> &'static str {
+        match name {
+            "shell" | "exec" | "exec_command" | "local_shell" => "run",
+            "apply_patch" => "patch",
+            "web_search" => "web",
+            "spawn_agent" => "delegate",
+            "update_plan" => "plan",
+            _ => "other",
+        }
+    }
+
     /// Codex names a session file by its start, not by a conversation the app could ask for.
     fn transcript_file(home: &Path, worktree: &str, _conversation: Option<&str>) -> Option<PathBuf> {
         session_file(home, worktree)
@@ -106,18 +118,6 @@ fn effort_name(id: &str) -> String {
 /// The session file most recently written for this worktree. A resumed conversation keeps
 /// appending to the file from the day it began, so recency is by modification time across every
 /// day, not by the dated folder; the first line of each names the directory it ran in.
-/// What a Codex tool does, in the kinds the app draws (`transcript::Builder`).
-pub(super) fn tool_kind(name: &str) -> &'static str {
-    match name {
-        "shell" | "exec" | "exec_command" | "local_shell" => "run",
-        "apply_patch" => "edit",
-        "web_search" => "web",
-        "spawn_agent" => "delegate",
-        "update_plan" => "plan",
-        _ => "other",
-    }
-}
-
 pub(super) fn session_file(home: &Path, worktree: &str) -> Option<PathBuf> {
     let mut files: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut pending = vec![home.join(".codex/sessions")];

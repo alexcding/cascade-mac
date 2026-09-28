@@ -44,6 +44,14 @@ pub trait AgentProbe {
     async fn reported_commands() -> Value {
         Value::Null
     }
+    /// What one of its tools does, in the kinds the app draws every CLI's tools by: `run`, `read`,
+    /// `edit`, `patch`, `create`, `search`, `fetch`, `web`, `delegate`, `plan` or `other`.
+    fn tool_kind(name: &str) -> &'static str;
+    /// The file a tool call would change and both sides of the change, from the call's input: the
+    /// path, what is there, and what would be.
+    fn tool_change(_name: &str, _input: &Value) -> Option<(String, String, String)> {
+        None
+    }
 }
 
 /// What the app may count on from a CLI. It travels with the CLI's transcript, and the app acts on
@@ -112,6 +120,20 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::has_conversation(home, id),
             Agent::Codex => codex::Codex::has_conversation(home, id),
+        }
+    }
+
+    pub fn tool_kind(self, name: &str) -> &'static str {
+        match self {
+            Agent::Claude => claude::Claude::tool_kind(name),
+            Agent::Codex => codex::Codex::tool_kind(name),
+        }
+    }
+
+    pub fn tool_change(self, name: &str, input: &Value) -> Option<(String, String, String)> {
+        match self {
+            Agent::Claude => claude::Claude::tool_change(name, input),
+            Agent::Codex => codex::Codex::tool_change(name, input),
         }
     }
 

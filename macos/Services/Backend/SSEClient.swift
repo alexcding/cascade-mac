@@ -29,6 +29,8 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
 public struct AgentPermissionPrompt: Encodable, Equatable, Sendable {
     public struct Details: Codable, Equatable, Sendable {
         public let tool: String
+        /// What the tool does, as its CLI's adapter says (`TranscriptBlock.kind`); the card asks by it.
+        public var kind: String? = nil
         public let detail: String
         public let reason: String
         /// A file change's two sides, when the tool is one.
@@ -39,6 +41,7 @@ public struct AgentPermissionPrompt: Encodable, Equatable, Sendable {
     }
     public let id: String
     public let tool: String
+    public let kind: String?
     public let detail: String
     public let reason: String
     public let old: String?
@@ -46,7 +49,7 @@ public struct AgentPermissionPrompt: Encodable, Equatable, Sendable {
     public let truncated: Bool
 
     init(id: String, details: Details) {
-        self.id = id; tool = details.tool; detail = details.detail; reason = details.reason
+        self.id = id; tool = details.tool; kind = details.kind; detail = details.detail; reason = details.reason
         old = details.old; new = details.new; truncated = details.truncated ?? false
     }
 }

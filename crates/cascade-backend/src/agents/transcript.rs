@@ -305,7 +305,7 @@ impl<'a> Builder<'a> {
         tool.insert("type".into(), json!("tool"));
         tool.insert("id".into(), block["id"].clone());
         tool.insert("name".into(), json!(name));
-        tool.insert("kind".into(), json!(super::claude::tool_kind(name)));
+        tool.insert("kind".into(), json!(Agent::Claude.tool_kind(name)));
         tool.insert("summary".into(), json!(first_line(&summary)));
         if name == "Bash" {
             tool.insert("command".into(), json!(text("command").unwrap_or("")));
@@ -380,7 +380,7 @@ impl<'a> Builder<'a> {
                 tool.insert("type".into(), json!("tool"));
                 tool.insert("id".into(), payload["call_id"].clone());
                 tool.insert("name".into(), json!(name));
-                tool.insert("kind".into(), json!(super::codex::tool_kind(name)));
+                tool.insert("kind".into(), json!(Agent::Codex.tool_kind(name)));
                 tool.insert("summary".into(), json!(first_line(&summary)));
                 tool.insert("command".into(), json!(command.unwrap_or_else(|| raw.to_string())));
                 self.push_tool(&id, timestamp, tool);
@@ -565,7 +565,7 @@ mod tests {
 
         let mut codex = Builder::new("/w");
         codex.codex(&json!({"type":"response_item","payload":{"type":"function_call","name":"apply_patch","call_id":"c1","arguments":"{\"path\":\"/w/a.rs\"}"}}), "0".into());
-        assert_eq!(activity(&codex.turns), json!({"kind":"edit","detail":"a.rs"}));
+        assert_eq!(activity(&codex.turns), json!({"kind":"patch","detail":"a.rs"}));
     }
 
     #[test]

@@ -33,6 +33,36 @@ impl AgentProbe for Claude {
         initialize().await.map(|reply| reply["commands"].clone()).unwrap_or_default()
     }
 
+    fn tool_kind(name: &str) -> &'static str {
+        match name {
+            "Bash" => "run",
+            "Read" => "read",
+            "Edit" | "MultiEdit" | "NotebookEdit" => "edit",
+            "Write" => "create",
+            "Glob" | "Grep" => "search",
+            "WebFetch" => "fetch",
+            "WebSearch" => "web",
+            "Task" | "Agent" => "delegate",
+            "TodoWrite" => "plan",
+            _ => "other",
+        }
+    }
+
+    fn tool_change(name: &str, input: &Value) -> Option<(String, String, String)> {
+        let text = |key: &str| input[key].as_str();
+        match name {
+            "Edit" => text("file_path").map(|path| (path.into(), text("old_string").unwrap_or("").into(), text("new_string").unwrap_or("").into())),
+            "MultiEdit" => text("file_path").map(|path| {
+                let edits = input["edits"].as_array().map(Vec::as_slice).unwrap_or_default();
+                let side = |key: &str| edits.iter().filter_map(|edit| edit[key].as_str()).collect::<Vec<_>>().join("\n⋯\n");
+                (path.into(), side("old_string"), side("new_string"))
+            }),
+            "Write" => text("file_path").map(|path| (path.into(), String::new(), text("content").unwrap_or("").into())),
+            "NotebookEdit" => text("notebook_path").map(|path| (path.into(), String::new(), text("new_source").unwrap_or("").into())),
+            _ => None,
+        }
+    }
+
     async fn catalog(_home: &Path) -> Value {
         let models = initialize().await.map(|reply| models(&reply["models"])).unwrap_or_default();
         json!({ "models": models })
@@ -87,22 +117,6 @@ impl AgentProbe for Claude {
 /// A projects directory that is simply not there is a Claude that has never kept a conversation,
 /// so the answer is no. One that cannot be read is unknown, and unknown resumes: reserving an id
 /// Claude already owns fails just as hard as a bad resume.
-/// What a Claude Code tool does, in the kinds the app draws (`transcript::Builder`).
-pub(super) fn tool_kind(name: &str) -> &'static str {
-    match name {
-        "Bash" => "run",
-        "Read" => "read",
-        "Edit" | "MultiEdit" | "NotebookEdit" => "edit",
-        "Write" => "create",
-        "Glob" | "Grep" => "search",
-        "WebFetch" => "fetch",
-        "WebSearch" => "web",
-        "Task" | "Agent" => "delegate",
-        "TodoWrite" => "plan",
-        _ => "other",
-    }
-}
-
 pub(super) fn has_conversation(home: &Path, id: &str) -> bool {
     let projects = match fs::read_dir(home.join(".claude/projects")) {
         Ok(projects) => projects,
