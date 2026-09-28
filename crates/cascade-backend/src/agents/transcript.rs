@@ -96,15 +96,17 @@ pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conv
     json!({"revision": revision, "turns": turns.split_off(skip), "atPrompt": builder.at_prompt, "activity": activity})
 }
 
-/// What the agent is doing, as its last turn shows it: a tool it called that has not answered yet,
-/// or thinking. The same for every CLI, so the app draws it without knowing which one it has; it
-/// shows it only while the agent works.
+/// What the agent is doing, as its last turn shows it: the latest tool it called that has not
+/// answered yet, which calls made together can leave behind a later one that has, or thinking. The
+/// same for every CLI, so the app draws it without knowing which one it has; it shows it only
+/// while the agent works.
 fn activity(turns: &[Value]) -> Value {
     let pending = turns
         .last()
         .filter(|turn| turn["role"] == "assistant")
-        .and_then(|turn| turn["blocks"].as_array()?.last())
-        .filter(|block| block["type"] == "tool" && block.get("output").is_none());
+        .and_then(|turn| {
+            turn["blocks"].as_array()?.iter().rev().find(|block| block["type"] == "tool" && block.get("output").is_none())
+        });
     match pending {
         Some(tool) => json!({"kind": tool["kind"], "detail": tool["summary"]}),
         None => json!({"kind": "thinking"}),
@@ -562,6 +564,13 @@ mod tests {
         assert_eq!(activity(&builder.turns), json!({"kind":"run","detail":"Run the tests"}));
         builder.claude(&json!({"type":"user","uuid":"c","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}), "2".into());
         assert_eq!(activity(&builder.turns), json!({"kind":"thinking"}), "the call answered");
+        // Two calls at once, the second answered first: the first is still running.
+        builder.claude(&json!({"type":"assistant","uuid":"d","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/w/a.rs"}},
+            {"type":"tool_use","id":"t3","name":"Grep","input":{"pattern":"todo"}}
+        ]}}), "3".into());
+        builder.claude(&json!({"type":"user","uuid":"e","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","content":"none"}]}}), "4".into());
+        assert_eq!(activity(&builder.turns), json!({"kind":"read","detail":"a.rs"}));
 
         let mut codex = Builder::new("/w");
         codex.codex(&json!({"type":"response_item","payload":{"type":"function_call","name":"apply_patch","call_id":"c1","arguments":"{\"path\":\"/w/a.rs\"}"}}), "0".into());
