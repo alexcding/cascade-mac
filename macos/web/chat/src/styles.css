@@ -56,9 +56,10 @@ body {
 
 .column { max-width: 740px; margin: 0 auto; padding: 28px 24px 24px; }
 .turn { margin-bottom: 28px; }
-/* The newest prompt and what follows it: at least a screen high, less the prompt's gap above
-   (TOP_GAP) and the column's padding below, so the prompt can rest at the top. */
-.tail.anchored { min-height: calc(100vh - 40px); display: flow-root; }
+/* A placed prompt's reply gets room below it (Chat in main.jsx): two thirds of the view, never so
+   much that less than 240px of what came before shows above it. */
+.reply { display: flow-root; }
+.reply.roomy { min-height: max(0px, min(66.667vh, calc(100vh - 240px))); }
 
 .date { text-align: center; color: var(--ink-3); margin: 8px 0 28px; }
 

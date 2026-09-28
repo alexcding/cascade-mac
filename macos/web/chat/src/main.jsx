@@ -298,104 +298,168 @@ function opens(previous, at) {
   return !before || new Date(at) - new Date(before) > SEPARATOR_GAP;
 }
 
-// Glides the page to `top`, easing out, as a chat app does; WebKit's own `smooth` scrolling is
-// not on in every web view. A new glide, or the reader's own scrolling, stops the one under way.
+// Glides the page to where `target()` says, easing out, as a chat app does; WebKit's own `smooth`
+// scrolling is not on in every web view. The target is asked again on every frame, so the glide
+// lands where the page ends up if it changes on the way. A new glide, or the reader's own
+// scrolling, stops the one under way.
 let glide = 0;
-function glideTo(top) {
+let gliding = false;
+function glideTo(target) {
   cancelAnimationFrame(glide);
   const from = window.scrollY;
-  const distance = top - from;
+  const distance = target() - from;
   if (Math.abs(distance) < 1 || matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    window.scrollTo(0, top);
+    gliding = false;
+    window.scrollTo(0, target());
     return;
   }
   const duration = Math.min(480, 220 + Math.abs(distance) / 5);
   const start = performance.now();
+  gliding = true;
   const step = (now) => {
     const progress = Math.min(1, (now - start) / duration);
-    window.scrollTo(0, from + distance * (1 - Math.pow(1 - progress, 3)));
+    window.scrollTo(0, from + (target() - from) * (1 - Math.pow(1 - progress, 3)));
     if (progress < 1) glide = requestAnimationFrame(step);
+    else gliding = false;
   };
   glide = requestAnimationFrame(step);
 }
-const stopGlide = () => cancelAnimationFrame(glide);
+const stopGlide = () => { cancelAnimationFrame(glide); gliding = false; };
 
-// How far below the window's top edge the newest prompt rests.
-const TOP_GAP = 16;
+// A prompt sent while the latest is within this of the view's bottom edge is placed, with room
+// for its reply; sent from further up, the reader is left where they are. The Codex app's rule.
+const NEAR_LATEST = 300;
+// Keeps a card clear of the window's edge when it is brought into view.
+const EDGE = 16;
 
 function Chat({ state }) {
   const { turns, busy, pending, queued, loaded, permission } = state;
-  // Where the view goes as the conversation changes. `anchor`: a prompt just went in, and it rests
-  // at the top while its answer comes in below, as in a chat app. `follow`: the reader went down
-  // to the latest themselves, so it keeps there. `free`: the reader scrolled up, so it stays put.
-  const mode = useRef("follow");
+  // How the view moves as the conversation changes, after the Codex app's thread.
+  // `watch`: a prompt was just placed, its reply's room below it, and the view holds still until
+  //   the agent's work runs past the bottom edge; from then it follows.
+  // `follow`: the view keeps to the bottom as the latest comes in.
+  // `static`: what the reader sees stays where it is.
+  // Each holds against anything that changes height above what is shown: turns falling off the
+  // front of the transcript's window, or an earlier answer's code finishing late.
+  const mode = useRef("static");
+  // Outside `follow`, the turns in view and how far each sat from the top. The first still on the
+  // page is held: the transcript's window drops its oldest turns as it moves.
+  const held = useRef([]);
+  // The latest was within NEAR_LATEST of the bottom edge, as the view last stood.
+  const near = useRef(true);
+  const working = useRef(busy);
+  working.current = busy;
   const shown = useRef(false);
-  const anchored = useRef(null);
+  const placed = useRef(null);
+  // The prompt whose reply was given room when it was placed.
+  const room = useRef(null);
   // The next scroll is the reader's: a wheel, a key or the scroller, not one of the page's own.
   const reader = useRef(false);
-  const tail = useRef(null);
+  const column = useRef(null);
+  const end = useRef(null);
   const card = useRef(null);
   // Scrolled up, a button over the bottom edge goes back down to the latest.
   const [away, setAway] = useState(false);
 
-  // The newest prompt and everything after it: kept at least a screen high, so the prompt can
-  // rest at the top however short its answer, and the page does not shrink under it when the
-  // work above the answer folds away.
+  // The newest prompt: the one sent and not in the transcript yet, or the transcript's last.
   let start = turns.length;
   if (!pending) {
     for (let index = turns.length - 1; index >= 0; index--) {
       if (turns[index].role === "user") { start = index; break; }
     }
   }
-  const key = pending ? `pending:${pending}` : turns[start]?.id ?? null;
+  const prompt = pending ? null : turns[start];
+  const key = pending ? `pending:${pending}` : prompt?.id ?? null;
+  // Placed, its reply gets room below it: two thirds of the view, never so much that less than
+  // 240px of what came before shows above it.
+  const placing = shown.current && key !== null && key !== placed.current && near.current;
+  const roomy = key !== null && (placing || key === room.current);
 
-  const scroll = (top, smooth) => {
+  const scroll = (target, smooth) => {
     reader.current = false;
-    if (smooth) glideTo(top);
-    else { stopGlide(); window.scrollTo(0, top); }
+    if (smooth) glideTo(target);
+    else { stopGlide(); window.scrollTo(0, target()); }
   };
   const bottom = () => document.documentElement.scrollHeight - document.documentElement.clientHeight;
+  const moveBy = (distance) => { if (Math.abs(distance) >= 1) scroll(() => window.scrollY + distance, false); };
+  // How far the end of the latest reply lies below the bottom edge.
+  const latestBelow = () => (end.current ? end.current.getBoundingClientRect().top - window.innerHeight : 0);
+  const hold = () => {
+    held.current = [...document.querySelectorAll("[data-turn]")]
+      .map((turn) => ({ id: turn.dataset.turn, box: turn.getBoundingClientRect() }))
+      .filter(({ box }) => box.bottom > 0 && box.top < window.innerHeight)
+      .map(({ id, box }) => ({ id, offset: box.top }));
+  };
+  // Puts the view back where its mode keeps it, after the page changed under it.
+  const settle = () => {
+    if (gliding) return;
+    if (mode.current === "watch" && working.current && latestBelow() > 0) mode.current = "follow";
+    if (mode.current === "follow") {
+      if (window.scrollY < bottom() - 1) scroll(bottom, true);
+    } else {
+      for (const { id, offset } of held.current) {
+        const row = document.querySelector(`[data-turn="${CSS.escape(id)}"]`);
+        if (row) { moveBy(row.getBoundingClientRect().top - offset); break; }
+      }
+    }
+    near.current = latestBelow() <= NEAR_LATEST;
+  };
+  const settling = useRef(settle);
+  settling.current = settle;
 
   useLayoutEffect(() => {
     if (!shown.current) {
       if (!loaded) return;
-      // Opened at the latest, at once.
+      // Opened at the latest, at once, following the agent if it is at work.
       shown.current = true;
-      anchored.current = key;
-      scroll(bottom(), false);
+      placed.current = key;
+      mode.current = busy ? "follow" : "static";
+      scroll(bottom, false);
+      hold();
       return;
     }
-    if (key !== anchored.current) {
-      anchored.current = key;
-      if (key !== null && tail.current) {
-        mode.current = "anchor";
-        scroll(tail.current.getBoundingClientRect().top + window.scrollY - TOP_GAP, true);
+    if (key !== placed.current) {
+      placed.current = key;
+      if (placing) {
+        room.current = key;
+        mode.current = "watch";
+        scroll(bottom, true);
         return;
       }
     }
-    if (mode.current === "follow" && window.scrollY < bottom() - 1) scroll(bottom(), true);
+    // Its turn over, a view that only watched it holds still.
+    if (!busy && mode.current === "watch") mode.current = "static";
+    settle();
   });
   // A question the agent waits on is never left below the fold.
   useLayoutEffect(() => {
     if (!permission || !card.current) return;
-    const box = card.current.getBoundingClientRect();
-    if (box.bottom > window.innerHeight) scroll(window.scrollY + box.bottom - window.innerHeight + TOP_GAP, true);
+    if (card.current.getBoundingClientRect().bottom <= window.innerHeight) return;
+    scroll(() => window.scrollY + card.current.getBoundingClientRect().bottom - window.innerHeight + EDGE, true);
   }, [permission?.id]);
   useLayoutEffect(() => {
     const onScroll = () => {
       const root = document.documentElement;
       const atBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 40;
-      if (reader.current) mode.current = atBottom ? "follow" : "free";
+      // The reader scrolling away from the latest stops the view going after it.
+      if (reader.current && !atBottom) mode.current = "static";
+      if (mode.current !== "follow") hold();
+      near.current = latestBelow() <= NEAR_LATEST;
       setAway(!atBottom);
     };
     const onInput = () => { reader.current = true; stopGlide(); };
+    // A height that changes with no new state, as code highlighting finishes, moves nothing.
+    const observer = new ResizeObserver(() => settling.current());
+    observer.observe(column.current);
+    const onResize = () => { onScroll(); settling.current(); };
     window.addEventListener("scroll", onScroll, { passive: true });
     // The composer growing shrinks the page from below without a scroll.
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("resize", onResize);
     for (const input of ["wheel", "keydown", "pointerdown"]) window.addEventListener(input, onInput, { passive: true });
     return () => {
+      observer.disconnect();
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("resize", onResize);
       for (const input of ["wheel", "keydown", "pointerdown"]) window.removeEventListener(input, onInput);
     };
   }, []);
@@ -408,32 +472,35 @@ function Chat({ state }) {
   const row = (turn, index) => {
     const date = separator(turns, index);
     return (
-      <div key={turn.id}>
+      <div key={turn.id} data-turn={turn.id}>
         {date && <div className="date">{dateLine(date)}</div>}
         {/* A prompt sent after it is what the agent works on, not this turn. */}
         <Turn turn={turn} working={busy && !pending && index === turns.length - 1} />
       </div>
     );
   };
+  const replies = prompt ? start + 1 : start;
   return (
-    <div className="column">
+    <div className="column" ref={column}>
       {loaded && turns.length === 0 && !pending && <div className="empty">{t("No conversation yet. Send a message to start.")}</div>}
-      {turns.slice(0, start).map((turn, index) => row(turn, index))}
-      <div ref={tail} className={key === null ? "tail" : "tail anchored"}>
-        {turns.slice(start).map((turn, index) => row(turn, start + index))}
-        {pendingDate && <div className="date">{dateLine(pendingDate)}</div>}
-        {pending && (
-          <div className={`turn prompt${queued ? " queued" : ""}`}>
-            <div className="pill">{pending}</div>
-            {queued && <div className="actions"><span>{t("Waiting to send")}</span></div>}
-          </div>
-        )}
+      {turns.slice(0, replies).map((turn, index) => row(turn, index))}
+      {pendingDate && <div className="date">{dateLine(pendingDate)}</div>}
+      {pending && (
+        <div className={`turn prompt${queued ? " queued" : ""}`}>
+          <div className="pill">{pending}</div>
+          {/* Sent, it has the row the transcript will give it, so it does not shift when it arrives. */}
+          {queued ? <div className="actions"><span>{t("Waiting to send")}</span></div> : <Actions text={pending} at={now} />}
+        </div>
+      )}
+      <div className={roomy ? "reply roomy" : "reply"}>
+        {turns.slice(replies).map((turn, index) => row(turn, replies + index))}
         {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">{t("Working")}</span></div>}
         {permission && <div ref={card}><Permission key={permission.id} permission={permission} /></div>}
+        <div ref={end} />
       </div>
       {away && (
         <button className="to-latest" aria-label={t("Scroll to latest")} title={t("Scroll to latest")}
-                onClick={() => { mode.current = "follow"; scroll(bottom(), true); }}>
+                onClick={() => { mode.current = "follow"; scroll(bottom, true); }}>
           <DownIcon />
         </button>
       )}
