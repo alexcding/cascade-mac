@@ -62,8 +62,8 @@ fn line_id(line: &str) -> String {
 /// `{"revision","turns":[{"id","role","timestamp","model","blocks":[…]}],"atPrompt"}`, oldest
 /// first. The revision is the file's size and modification time: when the caller already has it,
 /// `turns` and `atPrompt` are left out. `atPrompt` is when the transcript last showed the agent
-/// back at its prompt with no turn begun since, or null: Codex marks every turn's start and end,
-/// Claude only an interrupt, which no hook reports.
+/// back at its prompt with no turn begun since, or null: both mark every turn's end, an
+/// interrupt's included, which no hook reports.
 pub fn read(home: &Path, cli: &str, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
     let codex = cli == "codex";
     let Some(path) = locate(home, cli, worktree, conversation) else {
@@ -228,6 +228,27 @@ impl<'a> Builder<'a> {
                     }
                 }
             }
+            // Written as every turn ends, an interrupt's included: the agent is back at its prompt.
+            Some("system") if value["subtype"] == "turn_duration" => self.at_prompt = timestamp.clone(),
+            // A message typed while the agent worked, which it took in mid-turn. It is written only
+            // here, never as a prompt. Another session's message or a task's notice is not a person's.
+            Some("attachment") => {
+                let queued = &value["attachment"];
+                if queued["type"] != "queued_command" || queued["commandMode"] != "prompt" || queued["origin"]["kind"] != "human" {
+                    return;
+                }
+                match &queued["prompt"] {
+                    Value::String(text) => self.prompt(id, timestamp, text),
+                    Value::Array(parts) => {
+                        for (index, part) in parts.iter().enumerate() {
+                            if let Some(text) = part["text"].as_str() {
+                                self.prompt(part_id(&id, index), timestamp, text);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
     }
@@ -235,7 +256,7 @@ impl<'a> Builder<'a> {
     /// A prompt as a person typed it. Injected context and reminders are XML-ish and dropped; a
     /// slash command keeps its `/name args`.
     fn prompt(&mut self, id: String, timestamp: &Value, text: &str) {
-        // Claude's record of an interrupt, the one way back to its prompt no hook reports.
+        // Claude's record of an interrupt, which versions before `turn_duration` write alone.
         if text.trim_start().starts_with("[Request interrupted by user") {
             self.at_prompt = timestamp.clone();
             return;
@@ -527,6 +548,11 @@ mod tests {
         assert_eq!(claude.at_prompt, "T3");
         claude.claude(&json!({"type":"user","uuid":"d","timestamp":"T4","message":{"role":"user","content":"again"}}), "4".into());
         assert!(claude.at_prompt.is_null(), "a new prompt starts a turn");
+        claude.claude(&json!({"type":"assistant","uuid":"e","timestamp":"T5","message":{"role":"assistant","content":[{"type":"text","text":"Done"}]}}), "5".into());
+        claude.claude(&json!({"type":"system","subtype":"stop_hook_summary","uuid":"f","timestamp":"T6"}), "6".into());
+        assert!(claude.at_prompt.is_null());
+        claude.claude(&json!({"type":"system","subtype":"turn_duration","uuid":"g","timestamp":"T7","isMeta":false}), "7".into());
+        assert_eq!(claude.at_prompt, "T7", "a turn's end");
 
         let mut codex = Builder::new("/w");
         codex.codex(&json!({"type":"session_meta","timestamp":"S0","payload":{"cwd":"/w"}}), "0".into());
@@ -535,6 +561,36 @@ mod tests {
         assert!(codex.at_prompt.is_null());
         codex.codex(&json!({"type":"event_msg","timestamp":"S2","payload":{"type":"turn_aborted"}}), "2".into());
         assert_eq!(codex.at_prompt, "S2");
+    }
+
+    #[test]
+    fn claude_shows_a_message_it_took_in_mid_turn_where_it_took_it() {
+        let queued = |uuid: &str, mode: &str, origin: &str, prompt: Value| {
+            json!({"type":"attachment","uuid":uuid,"timestamp":"T2","attachment":{
+                "type":"queued_command","prompt":prompt,"commandMode":mode,"origin":{"kind":origin}}})
+        };
+        let mut builder = Builder::new("/w");
+        for (index, line) in [
+            json!({"type":"user","uuid":"a","timestamp":"T1","message":{"role":"user","content":"go"}}),
+            json!({"type":"assistant","uuid":"b","message":{"role":"assistant","content":[{"type":"text","text":"On it"}]}}),
+            queued("c", "prompt", "human", json!("also this")),
+            queued("d", "prompt", "human", json!([{"type":"text","text":"and look"},{"type":"image","source":{}}])),
+            queued("e", "prompt", "peer", json!("from another session")),
+            queued("f", "task-notification", "human", json!("<task-notification>x</task-notification>")),
+            json!({"type":"attachment","uuid":"g","attachment":{"type":"hook_success","content":"ok"}}),
+            json!({"type":"assistant","uuid":"h","message":{"role":"assistant","content":[{"type":"text","text":"Both done"}]}}),
+        ]
+        .iter()
+        .enumerate()
+        {
+            builder.claude(line, index.to_string());
+        }
+        assert_eq!(
+            summary(&builder.turns),
+            vec!["user [text:go]", "assistant [text:On it]", "user [text:also this]", "user [text:and look]", "assistant [text:Both done]"]
+        );
+        assert_eq!((builder.turns[2]["id"].as_str(), builder.turns[2]["timestamp"].as_str()), (Some("c"), Some("T2")));
+        assert!(builder.at_prompt.is_null(), "still at work");
     }
 
     #[test]

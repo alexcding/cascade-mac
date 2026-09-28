@@ -6,13 +6,15 @@ import UniformTypeIdentifiers
 /// terminal keeps running underneath at its own size, so switching back shows it unchanged.
 ///
 /// It covers the terminal from the moment it is shown, even while the agent is still starting: a
-/// message written before the agent is at its prompt is held (`TranscriptChatModel.atPrompt`), so
-/// it cannot answer a question the agent asks first in the terminal.
+/// message written before the agent is at its prompt is held (`TranscriptChatModel.deliverable`),
+/// so it cannot answer a question the agent asks first in the terminal.
 struct TranscriptChatOverlay: View {
     @Bindable var chat: TranscriptChatModel
     let busy: Bool
     /// Known to be at its prompt, where typing is safe.
     let idle: Bool
+    /// May be showing an approval or a question in the terminal, which typing would answer.
+    let asking: Bool
     /// When this app started the agent, if it did.
     let startedAt: Date?
     /// The workspace is the one on screen. A hidden page cannot take the keyboard, so a focus
@@ -25,14 +27,14 @@ struct TranscriptChatOverlay: View {
 
     private static let column: CGFloat = 740
 
-    private struct AgentState: Equatable { let busy: Bool, idle: Bool, startedAt: Date? }
+    private struct AgentState: Equatable { let busy: Bool, idle: Bool, asking: Bool, startedAt: Date? }
 
     var body: some View {
         conversation
             .onAppear { chat.appear() }
             .onDisappear { chat.disappear() }
-            .onChange(of: AgentState(busy: busy, idle: idle, startedAt: startedAt), initial: true) { _, state in
-                chat.setAgentState(busy: state.busy, idle: state.idle, startedAt: state.startedAt)
+            .onChange(of: AgentState(busy: busy, idle: idle, asking: asking, startedAt: startedAt), initial: true) { _, state in
+                chat.setAgentState(busy: state.busy, idle: state.idle, asking: state.asking, startedAt: state.startedAt)
             }
             .accessibilityIdentifier("transcript-chat")
     }
@@ -74,11 +76,12 @@ struct TranscriptChatOverlay: View {
                 }
                 .padding(.horizontal, 4)
             }
+            // The conversation shows a held message as waiting; these take it back or push it on.
             if chat.queuedPrompt != nil {
                 HStack(spacing: 10) {
-                    Text(String(localized: "Sends when \(chat.agentName) is back at its prompt")).font(.caption).foregroundStyle(Theme.textSecondary)
                     Spacer(minLength: 0)
                     Button(String(localized: "Cancel"), action: chat.cancelQueued).buttonStyle(.link).font(.caption)
+                        .disabled(chat.sending && !chat.paused)
                     Button(String(localized: "Send Now")) { Task { await chat.sendQueuedNow() } }
                         .buttonStyle(.link).font(.caption)
                         .disabled(!chat.canSendQueuedNow)

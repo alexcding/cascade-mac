@@ -412,12 +412,13 @@ extension WorkspaceServing {
             let worktree = session.worktree
             chat = TranscriptChatModel(
                 agentName: SessionAgent(rawValue: cli)?.label ?? cli.capitalized,
+                queuesMidTurn: SessionAgent(rawValue: cli) == .claude,
                 load: { [weak self] since in
                     guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
                     return try await service.agentTranscript(cli: cli, worktree: worktree, since: since,
                                                              conversation: self?.agentConversation)
                 },
-                deliver: { [weak self] text, files in
+                deliver: { [weak self] text, files, clear in
                     guard let terminal = self?.terminal else { throw BackendError.operation(String(localized: "The terminal is not open.")) }
                     // A message ending in an @ mention gets a space, which closes the file list the
                     // CLI opened for it: Enter on that list picks a file instead of sending.
@@ -433,6 +434,7 @@ extension WorkspaceServing {
                     let pasted = try text.isEmpty ? nil : TerminalSession.paste(text)
                     let multiline = text.contains("\n")
                     if let paths, !command {
+                        try await clear()
                         try await terminal.writeAgentInput(paths)
                         try await Task.sleep(for: .milliseconds(600))
                     }
@@ -440,13 +442,16 @@ extension WorkspaceServing {
                     // bracketed paste, and Claude Code takes an Enter that follows a paste closely
                     // as part of it, so that Enter waits until the paste has settled.
                     if let pasted {
+                        try await clear()
                         try await terminal.writeAgentInput(multiline ? pasted : text)
                         try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
                     }
                     if let paths, command {
+                        try await clear()
                         try await terminal.writeAgentInput(paths)
                         try await Task.sleep(for: .milliseconds(600))
                     }
+                    try await clear()
                     try await terminal.writeAgentInput("\r")
                 },
                 completions: .init(

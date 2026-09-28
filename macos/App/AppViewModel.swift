@@ -1628,6 +1628,8 @@ public final class AppViewModel {
               let event = reply.event, event.runId == runID, terminal.termID == runID,
               !terminal.agentTurns.busy, !terminal.agentTurns.betweenTurns else { return }
         received(event)
+        // It says what the agent was doing, not whether it has asked anything since.
+        terminal.agentTurns.promptsUnheard()
     }
 
     private func saveConversation(_ id: String, for session: WorkspaceSession) {
@@ -1650,7 +1652,11 @@ public final class AppViewModel {
             if let terminal = terminals.values.first(where: { $0.termID == runID }) { terminal.openLink(url, terminal.cwd, false) }
             else if let web = safeWebURL(url) { desktop.openBrowser(web) }
         }
-        if ["agent-permission", "agent-permission-done"].contains(event.type) { receivePermission(event) }
+        if ["agent-permission", "agent-permission-done"].contains(event.type) {
+            receivePermission(event)
+            // Whether or not a chat shows it, the agent's own prompt is up in that terminal.
+            terminals.values.first { $0.termID == event.runId }?.agentTurns.receivePermission(event)
+        }
         if ["agent-turn-start", "agent-turn-done"].contains(event.type), let runID = event.runId,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,

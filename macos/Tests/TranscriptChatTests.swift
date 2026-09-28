@@ -19,15 +19,26 @@ import Testing
     var commandsDelay: Duration = .zero
     var files: [String] = []
     var fileQueries: [String] = []
+    /// Claude's: a message typed while it works goes into its own queue.
+    var queuesMidTurn = false
+    /// The messages whose Enter was pressed.
+    var entered: [String] = []
+    /// Runs once the text is typed, before its Enter.
+    var afterText: () -> Void = {}
 
     /// Held strongly by what it builds: a send can finish after the test that started it.
     func model() -> TranscriptChatModel {
         TranscriptChatModel(
             agentName: "Claude",
+            queuesMidTurn: queuesMidTurn,
             load: { _ in self.transcript },
-            deliver: { text, files in
+            deliver: { text, files, clear in
+                try await clear()
                 self.pasted.append(files.map(\.path))
                 self.typed.append(text)
+                self.afterText()
+                try await clear()
+                self.entered.append(text)
             },
             completions: .init(
                 commands: { try? await Task.sleep(for: self.commandsDelay); return self.commands },
@@ -142,6 +153,128 @@ private func stamp(_ date: Date) -> String {
     fixture.transcript = AgentTranscript(revision: "r2", turns: [], hooks: "installed", atPrompt: stamp(Date().addingTimeInterval(-30)))
     await chat.refresh()
     #expect(fixture.typed.isEmpty && chat.queuedPrompt == "wait for it")
+}
+
+@MainActor @Test func claudeTakesAMessageWhileItWorksAsItsTerminalWould() async {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false)
+    chat.draft = "and the tests"
+    await chat.send()
+    #expect(fixture.entered == ["and the tests"] && chat.queuedPrompt == nil)
+    #expect(chat.pendingPrompt == "and the tests")
+}
+
+@MainActor @Test func aMessageWaitsWhileClaudeMayBeAskingInTheTerminal() async throws {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false, asking: true)
+    chat.draft = "and the tests"
+    await chat.send()
+    // Its Enter would pick the question's first answer, or allow the tool.
+    #expect(fixture.typed.isEmpty && chat.queuedPrompt == "and the tests")
+    chat.setAgentState(busy: true, idle: false, asking: false)
+    try await eventually { fixture.entered == ["and the tests"] }
+}
+
+@MainActor @Test func aPromptThatGoesUpMidMessageHoldsItsEnterUntilItIsAnswered() async throws {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false)
+    fixture.afterText = { chat.setAgentState(busy: true, idle: false, asking: true) }
+    chat.draft = "and the tests"
+    let sending = Task { await chat.send() }
+    try await eventually { fixture.typed == ["and the tests"] }
+    try? await Task.sleep(for: .milliseconds(300))
+    // Enter would take the prompt's first choice.
+    #expect(fixture.entered.isEmpty && chat.sending && chat.paused)
+    fixture.afterText = {}
+    chat.setAgentState(busy: true, idle: false, asking: false)
+    await sending.value
+    #expect(fixture.entered == ["and the tests"] && chat.queuedPrompt == nil)
+}
+
+@MainActor @Test func aPausedMessageStopsWhereItIsAndComesBackToTheField() async throws {
+    for stop in ["cancel", "leave", "restart"] {
+        let fixture = ChatFixture()
+        fixture.queuesMidTurn = true
+        let chat = fixture.model()
+        await chat.refresh()
+        chat.setAgentState(busy: true, idle: false)
+        fixture.afterText = { chat.setAgentState(busy: true, idle: false, asking: true) }
+        chat.draft = "and the tests"
+        let sending = Task { await chat.send() }
+        try await eventually { chat.paused }
+        switch stop {
+        case "cancel": chat.cancelQueued()
+        case "leave": chat.disappear()
+        default: chat.setAgentState(busy: false, idle: false, asking: false, startedAt: Date())
+        }
+        await sending.value
+        // Nothing more is typed, and the text left in the terminal's prompt is said to be there.
+        #expect(fixture.typed == ["and the tests"] && fixture.entered.isEmpty, "\(stop)")
+        #expect(chat.queuedPrompt == nil && chat.draft == "and the tests" && !chat.sending && !chat.paused, "\(stop)")
+        #expect(chat.error != nil, "\(stop)")
+    }
+}
+
+@MainActor @Test func aMessagePushedThroughByHandDoesNotWaitForAPrompt() async {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false, asking: true)
+    chat.draft = "go anyway"
+    await chat.send()
+    await chat.sendQueuedNow()
+    #expect(fixture.entered == ["go anyway"])
+}
+
+@MainActor @Test func aPromptThatGoesUpBeforeTheHeldMessageIsTypedStopsIt() async {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false, asking: true)
+    chat.draft = "and the tests"
+    await chat.send()
+    // Clear for a moment, then asked again before the send it set off has run.
+    chat.setAgentState(busy: true, idle: false, asking: false)
+    chat.setAgentState(busy: true, idle: false, asking: true)
+    try? await Task.sleep(for: .milliseconds(100))
+    #expect(fixture.typed.isEmpty && chat.queuedPrompt == "and the tests")
+}
+
+@MainActor @Test func withoutItsHookClaudeIsTypedIntoOnlyOnceItsTurnEnds() async throws {
+    let fixture = ChatFixture()
+    fixture.queuesMidTurn = true
+    fixture.transcript = AgentTranscript(revision: "r1", turns: [], hooks: "absent")
+    let chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false)
+    chat.draft = "and the tests"
+    await chat.send()
+    // No hook to report an approval as it goes up.
+    #expect(fixture.typed.isEmpty && chat.queuedPrompt == "and the tests")
+    try? await Task.sleep(for: .milliseconds(20))
+    fixture.transcript = AgentTranscript(revision: "r2", turns: [], hooks: "absent", atPrompt: stamp(Date()))
+    await chat.refresh()
+    try await eventually { fixture.entered == ["and the tests"] }
+}
+
+@MainActor @Test func aCLIThatDoesNotQueueIsTypedIntoOnlyAtItsPrompt() async {
+    let fixture = ChatFixture(), chat = fixture.model()
+    await chat.refresh()
+    chat.setAgentState(busy: true, idle: false)
+    chat.draft = "and the tests"
+    await chat.send()
+    #expect(fixture.typed.isEmpty && chat.queuedPrompt == "and the tests")
 }
 
 @MainActor @Test func theHookInstallDecidesWhatTheChatOwnsUpTo() async {

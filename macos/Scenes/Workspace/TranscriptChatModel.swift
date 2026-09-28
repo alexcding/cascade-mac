@@ -93,6 +93,12 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var loaded = false
     private(set) var error: String?
     private(set) var sending = false
+    /// A message part-typed, waiting on something the agent asks in the terminal before its next
+    /// key. Cancel stops it there.
+    private(set) var paused = false
+    /// Stops the message being typed at its next key: the chat leaving the screen, the agent
+    /// restarting, or Cancel while it is paused.
+    @ObservationIgnored private var stopTyping = false
     private(set) var retired = false
     /// A sent message the agent has not written to its transcript yet, shown until it has.
     private(set) var pendingPrompt: String?
@@ -123,11 +129,15 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var suggestions: [ChatSuggestion] = []
     private(set) var highlighted = 0
     let agentName: String
+    /// The CLI queues a message typed while it works, as Claude does, taking it in mid-turn or
+    /// after. One that does not is typed into only at its prompt.
+    let queuesMidTurn: Bool
 
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private var sentAt: Date?
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
-    @ObservationIgnored private let deliver: (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void
+    /// Types a message into the terminal, calling `clear` before each write it makes.
+    @ObservationIgnored private let deliver: Deliver
     @ObservationIgnored private let completions: Completions
     @ObservationIgnored private let permissions: Permissions
     @ObservationIgnored private let showTerminal: () -> Void
@@ -138,6 +148,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var polling: Task<Void, Never>?
     @ObservationIgnored private var busy = false
     @ObservationIgnored private var idle = false
+    /// An approval or a question may be up in the terminal, which typed keys would answer.
+    @ObservationIgnored private var asking = false
     /// When the agent was last seen starting work: a hook's turn start, or a message typed here.
     /// A transcript's word that it is at its prompt counts only if it is newer than this.
     @ObservationIgnored private var busySince: Date?
@@ -157,6 +169,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Built on first show and kept while the model lives, so switching back is immediate.
     private(set) var page: TranscriptChatPage?
 
+    typealias Deliver = (_ text: String, _ attachments: [ChatAttachment],
+                         _ clear: @escaping @MainActor () async throws -> Void) async throws -> Void
+
     /// Where the list over the field gets its rows. Either may be missing, and then offers none.
     struct Completions {
         /// The CLI's commands in this worktree.
@@ -171,14 +186,16 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     init(agentName: String,
+         queuesMidTurn: Bool = false,
          load: @escaping (_ since: String?) async throws -> AgentTranscript,
-         deliver: @escaping (_ text: String, _ attachments: [ChatAttachment]) async throws -> Void,
+         deliver: @escaping Deliver,
          completions: Completions = Completions(),
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
          openHookSettings: @escaping () -> Void = {},
          openLink: @escaping (URL) -> Bool = { _ in false }) {
         self.agentName = agentName
+        self.queuesMidTurn = queuesMidTurn
         self.load = load
         self.deliver = deliver
         self.completions = completions
@@ -289,14 +306,20 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     /// The agent's state as the terminal's hooks report it: working, or known to be at its prompt;
-    /// and when this app started it, if it did.
-    func setAgentState(busy: Bool, idle: Bool, startedAt: Date? = nil) {
-        guard !retired, !stateReported || self.busy != busy || self.idle != idle || agentStartedAt != startedAt else { return }
+    /// whether it may be asking something in the terminal; and when this app started it, if it did.
+    func setAgentState(busy: Bool, idle: Bool, asking: Bool = false, startedAt: Date? = nil) {
+        guard !retired, !stateReported || self.busy != busy || self.idle != idle || self.asking != asking
+                || agentStartedAt != startedAt else { return }
         stateReported = true
         if busy, !self.busy { busySince = Date() }
-        if agentStartedAt != startedAt { agentStartedAt = startedAt; ready = false }
+        if agentStartedAt != startedAt {
+            agentStartedAt = startedAt; ready = false
+            // What a message being typed has typed went to the agent that ended.
+            if sending { stopTyping = true }
+        }
         self.busy = busy
         self.idle = idle
+        self.asking = asking
         settle()
     }
 
@@ -318,11 +341,21 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Known to be at its prompt, where typing into the terminal cannot answer a dialog.
     var atPrompt: Bool { ready && (idle || returnedToPrompt) }
 
-    /// Shows the agent's state, and sends a held message once it is at its prompt.
+    /// Working, in a CLI that queues what it is sent meanwhile, with nothing asked in the terminal.
+    /// Only the installed hook reports every approval and question as it goes up.
+    private var takesMidTurn: Bool {
+        queuesMidTurn && ready && busy && !asking && hooks == "installed"
+    }
+
+    /// A message typed now reaches the agent, not a prompt of its own.
+    var deliverable: Bool { atPrompt || takesMidTurn }
+
+    /// Shows the agent's state, and sends a held message once it can take it.
     private func settle() {
         updateReady()
         render()
-        if atPrompt, queuedPrompt != nil { Task { await sendQueued() } }
+        // Asked again when the task runs: a prompt may have gone up in the terminal meanwhile.
+        if deliverable, queuedPrompt != nil { Task { if deliverable { await sendQueued() } } }
     }
 
     private func render() {
@@ -332,6 +365,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     func disappear() {
+        // Never finished into a terminal the person may be typing in now.
+        if sending { stopTyping = true }
         polling?.cancel()
         polling = nil
         if let run = watchedRun { permissions.unwatch(run) }
@@ -404,7 +439,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         settle()
     }
 
-    /// Sends at once at the agent's prompt; otherwise holds the message until it is back there.
+    /// Sends at once when the agent can take it; otherwise holds the message until it can.
     func send() async {
         guard canSend else { return }
         queuedPrompt = ChatCompletion.text(of: draft)
@@ -414,17 +449,25 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         caret = 0
         clearSuggestions()
         render()
-        if atPrompt { await sendQueued() }
+        if deliverable { await sendQueued() }
     }
 
     /// Types the held message into the terminal, now, whatever the agent is doing.
     func sendQueuedNow() async {
         guard canSendQueuedNow else { return }
-        await sendQueued()
+        await sendQueued(byHand: true)
     }
 
     func cancelQueued() {
-        guard !retired, !sending, let text = queuedPrompt else { return }
+        guard !retired else { return }
+        // A paused message stops where it is, and comes back as `sendQueued` gives it up.
+        if paused { stopTyping = true; return }
+        guard !sending, let text = queuedPrompt else { return }
+        restoreQueued(text)
+    }
+
+    /// Takes the held message back into the field.
+    private func restoreQueued(_ text: String) {
         queuedPrompt = nil
         // Its files go back where they were, ahead of anything written since.
         attachments = queuedAttachments + attachments
@@ -434,13 +477,23 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         render()
     }
 
-    private func sendQueued() async {
+    private struct TypingStopped: Error {}
+
+    private func sendQueued(byHand: Bool = false) async {
         guard !retired, !sending, permission == nil, let text = queuedPrompt else { return }
         let files = queuedAttachments
         sending = true
+        stopTyping = false
+        typedSome = false
         defer { sending = false }
         do {
-            try await deliver(text, files)
+            // Mid-turn the agent can put up a prompt between one key and the next, so each waits
+            // for it. Pushed through by hand, the message goes regardless.
+            try await deliver(text, files) { [weak self] in
+                guard let self else { return }
+                if !byHand { try await clearToType() }
+                typedSome = true
+            }
             guard !retired else { return }
             queuedPrompt = nil
             queuedAttachments = []
@@ -451,9 +504,32 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             error = nil
             render()
             await refresh()
+        } catch is TypingStopped {
+            guard !retired else { return }
+            restoreQueued(text)
+            if typedSome {
+                self.error = String(localized: "\(agentName) asked something in the terminal as this message was typed. It was not sent: what was typed is in \(agentName)'s prompt there.")
+            }
         } catch {
             guard !retired else { return }
             self.error = error.localizedDescription
+        }
+    }
+
+    @ObservationIgnored private var typedSome = false
+
+    /// Waits, before each key of a message, while the agent is working and may be asking something
+    /// in the terminal: the key would answer it, and Enter would take its first choice. The turn's
+    /// end closes whatever it asked. Claude draws its prompt a moment before its hook is heard, so
+    /// a key can still land in that moment, as one typed in the terminal itself could.
+    private func clearToType() async throws {
+        defer { if paused { paused = false } }
+        while true {
+            guard !retired, !stopTyping else { throw TypingStopped() }
+            // At its prompt nothing comes up by itself; mid-turn anything may.
+            guard permission != nil || (asking && busy), !atPrompt else { return }
+            paused = true
+            try await Task.sleep(for: .milliseconds(100))
         }
     }
 

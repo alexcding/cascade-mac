@@ -227,6 +227,7 @@ struct SessionWorkspaceView: View {
                 .overlay(alignment: .top) {
                     if model.showsChat, let chat = model.chat {
                         TranscriptChatOverlay(chat: chat, busy: terminal.agentBusy, idle: terminal.agentTurns.idle,
+                                              asking: terminal.agentTurns.mayBeAsking,
                                               startedAt: terminal.agentStartedAt, active: model.isActive,
                                               placeholder: model.session?.agent.chatPlaceholder ?? "")
                     }
