@@ -87,6 +87,22 @@ impl AgentProbe for Claude {
 /// A projects directory that is simply not there is a Claude that has never kept a conversation,
 /// so the answer is no. One that cannot be read is unknown, and unknown resumes: reserving an id
 /// Claude already owns fails just as hard as a bad resume.
+/// What a Claude Code tool does, in the kinds the app draws (`transcript::Builder`).
+pub(super) fn tool_kind(name: &str) -> &'static str {
+    match name {
+        "Bash" => "run",
+        "Read" => "read",
+        "Edit" | "MultiEdit" | "NotebookEdit" => "edit",
+        "Write" => "create",
+        "Glob" | "Grep" => "search",
+        "WebFetch" => "fetch",
+        "WebSearch" => "web",
+        "Task" | "Agent" => "delegate",
+        "TodoWrite" => "plan",
+        _ => "other",
+    }
+}
+
 pub(super) fn has_conversation(home: &Path, id: &str) -> bool {
     let projects = match fs::read_dir(home.join(".claude/projects")) {
         Ok(projects) => projects,

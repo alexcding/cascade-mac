@@ -117,7 +117,12 @@ body {
 .actions button { all: unset; cursor: default; display: inline-flex; }
 .actions svg { width: 15px; height: 15px; }
 
-.working { color: var(--ink-2); }
+.working { color: var(--ink-2); display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+/* What the call runs or touches, after its verb: a command line or a path, cut to one line. */
+.activity-detail {
+  font: 12.5px var(--mono); color: var(--ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
 
 /* "Working" while the agent is: a brighter band sweeps through the text, left to right. */
 .shimmer {

@@ -45,6 +45,17 @@ struct TranscriptBlock: Codable, Equatable, Sendable {
     let new: String?
     let output: String?
     let isError: Bool?
+    /// What a tool does, in kinds every CLI shares: `run`, `read`, `edit`, `create`, `search`,
+    /// `fetch`, `web`, `delegate`, `plan` or `other`. Its adapter in the backend says, from the
+    /// CLI's own tool name, so the page never reads one.
+    var kind: String? = nil
+}
+
+/// What the agent is doing, as its transcript shows it: `thinking`, or a tool's kind with what it
+/// runs or touches. The same for every CLI.
+struct AgentActivity: Codable, Equatable, Sendable {
+    let kind: String
+    var detail: String? = nil
 }
 
 struct AgentTranscript: Decodable, Sendable {
@@ -57,6 +68,8 @@ struct AgentTranscript: Decodable, Sendable {
     var atPrompt: String? = nil
     /// What its CLI can do, which the chat goes by instead of the CLI's name.
     var agent: AgentProfile? = nil
+    /// What the agent is doing, as its last turn shows it.
+    var activity: AgentActivity? = nil
 }
 
 /// A file a message carries: placed in the message as a chip, and pasted into the terminal ahead
@@ -116,6 +129,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var hooks: String?
     /// What the CLI can do, as the last read reported it.
     @ObservationIgnored private var profile: AgentProfile?
+    /// What the agent is doing, as the last read of its transcript showed.
+    @ObservationIgnored private var activity: AgentActivity?
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
     /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
@@ -360,7 +375,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private func render() {
         page?.render(ChatPageState(turns: turns, busy: busy && !returnedToPrompt,
                                    pending: pendingPrompt ?? queuedPrompt.map { Self.shown($0, with: queuedAttachments) },
-                                   queued: pendingPrompt == nil && queuedPrompt != nil, loaded: loaded, permission: permission))
+                                   queued: pendingPrompt == nil && queuedPrompt != nil, loaded: loaded, permission: permission,
+                                   activity: activity))
     }
 
     func disappear() {
@@ -420,6 +436,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
                 if fresh != turns { turns = fresh }
                 // Read with the turns; an unchanged transcript leaves the last word standing.
                 transcriptAtPrompt = TranscriptTurn.parse(transcript.atPrompt)
+                activity = transcript.activity
             }
             // Only a prompt written after the send can be it; the transcript may word it
             // differently (a slash command), and its window drops older prompts as it moves.

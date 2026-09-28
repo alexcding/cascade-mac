@@ -165,6 +165,21 @@ private func stamp(_ date: Date) -> String {
     #expect(transcript.agent == AgentProfile(id: "claude", queuesMidTurn: true))
 }
 
+@Test func theTranscriptCarriesWhatTheAgentIsDoingForThePage() throws {
+    // As `transcript::read` writes it: each tool call's kind, and the call still out.
+    let json = #"{"revision":"r","hooks":"installed","activity":{"kind":"run","detail":"Run the tests"},"turns":[{"id":"a","role":"assistant","blocks":[{"type":"tool","name":"Bash","kind":"run","summary":"Run the tests"}]}]}"#
+    let transcript = try JSONDecoder().decode(AgentTranscript.self, from: Data(json.utf8))
+    #expect(transcript.activity == AgentActivity(kind: "run", detail: "Run the tests"))
+    #expect(transcript.turns?.first?.blocks.first?.kind == "run")
+    // And on to the page, which draws from them.
+    let state = ChatPageState(turns: transcript.turns ?? [], busy: true, pending: nil, queued: false, loaded: true,
+                              permission: nil, activity: transcript.activity)
+    let page = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+    #expect(page["activity"] as? [String: String] == ["kind": "run", "detail": "Run the tests"])
+    let turns = try #require(page["turns"] as? [[String: Any]])
+    #expect((turns.first?["blocks"] as? [[String: Any]])?.first?["kind"] as? String == "run")
+}
+
 @MainActor @Test func claudeTakesAMessageWhileItWorksAsItsTerminalWould() async {
     let fixture = ChatFixture()
     fixture.queuesMidTurn = true

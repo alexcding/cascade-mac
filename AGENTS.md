@@ -142,7 +142,9 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 - **CLI differences live in the agent adapters** (`crates/cascade-backend/src/agents/`). Each CLI
   implements `AgentProbe`, and `Agent::of(cli)` is the one place that tells them apart by name.
   The app goes by the `AgentProfile` the backend reports (`queuesMidTurn`, …), never by the CLI's
-  name. Name checks still elsewhere predate this and are being moved behind it; add no new ones.
+  name, and the chat page draws a tool call by the `kind` its adapter gives it (`run`, `edit`, …)
+  and the agent's `activity`, never by the tool's name. Name checks still elsewhere predate this
+  and are being moved behind it; add no new ones.
 - **Views present what the API returns.** No view computes `gh`/`acli`-shaped logic or
   reaches for a CLI; that belongs in the backend.
 - **Theme tokens only** (`Theme/`). The dark theme is a palette swap, never per-widget

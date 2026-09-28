@@ -92,7 +92,23 @@ pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conv
     }
     let mut turns = std::mem::take(&mut builder.turns);
     let skip = turns.len().saturating_sub(MAX_TURNS);
-    json!({"revision": revision, "turns": turns.split_off(skip), "atPrompt": builder.at_prompt})
+    let activity = activity(&turns);
+    json!({"revision": revision, "turns": turns.split_off(skip), "atPrompt": builder.at_prompt, "activity": activity})
+}
+
+/// What the agent is doing, as its last turn shows it: a tool it called that has not answered yet,
+/// or thinking. The same for every CLI, so the app draws it without knowing which one it has; it
+/// shows it only while the agent works.
+fn activity(turns: &[Value]) -> Value {
+    let pending = turns
+        .last()
+        .filter(|turn| turn["role"] == "assistant")
+        .and_then(|turn| turn["blocks"].as_array()?.last())
+        .filter(|block| block["type"] == "tool" && block.get("output").is_none());
+    match pending {
+        Some(tool) => json!({"kind": tool["kind"], "detail": tool["summary"]}),
+        None => json!({"kind": "thinking"}),
+    }
 }
 
 struct Builder<'a> {
@@ -289,6 +305,7 @@ impl<'a> Builder<'a> {
         tool.insert("type".into(), json!("tool"));
         tool.insert("id".into(), block["id"].clone());
         tool.insert("name".into(), json!(name));
+        tool.insert("kind".into(), json!(super::claude::tool_kind(name)));
         tool.insert("summary".into(), json!(first_line(&summary)));
         if name == "Bash" {
             tool.insert("command".into(), json!(text("command").unwrap_or("")));
@@ -363,6 +380,7 @@ impl<'a> Builder<'a> {
                 tool.insert("type".into(), json!("tool"));
                 tool.insert("id".into(), payload["call_id"].clone());
                 tool.insert("name".into(), json!(name));
+                tool.insert("kind".into(), json!(super::codex::tool_kind(name)));
                 tool.insert("summary".into(), json!(first_line(&summary)));
                 tool.insert("command".into(), json!(command.unwrap_or_else(|| raw.to_string())));
                 self.push_tool(&id, timestamp, tool);
@@ -508,6 +526,7 @@ mod tests {
         assert_eq!((builder.turns[1]["timestamp"].as_str(), builder.turns[1]["ended"].as_str()), (Some("T1"), Some("T2")));
         assert_eq!((tool["old"].as_str(), tool["new"].as_str()), (Some("x"), Some("y")));
         assert_eq!((tool["output"].as_str(), tool["isError"].as_bool()), (Some("done"), Some(true)));
+        assert_eq!(tool["kind"], "edit");
     }
 
     #[test]
@@ -529,6 +548,24 @@ mod tests {
         }
         assert_eq!(summary(&builder.turns), vec!["user [text:hello]", "assistant [tool:ls -la, text:Done.]"]);
         assert_eq!(builder.turns[1]["blocks"][0]["output"], "a\nb");
+        assert_eq!(builder.turns[1]["blocks"][0]["kind"], "run");
+    }
+
+    #[test]
+    fn the_activity_is_the_call_still_out_or_thinking() {
+        let mut builder = Builder::new("/w");
+        builder.claude(&json!({"type":"user","uuid":"a","message":{"role":"user","content":"test it"}}), "0".into());
+        assert_eq!(activity(&builder.turns), json!({"kind":"thinking"}), "a prompt the agent has not answered");
+        builder.claude(&json!({"type":"assistant","uuid":"b","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test","description":"Run the tests"}}
+        ]}}), "1".into());
+        assert_eq!(activity(&builder.turns), json!({"kind":"run","detail":"Run the tests"}));
+        builder.claude(&json!({"type":"user","uuid":"c","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}), "2".into());
+        assert_eq!(activity(&builder.turns), json!({"kind":"thinking"}), "the call answered");
+
+        let mut codex = Builder::new("/w");
+        codex.codex(&json!({"type":"response_item","payload":{"type":"function_call","name":"apply_patch","call_id":"c1","arguments":"{\"path\":\"/w/a.rs\"}"}}), "0".into());
+        assert_eq!(activity(&codex.turns), json!({"kind":"edit","detail":"a.rs"}));
     }
 
     #[test]

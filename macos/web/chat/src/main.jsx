@@ -150,25 +150,42 @@ function diff(oldText, newText) {
   return lines;
 }
 
-const VERBS = {
-  Bash: "Ran", shell: "Ran", exec: "Ran", exec_command: "Ran", Read: "Read", Edit: "Edited",
-  NotebookEdit: "Edited", apply_patch: "Edited", Write: "Created", Glob: "Searched", Grep: "Searched",
-  WebFetch: "Fetched", WebSearch: "Searched the web", Task: "Delegated", Agent: "Delegated",
-  spawn_agent: "Delegated", TodoWrite: "Updated plan", update_plan: "Updated plan",
+// A tool by what it does, not by its name: the backend gives each call a `kind` every CLI shares,
+// so nothing here knows one CLI from another. A kind not listed shows the tool's own name.
+const DONE = {
+  run: "Ran", read: "Read", edit: "Edited", create: "Created", search: "Searched", fetch: "Fetched",
+  web: "Searched the web", delegate: "Delegated", plan: "Updated plan",
 };
+const DOING = {
+  run: "Running", read: "Reading", edit: "Editing", create: "Creating", search: "Searching", fetch: "Fetching",
+  web: "Searching the web", delegate: "Delegating", plan: "Updating plan",
+};
+
+// What the agent is doing while it works: thinking, or the call it is waiting on and what that
+// runs or touches, with a band of light sweeping the words.
+function Activity({ activity }) {
+  const doing = DOING[activity?.kind];
+  if (!doing) return <span className="shimmer">{t(activity?.kind === "thinking" ? "Thinking" : "Working")}</span>;
+  return (
+    <>
+      <span className="shimmer">{t(doing)}</span>
+      {activity.detail && <span className="activity-detail">{activity.detail}</span>}
+    </>
+  );
+}
 
 function Tool({ tool }) {
   const name = tool.name || t("Tool");
   const isEdit = tool.path != null && tool.new != null;
   const lines = isEdit ? diff(tool.old || "", tool.new) : null;
-  const badge = isEdit && name !== "Write"
+  const badge = isEdit && tool.kind !== "create"
     ? `+${lines.filter((l) => l.kind === "add").length} −${lines.filter((l) => l.kind === "remove").length}` : null;
   const output = tool.output || "";
   const command = !isEdit && tool.command ? tool.command : "";
   const expandable = isEdit || output || command;
   const header = (
     <>
-      <span className="verb">{VERBS[name] ? t(VERBS[name]) : name}</span>
+      <span className="verb">{DONE[tool.kind] ? t(DONE[tool.kind]) : name}</span>
       {tool.summary && <span className="summary">{tool.summary}</span>}
       {badge && <span className="badge">{badge}</span>}
       {tool.isError && <span className="error">{t("Failed")}</span>}
@@ -194,10 +211,10 @@ function Tool({ tool }) {
   );
 }
 
-function Worked({ blocks, label, working }) {
+function Worked({ blocks, label, working, activity }) {
   return (
     <details className="worked" open={working}>
-      <summary><span className={working ? "shimmer" : undefined}>{label}</span> <span className="chev">›</span></summary>
+      <summary>{working ? <Activity activity={activity} /> : <span>{label}</span>} <span className="chev">›</span></summary>
       <div className="steps">
         {blocks.map((block, index) => {
           if (block.type === "tool") return <Tool key={index} tool={block} />;
@@ -215,7 +232,7 @@ function Worked({ blocks, label, working }) {
 }
 
 // Memoised on the turn's content: a poll re-renders only the turn that changed, usually the last.
-const Turn = memo(function Turn({ turn, working }) {
+const Turn = memo(function Turn({ turn, working, activity }) {
   if (turn.role === "user") {
     const text = turn.blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n\n");
     return (
@@ -238,12 +255,13 @@ const Turn = memo(function Turn({ turn, working }) {
   }
   return (
     <div className="turn">
-      {(work.length > 0 || working) && <Worked blocks={work} label={label} working={working} />}
+      {(work.length > 0 || working) && <Worked blocks={work} label={label} working={working} activity={activity} />}
       {answer && <Markdown text={answer} />}
       {answer && !working && <Actions text={answer} at={turn.ended || turn.timestamp} />}
     </div>
   );
-}, (before, after) => before.working === after.working && JSON.stringify(before.turn) === JSON.stringify(after.turn));
+}, (before, after) => before.working === after.working && JSON.stringify(before.turn) === JSON.stringify(after.turn)
+  && (!after.working || JSON.stringify(before.activity) === JSON.stringify(after.activity)));
 
 const ASKS = {
   Bash: "Run this command?", shell: "Run this command?", exec: "Run this command?", exec_command: "Run this command?",
@@ -333,7 +351,7 @@ const NEAR_LATEST = 300;
 const EDGE = 16;
 
 function Chat({ state }) {
-  const { turns, busy, pending, queued, loaded, permission } = state;
+  const { turns, busy, pending, queued, loaded, permission, activity } = state;
   // How the view moves as the conversation changes, after the Codex app's thread.
   // `watch`: a prompt was just placed, its reply's room below it, and the view holds still until
   //   the agent's work runs past the bottom edge; from then it follows.
@@ -475,7 +493,7 @@ function Chat({ state }) {
       <div key={turn.id} data-turn={turn.id}>
         {date && <div className="date">{dateLine(date)}</div>}
         {/* A prompt sent after it is what the agent works on, not this turn. */}
-        <Turn turn={turn} working={busy && !pending && index === turns.length - 1} />
+        <Turn turn={turn} working={busy && !pending && index === turns.length - 1} activity={activity} />
       </div>
     );
   };
@@ -494,7 +512,7 @@ function Chat({ state }) {
       )}
       <div className={roomy ? "reply roomy" : "reply"}>
         {turns.slice(replies).map((turn, index) => row(turn, replies + index))}
-        {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><span className="shimmer">{t("Working")}</span></div>}
+        {busy && !permission && (pending || last?.role === "user") && <div className="turn working"><Activity activity={activity} /></div>}
         {permission && <div ref={card}><Permission key={permission.id} permission={permission} /></div>}
         <div ref={end} />
       </div>

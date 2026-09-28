@@ -44,6 +44,8 @@ struct ChatPageState: Encodable, Equatable {
     let queued: Bool
     let loaded: Bool
     let permission: AgentPermissionPrompt?
+    /// What the agent is doing, drawn while it works.
+    var activity: AgentActivity? = nil
     var localization = ChatPageLocalization()
 }
 
@@ -94,6 +96,16 @@ struct ChatPageLocalization: Encodable, Equatable {
         "Thought": String(localized: "Thought"),
         "Worked": String(localized: "Worked"),
         "Working": String(localized: "Working"),
+        "Thinking": String(localized: "Thinking", comment: "Chat: the agent is thinking"),
+        "Running": String(localized: "Running", comment: "Chat: the agent is running a command, which follows"),
+        "Reading": String(localized: "Reading", comment: "Chat: the agent is reading a file, which follows"),
+        "Editing": String(localized: "Editing", comment: "Chat: the agent is editing a file, which follows"),
+        "Creating": String(localized: "Creating", comment: "Chat: the agent is creating a file, which follows"),
+        "Searching": String(localized: "Searching", comment: "Chat: the agent is searching for a pattern, which follows"),
+        "Fetching": String(localized: "Fetching", comment: "Chat: the agent is fetching a web page, which follows"),
+        "Searching the web": String(localized: "Searching the web", comment: "Chat: the agent is searching the web for a query, which follows"),
+        "Delegating": String(localized: "Delegating", comment: "Chat: the agent is handing a task to a subagent, which follows"),
+        "Updating plan": String(localized: "Updating plan", comment: "Chat: the agent is updating its plan"),
         "Worked for %@": String(localized: "Worked for %@"),
         "Run this command?": String(localized: "Run this command?"),
         "Edit this file?": String(localized: "Edit this file?"),
