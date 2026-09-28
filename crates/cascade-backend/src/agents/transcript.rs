@@ -289,7 +289,9 @@ impl<'a> Builder<'a> {
         let text = |key: &str| input[key].as_str();
         let summary = match name {
             "Bash" => text("description").or(text("command")).unwrap_or("").to_string(),
-            "Read" | "Edit" | "Write" | "NotebookEdit" => text("file_path").map(|p| self.short(p)).unwrap_or_default(),
+            "Read" | "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => {
+                text("file_path").or(text("notebook_path")).map(|p| self.short(p)).unwrap_or_default()
+            }
             "Glob" | "Grep" => text("pattern").unwrap_or("").to_string(),
             "Task" | "Agent" => text("description").or(text("subagent_type")).unwrap_or("").to_string(),
             "WebFetch" => text("url").unwrap_or("").to_string(),
@@ -312,17 +314,11 @@ impl<'a> Builder<'a> {
         if name == "Bash" {
             tool.insert("command".into(), json!(text("command").unwrap_or("")));
         }
-        let change = match name {
-            "Edit" | "NotebookEdit" => text("file_path").map(|path| {
-                (path, text("old_string").or(text("old_source")).unwrap_or(""), text("new_string").or(text("new_source")).unwrap_or(""))
-            }),
-            "Write" => text("file_path").map(|path| (path, "", text("content").unwrap_or(""))),
-            _ => None,
-        };
-        if let Some((path, old, new)) = change {
-            tool.insert("path".into(), json!(self.short(path)));
-            tool.insert("old".into(), json!(clip(old, MAX_FILE_TEXT)));
-            tool.insert("new".into(), json!(clip(new, MAX_FILE_TEXT)));
+        // Read as the approval card reads it: the adapter knows its tools' inputs.
+        if let Some((path, old, new)) = Agent::Claude.tool_change(name, input) {
+            tool.insert("path".into(), json!(self.short(&path)));
+            tool.insert("old".into(), json!(clip(&old, MAX_FILE_TEXT)));
+            tool.insert("new".into(), json!(clip(&new, MAX_FILE_TEXT)));
         }
         tool
     }
@@ -551,6 +547,19 @@ mod tests {
         assert_eq!(summary(&builder.turns), vec!["user [text:hello]", "assistant [tool:ls -la, text:Done.]"]);
         assert_eq!(builder.turns[1]["blocks"][0]["output"], "a\nb");
         assert_eq!(builder.turns[1]["blocks"][0]["kind"], "run");
+    }
+
+    #[test]
+    fn every_kind_of_claude_file_change_shows_its_diff() {
+        let mut builder = Builder::new("/w");
+        builder.claude(&json!({"type":"assistant","uuid":"a","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"t1","name":"MultiEdit","input":{"file_path":"/w/a.rs","edits":[
+                {"old_string":"a","new_string":"b"},{"old_string":"c","new_string":"d"}]}},
+            {"type":"tool_use","id":"t2","name":"NotebookEdit","input":{"notebook_path":"/w/n.ipynb","new_source":"print(1)"}}
+        ]}}), "0".into());
+        let blocks = &builder.turns[0]["blocks"];
+        assert_eq!((blocks[0]["path"].as_str(), blocks[0]["old"].as_str(), blocks[0]["new"].as_str()), (Some("a.rs"), Some("a\n⋯\nc"), Some("b\n⋯\nd")));
+        assert_eq!((blocks[1]["summary"].as_str(), blocks[1]["path"].as_str(), blocks[1]["new"].as_str()), (Some("n.ipynb"), Some("n.ipynb"), Some("print(1)")));
     }
 
     #[test]

@@ -393,6 +393,14 @@ mod tests {
     }
 
     #[test]
+    fn every_adapters_empty_hooks_file_is_json() {
+        for agent in Agent::ALL {
+            let empty: Value = serde_json::from_str(agent.hooks().empty).expect(agent.profile().id);
+            assert!(empty.is_object(), "{}", agent.profile().id);
+        }
+    }
+
+    #[test]
     fn a_profile_is_what_the_app_reads() {
         assert_eq!(json!(Agent::Claude.profile()), json!({"id": "claude", "command": "claude", "queuesMidTurn": true}));
         assert_eq!(json!(Agent::Codex.profile())["queuesMidTurn"], false);
