@@ -20,6 +20,11 @@ struct WorkspaceSession: Codable, Identifiable, Equatable, Sendable {
     /// The name the user gave it from the sidebar. Display only: the worktree, branch and page
     /// title stay what they were. Empty means it is shown by its worktree folder.
     var name: String? = nil
+    /// What a forked session's agent starts from, until its own conversation exists: the backend
+    /// sets it, and the app clears it once it resumes the fork's own. Empty for any other session.
+    var forkFrom: String? = nil
+    /// The session this one was forked from; empty for one that was not. Kept for good.
+    var forkedFrom: String? = nil
 
     var label: String {
         if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { return name }
@@ -178,6 +183,8 @@ struct SidebarEntry: Equatable {
     var children: [SidebarEntry] = []
     var role: Role = .nav
     var tooltip: String?
+    /// A session made by forking another, marked after its name.
+    var forked = false
 
     var isGroup: Bool { destination == nil }
     /// Every destination this entry can take the selection to. A row is its own destination;
@@ -204,9 +211,11 @@ struct SidebarEntry: Equatable {
             let state = status[session.id] ?? SidebarSessionStatus(cli: session.cli)
             var tip = session.worktree
             if !state.live { tip += "\n" + String(localized: "Stopped — click to resume") }
-            return Self(id: "\(pinned ? "pin" : "session"):\(session.id)", title: session.label,
-                        symbol: "", detail: session.worktree, destination: .session(session.id),
-                        role: .session(state, pinned: session.pinned)).withTip(tip)
+            var entry = Self(id: "\(pinned ? "pin" : "session"):\(session.id)", title: session.label,
+                             symbol: "", detail: session.worktree, destination: .session(session.id),
+                             role: .session(state, pinned: session.pinned)).withTip(tip)
+            entry.forked = session.forkedFrom?.isEmpty == false
+            return entry
         }
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
         var result: [Self] = [

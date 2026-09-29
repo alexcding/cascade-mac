@@ -42,6 +42,10 @@ pub trait AgentProbe {
     fn has_conversation(_home: &Path, _id: &str) -> Option<bool> {
         None
     }
+    /// What a fork of the conversation in `worktree` resumes from, in the form the app's driver
+    /// hands the CLI: `conversation`, when the app knows it, or the worktree's newest. None when
+    /// there is nothing on disk to fork, and the fork starts a new conversation.
+    fn fork_source(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String>;
     /// The slash commands the CLI reports itself, ahead of those found on disk.
     async fn reported_commands() -> Value {
         Value::Null
@@ -155,6 +159,13 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::has_conversation(home, id),
             Agent::Codex => codex::Codex::has_conversation(home, id),
+        }
+    }
+
+    fn fork_source(self, home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String> {
+        match self {
+            Agent::Claude => claude::Claude::fork_source(home, worktree, conversation),
+            Agent::Codex => codex::Codex::fork_source(home, worktree, conversation),
         }
     }
 
@@ -315,6 +326,16 @@ pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
 
 fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// What a fork of `cli`'s conversation in `worktree` resumes from (`AgentProbe::fork_source`).
+pub(crate) fn fork_source(cli: &str, worktree: &str, conversation: &str) -> Option<String> {
+    let (agent, home) = (Agent::of(cli)?, home()?);
+    if !worktree.starts_with('/') {
+        return None;
+    }
+    let conversation = Some(conversation).filter(|id| !id.is_empty() && is_name(id));
+    agent.fork_source(&home, worktree, conversation)
 }
 
 fn is_name(value: &str) -> bool {

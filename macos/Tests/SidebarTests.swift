@@ -501,3 +501,38 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     cell.configure(session, nested: true, spinFrame: 0)
     #expect(label("⌘1") == nil && !glyph.isHidden)
 }
+
+/// A session running an agent offers Fork Session, which names the session and asks nothing.
+@MainActor @Test func onlyAnAgentsSessionOffersForkSession() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let projects = [Project(id: "p1", name: "First", repo: "o/f", color: nil, workspace: "/tmp")]
+    var child = workspaceSession("agent (2)", created: "2026-03"); child.forkedFrom = "agent"
+    let sessions = [workspaceSession("agent", created: "2026-01"), workspaceSession("shell", created: "2026-02"), child]
+    // A fork is marked after its name; the rest are not.
+    let marked = SidebarEntry.make(projects: projects, sessions: sessions, tabs: []).flatMap(\.descendants).filter(\.forked).map(\.id)
+    #expect(marked == ["session:agent (2)"])
+    var forked: [String] = []
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: []),
+                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    value.forkableIDs = ["agent"]
+    value.onForkSession = { forked.append($0) }
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    func node(_ id: String) throws -> CocoaSidebar.Node {
+        try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
+    }
+    let titles = coordinator.menu(for: try node("session:agent"))?.items.map(\.title) ?? []
+    #expect(Array(titles.suffix(5)) == ["Rename Session…", "Pin Session", "Remove Session…", "", "Fork Session"], "\(titles)")
+    let fork = try #require(coordinator.menu(for: try node("session:agent"))?.items.first { $0.title == "Fork Session" })
+    #expect(coordinator.menu(for: try node("session:shell"))?.items.contains { $0.title == "Fork Session" } == false)
+    _ = (fork.target as? NSObject)?.perform(try #require(fork.action), with: fork)
+    #expect(forked == ["agent"])
+}

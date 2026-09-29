@@ -3,6 +3,7 @@ mod automation;
 pub mod cli;
 mod db;
 mod error;
+mod fork;
 pub mod ffi;
 mod github;
 mod http_client;
@@ -92,6 +93,7 @@ pub fn build_app(state: AppState) -> Router {
                 .delete(routes::delete_task),
         )
         .route("/api/tasks/{id}/pin", patch(routes::pin_task))
+        .route("/api/tasks/{id}/fork", post(fork::fork_task))
         .route("/api/tasks/{id}", patch(routes::patch_task))
         .route(
             "/api/projects",

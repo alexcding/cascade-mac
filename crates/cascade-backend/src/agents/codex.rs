@@ -49,6 +49,20 @@ impl AgentProbe for Codex {
         session_file(home, worktree)
     }
 
+    /// `codex fork` takes the conversation's id. One the hooks have not reported yet is the id the
+    /// worktree's newest session file opens with — the agent's own, not a subagent's, which runs
+    /// in the same directory under a thread of its own.
+    fn fork_source(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String> {
+        if let Some(id) = conversation {
+            return Some(id.to_owned());
+        }
+        let (_, meta) = newest_session(home, worktree, |meta| meta["payload"]["parent_thread_id"].is_null())?;
+        meta["payload"]["id"]
+            .as_str()
+            .filter(|id| !id.is_empty() && super::is_name(id))
+            .map(str::to_owned)
+    }
+
     /// `codex debug models` is the CLI's own catalog, reasoning levels included.
     async fn catalog(_home: &Path) -> Value {
         let raw = cli::run("codex", ["debug", "models"], Duration::from_secs(20)).await;
@@ -136,6 +150,11 @@ fn effort_name(id: &str) -> String {
 /// appending to the file from the day it began, so recency is by modification time across every
 /// day, not by the dated folder; the first line of each names the directory it ran in.
 pub(super) fn session_file(home: &Path, worktree: &str) -> Option<PathBuf> {
+    newest_session(home, worktree, |_| true).map(|(path, _)| path)
+}
+
+/// The newest session file for this worktree whose opening `session_meta` `accept`s.
+fn newest_session(home: &Path, worktree: &str, accept: impl Fn(&Value) -> bool) -> Option<(PathBuf, Value)> {
     let mut files: Vec<(SystemTime, PathBuf)> = Vec::new();
     let mut pending = vec![home.join(".codex/sessions")];
     while let Some(directory) = pending.pop() {
@@ -152,20 +171,33 @@ pub(super) fn session_file(home: &Path, worktree: &str) -> Option<PathBuf> {
     }
     files.sort_by(|a, b| b.0.cmp(&a.0));
     // Reading one line each is cheap; the cap only bounds a history of thousands.
-    files.into_iter().take(500).map(|(_, path)| path).find(|path| {
+    files.into_iter().take(500).map(|(_, path)| path).find_map(|path| {
         let mut first = String::new();
-        fs::File::open(path)
-            .ok()
-            .and_then(|file| BufReader::new(file).read_line(&mut first).ok())
-            .is_some()
-            && serde_json::from_str::<Value>(&first)
-                .is_ok_and(|meta| meta["type"] == "session_meta" && meta["payload"]["cwd"] == worktree)
+        fs::File::open(&path).ok().and_then(|file| BufReader::new(file).read_line(&mut first).ok())?;
+        let meta: Value = serde_json::from_str(&first).ok()?;
+        (meta["type"] == "session_meta" && meta["payload"]["cwd"] == worktree && accept(&meta)).then_some((path, meta))
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fork_starts_from_the_agents_own_conversation_not_a_subagents() {
+        let home = std::env::temp_dir().join(format!("cascade-codex-fork-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        let day = home.join(".codex/sessions/2026/09/28");
+        fs::create_dir_all(&day).unwrap();
+        let meta = |id: &str, parent: Value| json!({"type":"session_meta","payload":{"id":id,"cwd":"/r/a","parent_thread_id":parent}});
+        fs::write(day.join("main.jsonl"), format!("{}\n", meta("main-1", Value::Null))).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(day.join("sub.jsonl"), format!("{}\n", meta("sub-1", json!("main-1")))).unwrap();
+        assert_eq!(Codex::fork_source(&home, "/r/a", None).as_deref(), Some("main-1"));
+        assert_eq!(Codex::fork_source(&home, "/r/a", Some("known")).as_deref(), Some("known"));
+        assert_eq!(Codex::fork_source(&home, "/r/b", None), None);
+        let _ = fs::remove_dir_all(&home);
+    }
 
     #[test]
     fn status_reads_the_worktrees_newest_session() {

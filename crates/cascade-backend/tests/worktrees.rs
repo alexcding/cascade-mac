@@ -337,3 +337,82 @@ async fn history_lists_the_branch_on_its_base_and_the_whole_history_on_request()
     let page = log(ahead).await;
     assert_eq!((page.0, page.1, page.2), (vec!["three".to_owned(), "two".to_owned(), "one".to_owned(), "init".to_owned()], Value::Null, json!("HEAD")));
 }
+
+#[tokio::test]
+async fn a_fork_numbers_itself_after_its_family_and_carries_uncommitted_work() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    let path = dir.to_str().unwrap();
+    fs::write(dir.join("staged.txt"), "one").unwrap();
+    fs::write(dir.join("edited.txt"), "one").unwrap();
+    fs::write(dir.join("gone.txt"), "one").unwrap();
+    git(&dir, &["add", "-A"]);
+    git(&dir, &["commit", "-qm", "files"]);
+    let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"feat/fix","create":true})).await;
+    let source = PathBuf::from(made["path"].as_str().unwrap());
+    let task = json!({"id":"source","projectId":"p","workspace":path,"worktree":source,"branch":"feat/fix",
+                      "title":"Fix it","url":"session:source","cli":"claude","sessionId":""});
+    post(&app, "/api/tasks", task).await;
+
+    fs::write(source.join("staged.txt"), "two").unwrap();
+    git(&source, &["add", "staged.txt"]);
+    fs::write(source.join("edited.txt"), "two").unwrap();
+    fs::remove_file(source.join("gone.txt")).unwrap();
+    fs::create_dir_all(source.join("new")).unwrap();
+    fs::write(source.join("new/file.txt"), "fresh").unwrap();
+    let before = git(&source, &["status", "--porcelain"]);
+
+    let (status, forked) = post(&app, "/api/tasks/source/fork", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{forked}");
+    assert_eq!(forked["warning"], Value::Null, "{forked}");
+    let task = &forked["task"];
+    assert_eq!((&task["name"], &task["branch"], &task["title"]), (&json!("fix (2)"), &json!("feat/fix-2"), &json!("Fix it")));
+    assert_eq!((&task["cli"], &task["sessionId"], &task["pinned"]), (&json!("claude"), &json!(""), &json!(false)));
+    // No conversation on disk to fork: the fork's agent starts a new one.
+    assert_eq!(task["forkFrom"], "", "{forked}");
+    assert_eq!(task["forkedFrom"], "source", "{forked}");
+    assert_ne!(task["url"], "session:source");
+    let fork = PathBuf::from(task["worktree"].as_str().unwrap());
+    assert!(fork.ends_with("fix-2"), "{forked}");
+    assert_eq!(git(&fork, &["status", "--porcelain"]), before, "staged, unstaged and new alike");
+    assert_eq!(fs::read_to_string(fork.join("new/file.txt")).unwrap(), "fresh");
+    assert_eq!(git(&source, &["status", "--porcelain"]), before, "the source is left as it was");
+
+    // A fork of the fork is the family's next, not `fix (2) (2)`; a branch already taken is skipped
+    // and the name follows the branch. A fork not yet talked to has no conversation of its own, so
+    // its fork starts from what it would have.
+    let id = task["id"].as_str().unwrap().to_owned();
+    let pending = app.clone().oneshot(Request::builder().method("PATCH").uri(format!("/api/tasks/{id}"))
+        .header("content-type", "application/json").body(Body::from(json!({"forkFrom":"source-conversation"}).to_string())).unwrap())
+        .await.unwrap();
+    assert_eq!(pending.status(), StatusCode::OK);
+    let (_, again) = post(&app, &format!("/api/tasks/{id}/fork"), json!({})).await;
+    assert_eq!((&again["task"]["name"], &again["task"]["branch"]), (&json!("fix (3)"), &json!("feat/fix-3")), "{again}");
+    assert_eq!(again["task"]["forkFrom"], "source-conversation", "{again}");
+    git(&dir, &["branch", "feat/fix-4"]);
+    let (_, skipped) = post(&app, "/api/tasks/source/fork", json!({})).await;
+    assert_eq!((&skipped["task"]["name"], &skipped["task"]["branch"]), (&json!("fix (5)"), &json!("feat/fix-5")), "{skipped}");
+
+    // Work git cannot snapshot (an intent-to-add file) is reported, and the new files still come across.
+    fs::write(source.join("intent.txt"), "planned").unwrap();
+    git(&source, &["add", "-N", "intent.txt"]);
+    fs::write(source.join("loose.txt"), "loose").unwrap();
+    let (status, partial) = post(&app, "/api/tasks/source/fork", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{partial}");
+    assert!(partial["warning"].as_str().is_some_and(|w| w.contains("uncommitted")), "{partial}");
+    let partial = PathBuf::from(partial["task"]["worktree"].as_str().unwrap());
+    assert_eq!(fs::read_to_string(partial.join("loose.txt")).unwrap(), "loose");
+
+    // Two forks at once are made one after the other: each gets a number of its own.
+    let (one, two) = tokio::join!(post(&app, "/api/tasks/source/fork", json!({})), post(&app, "/api/tasks/source/fork", json!({})));
+    let mut names = [one.1["task"]["name"].clone(), two.1["task"]["name"].clone()];
+    names.sort_by_key(|name| name.to_string());
+    assert_eq!(names, [json!("fix (7)"), json!("fix (8)")], "{one:?} {two:?}");
+
+    let shell = json!({"id":"shell","projectId":"p","workspace":path,"worktree":source,"branch":"feat/fix","cli":""});
+    post(&app, "/api/tasks", shell).await;
+    let (status, refused) = post(&app, "/api/tasks/shell/fork", json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+}

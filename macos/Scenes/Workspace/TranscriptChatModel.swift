@@ -159,6 +159,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private let showTerminal: () -> Void
     /// Opens a link from the conversation beside it; false when it cannot, and the system browser does.
     @ObservationIgnored private let openLink: (URL) -> Bool
+    /// Fork Session, from under the conversation's last answer.
+    @ObservationIgnored private let fork: () -> Void
     @ObservationIgnored private var watchedRun: String?
     @ObservationIgnored private var polling: Task<Void, Never>?
     @ObservationIgnored private var busy = false
@@ -206,7 +208,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          completions: Completions = Completions(),
          permissions: Permissions,
          showTerminal: @escaping () -> Void = {},
-         openLink: @escaping (URL) -> Bool = { _ in false }) {
+         openLink: @escaping (URL) -> Bool = { _ in false },
+         fork: @escaping () -> Void = {}) {
         self.agentName = agentName
         self.load = load
         self.deliver = deliver
@@ -214,6 +217,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         self.permissions = permissions
         self.showTerminal = showTerminal
         self.openLink = openLink
+        self.fork = fork
     }
 
     var canSend: Bool {
@@ -288,6 +292,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             page.onOpen = { [weak self] url in
                 guard let self, !self.retired else { return false }
                 return self.openLink(url)
+            }
+            page.onFork = { [weak self] in
+                guard let self, !self.retired else { return }
+                self.fork()
             }
             self.page = page
             render()

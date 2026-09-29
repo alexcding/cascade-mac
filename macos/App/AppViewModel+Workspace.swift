@@ -78,6 +78,11 @@ extension AppViewModel: WorkspaceCoordinating {
         restartSession(current)
     }
 
+    func forkWorkspaceSession(_ id: String, in context: WorkspaceContext) {
+        guard viewer.contexts[context.id] === context else { return }
+        forkSession(id)
+    }
+
     func performWorkspaceOperation(_ action: WorkspaceOperation, in context: WorkspaceContext) {
         guard ownsWorkspace(context) else { return }
         let state = workspaceState(in: context)

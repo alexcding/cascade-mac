@@ -100,6 +100,13 @@ protocol AgentDriver: Sendable {
     var hooksChangedNotice: String { get }
     func launchCommand(sessionID: String?, fresh: Bool, selection: AgentCatalog.Model?, effort: String?,
                        statusLine: AgentStatusLine?) -> String
+    /// Starts a fork of the conversation `source` names, as this CLI's adapter in the backend gives
+    /// it: a new conversation, `sessionID` when the app names it, that begins with all of the
+    /// source's and works in `directory`, the fork's worktree, not the source's. The source's own
+    /// conversation is left as it was.
+    func forkCommand(from source: String, in directory: String, sessionID: String?, statusLine: AgentStatusLine?) -> String
+    /// The conversation a fork's `source` is, so the app can ask whether the CLI still has it.
+    func forkedConversation(_ source: String) -> String
     /// What to type at the running agent to move it to `model`, without leaving the conversation.
     /// Throws when the CLI has no way to get there.
     func switchInputs(to model: AgentCatalog.Model, effort: String?, in catalog: AgentCatalog) throws -> [AgentInput]
@@ -160,6 +167,20 @@ struct ClaudeDriver: AgentDriver {
         return parts.joined(separator: " ")
     }
 
+    /// `--resume` takes the source's transcript path, which finds it from the fork's own folder,
+    /// and `--fork-session` keeps it as it was, writing on under `--session-id` instead.
+    func forkCommand(from source: String, in directory: String, sessionID: String?, statusLine: AgentStatusLine?) -> String {
+        var parts = ["claude"]
+        if let id = sessionID, !id.isEmpty { parts += ["--session-id", AgentDrivers.quote(id)] }
+        parts += ["--fork-session", "--resume", AgentDrivers.quote(source)]
+        if let statusLine, let settings = Self.settings(statusLine) { parts += ["--settings", AgentDrivers.quote(settings)] }
+        return parts.joined(separator: " ")
+    }
+    /// The transcript is named by the conversation's id.
+    func forkedConversation(_ source: String) -> String {
+        ((source as NSString).lastPathComponent as NSString).deletingPathExtension
+    }
+
     /// Claude Code takes both at its prompt, mid-conversation.
     func switchInputs(to model: AgentCatalog.Model, effort: String?, in catalog: AgentCatalog) throws -> [AgentInput] {
         // No effort is Claude's own choice again: `/model` alone would keep the level it is at.
@@ -205,6 +226,13 @@ struct CodexDriver: AgentDriver {
         if let effort { parts += ["-c", AgentDrivers.quote("model_reasoning_effort=\"\(effort)\"")] }
         return parts.joined(separator: " ")
     }
+
+    /// `codex fork` takes the source's id and names the new conversation itself; its hooks report it.
+    /// Without `-C` it offers to go back to the directory the source ran in, and that is its default.
+    func forkCommand(from source: String, in directory: String, sessionID: String?, statusLine: AgentStatusLine?) -> String {
+        ["codex", "fork", "-C", AgentDrivers.quote(directory), AgentDrivers.quote(source)].joined(separator: " ")
+    }
+    func forkedConversation(_ source: String) -> String { source }
 
     /// Codex's `/model` takes no argument: typed text after it goes to the model as a prompt. It
     /// opens a numbered picker instead, models in catalog order and then the model's reasoning

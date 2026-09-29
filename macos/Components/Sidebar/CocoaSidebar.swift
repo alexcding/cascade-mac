@@ -11,6 +11,8 @@ struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
     let selection: SidebarDestination
     let pinnedIDs: Set<String>
+    /// The sessions whose menu offers Fork Session.
+    var forkableIDs: Set<String> = []
     /// Shown in place of each session's glyph while ⌘ alone is held, then gone once it is let go.
     var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
@@ -25,6 +27,7 @@ struct CocoaSidebar: NSViewRepresentable {
     var onTogglePinTab: (String) -> Void = { _ in }
     var onRemoveSession: (String) -> Void = { _ in }
     var onRenameSession: (String, String) -> Void = { _, _ in }
+    var onForkSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
@@ -493,6 +496,10 @@ struct CocoaSidebar: NSViewRepresentable {
                 add("Rename Session…", action: #selector(renameSession(_:)))
                 add(parent.pinnedIDs.contains(id) ? "Unpin Session" : "Pin Session", action: #selector(togglePin(_:)))
                 add("Remove Session…", action: #selector(removeSession(_:)))
+                if parent.forkableIDs.contains(id) {
+                    menu.addItem(.separator())
+                    add("Fork Session", action: #selector(forkSession(_:)))
+                }
             }
             return menu.items.isEmpty ? nil : menu
         }
@@ -529,6 +536,11 @@ struct CocoaSidebar: NSViewRepresentable {
                 alert.window.initialFirstResponder = field
                 rename(alert.runModal())
             }
+        }
+        /// No prompt: the fork is named after this session with the next number, and opens at once.
+        @objc private func forkSession(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            parent.onForkSession(id)
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
@@ -661,6 +673,8 @@ enum SidebarGlyphs {
     private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
     private let badge = NSView()
+    /// After a forked session's name.
+    private let forkMark = NSImageView()
     private let accessory = SidebarAccessoryButton()
     private var entry = SidebarEntry(id: "", title: "", symbol: "")
     private var nested = false
@@ -683,7 +697,10 @@ enum SidebarGlyphs {
         badge.layer?.borderWidth = 1.5
         accessory.target = self
         accessory.action = #selector(accessoryPressed)
-        [icon, glyph, title, badge, accessory, shortcut].forEach(addSubview)
+        forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
+        forkMark.contentTintColor = SidebarPalette.text3
+        forkMark.setAccessibilityLabel(String(localized: "Forked session"))
+        [icon, glyph, title, forkMark, badge, accessory, shortcut].forEach(addSubview)
         imageView = icon
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -723,6 +740,7 @@ enum SidebarGlyphs {
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
         icon.isHidden = false; glyph.isHidden = true; badge.isHidden = true; accessory.isHidden = true
+        forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
         alphaValue = 1
         switch entry.role {
@@ -782,6 +800,7 @@ enum SidebarGlyphs {
     }()
     /// What a label insets its text by on each side; the glyph's frame is widened by it so nothing clips.
     private static let labelInset: CGFloat = 2
+    private static let forkMarkSize: CGFloat = 12
 
     /// A tab row's leading image size: favicons, brand art and avatars sit inside the slot; the globe fills it.
     private var iconSize = SidebarMetrics.iconSlot
@@ -925,7 +944,15 @@ enum SidebarGlyphs {
         let titleRight = accessory.isHidden ? right : slotX - SidebarMetrics.gap
         title.sizeToFit()
         let titleHeight = title.frame.height
-        title.frame = NSRect(x: titleX, y: ((height - titleHeight) / 2).rounded(), width: max(0, titleRight - titleX), height: titleHeight)
+        var titleWidth = max(0, titleRight - titleX)
+        // The mark follows the name, and a long name gives way to it rather than hide it.
+        if !forkMark.isHidden {
+            let size = Self.forkMarkSize, gap: CGFloat = 4
+            // The text's own width, not whatever frame the label was last given.
+            titleWidth = min(title.intrinsicContentSize.width.rounded(.up), max(0, titleWidth - size - gap))
+            forkMark.frame = centered(titleX + titleWidth + gap, size)
+        }
+        title.frame = NSRect(x: titleX, y: ((height - titleHeight) / 2).rounded(), width: titleWidth, height: titleHeight)
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) { super.resizeSubviews(withOldSize: oldSize); needsLayout = true }

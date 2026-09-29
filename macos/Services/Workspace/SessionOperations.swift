@@ -15,8 +15,16 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     var driver: (any AgentDriver)? { AgentDrivers.of(rawValue) }
 
     /// `prompt` is the new conversation's first message: both CLIs take it as their last argument.
-    func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil, prompt: String? = nil) -> String? {
-        guard let command = driver?.launchCommand(sessionID: sessionID, fresh: fresh, selection: nil, effort: nil, statusLine: statusLine) else { return nil }
+    /// `forking` is a fork's source, as the backend gave it, and the fork's worktree: the conversation
+    /// starts as a copy of the source's, working in that worktree.
+    func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil, prompt: String? = nil,
+                 forking: (source: String, directory: String)? = nil) -> String? {
+        guard let driver else { return nil }
+        let command = if let forking {
+            driver.forkCommand(from: forking.source, in: forking.directory, sessionID: sessionID, statusLine: statusLine)
+        } else {
+            driver.launchCommand(sessionID: sessionID, fresh: fresh, selection: nil, effort: nil, statusLine: statusLine)
+        }
         guard let prompt = Self.launchPrompt(prompt) else { return command }
         return command + " " + Self.quote(prompt)
     }
@@ -108,6 +116,16 @@ enum PageSessionStart {
 protocol SessionServing: SessionCreating {
     func saveAgentID(_ id: String, session: WorkspaceSession) async throws
     func conversationExists(cli: String, id: String) async throws -> Bool
+    func fork(_ session: WorkspaceSession) async throws -> ForkedSession
+    /// Forgets what a fork's agent started from, once its own conversation exists.
+    func clearFork(_ session: WorkspaceSession) async throws
+}
+
+/// A session the backend forked: its record, whose `forkFrom` its agent starts from, and what of
+/// the source's uncommitted work did not come across.
+struct ForkedSession: Decodable, Sendable {
+    let task: WorkspaceSession
+    let warning: String?
 }
 
 struct SessionOperations: SessionServing {
@@ -246,6 +264,14 @@ struct SessionOperations: SessionServing {
         struct Found: Decodable, Sendable { let exists: Bool }
         let found: Found = try await api.get(APIClient.query(Routes.AGENT_CONVERSATION, ["cli": cli, "id": id]))
         return found.exists
+    }
+    func fork(_ session: WorkspaceSession) async throws -> ForkedSession {
+        struct Empty: Encodable, Sendable {}
+        return try await api.request(Routes.taskFork(session.id), method: "POST", body: Empty())
+    }
+    func clearFork(_ session: WorkspaceSession) async throws {
+        struct Payload: Encodable, Sendable { let forkFrom = "" }
+        let _: OperationOK = try await api.request(Routes.task(session.id), method: "PATCH", body: Payload())
     }
     func saveAgentID(_ id: String, session: WorkspaceSession) async throws {
         struct Payload: Encodable, Sendable { let sessionId: String }

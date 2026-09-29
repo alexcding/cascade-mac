@@ -28,7 +28,7 @@ import Observation
         case closeTab(String), newTab, moveTab(String, before: String?), togglePinTab(String)
         case moveProject(String, before: String?), moveSession(String, before: String?), movePinned(String, before: String?)
         case reconnect, openTerminal, openBrowser(URL), removeSession(String), openGitClient(String)
-        case renameSession(String, name: String)
+        case renameSession(String, name: String), forkSession(String)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -42,6 +42,8 @@ import Observation
     var selection: SidebarDestination { state.selection }
     var entries: [SidebarEntry] { state.entries }
     var pinnedIDs: Set<String> { state.pinnedIDs }
+    /// The sessions whose agent can fork its conversation: every one running an agent.
+    var forkableIDs: Set<String> { Set(state.sessions.filter { $0.agent.driver != nil }.map(\.id)) }
     /// The key that selects each of the first ten sessions, by session id, in the sidebar's order:
     /// what it shows beside them while ⌘ is held.
     var sessionShortcuts: [String: String] {
@@ -85,6 +87,8 @@ import Observation
     func removeSession(_ id: String) { onAction(.removeSession(id)) }
     /// A session row's right-click Rename Session, with the name typed into the prompt.
     func renameSession(_ id: String, to name: String) { onAction(.renameSession(id, name: name)) }
+    /// A session row's right-click Fork Session.
+    func forkSession(_ id: String) { onAction(.forkSession(id)) }
     /// "Open in Sourcetree" for a session row; nil until a git client is chosen in Settings.
     var gitClientLabel: String? { state.gitClientLabel }
     func openGitClient(_ id: String) { onAction(.openGitClient(id)) }

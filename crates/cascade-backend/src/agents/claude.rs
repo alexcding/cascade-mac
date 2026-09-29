@@ -35,6 +35,16 @@ impl AgentProbe for Claude {
         }
     }
 
+    /// The transcript's path, which `--resume` takes as well as an id, and which finds it from
+    /// the fork's own directory, where Claude would look for an id under the fork's folder.
+    fn fork_source(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String> {
+        let file = match conversation {
+            Some(id) => conversation_file(home, worktree, id).or_else(|| filed_anywhere(home, id)),
+            None => newest_transcript(home, worktree),
+        }?;
+        Some(file.to_string_lossy().into_owned())
+    }
+
     fn has_conversation(home: &Path, id: &str) -> Option<bool> {
         Some(!id.is_empty() && super::is_name(id) && has_conversation(home, id))
     }
@@ -136,13 +146,23 @@ impl AgentProbe for Claude {
 /// so the answer is no. One that cannot be read is unknown, and unknown resumes: reserving an id
 /// Claude already owns fails just as hard as a bad resume.
 pub(super) fn has_conversation(home: &Path, id: &str) -> bool {
-    let projects = match fs::read_dir(home.join(".claude/projects")) {
-        Ok(projects) => projects,
-        Err(error) => return error.kind() != std::io::ErrorKind::NotFound,
-    };
-    projects
+    match filed(home, id) {
+        Ok(file) => file.is_some(),
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Conversation `id`'s transcript, wherever Claude filed it: a moved worktree leaves it under the
+/// folder it ran in before.
+fn filed_anywhere(home: &Path, id: &str) -> Option<PathBuf> {
+    filed(home, id).ok().flatten()
+}
+
+fn filed(home: &Path, id: &str) -> std::io::Result<Option<PathBuf>> {
+    Ok(fs::read_dir(home.join(".claude/projects"))?
         .filter_map(Result::ok)
-        .any(|project| project.path().join(format!("{id}.jsonl")).is_file())
+        .map(|project| project.path().join(format!("{id}.jsonl")))
+        .find(|file| file.is_file()))
 }
 
 /// A session the app did not launch files its status line under Claude's session id, so it is

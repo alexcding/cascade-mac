@@ -225,7 +225,7 @@ pub(crate) async fn copy_included(app: &AppState, source: &Path, destination: &P
         .unwrap_or_default()
 }
 
-fn copy_files(source: &Path, destination: &Path, files: &[PathBuf]) -> Copied {
+pub(crate) fn copy_files(source: &Path, destination: &Path, files: &[PathBuf]) -> Copied {
     let mut result = Copied::default();
     for rel in files {
         // Git reports paths inside the checkout; anything else is not ours to write.

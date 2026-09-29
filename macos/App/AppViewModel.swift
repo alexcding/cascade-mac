@@ -71,6 +71,8 @@ public final class AppViewModel {
     private(set) var startingPages: Set<String> = []
     /// First prompts for sessions the project composer created, by session id, until their agent launches.
     @ObservationIgnored private var launchPrompts: [String: String] = [:]
+    /// Sessions a fork is being made of, so a second request waits for the first.
+    @ObservationIgnored private var forkingSessions: Set<String> = []
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
@@ -1077,6 +1079,7 @@ public final class AppViewModel {
             guard let self, let launch = prepared.launch else { return }
             if launch.prompted { launchPrompts[record.id] = nil }
             do { try await keepReservedID(launch, record: record) } catch { self.error = error.localizedDescription }
+            await settleFork(launch, record: record)
         }
         terminal.onReattached = { [weak self] terminal in await self?.replayLastHook(terminal) }
         terminal.onCreated = { [weak self] terminal in
@@ -1097,6 +1100,7 @@ public final class AppViewModel {
     private func launchAgent(_ terminal: TerminalSession, record: WorkspaceSession, fresh: Bool, afresh: Bool = false) async throws {
         guard let launch = try await agentLaunch(record: record, fresh: fresh, afresh: afresh) else { return }
         try await keepReservedID(launch, record: record)
+        await settleFork(launch, record: record)
         try await enterAgent(terminal, command: launch.command, cli: launch.agent.rawValue)
         if launch.prompted { launchPrompts[record.id] = nil }
         watchLaunch(terminal, agent: launch.agent, resuming: launch.resuming, record: record)
@@ -1127,9 +1131,18 @@ public final class AppViewModel {
         // The composer's prompt opens the conversation, so it goes with the first launch only. It is
         // kept until that launch has started, so a launch that fails before it can try again with it.
         let prompt = firstLaunch ? launchPrompts[latest.id] : nil
-        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt).map {
-            AgentLaunch(command: $0, agent: agent, resuming: !firstLaunch && !(id ?? "").isEmpty, reservedID: reservedID,
-                        prompted: prompt != nil)
+        // A fork copies the source's conversation until it has one of its own: a launch that ended
+        // before its first message, even across a restart, forks again.
+        let resuming = !firstLaunch && !(id ?? "").isEmpty
+        var forking = resuming ? nil : latest.forkFrom.flatMap { $0.isEmpty ? nil : (source: $0, directory: latest.worktree) }
+        // A source the CLI no longer has would fail every launch, so the fork starts afresh instead.
+        if let source = forking?.source, let driver = agent.driver, let operations = sessionOperations,
+           (try? await operations.conversationExists(cli: agent.rawValue, id: driver.forkedConversation(source))) == false {
+            forking = nil
+            await forgetFork(latest, operations: operations)
+        }
+        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt, forking: forking).map {
+            AgentLaunch(command: $0, agent: agent, resuming: resuming, reservedID: reservedID, prompted: prompt != nil)
         }
     }
 
@@ -1141,6 +1154,27 @@ public final class AppViewModel {
         let latest = sessions.first { $0.id == record.id } ?? record
         try await operations.saveAgentID(id, session: latest)
         if let index = sessions.firstIndex(where: { $0.id == latest.id }) { sessions[index].sessionId = id }
+    }
+
+    /// A fork resuming its own conversation has no more use for its source. Failing to forget it
+    /// only costs the same check at the next launch.
+    /// Only once the CLI is known to have the fork's own conversation: an answer that did not come
+    /// keeps the source, so the next launch can still fork.
+    private func settleFork(_ launch: AgentLaunch, record: WorkspaceSession) async {
+        guard launch.resuming, let operations = sessionOperations,
+              let latest = sessions.first(where: { $0.id == record.id }), latest.forkFrom?.isEmpty == false,
+              let own = latest.sessionId, !own.isEmpty,
+              (try? await operations.conversationExists(cli: launch.agent.rawValue, id: own)) == true else { return }
+        await forgetFork(latest, operations: operations)
+    }
+
+    /// Clears a fork's source on the record and here. A reload already in flight read the row
+    /// before, and would bring the source back: its sessions are dropped, and the backend's `tasks`
+    /// event reloads them once saved.
+    private func forgetFork(_ session: WorkspaceSession, operations: any SessionServing) async {
+        guard (try? await operations.clearFork(session)) != nil else { return }
+        inventoryGenerations[.sessions] = UUID()
+        if let index = sessions.firstIndex(where: { $0.id == session.id }) { sessions[index].forkFrom = "" }
     }
 
     /// A launch the CLI refuses ends at the shell, which otherwise looks like a session that
@@ -1221,6 +1255,26 @@ public final class AppViewModel {
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) {
         if let prompt { launchPrompts[session.id] = prompt }
         createdSession(session)
+    }
+
+    /// Sidebar right-click Fork Session, and the chat's fork button: a new session, named after
+    /// this one with the next number, whose agent carries this one's conversation on in a copy of
+    /// its worktree. The backend makes the worktree and the record; the fork opens like any new one.
+    func forkSession(_ id: String) {
+        guard let operations = sessionOperations, let record = sessions.first(where: { $0.id == id }),
+              record.agent.driver != nil, !changingSessions.contains(id), forkingSessions.insert(id).inserted else { return }
+        Task {
+            defer { forkingSessions.remove(id) }
+            do {
+                let forked = try await operations.fork(record)
+                createdSession(forked.task)
+                if let warning = forked.warning {
+                    self.error = String(localized: "Forked \(record.label), but not all of its uncommitted work came across: \(warning)")
+                }
+            } catch {
+                self.error = String(localized: "Could not fork session: \(error.localizedDescription)")
+            }
+        }
     }
 
     func createdSession(_ session: WorkspaceSession) {

@@ -10,6 +10,14 @@ final class ChatPageAssets: NSObject, WKURLSchemeHandler {
     nonisolated static let pageURL = URL(string: "\(scheme)://page/ChatPage.html")!
     nonisolated private static let types = ["html": "text/html", "css": "text/css", "js": "text/javascript"]
 
+    #if DEBUG
+    /// The unit-test bundle compiles these sources but carries no app resources, so tests point
+    /// this at `Resources/ChatPage` in the source tree. A release build has no such switch.
+    nonisolated(unsafe) static var directoryOverride: URL?
+    #else
+    nonisolated static var directoryOverride: URL? { nil }
+    #endif
+
     nonisolated static func data(for url: URL) -> (Data, String)? {
         let name = url.lastPathComponent
         guard url.scheme == scheme, url.host == "page", url.path == "/\(name)",
@@ -17,7 +25,8 @@ final class ChatPageAssets: NSObject, WKURLSchemeHandler {
               !name.hasPrefix("."), let type = types[url.pathExtension] else { return nil }
         let bundle = Bundle(for: ChatPageAssets.self), stem = (name as NSString).deletingPathExtension
         // A synchronized resource folder may or may not keep its directory in the bundle.
-        guard let file = bundle.url(forResource: stem, withExtension: url.pathExtension, subdirectory: "ChatPage")
+        guard let file = directoryOverride?.appendingPathComponent(name)
+                ?? bundle.url(forResource: stem, withExtension: url.pathExtension, subdirectory: "ChatPage")
                 ?? bundle.url(forResource: stem, withExtension: url.pathExtension),
               let data = try? Data(contentsOf: file) else { return nil }
         return (data, type)
@@ -79,6 +88,7 @@ struct ChatPageLocalization: Encodable, Equatable {
         "Zoom Out": String(localized: "Zoom Out"),
         "Conversation": String(localized: "Conversation"),
         "Copy": String(localized: "Copy"),
+        "Fork Session": String(localized: "Fork Session"),
         "Ran": String(localized: "Ran"),
         "Read": String(localized: "Read"),
         "Edited": String(localized: "Edited"),
@@ -126,13 +136,15 @@ struct ChatPageLocalization: Encodable, Equatable {
 }
 
 /// The web view the conversation is drawn in (prototype). Push-only, like the diff page: Swift
-/// renders state into it, and it answers with `ready`, `copy`, `open`, `download`, `permission` and `error`.
+/// renders state into it, and it answers with `ready`, `copy`, `open`, `download`, `fork`, `permission` and `error`.
 @MainActor final class TranscriptChatPage: NSObject, WKNavigationDelegate {
     let webView: WKWebView
     /// A click on an approval card: the request's id, and `allow`, `deny` or `pass`.
     var onPermission: (String, String) -> Void = { _, _ in }
     /// A link clicked in the conversation; false leaves it to the system browser.
     var onOpen: (URL) -> Bool = { _ in false }
+    /// Fork Session under the conversation's last answer.
+    var onFork: () -> Void = {}
     private(set) var failure: String?
     private var ready = false
     private var state: ChatPageState?
@@ -231,6 +243,10 @@ struct ChatPageLocalization: Encodable, Equatable {
             guard ["allow", "deny", "pass"].contains(decision),
                   decision != "allow" || rendered?.permission?.truncated == false else { return }
             onPermission(id, decision)
+        case "fork":
+            // Only a conversation on screen is forked from it.
+            guard rendered?.turns.isEmpty == false else { return }
+            onFork()
         case "error":
             if let text = body["message"] as? String, text.utf8.count <= 4096 { failure = text }
         default: break

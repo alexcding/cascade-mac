@@ -1,7 +1,10 @@
 use std::{
     collections::BTreeMap,
     fs,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::unix::{
+        ffi::OsStringExt,
+        fs::{MetadataExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -703,6 +706,157 @@ async fn prepared(app: &AppState, dir: &str, destination: &Path, branch: &str) -
     }
     worktrees::spawn_setup(app, dir, destination, branch);
     json!({"ok":true,"path":destination,"copied":copied.copied})
+}
+
+/// A forked session's worktree, as `fork_worktree` made it.
+pub(crate) struct Forked {
+    pub number: u32,
+    pub branch: String,
+    pub path: PathBuf,
+    /// What of the source's uncommitted work could not be carried across; the fork stands anyway.
+    pub warning: Option<String>,
+}
+
+/// A worktree for a fork of the session in `source`: a new branch cut at the source's HEAD, with
+/// the source's uncommitted work carried across, so the code is what the forked conversation
+/// remembers doing. `branch_for` names the branch for each number from `first`; the first whose
+/// branch and folder are both free is taken, so the number the caller shows is one git has too.
+/// The fork never touches the network, and never changes the source.
+pub(crate) async fn fork_worktree(
+    app: &AppState,
+    dir: &str,
+    source: &str,
+    first: u32,
+    branch_for: impl Fn(u32) -> String,
+) -> Result<Forked, String> {
+    // The uncommitted work is recorded first and the branch cut at the commit it was recorded on,
+    // so a commit the source's agent makes meanwhile can't leave the two out of step. The new files
+    // are listed before that: one committed after the listing is still copied, as the file it was.
+    let mut warnings = Vec::new();
+    let untracked = list_untracked(source).await;
+    let stash = match git(source, vec!["stash".into(), "create".into()], 30).await {
+        Ok(stash) => Some(stash).filter(|stash| !stash.is_empty()),
+        Err(error) => {
+            warnings.push(format!("its uncommitted changes could not be read: {}", error_line(&error.to_string())));
+            None
+        }
+    };
+    let start = stash.as_ref().map_or_else(|| "HEAD".to_owned(), |stash| format!("{stash}^1"));
+    let head = git(source, vec!["rev-parse".into(), start], 15)
+        .await
+        .map_err(|error| error_line(&error.to_string()))?;
+    let location = worktrees::location(app);
+    let root = worktrees::root(dir, &location);
+    let mut chosen = None;
+    for number in first..first.saturating_add(100) {
+        let branch = branch_for(number);
+        if !valid_branch(&branch) {
+            return Err(format!("\"{branch}\" is not a valid branch name"));
+        }
+        let folder = branch.rsplit('/').next().unwrap_or(&branch);
+        let destination = root.join(folder);
+        if destination.symlink_metadata().is_err() && !ref_exists(dir, &format!("refs/heads/{branch}")).await {
+            chosen = Some((number, branch, destination));
+            break;
+        }
+    }
+    let (number, branch, destination) = chosen.ok_or("No free branch name was left for the fork")?;
+    if location == worktrees::Location::Inside {
+        if root
+            .symlink_metadata()
+            .is_ok_and(|meta| meta.file_type().is_symlink())
+        {
+            return Err(format!("{} is a symlink; choose another worktree location in Settings", root.display()));
+        }
+        worktrees::exclude_inside_root(dir)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
+    fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    let _ = git(dir, vec!["worktree".into(), "prune".into()], 20).await;
+    let target = destination.to_string_lossy().into_owned();
+    git(
+        dir,
+        vec!["worktree".into(), "add".into(), "-b".into(), branch.clone(), target, head],
+        90,
+    )
+    .await
+    .map_err(|error| worktree_failure(&branch, error.to_string()))?;
+    warnings.extend(carry_changes(source, &destination, stash, untracked).await);
+    prepared(app, dir, &destination, &branch).await;
+    let warning = (!warnings.is_empty()).then(|| warnings.join("; "));
+    Ok(Forked { number, branch, path: destination, warning })
+}
+
+/// Takes back a fork whose session could not be saved, so no worktree or branch is left that no
+/// session shows. The folder is the fork's own, made moments ago, so one git will not remove is
+/// deleted outright and its entry pruned, which frees the branch to go too.
+pub(crate) async fn discard_fork(dir: &str, forked: &Forked) {
+    let path = forked.path.to_string_lossy().into_owned();
+    if git(dir, vec!["worktree".into(), "remove".into(), "--force".into(), path], 60).await.is_err() {
+        let _ = fs::remove_dir_all(&forked.path);
+        let _ = git(dir, vec!["worktree".into(), "prune".into()], 20).await;
+    }
+    let _ = git(dir, vec!["branch".into(), "-D".into(), forked.branch.clone()], 15).await;
+}
+
+/// Copies `source`'s uncommitted work into `destination`, a checkout of the commit `stash` was
+/// recorded on: staged changes staged, unstaged ones not, and untracked files as files. `stash
+/// create` records the index and working tree as a commit without touching either, and a
+/// worktree shares its repository's objects, so the fork applies it by id. Each part is tried
+/// whatever became of the other; what failed is returned.
+async fn carry_changes(
+    source: &str,
+    destination: &Path,
+    stash: Option<String>,
+    untracked: Result<Vec<PathBuf>, String>,
+) -> Vec<String> {
+    let mut failed = Vec::new();
+    if let Some(stash) = stash {
+        let target = destination.to_string_lossy().into_owned();
+        if let Err(error) = git(&target, vec!["stash".into(), "apply".into(), "--index".into(), stash], 60).await {
+            failed.push(format!("its uncommitted changes could not be copied: {}", error_line(&error.to_string())));
+        }
+    }
+    if let Err(error) = copy_untracked(source, destination, untracked).await {
+        failed.push(error);
+    }
+    failed
+}
+
+/// The files in `source` git does not track and does not ignore.
+async fn list_untracked(source: &str) -> Result<Vec<PathBuf>, String> {
+    let untracked = cli::run_nul(
+        "git",
+        ["-C", source, "ls-files", "--others", "--exclude-standard", "-z"],
+        None,
+        Duration::from_secs(30),
+        None,
+        &[],
+    )
+    .await
+    .map_err(|error| format!("its new files could not be listed: {}", error_line(&error.to_string())))?;
+    // A nested repository is listed as its folder, which git itself leaves alone.
+    Ok(untracked
+        .into_iter()
+        .filter(|record| !record.ends_with(b"/"))
+        .map(|record| PathBuf::from(std::ffi::OsString::from_vec(record)))
+        .collect())
+}
+
+async fn copy_untracked(source: &str, destination: &Path, files: Result<Vec<PathBuf>, String>) -> Result<(), String> {
+    let files = files?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    let (from, to) = (PathBuf::from(source), destination.to_owned());
+    let copied = tokio::task::spawn_blocking(move || worktrees::copy_files(&from, &to, &files))
+        .await
+        .map_err(|error| error.to_string())?;
+    if copied.failed.is_empty() {
+        return Ok(());
+    }
+    Err(format!("{} new file(s) could not be copied: {}", copied.failed.len(), copied.failed.join(", ")))
 }
 
 /// Moves a checkout to another branch. A branch can only be checked out once, so the main repo

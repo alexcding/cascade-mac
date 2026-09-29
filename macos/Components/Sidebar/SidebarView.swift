@@ -11,12 +11,12 @@ struct SidebarView: View {
     var body: some View {
         VStack(spacing: 0) {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
-                         pinnedIDs: viewModel.pinnedIDs, sessionShortcuts: viewModel.sessionShortcuts,
+                         pinnedIDs: viewModel.pinnedIDs, forkableIDs: viewModel.forkableIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
                          onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onNewProject: viewModel.newProject, onMoveTab: viewModel.moveTab,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onTogglePinTab: viewModel.togglePinTab, onRemoveSession: viewModel.removeSession,
-                         onRenameSession: viewModel.renameSession,
+                         onRenameSession: viewModel.renameSession, onForkSession: viewModel.forkSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)
 
             HStack(spacing: 6) {

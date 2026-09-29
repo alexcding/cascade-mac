@@ -79,7 +79,7 @@ extension WorkspaceServing {
 @MainActor @Observable final class SessionWorkspaceViewModel {
     enum Action: Equatable {
         case operation(WorkspaceOperation), run, configureRun, remove, restart, selectTab(String), closeTab(String), reopen(String)
-        case newTab, moveTab(String, before: String?)
+        case newTab, moveTab(String, before: String?), fork
     }
     struct ReviewInputs: Equatable {
         let pane: WorkspacePane?
@@ -322,6 +322,8 @@ extension WorkspaceServing {
     func configureRun() { if canRun { onAction(.configureRun) } }
     func remove() { if canRemove { onAction(.remove) } }
     func restart() { if canRestart { onAction(.restart) } }
+    /// The chat's Fork Session: a new session carrying this one's conversation on.
+    func fork() { if canRestart, agentDriver != nil { onAction(.fork) } }
     func openTerminal() { if showsTerminal { perform(.openTerminal) } }
     /// Types a slash command into the running agent. Mid-turn input would queue behind the
     /// turn, so the controls wait for the agent to go idle.
@@ -466,7 +468,8 @@ extension WorkspaceServing {
                         try await service.answerPermission(id, decision: decision)
                     }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
-                openLink: { [weak self] url in self?.openInBrowser(url) ?? false })
+                openLink: { [weak self] url in self?.openInBrowser(url) ?? false },
+                fork: { [weak self] in self?.fork() })
         }
         defer {
             // Set on every call: a restarted session's terminal is a new one, and must be covered too.

@@ -338,17 +338,14 @@ impl Database {
     pub fn tasks(&self) -> rusqlite::Result<Vec<Value>> {
         let conn = self.durable();
         let mut statement = conn.prepare("SELECT * FROM tasks ORDER BY created_at ASC")?;
-        let result = statement.query_map([], |row| Ok(json!({
-            "id": row.get::<_, String>("id")?, "projectId": row.get::<_, String>("project_id")?,
-            "workspace": row.get::<_, String>("workspace")?, "worktree": row.get::<_, String>("worktree")?,
-            "branch": text(row, "branch")?, "title": text(row, "title")?, "kind": text(row, "kind")?,
-            "url": text(row, "url")?, "jiraKey": text(row, "jira_key")?, "cli": text(row, "cli")?,
-            "sessionId": text(row, "session_id")?, "createdAt": row.get::<_, String>("created_at")?,
-            "pinned": row.get::<_, i64>("pinned")? != 0,
-            "runScheme": text(row, "run_scheme")?, "runSim": text(row, "run_sim")?,
-            "name": text(row, "name")?,
-        })))?.collect();
+        let result = statement.query_map([], task_row)?.collect();
         result
+    }
+
+    pub fn task(&self, id: &str) -> rusqlite::Result<Option<Value>> {
+        self.durable()
+            .query_row("SELECT * FROM tasks WHERE id=?1", [id], task_row)
+            .optional()
     }
 
     pub fn upsert_task(&self, task: &Map<String, Value>) -> rusqlite::Result<bool> {
@@ -397,6 +394,8 @@ impl Database {
             ("runScheme", "run_scheme"),
             ("runSim", "run_sim"),
             ("name", "name"),
+            ("forkFrom", "fork_from"),
+            ("forkedFrom", "forked_from"),
         ];
         let mut sets = Vec::new();
         let mut values = Vec::<rusqlite::types::Value>::new();
@@ -823,6 +822,10 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tasks ADD COLUMN run_sim TEXT NOT NULL DEFAULT ''",
         // A name the user gave the session; empty means it is shown by its worktree folder.
         "ALTER TABLE tasks ADD COLUMN name TEXT NOT NULL DEFAULT ''",
+        // What a forked session's agent starts from, until its own conversation exists.
+        "ALTER TABLE tasks ADD COLUMN fork_from TEXT NOT NULL DEFAULT ''",
+        // The session a fork was made from, kept for good so the sidebar can mark it.
+        "ALTER TABLE tasks ADD COLUMN forked_from TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
         // Whether the project page shows its Jira sprint board as a tab.
@@ -1002,6 +1005,21 @@ fn log_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
         json!({"seq":row.get::<_,i64>(0)?,"category":row.get::<_,String>(1)?,"level":row.get::<_,String>(2)?,"type":row.get::<_,Option<String>>(3)?,"payload":row.get::<_,Option<String>>(4)?,"created_at":row.get::<_,String>(5)?}),
     )
 }
+/// A `tasks` row as the app reads a session.
+fn task_row(row: &Row<'_>) -> rusqlite::Result<Value> {
+    Ok(json!({
+        "id": row.get::<_, String>("id")?, "projectId": row.get::<_, String>("project_id")?,
+        "workspace": row.get::<_, String>("workspace")?, "worktree": row.get::<_, String>("worktree")?,
+        "branch": text(row, "branch")?, "title": text(row, "title")?, "kind": text(row, "kind")?,
+        "url": text(row, "url")?, "jiraKey": text(row, "jira_key")?, "cli": text(row, "cli")?,
+        "sessionId": text(row, "session_id")?, "createdAt": row.get::<_, String>("created_at")?,
+        "pinned": row.get::<_, i64>("pinned")? != 0,
+        "runScheme": text(row, "run_scheme")?, "runSim": text(row, "run_sim")?,
+        "name": text(row, "name")?, "forkFrom": text(row, "fork_from")?,
+        "forkedFrom": text(row, "forked_from")?,
+    }))
+}
+
 fn text(row: &Row<'_>, column: &str) -> rusqlite::Result<String> {
     Ok(row.get::<_, Option<String>>(column)?.unwrap_or_default())
 }

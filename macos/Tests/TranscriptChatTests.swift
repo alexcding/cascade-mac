@@ -614,3 +614,36 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     #expect(blocks.first?["text"] as? String == userText)
     #expect(object["pending"] as? String == userText)
 }
+
+/// The test bundle carries no app resources: the page is read from the source tree, as built.
+private func useSourceTreeChatPage(file: String = #filePath) {
+    ChatPageAssets.directoryOverride = URL(fileURLWithPath: file).deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+}
+
+/// Fork Session carries the whole conversation on, so the page offers it under the last answer
+/// only, and a click on it reaches the page's owner.
+@MainActor @Test func theChatOffersForkUnderItsLastAnswerOnly() async throws {
+    useSourceTreeChatPage()
+    let page = TranscriptChatPage()
+    defer { page.close() }
+    var forks = 0
+    page.onFork = { forks += 1 }
+    let turns = try JSONDecoder().decode([TranscriptTurn].self, from: Data("""
+        [{"id":"u1","role":"user","blocks":[{"type":"text","text":"one"}]},
+         {"id":"a1","role":"assistant","blocks":[{"type":"text","text":"first"}]},
+         {"id":"u2","role":"user","blocks":[{"type":"text","text":"two"}]},
+         {"id":"a2","role":"assistant","blocks":[{"type":"text","text":"second"}]}]
+        """.utf8))
+    page.render(ChatPageState(turns: turns, busy: false, pending: nil, queued: false, loaded: true, permission: nil))
+    let view = page.webView
+    func count(_ selector: String) async throws -> Int {
+        try await view.evaluateJavaScript("document.querySelectorAll(\"\(selector)\").length") as? Int ?? 0
+    }
+    for _ in 0..<100 where try await count(".turn") < 4 { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(try await count("button[aria-label='Fork Session']") == 1)
+    #expect(try await count("[data-turn='a2'] button[aria-label='Fork Session']") == 1)
+    _ = try await view.evaluateJavaScript("document.querySelector(\"button[aria-label='Fork Session']\").click(); 0")
+    for _ in 0..<40 where forks == 0 { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(forks == 1)
+}

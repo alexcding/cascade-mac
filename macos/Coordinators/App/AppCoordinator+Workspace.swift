@@ -6,6 +6,11 @@ import Foundation
     func makeWorkspaceBuild(in context: WorkspaceContext) -> BuildWorkspaceViewModel?
     func makeWorkspaceRemoval(in context: WorkspaceContext) -> SessionRemovalViewModel?
     func restartWorkspaceSession(_ id: String, in context: WorkspaceContext)
+    func forkWorkspaceSession(_ id: String, in context: WorkspaceContext)
+}
+
+extension WorkspaceCoordinating {
+    func forkWorkspaceSession(_ id: String, in context: WorkspaceContext) {}
 }
 
 extension AppCoordinator {
@@ -80,6 +85,9 @@ extension AppCoordinator {
                 guard let context else { return }
                 runtime?.restartWorkspaceSession(session.id, in: context)
             }
+        case .fork:
+            guard canPresent, let session = runtime.workspaceState(in: context).session else { return }
+            runtime.forkWorkspaceSession(session.id, in: context)
         }
     }
 }

@@ -22,6 +22,10 @@ public enum Routes {
     public static func taskPin(_ value: String) -> String {
         "/api/tasks/\(encodeComponent(value))/pin"
     }
+    public static let TASK_FORK = "/api/tasks/:id/fork"
+    public static func taskFork(_ value: String) -> String {
+        "/api/tasks/\(encodeComponent(value))/fork"
+    }
     public static let FILE = "/api/file"
     public static let FILES = "/api/files"
     public static let LAUNCH_TARGET = "/api/launch-target"

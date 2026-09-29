@@ -49,6 +49,22 @@ import Testing
         #expect(value["statusLine"]?["command"] == "/bin/sh '/Apps/Cascade Dev.app/it'\"'\"'s.sh' 'task-1'")
     }
 
+    /// A fork's first launch copies the source's conversation under the fork's own id, and still
+    /// takes the composer's prompt; without a source it is an ordinary launch.
+    @Test func aForkLaunchCopiesTheSourceConversationUnderItsOwnID() {
+        let claude = SessionAgent.claude.command(sessionID: "new", fresh: true,
+                                                 forking: ("/h/.claude/projects/-r-a/old's.jsonl", "/r/b"))
+        #expect(claude == "claude --session-id 'new' --fork-session --resume '/h/.claude/projects/-r-a/old'\"'\"'s.jsonl'")
+        // Codex would otherwise offer the source's directory, and default to it.
+        #expect(SessionAgent.codex.command(sessionID: nil, fresh: true, prompt: "go on", forking: ("019a-old", "/r/b 2"))
+                == "codex fork -C '/r/b 2' '019a-old' 'go on'")
+        #expect(SessionAgent.claude.command(sessionID: "new", fresh: true, forking: nil) == "claude --session-id 'new'")
+        #expect(SessionAgent.shell.command(sessionID: nil, forking: ("old", "/r/b")) == nil)
+        // Whether the source is still there is asked of the conversation it names.
+        #expect(ClaudeDriver().forkedConversation("/h/.claude/projects/-r-a/0f3c-old.jsonl") == "0f3c-old")
+        #expect(CodexDriver().forkedConversation("019a-old") == "019a-old")
+    }
+
     /// The rows as Codex 0.155 draws them: models in catalog order, the ordinary levels, then
     /// "More reasoning…" holding Max and Ultra.
     @Test func codexSwitchesByChoosingRowsInItsPickerAndNeverPressesReturnThere() throws {

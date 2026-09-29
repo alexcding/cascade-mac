@@ -1,6 +1,6 @@
 // The chat page. Push-only: Swift calls `window.nativeChat.render(state)` with the session's turns
 // and the page draws them. It has no network access and reports back through one message
-// handler — `ready`, `copy`, `open` and `download` — so it can never reach the backend itself.
+// handler — `ready`, `copy`, `open`, `download` and `fork` — so it can never reach the backend itself.
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Streamdown } from "streamdown";
@@ -110,11 +110,17 @@ const CopyIcon = () => (
 const CheckIcon = () => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3.5 8.5l3 3 6-7"/></svg>
 );
+// The sidebar marks a forked session with the same lines (`SidebarIcons.marks`).
+const ForkIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M1.5 8H7l6.5-6.5M9 1.5h4.5V6M9 10l4.5 4.5M9 14.5h4.5V10"/></svg>
+);
 const DownIcon = () => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round"><path d="M8 2.5v11M3.5 9 8 13.5 12.5 9"/></svg>
 );
 
-function Actions({ text, at }) {
+// `forks` offers Fork Session: a new session that carries the whole conversation on, so it is
+// offered only under the conversation's last answer.
+function Actions({ text, at, forks }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className={`actions${copied ? " copied" : ""}`}>
@@ -123,6 +129,7 @@ function Actions({ text, at }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
       }}>{copied ? <CheckIcon /> : <CopyIcon />}</button>
+      {forks && <button title={t("Fork Session")} aria-label={t("Fork Session")} onClick={() => post({ type: "fork" })}><ForkIcon /></button>}
       {at && <span>{time(at)}</span>}
     </div>
   );
@@ -236,7 +243,7 @@ function Worked({ blocks, label, working, activity }) {
 }
 
 // Memoised on the turn's content: a poll re-renders only the turn that changed, usually the last.
-const Turn = memo(function Turn({ turn, working, activity }) {
+const Turn = memo(function Turn({ turn, working, activity, latest }) {
   if (turn.role === "user") {
     const text = turn.blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n\n");
     return (
@@ -261,10 +268,10 @@ const Turn = memo(function Turn({ turn, working, activity }) {
     <div className="turn">
       {(work.length > 0 || working) && <Worked blocks={work} label={label} working={working} activity={activity} />}
       {answer && <Markdown text={answer} />}
-      {answer && !working && <Actions text={answer} at={turn.ended || turn.timestamp} />}
+      {answer && !working && <Actions text={answer} at={turn.ended || turn.timestamp} forks={latest} />}
     </div>
   );
-}, (before, after) => before.working === after.working && JSON.stringify(before.turn) === JSON.stringify(after.turn)
+}, (before, after) => before.working === after.working && before.latest === after.latest && JSON.stringify(before.turn) === JSON.stringify(after.turn)
   && (!after.working || JSON.stringify(before.activity) === JSON.stringify(after.activity)));
 
 // The agent is stopped on this until it is answered; the terminal shows nothing meanwhile. What
@@ -491,7 +498,8 @@ function Chat({ state }) {
       <div key={turn.id} data-turn={turn.id}>
         {date && <div className="date">{dateLine(date)}</div>}
         {/* A prompt sent after it is what the agent works on, not this turn. */}
-        <Turn turn={turn} working={busy && !pending && index === turns.length - 1} activity={activity} />
+        <Turn turn={turn} working={busy && !pending && index === turns.length - 1} activity={activity}
+          latest={index === turns.length - 1} />
       </div>
     );
   };

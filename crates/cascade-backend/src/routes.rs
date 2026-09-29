@@ -267,6 +267,7 @@ pub async fn patch_task(
         "runScheme",
         "runSim",
         "name",
+        "forkFrom",
     ];
     if patch.is_empty()
         || patch
