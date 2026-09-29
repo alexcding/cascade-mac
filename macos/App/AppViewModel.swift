@@ -522,14 +522,19 @@ public final class AppViewModel {
         return pageProject(request.url, in: projects)
     }
 
+    /// The session a page already has — its own, or one on its branch or ticket key.
+    func existingSession(for request: OpenPageRequest) -> WorkspaceSession? {
+        Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests)
+    }
+
     /// The session a list row's page already has — what its badge and menu title show.
     func pageSessionMark(_ request: OpenPageRequest) -> PageSessionMark? {
-        Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests).map(PageSessionMark.init)
+        existingSession(for: request).map(PageSessionMark.init)
     }
 
     /// Open in Session from a list row: go to the page's session, or start one as its page would.
     func openPageSession(_ request: OpenPageRequest) async throws {
-        if let session = Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests) {
+        if let session = existingSession(for: request) {
             select(.session(session.id)); return
         }
         guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
@@ -865,7 +870,7 @@ public final class AppViewModel {
         if request.inSession { try await openPageSession(request); return }
         // A page that already has a session — its own, or one on its branch or ticket key — goes
         // there; only a page with none opens a tab. Open in Tab asked for the tab regardless.
-        if !request.inTab, let session = Self.pageSession(for: request, sessions: sessions, projects: projects, pullRequests: resolverPullRequests) {
+        if !request.inTab, let session = existingSession(for: request) {
             select(.session(session.id))
             viewer.active?.open(request.url, title: request.title)
             return

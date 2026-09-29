@@ -249,3 +249,40 @@ private actor RefreshTransport: BackendTransport {
     #expect(model.projects.map(\.id) == ["p"])
     await model.stop()
 }
+
+/// A tray click on a review selects the session that already owns the PR; a PR with no session
+/// opens in a tab. Neither starts a session.
+@MainActor @Test func aTrayReviewSelectsItsSessionOrOpensATabAndNeverStartsOne() async throws {
+    let suite = "tray-review-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime(), transport = runtime.transport
+    await transport.addSession()
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.sessions.contains { $0.id == "s" } }
+    func review(_ number: Int, branch: String) -> OpenPageRequest {
+        var request = OpenPageRequest(url: "https://github.com/example/repo/pull/\(number)", kind: "github", title: "PR #\(number)",
+                                      repo: "example/repo", branch: branch, category: "review")
+        request.projectID = "p"
+        return request
+    }
+    func posts(to path: String) async -> Int { await transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == path }.count }
+    // A start looks the pull request up, creates a worktree, then records the session.
+    func starts() async -> Int {
+        let lookups = await transport.requests.filter { $0.url?.path == Routes.PR_LOOKUP }.count
+        return await lookups + posts(to: Routes.WORKTREE) + posts(to: Routes.TASKS)
+    }
+
+    await transport.reset()
+    try await model.openTrayReview(review(7, branch: "feature"))
+    #expect(model.selection == .session("s"))
+    #expect(await starts() == 0)
+    #expect(await posts(to: Routes.TABS) == 0)
+
+    await transport.reset()
+    try await model.openTrayReview(review(8, branch: "elsewhere"))
+    #expect(await posts(to: Routes.TABS) == 1)
+    #expect(await starts() == 0)
+    await model.stop()
+}
