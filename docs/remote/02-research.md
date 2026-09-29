@@ -162,7 +162,7 @@ Source: tailscale.com/docs/features/exit-nodes.
 | Settings are one KV table `settings(key TEXT PRIMARY KEY, value TEXT)` in `cascade.db`; `jira_api_token` is plaintext there; **no Keychain code exists** in app or backend | `crates/cascade-backend/src/schema_durable.sql:2`; `macos/Services/Settings/SettingsService.swift:3-40` |
 | "Agent needs input" is `AgentTurnTracker.idle` = `streamAvailable && betweenTurns && pending == nil`, fed by `agent-turn-start/done` hook events; surfaced only as a sidebar badge via `TerminalSession.agentIdle` | `macos/Services/Terminal/AgentTurnTracker.swift:50,75-83`; `TerminalSession.swift:22`; `AppViewModel.swift:1257-1258` |
 | Notifications are local `UNUserNotificationCenter` only, for server `ActivityEvent`s (`pr_opened/merged/closed`, `jira_*`, `sync_failed`, `automation_*`); no APNs, no agent-idle event | `macos/Services/Notifications/NotificationModels.swift:56-70`; `MacNotificationDelivery.swift:29-33` |
-| Review waiting = `awaitingMyReview` / `category` in `github.rs` (tray bronze) | `crates/cascade-backend/src/github.rs:313` |
+| Review waiting = `awaitingMyReview` / `category` in `github.rs` (tray list and sound) | `crates/cascade-backend/src/github.rs:313` |
 
 Consequences: (1) CloudKit needs a team and entitlements that do not exist yet; (2) the host
 secret has nowhere better than `cascade.db` today unless Keychain code is added; (3) agent-idle

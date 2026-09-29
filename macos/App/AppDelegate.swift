@@ -10,9 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow? { mainWindow?.window }
     @ObservationIgnored private var helpWindow: NSWindow?
     @ObservationIgnored private var statusItem: NSStatusItem?
-    /// Whether the status glyph is currently painted for a review, whether a number follows it, and
-    /// the menu bar thickness it was drawn for, so it is repainted only when one of them changes.
-    @ObservationIgnored private var statusReview = false
+    /// Whether a number follows the status glyph, and the menu bar thickness it was drawn for, so it
+    /// is repainted only when one of them changes.
     @ObservationIgnored private var statusTitled = false
     @ObservationIgnored private var statusThickness: CGFloat = 0
     @ObservationIgnored private var tray: TrayCoordinator?
@@ -87,7 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.font = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
         item.button?.setAccessibilityIdentifier("cascade-status-item")
         statusItem = item
-        applyStatusImage(review: false, titled: false)
+        applyStatusImage(titled: false)
         // A display added, removed or rearranged can change the menu bar's height under the glyph.
         NotificationCenter.default.addObserver(self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -162,18 +161,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The tray shortcut opens the status item's menu the way a click does.
     @objc func toggleTray() { statusItem?.button?.performClick(nil) }
 
-    /// Repaints the glyph, but only when something about it actually changed: its color, whether a
-    /// number follows it, or the thickness it is drawn for. Moving the bar to a display of another
+    /// Repaints the glyph, but only when something about it actually changed: whether a number
+    /// follows it, or the thickness it is drawn for. Moving the bar to a display of another
     /// height is a screen-parameter change, not a status change, so it comes through
     /// `screenParametersChanged`.
-    private func applyStatusImage(review: Bool, titled: Bool) {
+    private func applyStatusImage(titled: Bool) {
         let thickness = NSStatusBar.system.thickness
         guard let button = statusItem?.button else { return }
-        guard review != statusReview || titled != statusTitled || thickness != statusThickness || button.image == nil else { return }
-        statusReview = review; statusTitled = titled; statusThickness = thickness
+        guard titled != statusTitled || thickness != statusThickness || button.image == nil else { return }
+        statusTitled = titled; statusThickness = thickness
         // A little more room before the number than the bar's own image-to-title gap gives; none
         // with the glyph alone, so it stays centred.
-        button.image = StatusGlyph.image(review: review, trailing: titled ? 2 : 0)
+        button.image = StatusGlyph.image(trailing: titled ? 2 : 0)
     }
 
     /// The share of usage left beside the glyph. A plain title, so the bar draws it in its own black or
@@ -187,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = left == nil ? .imageOnly : .imageLeading
     }
 
-    @objc private func screenParametersChanged() { applyStatusImage(review: statusReview, titled: statusTitled) }
+    @objc private func screenParametersChanged() { applyStatusImage(titled: statusTitled) }
 
     private func observeStatus() {
         withObservationTracking {
@@ -195,9 +194,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let agent = model.shell.usageAgent
             let usage = model.shell.menuBarUsage
             let left = usage.map { Int($0.window.remaining.rounded()) }
-            // Only a review request colors the glyph, so it otherwise stays the menu bar's own black or
-            // white; the share left of the session (or the week) sits beside it.
-            applyStatusImage(review: reviews > 0, titled: left != nil)
+            // The glyph stays the menu bar's own black or white; the share left of the session (or the
+            // week) sits beside it.
+            applyStatusImage(titled: left != nil)
             applyStatusTitle(left: left)
             let name = AgentDrivers.of(agent)?.shortName ?? agent
             let status = reviews > 0 ? String(localized: "Cascade · Pending reviews: \(reviews)") : "Cascade"

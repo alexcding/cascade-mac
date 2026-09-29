@@ -72,8 +72,7 @@ queue, and Jira tickets one click away. It's free and open source under the
   a pull request or ticket to open it in a tab or start a session on it.
 - **Agent usage.** Claude Code and Codex rate limits for the current session and
   week, next to your AI spend.
-- **Menu bar.** Review requests with their CI status and your agent usage (⇧⌘U). The
-  icon turns bronze while a review is waiting.
+- **Menu bar.** Review requests with their CI status and your agent usage (⇧⌘U).
 - **Notifications** for new review requests (with an optional sound), merged and
   closed pull requests, and Jira transitions.
 - GitHub refreshes in the background every minute and Jira every two minutes; change

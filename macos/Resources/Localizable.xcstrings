@@ -99759,78 +99759,78 @@
         }
       }
     },
-    "The dashboard separates your pull requests from your review queue, and its Pull Requests tab can also list everyone else’s, for all projects or one. Reviews you have already submitted can remain in that queue. The menu bar highlights active requests for your review. GitHub and Jira refresh in the background; change the intervals in Settings → Integrations. If a refresh fails, the last available data stays visible." : {
+    "The dashboard separates your pull requests from your review queue, and its Pull Requests tab can also list everyone else’s, for all projects or one. Reviews you have already submitted can remain in that queue. GitHub and Jira refresh in the background; change the intervals in Settings → Integrations. If a refresh fails, the last available data stays visible." : {
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ড্যাশবোর্ড আপনার পুল রিকোয়েস্ট ও পর্যালোচনার তালিকা আলাদা করে দেখায়, আর এর পুল রিকোয়েস্ট ট্যাবে সব প্রকল্পের বা একটি প্রকল্পের অন্যদের পুল রিকোয়েস্টও দেখা যায়। ইতিমধ্যে পর্যালোচনা করা অনুরোধও তালিকায় থাকতে পারে। মেনু বার এখনো আপনার পর্যালোচনার অপেক্ষায় থাকা অনুরোধগুলো চিহ্নিত করে। GitHub ও Jira পটভূমিতে রিফ্রেশ হয়; সেটিংস → ইন্টিগ্রেশন থেকে ব্যবধান বদলান। রিফ্রেশ ব্যর্থ হলে সর্বশেষ পাওয়া ডেটা দেখাতে থাকে।"
+            "value" : "ড্যাশবোর্ড আপনার পুল রিকোয়েস্ট ও পর্যালোচনার তালিকা আলাদা করে দেখায়, আর এর পুল রিকোয়েস্ট ট্যাবে সব প্রকল্পের বা একটি প্রকল্পের অন্যদের পুল রিকোয়েস্টও দেখা যায়। ইতিমধ্যে পর্যালোচনা করা অনুরোধও তালিকায় থাকতে পারে। GitHub ও Jira পটভূমিতে রিফ্রেশ হয়; সেটিংস → ইন্টিগ্রেশন থেকে ব্যবধান বদলান। রিফ্রেশ ব্যর্থ হলে সর্বশেষ পাওয়া ডেটা দেখাতে থাকে।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El panel separa tus solicitudes de incorporación de la cola de revisiones, y su pestaña Solicitudes de incorporación también puede mostrar las de los demás, de todos los proyectos o de uno. Las solicitudes que ya has revisado pueden seguir en esa cola. La barra de menús destaca las solicitudes que aún esperan tu revisión. GitHub y Jira se actualizan en segundo plano; cambia los intervalos en Ajustes → Integraciones. Si una actualización falla, los últimos datos disponibles siguen visibles."
+            "value" : "El panel separa tus solicitudes de incorporación de la cola de revisiones, y su pestaña Solicitudes de incorporación también puede mostrar las de los demás, de todos los proyectos o de uno. Las solicitudes que ya has revisado pueden seguir en esa cola. GitHub y Jira se actualizan en segundo plano; cambia los intervalos en Ajustes → Integraciones. Si una actualización falla, los últimos datos disponibles siguen visibles."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le tableau de bord sépare vos pull requests de votre file de revues, et son onglet Pull requests peut aussi afficher celles des autres, pour tous les projets ou un seul. Les demandes déjà examinées peuvent rester dans cette file. La barre des menus signale celles qui attendent encore votre revue. GitHub et Jira s’actualisent en arrière-plan ; modifiez les intervalles dans Réglages → Intégrations. En cas d’échec, les dernières données disponibles restent affichées."
+            "value" : "Le tableau de bord sépare vos pull requests de votre file de revues, et son onglet Pull requests peut aussi afficher celles des autres, pour tous les projets ou un seul. Les demandes déjà examinées peuvent rester dans cette file. GitHub et Jira s’actualisent en arrière-plan ; modifiez les intervalles dans Réglages → Intégrations. En cas d’échec, les dernières données disponibles restent affichées."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "डैशबोर्ड आपकी पुल रिक्वेस्ट और समीक्षा कतार को अलग दिखाता है, और उसका पुल रिक्वेस्ट टैब सभी या किसी एक प्रोजेक्ट की दूसरों की पुल रिक्वेस्ट भी दिखा सकता है। जिनकी समीक्षा आप कर चुके हैं वे भी कतार में रह सकती हैं। मेनू बार उन अनुरोधों को उभारता है जो अभी आपकी समीक्षा की प्रतीक्षा में हैं। GitHub और Jira पृष्ठभूमि में रीफ़्रेश होते हैं; अंतराल सेटिंग्स → एकीकरण में बदलें। रीफ़्रेश असफल होने पर पिछला उपलब्ध डेटा दिखता रहता है।"
+            "value" : "डैशबोर्ड आपकी पुल रिक्वेस्ट और समीक्षा कतार को अलग दिखाता है, और उसका पुल रिक्वेस्ट टैब सभी या किसी एक प्रोजेक्ट की दूसरों की पुल रिक्वेस्ट भी दिखा सकता है। जिनकी समीक्षा आप कर चुके हैं वे भी कतार में रह सकती हैं। GitHub और Jira पृष्ठभूमि में रीफ़्रेश होते हैं; अंतराल सेटिंग्स → एकीकरण में बदलें। रीफ़्रेश असफल होने पर पिछला उपलब्ध डेटा दिखता रहता है।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La panoramica separa le tue pull request dalla coda di revisione, e la sua scheda Pull request può mostrare anche quelle degli altri, per tutti i progetti o per uno solo. Le richieste che hai già esaminato possono restare nella coda. La barra dei menu evidenzia quelle ancora in attesa della tua revisione. GitHub e Jira si aggiornano in background; modifica gli intervalli in Impostazioni → Integrazioni. Se un aggiornamento non riesce, gli ultimi dati disponibili restano visibili."
+            "value" : "La panoramica separa le tue pull request dalla coda di revisione, e la sua scheda Pull request può mostrare anche quelle degli altri, per tutti i progetti o per uno solo. Le richieste che hai già esaminato possono restare nella coda. GitHub e Jira si aggiornano in background; modifica gli intervalli in Impostazioni → Integrazioni. Se un aggiornamento non riesce, gli ultimi dati disponibili restano visibili."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ダッシュボードでは、自分のプルリクエストとレビュー待ちの一覧が分かれています。「プルリクエスト」タブでは、すべてのプロジェクトまたは1つのプロジェクトについて、他のメンバーのものも表示できます。レビューを提出済みのものも一覧に残る場合があります。メニューバーでは、現在あなたのレビューを待っているリクエストを強調表示します。GitHub と Jira はバックグラウンドで更新されます。更新間隔は「設定 → 連携」で変更できます。更新に失敗しても、最後に取得したデータは表示され続けます。"
+            "value" : "ダッシュボードでは、自分のプルリクエストとレビュー待ちの一覧が分かれています。「プルリクエスト」タブでは、すべてのプロジェクトまたは1つのプロジェクトについて、他のメンバーのものも表示できます。レビューを提出済みのものも一覧に残る場合があります。GitHub と Jira はバックグラウンドで更新されます。更新間隔は「設定 → 連携」で変更できます。更新に失敗しても、最後に取得したデータは表示され続けます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "대시보드는 내 풀 리퀘스트와 리뷰 대기 목록을 구분하며, 풀 리퀘스트 탭에서는 모든 프로젝트 또는 한 프로젝트의 다른 사람 풀 리퀘스트도 볼 수 있습니다. 이미 리뷰를 제출한 요청도 목록에 남아 있을 수 있습니다. 메뉴 막대는 현재 내 리뷰를 기다리는 요청을 강조합니다. GitHub와 Jira는 백그라운드에서 새로 고쳐지며, 설정 → 연동에서 주기를 변경할 수 있습니다. 새로 고침에 실패해도 마지막으로 가져온 데이터는 계속 표시됩니다."
+            "value" : "대시보드는 내 풀 리퀘스트와 리뷰 대기 목록을 구분하며, 풀 리퀘스트 탭에서는 모든 프로젝트 또는 한 프로젝트의 다른 사람 풀 리퀘스트도 볼 수 있습니다. 이미 리뷰를 제출한 요청도 목록에 남아 있을 수 있습니다. GitHub와 Jira는 백그라운드에서 새로 고쳐지며, 설정 → 연동에서 주기를 변경할 수 있습니다. 새로 고침에 실패해도 마지막으로 가져온 데이터는 계속 표시됩니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O painel separa seus pull requests da fila de revisões, e a aba Pull requests também pode listar os dos outros, de todos os projetos ou de um só. Solicitações que você já revisou podem permanecer nessa fila. A barra de menus destaca os pedidos que ainda aguardam sua revisão. GitHub e Jira são atualizados em segundo plano; altere os intervalos em Ajustes → Integrações. Se uma atualização falhar, os últimos dados disponíveis continuam visíveis."
+            "value" : "O painel separa seus pull requests da fila de revisões, e a aba Pull requests também pode listar os dos outros, de todos os projetos ou de um só. Solicitações que você já revisou podem permanecer nessa fila. GitHub e Jira são atualizados em segundo plano; altere os intervalos em Ajustes → Integrações. Se uma atualização falhar, os últimos dados disponíveis continuam visíveis."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Панель управления отделяет ваши пул-реквесты от очереди ревью, а на её вкладке «Пул-реквесты» можно также посмотреть чужие — по всем проектам или по одному. Запросы, которые вы уже проверили, могут оставаться в очереди. Строка меню выделяет запросы, всё ещё ожидающие вашего ревью. Данные GitHub и Jira обновляются в фоне; интервалы настраиваются в разделе «Настройки → Интеграции». При сбое обновления последние доступные данные остаются на экране."
+            "value" : "Панель управления отделяет ваши пул-реквесты от очереди ревью, а на её вкладке «Пул-реквесты» можно также посмотреть чужие — по всем проектам или по одному. Запросы, которые вы уже проверили, могут оставаться в очереди. Данные GitHub и Jira обновляются в фоне; интервалы настраиваются в разделе «Настройки → Интеграции». При сбое обновления последние доступные данные остаются на экране."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Översikten skiljer dina pull requests från granskningskön, och fliken Pull requests kan även visa andras, för alla projekt eller ett. Förfrågningar som du redan har granskat kan finnas kvar i kön. Menyraden markerar förfrågningar som fortfarande väntar på din granskning. GitHub och Jira uppdateras i bakgrunden; ändra intervallen i Inställningar → Integrationer. Om en uppdatering misslyckas visas de senast tillgängliga uppgifterna fortfarande."
+            "value" : "Översikten skiljer dina pull requests från granskningskön, och fliken Pull requests kan även visa andras, för alla projekt eller ett. Förfrågningar som du redan har granskat kan finnas kvar i kön. GitHub och Jira uppdateras i bakgrunden; ändra intervallen i Inställningar → Integrationer. Om en uppdatering misslyckas visas de senast tillgängliga uppgifterna fortfarande."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "概览会将你的拉取请求与审查队列分开显示，其“拉取请求”标签页还可以列出其他人的拉取请求，范围可以是所有项目或单个项目。已提交审查的请求仍可能保留在队列中。菜单栏会突出显示仍在等待你审查的请求。GitHub 和 Jira 数据会在后台刷新，刷新间隔可在“设置 → 集成”中修改。刷新失败时，会继续显示上次获取的数据。"
+            "value" : "概览会将你的拉取请求与审查队列分开显示，其“拉取请求”标签页还可以列出其他人的拉取请求，范围可以是所有项目或单个项目。已提交审查的请求仍可能保留在队列中。GitHub 和 Jira 数据会在后台刷新，刷新间隔可在“设置 → 集成”中修改。刷新失败时，会继续显示上次获取的数据。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "總覽會分開顯示你的提取要求和審查佇列，其「提取要求」分頁也能列出其他人的提取要求，範圍可以是所有專案或單一專案。已提交審查的要求仍可能保留在佇列中。選單列會醒目顯示仍在等待你審查的要求。GitHub 和 Jira 資料會在背景重新整理，可在「設定 → 整合」中調整間隔。重新整理失敗時，仍會顯示上次取得的資料。"
+            "value" : "總覽會分開顯示你的提取要求和審查佇列，其「提取要求」分頁也能列出其他人的提取要求，範圍可以是所有專案或單一專案。已提交審查的要求仍可能保留在佇列中。GitHub 和 Jira 資料會在背景重新整理，可在「設定 → 整合」中調整間隔。重新整理失敗時，仍會顯示上次取得的資料。"
           }
         }
       }

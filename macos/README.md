@@ -241,7 +241,7 @@ Settings uses the visible sections **General**, **Browser**, **Terminal**,
   clearing with confirmation.
 
 The menu-bar popover shows pending review requests and available Claude/Codex usage.
-Its icon is bronze for pending reviews, blue for open work, and neutral when idle.
+Its icon is the menu bar's own black or white.
 The first successful review snapshot seeds notifications silently; later review
 requests can trigger alerts and the configured sound. Notification permission is
 requested through the user's explicit action. The sidebar bell opens recent
