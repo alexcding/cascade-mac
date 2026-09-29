@@ -123,17 +123,34 @@ private actor ControlledShellData: ShellDataServing {
     shell.documentStyleChanged = { changes += 1 }
     shell.connect(service)
     try await shellEventually { await service.reads == 1 }
-    await service.finish(["editorThemeDark": "Dracula", "editorThemeLight": "Dracula Pro", "editorMinimap": "off"])
+    await service.finish(["editorThemeDark": "Dracula", "editorThemeLight": "Dracula Pro", "editorMinimap": "on"])
     try await shellEventually { shell.editorStyle.darkTheme == "Dracula" }
-    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "", showMinimap: false))
-    #expect(preferences.string(forKey: "native.editorMinimap") == "off")
+    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "", showMinimap: true))
+    #expect(preferences.string(forKey: "native.editorMinimap") == "on")
     #expect(changes > 0)
     shell.setEditorTheme(light: "Nord") // Dark only: refused, and said so.
     #expect(shell.editorStyle.lightTheme == "" && shell.settingsError != nil)
-    shell.setEditorTheme(light: "One Light"); shell.setEditorMinimap(true)
-    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: true))
+    shell.setEditorTheme(light: "One Light"); shell.setEditorMinimap(false)
+    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: false))
     #expect(preferences.string(forKey: "native.editorThemeLight") == "One Light")
     try await shellEventually { await service.writes.map(\.0).contains("editorMinimap") }
+    await shell.stop()
+}
+
+@MainActor @Test func shellEditorMinimapIsOffUnlessSyncedOn() async throws {
+    let suite = "shell-editor-minimap-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    #expect(!ShellStore(preferences: preferences).editorStyle.showMinimap)
+    // Earlier builds wrote "on" locally on every sync, whether or not anyone chose it.
+    preferences.set("on", forKey: "native.editorMinimap")
+    let shell = ShellStore(preferences: preferences), service = ControlledShellData()
+    #expect(shell.editorStyle.showMinimap)
+    shell.connect(service)
+    try await shellEventually { await service.reads == 1 }
+    await service.finish([:])
+    try await shellEventually { !shell.editorStyle.showMinimap }
+    #expect(preferences.string(forKey: "native.editorMinimap") == "off")
     await shell.stop()
 }
 

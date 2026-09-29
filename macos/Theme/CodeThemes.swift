@@ -6,7 +6,7 @@ struct EditorStyle: Equatable, Sendable {
     /// Empty means the default theme.
     var darkTheme = ""
     var lightTheme = ""
-    var showMinimap = true
+    var showMinimap = false
 
     func theme(dark: Bool) -> CodeTheme { CodeTheme.named(dark ? darkTheme : lightTheme, dark: dark) }
 }

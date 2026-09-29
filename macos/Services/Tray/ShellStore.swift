@@ -119,7 +119,7 @@ import Observation
         }
         editorStyle = EditorStyle(darkTheme: savedTheme("editorThemeDark", dark: true),
                                   lightTheme: savedTheme("editorThemeLight", dark: false),
-                                  showMinimap: preferences.string(forKey: "native.editorMinimap") != "off")
+                                  showMinimap: preferences.string(forKey: "native.editorMinimap") == "on")
         fileIcons?.select(fileIconTheme)
     }
 
@@ -455,7 +455,7 @@ import Observation
                     let stored = (settings[key] ?? nil) ?? "", name = CodeTheme.has(stored, dark: dark) ? stored : ""
                     if dark { editorStyle.darkTheme = name } else { editorStyle.lightTheme = name }
                 }
-                if pendingSettings["editorMinimap"] == nil { editorStyle.showMinimap = (settings["editorMinimap"] ?? nil) != "off" }
+                if pendingSettings["editorMinimap"] == nil { editorStyle.showMinimap = (settings["editorMinimap"] ?? nil) == "on" }
                 preferences.set(appearance.rawValue, forKey: "native.theme")
                 preferences.set(usageAgent, forKey: "native.usageAgent")
                 preferences.set(activityNotify ? "on" : "off", forKey: "native.activityNotify")

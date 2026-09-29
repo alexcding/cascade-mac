@@ -44,7 +44,7 @@ import CodeEditSourceEditor
             configuration: SourceEditorConfiguration(
                 appearance: .init(theme: Self.theme(style, for: NSApp.effectiveAppearance),
                                   font: resolvedFont(),
-                                  wrapLines: false),
+                                  wrapLines: Self.wraps(value.content)),
                 behavior: .init(isEditable: !readOnly),
                 // Explicit zeros turn automatic insetting off: this editor sits under a tab bar, not
                 // the title bar the scroll view would otherwise inset itself for.
@@ -72,6 +72,21 @@ import CodeEditSourceEditor
             Task { @MainActor in self?.applyTheme() }
         }
         installSaveShortcut()
+    }
+
+    // The package typesets a wrapped line whole, in time that grows with the square of its length:
+    // measured, a 50,000-character line took 0.6 s to open and a 1 MB one nearly four minutes, and
+    // every edit on the line pays it again. A file with a longer line than this opens unwrapped.
+    static let longestWrappedLine = 5_000
+
+    static func wraps(_ text: String) -> Bool {
+        var length = 0
+        for unit in text.utf16 {
+            if unit == 0x0A || unit == 0x0D { length = 0; continue }
+            length += 1
+            if length > longestWrappedLine { return false }
+        }
+        return true
     }
 
     // The package handles its own shortcuts in a local monitor and has no save hook. One monitor

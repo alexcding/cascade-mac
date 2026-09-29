@@ -235,6 +235,19 @@ actor FileFixture: FileDocumentService {
     surface.dispose()
 }
 
+@MainActor @Test func codeEditEditorSurfaceWrapsUnlessALineIsTooLongToLayOut() async throws {
+    _ = NSApplication.shared
+    let longest = String(repeating: "x", count: CodeEditEditorSurface.longestWrappedLine)
+    for (content, wraps) in [("let a = 1\n", true), ("\(longest)\r\n\(longest)", true), ("let a = 1\n\(longest)x\n", false)] {
+        let surface = CodeEditEditorSurface()
+        try await surface.load(.init(content: content, readOnly: false, revision: String(repeating: "a", count: 64)),
+                               path: "/tmp/Fixture.swift")
+        let controller = try #require(surface.view?.descendantSourceTextView?.delegate as? TextViewController)
+        #expect(controller.configuration.appearance.wrapLines == wraps)
+        surface.dispose()
+    }
+}
+
 private extension NSView {
     var descendantSourceTextView: TextView? {
         if let text = self as? TextView { return text }
