@@ -42,6 +42,13 @@ import Observation
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var detailGeneration = UUID()
     @ObservationIgnored private var nextOffset = 0
+    /// Where the next older page starts, once this branch's own commits are all loaded: a first
+    /// load lists only what the branch added on its base, and asking for more carries on into the
+    /// history it grew from. Nil while the branch's commits are still coming.
+    @ObservationIgnored private var olderOffset: Int?
+    /// The revision each part of the list was loaded at, which a later page of that part must match.
+    @ObservationIgnored private var branchRevision: String?
+    @ObservationIgnored private var olderRevision: String?
     @ObservationIgnored private let pageSize: Int
     @ObservationIgnored private let copy: (String) -> Void
     @ObservationIgnored private let factory: any DocumentFeatureFactory
@@ -54,7 +61,7 @@ import Observation
     }
     var rows: [GitCommit] { commits.filter { search.isEmpty || $0.searchText.localizedStandardContains(search) } }
     var contextLabel: String {
-        if let base = page?.base, !base.isEmpty { return String(localized: "Commits ahead of \(base)") }
+        if let base = page?.base, !base.isEmpty, olderRevision == nil { return String(localized: "Commits ahead of \(base)") }
         return page?.branch.map { String(localized: "History of \($0)") } ?? String(localized: "Commit history")
     }
     var emptyLabel: String {
@@ -81,8 +88,9 @@ import Observation
     private func loadPage(reset: Bool, preserveLoadedPages: Bool = false) {
         guard active else { return }
         let generation = generation
-        let query = GitHistoryQuery(aheadOnly: true, base: base)
-        let offset = reset ? 0 : nextOffset
+        let older = reset ? nil : olderOffset
+        let query = older == nil ? GitHistoryQuery(aheadOnly: true, base: base) : GitHistoryQuery(aheadOnly: false)
+        let offset = reset ? 0 : older ?? nextOffset
         if reset { loading = true } else { loadingMore = true }
         error = nil
         listTask = Task {
@@ -90,25 +98,56 @@ import Observation
                 if self.generation == generation { loading = false; loadingMore = false; listTask = nil }
             }
             do {
-                let value = try await service.log(worktree: worktree, query: query, skip: offset, limit: pageSize)
+                var value = try await service.log(worktree: worktree, query: query, skip: offset, limit: pageSize)
                 try Task.checkCancellation()
                 guard self.generation == generation, active else { return }
-                if !reset {
-                    guard let revision = page?.historyRevision, revision == value.historyRevision else {
+                // The first older page begins a new list, with nothing loaded yet to compare against.
+                if !reset, offset > 0 {
+                    guard let revision = older == nil ? branchRevision : olderRevision, revision == value.historyRevision else {
                         hasMore = false
                         throw BackendError.operation(String(localized: "History changed while loading older commits. Refresh history to continue."))
                     }
                 }
                 var seen = Set(reset ? [] : commits.map(\.sha))
+                // The older list repeats the branch's own commits, which are already here: a page of
+                // nothing else is passed over rather than shown as a click that added nothing.
+                var skipped = 0
+                let revision = value.historyRevision
+                while older != nil, value.commits.count == pageSize, value.commits.allSatisfy({ seen.contains($0.sha) }) {
+                    skipped += value.commits.count
+                    value = try await service.log(worktree: worktree, query: query, skip: offset + skipped, limit: pageSize)
+                    try Task.checkCancellation()
+                    guard self.generation == generation, active else { return }
+                    // Each page passed over must be of the same list as the first.
+                    guard value.historyRevision == revision else {
+                        hasMore = false
+                        throw BackendError.operation(String(localized: "History changed while loading older commits. Refresh history to continue."))
+                    }
+                }
                 let added = value.commits.filter { seen.insert($0.sha).inserted }
-                if reset, preserveLoadedPages, value.historyRevision != nil,
-                   value.historyRevision == page?.historyRevision, nextOffset > value.commits.count {
+                // Showing again keeps what was loaded, older commits included, while the branch is unchanged.
+                if reset, preserveLoadedPages, value.historyRevision != nil, value.historyRevision == branchRevision,
+                   nextOffset > value.commits.count || olderRevision != nil {
                     let firstIDs = Set(added.map(\.sha))
                     commits = added + commits.filter { !firstIDs.contains($0.sha) }
+                } else if let older {
+                    commits += added
+                    olderOffset = older + skipped + value.commits.count
+                    olderRevision = value.historyRevision
+                    hasMore = value.commits.count == pageSize
                 } else {
                     commits = reset ? added : commits + added
                     nextOffset = offset + value.commits.count
-                    hasMore = value.commits.count == pageSize && !added.isEmpty
+                    branchRevision = value.historyRevision
+                    if reset { olderRevision = nil }
+                    let full = value.commits.count == pageSize
+                    if value.base?.isEmpty == false, !full {
+                        // The branch's commits are all here; older history comes next, if there is any.
+                        let older = value.older != false
+                        olderOffset = older ? 0 : nil; hasMore = older
+                    } else {
+                        olderOffset = nil; hasMore = full && !added.isEmpty
+                    }
                 }
                 page = value
                 if let selectedSHA, rows.contains(where: { $0.sha == selectedSHA }) {

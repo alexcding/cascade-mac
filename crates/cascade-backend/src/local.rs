@@ -1147,29 +1147,53 @@ pub async fn git_log(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
     .ok()
     .map(|v| v.trim_start_matches("origin/").to_owned())
     .unwrap_or_default();
-    let viewing = query
-        .reference
-        .filter(|v| !v.starts_with('-'))
-        .unwrap_or_else(|| {
-            if default.is_empty() {
-                "HEAD".into()
-            } else {
-                default.clone()
-            }
-        });
-    let revision = if query.ahead_only.as_deref() == Some("1") && !branch.is_empty() {
-        let base = query
-            .base
-            .clone()
-            .filter(|v| !v.is_empty())
-            .unwrap_or(default.clone());
-        if !base.is_empty() && base != branch {
-            format!("{base}..HEAD")
-        } else {
-            viewing.clone()
-        }
+    let ahead_only = query.ahead_only.as_deref() == Some("1");
+    // Ahead-only lists the worktree's own commits, so it always views HEAD.
+    let viewing = if ahead_only {
+        "HEAD".into()
     } else {
-        viewing.clone()
+        query
+            .reference
+            .filter(|v| !v.is_empty() && !v.starts_with('-'))
+            .unwrap_or_else(|| {
+                if default.is_empty() {
+                    "HEAD".into()
+                } else {
+                    default.clone()
+                }
+            })
+    };
+    // What the branch added on its base, even when that is nothing yet. A branch with no base to
+    // measure against — detached, or the base itself — lists its whole history, with no base
+    // reported.
+    let base = query
+        .base
+        .clone()
+        .filter(|v| !v.is_empty() && !v.starts_with('-'))
+        .unwrap_or(default.clone());
+    let detached = matches!(branch.as_str(), "" | "HEAD");
+    let ahead_of = (ahead_only && !base.is_empty() && base != branch && !detached).then_some(base);
+    // Resolved to commits once, before the log: the log runs on exactly these, and the list's
+    // revision names them, so a page always belongs to the list it says, whatever lands meanwhile.
+    // A commit on the branch, or its base moving, makes another list, which paging must not mix
+    // into. The trailing `--` reads every name as a revision, even one that is also a folder.
+    let names = match &ahead_of {
+        Some(base) => vec![base.clone(), "HEAD".into()],
+        None => vec![viewing.clone()],
+    };
+    let mut resolve = vec!["rev-parse".to_owned()];
+    resolve.extend(names.iter().cloned());
+    resolve.push("--".into());
+    let tips = git(&dir, resolve, 15)
+        .await
+        .ok()
+        // rev-parse echoes the `--` back after the commits.
+        .map(|v| v.lines().filter(|l| *l != "--").map(str::to_owned).collect::<Vec<_>>())
+        .filter(|v| v.len() == names.len())
+        .unwrap_or(names);
+    let revision = match &ahead_of {
+        Some(_) => format!("{}..{}", tips[0], tips[1]),
+        None => tips[0].clone(),
     };
     let format = "%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%D%x1f%s%x1e";
     let raw = git(
@@ -1189,8 +1213,18 @@ pub async fn git_log(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
     .unwrap_or_default();
     let commits=raw.split('\x1e').filter(|v|!v.trim().is_empty()).map(|record|{let p=record.trim_start_matches('\n').split('\x1f').collect::<Vec<_>>();json!({"sha":p.first().copied().unwrap_or(""),"short":p.get(1).copied().unwrap_or(""),"parents":p.get(2).copied().unwrap_or("").split_whitespace().collect::<Vec<_>>(),"author":p.get(3).copied().unwrap_or(""),"email":p.get(4).copied().unwrap_or(""),"date":p.get(5).copied().unwrap_or(""),"refs":[],"subject":p.get(7).copied().unwrap_or("")})}).collect::<Vec<_>>();
     let history_revision = format!("{:x}", Sha256::digest(revision.as_bytes()));
+    // Whether anything lies past the branch's own commits: the history it grew from is what it
+    // shares with its base, which a branch with no common commit does not have.
+    let older = match &ahead_of {
+        Some(_) => Some(
+            git(&dir, vec!["merge-base".into(), tips[0].clone(), tips[1].clone()], 15)
+                .await
+                .is_ok_and(|v| !v.is_empty()),
+        ),
+        None => None,
+    };
     Ok(Json(
-        json!({"commits":commits,"branch":branch,"ahead":ahead,"behind":behind,"viewing":viewing,"defaultBranch":default,"base":query.base,"historyRevision":history_revision}),
+        json!({"commits":commits,"branch":branch,"ahead":ahead,"behind":behind,"viewing":viewing,"defaultBranch":default,"base":ahead_of,"older":older,"historyRevision":history_revision}),
     ))
 }
 

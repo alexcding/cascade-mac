@@ -270,3 +270,70 @@ async fn setup_runs_in_the_new_worktree_and_removal_deletes_only_merged_branches
     assert_eq!(removed["branchDeleted"], false, "{removed}");
     assert_ne!(git(&dir, &["branch", "--list", "unmerged"]), "");
 }
+
+#[tokio::test]
+async fn history_lists_the_branch_on_its_base_and_the_whole_history_on_request() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let dir = repo(parent.path());
+    let log = |query: &str| {
+        let uri = format!("/api/git/log?path={}&{query}", dir.to_str().unwrap());
+        let app = app.clone();
+        async move {
+            let response = app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap()).await.unwrap();
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            let page = serde_json::from_slice::<Value>(&bytes).unwrap();
+            let subjects = page["commits"].as_array().unwrap().iter().map(|c| c["subject"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+            (subjects, page["base"].clone(), page["viewing"].clone(), page["historyRevision"].as_str().unwrap().to_owned(), page["older"].clone())
+        }
+    };
+    let ahead = "aheadOnly=1&base=main&ref=";
+    let whole = "aheadOnly=0&base=&ref=HEAD";
+
+    // On the base itself there is nothing to measure against: the whole history, no base.
+    let page = log(ahead).await;
+    assert_eq!((page.0, page.1, page.2), (vec!["init".to_owned()], Value::Null, json!("HEAD")));
+
+    // A new branch has added nothing yet, and says so rather than listing its base's commits.
+    git(&dir, &["checkout", "-qb", "feature"]);
+    let page = log(ahead).await;
+    assert_eq!((page.0, page.1, page.2, page.4), (vec![], json!("main"), json!("HEAD"), json!(true)));
+    let before = log(whole).await;
+    assert_eq!(before.0, ["init"]);
+
+    for name in ["one", "two"] {
+        fs::write(dir.join(name), name).unwrap();
+        git(&dir, &["add", name]);
+        git(&dir, &["commit", "-qm", name]);
+    }
+    assert_eq!(log(ahead).await.0, ["two", "one"]);
+    // The branch moved, so its history is another list: paging on across that is caught.
+    assert_ne!(log(whole).await.3, before.3);
+    assert_eq!(log(whole).await.3, log(&format!("{whole}&skip=1")).await.3);
+    assert_eq!(log(&format!("{ahead}&skip=1&limit=1")).await.0, ["one"]);
+    assert_eq!(log(&format!("{ahead}&skip=2&limit=1")).await.0, Vec::<String>::new());
+    assert_eq!(log(&format!("{whole}&skip=1")).await.0, ["one", "init"]);
+
+    // A folder named like the base leaves the base a revision: still only the branch's commits, and
+    // still a list that moves when the branch does.
+    let moved = log(ahead).await.3;
+    fs::create_dir_all(dir.join("main")).unwrap();
+    fs::write(dir.join("main/three"), "three").unwrap();
+    git(&dir, &["add", "main/three"]);
+    git(&dir, &["commit", "-qm", "three"]);
+    let page = log(ahead).await;
+    assert_eq!(page.0, ["three", "two", "one"]);
+    assert_ne!(page.3, moved);
+
+    // A branch sharing nothing with its base has no older history to offer.
+    git(&dir, &["checkout", "-q", "--orphan", "lone"]);
+    git(&dir, &["commit", "-qm", "lone"]);
+    let page = log(ahead).await;
+    assert_eq!((page.0, page.4), (vec!["lone".to_owned()], json!(false)));
+    git(&dir, &["checkout", "-q", "feature"]);
+
+    // Detached, there is no branch to have added anything: the whole history again.
+    git(&dir, &["checkout", "-q", "--detach"]);
+    let page = log(ahead).await;
+    assert_eq!((page.0, page.1, page.2), (vec!["three".to_owned(), "two".to_owned(), "one".to_owned(), "init".to_owned()], Value::Null, json!("HEAD")));
+}
