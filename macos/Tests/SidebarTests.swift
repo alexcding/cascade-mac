@@ -536,3 +536,44 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     _ = (fork.target as? NSObject)?.perform(try #require(fork.action), with: fork)
     #expect(forked == ["agent"])
 }
+
+/// A click that leaves a session selected hands it the keyboard; a click on a project does not.
+@MainActor @Test func clickingASessionRowFocusesItsSession() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let projects = [Project(id: "p1", name: "First", repo: "o/f", color: nil, workspace: "/tmp")]
+    let sessions = [workspaceSession("agent", created: "2026-01")]
+    var focused: [String] = []
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: []),
+                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    value.onFocusSession = { focused.append($0) }
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    func node(_ id: String) throws -> CocoaSidebar.Node {
+        try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
+    }
+    coordinator.clicked(try node("project:p1"))
+    coordinator.clicked(try node("session:agent"))
+    #expect(focused == ["agent"])
+}
+
+/// Only a plain single click that left its row selected hands the session the keyboard.
+@MainActor @Test func onlyAPlainClickOnTheSelectedRowChoosesIt() {
+    func chooses(row: Int = 3, selected: Int = 3, clicks: Int = 1, flags: NSEvent.ModifierFlags = [], travel: CGFloat = 0) -> Bool {
+        SidebarOutlineView.chooses(row: row, selectedRow: selected, clickCount: clicks, flags: flags, travel: travel)
+    }
+    #expect(chooses())
+    #expect(chooses(travel: 3.9))
+    #expect(!chooses(travel: 4), "a drag is a reorder")
+    #expect(!chooses(flags: .control), "a control-click opens the menu")
+    #expect(!chooses(clicks: 2), "a double-click's second press")
+    #expect(!chooses(selected: 5), "a Command-click that deselected, or a refused selection")
+    #expect(!chooses(row: -1, selected: -1), "a click below the rows")
+}

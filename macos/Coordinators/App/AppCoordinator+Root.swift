@@ -18,6 +18,7 @@ import Foundation
     func openGitClient(_ id: String)
     func renameSession(_ id: String, to name: String)
     func forkSession(_ id: String)
+    func focusSession(_ id: String)
 }
 
 extension RootCoordinating {
@@ -31,6 +32,7 @@ extension RootCoordinating {
     func openGitClient(_ id: String) {}
     func renameSession(_ id: String, to name: String) {}
     func forkSession(_ id: String) {}
+    func focusSession(_ id: String) {}
 }
 
 extension AppCoordinator {
@@ -72,6 +74,7 @@ extension AppCoordinator {
         case .openGitClient(let id): rootRuntime?.openGitClient(id)
         case .renameSession(let id, let name): rootRuntime?.renameSession(id, to: name)
         case .forkSession(let id): rootRuntime?.forkSession(id)
+        case .focusSession(let id): rootRuntime?.focusSession(id)
         }
     }
 }

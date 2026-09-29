@@ -28,6 +28,8 @@ struct CocoaSidebar: NSViewRepresentable {
     var onRemoveSession: (String) -> Void = { _ in }
     var onRenameSession: (String, String) -> Void = { _, _ in }
     var onForkSession: (String) -> Void = { _ in }
+    /// A session clicked in the sidebar hands the keyboard to its agent; the arrow keys leave it here.
+    var onFocusSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
@@ -52,6 +54,8 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.indentationMarkerFollowsCell = false
         outline.allowsEmptySelection = true
         outline.allowsMultipleSelection = false
+        // Typing a letter here must not jump to the row it starts: "a" landed on Automation.
+        outline.allowsTypeSelect = false
         outline.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
@@ -60,6 +64,7 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.draggingDestinationFeedbackStyle = .gap
         outline.contextMenu = { [weak coordinator = context.coordinator] item in coordinator?.menu(for: item) }
         outline.onReselect = { [weak coordinator = context.coordinator] item in coordinator?.reselected(item) }
+        outline.onClick = { [weak coordinator = context.coordinator] item in coordinator?.clicked(item) }
         outline.onMiddleClick = { [weak coordinator = context.coordinator] item in coordinator?.middleClicked(item) }
         outline.canDrag = { [weak coordinator = context.coordinator] item in coordinator?.canDrag(item) ?? false }
         let scroll = NSScrollView()
@@ -439,6 +444,11 @@ struct CocoaSidebar: NSViewRepresentable {
                   let destination = node.entry.destination else { return }
             selectedPlacement = node.entry.id
             parent.onSelect(destination)
+        }
+
+        /// After the selection it made has been shown, so the keyboard goes to the session on screen.
+        func clicked(_ node: Node) {
+            if let id = node.entry.sessionID { parent.onFocusSession(id) }
         }
 
         // A click on the folder that is already in view collapses / expands its sessions — the
@@ -991,6 +1001,8 @@ enum SidebarGlyphs {
 @MainActor final class SidebarOutlineView: NSOutlineView {
     var contextMenu: ((CocoaSidebar.Node) -> NSMenu?)?
     var onReselect: ((CocoaSidebar.Node) -> Void)?
+    /// A click that left its row selected, as opposed to a drag or the arrow keys.
+    var onClick: ((CocoaSidebar.Node) -> Void)?
     var onMiddleClick: ((CocoaSidebar.Node) -> Void)?
     var canDrag: ((CocoaSidebar.Node) -> Bool)?
 
@@ -1007,13 +1019,23 @@ enum SidebarGlyphs {
 
     override func mouseDown(with event: NSEvent) {
         let row = row(at: convert(event.locationInWindow, from: nil))
-        let reselected = row >= 0 && row == selectedRow ? item(atRow: row) as? CocoaSidebar.Node : nil
+        let pressed = row >= 0 ? item(atRow: row) as? CocoaSidebar.Node : nil
+        let reselected = row == selectedRow ? pressed : nil
         super.mouseDown(with: event)
         // `super` returns once the mouse is up, which may be the end of a drag: that is a
         // reorder (or an abandoned one), not a click, and must not collapse the folder.
-        guard let reselected, event.clickCount == 1, let released = window?.mouseLocationOutsideOfEventStream,
-              hypot(released.x - event.locationInWindow.x, released.y - event.locationInWindow.y) < 4 else { return }
-        onReselect?(reselected)
+        guard let pressed, let released = window?.mouseLocationOutsideOfEventStream else { return }
+        let travel = hypot(released.x - event.locationInWindow.x, released.y - event.locationInWindow.y)
+        if let reselected, event.clickCount == 1, travel < 4 { onReselect?(reselected) }
+        if Self.chooses(row: row, selectedRow: selectedRow, clickCount: event.clickCount,
+                        flags: event.modifierFlags, travel: travel) { onClick?(pressed) }
+    }
+
+    /// Whether a finished press chose its row: one click that left the row selected and moved
+    /// under 4pt. A drag is a reorder, a control-click opened the row's menu, and a double-click's
+    /// second press has already been counted by its first.
+    static func chooses(row: Int, selectedRow: Int, clickCount: Int, flags: NSEvent.ModifierFlags, travel: CGFloat) -> Bool {
+        row >= 0 && row == selectedRow && clickCount == 1 && !flags.contains(.control) && travel < 4
     }
 
     override func otherMouseUp(with event: NSEvent) {

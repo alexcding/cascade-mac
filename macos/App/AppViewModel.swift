@@ -582,10 +582,17 @@ public final class AppViewModel {
         }
     }
 
-    /// A session reached by its shortcut takes the keyboard to its agent — the terminal, or the
-    /// chat's message field when it is in Chat — so typing goes straight to it. One chosen in the sidebar leaves it there, for its arrow keys.
+    /// A session reached by its shortcut takes the keyboard to its agent, as one clicked in the sidebar does.
     private func showSession(_ id: String) {
         select(.session(id))
+        focusSession(id)
+    }
+
+    /// The keyboard goes to the shown session's agent — the terminal, or the chat's message field
+    /// when it is in Chat — so typing goes straight to it. One reached with the sidebar's arrow keys
+    /// is not focused, so the arrows keep moving through the sidebar.
+    func focusSession(_ id: String) {
+        guard case .session(id) = selection else { return }
         // In Chat the keyboard goes to its message field; a chat not built yet takes it on appear.
         if SessionWorkspaceViewModel.opensInChat(sessionID: id) { coordinator.activeWorkspaceModel?.focusAgent() }
         else { terminals["task:\(id)"]?.surface.requestFocus() }

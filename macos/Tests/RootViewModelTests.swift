@@ -13,6 +13,7 @@ import Testing
     var reconnects = 0
     var removalRequests: [String] = []
     var renames: [String] = []
+    var focuses: [String] = []
     weak var coordinator: AppCoordinator?
     func rootState() -> RootState { state }
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState { SessionWorkspaceState() }
@@ -31,6 +32,7 @@ import Testing
     func reconnect() async { reconnects += 1 }
     func togglePin(_ id: String) { pins.append(id) }
     func renameSession(_ id: String, to name: String) { renames.append("\(id)=\(name)") }
+    func focusSession(_ id: String) { focuses.append(id) }
     func closeTab(_ url: String) { closedTabs.append(url) }
     func openTerminal() { terminals += 1 }
     func openRootBrowser(_ url: URL) { opens.append(url) }
@@ -204,6 +206,18 @@ private struct InertRemovalService: SessionRemoving {
     model.renameSession("s", to: "Checkout fix")
     model.renameSession("s", to: "")
     #expect(runtime.renames == ["s=Checkout fix", "s="])
+}
+
+/// A session clicked in the sidebar asks the runtime to hand the keyboard to its agent.
+@MainActor @Test func sidebarFocusSessionReachesTheRuntime() throws {
+    let preferences = try #require(UserDefaults(suiteName: "CascadeRootTests-\(UUID().uuidString)"))
+    let shell = ShellStore(preferences: preferences), viewer = ViewerStore()
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                                     selectionStore: TransientSidebarSelectionStore(.overview))
+    let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
+    let model = coordinator.makeRoot(factory: RecordingRootFactory(), runtime: runtime, shell: shell, viewer: viewer)
+    model.focusSession("s")
+    #expect(runtime.focuses == ["s"])
 }
 
 /// A given name is what the sidebar, toolbar and window title show; without one, or with only
