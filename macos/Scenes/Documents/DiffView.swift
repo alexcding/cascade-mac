@@ -15,9 +15,6 @@ struct DiffView: View {
             if let view = model.webView { BrowserSurface(webView: view) }
             else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
         }
-        .sheet(isPresented: Binding(get: { model.coordinator.showsActions }, set: { if !$0 { model.coordinator.dismissActions() } })) {
-            if let actions = model.actions { GitChangesSheet(model: actions) }
-        }
         .sheet(item: Binding(get: { model.coordinator.discardProposal }, set: { if $0 == nil { model.coordinator.dismissDiscard() } })) { proposal in
             if let actions = model.actions { DiscardChangeSheet(model: actions, proposal: proposal) }
         }
@@ -30,10 +27,21 @@ struct DiffView: View {
             Spacer()
             if model.actions != nil {
                 Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: model.requestActions).disabled(model.actions?.busy == true)
+                    .commitPopover(model)
             }
             if model.loading || model.actions?.busy == true { ProgressView().controlSize(.small) }
             Button(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", action: model.refresh)
                 .labelStyle(.iconOnly).disabled(model.loading || model.actions?.busy == true)
         }.padding(10)
+    }
+}
+
+extension View {
+    /// Commit and Push opens beside the button that asked for it rather than as a sheet over the pane.
+    func commitPopover(_ diff: DiffViewModel) -> some View {
+        popover(isPresented: Binding(get: { diff.coordinator.showsActions }, set: { if !$0 { diff.coordinator.actionsClosed() } }),
+                arrowEdge: .top) {
+            if let actions = diff.actions { GitChangesSheet(model: actions) }
+        }
     }
 }

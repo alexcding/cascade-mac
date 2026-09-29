@@ -612,7 +612,7 @@ private struct PillSlideClip: Shape {
 }
 
 /// The raised background of the selected tab: Liquid Glass on macOS 26, a lifted capsule before.
-private struct ActiveTabCapsule: View {
+struct ActiveTabCapsule: View {
     var body: some View {
         if #available(macOS 26.0, *) {
             Color.clear.glassEffect(.regular.interactive(), in: Capsule())

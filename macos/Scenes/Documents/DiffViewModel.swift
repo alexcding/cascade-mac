@@ -34,7 +34,7 @@ struct APIDiffService: DiffService {
 /// The working-changes diff is the app's one embedded page of our own (`Resources/DiffPage`).
 /// The page is push-only: this model loads the snapshot through `APIClient` and hands it to
 /// `window.nativeDiff.render`; the page has no network access and reports back `ready`,
-/// `open` and `discard` through a single message handler.
+/// `files`, `open` and `discard` through a single message handler.
 @MainActor @Observable final class DiffViewModel: NSObject, WKNavigationDelegate {
     enum Action { case showActions, openFile(DocumentLocation), hide }
     let coordinator: DiffCoordinator
@@ -61,6 +61,10 @@ struct APIDiffService: DiffService {
     var isPageReady: Bool { loaded }
     private(set) var actions: GitChangesActions?
     private(set) var webView: WKWebView?
+    /// Every file in the changes for the list beside the diff, as the page reported its last render:
+    /// the diff's files, then the untracked ones. Taken whole from the page, so the list is always
+    /// what the page shows and a row always scrolls to its own file.
+    private(set) var changedFiles: [ChangedFile] = []
     @ObservationIgnored private var service: (any DiffService)?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
@@ -171,7 +175,13 @@ struct APIDiffService: DiffService {
         font = value
         if loaded { webView?.evaluateJavaScript("window.nativeDiff.setFont(\(value.json))", completionHandler: nil) }
     }
-    func reload() { documentError = nil; loadError = nil; loaded = false; webView?.reload(); refresh() }
+    /// The page starts again, so its file list does too until it reports its next render.
+    func reload() { documentError = nil; loadError = nil; loaded = false; changedFiles = []; webView?.reload(); refresh() }
+    /// Scrolls the diff to a file of `changedFiles`.
+    func reveal(_ file: ChangedFile) {
+        guard active, loaded else { return }
+        webView?.evaluateJavaScript("window.nativeDiff.reveal('\(file.status == .untracked ? "untracked" : "file")', \(file.index))", completionHandler: nil)
+    }
     private func render() {
         guard loaded, let documentScript else { return }
         let generation = generation
@@ -194,7 +204,7 @@ struct APIDiffService: DiffService {
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "diff")
         webView?.removeFromSuperview(); webView = nil
         loaded = false; contentProcessEnded = false
-        snapshot = nil; documentScript = nil; documentError = nil; loadError = nil
+        snapshot = nil; changedFiles = []; documentScript = nil; documentError = nil; loadError = nil
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
@@ -204,7 +214,7 @@ struct APIDiffService: DiffService {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { failed(error) }
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        loaded = false
+        loaded = false; changedFiles = []
         // A hidden page is loaded again when it comes back; only one on screen has to say so.
         if active { documentError = String(localized: "The changes view stopped. Reload to restore it.") } else { contentProcessEnded = true }
     }
@@ -218,6 +228,9 @@ struct APIDiffService: DiffService {
               let body = message.body as? [String: Any], body.count <= 3 else { return }
         if body["type"] as? String == "ready" {
             loaded = true; documentError = nil; setAppearance(appearance); setFont(font); render()
+        } else if body["type"] as? String == "files" {
+            // A list that cannot be read is no list, rather than the last render's beside this one.
+            changedFiles = ChangedFile.decode(files: body["files"], untracked: body["untracked"]) ?? []
         } else if body["type"] as? String == "error", let text = body["message"] as? String, text.utf8.count <= 4096 {
             documentError = text.isEmpty ? String(localized: "Could not load changes.") : String(localized: "Could not load changes: \(text)")
         } else if let request = DiscardSelectionMessage.decode(body, revision: snapshot?.revision), active, loaded, !loading, let actions {

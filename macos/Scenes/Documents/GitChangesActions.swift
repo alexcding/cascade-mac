@@ -109,10 +109,13 @@ extension APIGitChangesService {
         self.service = service; generation = UUID(); loading = false; fresh = false
         discardGeneration = UUID(); if !busy { discardProposal = nil; onPresentation(.discardEnded) }
     }
-    func load() async {
+    /// `keepingOutcome` leaves the last commit or push's error standing, as when the popover opens
+    /// again after it closed on a running commit: the result is still the thing to read.
+    func load(keepingOutcome: Bool = false) async {
         guard !busy else { return }
         let generation = UUID(); self.generation = generation
-        loading = true; fresh = false; error = nil
+        loading = true; fresh = false
+        if !keepingOutcome { error = nil }
         defer { if self.generation == generation { loading = false } }
         do {
             let value = try await service.load(worktree: worktree)

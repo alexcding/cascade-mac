@@ -191,7 +191,8 @@ of its own; and reports back through one message handler.
 
 - **Working-changes diff** (`macos/Resources/DiffPage/`, hand-written). `DiffViewModel` loads
   the snapshot through `APIClient` and hands it to `window.nativeDiff.render`;
-  `DiffPageAssets` serves it on `cascade-diff://`; it reports `ready`/`open`/`discard`.
+  `DiffPageAssets` serves it on `cascade-diff://`; it reports `ready`/`files`/`open`/`discard`, and
+  `window.nativeDiff.reveal` scrolls it to a file of the changed-files list beside it.
 - **Agent chat** (`macos/Resources/ChatPage/`, built). `TranscriptChatPage` replaces the
   whole conversation (`ChatPageState`) through `window.nativeChat.render` on every push;
   `ChatPageAssets` serves it on `cascade-chat://`; it reports

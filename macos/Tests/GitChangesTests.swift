@@ -154,3 +154,40 @@ actor GitActionFixture: GitChangesService, DiffService {
         #expect(DiscardSelectionMessage.decode(["type": "discard", "selection": selection, "revision": "current"], revision: "current") == nil)
     }
 }
+
+/// A popover closes on a click outside it, even mid-commit. The commit runs on, and the
+/// presentation must end with it rather than stay open behind a popover no longer shown.
+@MainActor @Test func commitPopoverClosedMidCommitEndsThePresentation() async throws {
+    let service = GitActionFixture()
+    let model = DiffViewModel(worktree: "/fixture", baseURL: URL(string: "http://127.0.0.1:3000")!, service: service, actionsService: service)
+    var ended = 0
+    model.coordinator.presentationEnded = { ended += 1 }
+    model.show(appearance: .light)
+    let actions = try #require(model.actions)
+    await actions.load()
+    model.requestActions()
+    #expect(model.coordinator.showsActions)
+    let commit = Task { await actions.perform(.commit) }
+    for _ in 0..<50 where !actions.busy { await Task.yield() }
+    #expect(actions.busy)
+    model.coordinator.dismissActions()
+    #expect(model.coordinator.showsActions)
+    model.coordinator.actionsClosed()
+    #expect(!model.coordinator.showsActions && !model.coordinator.isPresenting && ended == 1)
+    await commit.value
+    #expect(actions.committedHash == "abc1234" && !model.coordinator.showsActions && ended == 1)
+    // Opening it again shows how the last operation went: a rejected push still stands, and only
+    // Refresh clears it.
+    await actions.perform(.push)
+    #expect(actions.error?.contains("Push rejected") == true)
+    await actions.load(keepingOutcome: true)
+    #expect(actions.error?.contains("Push rejected") == true)
+    await actions.load()
+    #expect(actions.error == nil)
+    // Leaving the changes — another section, another session — closes it, whatever anchored it.
+    model.requestActions()
+    #expect(model.coordinator.showsActions)
+    model.hide()
+    #expect(!model.coordinator.showsActions)
+    model.disconnect()
+}

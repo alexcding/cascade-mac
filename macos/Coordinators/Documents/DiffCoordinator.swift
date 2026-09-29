@@ -43,6 +43,13 @@ import Observation
         showsActions = false; presentationEnded()
     }
 
+    /// The popover closed itself — a click outside it, mid-commit too. The commit runs on and
+    /// reports into the pane; the presentation is over either way, so the state says so.
+    func actionsClosed() {
+        guard showsActions else { return }
+        showsActions = false; presentationEnded()
+    }
+
     func dismissDiscard() {
         guard discardProposal != nil, model?.actions?.busy != true else { return }
         model?.actions?.cancelDiscard()

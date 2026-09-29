@@ -1,6 +1,6 @@
 // This surface only renders the snapshot supplied by its native owner. It has no file I/O
 // or HTTP access (CSP connect-src 'none'); native controls own loading and mutations, and
-// the page reports intent back through one message handler: ready, open, discard.
+// the page reports intent back through one message handler: ready, files, open, discard.
 import { parseDiff, diffPath, hunkBlocks } from './DiffParse.mjs';
 import { highlightLine, langForPath } from './DiffHighlight.mjs';
 
@@ -63,7 +63,7 @@ function renderFile(f, fi, allow, discardable, fileLinks) {
     body = `<table class="diff-table">${groups.join('')}</table>`;
   }
   // .diff-body owns the rounded-corner clipping so the sticky header above it works.
-  return `<div class="diff-file">${head}${body ? `<div class="diff-body">${body}</div>` : ''}</div>`;
+  return `<div class="diff-file" data-fi="${fi}">${head}${body ? `<div class="diff-body">${body}</div>` : ''}</div>`;
 }
 
 function renderUntracked(untracked, fileLinks) {
@@ -74,6 +74,15 @@ function renderUntracked(untracked, fileLinks) {
   return `<div class="diff-file"><div class="diff-file-head diff-untracked-head">${esc(label('untracked'))}</div><div class="diff-body">` +
     visible.map(path => `<div class="diff-untracked">${entry(path)}</div>`).join('') +
     (remainder ? `<div class="diff-stub">${esc(label('moreUntracked'))}: ${remainder}</div>` : '') + `</div></div>`;
+}
+
+// What the native file list shows: the files this page draws and the untracked ones it lists, in
+// its order, so a row's index is what `reveal` scrolls to.
+function listed(files, untracked) {
+  return {
+    files: files.slice(0, MAX_FILES).map(f => ({ path: f.newPath || f.oldPath, status: f.status, adds: f.adds, dels: f.dels })),
+    untracked: untracked.slice(0, MAX_UNTRACKED),
+  };
 }
 
 function render(files, untracked, discardable, fileLinks) {
@@ -149,7 +158,9 @@ window.nativeDiff = {
     const collapsed = new Set(keep ? [...pane.querySelectorAll('.diff-file.collapsed .diff-fpath')].map(el => el.textContent) : []);
     const scroll = keep ? pane.scrollTop : 0;
     clearFrame();
-    pane.innerHTML = render(parseDiff(snapshot.diff), snapshot.untracked || [], Boolean(snapshot.revision), snapshot.fileLinks !== false);
+    const files = parseDiff(snapshot.diff), untracked = snapshot.untracked || [];
+    pane.innerHTML = render(files, untracked, Boolean(snapshot.revision), snapshot.fileLinks !== false);
+    post({ type: 'files', ...listed(files, untracked) });
     if (collapsed.size) pane.querySelectorAll('.diff-fpath').forEach(el => {
       if (collapsed.has(el.textContent)) el.closest('.diff-file').classList.add('collapsed');
     });
@@ -157,6 +168,16 @@ window.nativeDiff = {
     renderedRevision = snapshot.revision || null;
     previous = key;
     return true;
+  },
+  // Scrolls a file of the native list to the top, opening it if it was collapsed: a tracked
+  // file by its place in the diff, an untracked one by its place in the untracked list.
+  reveal(kind, index) {
+    if (!Number.isInteger(index) || index < 0) return;
+    const target = kind === 'untracked' ? pane.querySelectorAll('.diff-untracked')[index]
+      : kind === 'file' ? pane.querySelector(`.diff-file[data-fi="${index}"]`) : null;
+    if (!target) return;
+    target.closest('.diff-file')?.classList.remove('collapsed');
+    target.scrollIntoView({ block: kind === 'file' ? 'start' : 'center' });
   },
   setTheme(theme) {
     currentTheme = theme;

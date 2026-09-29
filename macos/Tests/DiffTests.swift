@@ -110,6 +110,15 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(paths == "Sources/App.swift|fä.png")
     #expect(try await view.evaluateJavaScript("document.documentElement.dataset.theme") as? String == "dark")
     #expect(model.error == nil)
+    // The page reports what it drew, the diff's files and then the untracked ones, for the list beside it.
+    for _ in 0..<40 where model.changedFiles.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.changedFiles.map(\.path) == ["Sources/App.swift", "fä.png", "Notes.md"])
+    #expect(model.changedFiles.first?.adds == 1 && model.changedFiles.first?.dels == 1 && model.changedFiles.last?.status == .untracked)
+    // Choosing a collapsed file opens it.
+    _ = try await view.evaluateJavaScript("document.querySelector('.diff-file').classList.add('collapsed'); 0")
+    model.reveal(model.changedFiles[0])
+    for _ in 0..<20 where try await count(".diff-file.collapsed") > 0 { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(try await count(".diff-file.collapsed") == 0)
     // Native translations travel with the payload; labels remain text even when they contain markup.
     var localized = try #require(model.snapshot)
     localized.language = "fr"
@@ -122,7 +131,7 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     model.hide()
     #expect(model.webView === view && model.isPageReady)
     model.disconnect()
-    #expect(model.webView == nil && !model.isPageReady)
+    #expect(model.webView == nil && !model.isPageReady && model.changedFiles.isEmpty)
 }
 
 @MainActor @Test func diffContentProcessTerminationWhileHiddenReloadsSilentlyOnNextShow() async throws {

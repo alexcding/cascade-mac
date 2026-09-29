@@ -285,7 +285,14 @@ struct SessionWorkspaceContextBody: View {
             VStack(spacing: 0) {
                 Group {
                     if context.reviewSection == .history, let history = model.history { GitHistoryView(model: history) }
-                    else if context.reviewSection == .changes, let diff = model.diff { DiffView(model: diff, showsHeader: false) }
+                    else if context.reviewSection == .changes, let diff = model.diff {
+                        // The changed files to the right of the diff; choosing one scrolls the diff to it.
+                        HSplitView {
+                            DiffView(model: diff, showsHeader: false).frame(minWidth: 240, maxWidth: .infinity)
+                            ChangedFilesView(files: diff.changedFiles, reveal: diff.reveal)
+                                .frame(minWidth: 160, idealWidth: 220, maxWidth: 360)
+                        }
+                    }
                     else { Color.clear }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
@@ -310,9 +317,8 @@ private struct ReviewFooter: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Picker(String(localized: "Review section"), selection: Binding(get: { context.reviewSection }, set: context.setReviewSection)) {
-                ForEach(ReviewSection.allCases) { Text($0.title).tag($0) }
-            }.pickerStyle(.segmented).labelsHidden().fixedSize()
+            GlassSegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
+                                 selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
             if context.reviewSection == .changes, let diff {
                 let busy = diff.loading || diff.actions?.busy == true
                 if let branch = diff.snapshot?.branch {
@@ -320,11 +326,20 @@ private struct ReviewFooter: View {
                 }
                 Spacer(minLength: 4)
                 if busy { ProgressView().controlSize(.small) }
-                Button(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", action: diff.refresh)
-                    .labelStyle(.iconOnly).buttonStyle(.borderless).disabled(busy)
-                if diff.actions != nil {
-                    Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: diff.requestActions)
-                        .disabled(diff.actions?.busy == true)
+                // The same glass capsules as the editor's footer.
+                HoverCircleButton(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", enabled: !busy, action: diff.refresh)
+                    .help(String(localized: "Refresh Changes"))
+                    .barGlass()
+                if let actions = diff.actions {
+                    // The padded capsule is the label, so all of it takes the click.
+                    Button(action: diff.requestActions) {
+                        Label(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle")
+                            .padding(.horizontal, 14).frame(maxHeight: .infinity).contentShape(Capsule())
+                    }
+                    .barGlass(iconOnly: false)
+                    .disabled(actions.busy)
+                    .opacity(actions.busy ? 0.5 : 1)
+                    .commitPopover(diff)
                 }
             } else {
                 Spacer(minLength: 4)
