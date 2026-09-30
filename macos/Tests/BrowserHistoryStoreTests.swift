@@ -159,11 +159,19 @@ import Testing
     let json = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
     let viewer = ViewerStore(cacheURL: cache)
     #expect(viewer.needsImport, "no file: the backend's snapshots are looked at once")
-    viewer.importLegacySnapshots(["native.context.task:two": json, "theme": "dark", "native.context.bad": "{"])
+    viewer.importLegacySnapshots(["native.context.task:two": json, "native.context.task:gone": json,
+                                  "theme": "dark", "native.context.bad": "{"]) { $0 != "task:gone" }
     #expect(!viewer.needsImport)
     let restored = viewer.select(id: "task:two", url: "session:two", title: "Two")
     #expect(restored.history.map(\.url) == ["https://example.com/carried"])
+    #expect(viewer.select(id: "task:gone", url: "session:gone", title: "Gone").history.isEmpty, "a dead context's snapshot is left behind")
     #expect(FileManager.default.fileExists(atPath: cache.path), "written for the next launch")
     #expect(!ViewerStore(cacheURL: cache).needsImport, "a Mac with a file of its own adopts nothing")
     #expect(!ViewerStore().needsImport, "no file location: nothing to adopt into")
+    // Nothing to adopt still ends the import: the file is written, and the next launch asks no more.
+    let empty = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: empty) }
+    let fresh = ViewerStore(cacheURL: empty)
+    fresh.importLegacySnapshots(["theme": "dark"])
+    #expect(FileManager.default.fileExists(atPath: empty.path) && !ViewerStore(cacheURL: empty).needsImport)
 }

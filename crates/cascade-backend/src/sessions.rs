@@ -67,14 +67,22 @@ pub async fn create_session(
             "The page address must use HTTP or HTTPS.",
         ));
     }
-    // No agent at all, a plain shell, or one the registry knows: what a later PATCH allows.
-    if !body.cli.is_empty() && crate::agents::Agent::of(&body.cli).is_none() {
+    if !crate::agents::Agent::allowed_cli(&body.cli) {
         return Err(ApiError::bad_request("Unsupported agent"));
     }
 
     let trees = local::list_worktrees(&workspace).await;
     let found = trees.iter().find(|tree| tree.branch == branch);
-    let worktree = match body.reuse_worktree.as_deref().filter(|v| !v.is_empty()) {
+    let reused = body.reuse_worktree.as_deref().filter(|v| !v.is_empty());
+    // An empty base picks the repository's session base, for the checkout parked and the branch
+    // forked alike; it is asked for only when one of those happens.
+    let parks = reused.is_none() && matches!(found, Some(tree) if tree.main);
+    let mut base = body.base.trim().to_owned();
+    if base.is_empty() && (parks || body.create_branch) {
+        let taken: Vec<String> = trees.iter().map(|tree| tree.branch.clone()).collect();
+        base = session_base(&workspace, &taken).await?;
+    }
+    let worktree = match reused {
         // The page resolved to this worktree; it must still be the one, and still a worktree.
         Some(reused) => match found {
             Some(tree) if !tree.main && same_path(&tree.path, reused) => tree.path.clone(),
@@ -91,8 +99,8 @@ pub async fn create_session(
             // The main checkout holds it. Feature branches live in worktrees and the main
             // checkout belongs on the base, so it is parked there first to make the room.
             Some(_) => {
-                let parked = free_main_checkout(&workspace, &branch, &body.base).await?;
-                make_worktree(&app, &workspace, &branch, body.create_branch, &body.base)
+                let parked = free_main_checkout(&workspace, &branch, &base).await?;
+                make_worktree(&app, &workspace, &branch, body.create_branch, &base)
                     .await
                     .map_err(|error| {
                         // The checkout has moved and nothing undoes that, so the failure says so.
@@ -101,7 +109,7 @@ pub async fn create_session(
                         ))
                     })?
             }
-            None => make_worktree(&app, &workspace, &branch, body.create_branch, &body.base)
+            None => make_worktree(&app, &workspace, &branch, body.create_branch, &base)
                 .await
                 .map_err(|error| ApiError::status(StatusCode::UNPROCESSABLE_ENTITY, error))?,
         },
@@ -168,17 +176,10 @@ async fn make_worktree(
         .ok_or_else(|| "Git did not return a worktree.".to_owned())
 }
 
-/// Parks the main checkout on the base, freeing the branch it holds for a worktree of its own,
-/// and answers where it was parked. Git checks a branch out once, so there is nothing to ask.
-async fn free_main_checkout(
-    workspace: &str,
-    branch: &str,
-    selected: &str,
-) -> Result<String, ApiError> {
-    let base = match selected.trim() {
-        "" => session_base(workspace).await?,
-        chosen => chosen.to_owned(),
-    };
+/// Parks the main checkout on `base`, freeing the branch it holds for a worktree of its own, and
+/// answers where it was parked. Git checks a branch out once, so there is nothing to ask.
+async fn free_main_checkout(workspace: &str, branch: &str, base: &str) -> Result<String, ApiError> {
+    let base = base.to_owned();
     if base == branch {
         return Err(ApiError::conflict(format!(
             "{branch} is the branch this session forks from, so the main checkout cannot be moved off it. Choose a different \u{201C}Branch from\u{201D}."
@@ -192,35 +193,20 @@ async fn free_main_checkout(
     Ok(base)
 }
 
-/// The base a new session's branch forks from: `develop` when the repository has it, else its
-/// default branch (`origin/HEAD`, else `main`, `master` or `develop`, whichever exists), else the
-/// most recently committed local branch, as the app used to pick. Short questions to git, not a
-/// listing of every branch and worktree.
-async fn session_base(workspace: &str) -> Result<String, ApiError> {
+/// The base a new session's branch forks from, and the main checkout is parked on: `develop` when
+/// the repository has it locally, else its default branch when that exists locally, else the most
+/// recently committed local branch, as the app used to pick. A branch a worktree holds (`taken`)
+/// cannot be parked on, so it is never the fallback. Short questions to git, not a listing of
+/// every branch and worktree.
+async fn session_base(workspace: &str, taken: &[String]) -> Result<String, ApiError> {
     if local::ref_exists(workspace, "refs/heads/develop").await {
         return Ok("develop".into());
     }
     let default = local::default_branch(workspace).await;
-    if local::ref_exists(workspace, &format!("refs/heads/{default}")).await
-        || local::ref_exists(workspace, &format!("refs/remotes/origin/{default}")).await
-    {
+    if local::ref_exists(workspace, &format!("refs/heads/{default}")).await {
         return Ok(default);
     }
-    let recent = local::git(
-        workspace,
-        vec![
-            "for-each-ref".into(),
-            "--sort=-committerdate".into(),
-            "--count=1".into(),
-            "--format=%(refname:short)".into(),
-            "refs/heads".into(),
-        ],
-        15,
-    )
-    .await
-    .unwrap_or_default();
-    let recent = recent.trim();
-    Ok(if recent.is_empty() { default } else { recent.to_owned() })
+    Ok(local::most_recent_branch(workspace, taken).await.unwrap_or(default))
 }
 
 /// An http(s) address with a host and no credentials: what a session page may be.

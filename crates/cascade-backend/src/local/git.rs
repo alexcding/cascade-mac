@@ -182,7 +182,7 @@ pub async fn git_refs(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
 
 /// `git_refs`'s work: every local branch, the worktrees and the default branch, for the app's
 /// branch pickers. A new session's base is not read from here; `sessions` asks git directly.
-pub(crate) async fn git_refs_value(dir: &str) -> ApiResult<Value> {
+async fn git_refs_value(dir: &str) -> ApiResult<Value> {
     let format = format!(
         "%(HEAD){}%(refname:short){}%(upstream:short){}%(objectname:short)",
         '\x1f', '\x1f', '\x1f'

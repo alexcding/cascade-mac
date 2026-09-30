@@ -108,7 +108,7 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-pub(crate) async fn git(dir: &str, args: Vec<String>, timeout: u64) -> anyhow::Result<String> {
+async fn git(dir: &str, args: Vec<String>, timeout: u64) -> anyhow::Result<String> {
     let mut all = vec!["-C".into(), dir.into()];
     all.extend(args);
     cli::run("git", all, Duration::from_secs(timeout)).await

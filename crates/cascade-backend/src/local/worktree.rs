@@ -520,6 +520,27 @@ pub(crate) fn error_line(message: &str) -> String {
         .unwrap_or_else(|| message.trim().to_owned())
 }
 
+/// The most recently committed local branch that is not in `exclude`, if any.
+pub(crate) async fn most_recent_branch(dir: &str, exclude: &[String]) -> Option<String> {
+    let listed = git(
+        dir,
+        vec![
+            "for-each-ref".into(),
+            "--sort=-committerdate".into(),
+            "--format=%(refname:short)".into(),
+            "refs/heads".into(),
+        ],
+        15,
+    )
+    .await
+    .ok()?;
+    listed
+        .lines()
+        .map(str::trim)
+        .find(|name| !name.is_empty() && !exclude.iter().any(|taken| taken == name))
+        .map(str::to_owned)
+}
+
 /// Whether `reference` (a full ref name) points at a commit here.
 pub(crate) async fn ref_exists(dir: &str, reference: &str) -> bool {
     git(

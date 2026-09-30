@@ -520,23 +520,22 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
 
     /// Takes over, once, the snapshots an earlier version kept in the backend as
-    /// `native.context.<id>`, for every context this Mac has nothing saved for. Contexts already
-    /// open take theirs at once, and the file is written so the next launch reads it.
-    func importLegacySnapshots(_ settings: [String: String?]) {
+    /// `native.context.<id>`, for every context `keeping` still knows and this Mac has nothing
+    /// saved for. Contexts already open take theirs at once. The file is written either way, so
+    /// the next launch finds it and asks no more.
+    func importLegacySnapshots(_ settings: [String: String?], keeping: (String) -> Bool = { _ in true }) {
         guard needsImport else { return }
         needsImport = false
-        var adopted = false
         for (key, value) in settings where key.hasPrefix("native.context.") {
             let id = String(key.dropFirst("native.context.".count))
-            guard saved[id] == nil, let value, let data = value.data(using: .utf8),
+            guard keeping(id), saved[id] == nil, let value, let data = value.data(using: .utf8),
                   let snapshot = try? JSONDecoder().decode(ContextSnapshot.self, from: data) else { continue }
             saved[id] = snapshot
             contexts[id]?.apply(snapshot)
             contexts[id]?.documents.forEach(configure)
             browserHistory.seed(snapshot.history)
-            adopted = true
         }
-        if adopted { cache() }
+        cache()
     }
     var active: WorkspaceContext? { activeContextID.flatMap { contexts[$0] } }
     func configure(_ document: EditorDocumentViewModel) {

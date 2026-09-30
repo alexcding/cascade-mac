@@ -114,6 +114,12 @@ impl Agent {
         Self::ALL.into_iter().find(|agent| agent.profile().id == cli)
     }
 
+    /// Whether a session may name `cli`: no agent at all, a plain shell, or one the registry
+    /// knows. Creating a session and patching one apply the same rule.
+    pub fn allowed_cli(cli: &str) -> bool {
+        cli.is_empty() || Self::of(cli).is_some()
+    }
+
     pub fn profile(self) -> Profile {
         match self {
             Agent::Claude => claude::Claude::PROFILE,

@@ -44,7 +44,7 @@ import Foundation
         }
         guard let file = try? JSONDecoder().decode(File.self, from: data) else {
             recoveryNotice = String(localized: "The saved tabs could not be read and were set aside.")
-            setAside(fileURL)
+            _ = setAside(fileURL)
             return
         }
         saved = SavedTabs(tabs: file.tabs, active: file.active)
@@ -58,12 +58,19 @@ import Foundation
         return recoveryNotice
     }
 
-    /// Moves the file out of the way as `tabs.json.broken`, for a look, and frees the path.
-    private func setAside(_ fileURL: URL) {
-        let aside = fileURL.appendingPathExtension("broken")
-        try? FileManager.default.removeItem(at: aside)
-        try? FileManager.default.moveItem(at: fileURL, to: aside)
+    /// Moves the file out of the way as `tabs.json.broken` (or `.broken-2`, and so on: an earlier
+    /// copy is never thrown away), for a look, and frees the path. `false` when it could not be
+    /// moved, in which case the path is still not the store's to write.
+    private func setAside(_ fileURL: URL) -> Bool {
+        var aside = fileURL.appendingPathExtension("broken")
+        var attempt = 1
+        while FileManager.default.fileExists(atPath: aside.path) {
+            attempt += 1
+            aside = fileURL.appendingPathExtension("broken-\(attempt)")
+        }
+        guard (try? FileManager.default.moveItem(at: fileURL, to: aside)) != nil else { return false }
         readFromDisk = true
+        return true
     }
 
     var tabs: [SavedTab] { saved.tabs }
@@ -140,7 +147,10 @@ import Foundation
         guard let fileURL else { return }
         if !readFromDisk, FileManager.default.fileExists(atPath: fileURL.path) {
             // Unread at startup (an I/O error), still here now: set aside, never written over.
-            setAside(fileURL)
+            guard setAside(fileURL) else {
+                lastError = String(localized: "Could not save tabs: the unread saved list could not be set aside.")
+                return
+            }
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

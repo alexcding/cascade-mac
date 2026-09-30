@@ -1525,8 +1525,13 @@ public final class AppViewModel {
                     let (snapshot, sessionSnapshot, imported, legacy) = try await (projectRequest, sessionRequest, tabRequest, settingsRequest)
                     try Task.checkCancellation()
                     if let imported { tabStore.adopt(imported); showTabs(tabStore.saved) }
-                    if let notice = tabStore.takeRecoveryNotice() { error = notice }
-                    if let legacy { shell.importLegacyPreferences(legacy); viewer.importLegacySnapshots(legacy) }
+                    if let legacy {
+                        shell.importLegacyPreferences(legacy)
+                        // Only sessions and tabs that still exist: the backend kept snapshots of
+                        // ones deleted long ago, and nothing else would prune them.
+                        let live = Set((sessionSnapshot ?? sessions).map { "task:\($0.id)" } + tabStore.tabs.map { "tab:\($0.id)" })
+                        viewer.importLegacySnapshots(legacy) { live.contains($0) || !($0.hasPrefix("task:") || $0.hasPrefix("tab:")) }
+                    }
                     // A newer request invalidates only its own inventory. Keep the other
                     // results, and let the pending set reload only what changed mid-flight.
                     let current = inventory.filter { generations[$0] == inventoryGenerations[$0] }
@@ -1554,7 +1559,9 @@ public final class AppViewModel {
                     if selection.isSidebarBacked,
                        !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
                     lastUpdate = Date()
-                    error = nil
+                    // The pass is clean; what is left to say is a saved list that could not be
+                    // read, told once, after the pass so nothing here clears it.
+                    error = tabStore.takeRecoveryNotice()
                     coordinator.setRoutingReady(started && connection == "Connected")
                 } catch {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }

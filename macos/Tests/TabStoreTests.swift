@@ -101,22 +101,21 @@ private func page(_ url: String, id: String? = nil, kind: String = "web", title:
     #expect(TabStore(fileURL: temporaryTabsFile()).needsImport, "no file yet: the import is wanted")
 }
 
-/// A file that exists but could not be read at startup is not written over by the first change:
-/// it is set aside then, so what was on disk is kept for a look.
+/// Something that exists at the path but could not be read at startup is not written over by the
+/// first change: it is set aside then, beside any earlier copy, so what was there is kept for a
+/// look. A directory stands in for the I/O error, since it fails to read for any user.
 @MainActor @Test func anUnreadTabsFileIsSetAsideBeforeTheFirstWrite() throws {
     let url = temporaryTabsFile()
-    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-    try Data(#"{"tabs":[],"active":null,"imported":true}"#.utf8).write(to: url)
-    try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
-    defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+    try Data("earlier".utf8).write(to: url.appendingPathExtension("broken"))
     let store = TabStore(fileURL: url)
     #expect(!store.needsImport && store.tabs.isEmpty && store.takeRecoveryNotice() != nil)
-    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     _ = try store.open(page("https://example.test/a", title: "A"))
-    let aside = url.appendingPathExtension("broken")
-    #expect(FileManager.default.fileExists(atPath: aside.path), "the unread file was kept")
-    #expect(try String(contentsOf: aside, encoding: .utf8).contains("\"imported\":true"))
+    var isDirectory: ObjCBool = false
+    #expect(FileManager.default.fileExists(atPath: url.appendingPathExtension("broken-2").path, isDirectory: &isDirectory) && isDirectory.boolValue,
+            "the unread entry was kept, beside the earlier copy")
+    #expect(try String(contentsOf: url.appendingPathExtension("broken"), encoding: .utf8) == "earlier")
     // JSON escapes the slashes, so the host alone is looked for.
     #expect(try String(contentsOf: url, encoding: .utf8).contains("example.test"), "the new list was written")
 }

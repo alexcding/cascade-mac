@@ -246,6 +246,8 @@ pub fn backup(source: &Path, destination: &Path) -> Result<Manifest> {
     let mut files = Vec::new();
     for (name, input) in inputs {
         let output = target.join(name);
+        // PAGE_CACHE is the one nested entry, so its folder under the fresh checkpoint is new; a
+        // second entry in the same folder would have to reuse it instead.
         if name.contains('/') {
             new_directory(output.parent().unwrap())?;
         }
@@ -485,7 +487,7 @@ mod tests {
     const TABS: &str = "ptyd-native-spike/tabs.json";
 
     /// A data folder as an installation has it: both databases, and the app's two JSON files in
-    /// the daemon's folder, which share one parent.
+    /// the daemon's folder, of which only the page cache is the checkpoint's.
     fn installation() -> tempfile::TempDir {
         let data = tempfile::tempdir().unwrap();
         crate::Database::open(data.path()).unwrap();

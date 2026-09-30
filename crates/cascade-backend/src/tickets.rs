@@ -5,30 +5,21 @@
 /// The workflow stage: `toDo`, `inProgress`, `pendingRelease` or `blocked`. The status name is
 /// read first and Jira's category second: a board names "Ready for Development" as in progress,
 /// but nobody has started it yet, and "Reopened" is `new` but is back in someone's hands. The
-/// name is read by its words: "Unblocked" is not blocked, "Abandoned" is not done, and a word
-/// after "not" is denied.
+/// name is read by its words' stems ("Blocking" and "Blockers" are blocked, "Releasing" is a
+/// release), a word is not its negation ("Unblocked" is not blocked, "Abandoned" is not done),
+/// and a "not" anywhere before a word denies it ("Not yet released").
 pub fn stage(status: &str, category: &str) -> &'static str {
     let words = words(status);
-    let says = |word: &str| {
-        words.iter().any(|w| w == word)
-            && !words.windows(2).any(|pair| pair[0] == "not" && pair[1] == word)
-    };
-    let status = status.to_lowercase();
-    if says("blocked") || says("block") || says("blocker") {
+    if says(&words, &["block"]) {
         "blocked"
-    } else if says("release")
-        || says("released")
-        || says("done")
-        || says("resolved")
-        || category == "done"
-    {
+    } else if says(&words, &["releas", "done", "resolv"]) || category == "done" {
         "pendingRelease"
-    } else if says("reopened") || says("reopen") {
+    } else if says(&words, &["reopen"]) {
         "inProgress"
     } else if category == "new"
-        || status.starts_with("ready for")
+        || status.to_lowercase().starts_with("ready for")
         || matches!(
-            status.as_str(),
+            status.to_lowercase().as_str(),
             "open" | "to do" | "backlog" | "selected for development"
         )
     {
@@ -41,17 +32,7 @@ pub fn stage(status: &str, category: &str) -> &'static str {
 /// Whether the status says the ticket came back after being closed. The home screen ranks such
 /// a ticket ahead of other work in progress.
 pub fn reopened(status: &str) -> bool {
-    words(status).iter().any(|w| w == "reopened" || w == "reopen")
-}
-
-/// The status name's words, lowercased: split on anything that is not a letter or a digit.
-fn words(status: &str) -> Vec<String> {
-    status
-        .to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(str::to_owned)
-        .collect()
+    says(&words(status), &["reopen"])
 }
 
 /// Jira's priority names folded onto four levels, most pressing first: `urgent`, `high`,
@@ -63,6 +44,23 @@ pub fn level(priority: &str) -> &'static str {
         "low" | "lowest" | "minor" | "trivial" => "low",
         _ => "medium",
     }
+}
+
+/// Whether a word starting with one of `stems` is said, and not denied by a "not" before it.
+fn says(words: &[String], stems: &[&str]) -> bool {
+    words.iter().enumerate().any(|(index, word)| {
+        stems.iter().any(|stem| word.starts_with(stem)) && !words[..index].iter().any(|w| w == "not")
+    })
+}
+
+/// The status name's words, lowercased: split on anything that is not a letter or a digit.
+fn words(status: &str) -> Vec<String> {
+    status
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 #[cfg(test)]
@@ -95,16 +93,22 @@ mod tests {
     }
 
     #[test]
-    fn a_word_is_read_whole_and_not_denies_it() {
-        assert_eq!(stage("Unblocked", "indeterminate"), "inProgress");
-        assert_eq!(stage("Not Blocked", "indeterminate"), "inProgress");
-        assert_eq!(stage("Abandoned", "indeterminate"), "inProgress");
-        assert_eq!(stage("Undone", "indeterminate"), "inProgress");
-        assert_eq!(stage("Not Done", "indeterminate"), "inProgress");
-        assert_eq!(stage("Released", "indeterminate"), "pendingRelease");
-        assert_eq!(stage("Blocker", "indeterminate"), "blocked");
+    fn a_word_is_read_by_its_stem_and_a_not_before_it_denies_it() {
+        for name in ["Blocking Issue", "Blockers", "Blocked"] {
+            assert_eq!(stage(name, "indeterminate"), "blocked", "{name}");
+        }
+        for name in ["Releasing", "Released", "Resolve", "Done"] {
+            assert_eq!(stage(name, "indeterminate"), "pendingRelease", "{name}");
+        }
+        for name in ["Unblocked", "Not Blocked", "Not currently blocked", "Abandoned", "Undone", "Not Done", "Not yet released"] {
+            assert_eq!(stage(name, "indeterminate"), "inProgress", "{name}");
+        }
         // Jira's own category still decides a name that says nothing.
         assert_eq!(stage("Not Done", "done"), "pendingRelease");
+        // The same reading answers whether a ticket was reopened.
+        assert!(reopened("Reopened") && reopened("Reopen for QA"));
+        assert!(!reopened("Not Reopened"));
+        assert_eq!(stage("Not Reopened", "new"), "toDo");
     }
 
     #[test]
