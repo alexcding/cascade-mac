@@ -67,6 +67,10 @@ import Observation
     @ObservationIgnored private let factory: any CreationFlowFactory
     @ObservationIgnored private let workspaceFactory: any WorkspaceFeatureFactory
     private(set) var selection: SidebarDestination
+    /// The list the sidebar shows. The rail picks it (`showSidebar`), and a navigation to
+    /// somewhere else brings the list that has its row. Landing where the window already is
+    /// leaves the list alone: the rail was the last to choose.
+    private(set) var sidebarMode: SidebarMode
     @ObservationIgnored let selectionStore: any SidebarSelectionPersisting
     @ObservationIgnored weak var rootRuntime: (any RootCoordinating)?
     @ObservationIgnored var rootBindingID = UUID()
@@ -134,7 +138,9 @@ import Observation
         self.documentCloseCoordinator = documentCloseCoordinator
         self.browserDialogCoordinator = browserDialogCoordinator
         self.fileOpenCoordinator = fileOpenCoordinator
-        selection = selectionStore.load() ?? .overview
+        let restored = selectionStore.load() ?? .overview
+        selection = restored
+        sidebarMode = restored.sidebarMode
         documentCloseCoordinator.presentationEnded = { [weak self] in self?.schedulePendingDeepLink() }
         browserDialogCoordinator.canPresent = { [weak self] in
             guard let self else { return false }
@@ -151,12 +157,17 @@ import Observation
         documentCloseCoordinator.canPresent = { [weak fileOpenCoordinator] in fileOpenCoordinator?.isPresenting == false }
     }
 
+    /// The rail picked a list. The selection stays: the window shows what it showed.
+    /// (`MainSidebarColumn` draws the rail and hands its pick here.)
+    func showSidebar(_ mode: SidebarMode) { sidebarMode = mode }
+
     func navigate(to destination: SidebarDestination) {
         // Picking Overview always lands on the Dashboard's home, never on a My Tickets left pushed.
         if destination == .overview { dashboardCoordinator?.leaveTickets() }
         if selection != destination {
             projectCoordinator?.endPresentation(); dashboardCoordinator?.model.cancelActions()
             switch destination { case .session, .terminal: WorkspaceSwitchSignpost.begin(); default: break }
+            sidebarMode = destination.sidebarMode
         }
         routingError = nil
         selection = destination

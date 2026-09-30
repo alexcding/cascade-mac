@@ -9,6 +9,9 @@ import SwiftUI
 // accessories, and the session status glyph.
 struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
+    /// Which of the sidebar's lists `entries` is (`SidebarMode`). Another list is not this one
+    /// with rows added or gone: each keeps its own scroll position.
+    var list = ""
     let selection: SidebarDestination
     let pinnedIDs: Set<String>
     /// The sessions whose menu offers Fork Session.
@@ -72,7 +75,7 @@ struct CocoaSidebar: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
+        scroll.contentInsets = NSEdgeInsets(top: SidebarMetrics.topInset, left: 0, bottom: 8, right: 0)
         scroll.documentView = outline
         context.coordinator.outline = outline
         context.coordinator.update(self)
@@ -104,6 +107,8 @@ struct CocoaSidebar: NSViewRepresentable {
         private var snapshot: [SidebarEntry] = []
         private var updating = false
         private var selectedPlacement: String?
+        /// Where each list was scrolled to when the sidebar last left it.
+        private var scrollPositions: [String: NSPoint] = [:]
         private var collapsed: Set<String>
         private let preferences: UserDefaults
         private var spinTimer: Timer?
@@ -149,6 +154,7 @@ struct CocoaSidebar: NSViewRepresentable {
 
         func update(_ value: CocoaSidebar) {
             let changedSelection = parent.selection != value.selection
+            let leftList = parent.list != value.list ? parent.list : nil
             parent = value
             guard let outline else { return }
             updating = true
@@ -172,7 +178,14 @@ struct CocoaSidebar: NSViewRepresentable {
                     value.entries.forEach(apply)
                     snapshot = value.entries
                 } else {
-                    let scrollPosition = outline.enclosingScrollView?.contentView.bounds.origin
+                    // The same list with rows added or gone stays where it was scrolled to. Another
+                    // list does not inherit that: it opens where it was left, or at its top.
+                    var scrollPosition = outline.enclosingScrollView?.contentView.bounds.origin
+                    if let leftList, let left = scrollPosition {
+                        scrollPositions[leftList] = left
+                        let top = -(outline.enclosingScrollView?.contentInsets.top ?? 0)
+                        scrollPosition = scrollPositions[value.list] ?? NSPoint(x: left.x, y: top)
+                    }
                     var retained: [String: Node] = [:]
                     func reconcile(_ entry: SidebarEntry) -> Node {
                         let node = nodes[entry.id] ?? Node(entry)
@@ -202,7 +215,9 @@ struct CocoaSidebar: NSViewRepresentable {
             let placed = selectedPlacement.flatMap { nodes[$0] }
             let selected = placed?.entry.destination == value.selection ? placed
                 : roots.flatMap(flatten).first { $0.entry.destination == value.selection }
-            guard let selected else { outline.deselectAll(nil); return }
+            // With no row to select — the selection is in the sidebar's other list — the placement
+            // is forgotten, so its folder is opened again when its list comes back.
+            guard let selected else { selectedPlacement = nil; outline.deselectAll(nil); return }
             let changedPlacement = selectedPlacement != selected.entry.id
             selectedPlacement = selected.entry.id
             if changedSelection || changedPlacement {
@@ -213,7 +228,9 @@ struct CocoaSidebar: NSViewRepresentable {
             let row = outline.row(forItem: selected)
             if row >= 0 {
                 outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-                if changedSelection || changedPlacement { outline.scrollRowToVisible(row) }
+                // A list that comes back is where it was left, not scrolled to a row that was
+                // already selected when it went.
+                if changedSelection || (changedPlacement && leftList == nil) { outline.scrollRowToVisible(row) }
             } else { outline.deselectAll(nil) }
         }
 
@@ -343,7 +360,10 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let entry = (item as? Node)?.entry else { return SidebarMetrics.rowHeight }
             if let height = Self.pinnedTabsHeight(entry) { return height }
-            return entry.isHeading ? SidebarMetrics.labelHeight : SidebarMetrics.rowHeight
+            // A heading that opens its list — "Tabs", with nothing pinned — stands where a row
+            // would, so its title is on the line the other list's first row is on.
+            if entry.isHeading, roots.first?.entry.id != entry.id { return SidebarMetrics.labelHeight }
+            return SidebarMetrics.rowHeight
         }
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
             let row = SidebarRowView()
@@ -604,12 +624,17 @@ enum SidebarPalette {
     static let danger = dynamic(0xdc2626, 0xf87171)
     // The pinned tiles draw their own plates: the list's selection colour, and a fainter hover.
     static let hover = dynamic(0x16181d, 0xe8e8e8, alpha: 0.08)
+    /// A rule drawn on the sidebar's glass. The theme's border is an opaque grey made for a page:
+    /// on glass it is the glass's own colour, and gone once the window is active. This is the
+    /// text's colour thinned out, so it darkens whatever is behind it.
+    static let rule = dynamic(0x16181d, 0xe8e8e8, alpha: 0.1)
     static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }
 
 /// A medium source list's own measures, and the few the cell adds inside it.
 enum SidebarMetrics {
     static let rowHeight: CGFloat = 32       // what `.medium` rows measure
+    static let topInset: CGFloat = 8         // the list's top edge to its first row; rows scroll up to the edge
     static let labelHeight: CGFloat = 23     // a section header, at `headingFont`; the list adds the air above it
     // A point above the rows, and on the system font's weight axis between regular (400) and
     // medium (510). A `weight:` between two named weights snaps to one of them.

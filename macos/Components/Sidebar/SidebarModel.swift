@@ -65,7 +65,7 @@ struct SavedTab: Codable, Identifiable, Equatable, Sendable {
     var avatar: String? = nil
     var links: [SavedTabContent]? = nil
     var history: [SavedTabContent]? = nil
-    /// A pinned tab leaves the Tabs list for the favourites grid under Dashboard.
+    /// A pinned tab leaves the Tabs list for the favourites grid above it.
     var pinned: Bool = false
     /// Opened on purpose beside a session showing the same page (Open in Tab). A session owns the
     /// tab it was started from, found by URL; a standalone tab is never that one.
@@ -111,10 +111,35 @@ struct SavedTabs: Decodable, Sendable {
     let active: String?
 }
 
+/// Which of its lists the sidebar shows, picked in the rail at its leading edge (`SidebarRail`):
+/// the rail's first icons are these, in this order.
+enum SidebarMode: String, CaseIterable, Identifiable {
+    /// Dashboard, Automation, pinned sessions and the projects with their sessions.
+    case home
+    /// The saved tabs, and only those: the pinned grid, then the Tabs list.
+    case browser
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .home: String(localized: "Home")
+        case .browser: String(localized: "Browser")
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .home: "house"
+        case .browser: "globe"
+        }
+    }
+}
+
 enum SidebarDestination: Hashable, Codable {
     case overview, automation, terminal, project(String), session(String), tab(String)
 
     var tabID: String? { if case .tab(let id) = self { id } else { nil } }
+    /// The list that shows this destination's row.
+    var sidebarMode: SidebarMode { tabID == nil ? .home : .browser }
     /// True for destinations that exist only while the sidebar lists them.
     var isSidebarBacked: Bool {
         switch self {
@@ -145,7 +170,7 @@ struct SidebarTabIcon: Equatable {
     var url: String?
 }
 
-/// One tile in the pinned-tabs grid under Dashboard: a saved tab that was pinned.
+/// One tile in the pinned-tabs grid that opens the Browser list: a saved tab that was pinned.
 struct SidebarPinnedTab: Equatable, Identifiable {
     let id: String
     let title: String
@@ -172,7 +197,7 @@ struct SidebarEntry: Equatable {
         case project
         case session(SidebarSessionStatus, pinned: Bool)
         case tab(SidebarTabIcon)
-        case pinnedTabs([SidebarPinnedTab])       // Arc-style favourites grid right under Dashboard
+        case pinnedTabs([SidebarPinnedTab])       // Arc-style favourites grid, first in the Browser list
     }
 
     let id: String // placement identity changes when a session is pinned or unpinned
@@ -187,6 +212,14 @@ struct SidebarEntry: Equatable {
     var forked = false
 
     var isGroup: Bool { destination == nil }
+    /// The list this row belongs to: a tab, the Tabs heading and the pinned grid are Browser's,
+    /// every other row is Home's.
+    var mode: SidebarMode {
+        switch role {
+        case .tab, .tabsHeader, .pinnedTabs: .browser
+        case .nav, .label, .projectsHeader, .project, .session: .home
+        }
+    }
     /// Every destination this entry can take the selection to. A row is its own destination;
     /// the pinned-tabs grid has none of its own and presents one per tile, so a selection a
     /// tile owns is still listed by the sidebar.

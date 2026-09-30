@@ -117,8 +117,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     let standalone = SavedTab(id: "d", kind: "web", title: "Docs again", url: "https://docs.example", standalone: true)
     let beside = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs + [standalone])
     #expect(beside.first { $0.id == "tab:d" }?.destinations == [.tab("d")], "A standalone tab is never taken for the session's own")
-    // One tile is a full row; more wrap four to a row.
-    #expect(SidebarPinnedTabsGrid.height(count: 1) == SidebarPinnedTabsGrid.height(count: 4))
+    // One tile is a row with its title, and as tall as a row; more are taller tiles, four to a row.
+    #expect(SidebarPinnedTabsGrid.height(count: 1) < SidebarPinnedTabsGrid.height(count: 2))
     #expect(SidebarPinnedTabsGrid.height(count: 4) == SidebarPinnedTabsGrid.height(count: 2))
     #expect(SidebarPinnedTabsGrid.height(count: 5) > SidebarPinnedTabsGrid.height(count: 4))
 }

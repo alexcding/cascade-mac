@@ -8,26 +8,37 @@ struct AutomationView: View {
     @Bindable var model: AutomationViewModel
 
     var body: some View {
-        // AppKit owns the divider, so a drag resizes the list without re-rendering the editor per frame.
-        HSplitView {
+        // AppKit owns the divider, so a drag resizes the list without re-rendering the editor per
+        // frame; it is the window's thin rule, not the point-wide one `HSplitView` draws.
+        ThinSplitView(leading: .init(min: 220, ideal: 280, max: 480), trailing: .init(min: 420)) {
             AutomationListPane(model: model)
-                .frame(minWidth: 220, idealWidth: 280, maxWidth: 480)
-            Group {
-                if model.draft != nil {
-                    AutomationEditorView(model: model)
-                } else if model.loading {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    AutomationEmptyState(model: model)
-                }
-            }
-            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+        } trailingContent: {
+            AutomationDetailPane(model: model)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.paneBackground)
         .accessibilityIdentifier("automation-screen")
         .onAppear { model.setVisible(true) }
         .onDisappear { model.setVisible(false) }
+    }
+}
+
+/// The pane beside the list: the open pipeline's editor, or what stands in for one. A view of its
+/// own, so it follows the model itself — a pane of the split is its own hosting root.
+private struct AutomationDetailPane: View {
+    let model: AutomationViewModel
+
+    var body: some View {
+        Group {
+            if model.draft != nil {
+                AutomationEditorView(model: model)
+            } else if model.loading {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                AutomationEmptyState(model: model)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

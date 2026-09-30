@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The pinned-tabs grid right under Dashboard, after Arc's Favorites: one pinned tab is a
+/// The pinned-tabs grid at the top of the Browser list, after Arc's Favorites: one pinned tab is a
 /// full-width row with its favicon and title; two to four share the row as equal favicon tiles,
 /// and from five on the grid wraps at four columns. Titles move to tooltips once there is more
 /// than one tile. The grid is one outline row; the tiles handle their own hover, selection and menu.
@@ -14,22 +14,26 @@ struct SidebarPinnedTabsGrid: View {
 
     static let columns = 4
     static let tileHeight: CGFloat = 36
+    /// A lone pinned tab is a row with its title, so its plate is a row's: the row's height less
+    /// the point a source list insets a plate by, above and below.
+    static let rowTileHeight = SidebarMetrics.rowHeight - 2
     static let gap: CGFloat = 6
-    /// The Dashboard row's plate is inset 1pt, so this many points above the first tiles gives the
-    /// same visible gap as between two tile rows. Below, the next heading brings its own air.
-    private static let topPadding: CGFloat = gap - 1
+    /// The grid opens the Browser list, so its first plate starts where the Home list's first
+    /// row's does: a point in. Below, the next heading brings its own air.
+    private static let topPadding: CGFloat = 1
     private static let bottomPadding: CGFloat = 2
 
     /// The outline row height for `count` pinned tabs.
     static func height(count: Int) -> CGFloat {
-        let rows = CGFloat(max(1, (count + columns - 1) / columns))
+        guard count > 1 else { return rowTileHeight + topPadding + bottomPadding }
+        let rows = CGFloat((count + columns - 1) / columns)
         return rows * tileHeight + (rows - 1) * gap + topPadding + bottomPadding
     }
 
     var body: some View {
         Group {
             if tabs.count == 1, let tab = tabs.first {
-                tile(tab, showsTitle: true).frame(height: Self.tileHeight)
+                tile(tab, showsTitle: true).frame(height: Self.rowTileHeight)
             } else {
                 // As Arc's Favorites: up to four tabs share the full row width, so two tiles are
                 // halves and three are thirds; from five on the grid settles at four columns.
@@ -74,6 +78,9 @@ private struct SidebarPinnedTabTile: View {
                         .font(.system(size: 14))
                         .lineLimit(1)
                         .foregroundStyle(Color(nsColor: hovered || selected ? SidebarPalette.text : SidebarPalette.navText))
+                        // The rows' titles are AppKit labels, whose text starts this far inside
+                        // their frame; this one starts where they do.
+                        .padding(.leading, 2)
                     Spacer(minLength: 0)
                 }
             }

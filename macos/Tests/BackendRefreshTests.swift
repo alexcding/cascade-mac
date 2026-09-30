@@ -107,7 +107,8 @@ private actor RefreshTransport: BackendTransport {
     }
     #expect(initial.map(\.id) == ["overview", "automation", "label:projects", "label:tabs"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 4)
+    // The sidebar opens on Home, whose list leaves the Tabs heading to Browser's.
+    #expect(list.numberOfRows == 3)
     #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "overview")
 }
 

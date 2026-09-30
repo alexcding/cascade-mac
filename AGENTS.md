@@ -263,6 +263,28 @@ workspace's context pane as the inspector column. AppKit holds each column to it
 width. The pane column follows `SessionWorkspaceViewModel.showsInspector`, and a pane the
 user collapses from the divider is told back to the workspace.
 
+- **The rail picks the sidebar's list.** It is the icon-only strip at the sidebar's leading
+  edge (`SidebarRail`), one fixed icon per `SidebarMode`: Home lists Dashboard, Automation and
+  the projects with their sessions; Browser lists the saved tabs and nothing else.
+  Settings is at the rail's bottom; the sidebar has no footer, and the activity bell is in the
+  Dashboard's toolbar (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to
+  them. The mode is `AppCoordinator.sidebarMode`: the rail sets
+  it without changing the selection, and a navigation brings the mode of where it lands. The
+  sidebar builds every row once (`SidebarEntry.make`) and shows the rows of the mode on show
+  (`SidebarEntry.mode`).
+- **The rail is in the sidebar column, not beside it.** It is the leading strip of the
+  column (`MainSidebarColumn`), so it has the sidebar's glass and collapses with it. AppKit
+  makes that glass itself and nothing public matches it: beside the split view, a glass view
+  or any window material comes out a different colour; as a split item of its own, a plain one
+  costs the sidebar its full height, and a sidebar one takes the toolbar's sidebar separator
+  from the list.
+- **The columns' lines are the window's own, one display pixel wide.** The list's edge (up
+  its side against the rail, round the corner, along its top), the line under the screen's
+  toolbar and the pane's edge are drawn by `MainSplitViewController`'s columns in
+  `SidebarPalette.rule`, at `MainWindowMetrics.rule`. AppKit's toolbar separator is not used:
+  it comes and goes with what has scrolled under the toolbar, and `titlebarSeparatorStyle`
+  does not keep it. A split inside a screen uses `ThinSplitView` for the same rule;
+  `HSplitView`'s divider is a point wide and cannot be restyled.
 - **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the
   main window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
   `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and
