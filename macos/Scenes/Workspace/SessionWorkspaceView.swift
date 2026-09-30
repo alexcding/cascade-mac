@@ -207,7 +207,7 @@ struct SessionWorkspaceView: View {
         }
     }
 
-    /// Beside a terminal, the context pane is not drawn here: it is the window's inspector column
+    /// Beside a terminal, the context pane is not drawn here: it is the window's pane column
     /// (`SessionWorkspacePane`), presented by the app for the workspace on screen.
     @ViewBuilder private var primaryContent: some View {
         if model.showsTerminal {

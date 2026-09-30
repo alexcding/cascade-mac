@@ -5,8 +5,8 @@ import SwiftUI
 /// address bar. Its close button is at the leading edge, the site icon and host are centred,
 /// reload is trailing; clicking the host edits the address. The address field also searches the
 /// session's worktree, and a file picked from it opens as a tab of its own. There is no second
-/// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or a
-/// pane's title-bar zone, the bar hangs its suggestions under itself; in the toolbar — a sidebar
+/// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or at the
+/// top of a pane's column, the bar hangs its suggestions under itself; in the toolbar — a sidebar
 /// tab's — the page beneath draws them (`BrowserAddressSuggestionList`), from the editing state
 /// and highlight the bar keeps on the models.
 struct BrowserCompactTabBar: View {
@@ -142,7 +142,7 @@ struct BrowserCompactTabBar: View {
     }
 }
 
-/// The address suggestions under the field: hung from the bar in its own row or title-bar zone, or
+/// The address suggestions under the field: hung from the bar in its own row or the pane's bar, or
 /// from the top of the page while the bar is in the toolbar. Picking one lets go of the field
 /// through the model, which the bar follows wherever it is drawn.
 struct BrowserAddressSuggestionList: View {

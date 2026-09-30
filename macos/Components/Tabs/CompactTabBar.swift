@@ -17,9 +17,10 @@ enum CompactTabMetrics {
     /// selected tab, and a ceiling the toolbar never reaches.
     static let minToolbarBarWidth: CGFloat = 200
     static let maxToolbarBarWidth: CGFloat = 4000
-    /// A bar in a column's title-bar zone ends this far from the window's edge: the toolbar's pane
-    /// toggle (36pt, 8pt in from the edge) and the toolbar's own gap before it.
-    static let titleBarTrailingInset: CGFloat = 60
+    /// A bar at the top of the context pane's column: as tall as the toolbar over it, its ends in
+    /// from the column's edges.
+    static let paneBarHeight: CGFloat = 52
+    static let paneBarInset: CGFloat = 12
     static let tabFont = Font.system(size: 15)
     /// The same size as the text. AppKit draws a field's prompt in the field's own font whatever
     /// the prompt asks for, so a smaller placeholder on the resting label sat on a different line
@@ -64,12 +65,12 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
 }
 
 /// Where a compact bar sits: its own row over the panel; an item in the window toolbar's section
-/// over the panel, which gives it the width the section leaves; or the title-bar zone of a column
-/// that reaches the window's top, given the zone's height, beside the toolbar's pane toggle.
+/// over the panel, which gives it the width the section leaves; or the top of the context pane's
+/// column, under the toolbar.
 enum CompactTabBarPlacement: Equatable {
     case row
     case toolbar
-    case titleBar(height: CGFloat)
+    case paneBar
 }
 
 /// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
@@ -101,14 +102,12 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 .overlay(alignment: .top) { suggestions.padding(.top, 52) }
         case .toolbar:
             content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
-        case .titleBar(let height):
+        case .paneBar:
             content
-                .padding(.leading, 12)
-                // The toolbar draws the pane's toggle over the zone's trailing end.
-                .padding(.trailing, CompactTabMetrics.titleBarTrailingInset)
-                .frame(height: height)
+                .padding(.horizontal, CompactTabMetrics.paneBarInset)
+                .frame(height: CompactTabMetrics.paneBarHeight)
                 .zIndex(1)
-                .overlay(alignment: .top) { suggestions.padding(.top, height - 4) }
+                .overlay(alignment: .top) { suggestions.padding(.top, CompactTabMetrics.paneBarHeight - 4) }
         }
     }
 

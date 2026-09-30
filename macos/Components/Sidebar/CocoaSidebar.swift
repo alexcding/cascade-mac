@@ -3,7 +3,8 @@ import SwiftUI
 
 // AppKit owns row reuse, keyboard navigation, selection, and menus. SwiftUI only supplies
 // snapshots and receives semantic selection/actions. The look is the system's: a source list
-// over the sidebar material, with its selection, its section headers and its label colours.
+// over the list's wash on the window's backdrop, with its selection, its section headers and its
+// label colours.
 // What is ours sits inside that: no disclosure triangles (a click on the already-selected
 // folder collapses it), sessions nested under their project, hover-only pin / "+" / close
 // accessories, and the session status glyph.
@@ -624,10 +625,25 @@ enum SidebarPalette {
     static let danger = dynamic(0xdc2626, 0xf87171)
     // The pinned tiles draw their own plates: the list's selection colour, and a fainter hover.
     static let hover = dynamic(0x16181d, 0xe8e8e8, alpha: 0.08)
-    /// A rule drawn on the sidebar's glass. The theme's border is an opaque grey made for a page:
-    /// on glass it is the glass's own colour, and gone once the window is active. This is the
-    /// text's colour thinned out, so it darkens whatever is behind it.
+    /// A rule drawn on the window's backdrop. The theme's border is an opaque grey made for a page:
+    /// on the backdrop it is the material's own colour, and gone once the window is active. This is
+    /// the text's colour thinned out, so it darkens whatever is behind it.
     static let rule = dynamic(0x16181d, 0xe8e8e8, alpha: 0.1)
+    /// The wash over the window's backdrop material, under the strip, the rail and the card: what
+    /// makes the backdrop solid rather than see-through. In light it is a pale grey as light as the
+    /// material itself, not a white, so half of it halves what shows through without whitening the
+    /// backdrop towards the card: over a blue sky it is still a pale blue. In dark the material
+    /// alone is a lighter grey than a page, and the page's own colour brings it down to one.
+    static let backdrop = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x1e / 255, alpha: 0.65)
+            : NSColor(srgbRed: 0xe6 / 255, green: 0xea / 255, blue: 0xee / 255, alpha: 0.5)
+    }
+    /// The list's wash over that backdrop, which sets the list apart from the rail and the strip
+    /// beside it: most of the way to a page in light, a faint lift in dark.
+    static let list = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.8)
+    }
     static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }
 
@@ -635,6 +651,9 @@ enum SidebarPalette {
 enum SidebarMetrics {
     static let rowHeight: CGFloat = 32       // what `.medium` rows measure
     static let topInset: CGFloat = 8         // the list's top edge to its first row; rows scroll up to the edge
+    /// A source list puts its first row this much further down on its own, past `topInset`:
+    /// measured in the window, 10 points.
+    static let sourceListInset: CGFloat = 10
     static let labelHeight: CGFloat = 23     // a section header, at `headingFont`; the list adds the air above it
     // A point above the rows, and on the system font's weight axis between regular (400) and
     // medium (510). A `weight:` between two named weights snaps to one of them.

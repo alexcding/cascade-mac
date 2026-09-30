@@ -8,7 +8,7 @@ import SwiftUI
 /// is built the first time it is shown and released when its coordinator goes.
 ///
 /// The window keeps two decks of the same workspaces: the screen's column holds each workspace, and
-/// the inspector column each one's context pane (`MainSplitViewController`), so a switch rebuilds
+/// the pane's column each one's context pane (`MainSplitViewController`), so a switch rebuilds
 /// neither.
 struct SessionWorkspaceDeck: NSViewControllerRepresentable {
     /// What of a workspace a deck's pages show.
@@ -125,9 +125,8 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
         private func add(_ coordinator: SessionWorkspaceCoordinator, id: ObjectIdentifier, environment: EnvironmentValues) {
             let page = NSHostingController(rootView: Page(environment: environment, coordinator: coordinator, part: part))
             page.sizingOptions = []
-            // A workspace deck already sits inside the screen's safe area. A pane deck reaches the
-            // window's top, and its pages draw their bar in the title-bar zone the safe area marks.
-            if part == .workspace { page.safeAreaRegions = [] }
+            // Both decks sit in the window's card, under its strip, so neither has a safe area to keep to.
+            page.safeAreaRegions = []
             addChild(page)
             page.view.isHidden = true
             view.addSubview(page.view)

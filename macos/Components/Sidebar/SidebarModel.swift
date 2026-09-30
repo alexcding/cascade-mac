@@ -129,7 +129,7 @@ enum SidebarMode: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .home: "house"
-        case .browser: "globe"
+        case .browser: "safari"
         }
     }
 }

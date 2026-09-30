@@ -4,7 +4,7 @@ import SwiftUI
 /// button and build title, flat at the leading edge; the agent's controls in the middle; the run
 /// controls and the mode picker trailing, against the context pane. Beside a terminal the pane's
 /// own section is its toggle alone, at the window's edge whether the pane is open or not: the pane
-/// draws its bar itself, in its title-bar zone (`SessionWorkspacePane`), so showing or hiding it
+/// draws its bar itself, at the top of its column (`SessionWorkspacePane`), so showing or hiding it
 /// changes no item, and the toolbar's items keep pace with the divider as it slides. A sidebar tab
 /// browsing the web has no title: its tab bar is the whole section, as Safari's is.
 @MainActor struct SessionWorkspaceToolbar {

@@ -93,6 +93,7 @@ import Testing
                           center: [WindowToolbarItem("agent") { Color.clear.frame(width: 120, height: 20) }],
                           trailing: [WindowToolbarItem("mode") { Color.clear.frame(width: 40, height: 20) }])
         }
+        controller.splitView = Self.split(of: window)
         controller.window = window
         window.orderFront(nil)
         let column = try #require(Self.column(of: window))
@@ -127,6 +128,7 @@ import Testing
                           trailing: [.picker("mode-picker", label: fixture.label, choices: fixture.choices,
                                              selected: fixture.selected) { fixture.selected = $0 }])
         }
+        controller.splitView = Self.split(of: window)
         controller.window = window
         window.orderFront(nil)
         try await settle { controller.room.afterLeading > 0 }
@@ -134,9 +136,10 @@ import Testing
         #expect(controller.room.afterLeading > 500)
     }
 
+    /// A list column and a screen column, as plain items, as the card's are.
     private static func splitWindow() -> NSWindow {
         let split = NSSplitViewController()
-        split.addSplitViewItem(NSSplitViewItem(sidebarWithViewController: NSViewController.sized(width: 200)))
+        split.addSplitViewItem(NSSplitViewItem(viewController: NSViewController.sized(width: 200)))
         split.addSplitViewItem(NSSplitViewItem(viewController: NSViewController.sized(width: 1000)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300),
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -145,6 +148,10 @@ import Testing
         window.contentViewController = split
         window.setContentSize(NSSize(width: 1200, height: 300))
         return window
+    }
+
+    private static func split(of window: NSWindow) -> NSSplitView? {
+        (window.contentViewController as? NSSplitViewController)?.splitView
     }
 
     private static func column(of window: NSWindow) -> NSView? {

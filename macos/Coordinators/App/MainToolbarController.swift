@@ -3,9 +3,11 @@ import Observation
 import SwiftUI
 
 /// Draws the main window's toolbar from the description the screen on show gives
-/// (`AppCoordinator.windowToolbar`). The toolbar is split where the window is: the sidebar's
+/// (`AppCoordinator.windowToolbar`). The toolbar is split where the card's columns are: the list's
 /// section, the screen's, and beside a terminal the context pane's, each tracking its divider in
-/// `MainSplitViewController`. Every item hosts its SwiftUI content; the description is read under
+/// `MainSplitViewController`'s split view, which the toolbar is told of (`splitView`). The columns
+/// are plain split items inside the card, not AppKit's sidebar and inspector, so the separators are
+/// tracking separators bound to that split view's dividers. Every item hosts its SwiftUI content; the description is read under
 /// observation, so anything it reads redraws the toolbar, and an item's content is handed over
 /// again on every pass rather than only when the set of items changes.
 ///
@@ -18,6 +20,9 @@ import SwiftUI
     weak var window: NSWindow? {
         didSet { window?.toolbar = toolbar }
     }
+    /// The card's columns: the list, the screen and the pane. Set before `window`, since the
+    /// toolbar's separators are made against it.
+    weak var splitView: NSSplitView?
     private(set) var toolbar = NSToolbar()
     private let describe: () -> WindowToolbar
     private var current = WindowToolbar.empty
@@ -101,8 +106,8 @@ import SwiftUI
                 (index > 0 && item.glass && items[index - 1].glass ? [.space] : []) + [NSToolbarItem.Identifier(item.id)]
             }
         }
-        // The sidebar's section holds its toggle alone, against the divider, the same over every screen.
-        var identifiers: [NSToolbarItem.Identifier] = [.flexibleSpace, .toggleSidebar, .sidebarTrackingSeparator]
+        // The list's section holds nothing: the window's buttons are over it.
+        var identifiers: [NSToolbarItem.Identifier] = [.listSeparator]
         identifiers += run(toolbar.leading)
         // Beside a bar that fills there is no slack to centre the middle in.
         let balanced = !toolbar.center.isEmpty && !toolbar.leading.contains(where: \.fills)
@@ -115,7 +120,7 @@ import SwiftUI
         if balanced { identifiers.append(.trailingBalance) }
         identifiers += run(toolbar.trailing)
         if let pane = toolbar.pane {
-            identifiers.append(.inspectorTrackingSeparator)
+            identifiers.append(.paneSeparator)
             if !pane.contains(where: \.fills) { identifiers.append(.flexibleSpace) }
             identifiers += run(pane)
         }
@@ -165,6 +170,11 @@ import SwiftUI
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == .leadingBalance || identifier == .trailingBalance { return balanceItem(identifier) }
+        if identifier == .listSeparator || identifier == .paneSeparator {
+            guard let splitView else { return nil }
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView,
+                                                  dividerIndex: identifier == .listSeparator ? 0 : 1)
+        }
         if identifier == .roomSpacer { return roomSpacerItem() }
         guard let spec = allItems(current).first(where: { $0.id == identifier.rawValue }) else { return nil }
         let item: NSToolbarItem
@@ -285,7 +295,7 @@ import SwiftUI
     @objc private func layoutChanged(_ notification: Notification) {
         if let window = notification.object as? NSWindow, window !== self.window { return }
         if let split = notification.object as? NSSplitView {
-            guard let window, split === (window.contentViewController as? NSSplitViewController)?.splitView else { return }
+            guard split === splitView else { return }
         } else if let view = notification.object as? NSView, view !== roomSpacer, !hosts.values.contains(where: { $0 === view }) {
             return
         }
@@ -307,7 +317,7 @@ import SwiftUI
     private func balanceMiddle() {
         guard let window, let lead = balances[.leadingBalance], let trail = balances[.trailingBalance],
               let leadView = lead.firstItem as? NSView, let trailView = trail.firstItem as? NSView,
-              let section = Self.screenColumn(in: window) else { return }
+              let section = screenColumn else { return }
         // A spacer squeezed into the overflow menu, by a column that shrank at once, comes back at
         // no width; the pass its return sets off balances from there.
         let visible = Set(toolbar.visibleItems?.map(\.itemIdentifier) ?? [])
@@ -368,11 +378,11 @@ import SwiftUI
     /// there is would go to the overflow menu, taking the balance with it.
     private static let minimumGap: CGFloat = 40
 
-    /// The screen's column, between the sidebar and the context pane: the section the middle is
+    /// The screen's column, between the list and the context pane: the section the middle is
     /// centred in.
-    private static func screenColumn(in window: NSWindow) -> NSView? {
-        (window.contentViewController as? NSSplitViewController)?.splitViewItems
-            .first { $0.behavior == .default }?.viewController.view
+    private var screenColumn: NSView? {
+        guard let splitView, splitView.arrangedSubviews.count > 1 else { return nil }
+        return splitView.arrangedSubviews[1]
     }
 
     // MARK: NSSearchFieldDelegate
@@ -407,6 +417,9 @@ private extension NSToolbarItem.Identifier {
     static let leadingBalance = Self("center-balance-leading")
     static let trailingBalance = Self("center-balance-trailing")
     static let roomSpacer = Self("leading-room")
+    /// The dividers of the card's columns: between the list and the screen, and the screen and the pane.
+    static let listSeparator = Self("list-separator")
+    static let paneSeparator = Self("pane-separator")
 }
 
 private extension WindowToolbarItem {

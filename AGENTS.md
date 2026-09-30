@@ -258,50 +258,56 @@ A screen is four things, in this order:
 
 The main window is AppKit's, not a SwiftUI scene, so its toolbar can be split where its
 columns are, as Xcode's is. `MainWindowController` owns the window; its content is
-`MainSplitViewController`: the sidebar, the screen (`AppCoordinatorView`), and the shown
-workspace's context pane as the inspector column. AppKit holds each column to its minimum
-width. The pane column follows `SessionWorkspaceViewModel.showsInspector`, and a pane the
-user collapses from the divider is told back to the workspace.
+`MainWindowViewController`: one backdrop across the whole window, and on it the rail down the
+leading edge and a rounded card under the toolbar. The card holds `MainSplitViewController`'s
+columns: the sidebar's list, the screen (`AppCoordinatorView`), and the shown workspace's context
+pane. AppKit holds each column to its minimum width. The pane column follows
+`SessionWorkspaceViewModel.showsInspector`, and a pane the user collapses from the divider is
+told back to the workspace.
 
-- **The rail picks the sidebar's list.** It is the icon-only strip at the sidebar's leading
-  edge (`SidebarRail`), one fixed icon per `SidebarMode`: Home lists Dashboard, Automation and
-  the projects with their sessions; Browser lists the saved tabs and nothing else.
-  Settings is at the rail's bottom; the sidebar has no footer, and the activity bell is in the
-  Dashboard's toolbar (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to
-  them. The mode is `AppCoordinator.sidebarMode`: the rail sets
-  it without changing the selection, and a navigation brings the mode of where it lands. The
-  sidebar builds every row once (`SidebarEntry.make`) and shows the rows of the mode on show
-  (`SidebarEntry.mode`).
-- **The rail is in the sidebar column, not beside it.** It is the leading strip of the
-  column (`MainSidebarColumn`), so it has the sidebar's glass and collapses with it. AppKit
-  makes that glass itself and nothing public matches it: beside the split view, a glass view
-  or any window material comes out a different colour; as a split item of its own, a plain one
-  costs the sidebar its full height, and a sidebar one takes the toolbar's sidebar separator
-  from the list.
-- **The columns' lines are the window's own, one display pixel wide.** The list's edge (up
-  its side against the rail, round the corner, along its top), the line under the screen's
-  toolbar and the pane's edge are drawn by `MainSplitViewController`'s columns in
-  `SidebarPalette.rule`, at `MainWindowMetrics.rule`. AppKit's toolbar separator is not used:
-  it comes and goes with what has scrolled under the toolbar, and `titlebarSeparatorStyle`
-  does not keep it. A split inside a screen uses `ThinSplitView` for the same rule;
+- **A translucent outline round the card.** The toolbar is a unified one and transparent, so the
+  backdrop runs under it: along the top, down the rail, and in a thin margin at the card's
+  trailing and bottom edges (`MainWindowMetrics.cardInset`). The backdrop is a material of the
+  content view's own — the title bar's, which keeps the desktop's colour where the sidebar's
+  greys it — under a wash (`SidebarPalette.backdrop`); the list has its own wash
+  (`SidebarPalette.list`), and the screen and the pane are opaque.
+- **The columns are plain split items.** None is AppKit's sidebar or inspector: those bring glass
+  of their own, and a strip or a rail beside such a column comes out a different colour. With
+  no sidebar item AppKit's Toggle Sidebar does nothing and disables whatever asked, so
+  `MainSplitViewController` and the window both answer `toggleSidebar:` for the View menu
+  (⌃⌘S). There is no sidebar toggle in the toolbar.
+- **The toolbar's sections track the card's dividers.** `MainToolbarController` splits the toolbar
+  with tracking separators bound to the card's split view (`NSTrackingSeparatorToolbarItem`
+  with `splitView:dividerIndex:`): the list's section holds nothing, the window's buttons being
+  over it; then the screen's, then beside a terminal the pane's. Bound to a split view that is
+  not the window's content, the separators still follow its dividers through a drag and a
+  column opening or shutting.
+- **The rail picks the sidebar's list.** It is the icon-only strip beside the card
+  (`SidebarRail`), one fixed icon per `SidebarMode`: Home lists Dashboard, Automation and the
+  projects with their sessions; Browser lists the saved tabs and nothing else. Settings is at the
+  rail's bottom; the sidebar has no footer, and the activity bell is in the Dashboard's toolbar
+  (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to them. The mode is
+  `AppCoordinator.sidebarMode`: the rail sets it without changing the selection, and a navigation
+  brings the mode of where it lands. The rail stays when the list is collapsed, and picking a list
+  opens it again. Its first icon is level with the list's first row, which a source list sets
+  below its own inset (`SidebarMetrics.sourceListInset`). The sidebar builds every row once
+  (`SidebarEntry.make`) and shows the rows of the mode on show (`SidebarEntry.mode`).
+- **The lines are the window's own, one display pixel wide.** The card's edge and the dividers
+  between its columns (`RuleSplitView`) are drawn in `SidebarPalette.rule`, at
+  `MainWindowMetrics.rule`. A split inside a screen uses `ThinSplitView` for the same rule;
   `HSplitView`'s divider is a point wide and cannot be restyled.
-- **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the
-  main window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
-  `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and
-  the pane's section; the sidebar's section is its toggle alone, against the divider, on every screen — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the
-  SwiftUI content, split by the sidebar and inspector tracking separators. It reads the
-  description under observation, so what it reads redraws the toolbar.
-- **The pane draws its own bar, in the title-bar zone.** The pane column runs the window's
-  full height, as Xcode's inspector does, and each pane draws its compact tab bar in the zone
-  AppKit reports as the safe area (`SessionWorkspacePane`, `CompactTabBarPlacement.titleBar`).
-  The toolbar's pane section is the toggle alone, so showing or hiding the pane changes no
-  toolbar item: the tracking separator carries the screen's trailing items along with the
-  divider, and the bar slides with its column. Putting the bar in the toolbar instead broke
-  that — a changed item set is re-laid out on the toolbar's own animation, not the divider's,
-  and a hidden item keeps its width. The one bar that is a toolbar item is a page-only sidebar
-  tab's (`CompactTabBarPlacement.toolbar`); it cannot hang its suggestions under itself, since
-  a toolbar item clips what it draws outside, so the bar keeps its editing state and highlight
-  on the models and the page beneath draws the list.
+- **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the main
+  window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
+  `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and the
+  pane's section — and `MainToolbarController` draws it as `NSToolbarItem`s hosting the SwiftUI
+  content. It reads the description under observation, so what it reads redraws the toolbar.
+- **The pane draws its own tab bar, under the toolbar.** A pane browsing the web draws its compact
+  tab bar at the top of its column (`SessionWorkspacePane`, `CompactTabBarPlacement.paneBar`); the
+  toolbar's pane section is its toggle alone, so showing or hiding the pane changes no toolbar
+  item, and the bar slides with its column. The one tab bar that is a toolbar item is a page-only
+  sidebar tab's (`CompactTabBarPlacement.toolbar`); it cannot hang its suggestions under itself,
+  since a toolbar item clips what it draws outside, so the bar keeps its editing state and
+  highlight on the models and the page beneath draws the list.
 - Settings is the app's only SwiftUI scene. SwiftUI opens an app's first window scene at
   every launch but leaves a lone `Settings` shut, so any other window — Help included
   (`AppDelegate.showHelp`) — is AppKit's.

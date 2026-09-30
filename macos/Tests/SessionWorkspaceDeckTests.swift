@@ -49,7 +49,7 @@ import WebKit
     #expect(pageB?.isHidden == true)
 }
 
-// The inspector column's deck holds each workspace's pane the same way: coming back to a session
+// The pane column's deck holds each workspace's pane the same way: coming back to a session
 // finds its pane as it was left, not built again.
 @MainActor @Test func paneDeckSwitchingBackReusesThePane() {
     let runtime = DeckRuntimeFixture()

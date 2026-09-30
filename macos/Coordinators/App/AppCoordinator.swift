@@ -158,7 +158,7 @@ import Observation
     }
 
     /// The rail picked a list. The selection stays: the window shows what it showed.
-    /// (`MainSidebarColumn` draws the rail and hands its pick here.)
+    /// (`MainWindowViewController` draws the rail and hands its pick here.)
     func showSidebar(_ mode: SidebarMode) { sidebarMode = mode }
 
     func navigate(to destination: SidebarDestination) {

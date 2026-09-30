@@ -160,8 +160,8 @@ extension WorkspaceServing {
     /// sidebar tab: a session's workspace keeps its title, even while it has no session record to
     /// show a terminal for.
     var barFillsToolbar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
-    /// Beside a terminal the context pane is the window's inspector column, with its own section of
-    /// the toolbar tracking the divider (`MainSplitViewController`).
+    /// Beside a terminal the context pane is the window's pane column, with its own section of the
+    /// toolbar tracking the divider (`MainSplitViewController`).
     var showsInspector: Bool { showsTerminal && showsPage }
     /// Keyboard highlight in the address suggestions; nil means Enter submits the typed text. Here
     /// rather than in the bar: in the toolbar the bar and its list are drawn apart.

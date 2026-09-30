@@ -33,7 +33,7 @@ extension AppCoordinator {
     }
 
     /// The workspaces the detail column keeps alive (`SessionWorkspaceDeck`): every live one but a
-    /// sidebar tab's, whose page-only panel draws into the title-bar zone and stays a destination.
+    /// sidebar tab's, whose page-only panel puts its tab bar in the toolbar and stays a destination.
     var deckWorkspaces: [SessionWorkspaceCoordinator] { workspaceCoordinators.filter { !$0.context.holdsOnePage } }
 
     /// The one of them on screen, when the selection shows it.

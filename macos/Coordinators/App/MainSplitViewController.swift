@@ -2,9 +2,11 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// The main window's columns, as AppKit lays out Xcode's: the sidebar, the screen
-/// (`AppCoordinatorView`), and the shown workspace's context pane as the inspector. The toolbar tracks
-/// both dividers, so each column has its own section of it (`MainToolbarController`). AppKit keeps
+/// The columns inside the main window's card (`MainWindowViewController`): the sidebar's list, the
+/// screen (`AppCoordinatorView`), and the shown workspace's context pane. They are plain columns —
+/// none is AppKit's sidebar or inspector, which bring glass of their own and reach the window's
+/// top — so each starts at the card's top, under the toolbar, whose sections track their dividers
+/// (`MainToolbarController`, `splitView`). AppKit keeps
 /// each column to its minimum width, so no drag or window resize can squeeze one to nothing.
 ///
 /// The pane column follows the workspace on show: open while its pane is (`showsInspector`), and
@@ -20,43 +22,44 @@ import SwiftUI
     /// The workspace on show when the pane was last set, to tell a toggle from a switch.
     private var shownWorkspace: ObjectIdentifier?
     private var collapseObservation: NSKeyValueObservation?
-    /// No widths saved yet: the first time the window shows, the sidebar opens at its ideal width.
+
+    /// No widths saved yet: the first time the window shows, the list opens at its ideal width.
     private var needsInitialWidths = false
-    private static let autosaveName = "CascadeMainColumns"
+    /// Not the old `CascadeMainColumns`: its first width included the rail, which is now beside the
+    /// card, so a saved list would open that much wider.
+    private static let autosaveName = "CascadeCardColumns"
 
     init(model: AppViewModel) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
-        let sidebar = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
+        let sidebar = NSHostingController(rootView: MainListColumn(coordinator: coordinator))
         let content = NSHostingController(rootView: MainContentColumn(model: model))
         let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
         // The columns' widths are the split view's to decide, not their content's.
         sidebar.sizingOptions = []
         content.sizingOptions = []
         pane.sizingOptions = []
-        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
+        sidebarItem = NSSplitViewItem(viewController: sidebar)
         sidebarItem.minimumThickness = MainWindowMetrics.sidebarMin
         sidebarItem.maximumThickness = MainWindowMetrics.sidebarMax
+        sidebarItem.canCollapse = true
+        // A window resize goes to the screen and the pane: the list keeps its width, as a sidebar does.
+        sidebarItem.holdingPriority = .defaultLow + 10
         contentItem = NSSplitViewItem(viewController: content)
         contentItem.minimumThickness = MainWindowMetrics.contentMin
-        // The line under the screen's toolbar is the column's own (`MainContentColumn`), so it is
-        // always there. AppKit's comes and goes with what has scrolled under the toolbar, and
-        // asking it for `.line` does not keep it: a page at its top still has none.
-        contentItem.titlebarSeparatorStyle = .none
-        paneItem = NSSplitViewItem(inspectorWithViewController: pane)
+        paneItem = NSSplitViewItem(viewController: pane)
         paneItem.minimumThickness = MainWindowMetrics.paneMin
-        paneItem.maximumThickness = NSSplitViewItem.unspecifiedDimension
         paneItem.canCollapse = true
-        // Full height, as Xcode's inspector is: the column reaches the window's top and draws its
-        // own bar in the title-bar zone (`SessionWorkspacePane`), so the toolbar's pane section is
-        // its toggle alone, and showing or hiding the pane changes no toolbar item — the tracking
-        // separator carries the screen's trailing items along with the divider, and the bar slides
-        // with the column it is part of.
         // Equal holding priorities: a window resize is shared between the screen and the pane in
         // proportion, as it was between the terminal and the pane before.
         paneItem.holdingPriority = contentItem.holdingPriority
         paneItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
+        // The lines between the columns are the split view's own dividers, one display pixel wide.
+        let split = RuleSplitView()
+        split.isVertical = true
+        split.dividerStyle = .thin
+        splitView = split
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -78,11 +81,6 @@ import SwiftUI
         observePane()
     }
 
-    override func viewWillAppear() {
-        super.viewWillAppear()
-        applyTitlebar()
-    }
-
     override func viewDidAppear() {
         super.viewDidAppear()
         guard needsInitialWidths else { return }
@@ -90,16 +88,36 @@ import SwiftUI
         splitView.setPosition(MainWindowMetrics.sidebarIdeal, ofDividerAt: 0)
     }
 
+    // MARK: The list
+
+    /// Toggle Sidebar, from the View menu (⌃⌘S). The list is a plain column, so the
+    /// split view has no sidebar of its own to toggle: AppKit's own answer is to do nothing, and to
+    /// disable whatever asked.
+    override func toggleSidebar(_ sender: Any?) {
+        sidebarItem.animator().isCollapsed = !sidebarItem.isCollapsed
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(toggleSidebar(_:)) { return true }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    /// Opens the list if it is shut: the rail picked a list, and a list nobody can see is no answer.
+    func revealList() {
+        guard sidebarItem.isCollapsed else { return }
+        sidebarItem.animator().isCollapsed = false
+    }
+
+    // MARK: The pane
+
     private func observePane() {
         let target = withObservationTracking {
-            _ = coordinator.shownDeckWorkspace?.model.showsTerminal
-            return coordinator.inspectorWorkspace
+            coordinator.inspectorWorkspace
         } onChange: { [weak self] in
             Task { @MainActor in self?.observePane() }
         }
-        applyTitlebar()
         // Shown or hidden in its own workspace, the pane slides, as an inspector does. Anything
-        // else — another workspace, a screen with no pane — switches at once, as the toolbar does.
+        // else — another workspace, a screen with no pane — switches at once, as the screen's bar does.
         let shown = coordinator.shownDeckWorkspace.map(ObjectIdentifier.init)
         let animated = shown != nil && shown == shownWorkspace && view.window?.isVisible == true
         shownWorkspace = shown
@@ -115,14 +133,6 @@ import SwiftUI
             // the last one's width, which its chat visibly jumps from. Lay them out before it draws.
             if view.window?.isVisible == true { splitView.layoutSubtreeIfNeeded() }
         }
-    }
-
-    /// The toolbar over a terminal and its pane is the window's own backdrop in both sections. AppKit
-    /// gives the screen's section a scroll-edge effect that the pane's section cannot have, so the
-    /// two would not match; a workspace scrolls nothing under the toolbar — the terminal and the pane
-    /// both start below it — so it has no use for the effect. Every other screen keeps it.
-    private func applyTitlebar() {
-        view.window?.titlebarAppearsTransparent = coordinator.shownDeckWorkspace?.model.showsTerminal == true
     }
 
     /// A collapse the column was not asked for came from the divider or a menu: the workspace hears
@@ -141,48 +151,44 @@ import SwiftUI
 }
 
 enum MainWindowMetrics {
-    /// The rail at the sidebar column's leading edge (`SidebarRail`): one icon wide, with the
-    /// air a plate needs on each side. The column's widths are its list's plus this.
-    static let railWidth: CGFloat = 57
-    static let sidebarMin: CGFloat = 170 + railWidth
-    static let sidebarMax: CGFloat = 420 + railWidth
-    static let sidebarIdeal: CGFloat = 250 + railWidth
+    /// The rail beside the card (`SidebarRail`): ChatGPT's and Codex's, measured at 56 points, one
+    /// plate wide with a little air either side.
+    static let railWidth: CGFloat = 56
+    /// The card's trailing and bottom edges to the window's.
+    static let cardInset: CGFloat = 4
+    /// The card's corners: the window's own corner, less the inset, so the two curve together.
+    static let cardRadius: CGFloat = 12
+    static let sidebarMin: CGFloat = 170
+    static let sidebarMax: CGFloat = 420
+    static let sidebarIdeal: CGFloat = 250
     /// The least a screen, and the terminal beside an open pane, can be and still be used.
     static let contentMin: CGFloat = 360
     /// The least the context pane can be.
     static let paneMin: CGFloat = 320
-    /// The width of the lines the columns draw between themselves — the list's edge and the line
-    /// under the toolbar: one pixel of the display, thinner than the theme's one-point hairline.
+    /// The width of the lines the window draws — the card's edge and the columns' dividers: one
+    /// pixel of the display, thinner than the theme's one-point hairline.
     static func rule(_ displayScale: CGFloat) -> CGFloat { 1 / max(displayScale, 1) }
 }
 
-/// The screen's column, with the activity toasts over its trailing corner.
+/// The screen's column, with the activity toasts over its trailing corner. Its bar is the window's
+/// toolbar, over the card (`MainToolbarController`).
 private struct MainContentColumn: View {
     let model: AppViewModel
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         AppCoordinatorView(coordinator: model.coordinator)
-            // The toolbar's edge, whatever the screen has scrolled to: the sidebar list's top edge
-            // runs into it, and would otherwise end at nothing. A terminal has no edge here — its
-            // toolbar is the window's own backdrop (`applyTitlebar`).
-            .overlay(alignment: .top) {
-                if model.coordinator.shownDeckWorkspace?.model.showsTerminal != true {
-                    Rectangle().fill(Color(nsColor: SidebarPalette.rule)).frame(height: MainWindowMetrics.rule(displayScale))
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay(alignment: .topTrailing) {
                 ActivityToastView(notifications: model.shell.notifications)
                     .padding(.top, 6).padding(.trailing, 20)
             }
+            .background(Theme.paneBackground)
             .modifier(SettingsWindowOpener(model: model))
     }
 }
 
 /// Hands the environment's `openSettings` to the app model, for opens that do not start in a
-/// view: the sidebar gear's command, and the workflow hooks' jump to CLIs.
+/// view: the rail gear's command, and the workflow hooks' jump to CLIs.
 private struct SettingsWindowOpener: ViewModifier {
     let model: AppViewModel
     @Environment(\.openSettings) private var openSettings
@@ -192,74 +198,34 @@ private struct SettingsWindowOpener: ViewModifier {
     }
 }
 
-/// The sidebar's column, once the root model exists: the rail, then the list it picked. The rail
-/// is in the column, not beside it, because only the column has the sidebar's glass. AppKit makes
-/// that glass itself, and nothing public matches it — a glass view or any window material beside
-/// the split view comes out a different colour, and a sidebar item of its own takes the toolbar's
-/// sidebar separator from the list. So the rail goes where the sidebar goes, collapse included.
-private struct MainSidebarColumn: View {
+/// The list's column, once the root model exists: the rows of the list the rail picked, on the
+/// list's own wash over the window's backdrop.
+private struct MainListColumn: View {
     let coordinator: AppCoordinator
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        if let viewModel = coordinator.rootModel {
-            HStack(spacing: 0) {
-                SidebarRail(mode: coordinator.sidebarMode, onSelect: coordinator.showSidebar, onSettings: viewModel.openSettings)
-                    .frame(width: MainWindowMetrics.railWidth)
-                // The list is edged like a panel set into the column: up its side against the rail,
-                // round the corner under the title bar, and along its top to the screen, where the
-                // toolbar's own edge goes on. The rail has no line over it. The window's buttons
-                // sit across the rail's edge above this, which is why the line starts below them.
+        Group {
+            if let viewModel = coordinator.rootModel {
                 SidebarView(viewModel: viewModel, mode: coordinator.sidebarMode)
-                    .overlay {
-                        SidebarListEdge(radius: 10, lineWidth: MainWindowMetrics.rule(displayScale))
-                            .stroke(Color(nsColor: SidebarPalette.rule), lineWidth: MainWindowMetrics.rule(displayScale))
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
             }
         }
-    }
-}
-
-/// The leading and top edges of the sidebar's list, joined by a rounded corner: one line from the
-/// column's bottom, up, round, and across to its trailing edge.
-private struct SidebarListEdge: Shape {
-    let radius: CGFloat
-    let lineWidth: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        // Half a line in, so the stroke lands on whole pixels from the list's edge.
-        let inset = lineWidth / 2
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + inset, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX + inset, y: rect.minY + inset + radius))
-        path.addArc(center: CGPoint(x: rect.minX + inset + radius, y: rect.minY + inset + radius), radius: radius,
-                    startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + inset))
-        return path
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: SidebarPalette.list))
     }
 }
 
 /// The context pane's column: a deck of every workspace's pane, the one the column is open for on
 /// top, so a switch between sessions rebuilds no pane and takes no web view out of the window, as the
 /// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
-/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The column reaches the window's top: each pane draws its
-/// bar in the title-bar zone, which AppKit reports to it as the safe area. It is opaque: AppKit
-/// backs an inspector with glass, which would show through wherever the pane is not drawn —
-/// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
-/// column the divider is zero-width and AppKit draws no line, though it can still be dragged.
+/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. It is
+/// opaque: the window's backdrop would show through wherever the pane is not drawn — between one
+/// panel and the next, or while a page loads.
 private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.inspectorWorkspace, part: .pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Color(nsColor: SidebarPalette.rule)).frame(width: MainWindowMetrics.rule(displayScale)).accessibilityHidden(true)
-        }
-        .ignoresSafeArea(.container, edges: .top)
+            .background(Theme.paneBackground)
     }
 }

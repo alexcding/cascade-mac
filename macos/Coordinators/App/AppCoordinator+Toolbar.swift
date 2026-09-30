@@ -17,7 +17,7 @@ extension AppCoordinator {
         return toolbar
     }
 
-    /// The deck workspace whose context pane the window shows as its inspector column, if any.
+    /// The deck workspace whose context pane the window shows in its pane column, if any.
     var inspectorWorkspace: SessionWorkspaceCoordinator? {
         shownDeckWorkspace.flatMap { $0.model.showsInspector ? $0 : nil }
     }

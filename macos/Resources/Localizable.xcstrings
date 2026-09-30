@@ -45929,6 +45929,9 @@
         }
       }
     },
+    "Home" : {
+
+    },
     "Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration." : {
       "extractionState" : "manual",
       "localizations" : {
