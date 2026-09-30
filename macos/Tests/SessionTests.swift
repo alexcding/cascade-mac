@@ -29,6 +29,8 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
                 body = String(decoding: try! JSONSerialization.data(withJSONObject: ["matched": true, "isWorktree": true, "branch": branch, "path": "/tmp/fixture.worktrees/native"]), as: UTF8.self)
             }
             else { body = #"{"matched":false,"isWorktree":false,"branch":"","path":""}"# }
+        case Routes.SESSIONS:
+            body = #"{"id":"created","projectId":"fixture","workspace":"/tmp/fixture","worktree":"/tmp/fixture.worktrees/native","title":"Native sidebar","branch":"feature/native","url":"https://github.com/fixture/repo/pull/42","pinned":false,"kind":"github","cli":"claude","sessionId":""}"#
         default: body = #"{"ok":true}"#
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
@@ -185,45 +187,46 @@ private let scriptedProject = Project(id: "fixture", name: "Fixture", repo: "fix
     #expect(model.referenceError == "Could not read refs")
 }
 
-private final class ExistingCheckoutFixture: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var posts: [String] = []
-    nonisolated(unsafe) static var switched: [String] = []
+/// Records what `create` sends and answers with a record built from it; a branch named `refused`
+/// is answered as the backend refuses a checkout it cannot free.
+private final class SessionRequestFixture: URLProtocol, @unchecked Sendable {
+    struct Sent: Decodable {
+        let projectId: String; let branch: String; let createBranch: Bool; let base: String; let reuseWorktree: String?
+        let url: String; let title: String; let kind: String; let cli: String; let sessionId: String
+    }
+    nonisolated(unsafe) static var sent: [Sent] = []
     static let lock = NSLock()
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let url = request.url!
-        let branch = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "branch" }?.value ?? ""
+        var status = 200
         let body: String
         switch (url.path, request.httpMethod ?? "GET") {
-        case (Routes.WORKTREE, "POST"):
-            Self.lock.withLock { Self.posts.append(url.path) }
-            body = #"{"path":"/tmp/fixture.worktrees/fresh"}"#
-        case (Routes.WORKTREE, _) where branch == "reuse-me":
-            body = #"{"matched":true,"isWorktree":true,"branch":"reuse-me","path":"/tmp/fixture.worktrees/reuse-me"}"#
-        case (Routes.WORKTREE, _) where branch == "main" || url.query?.contains("key=MAIN-1") == true:
+        case (Routes.SESSIONS, "POST"):
+            let sent = try! JSONDecoder().decode(Sent.self, from: Self.body(request))
+            Self.lock.withLock { Self.sent.append(sent) }
+            if sent.branch == "refused" {
+                status = 409
+                body = #"{"error":"refused is the branch this session forks from, so the main checkout cannot be moved off it."}"#
+            } else {
+                body = #"{"id":"made","projectId":"\#(sent.projectId)","workspace":"/tmp/fixture","worktree":"/tmp/fixture.worktrees/\#(sent.branch)","title":"\#(sent.title.isEmpty ? sent.branch : sent.title)","branch":"\#(sent.branch)","url":"session:made","pinned":false,"kind":"\#(sent.kind)","cli":"\#(sent.cli)","sessionId":"\#(sent.sessionId)"}"#
+            }
+        case (Routes.WORKTREE, _) where url.query?.contains("key=MAIN-1") == true:
             body = #"{"matched":true,"isWorktree":false,"branch":"main","path":"/tmp/fixture"}"#
-        // The main checkout is parked on this one, so it is matched but is not a worktree.
-        case (Routes.WORKTREE, _) where branch == "develop":
-            body = #"{"matched":true,"isWorktree":false,"branch":"develop","path":"/tmp/fixture"}"#
-        case (Routes.WORKTREE, _) where branch == "held":
-            body = #"{"matched":true,"isWorktree":false,"branch":"held","path":"/tmp/fixture"}"#
-        case (Routes.GIT_SWITCH, "POST"):
-            Self.lock.withLock { Self.switched.append(Self.bodyBranch(self.request)) }
-            body = #"{"ok":true}"#
         case (Routes.GIT_REFS, _):
             body = #"{"branches":[{"name":"main"},{"name":"develop"}],"defaultBranch":"main"}"#
         case (Routes.WORKTREE, _):
             body = #"{"matched":false,"isWorktree":false,"branch":"","path":""}"#
         default: body = #"{"ok":true}"#
         }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8)); client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 
-    /// URLProtocol hands a POST body back as a stream, so the recorded branch has to be read out.
-    static func bodyBranch(_ request: URLRequest) -> String {
+    /// URLProtocol hands a POST body back as a stream, so it has to be read out.
+    static func body(_ request: URLRequest) -> Data {
         var data = request.httpBody ?? Data()
         if data.isEmpty, let stream = request.httpBodyStream {
             stream.open(); defer { stream.close() }
@@ -234,55 +237,48 @@ private final class ExistingCheckoutFixture: URLProtocol, @unchecked Sendable {
                 data.append(contentsOf: buffer[..<read])
             }
         }
-        struct Body: Decodable { let branch: String }
-        return (try? JSONDecoder().decode(Body.self, from: data))?.branch ?? ""
+        return data
     }
 }
 
-@Test func sessionCreationReusesAnExistingCheckoutAndFreesTheMainCheckout() async throws {
+@Test func sessionCreationSendsOneRequestWithTheDraftAndDecodesTheRecord() async throws {
     let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [ExistingCheckoutFixture.self]
+    configuration.protocolClasses = [SessionRequestFixture.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
     let operations = SessionOperations(api: api)
     let project = Project(id: "fixture", name: "Fixture", repo: "fixture/repo", color: nil, workspace: "/tmp/fixture")
-    func draft(_ branch: String, base: String = "") -> SessionDraft {
-        var d = SessionDraft(); d.branch = branch; d.base = base; d.agent = .shell; return d
+    func draft(_ branch: String, base: String = "", reuse: String? = nil) -> SessionDraft {
+        var d = SessionDraft(); d.branch = branch; d.base = base; d.reuseWorktree = reuse; d.agent = .shell; return d
     }
-    ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts = []; ExistingCheckoutFixture.switched = [] }
+    SessionRequestFixture.lock.withLock { SessionRequestFixture.sent = [] }
 
-    // An existing WORKTREE is adopted as it stands: the session is new, the checkout is not.
-    let reused = try await operations.create(project: project, draft: draft("reuse-me"))
-    #expect(reused.worktree == "/tmp/fixture.worktrees/reuse-me")
-    #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts.isEmpty })
-
-    // A branch the MAIN checkout holds is different: every task branch belongs in a worktree of its
-    // own, so the main checkout is parked on the selected base and the branch then gets one.
+    // Every decision the backend needs travels in the one request; the record comes back whole.
+    let reused = try await operations.create(project: project, draft: draft("reuse-me", reuse: "/tmp/fixture.worktrees/reuse-me"))
+    #expect(reused.worktree == "/tmp/fixture.worktrees/reuse-me" && reused.title == "reuse-me" && reused.projectId == "fixture")
     var held = draft("held", base: "develop")
-    held.createBranch = false
+    held.createBranch = false; held.title = "Held work"
     let freed = try await operations.create(project: project, draft: held)
-    #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched } == ["develop"])
-    // Never the main repo's own path, which is what `matched` pointed at.
-    #expect(freed.worktree == "/tmp/fixture.worktrees/fresh")
-    #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.posts.count } == 1)
+    #expect(freed.title == "Held work" && freed.branch == "held")
+    let sent = SessionRequestFixture.lock.withLock { SessionRequestFixture.sent }
+    #expect(sent.map(\.branch) == ["reuse-me", "held"])
+    #expect(sent[0].reuseWorktree == "/tmp/fixture.worktrees/reuse-me" && sent[0].createBranch)
+    // A shell-only session names no CLI, so the backend stores an empty one.
+    #expect(sent[1].reuseWorktree == nil && sent[1].base == "develop" && !sent[1].createBranch && sent[1].cli == SessionAgent.shell.rawValue)
 
-    // Nothing selected — the page flow creates without a sheet — falls back to the session base.
-    _ = try await operations.create(project: project, draft: draft("main"))
-    #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched.last } == "develop")
+    // A refusal is the backend's words, as an error.
+    await #expect(throws: BackendError.self) {
+        _ = try await operations.create(project: project, draft: draft("refused", base: "refused"))
+    }
 
     // Resolving is a LOOKUP. It runs on every keystroke that parses as a URL, so it must never
-    // move a checkout — it only declines to reuse the main one.
-    let before = ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched.count }
+    // create anything: it only declines to reuse the main checkout.
+    let before = SessionRequestFixture.lock.withLock { SessionRequestFixture.sent.count }
     let resolved = try await operations.resolvePage("https://jira.test/browse/MAIN-1", project: project, draft: SessionDraft())
     #expect(resolved.reuseWorktree == nil)
-    #expect(ExistingCheckoutFixture.lock.withLock { ExistingCheckoutFixture.switched.count } == before)
+    #expect(SessionRequestFixture.lock.withLock { SessionRequestFixture.sent.count } == before)
 
-    // The one case with nowhere to park it: the branch IS the base this session forks from.
-    await #expect(throws: BackendError.self) {
-        _ = try await operations.create(project: project, draft: draft("develop", base: "develop"))
-    }
-
-    let fresh = try await operations.create(project: project, draft: draft("fresh"))
-    #expect(fresh.worktree == "/tmp/fixture.worktrees/fresh")
+    // Nothing to send without a branch or a workspace.
+    await #expect(throws: BackendError.self) { _ = try await operations.create(project: project, draft: draft("")) }
 }
 
 private actor PageStartService: SessionCreating {

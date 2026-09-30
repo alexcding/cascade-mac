@@ -47,6 +47,14 @@ struct Ticket: Identifiable, Equatable, Sendable {
     /// Whether the backend found the user among an issue's assignees. Nil for Jira, whose My
     /// Tickets search only returns the user's own tickets.
     var mine: Bool? = nil
+    /// Where the ticket sits in its workflow, read from Jira's words by the backend
+    /// (`tickets.rs`): `toDo`, `inProgress`, `pendingRelease` or `blocked`.
+    var stage: String? = nil
+    /// How pressing it is, folded by the backend onto `urgent`, `high`, `medium` or `low`.
+    var level: String? = nil
+    /// Whether the status says the ticket came back after being closed; ranked ahead of other
+    /// work in progress on the home screen.
+    var reopened: Bool? = nil
     /// The user's: every Jira ticket My Tickets returns, and an issue the backend marked `mine`.
     var isMine: Bool { source == .jira || mine == true }
     /// Unique across sources and repos: two repos both have a `#12`.
@@ -62,7 +70,7 @@ struct Ticket: Identifiable, Equatable, Sendable {
 extension Ticket: Decodable {
     private enum CodingKeys: String, CodingKey {
         case key, summary, status, type, priority, assignee, assigneeId, statusId, statusCategory, assigneeEmail
-        case labels, reporter, source, number, repo, url, updated, mine
+        case labels, reporter, source, number, repo, url, updated, mine, stage, level, reopened
     }
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -84,6 +92,9 @@ extension Ticket: Decodable {
         url = try values.decodeIfPresent(String.self, forKey: .url)
         updated = try values.decodeIfPresent(String.self, forKey: .updated)
         mine = try values.decodeIfPresent(Bool.self, forKey: .mine)
+        stage = try values.decodeIfPresent(String.self, forKey: .stage)
+        level = try values.decodeIfPresent(String.self, forKey: .level)
+        reopened = try values.decodeIfPresent(Bool.self, forKey: .reopened)
     }
 }
 

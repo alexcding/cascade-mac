@@ -14,6 +14,9 @@ import Observation
     private(set) var error: String?
     @ObservationIgnored let library: IconThemeLibrary
     @ObservationIgnored private var images: [String: NSImage?] = [:]
+    /// Icon IDs already chosen, by appearance and file name: choosing one walks the theme's
+    /// associations, and a list asks for the same names on every pass.
+    @ObservationIgnored private var icons: [String: String?] = [:]
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private var preparing: Task<Void, Never>?
 
@@ -48,7 +51,17 @@ import Observation
 
     /// The image the current theme gives a file of this name, loaded once per icon.
     func image(forFile name: String, light: Bool) -> NSImage? {
-        guard let theme, let icon = theme.icon(forFile: name, light: light) else { return nil }
+        guard let theme else { return nil }
+        // The theme chooses by the lowercased file name alone, so the memo is keyed the same way.
+        let key = (light ? "light:" : "dark:") + (name as NSString).lastPathComponent.lowercased()
+        let chosen: String?
+        if let known = icons[key] {
+            chosen = known
+        } else {
+            chosen = theme.icon(forFile: name, light: light)
+            icons[key] = chosen
+        }
+        guard let icon = chosen else { return nil }
         if let image = images[icon] { return image }
         let image = theme.url(for: icon).flatMap(NSImage.init(contentsOf:))
         images[icon] = image
@@ -57,6 +70,7 @@ import Observation
 
     private func show(_ theme: FileIconTheme?, error: String?) {
         images = [:]
+        icons = [:]
         self.theme = theme
         self.error = error
     }

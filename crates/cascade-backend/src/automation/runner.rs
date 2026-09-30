@@ -20,35 +20,45 @@ use crate::AppState;
 /// which updates the PR, which triggers it again) stops here instead of flooding a repo.
 pub const RATE_LIMIT: i64 = 30;
 
-/// Live runs started in this process in the last hour, per pipeline. The recorded count alone
-/// races: one sync can spawn many runs before any of them is recorded.
-static LIVE: Mutex<Option<HashMap<String, Vec<Instant>>>> = Mutex::new(None);
-
-/// When each pipeline last told Activity it was held back: once an hour is enough to be seen, and a
-/// released event offered again on every poll would otherwise say it every time.
-static WARNED: Mutex<Option<HashMap<String, Instant>>> = Mutex::new(None);
-
-fn warn_limited(automation: &str) -> bool {
-    let mut guard = WARNED.lock().unwrap_or_else(|e| e.into_inner());
-    let warned = guard.get_or_insert_with(HashMap::new);
-    if warned.get(automation).is_some_and(|at| at.elapsed() < Duration::from_secs(3600)) {
-        return false;
-    }
-    warned.insert(automation.to_owned(), Instant::now());
-    true
+/// What this process knows of live runs that the ledger does not yet: the runs started in the
+/// last hour per pipeline (the recorded count alone races, as one sync can spawn many runs before
+/// any of them is recorded) and when each pipeline last told Activity it was held back.
+/// `AppState.limits` holds the one instance; its lock is short and never held across an await.
+#[derive(Default)]
+pub struct Limits {
+    state: Mutex<LimitState>,
 }
 
-/// Reserve a live run for `automation`, or refuse because it is over the hourly limit.
-fn reserve(automation: &str, recorded: i64) -> bool {
-    let mut guard = LIVE.lock().unwrap_or_else(|e| e.into_inner());
-    let runs = guard.get_or_insert_with(HashMap::new).entry(automation.to_owned()).or_default();
-    let hour = Duration::from_secs(3600);
-    runs.retain(|at| at.elapsed() < hour);
-    if recorded.max(runs.len() as i64) >= RATE_LIMIT {
-        return false;
+#[derive(Default)]
+struct LimitState {
+    live: HashMap<String, Vec<Instant>>,
+    warned: HashMap<String, Instant>,
+}
+
+impl Limits {
+    /// Whether to tell Activity the pipeline is held back: once an hour is enough to be seen, and
+    /// a released event offered again on every poll would otherwise say it every time.
+    pub fn warn_limited(&self, automation: &str) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.warned.get(automation).is_some_and(|at| at.elapsed() < Duration::from_secs(3600)) {
+            return false;
+        }
+        state.warned.insert(automation.to_owned(), Instant::now());
+        true
     }
-    runs.push(Instant::now());
-    true
+
+    /// Reserve a live run for `automation`, or refuse because it is over the hourly limit.
+    pub fn reserve(&self, automation: &str, recorded: i64) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let runs = state.live.entry(automation.to_owned()).or_default();
+        let hour = Duration::from_secs(3600);
+        runs.retain(|at| at.elapsed() < hour);
+        if recorded.max(runs.len() as i64) >= RATE_LIMIT {
+            return false;
+        }
+        runs.push(Instant::now());
+        true
+    }
 }
 
 fn now() -> String {
@@ -121,7 +131,7 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
                     } else if mode != RunMode::Live {
                         result.status = "planned".into();
                     } else if !reserved
-                        && !reserve(&automation.id, store::recent_live_runs(&app.db, &automation.id).unwrap_or(0))
+                        && !app.limits.reserve(&automation.id, store::recent_live_runs(&app.db, &automation.id).await.unwrap_or(0))
                     {
                         result.status = "limited".into();
                         result.detail = format!("Held back: over {RATE_LIMIT} live runs in the last hour");
@@ -163,9 +173,12 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
         trace.steps.push(result);
     }
     trace.finished_at = now();
-    if touched_jira && !event.project.is_null() {
-        let (app, project) = (app.clone(), event.project.clone());
-        tokio::spawn(async move { app.poller.sync_board(&app, &project).await });
+    if touched_jira {
+        // A Jira action moved tickets the project's board shows: refresh it.
+        if let Some(project) = event.project.clone() {
+            let app = app.clone();
+            tokio::spawn(async move { app.poller.sync_board(&app, &project).await });
+        }
     }
     trace
 }
@@ -173,14 +186,14 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
 /// Run and record: the path for automatic and manual runs (dry runs are never recorded).
 pub async fn run_and_record(app: &AppState, automation: &Automation, event: &Event, mode: RunMode) -> Trace {
     let trace = run(app, automation, event, mode).await;
-    let _ = store::record_run(&app.db, &trace);
+    let _ = store::record_run(&app.db, &trace).await;
     // Held back, the event has not had its run: its claim is let go so a later offer can fire it.
     if trace.status == "limited" {
-        let _ = store::release(&app.db, &automation.id, &trace.event_key);
+        let _ = store::release(&app.db, &automation.id, &trace.event_key).await;
     }
     // A filtered run is the common case (most PRs are not from the trusted author); only runs
     // that did or planned something reach Activity, and a held-back one once an hour.
-    if trace.status != "filtered" && (trace.status != "limited" || warn_limited(&automation.id)) {
+    if trace.status != "filtered" && (trace.status != "limited" || app.limits.warn_limited(&automation.id)) {
         let kind = match trace.status.as_str() {
             "error" => "automation_failed",
             "limited" => "automation_limited",
@@ -189,11 +202,11 @@ pub async fn run_and_record(app: &AppState, automation: &Automation, event: &Eve
         if let Ok(event) = app.db.add_event(
             kind,
             &json!({"automation":automation.name,"subject":trace.subject,"mode":trace.mode,"status":trace.status}),
-        ) {
-            app.broadcast(json!({"type":"activity","event":event}));
+        ).await {
+            app.publish(crate::Event::Activity { event });
         }
     }
-    app.broadcast(json!({"type":"automations","scope":"runs","id":automation.id}));
+    app.publish(crate::Event::Automations { scope: Some("runs"), id: Some(automation.id.to_string()) });
     trace
 }
 
@@ -213,25 +226,27 @@ mod tests {
 
     #[test]
     fn a_held_back_pipeline_tells_activity_once_an_hour() {
-        assert!(warn_limited("warn-test"));
-        assert!(!warn_limited("warn-test"));
-        assert!(warn_limited("warn-other"));
+        let limits = Limits::default();
+        assert!(limits.warn_limited("warn-test"));
+        assert!(!limits.warn_limited("warn-test"));
+        assert!(limits.warn_limited("warn-other"));
     }
 
     #[test]
     fn the_live_limit_holds_runs_that_start_together() {
+        let limits = Limits::default();
         let id = "rate-limit-test";
-        assert_eq!((0..RATE_LIMIT + 5).filter(|_| reserve(id, 0)).count() as i64, RATE_LIMIT);
-        assert!(!reserve("recorded-test", RATE_LIMIT), "the recorded count still applies after a restart");
+        assert_eq!((0..RATE_LIMIT + 5).filter(|_| limits.reserve(id, 0)).count() as i64, RATE_LIMIT);
+        assert!(!limits.reserve("recorded-test", RATE_LIMIT), "the recorded count still applies after a restart");
     }
 
-    #[test]
-    fn the_ledger_lets_one_event_fire_a_pipeline_once() {
+    #[tokio::test]
+    async fn the_ledger_lets_one_event_fire_a_pipeline_once() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        assert!(store::claim(&db, "a", "pr.merged:a/b#1").unwrap());
+        assert!(store::claim(&db, "a", "pr.merged:a/b#1").await.unwrap());
         // The webhook reports the merge the poll already fired.
-        assert!(!store::claim(&db, "a", "pr.merged:a/b#1").unwrap());
-        assert!(store::claim(&db, "b", "pr.merged:a/b#1").unwrap());
+        assert!(!store::claim(&db, "a", "pr.merged:a/b#1").await.unwrap());
+        assert!(store::claim(&db, "b", "pr.merged:a/b#1").await.unwrap());
     }
 }

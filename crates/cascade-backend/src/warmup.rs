@@ -100,9 +100,13 @@ impl Entry {
     /// The same shape the endpoint returns, tagged — so the app parses one struct whether the
     /// state arrived as a reply or as an event.
     fn event(&self, worktree: &str) -> Value {
-        let mut value = self.value(worktree);
-        value["type"] = json!("ide-warmup");
-        value
+        crate::Event::IdeWarmup {
+            worktree: worktree.to_owned(),
+            status: self.status.clone(),
+            label: self.label.clone(),
+            message: self.message.clone(),
+        }
+        .into()
     }
 
     /// Whether this state answers a request on its own, instead of starting another run.

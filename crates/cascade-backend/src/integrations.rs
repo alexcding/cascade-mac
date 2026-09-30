@@ -1,13 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
-    os::unix::fs::PermissionsExt,
     path::PathBuf,
     process::Stdio,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, OnceLock,
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -16,26 +12,64 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use chrono::{Datelike, Local, NaiveDate};
-use regex::Regex;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use futures_util::future::BoxFuture;
 use tokio::{
     process::Child,
-    sync::Mutex,
+    sync::{mpsc, oneshot},
 };
-use uuid::Uuid;
-
 use crate::agents::Agent;
+use crate::cli::shell_quote;
+use crate::settings_file::{read_json, write_json};
 use crate::{cli, error::ApiError, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
+/// The webhook forwarders' handle: one `gh webhook forward` child per repo an armed PR pipeline
+/// covers. Every method is a message to the one task (`Forwarders`) that owns the children and
+/// their backoff. That task never awaits while it handles a message, so the list, the statuses
+/// and a retry are answered between reconciles, never behind one.
+#[derive(Clone)]
 pub struct ForwarderManager {
-    children: Mutex<HashMap<String, Forwarder>>,
+    tx: mpsc::UnboundedSender<ForwarderMsg>,
+}
+
+/// What the reconcile loop asks each tick: the repos whose webhooks to forward.
+pub type Wanted = Arc<dyn Fn(AppState) -> BoxFuture<'static, HashSet<String>> + Send + Sync>;
+
+enum ForwarderMsg {
+    /// Run the reconcile loop. Once.
+    Start(AppState, u16, Wanted),
+    /// Bring the children in line with the repos wanted; answers the log lines to write.
+    Reconcile {
+        desired: HashSet<String>,
+        port: u16,
+        reply: oneshot::Sender<Vec<LogLine>>,
+    },
+    List(oneshot::Sender<Vec<String>>),
+    Statuses(oneshot::Sender<HashMap<String, ForwarderStatus>>),
+    Retry(String),
+    Stop(oneshot::Sender<()>),
+}
+
+/// A webhook log line, as `Database::add_log("webhook", ..)` takes it. A diagnostic log, not
+/// activity: it is never broadcast to the apps (the Node backend kept webhook logs off the
+/// activity stream too).
+struct LogLine {
+    level: &'static str,
+    kind: &'static str,
+    payload: Value,
+}
+
+/// The forwarders' state, owned by their task. Nothing else sees it.
+#[derive(Default)]
+struct Forwarders {
+    started: bool,
+    stopped: bool,
+    children: HashMap<String, Forwarder>,
     /// Repos whose forwarder keeps dying on start, with when to try again.
-    backoff: Mutex<HashMap<String, Backoff>>,
-    started: AtomicBool,
+    backoff: HashMap<String, Backoff>,
 }
 
 struct Forwarder {
@@ -43,7 +77,7 @@ struct Forwarder {
     since: Instant,
     /// The head and tail of the child's stderr. A reader task drains the pipe for as long as the
     /// forwarder runs: an undrained pipe fills and blocks `gh` mid-run, which `try_wait` would never see.
-    stderr: Arc<Mutex<String>>,
+    stderr: Arc<std::sync::Mutex<String>>,
 }
 
 /// Keep the first and last of a forwarder's stderr, for the failure it is about to report: `gh`
@@ -78,7 +112,7 @@ fn is_hook_conflict(stderr: &str) -> bool {
 }
 
 /// The ids of the hooks `gh webhook forward` made, from `GET repos/{repo}/hooks`.
-fn forwarder_hook_ids(hooks: &Value) -> Vec<i64> {
+pub(crate) fn forwarder_hook_ids(hooks: &Value) -> Vec<i64> {
     hooks
         .as_array()
         .into_iter()
@@ -116,70 +150,182 @@ fn failure_reason(stderr: &str) -> String {
     reason.chars().rev().take(500).collect::<Vec<_>>().into_iter().rev().collect()
 }
 
+impl Default for ForwarderManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ForwarderManager {
+    /// Made inside a Tokio runtime: the forwarders are a task.
     pub fn new() -> Self {
-        Self {
-            children: Mutex::new(HashMap::new()),
-            backoff: Mutex::new(HashMap::new()),
-            started: AtomicBool::new(false),
+        let (tx, rx) = mpsc::unbounded_channel();
+        tokio::spawn(Forwarders::default().run(rx));
+        Self { tx }
+    }
+
+    /// Runs the reconcile loop: every ten seconds, the children are brought in line with what
+    /// `wanted` answers. Once.
+    pub fn start(&self, app: AppState, port: u16, wanted: Wanted) {
+        let _ = self.tx.send(ForwarderMsg::Start(app, port, wanted));
+    }
+
+    /// Brings the children in line with `desired`; answers the log lines to write.
+    async fn reconcile(&self, desired: HashSet<String>, port: u16) -> Vec<LogLine> {
+        let (reply, logs) = oneshot::channel();
+        let message = ForwarderMsg::Reconcile { desired, port, reply };
+        if self.tx.send(message).is_err() {
+            return Vec::new();
+        }
+        logs.await.unwrap_or_default()
+    }
+
+    pub async fn list(&self) -> Vec<String> {
+        let (reply, list) = oneshot::channel();
+        if self.tx.send(ForwarderMsg::List(reply)).is_err() {
+            return Vec::new();
+        }
+        list.await.unwrap_or_default()
+    }
+
+    /// Each repo with a forwarder running or failing, by repo. A repo that is wanted but in
+    /// neither is about to start.
+    pub async fn statuses(&self) -> HashMap<String, ForwarderStatus> {
+        let (reply, statuses) = oneshot::channel();
+        if self.tx.send(ForwarderMsg::Statuses(reply)).is_err() {
+            return HashMap::new();
+        }
+        statuses.await.unwrap_or_default()
+    }
+
+    /// Start the repo's forwarder on the next reconcile instead of waiting out its backoff.
+    pub async fn retry(&self, repo: &str) {
+        let _ = self.tx.send(ForwarderMsg::Retry(repo.to_owned()));
+    }
+
+    /// Kills every forwarder and starts none again; returns once they are told to go.
+    pub async fn stop(&self) {
+        let (reply, stopped) = oneshot::channel();
+        if self.tx.send(ForwarderMsg::Stop(reply)).is_ok() {
+            let _ = stopped.await;
         }
     }
-    pub fn start(self: &std::sync::Arc<Self>, app: AppState, port: u16) {
-        if self.started.swap(true, Ordering::SeqCst) {
+}
+
+impl Forwarders {
+    async fn run(mut self, mut rx: mpsc::UnboundedReceiver<ForwarderMsg>) {
+        while let Some(message) = rx.recv().await {
+            self.handle(message);
+        }
+        // Reached only when the loop was never started, as its tick task holds a handle: the
+        // children are killed on drop. A started actor ends with the runtime, after `Stop`.
+    }
+
+    fn handle(&mut self, message: ForwarderMsg) {
+        match message {
+            ForwarderMsg::Start(app, port, wanted) => self.start(app, port, wanted),
+            ForwarderMsg::Reconcile { desired, port, reply } => {
+                let _ = reply.send(self.reconcile(desired, port));
+            }
+            ForwarderMsg::List(reply) => {
+                let mut repos: Vec<String> = self.children.keys().cloned().collect();
+                repos.sort();
+                let _ = reply.send(repos);
+            }
+            ForwarderMsg::Statuses(reply) => {
+                let _ = reply.send(self.statuses());
+            }
+            ForwarderMsg::Retry(repo) => {
+                self.backoff.remove(&repo);
+            }
+            ForwarderMsg::Stop(reply) => {
+                self.stopped = true;
+                for forwarder in self.children.values_mut() {
+                    let _ = forwarder.child.start_kill();
+                }
+                self.children.clear();
+                self.backoff.clear();
+                let _ = reply.send(());
+            }
+        }
+    }
+
+    fn start(&mut self, app: AppState, port: u16, wanted: Wanted) {
+        if self.started {
             return;
         }
-        let manager = self.clone();
+        self.started = true;
+        let manager = app.forwarders.clone();
         tokio::spawn(async move {
             loop {
-                manager.sync(&app, port).await;
+                let desired = wanted(app.clone()).await;
+                for line in manager.reconcile(desired, port).await {
+                    let _ = app.db.add_log("webhook", line.level, line.kind, &line.payload).await;
+                }
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
     }
-    async fn sync(&self, app: &AppState, port: u16) {
-        // Only repos an armed PR pipeline covers: polling already catches everything else.
-        let desired: HashSet<String> = crate::automation::forward_repos(app);
-        let mut children = self.children.lock().await;
-        let mut backoff = self.backoff.lock().await;
-        backoff.retain(|repo, _| desired.contains(repo));
-        let existing = children.keys().cloned().collect::<Vec<_>>();
+
+    fn statuses(&self) -> HashMap<String, ForwarderStatus> {
+        let mut statuses = HashMap::new();
+        for (repo, entry) in &self.backoff {
+            let state = if entry.hook_exists { "hookExists" } else { "retrying" };
+            statuses.insert(repo.clone(), ForwarderStatus { state, error: Some(entry.reason.clone()) });
+        }
+        for repo in self.children.keys() {
+            statuses.insert(repo.clone(), ForwarderStatus { state: "running", error: None });
+        }
+        statuses
+    }
+
+    /// Kills the forwarders no longer wanted or exited, records why one died on start, and
+    /// starts the wanted ones whose backoff has passed. Answers what to log.
+    fn reconcile(&mut self, desired: HashSet<String>, port: u16) -> Vec<LogLine> {
+        let mut logs = Vec::new();
+        if self.stopped {
+            return logs;
+        }
+        self.backoff.retain(|repo, _| desired.contains(repo));
+        let existing = self.children.keys().cloned().collect::<Vec<_>>();
         for repo in existing {
-            let exited = children
+            let exited = self
+                .children
                 .get_mut(&repo)
                 .and_then(|forwarder| forwarder.child.try_wait().ok())
                 .flatten()
                 .is_some();
             if exited || !desired.contains(&repo) {
-                let Some(mut forwarder) = children.remove(&repo) else { continue };
+                let Some(mut forwarder) = self.children.remove(&repo) else { continue };
                 let _ = forwarder.child.start_kill();
                 if !exited || !desired.contains(&repo) {
                     continue;
                 }
-                let tail = forwarder.stderr.lock().await.clone();
+                let tail = forwarder.stderr.lock().map(|text| text.clone()).unwrap_or_default();
                 if forwarder.since.elapsed() >= QUICK_EXIT {
-                    backoff.remove(&repo); // it ran; a dropped connection restarts right away
+                    self.backoff.remove(&repo); // it ran; a dropped connection restarts right away
                     continue;
                 }
                 // Died on start: wait longer each time, and log the reason once per streak — never
                 // a start/exit pair every sync.
-                let failures = backoff.get(&repo).map_or(0, |b| b.failures) + 1;
+                let failures = self.backoff.get(&repo).map_or(0, |b| b.failures) + 1;
                 let reason = failure_reason(&tail);
                 let reason = if reason.is_empty() { "gh webhook forward exited immediately".to_owned() } else { reason };
                 if failures == 1 {
-                    let _ = app.db.add_log("webhook", "error", "forwarder_failed", &json!({"repo":repo,"error":reason}));
+                    logs.push(LogLine { level: "error", kind: "forwarder_failed", payload: json!({"repo":repo,"error":reason}) });
                 }
                 // A leftover hook does not go away by waiting, so retry it at the slowest pace:
                 // Settings offers to remove it, and a removal retries straight away.
                 let hook_exists = is_hook_conflict(&tail);
                 let delay = if hook_exists { MAX_BACKOFF } else { backoff_delay(failures) };
-                backoff.insert(repo, Backoff { failures, retry_at: Instant::now() + delay, reason, hook_exists });
+                self.backoff.insert(repo, Backoff { failures, retry_at: Instant::now() + delay, reason, hook_exists });
             }
         }
         for repo in desired {
-            if children.contains_key(&repo) || backoff.get(&repo).is_some_and(|b| Instant::now() < b.retry_at) {
+            if self.children.contains_key(&repo) || self.backoff.get(&repo).is_some_and(|b| Instant::now() < b.retry_at) {
                 continue;
             }
-            let retrying = backoff.contains_key(&repo);
+            let retrying = self.backoff.contains_key(&repo);
             let child = crate::cli::command("gh")
                 .args([
                     "webhook",
@@ -195,7 +341,7 @@ impl ForwarderManager {
                 .spawn();
             match child {
                 Ok(mut child) => {
-                    let stderr = Arc::new(Mutex::new(String::new()));
+                    let stderr = Arc::new(std::sync::Mutex::new(String::new()));
                     if let Some(pipe) = child.stderr.take() {
                         let sink = stderr.clone();
                         tokio::spawn(async move {
@@ -206,75 +352,34 @@ impl ForwarderManager {
                                 if read == 0 {
                                     return;
                                 }
-                                let mut text = sink.lock().await;
-                                text.push_str(&String::from_utf8_lossy(&buffer[..read]));
-                                trim_stderr(&mut text);
+                                if let Ok(mut text) = sink.lock() {
+                                    text.push_str(&String::from_utf8_lossy(&buffer[..read]));
+                                    trim_stderr(&mut text);
+                                }
                             }
                         });
                     }
-                    children.insert(repo.clone(), Forwarder { child, since: Instant::now(), stderr });
-                    // A diagnostic log, not activity: it is never broadcast to the apps (the Node
-                    // backend kept webhook logs off the activity stream too).
+                    self.children.insert(repo.clone(), Forwarder { child, since: Instant::now(), stderr });
                     if !retrying {
-                        let _ = app.db.add_log("webhook", "info", "forwarder_started", &json!({"repo":repo}));
+                        logs.push(LogLine { level: "info", kind: "forwarder_started", payload: json!({"repo":repo}) });
                     }
                 }
                 Err(error) => {
-                    let failures = backoff.get(&repo).map_or(0, |b| b.failures) + 1;
+                    let failures = self.backoff.get(&repo).map_or(0, |b| b.failures) + 1;
                     if failures == 1 {
-                        let _ = app.db.add_log(
-                            "webhook",
-                            "error",
-                            "forwarder_failed",
-                            &json!({"repo":repo,"error":error.to_string()}),
-                        );
+                        logs.push(LogLine { level: "error", kind: "forwarder_failed", payload: json!({"repo":repo,"error":error.to_string()}) });
                     }
                     let retry_at = Instant::now() + backoff_delay(failures);
-                    backoff.insert(repo, Backoff { failures, retry_at, reason: error.to_string(), hook_exists: false });
+                    self.backoff.insert(repo, Backoff { failures, retry_at, reason: error.to_string(), hook_exists: false });
                 }
             }
         }
-    }
-    pub async fn list(&self) -> Vec<String> {
-        let mut values = self
-            .children
-            .lock()
-            .await
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>();
-        values.sort();
-        values
-    }
-    /// Each repo with a forwarder running or failing, by repo. A repo that is wanted but in
-    /// neither is about to start.
-    pub async fn statuses(&self) -> HashMap<String, ForwarderStatus> {
-        let mut statuses = HashMap::new();
-        for (repo, entry) in self.backoff.lock().await.iter() {
-            let state = if entry.hook_exists { "hookExists" } else { "retrying" };
-            statuses.insert(repo.clone(), ForwarderStatus { state, error: Some(entry.reason.clone()) });
-        }
-        for repo in self.children.lock().await.keys() {
-            statuses.insert(repo.clone(), ForwarderStatus { state: "running", error: None });
-        }
-        statuses
-    }
-    /// Start the repo's forwarder on the next sync instead of waiting out its backoff.
-    pub async fn retry(&self, repo: &str) {
-        self.backoff.lock().await.remove(repo);
-    }
-    pub async fn stop(&self) {
-        let mut children = self.children.lock().await;
-        for (_, forwarder) in children.iter_mut() {
-            let _ = forwarder.child.start_kill();
-        }
-        children.clear();
-        self.backoff.lock().await.clear();
+        logs
     }
 }
 
 pub async fn jira_site(State(app): State<AppState>) -> ApiResult<Value> {
-    let configured = app.db.config_value("jira_base_url")?.unwrap_or_default();
+    let configured = app.db.config_value("jira_base_url").await?.unwrap_or_default();
     let auth = cli::run("acli", ["jira", "auth", "status"], Duration::from_secs(15))
         .await
         .unwrap_or_default();
@@ -301,119 +406,6 @@ pub async fn jira_site(State(app): State<AppState>) -> ApiResult<Value> {
     ))
 }
 
-/// Renders a Fix Version name from a placeholder template against the local clock. Literal
-/// text such as a platform prefix (`ios-`) is kept as written.
-///
-/// Placeholders are `{name}` or `{name+N}` / `{name-N}`: `year`, `month`, `day`, `isoWeek`
-/// (zero-padded), `y`, `m`, `d`, `w` (unpadded) and `prNumber`. An offset shifts the value and
-/// drops the padding, so `ios-{year-2026}.{m}.{d}` renders `ios-0.9.21` on 2026-09-21. Dates use the machine's time zone,
-/// which is the one the user reads the version in.
-pub(crate) fn render_version_template(template: &str, pr_number: i64) -> Result<String, ApiError> {
-    render_version_template_at(template, pr_number, Local::now().date_naive())
-}
-
-fn render_version_template_at(
-    template: &str,
-    pr_number: i64,
-    today: NaiveDate,
-) -> Result<String, ApiError> {
-    let raw = template.trim();
-    if raw.is_empty() {
-        return Err(ApiError::bad_request("version template is empty"));
-    }
-    if raw.contains("${") || raw.contains("return ") || raw.contains("=>") || raw.contains("function") {
-        return Err(ApiError::bad_request(
-            "JavaScript version scripts are no longer executed. Replace this value with a template such as ios-{year-2026}.{m}.{d}.",
-        ));
-    }
-    static PLACEHOLDER: OnceLock<Regex> = OnceLock::new();
-    let placeholder = PLACEHOLDER.get_or_init(|| {
-        Regex::new(r"\{([A-Za-z]+)(?:([+-])(\d{1,6}))?\}").expect("valid placeholder regex")
-    });
-    let mut error = None;
-    let value = placeholder.replace_all(raw, |caps: &regex::Captures| {
-        let (base, width) = match &caps[1] {
-            "year" => (i64::from(today.year()), 4),
-            "month" => (i64::from(today.month()), 2),
-            "day" => (i64::from(today.day()), 2),
-            "isoWeek" => (i64::from(today.iso_week().week()), 2),
-            "y" => (i64::from(today.year()), 0),
-            "m" => (i64::from(today.month()), 0),
-            "d" => (i64::from(today.day()), 0),
-            "w" => (i64::from(today.iso_week().week()), 0),
-            "prNumber" => (pr_number, 0),
-            other => {
-                error.get_or_insert(format!("Unknown version-template placeholder {{{other}}}"));
-                return String::new();
-            }
-        };
-        let offset = caps.get(3).and_then(|digits| digits.as_str().parse::<i64>().ok()).unwrap_or(0);
-        let shifted = if caps.get(2).map(|sign| sign.as_str()) == Some("-") { base - offset } else { base + offset };
-        if shifted < 0 {
-            error.get_or_insert(format!("Version-template placeholder {} renders a negative number", &caps[0]));
-            return String::new();
-        }
-        let width = if caps.get(2).is_some() { 0 } else { width };
-        format!("{shifted:0width$}")
-    });
-    if let Some(message) = error {
-        return Err(ApiError::bad_request(message));
-    }
-    if value.contains('{') || value.contains('}') || value.chars().any(char::is_control) {
-        return Err(ApiError::bad_request("Unknown or invalid version-template placeholder"));
-    }
-    let value = value.trim();
-    if value.is_empty() || value.len() > 128 {
-        return Err(ApiError::bad_request("version template must produce 1–128 characters"));
-    }
-    Ok(value.into())
-}
-
-#[cfg(test)]
-mod version_template_tests {
-    use super::render_version_template_at;
-    use chrono::NaiveDate;
-
-    fn render(template: &str) -> Result<String, String> {
-        render_at(template, 2026, 9, 21)
-    }
-
-    fn render_at(template: &str, year: i32, month: u32, day: u32) -> Result<String, String> {
-        let today = NaiveDate::from_ymd_opt(year, month, day).unwrap();
-        render_version_template_at(template, 482, today).map_err(|e| format!("{e:?}"))
-    }
-
-    #[test]
-    fn padded_placeholders_keep_their_shape() {
-        assert_eq!(render("{year}.{month}.{day}").unwrap(), "2026.09.21");
-        assert_eq!(render("0.{isoWeek}").unwrap(), "0.39");
-        assert_eq!(render("{prNumber}").unwrap(), "482");
-    }
-
-    #[test]
-    fn unpadded_and_offset_placeholders_match_the_old_script() {
-        assert_eq!(render("ios-{year-2026}.{m}.{d}").unwrap(), "ios-0.9.21");
-        assert_eq!(render("{year+1}.{w}").unwrap(), "2027.39");
-        assert_eq!(render("{y-2000}").unwrap(), "26");
-        assert_eq!(render("{month+3}").unwrap(), "12");
-        assert_eq!(render_at("{day}.{d}.{isoWeek}.{w}", 2026, 1, 5).unwrap(), "05.5.02.2");
-    }
-
-    #[test]
-    fn negative_results_are_rejected() {
-        assert!(render("{year-2030}").is_err());
-        assert!(render("{m-9}").is_ok());
-        assert!(render("{m-10}").is_err());
-    }
-
-    #[test]
-    fn javascript_and_unknown_placeholders_are_rejected() {
-        assert!(render("((d)=>`${d.getFullYear()}`)(new Date())").is_err());
-        assert!(render("{yeer}").is_err());
-        assert!(render("{year}.{").is_err());
-        assert!(render("   ").is_err());
-    }
-}
 
 /// Whether `gh extension list` names the webhook extension the forwarders run (`gh webhook
 /// forward`). Rows are `gh webhook<TAB>cli/gh-webhook<TAB>v0.2.0`; a fork keeps the repo name,
@@ -589,11 +581,6 @@ fn hook_file(agent: Agent) -> Result<(PathBuf, Value), ApiError> {
     let empty = serde_json::from_str(hooks.empty).map_err(ApiError::internal)?;
     Ok((home.join(hooks.file), empty))
 }
-pub(crate) fn read_json(path: &PathBuf) -> Option<Value> {
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-}
 fn is_our_entry(entry: &Value) -> bool {
     entry["hooks"].as_array().is_some_and(|hooks| {
         hooks.iter().any(|hook| hook["command"].as_str().is_some_and(|command| command.contains(MARKER)))
@@ -637,9 +624,6 @@ fn hook_status() -> Value {
     }
     status
 }
-pub(crate) fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace(char::from(39), "'\"'\"'"))
-}
 fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
     let hooks = agent.hooks();
     let cli = agent.profile().id;
@@ -673,19 +657,6 @@ fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
         entry["matcher"] = json!(".*")
     }
     entry
-}
-pub(crate) fn write_json(path: &PathBuf, value: &Value) -> Result<(), ApiError> {
-    let destination = fs::canonicalize(path).unwrap_or_else(|_| path.clone());
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent).map_err(ApiError::internal)?
-    }
-    let temporary = destination.with_file_name(format!(".cascade-hooks-{}.json", Uuid::new_v4()));
-    let mut bytes = serde_json::to_vec_pretty(value).map_err(ApiError::internal)?;
-    bytes.push(b'\n');
-    fs::write(&temporary, bytes).map_err(ApiError::internal)?;
-    fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
-        .map_err(ApiError::internal)?;
-    fs::rename(temporary, destination).map_err(ApiError::internal)
 }
 fn change_hooks(app: &AppState, cli: &str, install: bool) -> Result<Value, ApiError> {
     let agent = Agent::of(cli).ok_or_else(|| ApiError::bad_request(format!("unknown CLI: {cli}")))?;
@@ -742,21 +713,31 @@ fn has_our_hooks(config: &Value) -> bool {
 /// hooks report updates its own. It never adds hooks nobody installed, and hooks removed in Settings
 /// are gone from the file, so they stay removed. Each update is told as activity, a toast: a CLI
 /// may ask its user to review hook changes it did not make.
-pub(crate) fn ensure_hooks(app: &AppState) {
-    for agent in Agent::ALL {
-        let profile = agent.profile();
-        // Read once: whether they were installed, and whether they are current.
-        let config = hooks_config(agent);
-        let status = hook_status_in(agent, config.as_ref());
-        if !config.as_ref().is_some_and(has_our_hooks) || status == "installed" {
-            continue;
+pub(crate) async fn ensure_hooks(app: &AppState) {
+    // The settings files are read and written off the runtime; only the events await.
+    let files = app.clone();
+    let outcomes: Vec<(&'static str, Value)> = tokio::task::spawn_blocking(move || {
+        let mut outcomes = Vec::new();
+        for agent in Agent::ALL {
+            let profile = agent.profile();
+            // Read once: whether they were installed, and whether they are current.
+            let config = hooks_config(agent);
+            let status = hook_status_in(agent, config.as_ref());
+            if !config.as_ref().is_some_and(has_our_hooks) || status == "installed" {
+                continue;
+            }
+            outcomes.push(match change_hooks(&files, profile.id, true) {
+                Ok(_) => ("hooks_updated", json!({"cli": profile.id})),
+                Err(error) => ("hooks_update_failed", json!({"cli": profile.id, "error": error.to_string()})),
+            });
         }
-        let (kind, payload) = match change_hooks(app, profile.id, true) {
-            Ok(_) => ("hooks_updated", json!({"cli": profile.id})),
-            Err(error) => ("hooks_update_failed", json!({"cli": profile.id, "error": error.to_string()})),
-        };
-        if let Ok(event) = app.db.add_event(kind, &payload) {
-            app.broadcast(json!({"type": "activity", "event": event}));
+        outcomes
+    })
+    .await
+    .unwrap_or_default();
+    for (kind, payload) in outcomes {
+        if let Ok(event) = app.db.add_event(kind, &payload).await {
+            app.publish(crate::Event::Activity { event });
         }
     }
 }
@@ -765,12 +746,10 @@ pub async fn update_hooks(State(app): State<AppState>, headers: axum::http::Head
     if crate::local::foreign_origin(&headers) {
         return Err(ApiError::forbidden("Hooks are the app's to change"));
     }
-    let status = tokio::task::spawn_blocking(move || {
-        ensure_hooks(&app);
-        hook_status()
-    })
-    .await
-    .map_err(ApiError::internal)?;
+    ensure_hooks(&app).await;
+    let status = tokio::task::spawn_blocking(hook_status)
+        .await
+        .map_err(ApiError::internal)?;
     Ok(Json(status))
 }
 pub async fn agent_hooks() -> ApiResult<Value> {
@@ -809,12 +788,17 @@ async fn relay(app: AppState, query: HookQuery, body: Value, kind: &str) -> Stat
     let session = body["session_id"].as_str().unwrap_or("");
     let mut event = json!({"type":kind,"cli":query.cli.unwrap_or_default(),"runId":query.run_id.unwrap_or_default(),"sessionId":session,"source":body["source"].as_str().unwrap_or("")});
     // Kept without its payload, which can carry the prompt: the app reads it back only to know
-    // where the agent stands.
-    if let Some(run) = event["runId"].as_str().filter(|run| is_run_id(run)) {
-        let _ = app.db.set_agent_hook(run, &event);
-    }
+    // where the agent stands. Written and then told off the request: the hook's `curl` gives up
+    // after two seconds, and a handler cancelled at an await must not lose the broadcast.
+    let run = event["runId"].as_str().filter(|run| is_run_id(run)).map(str::to_owned);
+    let stored = event.clone();
     event["payload"] = body;
-    app.broadcast(event);
+    tokio::spawn(async move {
+        if let Some(run) = run {
+            let _ = app.db.set_agent_hook(&run, &stored).await;
+        }
+        app.broadcast(event);
+    });
     StatusCode::NO_CONTENT
 }
 
@@ -832,7 +816,7 @@ pub struct LastHookQuery {
 /// The last turn hook a terminal's agent sent, as it was relayed: `{"event": …}`, null when none
 /// was heard. For an app that has just attached again to a shell it did not see the hook of.
 pub async fn last_hook(State(app): State<AppState>, Query(query): Query<LastHookQuery>) -> Json<Value> {
-    let event = if is_run_id(&query.run_id) { app.db.agent_hook(&query.run_id).ok().flatten() } else { None };
+    let event = if is_run_id(&query.run_id) { app.db.agent_hook(&query.run_id).await.ok().flatten() } else { None };
     Json(json!({ "event": event }))
 }
 #[derive(Deserialize)]
@@ -859,7 +843,7 @@ pub async fn open_url(
     if !web || query.run_id.is_empty() {
         return StatusCode::BAD_REQUEST;
     }
-    match app.events.send(json!({"type":"terminal-open-url","runId":query.run_id,"url":query.url})) {
+    match app.events.send(crate::Event::TerminalOpenUrl { run_id: query.run_id, url: query.url }.into()) {
         Ok(_) => StatusCode::NO_CONTENT,
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
     }
@@ -886,49 +870,9 @@ pub async fn turn_done(
     relay(app, query, body, "agent-turn-done").await
 }
 
-pub async fn forwarders(State(app): State<AppState>) -> ApiResult<Vec<String>> {
-    Ok(Json(app.forwarders.list().await))
-}
-
-#[derive(Deserialize)]
-pub struct FixForwarderBody {
-    repo: String,
-}
-
-/// Settings' Fix for a repo whose forwarder cannot start: remove the `gh webhook forward` hooks
-/// that block it, then start it again. Only for a repo Cascade forwards, and only when asked:
-/// the hook may be a teammate's live forwarder, which Settings says before offering this.
-pub async fn fix_forwarder(State(app): State<AppState>, Json(body): Json<FixForwarderBody>) -> ApiResult<Value> {
-    let repo = body.repo.trim();
-    if !crate::automation::forward_repos(&app).contains(repo) {
-        return Err(ApiError::bad_request("Cascade does not forward this repo's webhooks"));
-    }
-    let path = format!("repos/{repo}/hooks");
-    let listed = cli::run("gh", ["api", path.as_str()], Duration::from_secs(20)).await.map_err(ApiError::internal)?;
-    let hooks: Value = serde_json::from_str(&listed).map_err(ApiError::internal)?;
-    let ids = forwarder_hook_ids(&hooks);
-    let mut failed = None;
-    for id in &ids {
-        let hook = format!("repos/{repo}/hooks/{id}");
-        match cli::run("gh", ["api", "-X", "DELETE", hook.as_str()], Duration::from_secs(20)).await {
-            // Gone already, which is what the delete was for.
-            Err(error) if !is_already_gone(&format!("{error:#}")) => failed = Some(error),
-            _ => {}
-        }
-    }
-    let _ = app.db.add_log("webhook", "info", "forwarder_hook_removed", &json!({"repo":repo,"hooks":ids}));
-    // Retry even after a failed delete: an earlier one may have been the hook in the way, and a
-    // forwarder left at its slowest backoff would not notice for fifteen minutes.
-    app.forwarders.retry(repo).await;
-    app.broadcast(json!({"type":"automations","scope":"settings"}));
-    if let Some(error) = failed {
-        return Err(ApiError::internal(format!("{error:#}")));
-    }
-    Ok(Json(json!({"removed": ids.len()})))
-}
 
 /// A hook delete that failed because the hook no longer exists.
-fn is_already_gone(error: &str) -> bool {
+pub(crate) fn is_already_gone(error: &str) -> bool {
     error.contains("HTTP 404")
 }
 
@@ -944,16 +888,15 @@ pub async fn github_webhook(
         return StatusCode::OK;
     }
     let repo = body["repository"]["full_name"].as_str().unwrap_or("");
-    if let Ok(projects) = app.db.projects() {
-        if let Some(project) = projects.into_iter().find(|p| {
-            p["repo"]
-                .as_str()
-                .is_some_and(|v| v.eq_ignore_ascii_case(repo))
-        }) {
+    if let Ok(projects) = app.db.projects().await {
+        if let Some(project) = projects
+            .into_iter()
+            .find(|p| p.repo.eq_ignore_ascii_case(repo))
+        {
             let mut pr = body["pull_request"].clone();
             pr["url"] = pr["html_url"].clone();
             pr["state"] = json!("MERGED");
-            app.poller.handle_merge(&app, &project, &pr);
+            app.poller.handle_merge(&app, &project, &pr).await;
         }
     }
     StatusCode::OK
@@ -962,6 +905,7 @@ pub async fn github_webhook(
 #[cfg(test)]
 mod forwarder_tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn claude_hooks_drop_nested_runs_and_older_entries_read_as_outdated() {

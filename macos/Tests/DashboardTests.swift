@@ -270,9 +270,9 @@ private actor HeldDashboardSnapshot: DashboardService {
     // `acli` allows only a fixed field set on a search; labels and reporter are in it, and a
     // ticket without labels reports none rather than nil.
     let tickets = try JSONDecoder().decode([Ticket].self, from: Data(#"""
-    [{"key":"REC-1","summary":"Ship it","status":"In Progress","type":"Task","priority":"Highest",
+    [{"key":"REC-1","summary":"Ship it","status":"In Progress","type":"Task","priority":"Highest","stage":"inProgress","level":"urgent",
       "labels":["ios","created-via-claude"],"reporter":"Chen Ding"},
-     {"key":"OPS-7","summary":"Rotate keys","status":"To Do","type":"Bug","priority":"Low"}]
+     {"key":"OPS-7","summary":"Rotate keys","status":"To Do","type":"Bug","priority":"Low","stage":"toDo","level":"low"}]
     """#.utf8))
     let rows = tickets.map { DashboardTicketRow(ticket: $0, url: URL(string: "https://j/browse/\($0.key)")!) }
 
@@ -288,34 +288,33 @@ private actor HeldDashboardSnapshot: DashboardService {
 }
 
 @MainActor @Test func dashboardTicketStagesPrioritiesAndMyTicketsTags() async throws {
-    func row(_ key: String, _ status: String, _ category: String?, _ priority: String) -> DashboardTicketRow {
-        let ticket = Ticket(key: key, summary: key, status: status, type: "Task", priority: priority, statusCategory: category)
+    // The backend reads Jira's words (`tickets.rs`); a row carries only what it was told.
+    func row(_ key: String, _ stage: String?, _ level: String?, reopened: Bool = false) -> DashboardTicketRow {
+        let ticket = Ticket(key: key, summary: key, status: "Open", type: "Task", priority: "", stage: stage, level: level, reopened: reopened)
         return DashboardTicketRow(ticket: ticket, url: URL(string: "https://j/browse/\(key)")!)
     }
-    // Status names win over Jira's category: Ready for Development is "indeterminate" on the board
-    // but has not been started, and Reopened is "new" but is back in someone's hands.
-    #expect(row("A", "Ready for Development", "indeterminate", "Medium").stage == .toDo)
-    #expect(row("B", "Open", "new", "Medium").stage == .toDo)
-    #expect(row("C", "In PR Review", "indeterminate", "Medium").stage == .inProgress)
-    #expect(row("D", "Reopened", "new", "Urgent").stage == .inProgress)
-    #expect(row("E", "Pending Release", "indeterminate", "Low").stage == .pendingRelease)
-    #expect(row("F", "Blocked - Record", "indeterminate", "Urgent").stage == .blocked)
-    // This Jira's top priority is named Urgent; it counts as urgent alongside the stock names.
-    #expect(row("G", "Open", "new", "Urgent").urgent && row("H", "Open", "new", "Highest").urgent)
-    #expect(!row("I", "Open", "new", "High").urgent)
+    #expect(row("A", "toDo", "medium").stage == .toDo)
+    #expect(row("C", "inProgress", "medium").stage == .inProgress)
+    #expect(row("E", "pendingRelease", "low").stage == .pendingRelease)
+    #expect(row("F", "blocked", "urgent").stage == .blocked)
+    // A ticket from a snapshot written before the backend named stages reads as in progress and
+    // Medium until the next sync, as does a name this build does not know.
+    #expect(row("X", nil, nil).stage == .inProgress && row("X", nil, nil).level == .medium)
+    #expect(row("Y", "mystery", "whatever").stage == .inProgress && row("Y", "mystery", "whatever").level == .medium)
+    #expect(row("G", "toDo", "urgent").urgent && !row("I", "toDo", "high").urgent)
 
     // Blocked, then reopened, then in progress, then urgent to-dos; the rest wait on My Tickets.
-    let rows = [row("A", "Open", "new", "Medium"), row("G", "Open", "new", "Urgent"),
-                row("D", "Reopened", "new", "Medium"), row("F", "Blocked", nil, "Low")]
+    let rows = [row("A", "toDo", "medium"), row("G", "toDo", "urgent"),
+                row("D", "inProgress", "medium", reopened: true), row("F", "blocked", "low")]
     #expect(rows.map(\.attentionRank) == [nil, 3, 1, 0])
-    #expect(row("C", "In PR Review", "indeterminate", "Low").attentionRank == 2)
+    #expect(row("C", "inProgress", "low").attentionRank == 2)
     #expect(DashboardTicketsModel.Filter.urgent.matches(rows[1]) && !DashboardTicketsModel.Filter.urgent.matches(rows[0]))
     #expect(DashboardTicketsModel.Filter.stage(.blocked).matches(rows[3]))
     #expect(DashboardTicketsModel.Filter.allCases.map(\.id) == ["all", "toDo", "inProgress", "pendingRelease", "blocked", "urgent"])
 
-    // Priorities fold onto four levels for the rows' dots; unknown names read as Medium.
-    #expect(row("J", "Open", "new", "Highest").level == .urgent && row("K", "Open", "new", "Major").level == .high)
-    #expect(row("L", "Open", "new", "Trivial").level == .low && row("M", "Open", "new", "Whatever").level == .medium)
+    // The four levels the backend sends draw the rows' dots.
+    #expect(row("J", "toDo", "urgent").level == .urgent && row("K", "toDo", "high").level == .high)
+    #expect(row("L", "toDo", "low").level == .low && row("M", "toDo", "medium").level == .medium)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func dashboardViewAllPushesMyTicketsAndBackPops() async throws {
@@ -346,11 +345,11 @@ private actor TicketFixture: DashboardService, DashboardTicketService {
     }
     func myTickets() async throws -> [DashboardTicketRow] {
         let tickets = try JSONDecoder().decode([Ticket].self, from: Data(#"""
-        [{"key":"REC-7","summary":"Later","status":"Open","statusCategory":"new","priority":"Medium"},
-         {"key":"REC-6","summary":"Start next","status":"Open","statusCategory":"new","priority":"Urgent"},
-         {"key":"REC-1","summary":"Has a PR","status":"In PR Review","statusCategory":"indeterminate","priority":"High"},
-         {"key":"REC-5","summary":"Doing","status":"In Development","statusCategory":"indeterminate","priority":"Low"},
-         {"key":"REC-8","summary":"Stuck","status":"Blocked","statusCategory":"indeterminate","priority":"Low"}]
+        [{"key":"REC-7","summary":"Later","status":"Open","statusCategory":"new","priority":"Medium","stage":"toDo","level":"medium"},
+         {"key":"REC-6","summary":"Start next","status":"Open","statusCategory":"new","priority":"Urgent","stage":"toDo","level":"urgent"},
+         {"key":"REC-1","summary":"Has a PR","status":"In PR Review","statusCategory":"indeterminate","priority":"High","stage":"inProgress","level":"high"},
+         {"key":"REC-5","summary":"Doing","status":"In Development","statusCategory":"indeterminate","priority":"Low","stage":"inProgress","level":"low"},
+         {"key":"REC-8","summary":"Stuck","status":"Blocked","statusCategory":"indeterminate","priority":"Low","stage":"blocked","level":"low"}]
         """#.utf8))
         return tickets.map { DashboardTicketRow(ticket: $0, url: URL(string: "https://j/browse/\($0.key)")!) }
     }

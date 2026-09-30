@@ -28,7 +28,7 @@ impl<'a> Ctx<'a> {
             tickets.insert(key.clone(), ticket.clone());
             vec![key]
         } else {
-            linked_keys(app, event)
+            linked_keys(app, event).await
         };
         Ctx {
             event,
@@ -114,7 +114,7 @@ impl<'a> Ctx<'a> {
             .collect();
         if !missing.is_empty() {
             let jql = format!("key in ({})", missing.join(","));
-            for ticket in crate::poller::search_jira(&jql, missing.len().max(1)).await? {
+            for ticket in crate::jira::search_jira(&jql, missing.len().max(1)).await? {
                 if let Some(key) = ticket["key"].as_str() {
                     self.tickets.insert(key.to_owned(), ticket.clone());
                 }
@@ -128,10 +128,11 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn workspace(&self) -> Option<String> {
-        self.event.project["workspace"]
-            .as_str()
+        self.event
+            .project
+            .as_ref()
+            .map(|project| project.workspace.clone())
             .filter(|v| !v.is_empty())
-            .map(str::to_owned)
     }
 
     /// Template variables, for `{{name}}` placeholders and CASCADE_* script variables.
@@ -156,7 +157,7 @@ impl<'a> Ctx<'a> {
         vec![
             ("event", self.event.kind.clone()),
             ("repo", self.event.repo().to_owned()),
-            ("project.name", self.event.project["name"].as_str().unwrap_or("").to_owned()),
+            ("project.name", self.event.project.as_ref().map(|project| project.name.clone()).unwrap_or_default()),
             ("pr.number", text("/number")),
             ("pr.title", text("/title")),
             ("pr.url", text("/url")),
@@ -180,7 +181,7 @@ impl<'a> Ctx<'a> {
             "event": self.event.kind,
             "subject": self.event.subject(),
             "repo": self.event.repo(),
-            "project": self.event.project.get("name"),
+            "project": self.event.project.as_ref().map(|project| project.name.as_str()),
             "pr": self.event.pr,
             "ticket": self.event.ticket,
             "jiraKeys": self.jira_keys,
@@ -198,11 +199,11 @@ pub fn render(template: &str, variables: &[(&str, String)]) -> String {
     out
 }
 
-fn linked_keys(app: &AppState, event: &Event) -> Vec<String> {
+async fn linked_keys(app: &AppState, event: &Event) -> Vec<String> {
     let Some(pr) = &event.pr else {
         return Vec::new();
     };
-    let project_key = event.project["jiraProjectKey"].as_str().unwrap_or("");
+    let project_key = event.project.as_ref().map(|project| project.jira_project_key.as_str()).unwrap_or("");
     let mut keys: Vec<String> = pr["jiraKeys"]
         .as_array()
         .map(|v| v.iter().filter_map(Value::as_str).map(str::to_owned).collect())
@@ -218,7 +219,7 @@ fn linked_keys(app: &AppState, event: &Event) -> Vec<String> {
     }
     let number = pr["number"].as_i64().unwrap_or(0);
     let repo = event.repo();
-    for link in app.db.links(None).unwrap_or_default() {
+    for link in app.db.links(None).await.unwrap_or_default() {
         if link["pr_number"] == number
             && link["pr_repo"]
                 .as_str()

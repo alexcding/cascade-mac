@@ -106,7 +106,9 @@ struct SavedTab: Codable, Identifiable, Equatable, Sendable {
 
 
 
-struct SavedTabs: Decodable, Sendable {
+/// The saved tabs and the one opened last: what `TabStore` keeps, in the shape the backend once
+/// answered `GET /api/tabs` with.
+struct SavedTabs: Codable, Equatable, Sendable {
     let tabs: [SavedTab]
     let active: String?
 }

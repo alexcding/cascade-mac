@@ -149,8 +149,6 @@ private struct RoutingBoard: BoardService {
                       sprint: nil, query: "", columns: [BoardColumn(name: "To Do", statusIds: ["1"], statuses: [.init(id: "1", name: "Ready")])])
     }
     func site() async throws -> JiraSite { JiraSite(baseUrl: "https://jira.test") }
-    func settings() async throws -> [String: String] { [:] }
-    func saveFilter(_ value: String, projectID: String) async throws {}
     func saveQuery(_ value: String, projectID: String) async throws {}
     func transition(key: String, status: String) async throws {}
     func assign(key: String, assignee: String) async throws {}

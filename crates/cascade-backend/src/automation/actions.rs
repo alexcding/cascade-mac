@@ -7,8 +7,8 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 use anyhow::{anyhow, bail, ensure, Result};
 use serde_json::{json, Value};
 
-use super::{context::Ctx, model::Step, store};
-use crate::{cli, http_client, integrations::render_version_template, jira, poller, AppState};
+use super::{context::Ctx, model::Step, store, version::render_version_template};
+use crate::{cli, http_client, jira, AppState};
 
 #[derive(Clone, Debug)]
 pub enum Plan {
@@ -343,7 +343,7 @@ async fn jira_plan(action: &str, step: &Step, ctx: &Ctx<'_>) -> Result<Vec<Plan>
             // A template version may not exist yet, and setting it creates it. That happens only in
             // the Cascade project's own Jira project: a ticket linked by hand from another team's
             // project must not start releases there. With no project key there is no such bound.
-            let own = ctx.event.project["jiraProjectKey"].as_str().unwrap_or("").trim().to_ascii_uppercase();
+            let own = ctx.event.project.as_ref().map(|project| project.jira_project_key.trim()).unwrap_or("").to_ascii_uppercase();
             if !own.is_empty() {
                 let (mine, others): (BTreeMap<_, _>, BTreeMap<_, _>) = projects.into_iter().partition(|(project, _)| *project == own);
                 for (project, keys) in others {
@@ -458,29 +458,29 @@ impl Plan {
                 activity(app, "issue_status_changed", json!({
                     "key": crate::issues::key(repo, *number), "transition": status,
                     "url": format!("https://github.com/{repo}/issues/{number}"), "trigger": trigger,
-                }));
+                })).await;
                 Ok(format!("{repo}#{number} → {status}"))
             }
             Plan::Approve { args, claim } => {
                 // Two events from one poll (a new commit, then its green CI) both reach here with the
                 // same snapshot; the claim lets only the first approve.
-                if !store::claim(&app.db, APPROVALS, claim)? {
+                if !store::claim(&app.db, APPROVALS, claim).await? {
                     return Ok(format!("already approved {}", claim.rsplit('@').next().map(short).unwrap_or_default()));
                 }
                 let result = cli::run("gh", args, Duration::from_secs(60)).await;
                 if result.is_err() {
-                    let _ = store::release(&app.db, APPROVALS, claim);
+                    let _ = store::release(&app.db, APPROVALS, claim).await;
                 }
                 result
             }
             Plan::Transition { key, status } => {
-                poller::transition(key, status).await?;
-                activity(app, "jira_transitioned", json!({"key":key,"transition":status,"trigger":trigger}));
+                jira::transition(key, status).await?;
+                activity(app, "jira_transitioned", json!({"key":key,"transition":status,"trigger":trigger})).await;
                 Ok(format!("{key} → {status}"))
             }
             Plan::Assign { key, assignee } => {
-                poller::assign(key, assignee).await?;
-                activity(app, "jira_assigned", json!({"key":key,"assignee":if assignee.is_empty(){"(unassigned)"}else{assignee},"trigger":trigger}));
+                jira::assign(key, assignee).await?;
+                activity(app, "jira_assigned", json!({"key":key,"assignee":if assignee.is_empty(){"(unassigned)"}else{assignee},"trigger":trigger})).await;
                 Ok(format!("{key} assigned"))
             }
             Plan::JiraComment { key, body } => {
@@ -518,7 +518,7 @@ impl Plan {
                     .await
                     {
                         Ok(_) => {
-                            activity(app, "jira_fixversion_set", json!({"key":key,"version":version,"trigger":trigger}));
+                            activity(app, "jira_fixversion_set", json!({"key":key,"version":version,"trigger":trigger})).await;
                             set.push(key.as_str());
                         }
                         Err(error) => failed.push(format!("{key}: {error}")),
@@ -530,7 +530,7 @@ impl Plan {
                 Ok(format!("{version} on {}", set.join(", ")))
             }
             Plan::Notify { title, body, url } => {
-                activity(app, "automation_notify", json!({"title":title,"body":body,"url":url,"trigger":trigger}));
+                activity(app, "automation_notify", json!({"title":title,"body":body,"url":url,"trigger":trigger})).await;
                 Ok("notified".into())
             }
             Plan::Shell { script, cwd, env } => {
@@ -549,9 +549,9 @@ impl Plan {
     }
 }
 
-fn activity(app: &AppState, kind: &str, payload: Value) {
-    if let Ok(event) = app.db.add_event(kind, &payload) {
-        app.broadcast(json!({"type":"activity","event":event}));
+async fn activity(app: &AppState, kind: &str, payload: Value) {
+    if let Ok(event) = app.db.add_event(kind, &payload).await {
+        app.publish(crate::Event::Activity { event });
     }
 }
 
@@ -600,7 +600,8 @@ mod tests {
     async fn a_template_version_is_never_made_in_another_teams_jira_project() {
         let event = crate::automation::model::Event {
             kind: "pr.merged".into(), key: "pr.merged:a/b#5".into(), at: chrono::Utc::now(),
-            project: json!({"id": "p", "jiraProjectKey": "cascade"}), pr: Some(json!({"number": 5})), ticket: None,
+            project: Some(crate::Project { id: "p".into(), jira_project_key: "cascade".into(), ..Default::default() }),
+            pr: Some(json!({"number": 5})), ticket: None,
         };
         // Only a foreign ticket: planning it must not reach Jira at all, let alone create a release.
         let ctx = crate::automation::context::Ctx::with_keys(&event, vec!["OPS-12".into()]);
@@ -614,7 +615,7 @@ mod tests {
     async fn closing_linked_issues_plans_one_close_per_issue_the_pr_closes() {
         let event = crate::automation::model::Event {
             kind: "pr.merged".into(), key: "pr.merged:a/b#5".into(), at: chrono::Utc::now(),
-            project: json!({"id": "p"}),
+            project: Some(crate::Project { id: "p".into(), ..Default::default() }),
             pr: Some(json!({"number": 5, "repo": "a/b", "issueKeys": ["a/b#3", "c/d#9", "not-a-key"]})), ticket: None,
         };
         let ctx = crate::automation::context::Ctx::with_keys(&event, vec![]);

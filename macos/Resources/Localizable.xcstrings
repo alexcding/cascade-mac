@@ -7093,6 +7093,9 @@
         }
       }
     },
+    "A web address is required to open a tab." : {
+
+    },
     "Active refreshes: %lld · Combined requests: %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30860,6 +30863,9 @@
         }
       }
     },
+    "Could not save page tabs: %@" : {
+
+    },
     "Could not save tab order: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31013,6 +31019,9 @@
           }
         }
       }
+    },
+    "Could not save tabs: %@" : {
+
     },
     "Could not start session: %@" : {
       "extractionState" : "manual",
@@ -72323,6 +72332,7 @@
       }
     },
     "Preference saved locally; connect to sync it." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -92707,6 +92717,7 @@
       }
     },
     "Some preferences are saved locally; reconnect to sync them." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -102743,6 +102754,9 @@
         }
       }
     },
+    "The saved tabs could not be read and were set aside." : {
+
+    },
     "The session could not be removed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -111786,6 +111800,9 @@
           }
         }
       }
+    },
+    "Unknown tab kind: %@" : {
+
     },
     "Unlimited" : {
       "extractionState" : "manual",

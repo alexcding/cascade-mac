@@ -5,8 +5,6 @@ private struct BoardTicketActionService: BoardService {
     var configured = true
     func snapshot(projectID: String, force: Bool) async throws -> BoardSnapshot { BoardSnapshot(items: []) }
     func site() async throws -> JiraSite { JiraSite(baseUrl: configured ? "https://jira.example.test" : "") }
-    func settings() async throws -> [String: String] { [:] }
-    func saveFilter(_ value: String, projectID: String) async throws {}
     func saveQuery(_ value: String, projectID: String) async throws {}
     func transition(key: String, status: String) async throws {}
     func assign(key: String, assignee: String) async throws {}

@@ -139,11 +139,6 @@ public actor APIClient {
         try await send(Routes.AGENT_HOOKS, method: "POST", body: Nothing())
     }
 
-    func setSetting(_ key: String, value: String) async throws {
-        struct Payload: Encodable, Sendable { let value: String }
-        try await send(Routes.settingsKey(key), method: "PUT", body: Payload(value: value))
-    }
-
     private func send<T: Encodable & Sendable>(_ path: String, method: String, body: T) async throws {
         var request = URLRequest(url: try url(path))
         request.httpMethod = method
@@ -162,7 +157,8 @@ public actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await transport.perform(request)
-        if let failure = try? JSONDecoder().decode(Failure.self, from: data), let message = failure.error {
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode),
+           let failure = try? JSONDecoder().decode(Failure.self, from: data), let message = failure.error {
             throw BackendError.operation(message)
         }
         try Self.validate(response)

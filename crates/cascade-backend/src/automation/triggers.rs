@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use super::{armed, filters::ci_state, model::{Event, Mode}, offer, store};
 use crate::AppState;
+use crate::Project;
 
 /// The fields a PR trigger reacts to.
 pub fn fingerprint(pr: &Value, me: Option<&str>) -> Value {
@@ -91,16 +92,15 @@ fn event_key(kind: &str, repo: &str, pr: &Value, fingerprint: &Value) -> String 
 
 /// Called by the poller after each successful sync of a project, with the enriched open PRs and
 /// the recently closed ones.
-pub fn observe_prs(app: &AppState, project: &Value, open: &[Value], closed: &[Value], me: Option<&str>) {
-    let repo = project["repo"].as_str().unwrap_or("");
+pub async fn observe_prs(app: &AppState, project: &Project, open: &[Value], closed: &[Value], me: Option<&str>) {
+    let repo = project.repo.as_str();
     if repo.is_empty() {
         return;
     }
     let seed = format!("seed:{}", repo.to_ascii_lowercase());
-    let first = store::pr_state(&app.db, &seed).ok().flatten().is_none();
+    let first = store::pr_state(&app.db, &seed).await.ok().flatten().is_none();
     // Loaded once per sync, not once per event: a stale check is offered for every open PR.
-    let armed = armed(app);
-    let emit = |event: Event| offer(app, &armed, event);
+    let armed = armed(app).await;
     let now = Utc::now();
     let mut keep = vec![seed.clone()];
     for pr in open {
@@ -111,34 +111,34 @@ pub fn observe_prs(app: &AppState, project: &Value, open: &[Value], closed: &[Va
         let key = pr_key(repo, number);
         keep.push(key.clone());
         let current = fingerprint(pr, me);
-        let previous = store::pr_state(&app.db, &key).ok().flatten();
+        let previous = store::pr_state(&app.db, &key).await.ok().flatten();
         if !first {
             let pr = github_pr(pr, repo);
             for kind in transitions(previous.as_ref(), &current) {
                 let key = event_key(kind, repo, &pr, &current);
-                emit(Event { kind: kind.into(), key, at: now, project: project.clone(), pr: Some(pr.clone()), ticket: None });
+                offer(app, &armed, Event { kind: kind.into(), key, at: now, project: Some(project.clone()), pr: Some(pr.clone()), ticket: None }).await;
             }
             // Stale is a state, not a change: offered every sync, the ledger keeps it to once
             // per quiet period and `matches` checks each pipeline's own day count.
             if let Some(updated) = pr["updatedAt"].as_str() {
                 let key = format!("pr.stale:{}@{updated}", pr_key(repo, number));
-                emit(Event { kind: "pr.stale".into(), key, at: now, project: project.clone(), pr: Some(pr), ticket: None });
+                offer(app, &armed, Event { kind: "pr.stale".into(), key, at: now, project: Some(project.clone()), pr: Some(pr), ticket: None }).await;
             }
         }
-        let _ = store::set_pr_state(&app.db, &key, &repo.to_ascii_lowercase(), &current);
+        let _ = store::set_pr_state(&app.db, &key, &repo.to_ascii_lowercase(), &current).await;
     }
     for pr in closed {
         let number = pr["number"].as_i64().unwrap_or(0);
         let key = pr_key(repo, number);
-        let was_open = store::pr_state(&app.db, &key).ok().flatten().is_some();
+        let was_open = store::pr_state(&app.db, &key).await.ok().flatten().is_some();
         if !first && was_open && pr["state"] == "CLOSED" {
             let pr = github_pr(pr, repo);
             let key = event_key("pr.closed", repo, &pr, &Value::Null);
-            emit(Event { kind: "pr.closed".into(), key, at: now, project: project.clone(), pr: Some(pr), ticket: None });
+            offer(app, &armed, Event { kind: "pr.closed".into(), key, at: now, project: Some(project.clone()), pr: Some(pr), ticket: None }).await;
         }
     }
-    let _ = store::set_pr_state(&app.db, &seed, &repo.to_ascii_lowercase(), &json!({}));
-    let _ = store::prune_pr_state(&app.db, &repo.to_ascii_lowercase(), &keep);
+    let _ = store::set_pr_state(&app.db, &seed, &repo.to_ascii_lowercase(), &json!({})).await;
+    let _ = store::prune_pr_state(&app.db, &repo.to_ascii_lowercase(), &keep).await;
 }
 
 /// A PR value with `repo` set, as every automation step reads it.
@@ -150,21 +150,15 @@ fn github_pr(pr: &Value, repo: &str) -> Value {
 
 /// Normalise a merged PR from either source. The poll gives a GraphQL node, the webhook a REST
 /// payload; both are filled in from the last open snapshot so filters see labels and branches.
-pub fn merged_pr(app: &AppState, project: &Value, pr: &Value) -> Value {
-    let repo = project["repo"].as_str().unwrap_or("");
+pub async fn merged_pr(app: &AppState, project: &Project, pr: &Value) -> Value {
+    let repo = project.repo.as_str();
     let number = pr["number"].as_i64().unwrap_or(0);
     let mut out = app
         .db
-        .pr_snapshot(project["id"].as_str().unwrap_or(""), "open", None)
+        .pr_snapshot(&project.id, "open", None).await
         .ok()
         .flatten()
-        .and_then(|snapshot| {
-            snapshot["prs"]
-                .as_array()?
-                .iter()
-                .find(|p| p["number"].as_i64() == Some(number))
-                .cloned()
-        })
+        .and_then(|snapshot| snapshot.prs.into_iter().find(|p| p["number"].as_i64() == Some(number)))
         .unwrap_or_else(|| json!({}));
     for (key, value) in pr.as_object().into_iter().flatten() {
         if !value.is_null() {
@@ -189,9 +183,9 @@ pub fn merged_pr(app: &AppState, project: &Value, pr: &Value) -> Value {
     out
 }
 
-pub fn merge_event(app: &AppState, project: &Value, pr: &Value) -> Event {
-    let pr = merged_pr(app, project, pr);
-    let repo = project["repo"].as_str().unwrap_or("");
+pub async fn merge_event(app: &AppState, project: &Project, pr: &Value) -> Event {
+    let pr = merged_pr(app, project, pr).await;
+    let repo = project.repo.as_str();
     let at = pr["mergedAt"]
         .as_str()
         .or_else(|| pr["merged_at"].as_str())
@@ -202,7 +196,7 @@ pub fn merge_event(app: &AppState, project: &Value, pr: &Value) -> Event {
         kind: "pr.merged".into(),
         key: event_key("pr.merged", repo, &pr, &Value::Null),
         at,
-        project: project.clone(),
+        project: Some(project.clone()),
         pr: Some(pr),
         ticket: None,
     }
@@ -210,10 +204,10 @@ pub fn merge_event(app: &AppState, project: &Value, pr: &Value) -> Event {
 
 /// Poll each armed pipeline's JQL and emit ticket events against its own baseline.
 pub async fn poll_jira(app: &AppState) {
-    let Ok(automations) = store::list(&app.db) else {
+    let Ok(automations) = store::list(&app.db).await else {
         return;
     };
-    let projects = app.db.projects().unwrap_or_default();
+    let projects = app.db.projects().await.unwrap_or_default();
     for automation in automations {
         if automation.mode == Mode::Off
             || !automation.trigger.types.iter().any(|t| t.starts_with("jira."))
@@ -224,10 +218,10 @@ pub async fn poll_jira(app: &AppState) {
         if jql.is_empty() {
             continue;
         }
-        let Ok(items) = crate::poller::search_jira(&jql, JIRA_LIMIT).await else {
+        let Ok(items) = crate::jira::search_jira(&jql, JIRA_LIMIT).await else {
             continue;
         };
-        let previous = store::jira_state(&app.db, &automation.id).unwrap_or_default();
+        let previous = store::jira_state(&app.db, &automation.id).await.unwrap_or_default();
         let had_baseline = !previous.is_empty();
         // The seed row records the query it was taken with: a baseline from another JQL is none.
         let seeded = previous.iter().any(|(key, seed)| key == "__seeded__" && *seed == jql);
@@ -252,10 +246,9 @@ pub async fn poll_jira(app: &AppState) {
             let prefix = key.split('-').next().unwrap_or("");
             let project = projects
                 .iter()
-                .find(|p| p["jiraProjectKey"].as_str().is_some_and(|k| k.eq_ignore_ascii_case(prefix)))
-                .cloned()
-                .unwrap_or(Value::Null);
-            super::fire(app, &automation, Event { kind: kind.into(), key: event_key, at: now, project, pr: None, ticket: Some(item.clone()) });
+                .find(|p| p.jira_project_key.eq_ignore_ascii_case(prefix))
+                .cloned();
+            super::fire(app, &automation, Event { kind: kind.into(), key: event_key, at: now, project, pr: None, ticket: Some(item.clone()) }).await;
         }
         // A full page may have left matching tickets out. Keep what it did not return, so a
         // ticket that drops below the page and comes back is not taken for a new one.
@@ -266,10 +259,10 @@ pub async fn poll_jira(app: &AppState) {
         // A save that re-seeds (switched on, new query) clears the baseline, and writing this one
         // would undo that. Any other save, a rename say, leaves it: skipping the write then would
         // have the next poll fire again for every ticket this one just fired for.
-        let exists = store::get(&app.db, &automation.id).ok().flatten().is_some();
-        let reset = had_baseline && store::jira_state(&app.db, &automation.id).is_ok_and(|now| now.is_empty());
+        let exists = store::get(&app.db, &automation.id).await.ok().flatten().is_some();
+        let reset = had_baseline && store::jira_state(&app.db, &automation.id).await.is_ok_and(|now| now.is_empty());
         if exists && !reset {
-            let _ = store::set_jira_state(&app.db, &automation.id, &current);
+            let _ = store::set_jira_state(&app.db, &automation.id, &current).await;
         }
     }
 }
@@ -317,13 +310,13 @@ mod tests {
         assert_eq!(event_key("pr.ci_passed", "A/B", &pr, &fp), "pr.ci_passed:a/b#7@abc");
     }
 
-    #[test]
-    fn a_webhook_payload_is_normalised_to_the_graphql_shape() {
+    #[tokio::test]
+    async fn a_webhook_payload_is_normalised_to_the_graphql_shape() {
         let directory = tempfile::tempdir().unwrap();
         let app = AppState::new(crate::Database::open(directory.path()).unwrap(), None);
-        let project = json!({"id":"p","repo":"a/b"});
+        let project: Project = serde_json::from_value(json!({"id":"p","repo":"a/b"})).unwrap();
         let pr = json!({"number":3,"title":"T","user":{"login":"bot","type":"Bot"},"base":{"ref":"main"},"head":{"ref":"x","sha":"s"},"labels":[{"name":"deps"}]});
-        let out = merged_pr(&app, &project, &pr);
+        let out = merged_pr(&app, &project, &pr).await;
         assert_eq!(out["author"]["login"], "bot");
         assert_eq!(out["baseRefName"], "main");
         assert_eq!(out["headRefOid"], "s");

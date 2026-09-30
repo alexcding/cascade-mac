@@ -69,46 +69,28 @@ async fn project_task_and_dashboard_contracts_round_trip() {
 }
 
 #[tokio::test]
-async fn settings_and_tabs_preserve_existing_json_shapes() {
+async fn tabs_are_served_read_only_for_the_one_time_import() {
     let (app, _directory) = app();
-    let (status, _) =
-        json_request(&app, "PUT", "/api/settings/theme", json!({"value":"dark"})).await;
+    let (status, tabs) = json_request(&app, "GET", "/api/tabs", Value::Null).await;
     assert_eq!(status, StatusCode::OK);
-    let (_, settings) = json_request(&app, "GET", "/api/settings", Value::Null).await;
-    assert_eq!(settings["theme"], "dark");
-
-    let (_, tabs) = json_request(&app, "POST", "/api/tabs", json!({"url":"https://github.com/openai/codex/pull/1","kind":"github","title":"PR 1","repo":"openai/codex","branch":"feature","category":"review","login":"octocat"})).await;
-    assert_eq!(tabs["active"], tabs["tabs"][0]["id"]);
-    assert_eq!(tabs["tabs"][0]["url"], "https://github.com/openai/codex/pull/1");
-    assert_eq!(tabs["tabs"][0]["paneView"], "term");
-    // The same page opens again as a second tab: tabs are keyed by id, not URL.
-    let (_, again) = json_request(&app, "POST", "/api/tabs", json!({"url":"https://github.com/openai/codex/pull/1","kind":"github"})).await;
-    assert_eq!(again["tabs"].as_array().map(Vec::len), Some(2));
-    assert_ne!(again["tabs"][0]["id"], again["tabs"][1]["id"]);
-    assert_eq!(again["active"], again["tabs"][1]["id"]);
-    // A title change touches one row and leaves the other tab alone.
-    let id = again["tabs"][1]["id"].as_str().unwrap().to_owned();
-    let (status, renamed) = json_request(&app, "PATCH", "/api/tabs", json!({"id": id, "title": "Loaded"})).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(renamed["tabs"][1]["title"], "Loaded");
-    assert_eq!(renamed["tabs"][0]["title"], "PR 1");
-    let first = renamed["tabs"][0]["id"].as_str().unwrap().to_owned();
-    let (status, reordered) = json_request(&app, "PATCH", "/api/tabs", json!({"order": [id, "missing", &first, id]})).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(reordered["tabs"][0]["id"], id);
-    assert_eq!(reordered["tabs"][1]["id"], first);
-    // Pinning is its own one-row update; every tab reports the flag.
-    assert_eq!(reordered["tabs"][0]["pinned"], false);
-    let (status, pinned) = json_request(&app, "PATCH", "/api/tabs", json!({"id": id, "pinned": true})).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(pinned["tabs"][0]["pinned"], true);
-    assert_eq!(pinned["tabs"][1]["pinned"], false);
-    let (status, _) = json_request(&app, "PATCH", "/api/tabs", json!({"id": id, "pinned": "yes"})).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(tabs, json!({"tabs":[],"active":null}));
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/tabs")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"url":"https://example.test","kind":"web"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]
-async fn invalid_project_and_tab_inputs_match_node_errors() {
+async fn invalid_project_inputs_match_node_errors() {
     let (app, _directory) = app();
     let (status, value) = json_request(
         &app,
@@ -119,14 +101,6 @@ async fn invalid_project_and_tab_inputs_match_node_errors() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(value["error"], "name required");
-    let (status, _) = json_request(
-        &app,
-        "POST",
-        "/api/tabs",
-        json!({"url":"file:///etc/passwd","kind":"web"}),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -178,10 +152,10 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
     let directory = tempfile::tempdir().unwrap();
     let db = Database::open(directory.path()).unwrap();
     let project = db
-        .add_project(json!({"name":"Cascade","repo":"example/cascade"}).as_object().unwrap())
+        .add_project(json!({"name":"Cascade","repo":"example/cascade"}).as_object().unwrap()).await
         .unwrap();
-    let id = project["id"].as_str().unwrap().to_owned();
-    db.set_pr_snapshot(&id, &json!({"prs":[
+    let id = project.id.clone();
+    let snapshot = serde_json::from_value(json!({"prs":[
         {"number":7,"title":"Bump deps","author":{"login":"alice"},"baseRefName":"main","isDraft":false,"headRefOid":"a1b2c3d4e5",
          "ci":{"status":"completed","conclusion":"success"},"labels":[{"name":"deps"}],"repo":"example/cascade"},
         {"number":8,"title":"Mine","author":{"login":"me"},"baseRefName":"main","isDraft":false,"headRefOid":"f6e5d4","ci":null,"repo":"example/cascade"},
@@ -189,6 +163,7 @@ async fn dry_run_plans_against_a_synced_pr_without_acting() {
          "myReview":{"state":"APPROVED","commit":"9a8b7c6d5e"},
          "ci":{"status":"completed","conclusion":"success"},"labels":[],"repo":"example/cascade"}
     ],"lastSynced":chrono::Utc::now().to_rfc3339(),"error":null})).unwrap();
+    db.set_pr_snapshot(&id, &snapshot).await.unwrap();
     let app = build_app(AppState::new(db, None));
     let pipeline = json!({"name":"Approve alice","mode":"off",
         "trigger":{"types":["pr.ci_passed"],"projects":[id]},

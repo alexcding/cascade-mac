@@ -7,7 +7,7 @@ extension AppViewModel: SettingsCoordinating {
         // Reached from AppViewModel.init() via installSettings, which runs before NSApplication
         // finishes wiring NSApp — an implicitly-unwrapped nil there traps on launch.
         settings?.applicationActiveChanged(NSApp?.isActive ?? false)
-        shell.loadSettings(); shell.notifications.refreshAuthorization()
+        shell.notifications.refreshAuthorization()
     }
     /// Settings is its own window; the welcome is a sheet on the main one, so that comes forward
     /// first — but only when the sheet can follow it, or the button would just take focus away.

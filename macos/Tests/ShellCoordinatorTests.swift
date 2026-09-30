@@ -7,32 +7,6 @@ import Testing
     func apply(_ appearance: AppAppearance) { applied.append(appearance) }
 }
 
-private actor ControlledShellData: ShellDataServing {
-    var reads = 0
-    var writes: [(String, String)] = []
-    private var snapshot: CheckedContinuation<[String: String?], any Error>?
-    func reviews() -> [TrayPR] { [] }
-    func usage() throws -> UsageSnapshot { throw BackendError.operation("Usage unavailable") }
-    func settings() async throws -> [String: String?] {
-        reads += 1
-        return try await withCheckedThrowingContinuation { snapshot = $0 }
-    }
-    func finish(_ values: [String: String?]) { snapshot?.resume(returning: values); snapshot = nil }
-    func setSetting(_ key: String, value: String) throws {
-        writes.append((key, value))
-        throw BackendError.operation("Write unavailable")
-    }
-    func acknowledgeReview(repo: String, number: Int) { }
-}
-
-@MainActor private func shellEventually(_ condition: () async -> Bool) async throws {
-    let deadline = ContinuousClock.now + .seconds(3)
-    while !(await condition()) {
-        guard ContinuousClock.now < deadline else { throw BackendError.operation("Shell condition was not reached") }
-        try await Task.sleep(for: .milliseconds(1))
-    }
-}
-
 @MainActor @Test func shellFactoryRestoresAppearanceAndOnlyCoordinatorAppliesChanges() throws {
     let suite = "shell-appearance-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -88,44 +62,20 @@ private actor ControlledShellData: ShellDataServing {
     #expect(platform.applied.count == 2)
 }
 
-@MainActor @Test func shellSnapshotChangesUseModelObserversAndDuplicateSnapshotsAreQuiet() async throws {
-    let suite = "shell-snapshot-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let shell = ShellStore(preferences: preferences), service = ControlledShellData()
-    let platform = RecordingShellAppearance(), coordinator = ShellCoordinator(model: shell, appearance: platform)
-    defer { withExtendedLifetime(coordinator) {} }
-    shell.connect(service)
-    try await shellEventually { await service.reads == 1 }
-    let snapshot: [String: String?] = ["theme": "dark"]
-    await service.finish(snapshot)
-    try await shellEventually { shell.appearance == .dark }
-    #expect(platform.applied == [.dark])
-    try await shellEventually { shell.loadSettings(); return await service.reads == 2 }
-    await service.finish(snapshot)
-    try await shellEventually { shell.loadSettings(); return await service.reads == 3 }
-    #expect(platform.applied == [.dark])
-    #expect(preferences.string(forKey: "native.theme") == "dark")
-    await service.finish(snapshot)
-    await shell.stop()
-}
-
-@MainActor @Test func shellEditorStyleSyncsSavesAndReadsUnknownThemesAsDefault() async throws {
+@MainActor @Test func shellEditorStyleReadsSavedThemesAndRefusesUnknownOnes() throws {
     let suite = "shell-editor-style-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
-    // A dark theme saved for the light appearance, and a name no build has.
+    // A dark theme saved for the light appearance, and a name no build has: both read as Default.
     preferences.set("Dracula", forKey: "native.editorThemeLight")
     preferences.set("Removed Theme", forKey: "native.editorThemeDark")
-    let shell = ShellStore(preferences: preferences), service = ControlledShellData()
+    let shell = ShellStore(preferences: preferences)
     #expect(shell.editorStyle == EditorStyle())
     var changes = 0
     shell.documentStyleChanged = { changes += 1 }
-    shell.connect(service)
-    try await shellEventually { await service.reads == 1 }
-    await service.finish(["editorThemeDark": "Dracula", "editorThemeLight": "Dracula Pro", "editorMinimap": "on"])
-    try await shellEventually { shell.editorStyle.darkTheme == "Dracula" }
+    shell.setEditorTheme(dark: "Dracula"); shell.setEditorMinimap(true)
     #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "", showMinimap: true))
+    #expect(preferences.string(forKey: "native.editorThemeDark") == "Dracula")
     #expect(preferences.string(forKey: "native.editorMinimap") == "on")
     #expect(changes > 0)
     shell.setEditorTheme(light: "Nord") // Dark only: refused, and said so.
@@ -133,51 +83,21 @@ private actor ControlledShellData: ShellDataServing {
     shell.setEditorTheme(light: "One Light"); shell.setEditorMinimap(false)
     #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: false))
     #expect(preferences.string(forKey: "native.editorThemeLight") == "One Light")
-    try await shellEventually { await service.writes.map(\.0).contains("editorMinimap") }
-    await shell.stop()
+    #expect(shell.settingsError == nil) // An accepted change clears the refusal.
+    // The next launch reads what was saved.
+    #expect(ShellStore(preferences: preferences).editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: false))
 }
 
-@MainActor @Test func shellEditorMinimapIsOffUnlessSyncedOn() async throws {
+@MainActor @Test func shellEditorMinimapIsOffUnlessChosen() throws {
     let suite = "shell-editor-minimap-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     #expect(!ShellStore(preferences: preferences).editorStyle.showMinimap)
-    // Earlier builds wrote "on" locally on every sync, whether or not anyone chose it.
     preferences.set("on", forKey: "native.editorMinimap")
-    let shell = ShellStore(preferences: preferences), service = ControlledShellData()
+    let shell = ShellStore(preferences: preferences)
     #expect(shell.editorStyle.showMinimap)
-    shell.connect(service)
-    try await shellEventually { await service.reads == 1 }
-    await service.finish([:])
-    try await shellEventually { !shell.editorStyle.showMinimap }
-    #expect(preferences.string(forKey: "native.editorMinimap") == "off")
-    await shell.stop()
-}
-
-@MainActor @Test func shellOfflineEditsSurviveFailedWritesAndOlderSnapshot() async throws {
-    let suite = "shell-offline-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let shell = ShellStore(preferences: preferences), service = ControlledShellData()
-    let platform = RecordingShellAppearance(), coordinator = ShellCoordinator(model: shell, appearance: platform)
-    defer { withExtendedLifetime(coordinator) {} }
-    shell.setAppearance(.light)
-    shell.connect(service)
-    try await shellEventually { await service.reads == 1 }
-    await service.finish(["theme": "dark"])
-    try await shellEventually { shell.trayUpdated != nil }
-    // Starting the next read proves that the previous snapshot was processed.
-    try await shellEventually { shell.loadSettings(); return await service.reads == 2 }
-    shell.setAppearance(.system) // Supersedes the read already in flight.
-    await service.finish(["theme": "dark", "usageAgent": "codex"])
-    try await shellEventually { shell.loadSettings(); return await service.reads == 3 }
-    #expect(shell.appearance == .system)
-    #expect(shell.usageAgent == "claude") // Reject the whole stale snapshot, including unedited fields.
-    #expect(platform.applied == [.light, .system])
-    let pending = preferences.dictionary(forKey: "native.pendingSettings") as? [String: String]
-    #expect(pending?["theme"] == "auto")
-    await service.finish([:])
-    await shell.stop()
+    shell.setEditorMinimap(false)
+    #expect(!shell.editorStyle.showMinimap && preferences.string(forKey: "native.editorMinimap") == "off")
 }
 
 @MainActor @Test func nativeShellAppearanceAppliesSystemLightAndDark() {

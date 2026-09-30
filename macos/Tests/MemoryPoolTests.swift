@@ -260,21 +260,6 @@ private final class LoopbackSite: @unchecked Sendable {
     #expect(changes == 2)
     let relaunched = ShellStore(preferences: preferences)
     #expect(relaunched.sessionMemoryLimit == .oneGB && relaunched.pageMemoryLimit == .fourGB)
-
-    let synced = ShellStore(preferences: try #require(UserDefaults(suiteName: "\(suite)-synced")))
-    defer { preferences.removePersistentDomain(forName: "\(suite)-synced") }
-    synced.connect(SettingsSnapshot(values: ["sessionMemoryLimit": "2", "pageMemoryLimit": "8"]))
-    try await poolEventually { synced.sessionMemoryLimit == .twoGB && synced.pageMemoryLimit == .eightGB }
-}
-
-private actor SettingsSnapshot: ShellDataServing {
-    let values: [String: String?]
-    init(values: [String: String?]) { self.values = values }
-    func reviews() -> [TrayPR] { [] }
-    func usage() throws -> UsageSnapshot { throw BackendError.operation("Usage unavailable") }
-    func settings() -> [String: String?] { values }
-    func setSetting(_ key: String, value: String) {}
-    func acknowledgeReview(repo: String, number: Int) {}
 }
 
 @MainActor private func poolEventually(_ condition: () -> Bool) async throws {

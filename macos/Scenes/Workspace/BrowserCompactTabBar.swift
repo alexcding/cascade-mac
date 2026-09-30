@@ -126,13 +126,11 @@ struct BrowserCompactTabBar: View {
         return controls.submitAddress()
     }
 
-    // Not while restoring: a blank tab opened before the saved snapshot lands would mark the
-    // context edited and the saved tabs would be skipped.
     /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
     /// a blank tab is never saved, so on every launch the filler opened, selected itself and
     /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
     /// A sidebar tab needs a page whatever files it holds: it has no New Tab to make one.
-    private var needsBlankTab: Bool { (context.holdsOnePage ? context.pages.isEmpty : context.tabs.isEmpty) && model.showsBrowser && model.canOpenTab && !context.restoring }
+    private var needsBlankTab: Bool { (context.holdsOnePage ? context.pages.isEmpty : context.tabs.isEmpty) && model.showsBrowser && model.canOpenTab }
 
     /// Leaving a tab drops any address focus so it does not carry over. A blank tab takes focus
     /// itself when its address field appears in `CompactTab`, once that field exists: a focus binding set before

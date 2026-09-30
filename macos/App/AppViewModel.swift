@@ -53,13 +53,14 @@ public final class AppViewModel {
     public private(set) var lastUpdate: Date?
     public private(set) var backendAddress = ""
     private(set) var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateWorkspaceReviewState() } } }
+    /// The saved tabs, as `tabStore` keeps them; every change goes through the store first.
     private(set) var tabs: [SavedTab] = []
+    @ObservationIgnored private let tabStore: TabStore
     /// Tabs the user opened from the sidebar but has not given an address yet. They live only
     /// here until their first navigation turns them into saved tabs.
     private(set) var draftTabs: [SavedTab] = []
     var visibleTabs: [SavedTab] { tabs + draftTabs }
     func isDraftTab(_ id: String) -> Bool { draftTabs.contains { $0.id == id } }
-    @ObservationIgnored private var committingDrafts: Set<String> = []
     func tabURL(_ id: String) -> String? { visibleTabs.first { $0.id == id }?.url }
     var selection: SidebarDestination { coordinator.selection }
     private(set) var terminals: [String: TerminalSession] = [:] {
@@ -86,7 +87,7 @@ public final class AppViewModel {
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
     @ObservationIgnored private var startGeneration = UUID()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
-    private enum Inventory: Hashable { case projects, sessions, tabs }
+    private enum Inventory: Hashable { case projects, sessions }
     @ObservationIgnored private var refreshPending: Set<Inventory> = []
     @ObservationIgnored private var inventoryGenerations: [Inventory: UUID] = [:]
     @ObservationIgnored private var eventRefreshTask: Task<Void, Never>?
@@ -136,6 +137,7 @@ public final class AppViewModel {
         let terminalControl = platformFactory.terminalControl()
         self.terminalControl = terminalControl
         self.workspaceLaunch = platformFactory.workspaceLauncher()
+        tabStore = platformFactory.tabStore()
         self.shellFactory = shellFactory
         let shell = shellFactory.shell(notifications: notificationFactory.notifications())
         self.shell = shell
@@ -195,8 +197,7 @@ public final class AppViewModel {
         }
         // A link opened from a sidebar tab becomes its own tab under Tabs, the way one opened from
         // the dashboard does. A session's second panel keeps such links as pages of that panel.
-        // Opening a tab needs the backend, so before it connects the link opens in its own panel
-        // rather than not at all.
+        // An address that cannot be a tab opens in its own panel rather than not at all.
         viewer.openSidebarTab = { [weak self] url, keepInPanel in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -215,6 +216,7 @@ public final class AppViewModel {
             guard let self else { throw CancellationError() }
             try await openActivityEntry(entry)
         }
+        tabs = tabStore.tabs
         scheduleSidebarLoad()
     }
 
@@ -737,40 +739,35 @@ public final class AppViewModel {
     /// live context and its web view stay where they are.
     private func commitDraftTab(_ context: WorkspaceContext) {
         guard let draft = draftTabs.first(where: { "tab:\($0.id)" == context.id }),
-              let page = context.activePage, let address = safeWebURL(page.url)?.absoluteString,
-              let api else { return }
+              let page = context.activePage, let address = safeWebURL(page.url)?.absoluteString else { return }
         let request = OpenPageRequest(id: draft.id, url: address, kind: "web",
                                       title: page.title.isEmpty ? (URL(string: address)?.host ?? address) : page.title)
-        guard committingDrafts.insert(draft.id).inserted else { return }
-        Task {
-            defer { committingDrafts.remove(draft.id) }
-            do {
-                let saved: SavedTabs = try await api.request(Routes.TABS, method: "POST", body: request)
-                // The draft stays listed until the saved tab can take its place, so the sidebar
-                // row and the selection never blink out between the two.
-                draftTabs.removeAll { $0.id == draft.id }
-                tabs = saved.tabs
-            } catch {
-                self.error = String(localized: "Could not save \(address): \(error.localizedDescription)")
-            }
+        do {
+            let saved = try tabStore.open(request)
+            // The saved tab takes the draft's place under the same id, so the sidebar row and
+            // the selection never blink out between the two.
+            draftTabs.removeAll { $0.id == draft.id }
+            showTabs(saved)
+        } catch {
+            self.error = String(localized: "Could not save \(address): \(error.localizedDescription)")
         }
     }
 
     /// The page in a saved tab has a title now, or a new one: the sidebar follows the page.
-    /// Renames touch one row, so a concurrent open or close is never overwritten.
     private func syncTabTitle(_ context: WorkspaceContext) {
         guard let index = tabs.firstIndex(where: { "tab:\($0.id)" == context.id }), let page = context.activePage,
-              !page.title.isEmpty, page.title != tabs[index].title, safeWebURL(page.url) != nil, let api else { return }
-        let id = tabs[index].id, title = page.title
-        tabs[index].title = title
-        Task {
-            do { let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: ["id": id, "title": title]); tabs = saved.tabs }
-            catch { self.error = String(localized: "Could not save tab title: \(error.localizedDescription)") }
-        }
+              !page.title.isEmpty, page.title != tabs[index].title, safeWebURL(page.url) != nil else { return }
+        showTabs(tabStore.rename(tabs[index].id, title: page.title))
     }
 
-    /// Reorders the Tabs list. Saved tabs persist their order through the backend; drafts
-    /// only exist locally and always follow the saved ones.
+    /// The store's list, and its complaint if the file could not be written.
+    private func showTabs(_ saved: SavedTabs) {
+        if tabs != saved.tabs { tabs = saved.tabs }
+        if let failure = tabStore.lastError { error = failure }
+    }
+
+    /// Reorders the Tabs list. Saved tabs keep their order in the store; drafts only exist
+    /// here and always follow the saved ones.
     func moveTab(_ id: String, before: String?) {
         guard id != before else { return }
         // Reorder the list as the sidebar shows it, then split it back: saved tabs keep
@@ -778,26 +775,10 @@ public final class AppViewModel {
         guard let shown = Self.reordered(visibleTabs, moving: id, before: before) else { return }
         let previous = tabs.map(\.id)
         draftTabs = shown.filter { isDraftTab($0.id) }
-        tabs = shown.filter { !isDraftTab($0.id) }
-        guard let api, tabs.map(\.id) != previous else { return }
-        let order = tabs.map(\.id)
-        tabOrderGeneration += 1
-        let generation = tabOrderGeneration
-        Task {
-            do {
-                let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: ["order": order])
-                // A newer drag owns the list now; its own response will land.
-                if generation == tabOrderGeneration { tabs = saved.tabs }
-            } catch {
-                // Tabs may have been opened, renamed or closed meanwhile: restore only the
-                // old relative order of whatever is listed now, never an old snapshot.
-                if generation == tabOrderGeneration { tabs = Self.ordered(tabs, by: previous) }
-                self.error = String(localized: "Could not save tab order: \(error.localizedDescription)")
-            }
-        }
+        let order = shown.filter { !isDraftTab($0.id) }.map(\.id)
+        guard order != previous else { return }
+        showTabs(tabStore.reorder(order))
     }
-    /// Counts reorders so a stale PATCH response cannot undo a newer drag.
-    private var tabOrderGeneration = 0
 
     /// Reorders the Projects list: `id` lands before `before`, or last when nil. The order is
     /// the sidebar's own arrangement, kept by the app; the backend is not told.
@@ -875,10 +856,9 @@ public final class AppViewModel {
             viewer.active?.open(request.url, title: request.title)
             return
         }
-        guard let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
-        let saved: SavedTabs = try await api.request(Routes.TABS, method: "POST", body: request)
         try Task.checkCancellation()
-        tabs = saved.tabs
+        let saved = try tabStore.open(request)
+        showTabs(saved)
         // A background tab loads when it is selected; the row's screen stays where it was.
         guard let id = saved.active, !request.inTab else { return }
         select(.tab(id))
@@ -960,19 +940,6 @@ public final class AppViewModel {
                   let project = projects.first(where: { $0.id == session.projectId }) else { continue }
             model.adopt(project)
         }
-    }
-
-    /// The tab a session was just started from is the session's own now. A standalone tab (Open in
-    /// Tab beside a session) would otherwise keep its row next to the session's under the same page.
-    /// Awaited by the caller ahead of its refresh, so the two writes to `tabs` cannot cross.
-    private func adoptTab(_ sourceID: String) async {
-        guard sourceID.hasPrefix("tab:") else { return }
-        let id = String(sourceID.dropFirst("tab:".count))
-        guard let api, let index = tabs.firstIndex(where: { $0.id == id }), tabs[index].standalone else { return }
-        tabs[index].standalone = false
-        struct Payload: Encodable { let id: String; let standalone: Bool }
-        do { let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: Payload(id: id, standalone: false)); tabs = saved.tabs }
-        catch { /* The refresh that follows restores the list from the backend. */ }
     }
 
     func openWorkflowHookSettings() {
@@ -1405,31 +1372,14 @@ public final class AppViewModel {
     }
 
     /// Pins a saved tab into the grid under Dashboard, or returns it to the Tabs list. A draft
-    /// has no backend row yet, so it cannot be pinned. The flag is its own one-row PATCH, so a
-    /// concurrent open or rename is never overwritten.
+    /// is not saved yet, so it cannot be pinned.
     func togglePinTab(_ id: String) {
-        guard let api, !isDraftTab(id), let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        struct Payload: Encodable { let id: String; let pinned: Bool }
-        let pinned = !tabs[index].pinned
-        tabs[index].pinned = pinned
-        tabPinGeneration += 1
-        let generation = tabPinGeneration
-        Task {
-            do {
-                let saved: SavedTabs = try await api.request(Routes.TABS, method: "PATCH", body: Payload(id: id, pinned: pinned))
-                // A newer toggle owns the list now; its own response will land.
-                if generation == tabPinGeneration { tabs = saved.tabs }
-            } catch {
-                self.error = String(localized: "Could not update pin: \(error.localizedDescription)")
-                refresh()
-            }
-        }
+        guard !isDraftTab(id), let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        showTabs(tabStore.pin(id, !tabs[index].pinned))
     }
-    /// Counts pin toggles so a stale PATCH response cannot undo a newer one.
-    private var tabPinGeneration = 0
 
     /// Closes a task-less tab: moves the selection to its neighbour first when it is the tab in
-    /// view, then drops the tab from the backend and releases its pages.
+    /// view, then drops the tab and releases its pages.
     func closeTab(_ id: String) {
         let sessionURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
         let visible = visibleTabs.filter { !$0.isOwned(by: sessionURLs) }.map(\.id)
@@ -1439,20 +1389,10 @@ public final class AppViewModel {
             Task { await viewer.remove(id: "tab:\(id)") }
             return
         }
-        guard let api, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let key = "tab:\(id)"
+        guard tabs.contains(where: { $0.id == id }) else { return }
         if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
-        tabs.remove(at: index)
-        Task {
-            await viewer.remove(id: key)
-            do {
-                let saved: SavedTabs = try await api.request(Routes.TABS, method: "DELETE", body: ["id": id])
-                tabs = saved.tabs
-            } catch {
-                self.error = String(localized: "Could not close tab: \(error.localizedDescription)")
-                refresh()
-            }
-        }
+        showTabs(tabStore.close(id))
+        Task { await viewer.remove(id: "tab:\(id)") }
     }
 
     /// Where the selection goes when the tab in view closes: the tab now at its place in the
@@ -1559,7 +1499,7 @@ public final class AppViewModel {
         dashboard?.reload()
         if case .project(let id) = selection { projectModels[id]?.board?.refresh() }
         if coordinator.activityVisible { logs?.refresh() }
-        refreshInventory([.projects, .sessions, .tabs])
+        refreshInventory([.projects, .sessions])
     }
 
     private func refreshInventory(_ inventory: Set<Inventory>) {
@@ -1576,9 +1516,15 @@ public final class AppViewModel {
                 do {
                     async let projectRequest: [Project]? = inventory.contains(.projects) ? api.get(Routes.PROJECTS) : nil
                     async let sessionRequest: [WorkspaceSession]? = inventory.contains(.sessions) ? api.get(Routes.TASKS) : nil
-                    async let tabRequest: SavedTabs? = inventory.contains(.tabs) ? api.get(Routes.TABS) : nil
-                    let (snapshot, sessionSnapshot, tabSnapshot) = try await (projectRequest, sessionRequest, tabRequest)
+                    // Tabs and preferences are the app's now; what an earlier version left in the
+                    // backend is adopted once, alongside the first inventory read, and a failure
+                    // there costs nothing but a retry with the next refresh.
+                    async let tabRequest: SavedTabs? = tabStore.needsImport ? (try? await api.get(Routes.TABS)) : nil
+                    async let settingsRequest: [String: String?]? = shell.needsLegacyPreferenceImport ? (try? await api.get(Routes.SETTINGS)) : nil
+                    let (snapshot, sessionSnapshot, imported, legacy) = try await (projectRequest, sessionRequest, tabRequest, settingsRequest)
                     try Task.checkCancellation()
+                    if let imported { tabStore.adopt(imported); showTabs(tabStore.saved) }
+                    if let legacy { shell.importLegacyPreferences(legacy) }
                     // A newer request invalidates only its own inventory. Keep the other
                     // results, and let the pending set reload only what changed mid-flight.
                     let current = inventory.filter { generations[$0] == inventoryGenerations[$0] }
@@ -1594,7 +1540,6 @@ public final class AppViewModel {
                         sessions = sessionSnapshot
                         sessionPool.retain(retained)
                     }
-                    if current.contains(.tabs), let tabSnapshot, tabs != tabSnapshot.tabs { tabs = tabSnapshot.tabs }
                     restoreSessionTerminals()
                     showSelectedContext()
                     guard refreshPending.isEmpty else { continue }
@@ -1640,7 +1585,6 @@ public final class AppViewModel {
             return
         }
         var inventory: Set<Inventory> = []
-        if events.contains(where: { $0.type == "tabs" }) { inventory.insert(.tabs) }
         if events.contains(where: { $0.type == "tasks" }) { inventory.insert(.sessions) }
         if !inventory.isEmpty { refreshInventory(inventory) }
         let prs = events.filter { $0.type == "sync" && $0.scope == "prs" }
@@ -1752,11 +1696,10 @@ public final class AppViewModel {
             todayActivity.activityReceived()
         }
         ideWarmup.receive(event)
-        if event.type == "settings" { shell.loadSettings() }
         if event.type == "automations" { automation?.receive(scope: event.scope) }
         if event.type == "config" { settings?.refresh() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
-        if ["sync", "jira-sync", "tabs", "tasks", "reviews", "reload"].contains(event.type) { queueRefresh(event) }
+        if ["sync", "jira-sync", "tasks", "reviews", "reload"].contains(event.type) { queueRefresh(event) }
     }
 
     /// Marked shown when it goes up, not when it is finished: a welcome that was seen and

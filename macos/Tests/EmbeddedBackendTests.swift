@@ -63,13 +63,14 @@ struct EmbeddedBackendTests {
         var connections = connected.stream.makeAsyncIterator()
         _ = await connections.next()
 
-        struct Tab: Encodable, Sendable { let url: String; let kind: String }
+        struct Record: Encodable, Sendable { let id: String; let projectId: String; let workspace: String; let worktree: String }
         struct Saved: Decodable, Sendable {}
-        let _: Saved = try await api.request(Routes.TABS, method: "POST", body: Tab(url: "https://example.com/", kind: "web"))
+        let _: Saved = try await api.request(Routes.TASKS, method: "POST",
+                                             body: Record(id: "t", projectId: "p", workspace: "/tmp/w", worktree: "/tmp/w/t"))
 
         let received = try await withThrowingTaskGroup(of: ServerEvent?.self) { group in
             group.addTask {
-                for await event in events.stream where event.type == "tabs" { return event }
+                for await event in events.stream where event.type == "tasks" { return event }
                 return nil
             }
             group.addTask { try await Task.sleep(for: .seconds(10)); return nil }
@@ -77,7 +78,7 @@ struct EmbeddedBackendTests {
             group.cancelAll()
             return first
         }
-        #expect(received?.type == "tabs")
+        #expect(received?.type == "tasks")
 
         // Cancelling the consumer unsubscribes; stopping afterwards is clean.
         consumer.cancel()

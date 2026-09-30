@@ -44,15 +44,24 @@ pub async fn cached_login() -> Option<String> {
     if cfg!(test) {
         return None;
     }
-    static CACHE: Mutex<Option<(String, Instant)>> = Mutex::new(None);
-    if let Some((login, at)) = CACHE.lock().unwrap().as_ref() {
+    if let Some((login, at)) = LOGIN.lock().unwrap().as_ref() {
         if at.elapsed() < Duration::from_secs(600) {
             return Some(login.clone());
         }
     }
     let login = current_user().await?;
-    *CACHE.lock().unwrap() = Some((login.clone(), Instant::now()));
+    *LOGIN.lock().unwrap() = Some((login.clone(), Instant::now()));
     Some(login)
+}
+
+/// Who `gh` is signed in as, kept for ten minutes: every sync of every project asks.
+static LOGIN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+
+/// Forgets the cached login, so the next sync asks `gh` again. A manual poll calls it: after
+/// `gh auth switch`, refreshing is what a person does, and the review list must follow the
+/// account.
+pub fn forget_login() {
+    *LOGIN.lock().unwrap() = None;
 }
 
 pub async fn user_name() -> String {
@@ -163,7 +172,8 @@ pub async fn fetch_prs(
         format!("{CORE_FIELDS}\n{CLOSING_FIELDS}")
     };
     let nodes = fetch_pages(repo, states, &fields, limit, None).await?;
-    let me = current_user().await;
+    // The login changes rarely; asking `gh` for it on every fetch was one process per project per tick.
+    let me = cached_login().await;
     Ok(nodes
         .into_iter()
         .map(|node| enrich(node, me.as_deref(), jira_key, ci))

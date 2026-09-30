@@ -10,6 +10,7 @@ use super::{
     store,
 };
 use crate::AppState;
+use crate::Project;
 
 const DONE: &str = "automations_migrated";
 
@@ -24,10 +25,10 @@ fn step(id: &str, kind: StepKind, node: &str, params: Value) -> Step {
 }
 
 /// The pipeline equivalent of one project's legacy settings, if it had any.
-pub fn legacy_pipeline(project: &Value) -> Option<Automation> {
-    let transition = project["mergeTransition"].as_str().unwrap_or("").trim();
-    let key = project["jiraProjectKey"].as_str().unwrap_or("").trim();
-    let fix_version = project["fixVersionEnabled"] == true && !key.is_empty();
+pub fn legacy_pipeline(project: &Project) -> Option<Automation> {
+    let transition = project.merge_transition.trim();
+    let key = project.jira_project_key.trim();
+    let fix_version = project.fix_version_enabled && !key.is_empty();
     if transition.is_empty() && !fix_version {
         return None;
     }
@@ -40,7 +41,7 @@ pub fn legacy_pipeline(project: &Value) -> Option<Automation> {
             "s3",
             StepKind::Action,
             "jira.fix_version",
-            json!({"source":"template","template":project["fixVersionScript"].as_str().unwrap_or("")}),
+            json!({"source":"template","template":project.fix_version_script}),
         );
         version.continue_on_error = true;
         steps.push(version);
@@ -50,12 +51,12 @@ pub fn legacy_pipeline(project: &Value) -> Option<Automation> {
     }
     Some(Automation {
         // Stable, so a migration interrupted part-way and run again updates rather than duplicates.
-        id: format!("legacy-{}", project["id"].as_str().unwrap_or("")),
-        name: format!("On merge → Jira ({})", project["name"].as_str().unwrap_or("project")),
+        id: format!("legacy-{}", project.id),
+        name: format!("On merge → Jira ({})", if project.name.is_empty() { "project" } else { &project.name }),
         mode: Mode::Live,
         trigger: Trigger {
             types: vec!["pr.merged".into()],
-            projects: vec![project["id"].as_str().unwrap_or("").to_owned()],
+            projects: vec![project.id.clone()],
             params: Map::new(),
         },
         steps,
@@ -63,22 +64,30 @@ pub fn legacy_pipeline(project: &Value) -> Option<Automation> {
     })
 }
 
-pub fn run(app: &AppState) {
-    if app.db.config_value(DONE).ok().flatten().is_some() {
+pub async fn run(app: &AppState) {
+    if app.db.config_value(DONE).await.ok().flatten().is_some() {
         return;
     }
-    let projects = app.db.projects().unwrap_or_default();
+    let projects = app.db.projects().await.unwrap_or_default();
     let mut complete = true;
+    let mut migrated = false;
     for project in &projects {
         let Some(automation) = legacy_pipeline(project) else { continue };
         // Migrated by an earlier, interrupted run: it may have been edited since, so leave it be.
-        if store::get(&app.db, &automation.id).ok().flatten().is_some() {
+        if store::get(&app.db, &automation.id).await.ok().flatten().is_some() {
             continue;
         }
-        if let Err(error) = store::save(&app.db, automation) {
-            tracing::warn!(%error, "could not migrate a project's merge automation");
-            complete = false;
+        match store::save(&app.db, automation).await {
+            Ok(_) => migrated = true,
+            Err(error) => {
+                tracing::warn!(%error, "could not migrate a project's merge automation");
+                complete = false;
+            }
         }
+    }
+    // The router may already be serving: an app that listed pipelines before this ran refetches.
+    if migrated {
+        app.publish(crate::Event::Automations { scope: None, id: None });
     }
     // Retried on the next start for the projects that failed.
     if !complete {
@@ -87,16 +96,21 @@ pub fn run(app: &AppState) {
     // The global switch is left unset, so it takes its default (on); each project can still turn it off.
     let mut values = Map::new();
     values.insert(DONE.into(), json!("1"));
-    let _ = app.db.set_config(&values);
+    let _ = app.db.set_config(&values).await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A project as a test states it: the fields it names, the schema's defaults for the rest.
+    fn fixture(value: Value) -> Project {
+        serde_json::from_value(value).unwrap()
+    }
+
     #[test]
     fn legacy_settings_become_a_merge_pipeline() {
-        let project = json!({"id":"p1","name":"Cascade","jiraProjectKey":"CASCADE","mergeTransition":"Done","fixVersionEnabled":true,"fixVersionScript":"{year}.{isoWeek}"});
+        let project = fixture(json!({"id":"p1","name":"Cascade","jiraProjectKey":"CASCADE","mergeTransition":"Done","fixVersionEnabled":true,"fixVersionScript":"{year}.{isoWeek}"}));
         let pipeline = legacy_pipeline(&project).unwrap();
         assert_eq!(pipeline.mode, Mode::Live);
         assert_eq!(pipeline.trigger.types, vec!["pr.merged"]);
@@ -111,79 +125,79 @@ mod tests {
         assert_eq!(pipeline.id, "legacy-p1");
     }
 
-    #[test]
-    fn an_interrupted_migration_run_again_does_not_duplicate() {
+    #[tokio::test]
+    async fn an_interrupted_migration_run_again_does_not_duplicate() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        let project = json!({"id":"p1","name":"Cascade","jiraProjectKey":"CASCADE","mergeTransition":"Done"});
-        store::save(&db, legacy_pipeline(&project).unwrap()).unwrap();
-        store::save(&db, legacy_pipeline(&project).unwrap()).unwrap();
-        assert_eq!(store::list(&db).unwrap().len(), 1);
+        let project = fixture(json!({"id":"p1","name":"Cascade","jiraProjectKey":"CASCADE","mergeTransition":"Done"}));
+        store::save(&db, legacy_pipeline(&project).unwrap()).await.unwrap();
+        store::save(&db, legacy_pipeline(&project).unwrap()).await.unwrap();
+        assert_eq!(store::list(&db).await.unwrap().len(), 1);
     }
 
-    #[test]
-    fn a_retried_migration_leaves_a_pipeline_it_already_made() {
+    #[tokio::test]
+    async fn a_retried_migration_leaves_a_pipeline_it_already_made() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
         let project = db
-            .add_project(json!({"name":"Cascade","repo":"a/b","jiraProjectKey":"CASCADE","mergeTransition":"Done"}).as_object().unwrap())
+            .add_project(json!({"name":"Cascade","repo":"a/b","jiraProjectKey":"CASCADE","mergeTransition":"Done"}).as_object().unwrap()).await
             .unwrap();
         // An earlier run migrated it and stopped short; since then it was switched off.
         let mut edited = legacy_pipeline(&project).unwrap();
         edited.mode = Mode::Off;
-        store::save(&db, edited).unwrap();
+        store::save(&db, edited).await.unwrap();
         let app = AppState::new(db, None);
-        run(&app);
-        let pipelines = store::list(&app.db).unwrap();
+        run(&app).await;
+        let pipelines = store::list(&app.db).await.unwrap();
         assert_eq!(pipelines.len(), 1);
         assert_eq!(pipelines[0].mode, Mode::Off);
-        assert!(app.db.config_value(DONE).unwrap().is_some());
+        assert!(app.db.config_value(DONE).await.unwrap().is_some());
     }
 
     #[test]
     fn projects_without_merge_settings_migrate_nothing() {
-        assert!(legacy_pipeline(&json!({"id":"p","mergeTransition":"","fixVersionEnabled":false})).is_none());
+        assert!(legacy_pipeline(&fixture(json!({"id":"p","mergeTransition":"","fixVersionEnabled":false}))).is_none());
         // Fix Version without a Jira project key never ran, so it does not migrate either.
-        assert!(legacy_pipeline(&json!({"id":"p","fixVersionEnabled":true})).is_none());
+        assert!(legacy_pipeline(&fixture(json!({"id":"p","fixVersionEnabled":true}))).is_none());
     }
 
-    #[test]
-    fn migration_runs_once_and_leaves_forwarding_on() {
+    #[tokio::test]
+    async fn migration_runs_once_and_leaves_forwarding_on() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        db.add_project(json!({"name":"Cascade","repo":"a/b","jiraProjectKey":"CASCADE","mergeTransition":"Done","forwardWebhooks":false}).as_object().unwrap()).unwrap();
+        db.add_project(json!({"name":"Cascade","repo":"a/b","jiraProjectKey":"CASCADE","mergeTransition":"Done","forwardWebhooks":false}).as_object().unwrap()).await.unwrap();
         let app = AppState::new(db, None);
-        run(&app);
-        run(&app);
-        let pipelines = store::list(&app.db).unwrap();
+        run(&app).await;
+        run(&app).await;
+        let pipelines = store::list(&app.db).await.unwrap();
         assert_eq!(pipelines.len(), 1);
         assert!(pipelines[0].armed_at.is_some());
         // A project that had forwarding off does not turn it off for every pipeline.
-        assert_eq!(app.db.config_value(super::super::FORWARD_WEBHOOKS).unwrap(), None);
-        assert!(super::super::forwarding(&app));
+        assert_eq!(app.db.config_value(super::super::FORWARD_WEBHOOKS).await.unwrap(), None);
+        assert!(super::super::forwarding(&app).await);
     }
 
-    #[test]
-    fn projects_forward_unless_turned_off() {
+    #[tokio::test]
+    async fn projects_forward_unless_turned_off() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        let project = db.add_project(json!({"name":"New","repo":"a/new"}).as_object().unwrap()).unwrap();
-        assert_eq!(project["forwardWebhooks"], true);
+        let project = db.add_project(json!({"name":"New","repo":"a/new"}).as_object().unwrap()).await.unwrap();
+        assert!(project.forward_webhooks);
     }
 
-    #[test]
-    fn projects_turned_off_are_not_forwarded() {
+    #[tokio::test]
+    async fn projects_turned_off_are_not_forwarded() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        let on = db.add_project(json!({"name":"On","repo":"a/on"}).as_object().unwrap()).unwrap();
-        let off = db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).unwrap();
+        let on = db.add_project(json!({"name":"On","repo":"a/on"}).as_object().unwrap()).await.unwrap();
+        let off = db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).await.unwrap();
         let app = AppState::new(db, None);
         for project in [&on, &off] {
-            let mut pipeline = legacy_pipeline(&json!({"id":project["id"],"name":"p","mergeTransition":"Done"})).unwrap();
+            let mut pipeline = legacy_pipeline(&fixture(json!({"id":project.id,"name":"p","mergeTransition":"Done"}))).unwrap();
             pipeline.mode = Mode::Live;
-            store::save(&app.db, pipeline).unwrap();
+            store::save(&app.db, pipeline).await.unwrap();
         }
-        let repos = super::super::forward_repos(&app);
+        let repos = super::super::forward_repos(&app).await;
         assert_eq!(repos.into_iter().collect::<Vec<_>>(), vec!["a/on".to_owned()]);
     }
 }

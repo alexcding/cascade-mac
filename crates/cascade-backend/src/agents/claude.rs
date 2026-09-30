@@ -54,11 +54,11 @@ impl AgentProbe for Claude {
     }
 
     async fn usage() -> Option<Value> {
-        crate::usage::daily(Self::PROFILE.id).await
+        super::usage::daily(Self::PROFILE.id).await
     }
 
     async fn limits() -> Option<Value> {
-        crate::usage::claude_limits().await
+        super::usage::claude_limits().await
     }
 
     fn tool_kind(name: &str) -> &'static str {

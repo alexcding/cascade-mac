@@ -1,8 +1,9 @@
 # AGENTS.md - working guide for Cascade
 
 This is the shared working guide for contributors and coding agents, including the
-native app's architecture. Read `README.md` for the product and setup, and
-`macos/README.md` for deeper notes on individual surfaces.
+native app's architecture. Read `README.md` for the product and setup,
+`macos/README.md` for deeper notes on individual surfaces, and
+`docs/BACKEND-ARCHITECTURE.md` for the layering the Rust backend is moving to.
 
 ## What this is
 
@@ -31,8 +32,8 @@ Python, and C.
 - `crates/cascade-backend/src/poller.rs` **owns background GitHub synchronization**. Every
   poll interval it fetches each project's PRs by status — every open PR (paginated, with
   CI) plus a recent merged/closed window for merge detection — and writes a **lean
-  snapshot** (`github.rs:324 lean()`) to `data.db`. Concurrent syncs of one project are
-  coalesced, so a stale read racing the poll loop cannot double-spawn `gh`.
+  snapshot** (`github.rs:324 lean()`) to `data.db`. The engine runs the same sync once at a
+  time, so a stale read racing the poll loop cannot double-spawn `gh`.
 - Snapshot API endpoints **read the snapshot** (instant). A stale read triggers a background
   sync. Never add a `gh` call to a request handler.
 - Snapshot changes broadcast a `sync` event. In the default embedded mode the backend
@@ -80,11 +81,18 @@ xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
 - `lib.rs` - the axum router (`build_app`) and `AppState`; `route_contract` asserts the
   Swift route constants against the routes actually served.
 - `ffi.rs` - the C ABI the app links: start/stop/request plus the event callback.
-- `routes.rs` - thin handlers; `local.rs` - git, worktrees, files, diffs, Xcode;
+- `routes.rs` - thin handlers; `local/` - files, IDE, worktrees, git and patches, one module each;
   `github.rs` - `gh` wrapper, `lean()`, PR classification; `issues.rs` - GitHub issues as
-  tickets (`gh issue`), searched live for My Tickets and never snapshotted; `jira.rs` - `acli`;
-  `poller.rs` - the sync engine and merge automation; `warmup.rs` - IDE warm-up;
-  `integrations.rs` - webhook forwarders; `usage.rs` - agent usage; `recovery.rs` - packaged-start data checks.
+  tickets (`gh issue`), searched live for My Tickets and never snapshotted; `jira.rs` - `acli` and
+  Jira REST: search, the active sprint, transitions, assignment, versions; `poller.rs` - the sync
+  engine and merge automation; `warmup.rs` - IDE warm-up; `integrations.rs` - webhook forwarders
+  and agent hooks; `settings_file.rs` - the CLIs' JSON settings files, read and written whole;
+  `usage.rs` - the usage snapshot the app reads, probed per CLI in `agents/usage.rs`;
+  `automation/` - pipelines: triggers, filters, actions, the runner and its routes;
+  `recovery.rs` - packaged-start data checks. Modules depend one way: `routes`, `poller` and
+  `automation` call the adapters (`github`, `jira`, `agents`, `integrations`), and an adapter
+  never calls back up; what a handler needs from two of them (a transcript with its hook status,
+  a forwarder fix) is joined in the handler.
 - `db.rs` + `schema_durable.sql` / `schema_cache.sql` / `schema_logs.sql` - the three
   SQLite stores.
 
@@ -102,7 +110,31 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   workspace path, color and merge transition.
 - **Schema is `CREATE TABLE IF NOT EXISTS`** in the three `schema_*.sql` files — no
   migration framework. `data.db` and `logs.db` are regenerable caches; **`cascade.db` is
-  not** — it holds projects, tasks, tabs and settings.
+  not** — it holds projects, tasks, links and the backend's config. Window state is the app's
+  and never goes through the backend: preferences (theme, fonts, terminal, editor, board filters)
+  in `UserDefaults`, the sidebar's saved tabs in `tabs.json` (`TabStore`), each context's page
+  tabs in `page-tabs.json` (`ViewerStore`). `GET /api/tabs` and `GET /api/settings` stay
+  read-only for one release so what an earlier version left in the backend is imported once.
+- **The backend tells the app what changed through `Event`** (`crates/cascade-backend/src/event.rs`),
+  sent with `AppState::publish`; its variant and field names are what the app's `ServerEvent`
+  decodes. A snapshot equal to the one stored is not an event. The one untyped broadcast left is
+  an agent hook relayed as it arrived.
+- **SQLite runs on the stores' own threads.** Every `Database` method is `async` and hands a
+  closure to its `db::Store`; nothing holds a connection, and no statement runs on a runtime
+  worker. A sync function that needs the database becomes async, not the other way round.
+- **Processes go through one seam.** `cli::run` and its siblings build a `cli::Invocation` and hand
+  it to the `CommandRunner`: the process spawner in production, a `cli::ScriptedRunner` a test
+  installs with `cli::scoped`; a task spawned on a test's behalf gets it through `cli::inherited`.
+- **The sync engine is one task** (`poller.rs` `Engine`), and `AppState.poller` is its handle:
+  every method is a message. It owns which syncs are running, each project's invalidation
+  generation and the last state each pull request was seen in; a sync is a function it spawns,
+  the same sync asked for while it runs is not started again, and GitHub syncs run four at a
+  time (`poller::GH_LANES`), so a burst of `gh` never queues a request the user is waiting on.
+  The webhook forwarders (`integrations.rs` `Forwarders`) and the tool approvals waiting on the
+  app (`agents/permission.rs` `Permissions`) are the same shape: one task owns the state, and the
+  `AppState` field is its handle. State with no loop and no children of its own (`Usage`,
+  `Warmup`, `automation::Limits`) is a value on `AppState` behind a short lock, never held across
+  an await. Nothing that depends on an `AppState` lives in a static.
 - **Two PR classifications, different surfaces — don't conflate them** (`github.rs`):
   - **`category`** (`mine`/`review`/`other`) — strictly "I am an *actively requested*
     reviewer". Drives the **tray and its sound**. Keep it narrow: broadening it re-fires

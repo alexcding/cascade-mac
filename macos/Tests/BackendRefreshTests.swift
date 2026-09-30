@@ -9,13 +9,7 @@ private actor RefreshTransport: BackendTransport {
     private var includesTab = false
     private var includesSession = false
     func addSession() { includesSession = true }
-    private var holdTabs = false
-    private var heldTabs: CheckedContinuation<Void, Never>?
-    var tabsAreHeld: Bool { heldTabs != nil }
-    func holdNextTabs() { holdTabs = true }
     func addTab() { includesTab = true }
-    func removeTab() { includesTab = false }
-    func releaseTabs(holdNext: Bool = false) { holdTabs = holdNext; heldTabs?.resume(); heldTabs = nil }
     func removeProject() { includesProject = false }
     func reset() { requests.removeAll() }
     var paths: [String] { requests.compactMap { $0.url?.path } }
@@ -37,10 +31,6 @@ private actor RefreshTransport: BackendTransport {
         case Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
         default: body = "{}"
-        }
-        if url.path == Routes.TABS, holdTabs {
-            holdTabs = false
-            await withCheckedContinuation { heldTabs = $0 }
         }
         return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
@@ -129,9 +119,9 @@ private actor RefreshTransport: BackendTransport {
     #expect(await transport.paths.sorted() == [Routes.DASHBOARD, Routes.PRS_TRAY].sorted())
     await transport.reset()
 
-    runtime.emit("tasks"); runtime.emit("tabs")
-    try await refreshEventually { await transport.paths.count >= 2 }
-    #expect(await transport.paths.sorted() == [Routes.TASKS, Routes.TABS].sorted())
+    runtime.emit("tasks")
+    try await refreshEventually { await transport.paths.count >= 1 }
+    #expect(await transport.paths == [Routes.TASKS])
     await transport.reset()
 
     runtime.emit("sync", scope: "usage")
@@ -146,7 +136,7 @@ private actor RefreshTransport: BackendTransport {
     runtime.emit("sync", project: "p")
     try await refreshEventually { model.projects.isEmpty && model.projectModels["p"] == nil }
     let paths = await transport.paths
-    #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS) && paths.contains(Routes.TABS))
+    #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS) && !paths.contains(Routes.TABS))
     await model.stop()
 }
 
@@ -216,37 +206,29 @@ private actor RefreshTransport: BackendTransport {
     #expect(await transport.paths.isEmpty)
 }
 
-@MainActor @Test func tabChangeDuringWideRefreshRetriesOnlyTabsAndRejectsTheirStaleResponse() async throws {
-    let suite = "refresh-inventory-\(UUID().uuidString)"
+/// The tabs an earlier version kept in the backend are adopted once, with the first inventory
+/// read, and never asked for again.
+@MainActor @Test func savedTabsAreImportedFromTheBackendOnceAndKeptLocally() async throws {
+    let suite = "refresh-tabs-import-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let runtime = RefreshRuntime(), transport = runtime.transport
     let model = refreshApp(runtime, preferences: preferences)
     await transport.addTab()
     await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
+    try await refreshEventually { model.lastUpdate != nil && model.tabs.map(\.id) == ["t"] }
     await transport.reset()
-    await transport.removeTab()
-    await transport.holdNextTabs()
     model.refresh()
-    try await refreshEventually { await transport.tabsAreHeld }
-    // The held response contains no tabs. Only the trailing tabs read should see this edit.
-    await transport.addTab()
-    runtime.emit("tabs")
-    runtime.emit("sync", scope: "usage")
-    // The usage read is a marker that the event batch has invalidated tabs while the wide
-    // read is still suspended (the first usage read belongs to the explicit full refresh).
-    try await refreshEventually { await transport.paths.filter { $0 == Routes.USAGE }.count == 2 }
-    await transport.releaseTabs(holdNext: true)
-    try await refreshEventually { await transport.tabsAreHeld }
-    #expect(model.tabs.map(\.id) == ["t"]) // The stale empty response must not remove the tab.
-    await transport.releaseTabs()
-    try await refreshEventually { model.tabs.map(\.id) == ["t"] }
-    let paths = await transport.paths
-    #expect(paths.filter { $0 == Routes.PROJECTS }.count == 1)
-    #expect(paths.filter { $0 == Routes.TASKS }.count == 1)
-    #expect(paths.filter { $0 == Routes.TABS }.count == 2)
-    #expect(model.projects.map(\.id) == ["p"])
+    try await refreshEventually { await transport.paths.contains(Routes.PROJECTS) }
+    let afterRefresh = await transport.paths
+    #expect(!afterRefresh.contains(Routes.TABS))
+    // Local changes never reach the backend.
+    model.togglePinTab("t")
+    #expect(model.tabs.first?.pinned == true)
+    model.closeTab("t")
+    #expect(model.tabs.isEmpty)
+    let afterChanges = await transport.paths
+    #expect(!afterChanges.contains(Routes.TABS))
     await model.stop()
 }
 
@@ -268,21 +250,21 @@ private actor RefreshTransport: BackendTransport {
         return request
     }
     func posts(to path: String) async -> Int { await transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == path }.count }
-    // A start looks the pull request up, creates a worktree, then records the session.
+    // A start looks the pull request up, then asks the backend for the session in one request.
     func starts() async -> Int {
         let lookups = await transport.requests.filter { $0.url?.path == Routes.PR_LOOKUP }.count
-        return await lookups + posts(to: Routes.WORKTREE) + posts(to: Routes.TASKS)
+        return await lookups + posts(to: Routes.SESSIONS) + posts(to: Routes.WORKTREE) + posts(to: Routes.TASKS)
     }
 
     await transport.reset()
     try await model.openTrayReview(review(7, branch: "feature"))
     #expect(model.selection == .session("s"))
     #expect(await starts() == 0)
-    #expect(await posts(to: Routes.TABS) == 0)
+    #expect(model.tabs.isEmpty)
 
     await transport.reset()
     try await model.openTrayReview(review(8, branch: "elsewhere"))
-    #expect(await posts(to: Routes.TABS) == 1)
+    #expect(model.tabs.map(\.url) == ["https://github.com/example/repo/pull/8"])
     #expect(await starts() == 0)
     await model.stop()
 }

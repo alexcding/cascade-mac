@@ -253,7 +253,7 @@ private struct InertRemovalService: SessionRemoving {
     let bound = try #require(coordinator.workspaceCoordinator(for: one))
     #expect(coordinator.workspaceCoordinator(for: two) != nil && coordinator.workspaceCoordinators.count == 2)
     var again: WorkspaceContext?
-    #expect(!invalidates({ _ = viewer.contexts; _ = one.restoring; _ = coordinator.workspaceCoordinators },
+    #expect(!invalidates({ _ = viewer.contexts; _ = one.pane; _ = coordinator.workspaceCoordinators },
                          by: { again = viewer.select(id: "task:one", url: "", title: "One") }))
     #expect(again === one && viewer.active === one && coordinator.workspaceCoordinator(for: one) === bound)
     // Letting a context go prunes its coordinator on the way out (contextRemoved -> refreshRoot).

@@ -15,8 +15,6 @@ private struct BoardFixture: BoardService {
         try JSONDecoder().decode(BoardSnapshot.self, from: Data(#"{"items":[{"key":"WEB-1","summary":"Login","status":"To Do"}]}"#.utf8))
     }
     func site() async throws -> JiraSite { JiraSite(baseUrl: "https://jira.example.test") }
-    func settings() async throws -> [String: String] { [:] }
-    func saveFilter(_ value: String, projectID: String) async throws {}
     func saveQuery(_ value: String, projectID: String) async throws {}
     func transition(key: String, status: String) async throws {}
     func assign(key: String, assignee: String) async throws {}

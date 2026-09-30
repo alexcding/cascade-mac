@@ -206,8 +206,8 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     var status: String { ticket.status ?? "" }
     var type: String { ticket.type ?? "" }
     var priority: String { ticket.priority ?? "" }
-    /// Read from Jira's words once, when the row is built: sorting and filtering ask for these
-    /// on every comparison, and each would otherwise redo the string matching.
+    /// As the backend classified them (`tickets.rs`); a ticket from a snapshot written before it
+    /// named stages reads as in progress and Medium until the next sync.
     let stage: TicketStage
     let level: TicketPriority
     /// The labels as one string, the table's sort key for that column.
@@ -218,8 +218,8 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     init(ticket: Ticket, url: URL) {
         self.ticket = ticket
         self.url = url
-        stage = TicketStage(status: ticket.status ?? "", category: ticket.statusCategory)
-        level = TicketPriority(ticket.priority ?? "")
+        stage = ticket.stage.flatMap(TicketStage.init(rawValue:)) ?? .inProgress
+        level = ticket.level.flatMap(TicketPriority.init(rawValue:)) ?? .medium
         let labels = ticket.labels ?? []
         sortLabels = labels.joined(separator: " ")
         searchText = ([ticket.key, ticket.summary ?? ticket.key, ticket.status, ticket.type, ticket.priority, ticket.reporter]
@@ -228,11 +228,11 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     /// One list of Jira's priority names decides both the Urgent tag and the row's urgent glyph.
     var urgent: Bool { level == .urgent }
     /// Where the ticket falls in the home screen's short list, or nil to leave it to My Tickets:
-    /// blocked, then reopened, then being worked on, then urgent work not yet started. The stage
-    /// comes from Jira's status category, so no workflow's status names are listed here.
+    /// blocked, then reopened, then being worked on, then urgent work not yet started. Stage and
+    /// reopened come from the backend, so no workflow's status names are listed here.
     var attentionRank: Int? {
         if stage == .blocked { return 0 }
-        if status.localizedCaseInsensitiveContains("reopen") { return 1 }
+        if ticket.reopened == true { return 1 }
         if stage == .inProgress { return 2 }
         if stage == .toDo && urgent { return 3 }
         return nil
@@ -249,8 +249,8 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     }
 }
 
-/// Where a ticket sits in its workflow, read from Jira's status name first and its category second:
-/// a Jira board names "Ready for Development" as in progress, but nobody has started it yet.
+/// Where a ticket sits in its workflow. The backend reads it from Jira's status name and
+/// category (`tickets.rs`); the raw values here are the names it sends.
 enum TicketStage: String, CaseIterable, Identifiable, Sendable {
     case toDo, inProgress, pendingRelease, blocked
     var id: String { rawValue }
@@ -262,20 +262,11 @@ enum TicketStage: String, CaseIterable, Identifiable, Sendable {
         case .blocked: return String(localized: "Blocked")
         }
     }
-
-    init(status: String, category: String?) {
-        let status = status.lowercased()
-        if status.contains("block") { self = .blocked }
-        else if status.contains("release") || status.contains("done") || status.contains("resolved") || category == "done" { self = .pendingRelease }
-        else if status.contains("reopen") { self = .inProgress }
-        else if category == "new" || status.hasPrefix("ready for") || ["open", "to do", "backlog", "selected for development"].contains(status) { self = .toDo }
-        else { self = .inProgress }
-    }
 }
 
-/// Jira's priority names folded onto four levels, most pressing first; anything unrecognised
-/// (or no priority at all) reads as Medium, Jira's own default. Each level draws Jira's own
-/// arrow shape as well as its colour, so none depends on colour alone.
+/// Jira's priority names folded onto four levels by the backend, most pressing first; the raw
+/// values here are the names it sends. Each level draws Jira's own arrow shape as well as its
+/// colour, so none depends on colour alone.
 enum TicketPriority: String, CaseIterable, Identifiable, Sendable {
     case urgent, high, medium, low
     var id: String { rawValue }
@@ -293,15 +284,6 @@ enum TicketPriority: String, CaseIterable, Identifiable, Sendable {
         case .high: return "chevron.up"
         case .medium: return "equal"
         case .low: return "chevron.down"
-        }
-    }
-
-    init(_ name: String) {
-        switch name.lowercased() {
-        case "urgent", "highest", "blocker", "critical": self = .urgent
-        case "high", "major": self = .high
-        case "low", "lowest", "minor", "trivial": self = .low
-        default: self = .medium
         }
     }
 }

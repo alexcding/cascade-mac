@@ -2,7 +2,9 @@ mod agents;
 mod automation;
 pub mod cli;
 mod db;
+mod domain;
 mod error;
+pub mod event;
 mod fork;
 pub mod ffi;
 mod github;
@@ -14,7 +16,10 @@ mod local;
 mod poller;
 pub mod recovery;
 mod routes;
+mod sessions;
+mod settings_file;
 mod sim_preview;
+mod tickets;
 mod usage;
 mod warmup;
 mod worktrees;
@@ -25,10 +30,12 @@ use std::sync::Arc;
 use axum::{
     extract::DefaultBodyLimit,
     http::{header, HeaderValue},
-    routing::{delete, get, patch, post, put},
+    routing::{delete, get, patch, post},
     Router,
 };
 pub use db::Database;
+pub use domain::{PrSnapshot, Project, Session};
+pub use event::Event;
 use serde_json::Value;
 use tokio::sync::broadcast;
 use tower_http::{set_header::SetResponseHeaderLayer, trace::TraceLayer};
@@ -38,8 +45,10 @@ pub struct AppState {
     pub db: Arc<Database>,
     pub events: broadcast::Sender<Value>,
     pub instance_id: Option<String>,
-    pub poller: Arc<poller::Poller>,
-    pub forwarders: Arc<integrations::ForwarderManager>,
+    pub poller: poller::Poller,
+    pub forwarders: integrations::ForwarderManager,
+    pub permissions: agents::permission::Permissions,
+    pub limits: Arc<automation::Limits>,
     pub usage: Arc<usage::Usage>,
     pub warmup: Arc<warmup::Warmup>,
 }
@@ -51,16 +60,38 @@ impl AppState {
             db: Arc::new(db),
             events,
             instance_id,
-            poller: Arc::new(poller::Poller::new()),
-            forwarders: Arc::new(integrations::ForwarderManager::new()),
+            poller: poller::Poller::new(),
+            forwarders: integrations::ForwarderManager::new(),
+            permissions: agents::permission::Permissions::new(),
+            limits: Arc::new(automation::Limits::default()),
             usage: Arc::new(usage::Usage::default()),
             warmup: Arc::new(warmup::Warmup::default()),
         }
     }
 
+    /// Tells every subscriber what changed.
+    pub fn publish(&self, event: Event) {
+        let _ = self.events.send(event.into());
+    }
+
+    /// An agent hook relayed as it arrived, under its own `type`. Everything the backend says
+    /// itself goes through `publish`.
     pub fn broadcast(&self, value: Value) {
         let _ = self.events.send(value);
     }
+}
+
+/// Starts the background services once the loopback listener is bound: the sync engine, and
+/// the webhook forwarders for the repos the armed PR pipelines cover. The wiring lives here so
+/// `integrations` need not know which module decides what is forwarded. The old per-project
+/// merge settings become pipelines first, before the first sync can act on them and before the
+/// forwarders ask which repos those pipelines cover.
+pub async fn start_background(state: &AppState, port: u16) {
+    automation::start(state).await;
+    state.poller.start(state.clone());
+    let wanted: integrations::Wanted =
+        Arc::new(|app: AppState| Box::pin(async move { automation::forward_repos(&app).await }));
+    state.forwarders.start(state.clone(), port, wanted);
 }
 
 pub fn build_app(state: AppState) -> Router {
@@ -76,16 +107,10 @@ pub fn build_app(state: AppState) -> Router {
             get(routes::get_config).post(routes::set_config),
         )
         .route("/api/sounds", get(routes::sounds))
+        // Read only: the app keeps preferences and tabs itself now and imports these once.
         .route("/api/settings", get(routes::get_settings))
-        .route("/api/settings/{key}", put(routes::put_setting))
-        .route(
-            "/api/tabs",
-            get(routes::get_tabs)
-                .post(routes::open_tab)
-                .put(routes::put_tabs)
-                .patch(routes::rename_tab)
-                .delete(routes::close_tab),
-        )
+        .route("/api/tabs", get(routes::get_tabs))
+        .route("/api/sessions", post(sessions::create_session))
         .route(
             "/api/tasks",
             get(routes::get_tasks)
@@ -165,13 +190,13 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/catalog", get(agents::catalog))
         .route("/api/agent/status", get(agents::status))
         .route("/api/agent/conversation", get(agents::conversation))
-        .route("/api/agent/transcript", get(agents::transcript))
+        .route("/api/agent/transcript", get(routes::agent_transcript))
         .route("/api/agent/commands", get(agents::commands))
         .route("/api/agent/last-hook", get(integrations::last_hook))
         .route("/api/agent/permission", post(agents::permission::answer))
         .route("/api/hooks/permission", post(agents::permission::request))
-        .route("/api/forwarders", get(integrations::forwarders))
-        .route("/api/forwarders/fix", post(integrations::fix_forwarder))
+        .route("/api/forwarders", get(automation::routes::forwarders))
+        .route("/api/forwarders/fix", post(automation::routes::fix_forwarder))
         .route(
             "/api/automations",
             get(automation::routes::list).post(automation::routes::create),

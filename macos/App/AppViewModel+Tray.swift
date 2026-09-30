@@ -7,7 +7,7 @@ extension AppViewModel: TrayCoordinating {
     }
     func refreshTray() {
         shell.notifications.refreshAuthorization()
-        refresh(); shell.loadSettings()
+        refresh()
     }
     func acknowledgeTrayReview(_ review: TrayPR) { shell.acknowledge(review) }
     /// A tray click selects the session that already owns the PR, leaving the page it shows alone;

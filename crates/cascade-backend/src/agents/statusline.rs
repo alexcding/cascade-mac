@@ -4,8 +4,9 @@
 //! one more entry in the same status map, installed and removed through the same routes.
 
 use crate::{
+    cli::shell_quote,
     error::ApiError,
-    integrations::{read_json, shell_quote, write_json},
+    settings_file::{read_json, write_json},
 };
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf};

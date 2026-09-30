@@ -82,10 +82,20 @@ private func rows(_ project: DashboardProject) -> [DashboardRow] {
     }
 }
 
+/// A ticket as the backend would send it: `stage`, `level` and `reopened` are its reading of the
+/// fixture's status and priority names (`tickets.rs`), spelled out here so the rows under test
+/// carry what the app is actually given.
 private func makeTicket(_ key: String, status: String, category: String? = nil, priority: String = "Medium",
                          summary: String? = nil, reporter: String? = nil) -> Ticket {
-    Ticket(key: key, summary: summary ?? key, status: status, type: "Task", priority: priority,
-               statusCategory: category, reporter: reporter)
+    let stage: String
+    switch status {
+    case "Blocked": stage = "blocked"
+    case "In PR Review", "Reopened": stage = "inProgress"
+    default: stage = "toDo"
+    }
+    return Ticket(key: key, summary: summary ?? key, status: status, type: "Task", priority: priority,
+                  statusCategory: category, reporter: reporter,
+                  stage: stage, level: priority.lowercased(), reopened: status == "Reopened")
 }
 
 private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {

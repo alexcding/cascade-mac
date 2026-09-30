@@ -9,6 +9,7 @@ mod commands;
 pub mod permission;
 pub mod statusline;
 mod transcript;
+pub(crate) mod usage;
 
 use axum::{extract::Query, Json};
 use serde_json::{json, Value};
@@ -58,7 +59,7 @@ pub trait AgentProbe {
     fn tool_change(_name: &str, _input: &Value) -> Option<(String, String, String)> {
         None
     }
-    /// The last 30 days of its use (`usage::daily`), or None when it cannot be read.
+    /// The last 30 days of its use (`agents::usage::daily`), or None when it cannot be read.
     async fn usage() -> Option<Value> {
         None
     }
@@ -276,27 +277,19 @@ pub struct TranscriptQuery {
     session: Option<String>,
 }
 
-/// The session's conversation as chat turns, for the chat view over its terminal. `hooks` is the
-/// CLI's hook install: without it the chat cannot tell a working agent from one at its prompt,
-/// and without the current permission hook approvals stay in the terminal. `agent` is the CLI's
-/// `Profile`, which the chat goes by instead of the CLI's name.
-pub async fn transcript(Query(query): Query<TranscriptQuery>) -> Json<Value> {
-    let found = tokio::task::spawn_blocking(move || {
-        let home = home()?;
-        if !query.worktree.starts_with('/') {
-            return None;
-        }
-        let agent = Agent::of(&query.cli)?;
-        let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
-        let mut found = transcript::read(&home, agent, &query.worktree, query.since.as_deref(), conversation);
-        found["hooks"] = json!(crate::integrations::hook_status_for(agent));
-        found["agent"] = json!(agent.profile());
-        Some(found)
-    })
-    .await
-    .ok()
-    .flatten();
-    Json(found.unwrap_or_else(|| json!({"revision": "", "turns": []})))
+/// The session's conversation as chat turns, for the chat view over its terminal, and which
+/// agent it is. `agent` in the value is the CLI's `Profile`, which the chat goes by instead of
+/// the CLI's name. Reads the CLI's files: call it off the runtime.
+pub fn transcript(query: &TranscriptQuery) -> Option<(Agent, Value)> {
+    let home = home()?;
+    if !query.worktree.starts_with('/') {
+        return None;
+    }
+    let agent = Agent::of(&query.cli)?;
+    let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
+    let mut found = transcript::read(&home, agent, &query.worktree, query.since.as_deref(), conversation);
+    found["agent"] = json!(agent.profile());
+    Some((agent, found))
 }
 
 #[derive(serde::Deserialize)]

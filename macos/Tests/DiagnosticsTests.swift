@@ -94,3 +94,22 @@ actor DiagnosticsFixture: DiagnosticsService {
     #expect(model.projects.first?.name == "Restarted" && model.error == nil)
     model.stop()
 }
+
+/// A poll that changed nothing sends no event, so while the panel is on screen it reads again on
+/// its own and its "last synced" times move; hidden, it stops asking.
+@MainActor @Test(.timeLimit(.minutes(1))) func diagnosticsReadAgainOnTheirOwnWhileVisible() async throws {
+    let service = DiagnosticsFixture()
+    let model = DiagnosticsViewModel()
+    model.refreshInterval = .milliseconds(20)
+    model.connect(service)
+    model.setVisible(true)
+    try await waitForDiagnostics { await service.calls >= 1 }
+    await service.complete(1, with: .success(try diagnosticsFixture()))
+    try await waitForDiagnostics { await service.calls >= 2 }
+    await service.complete(2, with: .success(try diagnosticsFixture()))
+    try await waitForDiagnostics { await service.calls >= 3 }
+    model.setVisible(false)
+    let settled = await service.calls
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(await service.calls == settled, "hidden, it asks no more")
+}

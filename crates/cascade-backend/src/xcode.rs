@@ -702,8 +702,8 @@ fn answer_prefix(worktree: &Path) -> String {
 }
 
 /// Forgets every answer kept for a worktree that is gone.
-pub(crate) fn forget_answers(app: &AppState, worktree: &Path) {
-    if let Err(error) = app.db.forget_xcode_answers(&answer_prefix(worktree)) {
+pub(crate) async fn forget_answers(app: &AppState, worktree: &Path) {
+    if let Err(error) = app.db.forget_xcode_answers(&answer_prefix(worktree)).await {
         tracing::warn!("could not forget xcodebuild answers for {}: {error}", worktree.display());
     }
 }
@@ -723,7 +723,7 @@ where
         Kept::Never => i64::MAX,
     };
     let stamp = question.fingerprint().await;
-    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since) {
+    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since).await {
         return Ok(value);
     }
     let gate = app.warmup.gate(&question.root.to_string_lossy());
@@ -734,11 +734,11 @@ where
     // answer; a file edited meanwhile is caught. The fingerprint kept is the one the fetch
     // started from, so an edit during the fetch is caught next time.
     let stamp = question.fingerprint().await;
-    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since) {
+    if let Ok(Some(value)) = app.db.xcode_answer(&key, &stamp, since).await {
         return Ok(value);
     }
     let value = fetch().await?;
-    if let Err(error) = app.db.set_xcode_answer(&key, &stamp, &value) {
+    if let Err(error) = app.db.set_xcode_answer(&key, &stamp, &value).await {
         tracing::warn!("could not keep the xcodebuild answer for {key}: {error}");
     }
     Ok(value)
@@ -1371,7 +1371,7 @@ mod tests {
         let edited = remembered(&app, question(1000), || async { Ok(json!(["second"])) }).await;
         assert_eq!(edited.ok(), Some(json!(["second"])));
 
-        forget_answers(&app, &root.path().join(""));
+        forget_answers(&app, &root.path().join("")).await;
         let forgotten = remembered(&app, question(1000), || async { Ok(json!(["third"])) }).await;
         assert_eq!(forgotten.ok(), Some(json!(["third"])), "a removed worktree keeps nothing");
 
@@ -1385,15 +1385,15 @@ mod tests {
     }
 
     /// `refresh` reads only answers given since a moment; older ones are fetched again.
-    #[test]
-    fn a_kept_answer_carries_when_xcodebuild_gave_it() {
+    #[tokio::test]
+    async fn a_kept_answer_carries_when_xcodebuild_gave_it() {
         let data = tempfile::tempdir().unwrap();
         let db = crate::Database::open(data.path()).unwrap();
-        db.set_xcode_answer("wt\nschemes", "stamp", &json!(["kept"])).unwrap();
+        db.set_xcode_answer("wt\nschemes", "stamp", &json!(["kept"])).await.unwrap();
         let now = chrono::Utc::now().timestamp();
-        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", 0).unwrap(), Some(json!(["kept"])));
-        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now - 60).unwrap(), Some(json!(["kept"])));
-        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now + 60).unwrap(), None);
-        assert_eq!(db.xcode_answer("wt\nschemes", "other", 0).unwrap(), None);
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", 0).await.unwrap(), Some(json!(["kept"])));
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now - 60).await.unwrap(), Some(json!(["kept"])));
+        assert_eq!(db.xcode_answer("wt\nschemes", "stamp", now + 60).await.unwrap(), None);
+        assert_eq!(db.xcode_answer("wt\nschemes", "other", 0).await.unwrap(), None);
     }
 }

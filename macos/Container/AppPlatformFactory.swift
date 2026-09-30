@@ -39,12 +39,16 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func resources(api: APIClient?) -> any ResourceUsageService
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing
+    /// Where the sidebar's saved tabs are kept between launches.
+    func tabStore() -> TabStore
 }
 
 extension AppPlatformFactory {
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
         pageActions(open: open, session: { _ in nil })
     }
+    /// Nothing on disk: what tests get unless they say otherwise.
+    func tabStore() -> TabStore { TabStore(fileURL: nil) }
 }
 
 @MainActor struct NativeAppPlatformFactory: AppPlatformFactory {
@@ -62,6 +66,9 @@ extension AppPlatformFactory {
                     documentFactory: documents, closeCoordinator: close, memory: processSampler())
     }
     func workspaceLauncher() -> WorkspaceLaunchViewModel { WorkspaceLaunchViewModel(launcher: launcher) }
+    func tabStore() -> TabStore {
+        TabStore(fileURL: (try? configuration().directory)?.appendingPathComponent("tabs.json"))
+    }
     func terminal(_ request: AppTerminalRequest) -> TerminalSession {
         TerminalSession(pairKey: request.key, cwd: request.directory, paired: request.paired, configurationProvider: configuration)
     }

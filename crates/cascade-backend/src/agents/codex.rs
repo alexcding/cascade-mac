@@ -25,11 +25,11 @@ impl AgentProbe for Codex {
     };
 
     async fn usage() -> Option<Value> {
-        crate::usage::daily(Self::PROFILE.id).await
+        super::usage::daily(Self::PROFILE.id).await
     }
 
     async fn limits() -> Option<Value> {
-        crate::usage::codex_limits().await
+        super::usage::codex_limits().await
     }
 
     /// `apply_patch` has a kind of its own: a patch may touch several files, and asks as one.

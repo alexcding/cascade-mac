@@ -22,6 +22,9 @@ use uuid::Uuid;
 
 const MAX_JSON: u64 = 16 * 1024 * 1024;
 const PAGE_CACHE: &str = "ptyd-native-spike/page-tabs.json";
+// The sidebar's saved tabs (`ptyd-native-spike/tabs.json`) are the app's window state and stay
+// out of the checkpoint on purpose: format 1 allows these three entries, and a fourth would make
+// an earlier build, and the Node utility, refuse the checkpoint at its next start.
 
 #[derive(Serialize, Deserialize)]
 pub struct Manifest {
@@ -157,6 +160,18 @@ fn new_directory(path: &Path) -> Result<PathBuf> {
     directory(path)
 }
 
+/// The folder a nested entry sits in: made when it is missing (a fresh checkpoint), reused when
+/// it exists (a live installation's daemon folder, which a restore writes into), and never a
+/// symlink.
+fn nested_directory(path: &Path) -> Result<PathBuf> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => directory(path),
+        Ok(_) => bail!("Expected a directory: {}", path.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => new_directory(path),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn sqlite_sidecars(path: &Path, forbidden: bool) -> Result<()> {
     let parent = path.parent().context("Missing database parent")?;
     let name = path
@@ -244,7 +259,7 @@ pub fn backup(source: &Path, destination: &Path) -> Result<Manifest> {
     for (name, input) in inputs {
         let output = target.join(name);
         if name.contains('/') {
-            new_directory(output.parent().unwrap())?;
+            nested_directory(output.parent().unwrap())?;
         }
         let kind = kind(name).unwrap();
         if kind == "sqlite" {
@@ -323,7 +338,7 @@ pub fn restore(source: &Path, destination: &Path) -> Result<Manifest> {
         let input = required_file(&source, &entry.path)?;
         let output = target.join(&entry.path);
         if entry.path.contains('/') {
-            new_directory(output.parent().unwrap())?;
+            nested_directory(output.parent().unwrap())?;
         }
         let mut file = new_file(&output)?;
         std::io::copy(&mut open_read(&input)?, &mut file)?;
@@ -473,4 +488,53 @@ pub fn run_command(arguments: &[std::ffi::OsString]) -> Result<bool> {
         manifest.files.len()
     );
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TABS: &str = "ptyd-native-spike/tabs.json";
+
+    /// A data folder as an installation has it: both databases, and the app's two JSON files in
+    /// the daemon's folder, which share one parent.
+    fn installation() -> tempfile::TempDir {
+        let data = tempfile::tempdir().unwrap();
+        crate::Database::open(data.path()).unwrap();
+        let daemon = data.path().join("ptyd-native-spike");
+        fs::create_dir_all(&daemon).unwrap();
+        fs::write(daemon.join("page-tabs.json"), br#"{"snapshots":{},"pending":[]}"#).unwrap();
+        fs::write(daemon.join("tabs.json"), br#"{"tabs":[],"active":null,"imported":true}"#).unwrap();
+        data
+    }
+
+    #[test]
+    fn a_checkpoint_carries_the_page_cache_beside_the_databases_and_leaves_the_tabs_file_alone() {
+        let data = installation();
+        let parent = tempfile::tempdir().unwrap();
+        let checkpoint = parent.path().join("checkpoint");
+        let manifest = backup(data.path(), &checkpoint).unwrap();
+        let mut names: Vec<&str> = manifest.files.iter().map(|entry| entry.path.as_str()).collect();
+        names.sort_unstable();
+        assert_eq!(names, [DURABLE, "logs.db", PAGE_CACHE]);
+        assert_eq!(verify(&checkpoint).unwrap().files.len(), 3);
+        let restored = parent.path().join("restored");
+        restore(&checkpoint, &restored).unwrap();
+        for name in [DURABLE, "logs.db", PAGE_CACHE] {
+            assert!(restored.join(name).is_file(), "{name} was not restored");
+        }
+        assert!(!restored.join(TABS).exists(), "the app's tabs are not the checkpoint's to restore");
+    }
+
+    #[test]
+    fn a_nested_folder_is_made_once_reused_after_and_never_a_symlink_or_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let made = nested_directory(&dir.path().join("fresh")).unwrap();
+        assert_eq!(fs::metadata(&made).unwrap().mode() & 0o777, 0o700);
+        assert_eq!(nested_directory(&dir.path().join("fresh")).unwrap(), made);
+        fs::write(dir.path().join("file"), b"").unwrap();
+        assert!(nested_directory(&dir.path().join("file")).is_err());
+        std::os::unix::fs::symlink(dir.path().join("fresh"), dir.path().join("link")).unwrap();
+        assert!(nested_directory(&dir.path().join("link")).is_err(), "a link is refused even to a directory");
+    }
 }

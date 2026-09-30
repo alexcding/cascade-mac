@@ -38,12 +38,11 @@ async fn main() -> Result<()> {
     let database = Database::open(&data_dir)?;
     cascade_backend::cli::prime_shell_environment();
     let state = AppState::new(database, env::var("CASCADE_INSTANCE_ID").ok());
-    state.poller.start(state.clone());
     let bound_port = listener.local_addr()?.port();
     let port_file = data_dir.join(".server-port");
     std::fs::write(&port_file, bound_port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
-    state.forwarders.start(state.clone(), bound_port);
+    cascade_backend::start_background(&state, bound_port).await;
     let app = build_app(state.clone());
     tracing::info!("Cascade Rust backend running at http://127.0.0.1:{bound_port}");
     axum::serve(listener, app)

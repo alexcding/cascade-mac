@@ -73,8 +73,8 @@ up to two minutes for startup; cancellation terminates its owned backend.
 | --- | --- |
 | Projects, workflows, automation settings, CLI preferences, PR/Jira links | `cascade.db`; included without rewriting schema or unknown columns. |
 | Worktree sessions, pinned state, CLI conversation IDs | `cascade.db`; included. Actual checkout files and agent conversation stores remain in their existing locations. |
-| Viewer tabs, document paths/order/history, native context settings | `cascade.db`; included. Native `native.context.*` settings coexist with web tab rows. |
-| Pending native context writes | `ptyd-native-spike/page-tabs.json`; included when present. This is page metadata, not unsaved editor text. |
+| Sidebar tabs | `ptyd-native-spike/tabs.json`; the app's window state, written atomically by the app and not part of the checkpoint: format 1 allows three entries, and a fourth would make an earlier build refuse the checkpoint at its next start. A restore leaves the current file in place. Older installations still hold tabs as `tabs` rows in `cascade.db`, adopted once by the app. |
+| Each context's page tabs, document paths/order/history | `ptyd-native-spike/page-tabs.json`; included when present. This is page metadata, not unsaved editor text. |
 | Review requested/viewed timestamps | `cascade.db`; included, avoiding an artificial reset of acknowledged reviews on restore. |
 | Activity and diagnostic history | `logs.db`; included when present as a separate consistent SQLite snapshot. |
 | GitHub/Jira snapshots | `data.db`; regenerable, omitted. The normal poller repopulates the restored installation. |

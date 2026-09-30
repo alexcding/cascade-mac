@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use crate::Project;
 use serde_json::{Map, Value};
 
 /// A pipeline: one trigger, then an ordered chain of filters and actions. Stored as JSON so a
@@ -144,7 +145,8 @@ pub struct Event {
     /// Stable identity for the ledger: the same key never fires the same pipeline twice.
     pub key: String,
     pub at: DateTime<Utc>,
-    pub project: Value,
+    /// The project the event belongs to; none for a Jira ticket no project claims.
+    pub project: Option<Project>,
     pub pr: Option<Value>,
     pub ticket: Option<Value>,
 }
@@ -155,7 +157,7 @@ impl Event {
             .as_ref()
             .and_then(|pr| pr["repo"].as_str())
             .filter(|v| !v.is_empty())
-            .or_else(|| self.project["repo"].as_str())
+            .or_else(|| self.project.as_ref().map(|project| project.repo.as_str()))
             .unwrap_or("")
     }
     pub fn subject(&self) -> String {

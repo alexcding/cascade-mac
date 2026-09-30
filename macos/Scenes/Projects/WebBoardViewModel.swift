@@ -102,8 +102,6 @@ struct PendingBoardMove: Equatable {
 protocol BoardService: Sendable {
     func snapshot(projectID: String, force: Bool) async throws -> BoardSnapshot
     func site() async throws -> JiraSite
-    func settings() async throws -> [String: String]
-    func saveFilter(_ value: String, projectID: String) async throws
     func saveQuery(_ value: String, projectID: String) async throws
     func transition(key: String, status: String) async throws
     func assign(key: String, assignee: String) async throws
@@ -115,8 +113,6 @@ struct APIBoardService: BoardService {
         try await api.get(Routes.projectBoard(projectID) + (force ? "?refresh=1" : ""), timeout: force ? 130 : 30)
     }
     func site() async throws -> JiraSite { try await api.get(Routes.JIRA_SITE, timeout: 30) }
-    func settings() async throws -> [String: String] { try await api.get(Routes.SETTINGS) }
-    func saveFilter(_ value: String, projectID: String) async throws { try await api.setSetting("board_filter_" + projectID, value: value) }
     // The poller reads `board_query_<id>` from config and ANDs it into the board's JQL.
     func saveQuery(_ value: String, projectID: String) async throws {
         let _: OperationOK = try await api.request(Routes.CONFIG, method: "POST", body: ["board_query_" + projectID: value], timeout: 10)
@@ -162,19 +158,23 @@ struct APIBoardService: BoardService {
     @ObservationIgnored private var service: any BoardService
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var queuedRefresh: Bool?
-    @ObservationIgnored private var preferenceTask: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
-    @ObservationIgnored private var preferencesLoaded = false
+    /// Where the assignee filter is kept between launches: a window preference, per project.
+    /// Nil keeps it for this model's life only, which is what tests want.
+    @ObservationIgnored private let preferences: UserDefaults?
+    private var filterKey: String { "native.boardFilter.\(projectID)" }
 
     convenience init(projectID: String, api: APIClient, pageActions: any PageActionServing) {
-        self.init(projectID: projectID, service: APIBoardService(api: api), pageActions: pageActions)
+        self.init(projectID: projectID, service: APIBoardService(api: api), pageActions: pageActions, preferences: .standard)
     }
 
-    init(projectID: String, service: any BoardService, pageActions: any PageActionServing) {
+    init(projectID: String, service: any BoardService, pageActions: any PageActionServing, preferences: UserDefaults? = nil) {
         self.projectID = projectID
         self.service = service
+        self.preferences = preferences
         navigation = PageActionViewModel(service: pageActions)
+        assigneeFilter = preferences?.string(forKey: filterKey) ?? ""
     }
 
     /// Snapshot items with unconfirmed moves applied.
@@ -276,7 +276,8 @@ struct APIBoardService: BoardService {
     func connect(service: any BoardService) {
         guard !retired else { return }
         generation = UUID(); task?.cancel(); task = nil; queuedRefresh = nil; self.service = service
-        preferencesLoaded = false
+        // A filter adopted from an earlier version may have landed after this model was made.
+        if assigneeFilter.isEmpty, let saved = preferences?.string(forKey: filterKey), !saved.isEmpty { assigneeFilter = saved }
         if active { refresh() }
     }
     func pause() { task?.cancel(); task = nil; queuedRefresh = nil; generation = UUID(); endDrag(); cancelActions() }
@@ -318,10 +319,6 @@ struct APIBoardService: BoardService {
             siteURL = safeWebURL(location.baseUrl)
             account = location.me
         }
-        if !preferencesLoaded, let settings = try? await service.settings(), self.generation == generation, !Task.isCancelled {
-            setAssigneeFilter(settings["board_filter_" + projectID] ?? "")
-            preferencesLoaded = true
-        }
     }
     func reload() { error = nil; refresh(force: true) }
     func cancelActions() { navigation.cancel() }
@@ -360,13 +357,8 @@ struct APIBoardService: BoardService {
     }
 
     private func persistFilter() {
-        guard preferencesLoaded, !retired else { return }
-        preferenceTask?.cancel()
-        let value = assigneeFilter, service = service
-        preferenceTask = Task {
-            do { try await service.saveFilter(value, projectID: projectID) }
-            catch { if !Task.isCancelled { self.error = error.localizedDescription } }
-        }
+        guard !retired else { return }
+        preferences?.set(assigneeFilter, forKey: filterKey)
     }
     /// Saves the query box as the project's JQL clause, then re-syncs the board with it.
     func applyQuery() {

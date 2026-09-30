@@ -39,6 +39,17 @@ async fn post(app: &axum::Router, path: &str, body: Value) -> (StatusCode, Value
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
+async fn get(app: &axum::Router, path: &str) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(Request::builder().method("GET").uri(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .args(["-c", "user.email=t@t", "-c", "user.name=t", "-C"])
@@ -415,4 +426,65 @@ async fn a_fork_numbers_itself_after_its_family_and_carries_uncommitted_work() {
     post(&app, "/api/tasks", shell).await;
     let (status, refused) = post(&app, "/api/tasks/shell/fork", json!({})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+}
+
+#[tokio::test]
+async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    let path = dir.to_str().unwrap();
+    git(&dir, &["branch", "develop"]);
+    let (status, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":path})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let project_id = project["id"].as_str().unwrap();
+
+    // A new branch: cut from the base, its worktree made, the record written last and answered
+    // as the task list will show it.
+    let (status, session) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/one","createBranch":true,"base":"main","title":"One","cli":"claude"})).await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let one = root.join("app.worktrees/one");
+    assert_eq!(session["worktree"], one.to_str().unwrap());
+    assert_eq!(session["title"], "One");
+    assert_eq!(session["branch"], "feat/one");
+    assert_eq!(session["cli"], "claude");
+    assert_eq!(session["pinned"], false);
+    assert!(session["url"].as_str().unwrap().starts_with("session:"));
+    assert!(one.join(".git").exists());
+    let (_, tasks) = get(&app, "/api/tasks").await;
+    assert_eq!(tasks.as_array().map(Vec::len), Some(1));
+    assert_eq!(tasks[0]["id"], session["id"]);
+
+    // The same branch again reuses the worktree; the session is new and titled by the branch.
+    let (status, again) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/one"})).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["worktree"], session["worktree"]);
+    assert_ne!(again["id"], session["id"]);
+    assert_eq!(again["title"], "feat/one");
+
+    // A page that resolved to a worktree that is gone is refused rather than silently remade.
+    let (status, stale) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/one","reuseWorktree":"/nowhere"})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{stale}");
+    let (status, reused) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/one","reuseWorktree":one.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::OK, "{reused}");
+
+    // The branch the main checkout holds: the checkout is parked on the base first, then the
+    // branch gets a worktree of its own, never the main repository's path.
+    let (status, held) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"main","base":"develop"})).await;
+    assert_eq!(status, StatusCode::OK, "{held}");
+    assert_eq!(git(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]), "develop");
+    assert_eq!(held["worktree"], root.join("app.worktrees/main").to_str().unwrap());
+
+    // Nowhere to park it: the branch is the base this session forks from.
+    let (status, refused) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"develop","base":"develop"})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert!(refused["error"].as_str().unwrap().contains("cannot be moved off it"), "{refused}");
+
+    // A bad address, or an unknown project, is refused before anything is touched.
+    let (status, _) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/two","createBranch":true,"url":"file:///etc/passwd"})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!root.join("app.worktrees/two").exists());
+    let (status, _) = post(&app, "/api/sessions", json!({"projectId":"missing","branch":"feat/two"})).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

@@ -7,11 +7,7 @@
 //! on screen. Nothing listening, a pass, or no answer in time all fall back to the terminal.
 //! However the request ends, an `agent-permission-done` event says how, so no card outlives it.
 
-use std::{
-    collections::HashMap,
-    sync::{Mutex, OnceLock},
-    time::Duration,
-};
+use std::{collections::HashMap, time::Duration};
 
 use axum::{
     extract::{Query, State},
@@ -21,7 +17,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use uuid::Uuid;
 
 use super::Agent;
@@ -42,9 +38,70 @@ enum Answer {
     Pass,
 }
 
-fn pending() -> &'static Mutex<HashMap<String, oneshot::Sender<Answer>>> {
-    static PENDING: OnceLock<Mutex<HashMap<String, oneshot::Sender<Answer>>>> = OnceLock::new();
-    PENDING.get_or_init(Default::default)
+/// The offers waiting for an answer, owned by one task; `AppState.permissions` is its handle. An
+/// offer is entered when the hook asks, taken when the app answers, and forgotten however the
+/// hook's request ends. Made inside a Tokio runtime.
+#[derive(Clone)]
+pub struct Permissions {
+    tx: mpsc::UnboundedSender<PermissionMsg>,
+}
+
+enum PermissionMsg {
+    Offer(String, oneshot::Sender<Answer>),
+    /// Hands an answer to an offer; replies whether one was waiting and took it.
+    Answer(String, Answer, oneshot::Sender<bool>),
+    Forget(String),
+}
+
+impl Default for Permissions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Permissions {
+    pub fn new() -> Self {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut pending: HashMap<String, oneshot::Sender<Answer>> = HashMap::new();
+            while let Some(message) = rx.recv().await {
+                match message {
+                    PermissionMsg::Offer(id, sender) => {
+                        pending.insert(id, sender);
+                    }
+                    PermissionMsg::Answer(id, answer, reply) => {
+                        let taken = pending
+                            .remove(&id)
+                            .is_some_and(|sender| sender.send(answer).is_ok());
+                        let _ = reply.send(taken);
+                    }
+                    PermissionMsg::Forget(id) => {
+                        pending.remove(&id);
+                    }
+                }
+            }
+        });
+        Self { tx }
+    }
+
+    fn offer(&self, id: &str, sender: oneshot::Sender<Answer>) {
+        let _ = self.tx.send(PermissionMsg::Offer(id.to_owned(), sender));
+    }
+
+    /// `true` when an offer was waiting for the answer and took it; `false` when none was, or
+    /// the hook had stopped waiting.
+    async fn answer(&self, id: &str, answer: Answer) -> bool {
+        let (reply, taken) = oneshot::channel();
+        let message = PermissionMsg::Answer(id.to_owned(), answer, reply);
+        if self.tx.send(message).is_err() {
+            return false;
+        }
+        taken.await.unwrap_or(false)
+    }
+
+    fn forget(&self, id: &str) {
+        let _ = self.tx.send(PermissionMsg::Forget(id.to_owned()));
+    }
 }
 
 #[derive(Default, Deserialize)]
@@ -111,16 +168,22 @@ fn decision(answer: Answer) -> Option<Value> {
 struct Offer {
     id: String,
     run_id: String,
+    permissions: Permissions,
     events: broadcast::Sender<Value>,
     outcome: &'static str,
 }
 
 impl Drop for Offer {
     fn drop(&mut self) {
-        pending().lock().unwrap().remove(&self.id);
-        let _ = self.events.send(json!({
-            "type": "agent-permission-done", "id": self.id, "runId": self.run_id, "outcome": self.outcome,
-        }));
+        self.permissions.forget(&self.id);
+        let _ = self.events.send(
+            crate::Event::AgentPermissionDone {
+                id: self.id.clone(),
+                run_id: self.run_id.clone(),
+                outcome: self.outcome,
+            }
+            .into(),
+        );
     }
 }
 
@@ -141,12 +204,23 @@ pub async fn request(
         return pass();
     }
     let (sender, receiver) = oneshot::channel();
-    let mut offer = Offer { id: Uuid::new_v4().to_string(), run_id, events: app.events.clone(), outcome: "cancelled" };
-    pending().lock().unwrap().insert(offer.id.clone(), sender);
-    let offered = app.events.send(json!({
-        "type": "agent-permission", "id": offer.id, "runId": offer.run_id,
-        "request": describe(&payload, query.cli.as_deref().and_then(Agent::of)), "cli": query.cli.unwrap_or_default(),
-    }));
+    let mut offer = Offer {
+        id: Uuid::new_v4().to_string(),
+        run_id,
+        permissions: app.permissions.clone(),
+        events: app.events.clone(),
+        outcome: "cancelled",
+    };
+    app.permissions.offer(&offer.id, sender);
+    let offered = app.events.send(
+        crate::Event::AgentPermission {
+            id: offer.id.clone(),
+            run_id: offer.run_id.clone(),
+            request: describe(&payload, query.cli.as_deref().and_then(Agent::of)),
+            cli: query.cli.unwrap_or_default(),
+        }
+        .into(),
+    );
     let answer = if offered.is_ok() {
         tokio::time::timeout(WAIT, receiver).await.ok().and_then(Result::ok)
     } else {
@@ -169,7 +243,11 @@ pub struct AnswerBody {
 }
 
 /// An answer runs a tool on the person's behalf, so a page in a browser must not reach it.
-pub async fn answer(headers: HeaderMap, Json(body): Json<AnswerBody>) -> StatusCode {
+pub async fn answer(
+    State(app): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AnswerBody>,
+) -> StatusCode {
     if crate::local::foreign_origin(&headers) {
         return StatusCode::FORBIDDEN;
     }
@@ -179,12 +257,10 @@ pub async fn answer(headers: HeaderMap, Json(body): Json<AnswerBody>) -> StatusC
         "pass" => Answer::Pass,
         _ => return StatusCode::BAD_REQUEST,
     };
-    let Some(sender) = pending().lock().unwrap().remove(&body.id) else {
-        return StatusCode::GONE;
-    };
-    match sender.send(answer) {
-        Ok(()) => StatusCode::NO_CONTENT,
-        Err(_) => StatusCode::GONE,
+    if app.permissions.answer(&body.id, answer).await {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::GONE
     }
 }
 
@@ -230,14 +306,36 @@ mod tests {
         assert!(decision(Answer::Pass).is_none());
     }
 
-    #[test]
-    fn an_abandoned_offer_is_removed_and_reported() {
+    #[tokio::test]
+    async fn an_abandoned_offer_is_removed_and_reported() {
+        let permissions = Permissions::new();
         let (events, mut heard) = broadcast::channel(4);
-        let (sender, _receiver) = oneshot::channel();
-        pending().lock().unwrap().insert("abandoned".into(), sender);
-        drop(Offer { id: "abandoned".into(), run_id: "run".into(), events, outcome: "cancelled" });
-        assert!(!pending().lock().unwrap().contains_key("abandoned"));
+        let (sender, receiver) = oneshot::channel();
+        permissions.offer("abandoned", sender);
+        drop(Offer {
+            id: "abandoned".into(),
+            run_id: "run".into(),
+            permissions: permissions.clone(),
+            events,
+            outcome: "cancelled",
+        });
+        assert!(!permissions.answer("abandoned", Answer::Allow).await, "nothing is waiting");
+        assert!(receiver.await.is_err(), "the hook's side was dropped with the offer");
         let done = heard.try_recv().unwrap();
         assert_eq!((done["type"].as_str(), done["outcome"].as_str()), (Some("agent-permission-done"), Some("cancelled")));
+    }
+
+    #[tokio::test]
+    async fn an_answer_reaches_the_hook_that_is_waiting_once() {
+        let permissions = Permissions::new();
+        let (sender, receiver) = oneshot::channel();
+        permissions.offer("asked", sender);
+        assert!(permissions.answer("asked", Answer::Deny).await);
+        assert_eq!(receiver.await.unwrap(), Answer::Deny);
+        assert!(!permissions.answer("asked", Answer::Allow).await, "taken already");
+        let (sender, receiver) = oneshot::channel();
+        permissions.offer("gone", sender);
+        drop(receiver);
+        assert!(!permissions.answer("gone", Answer::Allow).await, "the hook stopped waiting");
     }
 }

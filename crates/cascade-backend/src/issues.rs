@@ -1,5 +1,5 @@
 //! GitHub issues as tickets. `gh issue` is the source; every issue is mapped onto the ticket
-//! shape the Jira source returns (`poller::search_jira`), with `source: "github"`, so the app
+//! shape the Jira source returns (`jira::search_jira`), with `source: "github"`, so the app
 //! lists and opens both through one model. GitHub has no priority or sprint, so those fields
 //! stay empty rather than being made up. Issues are searched live, never snapshotted: nothing
 //! lists one project's tickets any more, only the Dashboard's My Tickets across all of them.
@@ -11,6 +11,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::cli;
+use crate::Project;
 
 const FIELDS: &str = "number,title,state,stateReason,labels,assignees,author,url,updatedAt,issueType";
 
@@ -27,8 +28,8 @@ static ISSUE_URL: LazyLock<Regex> = LazyLock::new(|| {
 static NUMBER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^#?(\d+)$").unwrap());
 
 /// Whether a project's repo takes part in issue searches: it has one, and has not turned issues off.
-pub fn lists_issues(project: &Value) -> bool {
-    !project["repo"].as_str().unwrap_or("").is_empty() && project["issuesEnabled"].as_bool().unwrap_or(true)
+pub fn lists_issues(project: &Project) -> bool {
+    !project.repo.is_empty() && project.issues_enabled
 }
 
 /// `gh issue list --search` over one repo. The query decides the state (`is:open`, `is:closed`),
@@ -175,6 +176,7 @@ pub fn ticket(item: &Value, repo: &str) -> Value {
             .to_owned()
     };
     let assignee = item["assignees"].as_array().and_then(|v| v.first());
+    let category = if status == OPEN { "new" } else { "done" };
     json!({
         "source": "github",
         "key": format!("#{number}"),
@@ -183,10 +185,13 @@ pub fn ticket(item: &Value, repo: &str) -> Value {
         "url": item["url"].as_str().unwrap_or(""),
         "summary": item["title"].as_str().unwrap_or(""),
         "status": status,
-        "statusCategory": if status == OPEN { "new" } else { "done" },
+        "statusCategory": category,
         "statusId": "",
+        "stage": crate::tickets::stage(status, category),
+        "reopened": false,
         "type": item.pointer("/issueType/name").and_then(Value::as_str).unwrap_or(""),
         "priority": "",
+        "level": crate::tickets::level(""),
         "assignee": assignee.map(person).unwrap_or_default(),
         "assigneeId": assignee.and_then(|v| v["login"].as_str()).unwrap_or(""),
         "assigneeEmail": "",
@@ -271,9 +276,9 @@ mod tests {
 
     #[test]
     fn a_project_lists_issues_with_a_repo_unless_turned_off() {
-        assert!(lists_issues(&json!({"repo":"o/r"})));
-        assert!(!lists_issues(&json!({"repo":"o/r","issuesEnabled":false})));
-        assert!(!lists_issues(&json!({"repo":"","issuesEnabled":true})));
+        assert!(lists_issues(&serde_json::from_value::<Project>(json!({"repo":"o/r"})).unwrap()));
+        assert!(!lists_issues(&serde_json::from_value::<Project>(json!({"repo":"o/r","issuesEnabled":false})).unwrap()));
+        assert!(!lists_issues(&serde_json::from_value::<Project>(json!({"repo":"","issuesEnabled":true})).unwrap()));
     }
 
     #[test]

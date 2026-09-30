@@ -30,10 +30,7 @@ private final class DocumentHTTPFixture: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let body: Data
-        if request.url?.path == Routes.SETTINGS && request.httpMethod == "GET" {
-            let snapshot = #"{"pages":[],"activeID":"restored","history":[],"pane":"term","documents":[{"id":"restored","path":"/fixture/restored.swift"}],"tabOrder":["restored"]}"#
-            body = try! JSONEncoder().encode(["native.context.documents": snapshot])
-        } else if request.url?.path == Routes.FILE {
+        if request.url?.path == Routes.FILE {
             body = try! JSONEncoder().encode(FileDocumentSnapshot(content: "original", readOnly: false, revision: String(repeating: "a", count: 64)))
         } else { body = Data(#"{"ok":true}"#.utf8) }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
@@ -47,18 +44,24 @@ private final class DocumentHTTPFixture: URLProtocol, @unchecked Sendable {
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState { .init(connected: true) }
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func documentFactorySurvivesBackendRestorationReopenAndContextPromotion() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func documentFactorySurvivesCacheRestorationReopenAndContextPromotion() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [DocumentHTTPFixture.self]
     let session = URLSession(configuration: configuration)
     defer { session.invalidateAndCancel() }
     let base = URL(string: "http://127.0.0.1:9")!, api = try APIClient(baseURL: base, session: session)
     let factory = DocumentFactoryFixture(), runtime = DocumentWorkspaceRuntime()
-    let viewer = ViewerStore(documentFactory: factory)
+    // The page-tab cache written by an earlier launch holds one context with an open document.
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: cache) }
+    struct Cache: Encodable { let snapshots: [String: ContextSnapshot]; let pending: Set<String> }
+    let restoredSnapshot = ContextSnapshot(pages: [], activeID: "restored", history: [], pane: "term",
+                                           documents: [FileDocumentRecord(id: "restored", path: "/fixture/restored.swift")], tabOrder: ["restored"])
+    try JSONEncoder().encode(Cache(snapshots: ["documents": restoredSnapshot], pending: [])).write(to: cache)
+    let viewer = ViewerStore(cacheURL: cache, documentFactory: factory)
     viewer.prepareContext = { $0.configureWorkspace(factory: NativeWorkspaceFeatureFactory(), service: runtime) }
     let context = viewer.select(id: "documents", url: "", title: "Documents")
     viewer.connect(api)
-    while context.restoring { await Task.yield() }
     let restored = try #require(context.activeDocument)
     await restored.waitForLoad()
     #expect(restored.id == "restored" && restored.loaded)

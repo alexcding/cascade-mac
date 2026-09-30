@@ -275,7 +275,7 @@ extension WorkspaceServing {
     }
     func documentStateChanged() {
         let state = state
-        let visible = active && context?.restoring == false
+        let visible = active && context != nil
         let reviewing = visible && showsChanges && state.connected
         if presentedDiff !== state.diff { presentedDiff?.presentation.active = false }
         if presentedHistory !== state.history { presentedHistory?.presentation.active = false }

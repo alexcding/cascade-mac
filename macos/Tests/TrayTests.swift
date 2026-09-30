@@ -13,8 +13,6 @@ private actor ReviewSnapshotService: ShellDataServing {
         return values
     }
     func usage() throws -> UsageSnapshot { throw BackendError.operation("Unavailable") }
-    func settings() -> [String: String?] { [:] }
-    func setSetting(_ key: String, value: String) {}
     func acknowledgeReview(repo: String, number: Int) {
         for index in values.indices where values[index].repo == repo && values[index].number == number {
             values[index].reviewPending = false

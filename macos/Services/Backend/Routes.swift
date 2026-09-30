@@ -6,13 +6,13 @@ import Foundation
 public enum Routes {
     public static let BACKEND_HEALTH = "/api/backend/health"
     public static let CONFIG = "/api/config"
+    /// Read only: the preferences an earlier version kept in the backend, adopted once.
     public static let SETTINGS = "/api/settings"
-    public static let SETTINGS_KEY = "/api/settings/:key"
-    public static func settingsKey(_ value: String) -> String {
-        "/api/settings/\(encodeComponent(value))"
-    }
     public static let SOUNDS = "/api/sounds"
     public static let TABS = "/api/tabs"
+    /// One request creates a session: worktree resolved, made or reused, main checkout freed if it
+    /// held the branch, record written last.
+    public static let SESSIONS = "/api/sessions"
     public static let TASKS = "/api/tasks"
     public static let TASK_PIN = "/api/tasks/:id/pin"
     public static let TASK = "/api/tasks/:id"

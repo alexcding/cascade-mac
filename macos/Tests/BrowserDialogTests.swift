@@ -166,11 +166,7 @@ import Testing
     let second = try #require(context.open("https://example.test/two"))
     #expect(!first.dialogs.active && !first.controls.active && second.dialogs.active && second.controls.active && responses == [.cancel])
     second.dialogs.begin(.confirm("Second"), origin: "example.test") { responses.append($0) }
-    context.restoring = true
-    #expect(!second.dialogs.active && !second.controls.active && responses == [.cancel, .cancel])
-    context.restoring = false
     #expect(second.dialogs.active && second.controls.active)
-    second.dialogs.begin(.confirm("Third"), origin: "example.test") { responses.append($0) }
     workspace.setActive(false)
-    #expect(!second.dialogs.active && !second.controls.active && responses.count == 3 && !dialogs.isPresenting)
+    #expect(!second.dialogs.active && !second.controls.active && responses == [.cancel, .cancel] && !dialogs.isPresenting)
 }

@@ -183,9 +183,6 @@ import Testing
     #expect(!history.presentation.active && file.presentation.active && file.surface === surface)
     #expect(surface.content == "keep this unsaved buffer")
     #expect(await fileService.reads == 1)
-    context.restoring = true
-    #expect(!file.presentation.active)
-    context.restoring = false
     #expect(file.presentation.active && file.surface === surface)
     viewer.deactivate(); diff.disconnect(); history.hide(); file.dispose()
 }

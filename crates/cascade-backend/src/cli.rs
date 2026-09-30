@@ -1,13 +1,116 @@
 use std::{
-    ffi::OsStr,
-    path::Path,
+    ffi::{OsStr, OsString},
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
     process::{Output, Stdio},
-    sync::OnceLock,
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 
 use anyhow::{anyhow, Context, Result};
 use tokio::process::{Child, Command};
+
+/// One request to run a program: what production spawns, and what a scripted runner answers in
+/// tests. `output_of` builds one from every `run*` call, so a test never meets a real process.
+#[derive(Debug, Clone)]
+pub struct Invocation {
+    pub program: String,
+    pub args: Vec<OsString>,
+    pub cwd: Option<PathBuf>,
+    pub env: Vec<(String, String)>,
+    pub input: Option<Vec<u8>>,
+    pub accept: Vec<i32>,
+    pub duration: Duration,
+}
+
+/// The one seam over processes. Production spawns them (`ProcessRunner`); a test scripts them
+/// (`ScriptedRunner`, installed with `scoped`).
+pub trait CommandRunner: Send + Sync {
+    fn output<'a>(
+        &'a self,
+        invocation: Invocation,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + 'a>>;
+}
+
+tokio::task_local! {
+    /// The runner a test installed for the task it runs in; production has none and spawns.
+    static SCRIPTED: Arc<dyn CommandRunner>;
+}
+
+/// Runs `future` with every command it issues answered by `runner` instead of a process. Tasks
+/// the future spawns are not covered: they start without a scripted runner, unless whoever
+/// spawns them hands `inherited()` on with another `scoped`.
+pub async fn scoped<F: Future>(runner: Arc<dyn CommandRunner>, future: F) -> F::Output {
+    SCRIPTED.scope(runner, future).await
+}
+
+/// The runner installed for the current task, if a test installed one: what a task spawned on
+/// its behalf should run under, since a task-local does not follow a spawn.
+pub fn inherited() -> Option<Arc<dyn CommandRunner>> {
+    SCRIPTED.try_with(Arc::clone).ok()
+}
+
+/// Spawns the program, as every call did before there was a seam.
+pub struct ProcessRunner;
+
+impl CommandRunner for ProcessRunner {
+    fn output<'a>(
+        &'a self,
+        invocation: Invocation,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + 'a>> {
+        Box::pin(spawn_output(invocation))
+    }
+}
+
+type Script = Box<dyn Fn(&[OsString]) -> Option<Result<Vec<u8>, String>> + Send + Sync>;
+
+/// A runner for tests: each program is answered by the first script that has something for its
+/// arguments, and everything asked is kept for the test to check.
+#[derive(Default)]
+pub struct ScriptedRunner {
+    scripts: Vec<(String, Script)>,
+    pub asked: Mutex<Vec<Invocation>>,
+}
+
+impl ScriptedRunner {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Answers `program` whenever `answer` gives something for its arguments.
+    pub fn on(
+        mut self,
+        program: &str,
+        answer: impl Fn(&[OsString]) -> Option<Result<Vec<u8>, String>> + Send + Sync + 'static,
+    ) -> Self {
+        self.scripts.push((program.to_owned(), Box::new(answer)));
+        self
+    }
+}
+
+impl CommandRunner for ScriptedRunner {
+    fn output<'a>(
+        &'a self,
+        invocation: Invocation,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>>> + Send + 'a>> {
+        Box::pin(async move {
+            self.asked.lock().unwrap().push(invocation.clone());
+            for (program, answer) in &self.scripts {
+                if *program == invocation.program {
+                    if let Some(result) = answer(&invocation.args) {
+                        return result.map_err(|message| anyhow!(message));
+                    }
+                }
+            }
+            Err(anyhow!(
+                "{} was not scripted for {:?}",
+                invocation.program,
+                invocation.args
+            ))
+        })
+    }
+}
 
 /// A command for an external CLI (`gh`, `acli`, `git`, agent CLIs). Finder and Xcode
 /// launches hand the app a minimal PATH, and the backend runs inside the app, so the
@@ -640,11 +743,36 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    let invocation = Invocation {
+        program: program.to_owned(),
+        args: args.into_iter().map(|arg| arg.as_ref().to_os_string()).collect(),
+        cwd: cwd.map(Path::to_path_buf),
+        env: env.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect(),
+        input,
+        accept: accept.to_vec(),
+        duration,
+    };
+    match SCRIPTED.try_with(Arc::clone) {
+        Ok(runner) => runner.output(invocation).await,
+        Err(_) => ProcessRunner.output(invocation).await,
+    }
+}
+
+async fn spawn_output(invocation: Invocation) -> Result<Vec<u8>> {
     use tokio::io::AsyncWriteExt;
-    let mut command = command(program);
+    let Invocation {
+        program,
+        args,
+        cwd,
+        env,
+        input,
+        accept,
+        duration,
+    } = invocation;
+    let mut command = command(&program);
     command
-        .envs(env.iter().copied())
-        .args(args)
+        .envs(env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
+        .args(&args)
         .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -661,7 +789,7 @@ where
             let _ = stdin.write_all(&input).await;
         });
     }
-    let output = wait_or_kill(program, child, duration).await?;
+    let output = wait_or_kill(&program, child, duration).await?;
     let accepted = output.status.code().is_some_and(|code| accept.contains(&code));
     if !output.status.success() && !accepted {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
@@ -677,6 +805,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_scripted_runner_answers_in_place_of_a_process_and_keeps_what_was_asked() {
+        let runner = Arc::new(ScriptedRunner::new().on("echo", |args| {
+            args.iter().any(|arg| arg == "real").then(|| Ok(b"scripted\n".to_vec()))
+        }));
+        let answer = scoped(runner.clone(), run("echo", ["real"], Duration::from_secs(1))).await;
+        assert_eq!(answer.unwrap(), "scripted");
+        let refused = scoped(runner.clone(), run("echo", ["other"], Duration::from_secs(1))).await;
+        assert!(refused.unwrap_err().to_string().contains("not scripted"));
+        let asked = runner.asked.lock().unwrap();
+        assert_eq!(asked.len(), 2);
+        assert_eq!(asked[0].program, "echo");
+        assert_eq!(asked[0].args, vec![OsString::from("real")]);
+        // Outside the scope a process runs, as before.
+        assert_eq!(run("echo", ["real"], Duration::from_secs(5)).await.unwrap(), "real");
+    }
 
     #[test]
     fn socket_probe_reads_the_marked_value_past_rc_noise() {
@@ -945,4 +1090,9 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(!marker.exists(), "the server outlived its answer");
     }
+}
+
+/// `value` as one shell word, whatever it contains.
+pub fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace(char::from(39), "'\"'\"'"))
 }

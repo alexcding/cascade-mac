@@ -131,12 +131,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private(set) var reviewSection: ReviewSection = .changes {
         didSet { if oldValue != reviewSection { workspaceViewModel?.reviewStateChanged() } }
     }
-    var restoring = false {
-        didSet {
-            guard oldValue != restoring else { return }
-            workspaceViewModel?.documentStateChanged()
-        }
-    }
     var findVisible = false
     var findText = ""
     var error: String?
@@ -454,8 +448,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     let fileOpen: FileOpenViewModel
     let fileOpenCoordinator: FileOpenCoordinator
     private(set) var contexts: [String: WorkspaceContext] = [:]
-    /// When the user last cleared history, so a restore already in flight cannot seed it back.
-    @ObservationIgnored private var clearedHistoryAt: Date?
     private(set) var activeContextID: String? {
         didSet {
             guard oldValue != activeContextID else { return }
@@ -476,13 +468,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// Calls `keepInPanel` instead where the list cannot take it, so the link still opens.
     @ObservationIgnored var openSidebarTab: (String, @escaping () -> Void) -> Void = { _, _ in }
     @ObservationIgnored private var api: APIClient?
+    /// Every context's last snapshot, open or not: what `cacheURL` holds between launches.
     @ObservationIgnored private var saved: [String: ContextSnapshot] = [:]
-    @ObservationIgnored private var dirty: Set<String> = []
-    @ObservationIgnored private var edited: Set<String> = []
-    @ObservationIgnored private var writes: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var loading: Task<Void, Never>?
-    @ObservationIgnored private var restoring = false
-    @ObservationIgnored private var restoreGeneration = UUID()
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
     @ObservationIgnored private let pagePool: PagePool
@@ -496,6 +483,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// Shared by every context: the pages bookmarked from any panel.
     let browserBookmarks: BrowserBookmarkStore
     private let cacheURL: URL?
+    /// `pending` named the snapshots not yet mirrored to the backend; nothing is mirrored now, and
+    /// the field stays so files written before that still decode.
     private struct Cache: Codable { let snapshots: [String: ContextSnapshot]; let pending: Set<String> }
     init(cacheURL: URL? = nil,
          browserHistory: BrowserHistoryStore = BrowserHistoryStore(),
@@ -517,7 +506,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         pagePool.pages = { [weak self] in self?.contexts.values.flatMap(\.pages) ?? [] }
         pagePool.shown = { [weak self] in self?.active?.activePage }
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let cache = try? JSONDecoder().decode(Cache.self, from: data) {
-            saved = cache.snapshots; dirty = cache.pending; edited = cache.pending
+            saved = cache.snapshots
+            // Pages visited in a context not opened this launch still belong in the address bar.
+            for snapshot in saved.values { browserHistory.seed(snapshot.history) }
         }
     }
     var active: WorkspaceContext? { activeContextID.flatMap { contexts[$0] } }
@@ -555,43 +546,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             // Include documents opened by other routes while a save awaits.
         }
     }
+    /// Contexts are restored from `cacheURL` when the store is made; connecting only gives the
+    /// documents their editor service.
     func connect(_ api: APIClient) {
         fileOpenCoordinator.enabled = true
         self.api = api
-        loading?.cancel()
-        restoring = true
-        contexts.values.forEach { $0.restoring = true }
         contexts.values.flatMap(\.documents).forEach(configure)
-        let generation = UUID(); restoreGeneration = generation
-        let startedAt = Date()
-        loading = Task {
-            defer {
-                if restoreGeneration == generation {
-                    restoring = false
-                    contexts.values.forEach { $0.restoring = false }
-                    if !Task.isCancelled, let page = active?.activePage { activate(page) }
-                }
-            }
-            do {
-                let values: [String: String?] = try await api.get(Routes.SETTINGS)
-                try Task.checkCancellation()
-                for (key, value) in values where key.hasPrefix("native.context.") {
-                    guard let value, let data = value.data(using: .utf8),
-                          let snapshot = try? JSONDecoder().decode(ContextSnapshot.self, from: data) else { continue }
-                    let id = String(key.dropFirst("native.context.".count))
-                    guard !edited.contains(id) else { continue }
-                    // A restore that started before a clear carries the visits the user just
-                    // removed, so it lands without its page history and seeds nothing.
-                    let restored = clearedHistoryAt.map { $0 > startedAt } == true ? snapshot.clearingPageHistory : snapshot
-                    saved[id] = restored
-                    contexts[id]?.apply(restored)
-                    contexts[id]?.documents.forEach(configure)
-                    browserHistory.seed(restored.history)
-                }
-                cache()
-                for id in dirty { if let snapshot = saved[id] { enqueue(id: id, snapshot: snapshot, api: api) } }
-            } catch { if !Task.isCancelled { active?.error = String(localized: "Could not restore page tabs: \(error.localizedDescription)") } }
-        }
     }
     private func workspace(id: String, url: String, title: String, legacy: SavedTab?) -> WorkspaceContext {
         // An open context is already wired. Writing `contexts` or its observed properties again
@@ -613,7 +573,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             return contexts[context.id] === context
         }
         prepareContext(context)
-        context.restoring = restoring
         context.changed = { [weak self, weak context] in
             if let context { self?.save(context) }
         }
@@ -634,7 +593,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @discardableResult func select(id: String, url: String, title: String, legacy: SavedTab? = nil) -> WorkspaceContext {
         let context = workspace(id: id, url: url, title: title, legacy: legacy)
         activeContextID = id
-        if !restoring, let page = context.activePage { activate(page) }
+        if let page = context.activePage { activate(page) }
         return context
     }
     func deactivate() { activeContextID = nil }
@@ -667,11 +626,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         context?.pages.forEach { $0.evict() }
         context?.documents.forEach { $0.dispose() }
         if activeContextID == id { activeContextID = nil }
-        await writes[id]?.value
-        writes[id] = nil
-        saved.removeValue(forKey: id); dirty.remove(id); edited.remove(id)
+        saved.removeValue(forKey: id)
         cache()
-        if let api { try? await api.setSetting("native.context.\(id)", value: "") }
     }
     // Each page is its own content process. With no memory limit, the default, macOS alone
     // reclaims them under pressure; with one, the page pool suspends the least recently used.
@@ -682,12 +638,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// Clears the shared history and every context's page visits, live or only saved, so no
     /// snapshot can seed the cleared entries back on restore.
     func clearBrowsingHistory() {
-        clearedHistoryAt = Date()
         for context in contexts.values { context.clearPageHistory() }
         for (id, snapshot) in saved where contexts[id] == nil && !snapshot.history.isEmpty {
-            let cleared = snapshot.clearingPageHistory
-            saved[id] = cleared; edited.insert(id); dirty.insert(id)
-            if let api { enqueue(id: id, snapshot: cleared, api: api) }
+            saved[id] = snapshot.clearingPageHistory
         }
         cache()
         browserHistory.clear()
@@ -701,37 +654,18 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     private func save(_ context: WorkspaceContext) {
         contextChanged(context)
-        edited.insert(context.id)
-        dirty.insert(context.id)
         saved[context.id] = context.snapshot
         cache()
-        guard let api else { return }
-        enqueue(id: context.id, snapshot: context.snapshot, api: api)
-    }
-    private func enqueue(id: String, snapshot: ContextSnapshot, api: APIClient) {
-        let previous = writes[id]
-        writes[id] = Task { [weak self] in
-            await previous?.value
-            do {
-                try Task.checkCancellation()
-                let json = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
-                try await api.setSetting("native.context.\(id)", value: json)
-                guard let self else { return }
-                if saved[id] == snapshot { dirty.remove(id); cache() }
-            } catch { if !Task.isCancelled { self?.contexts[id]?.error = String(localized: "Page tabs saved locally; backend sync failed: \(error.localizedDescription)") } }
-        }
     }
     private func cache() {
         guard let cacheURL else { return }
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(Cache(snapshots: saved, pending: dirty)).write(to: cacheURL, options: .atomic)
-        } catch { active?.error = String(localized: "Could not save page tabs locally: \(error.localizedDescription)") }
+            try JSONEncoder().encode(Cache(snapshots: saved, pending: [])).write(to: cacheURL, options: .atomic)
+        } catch { active?.error = String(localized: "Could not save page tabs: \(error.localizedDescription)") }
     }
     func stop() async {
         fileOpenCoordinator.enabled = false
-        loading?.cancel(); await loading?.value; loading = nil
-        for task in writes.values { await task.value }
-        writes.removeAll(); api = nil
+        api = nil
     }
 }

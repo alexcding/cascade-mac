@@ -11,7 +11,7 @@ use axum::{
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
-use crate::{agents, error::ApiError, local, AppState};
+use crate::{agents, domain::folder, error::ApiError, local, AppState, Session};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
@@ -24,37 +24,36 @@ static FORKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// app clears it once the fork's own conversation exists.
 pub async fn fork_task(State(app): State<AppState>, Path(id): Path<String>) -> ApiResult<Value> {
     let _turn = FORKING.lock().await;
-    let tasks = app.db.tasks()?;
+    let tasks = app.db.tasks().await?;
     let source = tasks
         .iter()
-        .find(|task| task["id"] == id.as_str())
+        .find(|task| task.id == id)
         .ok_or_else(|| ApiError::not_found("Session not found"))?;
-    let text = |key: &str| source[key].as_str().unwrap_or("").to_owned();
-    let (cli, workspace, worktree) = (text("cli"), text("workspace"), text("worktree"));
+    let (cli, workspace, worktree) = (source.cli.clone(), source.workspace.clone(), source.worktree.clone());
     if agents::Agent::of(&cli).is_none() {
         return Err(ApiError::bad_request("Only a session running an agent can be forked"));
     }
-    let shown = label(source);
+    let shown = source.label();
     let (base, own) = numbered(&shown);
     let labels: Vec<String> = tasks
         .iter()
-        .filter(|task| task["projectId"] == source["projectId"])
-        .map(label)
+        .filter(|task| task.project_id == source.project_id)
+        .map(Session::label)
         .collect();
     let first = next_number(base, labels.iter().map(String::as_str));
-    let branch = Some(text("branch"))
+    let branch = Some(source.branch.clone())
         .filter(|branch| !branch.is_empty())
         .unwrap_or_else(|| folder(&worktree).to_owned());
     let stem = branch_stem(&branch, own).to_owned();
 
-    let conversation = text("sessionId");
+    let conversation = source.session_id.clone();
     let (fork_cli, fork_worktree) = (cli.clone(), worktree.clone());
     let from = tokio::task::spawn_blocking(move || agents::fork_source(&fork_cli, &fork_worktree, &conversation))
         .await
         .ok()
         .flatten()
         // A fork not yet talked to has no conversation of its own: forking it forks what it would.
-        .or_else(|| Some(text("forkFrom")).filter(|source| !source.is_empty()));
+        .or_else(|| Some(source.fork_from.clone()).filter(|source| !source.is_empty()));
 
     let forked = local::fork_worktree(&app, &workspace, &worktree, first, |number| format!("{stem}-{number}"))
         .await
@@ -62,57 +61,44 @@ pub async fn fork_task(State(app): State<AppState>, Path(id): Path<String>) -> A
     let path = forked.path.to_string_lossy().into_owned();
     let new_id = Uuid::new_v4().to_string();
     // A session started from no page is its own context, which names it.
-    let url = Some(text("url"))
+    let url = Some(source.url.clone())
         .filter(|url| !url.starts_with("session:"))
         .unwrap_or_else(|| format!("session:{new_id}"));
-    let record = json!({
-        "id": new_id, "projectId": text("projectId"), "workspace": workspace, "worktree": path,
-        "branch": forked.branch, "title": text("title"), "kind": text("kind"), "url": url,
-        "jiraKey": text("jiraKey"), "cli": cli, "sessionId": "", "pinned": false,
-    });
+    let record = Session {
+        id: new_id.clone(),
+        project_id: source.project_id.clone(),
+        workspace: workspace.clone(),
+        worktree: path,
+        branch: forked.branch.clone(),
+        title: source.title.clone(),
+        kind: source.kind.clone(),
+        url,
+        jira_key: source.jira_key.clone(),
+        cli,
+        ..Session::default()
+    };
+    // The fork's own fields are patch-only, so an upsert of the record never clears them.
     let mut extra = Map::new();
     extra.insert("name".into(), json!(format!("{base} ({})", forked.number)));
-    for key in ["runScheme", "runSim"] {
-        extra.insert(key.into(), json!(text(key)));
-    }
+    extra.insert("runScheme".into(), json!(source.run_scheme));
+    extra.insert("runSim".into(), json!(source.run_sim));
     extra.insert("forkFrom".into(), json!(from.unwrap_or_default()));
     extra.insert("forkedFrom".into(), json!(id));
-    let saved = app
-        .db
-        .upsert_task(record.as_object().expect("a record is an object"))
-        .and_then(|_| app.db.patch_task(&new_id, &extra));
+    let saved = match app.db.upsert_task(&record).await {
+        Ok(_) => app.db.patch_task(&new_id, &extra).await,
+        Err(error) => Err(error),
+    };
     if let Err(error) = saved {
-        let _ = app.db.delete_task(&new_id);
+        let _ = app.db.delete_task(&new_id).await;
         local::discard_fork(&workspace, &forked).await;
         return Err(ApiError::internal(format!("The fork could not be saved: {error}")));
     }
-    app.broadcast(json!({ "type": "tasks" }));
+    app.publish(crate::Event::Tasks);
     let task = app
         .db
-        .task(&new_id)?
+        .task(&new_id).await?
         .ok_or_else(|| ApiError::internal("The forked session was not saved"))?;
     Ok(Json(json!({ "task": task, "warning": forked.warning })))
-}
-
-/// What the sidebar shows a session as, as the app's `WorkspaceSession.label` works it out: the
-/// name it was given, else its worktree folder, else its title.
-fn label(task: &Value) -> String {
-    let text = |key: &str| task[key].as_str().unwrap_or("").trim().to_owned();
-    let name = text("name");
-    if !name.is_empty() {
-        return name;
-    }
-    let worktree = text("worktree");
-    let folder = folder(&worktree);
-    if !folder.is_empty() {
-        return folder.to_owned();
-    }
-    let title = text("title");
-    if title.is_empty() { text("id") } else { title }
-}
-
-fn folder(path: &str) -> &str {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or("")
 }
 
 /// A label as its family's name and its number in it: `Fix login (3)` is `("Fix login", 3)`, and
@@ -190,12 +176,5 @@ mod tests {
         assert_eq!(branch_stem("fix-login-2", 3), "fix-login-2");
         assert_eq!(branch_stem("feature/ABC-2", 1), "feature/ABC-2");
         assert_eq!(branch_stem("feature/-2", 2), "feature/-2");
-    }
-
-    #[test]
-    fn a_session_is_labelled_as_the_sidebar_shows_it() {
-        assert_eq!(label(&json!({"name": " Mine ", "worktree": "/r/fix"})), "Mine");
-        assert_eq!(label(&json!({"name": "", "worktree": "/r/.worktrees/fix-login"})), "fix-login");
-        assert_eq!(label(&json!({"worktree": "", "title": "T", "id": "x"})), "T");
     }
 }

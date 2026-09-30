@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -13,6 +15,7 @@ use super::{
     runner, store, FORWARD_WEBHOOKS, PAUSED,
 };
 use crate::{db::project_identity, error::ApiError, AppState};
+use crate::Project;
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
@@ -61,8 +64,8 @@ fn validate(mut automation: Automation) -> Result<Automation, ApiError> {
 }
 
 pub async fn list(State(app): State<AppState>) -> ApiResult<Value> {
-    let last = store::last_runs(&app.db)?;
-    let items: Vec<Value> = store::list(&app.db)?
+    let last = store::last_runs(&app.db).await?;
+    let items: Vec<Value> = store::list(&app.db).await?
         .into_iter()
         .map(|automation| {
             let mut value = serde_json::to_value(&automation).unwrap_or(Value::Null);
@@ -76,7 +79,7 @@ pub async fn list(State(app): State<AppState>) -> ApiResult<Value> {
 }
 
 pub async fn get(State(app): State<AppState>, Path(id): Path<String>) -> ApiResult<Automation> {
-    store::get(&app.db, &id)?
+    store::get(&app.db, &id).await?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("automation not found"))
 }
@@ -84,8 +87,8 @@ pub async fn get(State(app): State<AppState>, Path(id): Path<String>) -> ApiResu
 pub async fn create(State(app): State<AppState>, Json(mut automation): Json<Automation>) -> ApiResult<Automation> {
     automation.id = String::new();
     automation.position = 0;
-    let saved = store::save(&app.db, validate(automation)?)?;
-    app.broadcast(json!({"type":"automations","id":saved.id}));
+    let saved = store::save(&app.db, validate(automation)?).await?;
+    app.publish(crate::Event::Automations { scope: None, id: Some(saved.id.to_string()) });
     Ok(Json(saved))
 }
 
@@ -94,21 +97,21 @@ pub async fn update(
     Path(id): Path<String>,
     Json(mut automation): Json<Automation>,
 ) -> ApiResult<Automation> {
-    let existing = store::get(&app.db, &id)?.ok_or_else(|| ApiError::not_found("automation not found"))?;
+    let existing = store::get(&app.db, &id).await?.ok_or_else(|| ApiError::not_found("automation not found"))?;
     automation.id = id;
     if automation.position == 0 {
         automation.position = existing.position;
     }
-    let saved = store::save(&app.db, validate(automation)?)?;
-    app.broadcast(json!({"type":"automations","id":saved.id}));
+    let saved = store::save(&app.db, validate(automation)?).await?;
+    app.publish(crate::Event::Automations { scope: None, id: Some(saved.id.to_string()) });
     Ok(Json(saved))
 }
 
 pub async fn remove(State(app): State<AppState>, Path(id): Path<String>) -> ApiResult<Value> {
-    if !store::delete(&app.db, &id)? {
+    if !store::delete(&app.db, &id).await? {
         return Err(ApiError::not_found("automation not found"));
     }
-    app.broadcast(json!({"type":"automations","id":id}));
+    app.publish(crate::Event::Automations { scope: None, id: Some(id.to_string()) });
     Ok(Json(json!({"ok":true})))
 }
 
@@ -129,22 +132,24 @@ pub struct SampleQuery {
 /// Recent PRs (from the snapshots) or tickets to dry-run against.
 pub async fn samples(State(app): State<AppState>, Query(query): Query<SampleQuery>) -> ApiResult<Value> {
     let scope: Vec<&str> = query.projects.split(',').map(str::trim).filter(|v| !v.is_empty()).collect();
-    let projects: Vec<Value> = app
+    let projects: Vec<Project> = app
         .db
-        .projects()?
+        .projects().await?
         .into_iter()
-        .filter(|p| scope.is_empty() || scope.contains(&p["id"].as_str().unwrap_or("")))
+        .filter(|p| scope.is_empty() || scope.contains(&p.id.as_str()))
         .collect();
     let mut out = Vec::new();
     if query.kind == "jira" {
         let items = if query.jql.trim().is_empty() {
-            projects
-                .iter()
-                .filter_map(|p| app.db.jira_snapshot(p["id"].as_str().unwrap_or("")).ok().flatten())
-                .flat_map(|s| s["items"].as_array().cloned().unwrap_or_default())
-                .collect::<Vec<_>>()
+            let mut items = Vec::new();
+            for project in &projects {
+                if let Ok(Some(snapshot)) = app.db.jira_snapshot(&project.id).await {
+                    items.extend(snapshot["items"].as_array().cloned().unwrap_or_default());
+                }
+            }
+            items
         } else {
-            crate::poller::search_jira(query.jql.trim(), 25)
+            crate::jira::search_jira(query.jql.trim(), 25)
                 .await
                 .map_err(|e| ApiError::bad_request(e.to_string()))?
         };
@@ -157,22 +162,22 @@ pub async fn samples(State(app): State<AppState>, Query(query): Query<SampleQuer
         return Ok(Json(json!(out)));
     }
     for project in &projects {
-        let id = project["id"].as_str().unwrap_or("");
+        let id = project.id.as_str();
         let identity = project_identity(project);
-        let merged = app.db.pr_snapshot(id, "merged", Some(&identity))?;
+        let merged = app.db.pr_snapshot(id, "merged", Some(&identity)).await?;
         // Nothing else reads the merged window, so a stale one is refreshed here, in the
         // background; the next listing shows it.
-        if project["repo"].as_str().is_some_and(|r| !r.is_empty()) && crate::poller::stale(merged.as_ref(), 60) {
+        if !project.repo.is_empty() && merged.as_ref().is_none_or(|snapshot| snapshot.is_stale(60)) {
             let (app, project) = (app.clone(), project.clone());
             tokio::spawn(async move {
                 let poller = app.poller.clone();
                 poller.sync_pr_scope(&app, project, "merged").await
             });
         }
-        for (state, snapshot) in [("open", app.db.pr_snapshot(id, "open", None)?), ("merged", merged)] {
-            for pr in snapshot.and_then(|s| s["prs"].as_array().cloned()).unwrap_or_default().into_iter().take(30) {
+        for (state, snapshot) in [("open", app.db.pr_snapshot(id, "open", None).await?), ("merged", merged)] {
+            for pr in snapshot.map(|s| s.prs).unwrap_or_default().into_iter().take(30) {
                 let number = pr["number"].as_i64().unwrap_or(0);
-                let repo = pr["repo"].as_str().or_else(|| project["repo"].as_str()).unwrap_or("");
+                let repo = pr["repo"].as_str().unwrap_or(project.repo.as_str());
                 out.push(json!({"id":format!("pr:{id}:{number}"),"kind":"pr","projectId":id,"number":number,
                     "label":format!("{repo}#{number} {}",pr["title"].as_str().unwrap_or("")),
                     "detail":state}));
@@ -193,7 +198,7 @@ async fn sample_event(app: &AppState, automation: &Automation, sample: &Value) -
     let now = Utc::now();
     if sample["kind"] == "jira" {
         let key = sample["key"].as_str().unwrap_or("").trim().to_owned();
-        let ticket = crate::poller::search_jira(&format!("key = {key}"), 1)
+        let ticket = crate::jira::search_jira(&format!("key = {key}"), 1)
             .await
             .map_err(|e| ApiError::bad_request(e.to_string()))?
             .into_iter()
@@ -202,28 +207,27 @@ async fn sample_event(app: &AppState, automation: &Automation, sample: &Value) -
         let prefix = key.split('-').next().unwrap_or("");
         let project = app
             .db
-            .projects()?
+            .projects().await?
             .into_iter()
-            .find(|p| p["jiraProjectKey"].as_str().is_some_and(|k| k.eq_ignore_ascii_case(prefix)))
-            .unwrap_or(Value::Null);
+            .find(|p| p.jira_project_key.eq_ignore_ascii_case(prefix));
         return Ok(Event { kind, key: format!("sample:{key}"), at: now, project, pr: None, ticket: Some(ticket) });
     }
     let project_id = sample["projectId"].as_str().unwrap_or("");
     let number = sample["number"].as_i64().unwrap_or(0);
-    let project = app.db.project(project_id)?.ok_or_else(|| ApiError::not_found("project not found"))?;
+    let project = app.db.project(project_id).await?.ok_or_else(|| ApiError::not_found("project not found"))?;
     let identity = project_identity(&project);
     let mut pr = None;
     for (state, identity) in [("open", None), ("merged", Some(identity.as_str()))] {
-        if let Some(snapshot) = app.db.pr_snapshot(project_id, state, identity)? {
-            pr = snapshot["prs"].as_array().and_then(|prs| prs.iter().find(|p| p["number"].as_i64() == Some(number)).cloned());
+        if let Some(snapshot) = app.db.pr_snapshot(project_id, state, identity).await? {
+            pr = snapshot.prs.into_iter().find(|p| p["number"].as_i64() == Some(number));
             if pr.is_some() {
                 break;
             }
         }
     }
     let mut pr = pr.ok_or_else(|| ApiError::not_found(format!("PR #{number} is not in the synced snapshot")))?;
-    pr["repo"] = json!(pr["repo"].as_str().or_else(|| project["repo"].as_str()).unwrap_or(""));
-    Ok(Event { kind, key: format!("sample:{project_id}:{number}"), at: now, project, pr: Some(pr), ticket: None })
+    pr["repo"] = json!(pr["repo"].as_str().unwrap_or(project.repo.as_str()));
+    Ok(Event { kind, key: format!("sample:{project_id}:{number}"), at: now, project: Some(project), pr: Some(pr), ticket: None })
 }
 
 #[derive(Deserialize)]
@@ -249,7 +253,7 @@ pub struct RunBody {
 
 /// Run a saved pipeline for real against a sample, from the Run button.
 pub async fn run_now(State(app): State<AppState>, Path(id): Path<String>, Json(body): Json<RunBody>) -> ApiResult<Value> {
-    let automation = store::get(&app.db, &id)?.ok_or_else(|| ApiError::not_found("automation not found"))?;
+    let automation = store::get(&app.db, &id).await?.ok_or_else(|| ApiError::not_found("automation not found"))?;
     let event = sample_event(&app, &automation, &body.sample).await?;
     let trace = runner::run_and_record(&app, &automation, &event, RunMode::Live).await;
     Ok(Json(serde_json::to_value(trace).unwrap_or(Value::Null)))
@@ -263,7 +267,7 @@ pub struct RunsQuery {
 
 pub async fn runs(State(app): State<AppState>, Query(query): Query<RunsQuery>) -> ApiResult<Value> {
     let automation = query.automation.as_deref().filter(|v| !v.is_empty());
-    Ok(Json(json!(store::runs(&app.db, automation, query.limit.unwrap_or(50))?)))
+    Ok(Json(json!(store::runs(&app.db, automation, query.limit.unwrap_or(50)).await?)))
 }
 
 pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
@@ -271,19 +275,19 @@ pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
     forwarding.sort();
     // Every project with a repo, with what its forwarder is doing: Settings lists them all, and
     // offers a fix for one whose forwarder cannot start.
-    let global = super::forwarding(&app);
-    let all = app.db.projects()?;
-    let covered = super::pr_covered(&app, &all);
+    let global = super::forwarding(&app).await;
+    let all = app.db.projects().await?;
+    let covered = super::pr_covered(&app, &all).await;
     let mut wanted: Vec<String> =
         if global { super::forwarded(&all, &covered).into_iter().collect() } else { Vec::new() };
     wanted.sort();
     let statuses = app.forwarders.statuses().await;
     let projects: Vec<Value> = all
         .iter()
-        .filter(|project| project["repo"].as_str().is_some_and(|repo| !repo.is_empty()))
+        .filter(|project| !project.repo.is_empty())
         .map(|project| {
-            let id = project["id"].as_str().unwrap_or("");
-            let repo = project["repo"].as_str().unwrap_or("");
+            let id = project.id.as_str();
+            let repo = project.repo.as_str();
             let (state, error) = if !global {
                 ("off", None)
             } else if !super::forwards(project) {
@@ -293,16 +297,58 @@ pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
             } else {
                 statuses.get(repo).map_or(("starting", None), |status| (status.state, status.error.clone()))
             };
-            json!({"id": id, "name": project["name"], "repo": repo, "state": state, "error": error})
+            json!({"id": id, "name": project.name, "repo": repo, "state": state, "error": error})
         })
         .collect();
     Ok(Json(json!({
-        "paused": super::paused(&app),
+        "paused": super::paused(&app).await,
         "forwardWebhooks": global,
         "forwarding": forwarding,
         "forwardable": wanted,
         "projects": projects,
     })))
+}
+
+/// The repos whose webhooks are being forwarded right now.
+pub async fn forwarders(State(app): State<AppState>) -> ApiResult<Vec<String>> {
+    Ok(Json(app.forwarders.list().await))
+}
+
+#[derive(Deserialize)]
+pub struct FixForwarderBody {
+    repo: String,
+}
+
+/// Settings' Fix for a repo whose forwarder cannot start: remove the `gh webhook forward` hooks
+/// that block it, then start it again. Only for a repo Cascade forwards, and only when asked:
+/// the hook may be a teammate's live forwarder, which Settings says before offering this.
+pub async fn fix_forwarder(State(app): State<AppState>, Json(body): Json<FixForwarderBody>) -> ApiResult<Value> {
+    let repo = body.repo.trim();
+    if !super::forward_repos(&app).await.contains(repo) {
+        return Err(ApiError::bad_request("Cascade does not forward this repo's webhooks"));
+    }
+    let path = format!("repos/{repo}/hooks");
+    let listed = crate::cli::run("gh", ["api", path.as_str()], Duration::from_secs(20)).await.map_err(ApiError::internal)?;
+    let hooks: Value = serde_json::from_str(&listed).map_err(ApiError::internal)?;
+    let ids = crate::integrations::forwarder_hook_ids(&hooks);
+    let mut failed = None;
+    for id in &ids {
+        let hook = format!("repos/{repo}/hooks/{id}");
+        match crate::cli::run("gh", ["api", "-X", "DELETE", hook.as_str()], Duration::from_secs(20)).await {
+            // Gone already, which is what the delete was for.
+            Err(error) if !crate::integrations::is_already_gone(&format!("{error:#}")) => failed = Some(error),
+            _ => {}
+        }
+    }
+    let _ = app.db.add_log("webhook", "info", "forwarder_hook_removed", &json!({"repo":repo,"hooks":ids})).await;
+    // Retry even after a failed delete: an earlier one may have been the hook in the way, and a
+    // forwarder left at its slowest backoff would not notice for fifteen minutes.
+    app.forwarders.retry(repo).await;
+    app.publish(crate::Event::Automations { scope: Some("settings"), id: None });
+    if let Some(error) = failed {
+        return Err(ApiError::internal(format!("{error:#}")));
+    }
+    Ok(Json(json!({"removed": ids.len()})))
 }
 
 #[cfg(test)]
@@ -313,13 +359,14 @@ mod tests {
     async fn settings_list_every_project_with_its_forwarding_state() {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
-        let covered = db.add_project(json!({"name":"Covered","repo":"a/covered"}).as_object().unwrap()).unwrap();
-        db.add_project(json!({"name":"Idle","repo":"a/idle"}).as_object().unwrap()).unwrap();
-        db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).unwrap();
-        db.add_project(json!({"name":"No repo"}).as_object().unwrap()).unwrap();
-        let mut pipeline = super::super::migrate::legacy_pipeline(&json!({"id":covered["id"],"name":"p","mergeTransition":"Done"})).unwrap();
+        let covered = db.add_project(json!({"name":"Covered","repo":"a/covered"}).as_object().unwrap()).await.unwrap();
+        db.add_project(json!({"name":"Idle","repo":"a/idle"}).as_object().unwrap()).await.unwrap();
+        db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).await.unwrap();
+        db.add_project(json!({"name":"No repo"}).as_object().unwrap()).await.unwrap();
+        let legacy: crate::Project = serde_json::from_value(json!({"id":covered.id,"name":"p","mergeTransition":"Done"})).unwrap();
+        let mut pipeline = super::super::migrate::legacy_pipeline(&legacy).unwrap();
         pipeline.mode = super::super::model::Mode::Live;
-        super::super::store::save(&db, pipeline).unwrap();
+        super::super::store::save(&db, pipeline).await.unwrap();
         let app = AppState::new(db, None);
         let Json(settings) = get_settings(State(app)).await.unwrap();
         let states: Vec<(String, String)> = settings["projects"]
@@ -352,7 +399,7 @@ pub async fn put_settings(State(app): State<AppState>, Json(body): Json<Value>) 
     if let Some(forward) = body["forwardWebhooks"].as_bool() {
         values.insert(FORWARD_WEBHOOKS.into(), json!(forward.to_string()));
     }
-    app.db.set_config(&values)?;
-    app.broadcast(json!({"type":"automations","scope":"settings"}));
+    app.db.set_config(&values).await?;
+    app.publish(crate::Event::Automations { scope: Some("settings"), id: None });
     get_settings(State(app)).await
 }

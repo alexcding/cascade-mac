@@ -2,11 +2,10 @@ import Testing
 import Foundation
 
 @Test func routeEncodingMatchesJavaScript() async throws {
-    #expect(Routes.settingsKey("a/b ?#%é") == "/api/settings/a%2Fb%20%3F%23%25%C3%A9")
-    #expect(Routes.jiraKeyTransition("A/B") == "/api/jira/A%2FB/transition")
+    #expect(Routes.jiraKeyTransition("A/B ?#%é") == "/api/jira/A%2FB%20%3F%23%25%C3%A9/transition")
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:3000")!)
-    let url = try await api.url(Routes.settingsKey("a/b"))
-    #expect(url.absoluteString == "http://127.0.0.1:3000/api/settings/a%2Fb")
+    let url = try await api.url(Routes.jiraKeyTransition("a/b"))
+    #expect(url.absoluteString == "http://127.0.0.1:3000/api/jira/a%2Fb/transition")
 }
 
 @Test func refusesRemoteOriginsAndWrongService() throws {

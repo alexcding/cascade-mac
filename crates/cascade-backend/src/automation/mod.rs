@@ -15,6 +15,7 @@ pub mod routes;
 pub mod runner;
 pub mod store;
 pub mod triggers;
+mod version;
 
 use std::collections::HashSet;
 
@@ -22,62 +23,64 @@ use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
 use model::{Automation, Event, Mode, RunMode};
+pub use runner::Limits;
 pub use triggers::{observe_prs, poll_jira};
 
 use crate::AppState;
+use crate::Project;
 
 pub const PAUSED: &str = "automation_paused";
 pub const FORWARD_WEBHOOKS: &str = "automation_forward_webhooks";
 
 /// Once at startup, before the first sync: carry the old per-project merge settings over.
-pub fn start(app: &AppState) {
-    migrate::run(app);
+pub async fn start(app: &AppState) {
+    migrate::run(app).await;
 }
 
-pub fn paused(app: &AppState) -> bool {
-    app.db.config_value(PAUSED).ok().flatten().as_deref() == Some("true")
+pub async fn paused(app: &AppState) -> bool {
+    app.db.config_value(PAUSED).await.ok().flatten().as_deref() == Some("true")
 }
 
-pub fn forwarding(app: &AppState) -> bool {
-    app.db.config_value(FORWARD_WEBHOOKS).ok().flatten().as_deref() != Some("false")
+pub async fn forwarding(app: &AppState) -> bool {
+    app.db.config_value(FORWARD_WEBHOOKS).await.ok().flatten().as_deref() != Some("false")
 }
 
 /// The pipelines that react to events right now: none while paused.
-pub fn armed(app: &AppState) -> Vec<Automation> {
-    if paused(app) {
+pub async fn armed(app: &AppState) -> Vec<Automation> {
+    if paused(app).await {
         return Vec::new();
     }
-    let mut automations = store::list(&app.db).unwrap_or_default();
+    let mut automations = store::list(&app.db).await.unwrap_or_default();
     automations.retain(|a| a.mode != Mode::Off);
     automations
 }
 
 /// Offer an event to every armed pipeline.
-pub fn emit(app: &AppState, event: Event) {
-    offer(app, &armed(app), event);
+pub async fn emit(app: &AppState, event: Event) {
+    offer(app, &armed(app).await, event).await;
 }
 
 /// Offer an event to pipelines already loaded with `armed`.
-pub fn offer(app: &AppState, armed: &[Automation], event: Event) {
+pub async fn offer(app: &AppState, armed: &[Automation], event: Event) {
     for automation in armed {
-        fire(app, automation, event.clone());
+        fire(app, automation, event.clone()).await;
     }
 }
 
 /// A merged PR, from the poll loop or the webhook, whichever reports it first.
-pub fn merged(app: &AppState, project: &Value, pr: &Value) {
-    emit(app, triggers::merge_event(app, project, pr));
+pub async fn merged(app: &AppState, project: &Project, pr: &Value) {
+    emit(app, triggers::merge_event(app, project, pr).await).await;
 }
 
 /// Run `automation` for `event` if it matches and has not already fired for it.
-pub fn fire(app: &AppState, automation: &Automation, event: Event) {
-    if automation.mode == Mode::Off || !trigger_check(automation, &event).0 || paused(app) {
+pub async fn fire(app: &AppState, automation: &Automation, event: Event) {
+    if automation.mode == Mode::Off || !trigger_check(automation, &event).0 || paused(app).await {
         return;
     }
     if !armed_for(automation, &event) {
         return;
     }
-    if !store::claim(&app.db, &automation.id, &event.key).unwrap_or(false) {
+    if !store::claim(&app.db, &automation.id, &event.key).await.unwrap_or(false) {
         return;
     }
     let (app, automation) = (app.clone(), automation.clone());
@@ -97,9 +100,10 @@ pub fn trigger_check(automation: &Automation, event: &Event) -> (bool, String) {
     }
     // Jira triggers are scoped by their JQL; the project list scopes PR events.
     if event.pr.is_some() && !trigger.projects.is_empty() {
-        let id = event.project["id"].as_str().unwrap_or("");
+        let id = event.project.as_ref().map(|project| project.id.as_str()).unwrap_or("");
         if !trigger.projects.iter().any(|p| p == id) {
-            return (false, format!("{} is not in this pipeline's projects", event.project["name"].as_str().unwrap_or(id)));
+            let name = event.project.as_ref().map(|project| project.name.as_str()).unwrap_or(id);
+            return (false, format!("{name} is not in this pipeline's projects"));
         }
     }
     if event.kind == "pr.stale" {
@@ -152,16 +156,15 @@ fn armed_for(automation: &Automation, event: &Event) -> bool {
 }
 
 /// The projects a pull request pipeline that is on covers, by id.
-pub fn pr_covered(app: &AppState, projects: &[Value]) -> HashSet<String> {
+pub async fn pr_covered(app: &AppState, projects: &[Project]) -> HashSet<String> {
     let mut covered = HashSet::new();
-    for automation in store::list(&app.db).unwrap_or_default() {
+    for automation in store::list(&app.db).await.unwrap_or_default() {
         if automation.mode == Mode::Off || !automation.trigger.types.iter().any(|t| t.starts_with("pr.")) {
             continue;
         }
         for project in projects {
-            let id = project["id"].as_str().unwrap_or("");
-            if automation.trigger.projects.is_empty() || automation.trigger.projects.iter().any(|p| p == id) {
-                covered.insert(id.to_owned());
+            if automation.trigger.projects.is_empty() || automation.trigger.projects.contains(&project.id) {
+                covered.insert(project.id.clone());
             }
         }
     }
@@ -169,26 +172,26 @@ pub fn pr_covered(app: &AppState, projects: &[Value]) -> HashSet<String> {
 }
 
 /// Whether a project forwards its repo's webhooks: on unless turned off in its settings.
-pub fn forwards(project: &Value) -> bool {
-    project["forwardWebhooks"] == true && project["repo"].as_str().is_some_and(|r| !r.is_empty())
+pub fn forwards(project: &Project) -> bool {
+    project.forward_webhooks && !project.repo.is_empty()
 }
 
 /// Repos whose webhooks are worth forwarding: forwarding projects an armed PR pipeline covers.
-pub fn forward_repos(app: &AppState) -> HashSet<String> {
-    if !forwarding(app) {
+pub async fn forward_repos(app: &AppState) -> HashSet<String> {
+    if !forwarding(app).await {
         return HashSet::new();
     }
-    let projects = app.db.projects().unwrap_or_default();
-    let covered = pr_covered(app, &projects);
+    let projects = app.db.projects().await.unwrap_or_default();
+    let covered = pr_covered(app, &projects).await;
     forwarded(&projects, &covered)
 }
 
 /// The repos of the forwarding projects among `covered`, for a caller that has both already.
-pub fn forwarded(projects: &[Value], covered: &HashSet<String>) -> HashSet<String> {
+pub fn forwarded(projects: &[Project], covered: &HashSet<String>) -> HashSet<String> {
     projects
         .iter()
-        .filter(|p| forwards(p) && covered.contains(p["id"].as_str().unwrap_or("")))
-        .filter_map(|p| p["repo"].as_str().map(str::to_owned))
+        .filter(|p| forwards(p) && covered.contains(&p.id))
+        .map(|p| p.repo.clone())
         .collect()
 }
 
@@ -211,7 +214,8 @@ mod tests {
     }
 
     fn event(kind: &str, project: &str, at: DateTime<Utc>, pr: Value) -> Event {
-        Event { kind: kind.into(), key: "k".into(), at, project: json!({"id":project,"repo":"a/b"}), pr: Some(pr), ticket: None }
+        let project = Project { id: project.into(), repo: "a/b".into(), ..Default::default() };
+        Event { kind: kind.into(), key: "k".into(), at, project: Some(project), pr: Some(pr), ticket: None }
     }
 
     #[test]

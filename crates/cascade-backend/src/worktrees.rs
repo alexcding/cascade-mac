@@ -14,13 +14,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 use crate::{cli, local::resolve_path, AppState};
+use crate::Project;
 
 pub(crate) const LOCATION: &str = "worktree_location";
 pub(crate) const ROOT: &str = "worktree_root";
 pub(crate) const INCLUDE: &str = "worktree_include";
-/// The project fields (as the project JSON names them) for its own patterns and setup script.
-const PROJECT_INCLUDE: &str = "worktreeInclude";
-const PROJECT_SETUP: &str = "worktreeSetup";
 pub(crate) const DELETE_BRANCH: &str = "worktree_delete_branch";
 pub(crate) const FETCH: &str = "worktree_fetch";
 /// What a checkout with no `.worktreeinclude` copies when Settings never named its own patterns.
@@ -48,14 +46,14 @@ pub(crate) enum Location {
     Custom(PathBuf),
 }
 
-fn config(app: &AppState, key: &str) -> Option<String> {
-    app.db.config_value(key).ok().flatten()
+async fn config(app: &AppState, key: &str) -> Option<String> {
+    app.db.config_value(key).await.ok().flatten()
 }
 
-pub(crate) fn location(app: &AppState) -> Location {
-    match config(app, LOCATION).as_deref() {
+pub(crate) async fn location(app: &AppState) -> Location {
+    match config(app, LOCATION).await.as_deref() {
         Some("inside") => Location::Inside,
-        Some("custom") => match config(app, ROOT).filter(|v| !v.trim().is_empty()) {
+        Some("custom") => match config(app, ROOT).await.filter(|v| !v.trim().is_empty()) {
             Some(root) => Location::Custom(resolve_path(root.trim())),
             // A custom location with no folder yet is a setting half made, not a reason to fail
             // New Session: keep landing where worktrees always have.
@@ -114,30 +112,34 @@ pub(crate) async fn exclude_inside_root(dir: &str) -> io::Result<()> {
 
 /// A field of the project whose workspace is `dir`, when it holds more than whitespace. Worktree
 /// requests carry the checkout path, not a project id; one repo per project makes that the key.
-fn project_field(app: &AppState, dir: &Path, field: &str) -> Option<String> {
+async fn project_field(app: &AppState, dir: &Path, field: fn(&Project) -> &str) -> Option<String> {
     let dir = resolve_path(&dir.to_string_lossy());
     app.db
         .projects()
+        .await
         .ok()?
         .into_iter()
         .find(|project| {
-            project["workspace"]
-                .as_str()
-                .is_some_and(|workspace| !workspace.is_empty() && resolve_path(workspace.trim_end_matches('/')) == dir)
+            !project.workspace.is_empty()
+                && resolve_path(project.workspace.trim_end_matches('/')) == dir
         })
-        .and_then(|project| project[field].as_str().map(str::to_owned))
+        .map(|project| field(&project).to_owned())
         .filter(|value| !value.trim().is_empty())
 }
 
 /// Include patterns in gitignore syntax, from the first of: the repo's `.worktreeinclude`, the
 /// project's own patterns, the default in Settings, `.env*`. Comments and blank lines are dropped
 /// here, since each pattern goes to git as its own `-x`.
-fn include_patterns(app: &AppState, source: &Path) -> Vec<String> {
-    let text = fs::read_to_string(source.join(INCLUDE_FILE))
-        .ok()
-        .or_else(|| project_field(app, source, PROJECT_INCLUDE))
-        .or_else(|| config(app, INCLUDE))
-        .unwrap_or_else(|| DEFAULT_INCLUDE.to_owned());
+async fn include_patterns(app: &AppState, source: &Path) -> Vec<String> {
+    let text = match fs::read_to_string(source.join(INCLUDE_FILE)).ok() {
+        Some(text) => text,
+        None => match project_field(app, source, |project| &project.worktree_include).await {
+            Some(text) => text,
+            None => config(app, INCLUDE)
+                .await
+                .unwrap_or_else(|| DEFAULT_INCLUDE.to_owned()),
+        },
+    };
     parse_patterns(&text)
 }
 
@@ -204,7 +206,7 @@ pub(crate) struct Copied {
 
 /// Copies the included ignored files from `source` into the new worktree at `destination`.
 pub(crate) async fn copy_included(app: &AppState, source: &Path, destination: &Path) -> Copied {
-    let patterns = include_patterns(app, source);
+    let patterns = include_patterns(app, source).await;
     // Git failing to answer is reported like a file that failed to copy, so Activity says why a
     // worktree came up without its .env instead of the create looking as though nothing matched.
     let files = match included_files(source, &patterns).await {
@@ -290,8 +292,8 @@ fn copy_one(from: &Path, to: &Path) -> io::Result<()> {
 /// Runs the project's setup script in the new worktree, in the background. It never blocks or
 /// fails New Session: the outcome goes to Activity, and a `worktree-setup` event says when it is
 /// done. The script is per project only, since one command rarely suits every repo.
-pub(crate) fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch: &str) {
-    let Some(command) = project_field(app, Path::new(source), PROJECT_SETUP) else {
+pub(crate) async fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch: &str) {
+    let Some(command) = project_field(app, Path::new(source), |project| &project.worktree_setup).await else {
         return;
     };
     let app = app.clone();
@@ -299,7 +301,7 @@ pub(crate) fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch:
     let worktree = worktree.to_string_lossy().into_owned();
     let branch = branch.to_owned();
     tokio::spawn(async move {
-        app.broadcast(json!({"type":"worktree-setup","worktree":worktree,"state":"running"}));
+        app.publish(crate::Event::WorktreeSetup { worktree: worktree.clone(), state: "running", error: String::new() });
         let shell = std::env::var("SHELL")
             .ok()
             .filter(|v| v.starts_with('/'))
@@ -325,10 +327,8 @@ pub(crate) fn spawn_setup(app: &AppState, source: &str, worktree: &Path, branch:
             level,
             kind,
             &json!({"worktree":worktree,"command":command,"error":detail}),
-        );
-        app.broadcast(
-            json!({"type":"worktree-setup","worktree":worktree,"state":state,"error":detail}),
-        );
+        ).await;
+        app.publish(crate::Event::WorktreeSetup { worktree: worktree.clone(), state, error: detail });
     });
 }
 
@@ -343,7 +343,7 @@ fn tail(text: &str) -> String {
 /// Off by default: worktree creation otherwise never waits on the network. A fetch that fails or
 /// runs out of time is not an error, since the branch is then cut from the tip the checkout has.
 pub(crate) async fn fetch_base(app: &AppState, dir: &str, base: &str) {
-    if !matches!(config(app, FETCH).as_deref(), Some("true" | "1")) {
+    if !matches!(config(app, FETCH).await.as_deref(), Some("true" | "1")) {
         return;
     }
     if let Err(error) = cli::run(
@@ -358,7 +358,7 @@ pub(crate) async fn fetch_base(app: &AppState, dir: &str, base: &str) {
             "info",
             "worktree_fetch_skipped",
             &json!({"base":base,"reason":crate::local::error_line(&error.to_string())}),
-        );
+        ).await;
     }
 }
 
@@ -391,13 +391,13 @@ pub(crate) fn spawn_derived_data_removal(app: &AppState, worktree: &str, folders
             if failed.is_empty() { "info" } else { "error" },
             if failed.is_empty() { "worktree_derived_data_deleted" } else { "worktree_derived_data_failed" },
             &json!({"worktree":worktree,"deleted":deleted,"failed":failed}),
-        );
+        ).await;
     });
 }
 
 /// Whether removing a session's worktree also removes its branch.
-pub(crate) fn delete_branch(app: &AppState) -> bool {
-    matches!(config(app, DELETE_BRANCH).as_deref(), Some("true" | "1"))
+pub(crate) async fn delete_branch(app: &AppState) -> bool {
+    matches!(config(app, DELETE_BRANCH).await.as_deref(), Some("true" | "1"))
 }
 
 /// `branch -d`, never `-D`: git refuses a branch that is not merged into its upstream or HEAD,
@@ -415,7 +415,7 @@ pub(crate) async fn remove_branch(app: &AppState, dir: &str, branch: &str) -> bo
         "info",
         if deleted { "worktree_branch_deleted" } else { "worktree_branch_kept" },
         &json!({"branch":branch,"reason":result.err().map(|e| crate::local::error_line(&e.to_string()))}),
-    );
+    ).await;
     deleted
 }
 

@@ -72,55 +72,119 @@ import Observation
     @ObservationIgnored private var service: (any ShellDataServing)?
     @ObservationIgnored private var trayTask: Task<Void, Never>?
     @ObservationIgnored private var usageTask: Task<Void, Never>?
-    @ObservationIgnored private var settingsTask: Task<Void, Never>?
-    @ObservationIgnored private var settingsWrite: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
-    @ObservationIgnored private var settingsRevision = 0
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let preferences: UserDefaults
     /// Where the chosen icon theme is loaded for the app's views; nil where nothing draws files.
     @ObservationIgnored private let fileIcons: FileIconStore?
-    @ObservationIgnored private var pendingSettings: [String: String]
     @ObservationIgnored private var pendingReviewOpens: [String: (repo: String, number: Int)] = [:]
 
     init(preferences: UserDefaults = .standard, notifications: NotificationStore? = nil, fileIcons: FileIconStore? = nil) {
         self.notifications = notifications ?? NotificationStore()
         self.preferences = preferences
         self.fileIcons = fileIcons
-        pendingSettings = preferences.dictionary(forKey: "native.pendingSettings") as? [String: String] ?? [:]
-        appearance = AppAppearance(rawValue: preferences.string(forKey: "native.theme") ?? "auto") ?? .system
-        usageAgent = AgentDrivers.driver(for: preferences.string(forKey: "native.usageAgent")).cli
-        defaultAgent = preferences.string(forKey: "native.defaultCli").flatMap(SessionAgent.init(rawValue:)) ?? .primary
-        activityNotify = preferences.string(forKey: "native.activityNotify") != "off"
-        reviewSound = preferences.string(forKey: "native.reviewSound") ?? "system"
-        gitClient = preferences.string(forKey: "native.gitClient") ?? ""
-        // Never chosen: the bundled theme. Chosen None: empty.
-        fileIconTheme = preferences.string(forKey: "native.fileIconTheme") ?? IconThemeLibrary.bundledTheme
-        let command = preferences.string(forKey: "native.gitClientCmd") ?? ""
-        gitClientCommand = command; gitClientCommandDraft = command
-        func savedFont(_ kind: CodeFontKind) -> CodeFont {
-            CodeFont(kind, settings: ["\(kind.rawValue)_font_family": preferences.string(forKey: "native.\(kind.rawValue)_font_family") ?? "",
-                                     "\(kind.rawValue)_font_size": preferences.string(forKey: "native.\(kind.rawValue)_font_size") ?? String(kind.defaultSize)])
-        }
-        terminalCodeFont = savedFont(.term); documentCodeFont = savedFont(.diff)
-        // Thickening defaults on: without it libghostty renders noticeably thinner than the
-        // standalone Ghostty app, which is the state this setting exists to correct.
-        terminalFontThicken = preferences.string(forKey: "native.terminalThicken") != "off"
-        terminalFontThickenStrength = TerminalStyle.clampThickenStrength(preferences.string(forKey: "native.terminalThickenStrength"))
-        terminalDarkTheme = preferences.string(forKey: "native.terminalThemeDark") ?? ""
-        terminalLightTheme = preferences.string(forKey: "native.terminalThemeLight") ?? ""
-        terminalKeybinds = TerminalStyle.keybinds(fromSetting: preferences.string(forKey: "native.terminalKeybinds"))
-        sessionMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.sessionMemoryLimit"))
-        pageMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.pageMemoryLimit"))
-        // A saved name this build has no theme for reads as Default, as it does when synced.
-        func savedTheme(_ key: String, dark: Bool) -> String {
-            let name = preferences.string(forKey: "native.\(key)") ?? ""
-            return CodeTheme.has(name, dark: dark) ? name : ""
-        }
-        editorStyle = EditorStyle(darkTheme: savedTheme("editorThemeDark", dark: true),
-                                  lightTheme: savedTheme("editorThemeLight", dark: false),
-                                  showMinimap: preferences.string(forKey: "native.editorMinimap") == "on")
+        let saved = SavedPreferences(preferences)
+        appearance = saved.appearance
+        usageAgent = saved.usageAgent
+        defaultAgent = saved.defaultAgent
+        activityNotify = saved.activityNotify
+        reviewSound = saved.reviewSound
+        gitClient = saved.gitClient
+        fileIconTheme = saved.fileIconTheme
+        gitClientCommand = saved.gitClientCommand; gitClientCommandDraft = saved.gitClientCommand
+        terminalCodeFont = saved.terminalCodeFont; documentCodeFont = saved.documentCodeFont
+        terminalFontThicken = saved.terminalFontThicken
+        terminalFontThickenStrength = saved.terminalFontThickenStrength
+        terminalDarkTheme = saved.terminalDarkTheme
+        terminalLightTheme = saved.terminalLightTheme
+        terminalKeybinds = saved.terminalKeybinds
+        sessionMemoryLimit = saved.sessionMemoryLimit
+        pageMemoryLimit = saved.pageMemoryLimit
+        editorStyle = saved.editorStyle
         fileIcons?.select(fileIconTheme)
+    }
+
+    /// Re-reads every preference-backed value, after the one-time import wrote what an earlier
+    /// version kept in the backend. The observers propagate what changed; an edited git client
+    /// command draft is kept.
+    private func reloadPreferences() {
+        let saved = SavedPreferences(preferences)
+        let draftClean = gitClientCommandDraft == gitClientCommand
+        appearance = saved.appearance
+        usageAgent = saved.usageAgent
+        defaultAgent = saved.defaultAgent
+        activityNotify = saved.activityNotify
+        reviewSound = saved.reviewSound
+        gitClient = saved.gitClient
+        fileIconTheme = saved.fileIconTheme
+        gitClientCommand = saved.gitClientCommand
+        if draftClean { gitClientCommandDraft = saved.gitClientCommand }
+        terminalCodeFont = saved.terminalCodeFont; documentCodeFont = saved.documentCodeFont
+        terminalFontThicken = saved.terminalFontThicken
+        terminalFontThickenStrength = saved.terminalFontThickenStrength
+        terminalDarkTheme = saved.terminalDarkTheme
+        terminalLightTheme = saved.terminalLightTheme
+        terminalKeybinds = saved.terminalKeybinds
+        sessionMemoryLimit = saved.sessionMemoryLimit
+        pageMemoryLimit = saved.pageMemoryLimit
+        editorStyle = saved.editorStyle
+    }
+
+    /// Every preference-backed value, read from `UserDefaults` in one place: what `init` starts
+    /// from and what a one-time import re-reads.
+    private struct SavedPreferences {
+        let appearance: AppAppearance
+        let usageAgent: String
+        let defaultAgent: SessionAgent
+        let activityNotify: Bool
+        let reviewSound: String
+        let gitClient: String
+        let fileIconTheme: String
+        let gitClientCommand: String
+        let terminalCodeFont: CodeFont
+        let documentCodeFont: CodeFont
+        let terminalFontThicken: Bool
+        let terminalFontThickenStrength: Int
+        let terminalDarkTheme: String
+        let terminalLightTheme: String
+        let terminalKeybinds: [String]
+        let sessionMemoryLimit: MemoryLimit
+        let pageMemoryLimit: MemoryLimit
+        let editorStyle: EditorStyle
+
+        init(_ preferences: UserDefaults) {
+            appearance = AppAppearance(rawValue: preferences.string(forKey: "native.theme") ?? "auto") ?? .system
+            usageAgent = AgentDrivers.driver(for: preferences.string(forKey: "native.usageAgent")).cli
+            defaultAgent = preferences.string(forKey: "native.defaultCli").flatMap(SessionAgent.init(rawValue:)) ?? .primary
+            activityNotify = preferences.string(forKey: "native.activityNotify") != "off"
+            reviewSound = preferences.string(forKey: "native.reviewSound") ?? "system"
+            gitClient = preferences.string(forKey: "native.gitClient") ?? ""
+            // Never chosen: the bundled theme. Chosen None: empty.
+            fileIconTheme = preferences.string(forKey: "native.fileIconTheme") ?? IconThemeLibrary.bundledTheme
+            gitClientCommand = preferences.string(forKey: "native.gitClientCmd") ?? ""
+            func savedFont(_ kind: CodeFontKind) -> CodeFont {
+                CodeFont(kind, settings: ["\(kind.rawValue)_font_family": preferences.string(forKey: "native.\(kind.rawValue)_font_family") ?? "",
+                                         "\(kind.rawValue)_font_size": preferences.string(forKey: "native.\(kind.rawValue)_font_size") ?? String(kind.defaultSize)])
+            }
+            terminalCodeFont = savedFont(.term); documentCodeFont = savedFont(.diff)
+            // Thickening defaults on: without it libghostty renders noticeably thinner than the
+            // standalone Ghostty app, which is the state this setting exists to correct.
+            terminalFontThicken = preferences.string(forKey: "native.terminalThicken") != "off"
+            terminalFontThickenStrength = TerminalStyle.clampThickenStrength(preferences.string(forKey: "native.terminalThickenStrength"))
+            terminalDarkTheme = preferences.string(forKey: "native.terminalThemeDark") ?? ""
+            terminalLightTheme = preferences.string(forKey: "native.terminalThemeLight") ?? ""
+            terminalKeybinds = TerminalStyle.keybinds(fromSetting: preferences.string(forKey: "native.terminalKeybinds"))
+            sessionMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.sessionMemoryLimit"))
+            pageMemoryLimit = MemoryLimit(setting: preferences.string(forKey: "native.pageMemoryLimit"))
+            // A saved name this build has no theme for reads as Default, as it does when synced.
+            func savedTheme(_ key: String, dark: Bool) -> String {
+                let name = preferences.string(forKey: "native.\(key)") ?? ""
+                return CodeTheme.has(name, dark: dark) ? name : ""
+            }
+            editorStyle = EditorStyle(darkTheme: savedTheme("editorThemeDark", dark: true),
+                                      lightTheme: savedTheme("editorThemeLight", dark: false),
+                                      showMinimap: preferences.string(forKey: "native.editorMinimap") == "on")
+        }
     }
 
     private(set) var pendingReviews: [TrayPR] = []
@@ -128,17 +192,53 @@ import Observation
 
     public func applyAppearance() { onAction(.applyAppearance(appearance)) }
 
+    /// Whether the preferences an earlier version kept in the backend are still to be adopted.
+    var needsLegacyPreferenceImport: Bool { !preferences.bool(forKey: "native.legacyPreferencesImported") }
+
+    /// The preference keys the backend's settings table used to hold for the app, as `SavedPreferences`
+    /// reads them. The table also held page-tab snapshots and the backend's own settings, which
+    /// are not preferences and are left where they are.
+    private static let importedPreferenceKeys: Set<String> = [
+        "theme", "usageAgent", "defaultCli", "activityNotify", "reviewSound", "gitClient", "fileIconTheme",
+        "gitClientCmd", "term_font_family", "term_font_size", "diff_font_family", "diff_font_size",
+        "terminalThicken", "terminalThickenStrength", "terminalThemeDark", "terminalThemeLight", "terminalKeybinds",
+        "sessionMemoryLimit", "pageMemoryLimit", "editorThemeDark", "editorThemeLight", "editorMinimap",
+    ]
+
+    /// Adopts, once, what an earlier version kept in the backend: the boards' assignee filters,
+    /// which lived only there, and every other preference for which this Mac has no value of its
+    /// own. Those were mirrored here as they were set, so on the Mac they were set on nothing
+    /// changes; a data directory carried to a new Mac brings its theme, fonts and terminal
+    /// settings along, as it did when the backend was read on every connect.
+    func importLegacyPreferences(_ settings: [String: String?]) {
+        guard needsLegacyPreferenceImport else { return }
+        var adopted = false
+        for (key, value) in settings {
+            guard let value, !value.isEmpty else { continue }
+            let local: String
+            if key.hasPrefix("board_filter_") {
+                local = "native.boardFilter.\(key.dropFirst("board_filter_".count))"
+            } else if Self.importedPreferenceKeys.contains(key) {
+                local = "native.\(key)"
+            } else {
+                continue
+            }
+            if preferences.string(forKey: local) == nil {
+                preferences.set(value, forKey: local)
+                adopted = true
+            }
+        }
+        preferences.set(true, forKey: "native.legacyPreferencesImported")
+        if adopted { reloadPreferences() }
+    }
+
     func connect(_ service: any ShellDataServing) {
         generation += 1
         self.service = service
         let opened = pendingReviewOpens.values
         pendingReviewOpens.removeAll()
         for review in opened { acknowledgeReview(repo: review.repo, number: review.number) }
-        for key in pendingSettings.keys.sorted() {
-            if let value = pendingSettings[key] { saveSetting(key, value: value) }
-        }
         refresh()
-        loadSettings()
     }
 
     func refresh() {
@@ -229,31 +329,31 @@ import Observation
         activityNotify = enabled
         let value = enabled ? "on" : "off"
         preferences.set(value, forKey: "native.activityNotify")
-        saveSetting("activityNotify", value: value)
+        settingsError = nil
     }
 
     func setReviewSound(_ value: String) {
         reviewSound = value
         preferences.set(value, forKey: "native.reviewSound")
-        saveSetting("reviewSound", value: value)
+        settingsError = nil
     }
 
     public func setAppearance(_ value: AppAppearance) {
         appearance = value
         preferences.set(value.rawValue, forKey: "native.theme")
-        saveSetting("theme", value: value.rawValue)
+        settingsError = nil
     }
 
     func setUsageAgent(_ value: String) {
         usageAgent = AgentDrivers.driver(for: value).cli
         preferences.set(usageAgent, forKey: "native.usageAgent")
-        saveSetting("usageAgent", value: usageAgent)
+        settingsError = nil
     }
 
     func setDefaultAgent(_ value: SessionAgent) {
         defaultAgent = value
         preferences.set(value.rawValue, forKey: "native.defaultCli")
-        saveSetting("defaultCli", value: value.rawValue)
+        settingsError = nil
     }
 
     var gitClientCommandDirty: Bool { gitClientCommandDraft != gitClientCommand }
@@ -261,13 +361,13 @@ import Observation
         guard value.isEmpty || value == "custom" || ExternalTool.gitClients.contains(where: { $0.id == value }) else { return }
         gitClient = value
         preferences.set(value, forKey: "native.gitClient")
-        saveSetting("gitClient", value: value)
+        settingsError = nil
     }
     /// Draws files with an installed icon theme, `<extension>/<theme>`, or with none when empty.
     func setFileIconTheme(_ id: String) {
         fileIconTheme = id
         preferences.set(id, forKey: "native.fileIconTheme")
-        saveSetting("fileIconTheme", value: id)
+        settingsError = nil
     }
     func saveGitClientCommand() {
         do {
@@ -277,7 +377,7 @@ import Observation
             gitClientCommand = gitClientCommandDraft
             gitClientCommandError = nil
             preferences.set(gitClientCommand, forKey: "native.gitClientCmd")
-            saveSetting("gitClientCmd", value: gitClientCommand)
+            settingsError = nil
         } catch { gitClientCommandError = error.localizedDescription }
     }
     func revertGitClientCommand() { gitClientCommandDraft = gitClientCommand; gitClientCommandError = nil }
@@ -292,7 +392,7 @@ import Observation
         for (suffix, value, changed) in [("family", next.family, next.family != previous.family), ("size", String(next.size), next.size != previous.size)] where changed {
             let key = "\(kind.rawValue)_font_\(suffix)"
             preferences.set(value, forKey: "native.\(key)")
-            saveSetting(key, value: value, debounce: true)
+            settingsError = nil
         }
     }
 
@@ -317,33 +417,33 @@ import Observation
         terminalKeybinds = cleaned
         let value = TerminalStyle.keybindsSetting(cleaned)
         preferences.set(value, forKey: "native.terminalKeybinds")
-        saveSetting("terminalKeybinds", value: value)
+        settingsError = nil
         return true
     }
     func setSessionMemoryLimit(_ value: MemoryLimit) {
         guard value != sessionMemoryLimit else { return }
         sessionMemoryLimit = value
         preferences.set(value.rawValue, forKey: "native.sessionMemoryLimit")
-        saveSetting("sessionMemoryLimit", value: value.rawValue)
+        settingsError = nil
     }
     func setPageMemoryLimit(_ value: MemoryLimit) {
         guard value != pageMemoryLimit else { return }
         pageMemoryLimit = value
         preferences.set(value.rawValue, forKey: "native.pageMemoryLimit")
-        saveSetting("pageMemoryLimit", value: value.rawValue)
+        settingsError = nil
     }
     func setTerminalFontThicken(_ enabled: Bool) {
         guard enabled != terminalFontThicken else { return }
         terminalFontThicken = enabled
         preferences.set(enabled ? "on" : "off", forKey: "native.terminalThicken")
-        saveSetting("terminalThicken", value: enabled ? "on" : "off")
+        settingsError = nil
     }
     func setTerminalFontThickenStrength(_ value: Int) {
         let next = TerminalStyle.clampThickenStrength(value)
         guard next != terminalFontThickenStrength else { return }
         terminalFontThickenStrength = next
         preferences.set(String(next), forKey: "native.terminalThickenStrength")
-        saveSetting("terminalThickenStrength", value: String(next), debounce: true)
+        settingsError = nil
     }
     func setTerminalTheme(dark: String? = nil, light: String? = nil) {
         for (value, key, isDark) in [(dark, "terminalThemeDark", true), (light, "terminalThemeLight", false)] {
@@ -354,7 +454,7 @@ import Observation
             }
             if isDark { terminalDarkTheme = value } else { terminalLightTheme = value }
             preferences.set(value, forKey: "native.\(key)")
-            saveSetting(key, value: value)
+            settingsError = nil
         }
     }
     func setEditorTheme(dark: String? = nil, light: String? = nil) {
@@ -366,131 +466,23 @@ import Observation
             }
             if isDark { editorStyle.darkTheme = value } else { editorStyle.lightTheme = value }
             preferences.set(value, forKey: "native.\(key)")
-            saveSetting(key, value: value)
+            settingsError = nil
         }
     }
     func setEditorMinimap(_ shown: Bool) {
         guard shown != editorStyle.showMinimap else { return }
         editorStyle.showMinimap = shown
         preferences.set(shown ? "on" : "off", forKey: "native.editorMinimap")
-        saveSetting("editorMinimap", value: shown ? "on" : "off")
-    }
-
-    private func saveSetting(_ key: String, value: String, debounce: Bool = false) {
-        pendingSettings[key] = value
-        preferences.set(pendingSettings, forKey: "native.pendingSettings")
-        settingsRevision += 1
-        let revision = settingsRevision
-        guard let service else { settingsError = String(localized: "Preference saved locally; connect to sync it."); return }
-        let previous = settingsWrite
-        settingsWrite = Task {
-            await previous?.value // Preserve rapid user changes in their original order.
-            do {
-                try Task.checkCancellation()
-                if debounce {
-                    guard pendingSettings[key] == value else { return }
-                    try await Task.sleep(for: .milliseconds(250))
-                    guard pendingSettings[key] == value else { return }
-                }
-                try await service.setSetting(key, value: value)
-                if pendingSettings[key] == value {
-                    pendingSettings.removeValue(forKey: key)
-                    preferences.set(pendingSettings, forKey: "native.pendingSettings")
-                }
-                if settingsRevision == revision {
-                    settingsError = pendingSettings.isEmpty ? nil : String(localized: "Some preferences are saved locally; reconnect to sync them.")
-                }
-            } catch { if !Task.isCancelled && settingsRevision == revision { settingsError = error.localizedDescription } }
-        }
-    }
-
-    func loadSettings() {
-        guard settingsTask == nil, let service else { return }
-        let revision = settingsRevision
-        settingsTask = Task {
-            defer { settingsTask = nil }
-            // Wait for our writes before accepting a snapshot of the settings.
-            await settingsWrite?.value
-            do {
-                let settings: [String: String?] = try await service.settings()
-                try Task.checkCancellation()
-                guard revision == settingsRevision else { return }
-                if pendingSettings["theme"] == nil {
-                    appearance = AppAppearance(rawValue: (settings["theme"] ?? nil) ?? "auto") ?? .system
-                }
-                if pendingSettings["usageAgent"] == nil {
-                    usageAgent = AgentDrivers.driver(for: settings["usageAgent"] ?? nil).cli
-                }
-                if pendingSettings["activityNotify"] == nil { activityNotify = (settings["activityNotify"] ?? nil) != "off" }
-                if pendingSettings["reviewSound"] == nil { reviewSound = (settings["reviewSound"] ?? nil) ?? "system" }
-                if pendingSettings["defaultCli"] == nil { defaultAgent = (settings["defaultCli"] ?? nil).flatMap(SessionAgent.init(rawValue:)) ?? .primary }
-                if pendingSettings["gitClient"] == nil { gitClient = (settings["gitClient"] ?? nil) ?? "" }
-                if pendingSettings["fileIconTheme"] == nil { fileIconTheme = (settings["fileIconTheme"] ?? nil) ?? IconThemeLibrary.bundledTheme }
-                if pendingSettings["gitClientCmd"] == nil {
-                    let dirty = gitClientCommandDirty
-                    gitClientCommand = (settings["gitClientCmd"] ?? nil) ?? ""
-                    if !dirty { gitClientCommandDraft = gitClientCommand }
-                }
-                for kind in CodeFontKind.allCases {
-                    let previous = font(kind)
-                    let familyKey = "\(kind.rawValue)_font_family", sizeKey = "\(kind.rawValue)_font_size"
-                    let family = pendingSettings[familyKey] == nil ? (settings[familyKey] ?? nil) ?? "" : previous.family
-                    let size = pendingSettings[sizeKey] == nil ? Int((settings[sizeKey] ?? nil) ?? "") ?? kind.defaultSize : previous.size
-                    let value = CodeFont(family: family, size: size)
-                    if kind == .term { terminalCodeFont = value } else { documentCodeFont = value }
-                    preferences.set(value.family, forKey: "native.\(familyKey)")
-                    preferences.set(String(value.size), forKey: "native.\(sizeKey)")
-                }
-                if pendingSettings["terminalThicken"] == nil { terminalFontThicken = (settings["terminalThicken"] ?? nil) != "off" }
-                if pendingSettings["terminalThickenStrength"] == nil {
-                    terminalFontThickenStrength = TerminalStyle.clampThickenStrength((settings["terminalThickenStrength"] ?? nil))
-                }
-                if pendingSettings["terminalThemeDark"] == nil { terminalDarkTheme = (settings["terminalThemeDark"] ?? nil) ?? "" }
-                if pendingSettings["terminalThemeLight"] == nil { terminalLightTheme = (settings["terminalThemeLight"] ?? nil) ?? "" }
-                if pendingSettings["terminalKeybinds"] == nil { terminalKeybinds = TerminalStyle.keybinds(fromSetting: settings["terminalKeybinds"] ?? nil) }
-                if pendingSettings["sessionMemoryLimit"] == nil { sessionMemoryLimit = MemoryLimit(setting: settings["sessionMemoryLimit"] ?? nil) }
-                if pendingSettings["pageMemoryLimit"] == nil { pageMemoryLimit = MemoryLimit(setting: settings["pageMemoryLimit"] ?? nil) }
-                // A name this build has no theme for reads as Default, so the picker always has a row for it.
-                for (key, dark) in [("editorThemeDark", true), ("editorThemeLight", false)] where pendingSettings[key] == nil {
-                    let stored = (settings[key] ?? nil) ?? "", name = CodeTheme.has(stored, dark: dark) ? stored : ""
-                    if dark { editorStyle.darkTheme = name } else { editorStyle.lightTheme = name }
-                }
-                if pendingSettings["editorMinimap"] == nil { editorStyle.showMinimap = (settings["editorMinimap"] ?? nil) == "on" }
-                preferences.set(appearance.rawValue, forKey: "native.theme")
-                preferences.set(usageAgent, forKey: "native.usageAgent")
-                preferences.set(activityNotify ? "on" : "off", forKey: "native.activityNotify")
-                preferences.set(reviewSound, forKey: "native.reviewSound")
-                preferences.set(defaultAgent.rawValue, forKey: "native.defaultCli")
-                preferences.set(gitClient, forKey: "native.gitClient")
-                preferences.set(fileIconTheme, forKey: "native.fileIconTheme")
-                preferences.set(gitClientCommand, forKey: "native.gitClientCmd")
-                preferences.set(terminalFontThicken ? "on" : "off", forKey: "native.terminalThicken")
-                preferences.set(String(terminalFontThickenStrength), forKey: "native.terminalThickenStrength")
-                preferences.set(terminalDarkTheme, forKey: "native.terminalThemeDark")
-                preferences.set(terminalLightTheme, forKey: "native.terminalThemeLight")
-                preferences.set(sessionMemoryLimit.rawValue, forKey: "native.sessionMemoryLimit")
-                preferences.set(pageMemoryLimit.rawValue, forKey: "native.pageMemoryLimit")
-                // Written only once the key exists somewhere: an untouched install keeps
-                // following the shipped defaults instead of freezing today's pair into prefs.
-                if (settings["terminalKeybinds"] ?? nil) != nil || pendingSettings["terminalKeybinds"] != nil {
-                    preferences.set(TerminalStyle.keybindsSetting(terminalKeybinds), forKey: "native.terminalKeybinds")
-                }
-                preferences.set(editorStyle.darkTheme, forKey: "native.editorThemeDark")
-                preferences.set(editorStyle.lightTheme, forKey: "native.editorThemeLight")
-                preferences.set(editorStyle.showMinimap ? "on" : "off", forKey: "native.editorMinimap")
-                if pendingSettings.isEmpty { settingsError = nil }
-            } catch { if !Task.isCancelled { settingsError = error.localizedDescription } }
-        }
+        settingsError = nil
     }
 
     func stop() async {
         generation += 1
         acknowledging.removeAll()
-        trayTask?.cancel(); usageTask?.cancel(); settingsTask?.cancel()
-        await trayTask?.value; await usageTask?.value; await settingsTask?.value
-        await settingsWrite?.value
+        trayTask?.cancel(); usageTask?.cancel()
+        await trayTask?.value; await usageTask?.value
         await notifications.stop()
-        trayTask = nil; usageTask = nil; settingsTask = nil; settingsWrite = nil
+        trayTask = nil; usageTask = nil
         service = nil
     }
 }

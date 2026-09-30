@@ -36,7 +36,6 @@ private actor PoolBackend: BackendTransport {
         case Routes.AGENT_CONVERSATION:
             let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
             body = #"{"exists":\#(!missing.contains(id) || looked.insert(id).inserted)}"#
-        case Routes.SETTINGS: body = #"{"sessionMemoryLimit":"1"}"#
         case Routes.DASHBOARD, Routes.PRS_TRAY: body = "[]"
         default: body = "{}"
         }

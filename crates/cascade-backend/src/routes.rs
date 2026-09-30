@@ -12,9 +12,9 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio_stream::wrappers::BroadcastStream;
-use url::Url;
 
 use crate::{error::ApiError, AppState};
+use crate::{Project, Session};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
@@ -29,7 +29,7 @@ pub async fn health(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 pub async fn get_config(State(state): State<AppState>) -> ApiResult<Value> {
-    Ok(Json(state.db.config()?))
+    Ok(Json(state.db.config().await?))
 }
 
 pub async fn set_config(
@@ -39,14 +39,14 @@ pub async fn set_config(
     let object = body
         .as_object()
         .ok_or_else(|| ApiError::bad_request("JSON object required"))?;
-    state.db.set_config(object)?;
+    state.db.set_config(object).await?;
     for key in object.keys() {
         if let Some(id) = key.strip_prefix("board_query_") {
-            state.poller.invalidate(id);
-            state.db.invalidate_snapshots(id)?;
+            state.poller.invalidate(id).await;
+            state.db.invalidate_snapshots(id).await?;
         }
     }
-    state.broadcast(json!({ "type": "config" }));
+    state.publish(crate::Event::Config);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -85,130 +85,30 @@ pub async fn sounds() -> ApiResult<Value> {
     Ok(Json(Value::Array(result)))
 }
 
+/// Read only, for one release: the app adopts what an earlier version left here, once.
 pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Value> {
-    Ok(Json(state.db.settings()?))
-}
-
-#[derive(Deserialize)]
-pub struct SettingBody {
-    value: Value,
-}
-
-pub async fn put_setting(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-    Json(body): Json<SettingBody>,
-) -> ApiResult<Value> {
-    state.db.setting(&key, &body.value)?;
-    state.broadcast(json!({ "type": "settings" }));
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(state.db.settings().await?))
 }
 
 pub async fn get_tabs(State(state): State<AppState>) -> ApiResult<Value> {
-    Ok(Json(state.db.tabs()?))
+    Ok(Json(state.db.tabs().await?))
 }
 
-pub async fn open_tab(State(state): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
-    let object = body.as_object().ok_or_else(|| {
-        ApiError::bad_request("A web URL, tab kind, and string metadata are required")
-    })?;
-    validate_open_tab(object)?;
-    let saved = state.db.open_tab(object)?;
-    state.broadcast(json!({ "type": "tabs" }));
-    Ok(Json(saved))
-}
-
-pub async fn close_tab(State(state): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
-    let id = body
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| ApiError::bad_request("id required"))?;
-    let saved = state.db.close_tab(id)?;
-    state.broadcast(json!({ "type": "tabs" }));
-    Ok(Json(saved))
-}
-
-pub async fn rename_tab(State(state): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
-    if let Some(order) = body.get("order").and_then(Value::as_array) {
-        let ids: Vec<&str> = order.iter().filter_map(Value::as_str).collect();
-        let saved = state.db.reorder_tabs(&ids)?;
-        state.broadcast(json!({ "type": "tabs" }));
-        return Ok(Json(saved));
-    }
-    let id = body
-        .get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| ApiError::bad_request("id required"))?;
-    // Every field present is applied; a body naming none of them is a mistake, not a no-op.
-    let pinned = match body.get("pinned") {
-        Some(value) => Some(
-            value
-                .as_bool()
-                .ok_or_else(|| ApiError::bad_request("pinned must be a boolean"))?,
-        ),
-        None => None,
-    };
-    let adopt = match body.get("standalone") {
-        Some(value) if value.as_bool() == Some(false) => true,
-        Some(_) => return Err(ApiError::bad_request("standalone can only be cleared")),
-        None => false,
-    };
-    let title = match body.get("title") {
-        Some(value) => Some(
-            value
-                .as_str()
-                .ok_or_else(|| ApiError::bad_request("title must be a string"))?,
-        ),
-        None => None,
-    };
-    if pinned.is_none() && !adopt && title.is_none() {
-        return Err(ApiError::bad_request("title required"));
-    }
-    let mut saved = Value::Null;
-    if let Some(pinned) = pinned {
-        saved = state.db.pin_tab(id, pinned)?;
-    }
-    if adopt {
-        saved = state.db.adopt_tab(id)?;
-    }
-    if let Some(title) = title {
-        saved = state.db.rename_tab(id, title)?;
-    }
-    state.broadcast(json!({ "type": "tabs" }));
-    Ok(Json(saved))
-}
-
-pub async fn put_tabs(State(state): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
-    let tabs = body
-        .get("tabs")
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .unwrap_or(&[]);
-    let active = body.get("active").and_then(Value::as_str);
-    state.db.set_tabs(tabs, active)?;
-    state.broadcast(json!({ "type": "tabs" }));
-    Ok(Json(json!({ "ok": true })))
-}
-
-pub async fn get_tasks(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
-    Ok(Json(state.db.tasks()?))
+pub async fn get_tasks(State(state): State<AppState>) -> ApiResult<Vec<Session>> {
+    Ok(Json(state.db.tasks().await?))
 }
 
 pub async fn upsert_task(
     State(state): State<AppState>,
     Json(body): Json<Value>,
 ) -> ApiResult<Value> {
-    let object = body
-        .as_object()
-        .ok_or_else(|| ApiError::bad_request("id, projectId, workspace, worktree required"))?;
-    if !state.db.upsert_task(object)? {
-        return Err(ApiError::bad_request(
-            "id, projectId, workspace, worktree required",
-        ));
+    const REQUIRED: &str = "id, projectId, workspace, worktree required";
+    let session: Session =
+        serde_json::from_value(body).map_err(|_| ApiError::bad_request(REQUIRED))?;
+    if !state.db.upsert_task(&session).await? {
+        return Err(ApiError::bad_request(REQUIRED));
     }
-    state.broadcast(json!({ "type": "tasks" }));
+    state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -222,9 +122,9 @@ pub async fn delete_task(
     Query(query): Query<DeleteTaskQuery>,
 ) -> ApiResult<Value> {
     if let Some(id) = query.id {
-        state.db.delete_task(&id)?;
+        state.db.delete_task(&id).await?;
     }
-    state.broadcast(json!({ "type": "tasks" }));
+    state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -242,10 +142,10 @@ pub async fn pin_task(
         .pinned
         .as_bool()
         .ok_or_else(|| ApiError::bad_request("pinned must be a boolean"))?;
-    if !state.db.pin_task(&id, pinned)? {
+    if !state.db.pin_task(&id, pinned).await? {
         return Err(ApiError::not_found("Session not found"));
     }
-    state.broadcast(json!({ "type": "tasks" }));
+    state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -284,24 +184,39 @@ pub async fn patch_task(
             return Err(ApiError::bad_request("Unsupported agent"));
         }
     }
-    if !state.db.patch_task(&id, patch)? {
+    if !state.db.patch_task(&id, patch).await? {
         return Err(ApiError::not_found("Session not found"));
     }
-    state.broadcast(json!({ "type": "tasks" }));
+    state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn get_projects(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
-    Ok(Json(state.db.projects()?))
+/// The session's conversation as chat turns, with the CLI's hook install beside it (`hooks`):
+/// without it the chat cannot tell a working agent from one at its prompt, and without the
+/// current permission hook approvals stay in the terminal.
+pub async fn agent_transcript(Query(query): Query<crate::agents::TranscriptQuery>) -> Json<Value> {
+    let found = tokio::task::spawn_blocking(move || {
+        let (agent, mut found) = crate::agents::transcript(&query)?;
+        found["hooks"] = json!(crate::integrations::hook_status_for(agent));
+        Some(found)
+    })
+    .await
+    .ok()
+    .flatten();
+    Json(found.unwrap_or_else(|| json!({"revision": "", "turns": []})))
+}
+
+pub async fn get_projects(State(state): State<AppState>) -> ApiResult<Vec<Project>> {
+    Ok(Json(state.db.projects().await?))
 }
 
 pub async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> ApiResult<Value> {
+) -> ApiResult<Project> {
     state
         .db
-        .project(&id)?
+        .project(&id).await?
         .map(Json)
         .ok_or_else(|| ApiError::not_found("Not found"))
 }
@@ -309,7 +224,7 @@ pub async fn get_project(
 pub async fn create_project(
     State(state): State<AppState>,
     Json(body): Json<Value>,
-) -> ApiResult<Value> {
+) -> ApiResult<Project> {
     let patch = sanitize_project_patch(&body)?;
     if patch
         .get("name")
@@ -318,8 +233,8 @@ pub async fn create_project(
     {
         return Err(ApiError::bad_request("name required"));
     }
-    let project = state.db.add_project(&patch)?;
-    state.broadcast(json!({ "type": "sync", "projectId": project["id"] }));
+    let project = state.db.add_project(&patch).await?;
+    state.publish(crate::Event::Sync { scope: None, project_id: Some(project.id.clone()) });
     Ok(Json(project))
 }
 
@@ -327,19 +242,19 @@ pub async fn update_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<Value>,
-) -> ApiResult<Value> {
+) -> ApiResult<Project> {
     let patch = sanitize_project_patch(&body)?;
     let project = state
         .db
-        .update_project(&id, &patch)?
+        .update_project(&id, &patch).await?
         .ok_or_else(|| ApiError::not_found("Not found"))?;
     if !patch
         .keys()
         .all(|key| key == "runScheme" || key == "runSim")
     {
-        state.poller.invalidate(&id);
-        state.db.invalidate_snapshots(&id)?;
-        state.broadcast(json!({ "type": "sync", "projectId": id }));
+        state.poller.invalidate(&id).await;
+        state.db.invalidate_snapshots(&id).await?;
+        state.publish(crate::Event::Sync { scope: None, project_id: Some(id.to_string()) });
     }
     Ok(Json(project))
 }
@@ -348,9 +263,9 @@ pub async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Value> {
-    state.poller.invalidate(&id);
-    state.db.delete_project(&id)?;
-    state.broadcast(json!({ "type": "sync", "projectId": id }));
+    state.poller.invalidate(&id).await;
+    state.db.delete_project(&id).await?;
+    state.publish(crate::Event::Sync { scope: None, project_id: Some(id.to_string()) });
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -395,6 +310,7 @@ pub async fn poll(
 ) -> ApiResult<Value> {
     let (prs, jira) = poll_targets(query.scope.as_deref());
     if prs {
+        crate::github::forget_login();
         app.poller.sync_all(&app).await;
     }
     if jira {
@@ -417,12 +333,12 @@ pub async fn project_board(
 ) -> ApiResult<Value> {
     let project = app
         .db
-        .project(&id)?
+        .project(&id).await?
         .ok_or_else(|| ApiError::not_found("Not found"))?;
     let key = format!("board:{id}");
     if query.refresh.is_some() {
         app.poller.sync_board(&app, &project).await
-    } else if app.db.jira_snapshot(&key)?.as_ref().is_none_or(|snapshot| {
+    } else if app.db.jira_snapshot(&key).await?.as_ref().is_none_or(|snapshot| {
         snapshot["lastSynced"]
             .as_str()
             .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
@@ -436,7 +352,7 @@ pub async fn project_board(
             poller.sync_board(&copy, &project).await;
         });
     }
-    Ok(Json(app.db.jira_snapshot(&key)?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
+    Ok(Json(app.db.jira_snapshot(&key).await?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
 }
 
 /// A live issue search (never snapshotted) over `repos`, or with `allProjects` over every project
@@ -453,10 +369,10 @@ pub async fn issues_search(
     let all_projects = body.get("allProjects").and_then(Value::as_bool).unwrap_or(false);
     let mut repos: Vec<String> = if all_projects {
         app.db
-            .projects()?
+            .projects().await?
             .iter()
             .filter(|project| crate::issues::lists_issues(project))
-            .filter_map(|project| project["repo"].as_str().map(str::to_ascii_lowercase))
+            .map(|project| project.repo.to_ascii_lowercase())
             .collect()
     } else {
         body.get("repos")
@@ -513,7 +429,7 @@ pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
         .and_then(Value::as_u64)
         .unwrap_or(50)
         .clamp(1, 200) as usize;
-    let items = crate::poller::search_jira(jql, limit)
+    let items = crate::jira::search_jira(jql, limit)
         .await
         .map_err(ApiError::internal)?;
     Ok(Json(
@@ -526,12 +442,12 @@ pub async fn jira_transition(
     Json(body): Json<Value>,
 ) -> ApiResult<Value> {
     let transition = body.get("transition").and_then(Value::as_str).unwrap_or("");
-    crate::poller::transition(&key, transition)
+    crate::jira::transition(&key, transition)
         .await
         .map_err(ApiError::internal)?;
     let payload = json!({"key":key,"transition":transition,"trigger":"manual"});
-    if let Ok(event) = app.db.add_event("jira_transitioned", &payload) {
-        app.broadcast(json!({"type":"activity","event":event}))
+    if let Ok(event) = app.db.add_event("jira_transitioned", &payload).await {
+        app.publish(crate::Event::Activity { event })
     }
     Ok(Json(json!({"ok":true})))
 }
@@ -545,42 +461,36 @@ pub async fn jira_assign(
         .and_then(Value::as_str)
         .unwrap_or("")
         .trim();
-    crate::poller::assign(&key, assignee)
+    crate::jira::assign(&key, assignee)
         .await
         .map_err(ApiError::internal)?;
     let payload = json!({"key":key,"assignee":if assignee.is_empty(){"(unassigned)"}else{assignee},"trigger":"manual"});
-    if let Ok(event) = app.db.add_event("jira_assigned", &payload) {
-        app.broadcast(json!({"type":"activity","event":event}))
+    if let Ok(event) = app.db.add_event("jira_assigned", &payload).await {
+        app.publish(crate::Event::Activity { event })
     }
     Ok(Json(json!({"ok":true})))
 }
 
 pub async fn prs_tray(State(state): State<AppState>) -> ApiResult<Value> {
     let mut items = Vec::new();
-    for project in state.db.projects()? {
-        let id = project.get("id").and_then(Value::as_str).unwrap_or("");
+    for project in state.db.projects().await? {
         let snapshot = state
             .db
-            .pr_snapshot(id, "open", None)?
-            .unwrap_or_else(empty_pr_snapshot);
-        for mut pr in snapshot
-            .get("prs")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-        {
+            .pr_snapshot(&project.id, "open", None).await?
+            .unwrap_or_default();
+        for mut pr in snapshot.prs {
             let Some(object) = pr.as_object_mut() else {
                 continue;
             };
-            object.insert("projectId".into(), project["id"].clone());
-            object.insert("projectName".into(), project["name"].clone());
+            object.insert("projectId".into(), json!(project.id));
+            object.insert("projectName".into(), json!(project.name));
             if object.get("category").and_then(Value::as_str) == Some("review") {
                 let repo = object.get("repo").and_then(Value::as_str).unwrap_or("");
                 let number = object
                     .get("number")
                     .and_then(Value::as_i64)
                     .unwrap_or_default();
-                let stored = state.db.review_state(&format!("{repo}#{number}"))?;
+                let stored = state.db.review_state(&format!("{repo}#{number}")).await?;
                 let requested = object
                     .get("requestedAt")
                     .and_then(Value::as_str)
@@ -614,24 +524,25 @@ pub async fn pr_viewed(State(state): State<AppState>, Json(body): Json<Value>) -
         .get("number")
         .and_then(Value::as_i64)
         .ok_or_else(|| ApiError::bad_request("repo and number required"))?;
-    state.db.mark_review_viewed(&format!("{repo}#{number}"))?;
-    state.broadcast(json!({ "type": "reviews" }));
+    state.db.mark_review_viewed(&format!("{repo}#{number}")).await?;
+    state.publish(crate::Event::Reviews);
     Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn dashboard(State(state): State<AppState>) -> ApiResult<Value> {
     let mut result = Vec::new();
-    for mut project in state.db.projects()? {
-        let id = project.get("id").and_then(Value::as_str).unwrap_or("");
+    for project in state.db.projects().await? {
         let snapshot = state
             .db
-            .pr_snapshot(id, "open", None)?
-            .unwrap_or_else(empty_pr_snapshot);
-        let object = project.as_object_mut().unwrap();
-        object.insert("prs".into(), snapshot["prs"].clone());
-        object.insert("lastSynced".into(), snapshot["lastSynced"].clone());
-        object.insert("syncError".into(), snapshot["error"].clone());
-        result.push(project);
+            .pr_snapshot(&project.id, "open", None).await?
+            .unwrap_or_default();
+        // The project's own fields, with its snapshot beside them: one row of the dashboard.
+        let mut row = project.to_value();
+        let object = row.as_object_mut().expect("a project serializes to an object");
+        object.insert("prs".into(), Value::Array(snapshot.prs));
+        object.insert("lastSynced".into(), json!(snapshot.last_synced));
+        object.insert("syncError".into(), json!(snapshot.error));
+        result.push(row);
     }
     Ok(Json(Value::Array(result)))
 }
@@ -645,7 +556,7 @@ pub async fn get_links(
     State(state): State<AppState>,
     Query(query): Query<LinksQuery>,
 ) -> ApiResult<Vec<Value>> {
-    Ok(Json(state.db.links(query.project.as_deref())?))
+    Ok(Json(state.db.links(query.project.as_deref()).await?))
 }
 
 pub async fn add_link(State(state): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
@@ -661,7 +572,7 @@ pub async fn add_link(State(state): State<AppState>, Json(body): Json<Value>) ->
         repo,
         jira,
         body.get("projectId").and_then(Value::as_str),
-    )?;
+    ).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -669,7 +580,7 @@ pub async fn delete_link(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Value> {
-    state.db.delete_link(&id)?;
+    state.db.delete_link(&id).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -681,7 +592,7 @@ pub struct LogsQuery {
 }
 
 pub async fn get_events(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
-    Ok(Json(state.db.query_logs(Some("event"), None, 100)?))
+    Ok(Json(state.db.query_logs(Some("event"), None, 100).await?))
 }
 pub async fn get_logs(
     State(state): State<AppState>,
@@ -691,10 +602,10 @@ pub async fn get_logs(
         query.category.as_deref(),
         query.level.as_deref(),
         query.limit.unwrap_or(200),
-    )?))
+    ).await?))
 }
 pub async fn log_categories(State(state): State<AppState>) -> ApiResult<Vec<String>> {
-    Ok(Json(state.db.log_categories()?))
+    Ok(Json(state.db.log_categories().await?))
 }
 pub async fn clear_logs(
     State(state): State<AppState>,
@@ -702,19 +613,27 @@ pub async fn clear_logs(
 ) -> ApiResult<Value> {
     state
         .db
-        .clear_logs(body.get("category").and_then(Value::as_str))?;
+        .clear_logs(body.get("category").and_then(Value::as_str)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn inspect_db(State(state): State<AppState>) -> ApiResult<Value> {
-    let config = state.db.config()?;
-    let projects = state.db.projects()?;
-    let links = state.db.links(None)?;
-    let snapshots = summarize_snapshots(state.db.all_pr_snapshots()?, "open");
-    let jira = summarize_snapshots(state.db.all_jira_snapshots()?, "tickets");
+    let config = state.db.config().await?;
+    let projects = state.db.projects().await?;
+    let links = state.db.links(None).await?;
+    let snapshots: Map<String, Value> = state
+        .db
+        .all_pr_snapshots().await?
+        .into_iter()
+        .map(|(id, snapshot)| {
+            let summary = json!({"open": snapshot.prs.len(), "lastSynced": snapshot.last_synced, "error": snapshot.error});
+            (id, summary)
+        })
+        .collect();
+    let jira = summarize_snapshots(state.db.all_jira_snapshots().await?, "tickets");
     Ok(Json(json!({
         "config": config, "projects": projects,
-        "counts": { "projects": projects.len(), "links": links.len(), "events": state.db.event_count()? },
+        "counts": { "projects": projects.len(), "links": links.len(), "events": state.db.event_count().await? },
         "ghStats": { "calls":0,"errors":0,"totalMs":0,"maxMs":0,"slowest":null,"inflight":0,"coalesced":0,"avgMs":0 },
         "snapshots": snapshots, "jiraSnapshots": jira,
     })))
@@ -731,39 +650,13 @@ pub async fn stream(
     let events = BroadcastStream::new(state.events.subscribe()).filter_map(|message| async move {
         match message {
             Ok(value) => Some(Ok(Event::default().data(value.to_string()))),
-            Err(_) => None,
+            // The subscriber lagged and missed events; a reload has it refetch rather than stay stale.
+            Err(_) => Some(Ok(Event::default().data(
+                serde_json::to_string(&crate::Event::Reload).expect("an event serializes"),
+            ))),
         }
     });
     Sse::new(initial.chain(events)).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
-}
-
-fn validate_open_tab(tab: &Map<String, Value>) -> Result<(), ApiError> {
-    const FIELDS: &[&str] = &[
-        "id", "url", "kind", "title", "repo", "branch", "category", "login",
-    ];
-    // `standalone`: a tab opened on purpose beside a session with the same page; never the session's own.
-    let valid_fields = tab.iter().all(|(key, value)| {
-        (FIELDS.contains(&key.as_str()) && value.is_string()) || (key == "standalone" && value.is_boolean())
-    });
-    let url = tab
-        .get("url")
-        .and_then(Value::as_str)
-        .and_then(|value| Url::parse(value).ok());
-    let kind = tab.get("kind").and_then(Value::as_str);
-    let valid_url = url.as_ref().is_some_and(|url| {
-        ["http", "https"].contains(&url.scheme())
-            && url.username().is_empty()
-            && url.password().is_none()
-    });
-    if !valid_fields
-        || !valid_url
-        || !kind.is_some_and(|kind| ["github", "issue", "jira", "web"].contains(&kind))
-    {
-        return Err(ApiError::bad_request(
-            "A web URL, tab kind, and string metadata are required",
-        ));
-    }
-    Ok(())
 }
 
 fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> {
@@ -869,17 +762,15 @@ fn parse_repo(input: &str) -> Option<String> {
     Some(repo)
 }
 
+/// Each Jira snapshot as its item count under `count_key`, its stamp and its error.
 fn summarize_snapshots(value: Value, count_key: &str) -> Value {
     let mut out = Map::new();
     for (id, snapshot) in value.as_object().into_iter().flatten() {
-        let count = if count_key == "open" {
-            snapshot.get("prs")
-        } else {
-            snapshot.get("items")
-        }
-        .and_then(Value::as_array)
-        .map(Vec::len)
-        .unwrap_or(0);
+        let count = snapshot
+            .get("items")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or(0);
         out.insert(
             id.clone(),
             json!({count_key:count,"lastSynced":snapshot["lastSynced"],"error":snapshot["error"]}),
@@ -893,9 +784,6 @@ fn required_string<'a>(body: &'a Value, key: &str, error: &str) -> Result<&'a st
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::bad_request(error))
-}
-fn empty_pr_snapshot() -> Value {
-    json!({"prs":[],"lastSynced":null,"error":null})
 }
 
 #[cfg(test)]

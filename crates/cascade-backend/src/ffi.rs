@@ -123,11 +123,10 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
     // Off the request path: the first poll and the first warm-up must not wait on the shell.
     cli::prime_shell_environment();
     let state = AppState::new(database, instance_id);
-    state.poller.start(state.clone());
     let port_file = data_dir.join(".server-port");
     std::fs::write(&port_file, port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
-    state.forwarders.start(state.clone(), port);
+    runtime.block_on(crate::start_background(&state, port));
     let router = build_app(state.clone());
     let (shutdown, stopped) = oneshot::channel::<()>();
     let served = router.clone();
@@ -362,7 +361,14 @@ pub unsafe extern "C" fn cascade_backend_subscribe(
                         callback(ctx.ptr(), json.as_ptr(), json.len())
                     }));
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Events were missed. A reload has the host refetch everything, rather than
+                    // stay stale until the next change happens to be broadcast.
+                    let json = serde_json::to_string(&crate::Event::Reload).expect("an event serializes");
+                    let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
+                        callback(ctx.ptr(), json.as_ptr(), json.len())
+                    }));
+                }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
@@ -510,16 +516,17 @@ mod tests {
         let projects = call(backend, "GET", "/api/projects", "");
         assert_eq!((projects.status, projects.body.as_str()), (200, "[]"));
 
-        let created = call(backend, "POST", "/api/tabs", r#"{"url":"https://example.com/","kind":"web"}"#);
-        assert!(created.status < 500, "{}", created.body);
-        let created: serde_json::Value = serde_json::from_str(&created.body).unwrap();
-        let id = created["tabs"][0]["id"].as_str().unwrap();
-        let closed = call(backend, "DELETE", "/api/tabs", &format!(r#"{{"id":"{id}"}}"#));
-        assert_eq!(closed.status, 200, "{}", closed.body);
-        let closed: serde_json::Value = serde_json::from_str(&closed.body).unwrap();
-        assert_eq!(closed["tabs"], serde_json::json!([]));
-        let missing_url = call(backend, "DELETE", "/api/tabs", "{}");
-        assert_eq!(missing_url.status, 400);
+        let created = call(backend, "POST", "/api/tasks", r#"{"id":"t","projectId":"p","workspace":"/tmp/w","worktree":"/tmp/w/t"}"#);
+        assert_eq!(created.status, 200, "{}", created.body);
+        let tasks = call(backend, "GET", "/api/tasks", "");
+        let tasks: serde_json::Value = serde_json::from_str(&tasks.body).unwrap();
+        assert_eq!(tasks[0]["id"], "t");
+        let deleted = call(backend, "DELETE", "/api/tasks?id=t", "");
+        assert_eq!(deleted.status, 200, "{}", deleted.body);
+        let tasks = call(backend, "GET", "/api/tasks", "");
+        assert_eq!((tasks.status, tasks.body.as_str()), (200, "[]"));
+        let incomplete = call(backend, "POST", "/api/tasks", r#"{"id":"t"}"#);
+        assert_eq!(incomplete.status, 400);
 
         let bad = call(backend, "GET", "/api/projects/missing", "");
         assert_eq!(bad.status, 404);

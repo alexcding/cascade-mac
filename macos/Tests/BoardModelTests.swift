@@ -17,8 +17,6 @@ private final class BoardFixture: BoardService, @unchecked Sendable {
         lock.withLock { _snapshots += 1; return board }
     }
     func site() async throws -> JiraSite { JiraSite(baseUrl: "https://jira.test", me: JiraAccount(email: "ME@example.test")) }
-    func settings() async throws -> [String: String] { [:] }
-    func saveFilter(_ value: String, projectID: String) async throws {}
     func saveQuery(_ value: String, projectID: String) async throws { lock.withLock { _queries.append(value) } }
     func transition(key: String, status: String) async throws {
         lock.withLock { _transitions.append("\(key)→\(status)") }

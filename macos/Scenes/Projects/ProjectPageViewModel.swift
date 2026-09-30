@@ -121,7 +121,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
             return
         }
         guard board == nil, let boardService else { return }
-        let board = WebBoardViewModel(projectID: project.id, service: boardService, pageActions: pageActions)
+        let board = WebBoardViewModel(projectID: project.id, service: boardService, pageActions: pageActions, preferences: .standard)
         board.onAction = { [onAction] in onAction(.board($0)) }
         self.board = board
         updateBoard()

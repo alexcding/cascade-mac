@@ -43,6 +43,10 @@ import Observation
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var visible = false
     @ObservationIgnored private var refreshPending = false
+    /// The backend says nothing when a poll changed nothing, and this panel shows when each cache
+    /// last polled, so while it is on screen it asks again on its own, this often.
+    @ObservationIgnored var refreshInterval: Duration = .seconds(30)
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
     func connect(_ service: any DiagnosticsService) {
         cancelRead()
@@ -53,7 +57,20 @@ import Observation
 
     func setVisible(_ value: Bool) {
         visible = value
-        if value { refresh() } else { cancelRead() }
+        ticker?.cancel(); ticker = nil
+        if value {
+            refresh()
+            let interval = refreshInterval
+            ticker = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: interval)
+                    guard !Task.isCancelled else { return }
+                    self?.invalidate()
+                }
+            }
+        } else {
+            cancelRead()
+        }
     }
 
     // SSE invalidations are coalesced, with one trailing read if data changed
