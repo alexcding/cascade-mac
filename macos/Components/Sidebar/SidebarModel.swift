@@ -136,15 +136,23 @@ enum SidebarMode: String, CaseIterable, Identifiable {
 
 enum SidebarDestination: Hashable, Codable {
     case overview, automation, terminal, project(String), session(String), tab(String)
+    /// The Browser list with no tab to show: a blank page, where the window goes when the rail picks
+    /// a Browser that has no tab, rather than keep showing a page from Home.
+    case blankPage
 
     var tabID: String? { if case .tab(let id) = self { id } else { nil } }
-    /// The list that shows this destination's row.
-    var sidebarMode: SidebarMode { tabID == nil ? .home : .browser }
+    /// The list that shows this destination's row, or for the blank page the list it stands in for.
+    var sidebarMode: SidebarMode {
+        switch self {
+        case .tab, .blankPage: .browser
+        case .overview, .automation, .terminal, .project, .session: .home
+        }
+    }
     /// True for destinations that exist only while the sidebar lists them.
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session, .tab: true
-        case .overview, .automation, .terminal: false
+        case .overview, .automation, .terminal, .blankPage: false
         }
     }
 }

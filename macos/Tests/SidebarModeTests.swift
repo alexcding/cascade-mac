@@ -127,18 +127,45 @@ private func modeEntries() -> [SidebarEntry] {
 @MainActor @Test func theRailPicksTheListAndANavigationBringsItsOwn() {
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     #expect(coordinator.sidebarMode == .home)
-    // The rail changes the list, not what the window shows.
+    // A Browser that has no tab shows a blank page, not the page from Home.
     coordinator.showSidebar(.browser)
     #expect(coordinator.sidebarMode == .browser)
+    #expect(coordinator.selection == .blankPage)
+    // Landing where the window already is leaves the list the rail picked.
+    coordinator.showSidebar(.home)
     #expect(coordinator.selection == .overview)
+    coordinator.navigate(to: .overview)
+    #expect(coordinator.sidebarMode == .home)
     // Going somewhere shows the list that has its row.
     coordinator.navigate(to: .automation)
     #expect(coordinator.sidebarMode == .home)
     coordinator.navigate(to: .tab("a"))
     #expect(coordinator.sidebarMode == .browser)
-    // Landing where the window already is leaves the list the rail picked.
-    coordinator.showSidebar(.home)
+}
+
+// Switching lists shows that list's selection, not the other list's page: where the window last
+// was from it, both ways.
+@MainActor @Test func theRailShowsTheSelectionOfTheListItPicks() {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.navigate(to: .automation)
     coordinator.navigate(to: .tab("a"))
+    coordinator.showSidebar(.home)
+    #expect(coordinator.sidebarMode == .home)
+    #expect(coordinator.selection == .automation)
+    coordinator.showSidebar(.browser)
+    #expect(coordinator.sidebarMode == .browser)
+    #expect(coordinator.selection == .tab("a"))
+    // Picking the list already on show changes nothing.
+    coordinator.showSidebar(.browser)
+    #expect(coordinator.selection == .tab("a"))
+}
+
+// Home with nothing remembered from it opens on the Dashboard.
+@MainActor @Test func homeFirstOpensOnTheDashboard() {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                                     selectionStore: TransientSidebarSelectionStore(.tab("a")))
+    coordinator.showSidebar(.home)
+    #expect(coordinator.selection == .overview)
     #expect(coordinator.sidebarMode == .home)
 }
 
@@ -147,4 +174,54 @@ private func modeEntries() -> [SidebarEntry] {
                                      selectionStore: TransientSidebarSelectionStore(.tab("a")))
     #expect(coordinator.selection == .tab("a"))
     #expect(coordinator.sidebarMode == .browser)
+}
+
+/// The root state a test's sidebar lists.
+@MainActor private final class ListedRoot: RootServing {
+    var state = RootState()
+    func rootState() -> RootState { state }
+}
+
+@MainActor private func coordinator(listing root: ListedRoot) -> AppCoordinator {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let model = RootViewModel(service: root, shell: ShellStore(), viewer: ViewerStore())
+    model.onAction = { [weak coordinator] in coordinator?.handle($0) }
+    coordinator.rootModel = model
+    return coordinator
+}
+
+// A tab closed since it was last shown is gone: with no tab left, Browser shows a blank page, not
+// the closed tab again and not the page from Home.
+@MainActor @Test func theRailDoesNotBringBackAClosedTab() throws {
+    let root = ListedRoot()
+    root.state.entries = SidebarEntry.make(projects: [modeProject], sessions: [], tabs: [])
+    let coordinator = coordinator(listing: root)
+    coordinator.navigate(to: .tab("a"))
+    coordinator.navigate(to: .overview)
+    coordinator.showSidebar(.browser)
+    #expect(coordinator.sidebarMode == .browser)
+    #expect(coordinator.selection == .blankPage)
+    #expect(coordinator.root == .blankPage(try #require(coordinator.rootModel)))
+
+    // Once there is a tab, Browser shows it rather than the blank page it last showed.
+    root.state.entries = SidebarEntry.make(projects: [modeProject], sessions: [],
+                                           tabs: [SavedTab(id: "b", kind: "web", title: "Docs", url: "https://docs.example")])
+    coordinator.showSidebar(.home)
+    coordinator.showSidebar(.browser)
+    #expect(coordinator.selection == .tab("b"))
+    // And a tab still listed is brought back as it was left.
+    coordinator.showSidebar(.home)
+    coordinator.showSidebar(.browser)
+    #expect(coordinator.selection == .tab("b"))
+}
+
+// Terminal has no sidebar row and never goes stale: Home brings it back.
+@MainActor @Test func theRailBringsBackTheTerminal() {
+    let root = ListedRoot()
+    root.state.entries = SidebarEntry.make(projects: [modeProject], sessions: [], tabs: [])
+    let coordinator = coordinator(listing: root)
+    coordinator.navigate(to: .terminal)
+    coordinator.navigate(to: .tab("a"))
+    coordinator.showSidebar(.home)
+    #expect(coordinator.selection == .terminal)
 }

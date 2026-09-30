@@ -62172,6 +62172,9 @@
         }
       }
     },
+    "No tabs open" : {
+
+    },
     "No terminal theme named %@." : {
       "localizations" : {
         "bn" : {
@@ -66328,6 +66331,9 @@
           }
         }
       }
+    },
+    "Open a tab to browse here." : {
+
     },
     "Open an interactive shell." : {
       "extractionState" : "manual",

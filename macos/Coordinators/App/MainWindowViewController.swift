@@ -21,6 +21,7 @@ import SwiftUI
     private let rail: NSHostingView<MainRail>
     private let wash = MainBackdropWash()
     private let card = MainCardView()
+    private let outline = MainCardOutline()
 
     init(model: AppViewModel) {
         let columns = MainSplitViewController(model: model)
@@ -45,13 +46,19 @@ import SwiftUI
         rail.sizingOptions = []
         addChild(columns)
         card.addSubview(columns.view)
+        card.addSubview(outline)
         // Under everything, and under the strip too: the content view reaches the window's top.
         wash.frame = view.bounds
         wash.autoresizingMask = [.width, .height]
         view.addSubview(wash)
         view.addSubview(rail)
         view.addSubview(card)
-        for subview in [rail, card, columns.view] { subview.translatesAutoresizingMaskIntoConstraints = false }
+        for subview in [rail, card, columns.view, outline] { subview.translatesAutoresizingMaskIntoConstraints = false }
+        // The card's rounded edge runs round the screen and the pane, not the list, which is on the
+        // backdrop: it starts where the screen's column does, and follows the list's divider there.
+        // Wanted, not required: required, it would hold the screen's column to the outline.
+        let outlineLeading = outline.leadingAnchor.constraint(equalTo: columns.screenColumn.leadingAnchor)
+        outlineLeading.priority = .defaultHigh
         // Under the toolbar: the safe area's top is the window's title bar, in a window or full screen.
         let top = view.safeAreaLayoutGuide.topAnchor
         NSLayoutConstraint.activate([
@@ -67,6 +74,11 @@ import SwiftUI
             columns.view.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             columns.view.topAnchor.constraint(equalTo: card.topAnchor),
             columns.view.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+            outlineLeading,
+            outline.leadingAnchor.constraint(greaterThanOrEqualTo: card.leadingAnchor),
+            outline.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            outline.topAnchor.constraint(equalTo: card.topAnchor),
+            outline.bottomAnchor.constraint(equalTo: card.bottomAnchor),
         ])
     }
 }
@@ -88,7 +100,9 @@ private final class MainBackdropWash: NSView {
     }
 }
 
-/// The card: the columns, clipped to its rounded corners, with the window's rule round its edge.
+/// The card: the columns, clipped to its rounded corners, on the list's wash. The wash is the
+/// card's, not the list column's, so it runs on under the screen column's rounded leading corners
+/// (`MainSplitViewController`): what shows round them is the list, not the backdrop.
 private final class MainCardView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -99,6 +113,30 @@ private final class MainCardView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    /// Run under the view's own appearance, so the wash is the one for it.
+    override func updateLayer() {
+        layer?.backgroundColor = SidebarPalette.list.cgColor
+    }
+}
+
+/// The card's edge: the window's rule round the screen and the pane, from the screen column's
+/// leading edge to the card's trailing edge. It is a layer's border, which follows the layer's
+/// continuous corners exactly as the clips beneath it do; a stroked path's circular corners would
+/// drift from them by about a point. It takes no clicks.
+private final class MainCardOutline: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.cornerRadius = MainWindowMetrics.cardRadius
+        layer?.cornerCurve = .continuous
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override var wantsUpdateLayer: Bool { true }
 

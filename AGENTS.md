@@ -259,9 +259,11 @@ A screen is four things, in this order:
 The main window is AppKit's, not a SwiftUI scene, so its toolbar can be split where its
 columns are, as Xcode's is. `MainWindowController` owns the window; its content is
 `MainWindowViewController`: one backdrop across the whole window, and on it the rail down the
-leading edge and a rounded card under the toolbar. The card holds `MainSplitViewController`'s
-columns: the sidebar's list, the screen (`AppCoordinatorView`), and the shown workspace's context
-pane. AppKit holds each column to its minimum width. The pane column follows
+leading edge and, under the toolbar, a rounded container (`MainCardView`) holding
+`MainSplitViewController`'s columns: the sidebar's list, the screen (`AppCoordinatorView`), and
+the shown workspace's context pane. The list sits on the container's wash; the card proper is the
+screen and the pane, opaque, with its own rounded edge (`MainCardOutline`). AppKit holds each
+column to its minimum width. The pane column follows
 `SessionWorkspaceViewModel.showsInspector`, and a pane the user collapses from the divider is
 told back to the workspace.
 
@@ -269,8 +271,12 @@ told back to the workspace.
   backdrop runs under it: along the top, down the rail, and in a thin margin at the card's
   trailing and bottom edges (`MainWindowMetrics.cardInset`). The backdrop is a material of the
   content view's own — the title bar's, which keeps the desktop's colour where the sidebar's
-  greys it — under a wash (`SidebarPalette.backdrop`); the list has its own wash
-  (`SidebarPalette.list`), and the screen and the pane are opaque.
+  greys it — under a wash (`SidebarPalette.backdrop`). There are three levels: the rail on the
+  backdrop; the list on it too, under a lighter wash of its own (`SidebarPalette.list`), so the two
+  read as separate columns; and the card, the screen's and the pane's, opaque, its rounded edge
+  starting at the screen's column and following the list's divider (`MainCardOutline`). The
+  list's wash is the container's, so it also fills behind the screen column's rounded leading
+  corners. The list's divider itself is not drawn.
 - **The columns are plain split items.** None is AppKit's sidebar or inspector: those bring glass
   of their own, and a strip or a rail beside such a column comes out a different colour. With
   no sidebar item AppKit's Toggle Sidebar does nothing and disables whatever asked, so
@@ -287,15 +293,17 @@ told back to the workspace.
   projects with their sessions; Browser lists the saved tabs and nothing else. Settings is at the
   rail's bottom; the sidebar has no footer, and the activity bell is in the Dashboard's toolbar
   (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to them. The mode is
-  `AppCoordinator.sidebarMode`: the rail sets it without changing the selection, and a navigation
-  brings the mode of where it lands. The rail stays when the list is collapsed, and picking a list
+  `AppCoordinator.sidebarMode`: the rail sets it and takes the window to that list's selection —
+  where it last was from that list, while its row is there, else the Dashboard for Home and the
+  first saved tab for Browser, or with no tab a blank page (`SidebarDestination.blankPage`) —
+  and a navigation brings the mode of where it lands. The rail stays when the list is collapsed, and picking a list
   opens it again. Its first icon is level with the list's first row, which a source list sets
   below its own inset (`SidebarMetrics.sourceListInset`). The sidebar builds every row once
   (`SidebarEntry.make`) and shows the rows of the mode on show (`SidebarEntry.mode`).
-- **The lines are the window's own, one display pixel wide.** The card's edge and the dividers
-  between its columns (`RuleSplitView`) are drawn in `SidebarPalette.rule`, at
-  `MainWindowMetrics.rule`. A split inside a screen uses `ThinSplitView` for the same rule;
-  `HSplitView`'s divider is a point wide and cannot be restyled.
+- **The lines are the window's own, one display pixel wide.** The card's edge and the pane's
+  divider (`RuleSplitView`) are drawn in `SidebarPalette.rule`, at `MainWindowMetrics.rule`. A
+  split inside a screen uses `ThinSplitView` for the same rule; `HSplitView`'s divider is a point
+  wide and cannot be restyled.
 - **The toolbar is described, not declared.** Screens do not use SwiftUI `.toolbar` in the main
   window. Each destination returns a `WindowToolbar` (`Destination.windowToolbar`,
   `SessionWorkspaceToolbar`) of items built from its models — leading, centre, trailing, and the

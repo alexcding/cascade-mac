@@ -97,7 +97,7 @@ struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentab
 }
 
 /// A split view whose divider is one pixel of the display, in the columns' rule colour.
-final class RuleSplitView: NSSplitView {
+class RuleSplitView: NSSplitView {
     override var dividerThickness: CGFloat {
         1 / max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, 1)
     }

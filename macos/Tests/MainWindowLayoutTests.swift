@@ -64,13 +64,22 @@ import Testing
         let separator = try #require(items.first as? NSTrackingSeparatorToolbarItem)
         #expect(separator.splitView === columns)
         #expect(separator.dividerIndex == 0)
-        let screen = columns.arrangedSubviews[1]
+        // The screen's column is the one the columns' owner names, found by its content.
+        let screen = try #require(view(named: "MainContentColumn", in: root))
         try await settle { inWindow(screen).minX > 200 }
         let tabs = try #require(items.first { $0.itemIdentifier.rawValue == "dashboard-tabs" }?.view)
         try await settle { inWindow(tabs).minX >= inWindow(screen).minX }
         #expect(inWindow(tabs).minX >= inWindow(screen).minX)
         let close = try #require(window.standardWindowButton(.closeButton))
         #expect(abs(inWindow(tabs).midY - inWindow(close).midY) < 1)
+
+        // The card's edge starts at the screen's column, not the list's: the list is on the wash
+        // beside it. Its corners are continuous, as the clips under it are.
+        let outline = try #require(view(named: "MainCardOutline", in: root))
+        #expect(abs(inWindow(outline).minX - inWindow(screen).minX) < 0.5)
+        #expect(abs(inWindow(outline).maxX - inWindow(card).maxX) < 0.5)
+        #expect(outline.layer?.cornerCurve == .continuous)
+        #expect(screen.layer?.maskedCorners == [.layerMinXMinYCorner, .layerMinXMaxYCorner])
 
         // A terminal's toolbar has a pane section, tracking the card's second divider, with its toggle.
         model.select(.terminal)
@@ -85,6 +94,9 @@ import Testing
         try await settle { columns.isSubviewCollapsed(columns.arrangedSubviews[0]) && abs(inWindow(screen).minX - inWindow(card).minX) < 0.5 }
         #expect(columns.isSubviewCollapsed(columns.arrangedSubviews[0]))
         #expect(abs(inWindow(screen).minX - inWindow(card).minX) < 0.5)
+        // With the list shut the card's edge comes back to the card's own.
+        try await settle { abs(inWindow(outline).minX - inWindow(card).minX) < 0.5 }
+        #expect(abs(inWindow(outline).minX - inWindow(card).minX) < 0.5)
 
         await model.stop()
     }

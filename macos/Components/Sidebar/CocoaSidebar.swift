@@ -639,10 +639,11 @@ enum SidebarPalette {
             ? NSColor(srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x1e / 255, alpha: 0.65)
             : NSColor(srgbRed: 0xe6 / 255, green: 0xea / 255, blue: 0xee / 255, alpha: 0.5)
     }
-    /// The list's wash over that backdrop, which sets the list apart from the rail and the strip
-    /// beside it: most of the way to a page in light, a faint lift in dark.
+    /// The list's wash over the backdrop: a second, lighter layer of it, so the rail and the list
+    /// read as two columns while both still let the desktop's colour through. The card beside them
+    /// is opaque, a third level.
     static let list = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.8)
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.4)
     }
     static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }

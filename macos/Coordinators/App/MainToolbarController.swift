@@ -23,6 +23,10 @@ import SwiftUI
     /// The card's columns: the list, the screen and the pane. Set before `window`, since the
     /// toolbar's separators are made against it.
     weak var splitView: NSSplitView?
+    /// The screen's column, between the list and the context pane: the section the middle is
+    /// centred in. Given by the columns' owner (`MainSplitViewController.screenColumn`), the one
+    /// place that knows which column it is.
+    weak var screenColumn: NSView?
     private(set) var toolbar = NSToolbar()
     private let describe: () -> WindowToolbar
     private var current = WindowToolbar.empty
@@ -378,12 +382,6 @@ import SwiftUI
     /// there is would go to the overflow menu, taking the balance with it.
     private static let minimumGap: CGFloat = 40
 
-    /// The screen's column, between the list and the context pane: the section the middle is
-    /// centred in.
-    private var screenColumn: NSView? {
-        guard let splitView, splitView.arrangedSubviews.count > 1 else { return nil }
-        return splitView.arrangedSubviews[1]
-    }
 
     // MARK: NSSearchFieldDelegate
 

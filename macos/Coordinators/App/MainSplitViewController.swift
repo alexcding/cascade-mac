@@ -56,7 +56,7 @@ import SwiftUI
         paneItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
         // The lines between the columns are the split view's own dividers, one display pixel wide.
-        let split = RuleSplitView()
+        let split = MainColumnsSplitView()
         split.isVertical = true
         split.dividerStyle = .thin
         splitView = split
@@ -69,6 +69,14 @@ import SwiftUI
         addSplitViewItem(sidebarItem)
         addSplitViewItem(contentItem)
         addSplitViewItem(paneItem)
+        // The card begins at the screen's column: its leading corners are rounded, and what it shows
+        // is clipped to them. The trailing ones are the card's own (`MainWindowViewController`).
+        let screen = contentItem.viewController.view
+        screen.wantsLayer = true
+        screen.layer?.cornerRadius = MainWindowMetrics.cardRadius
+        screen.layer?.cornerCurve = .continuous
+        screen.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+        screen.layer?.masksToBounds = true
         needsInitialWidths = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames \(Self.autosaveName)") == nil
         splitView.autosaveName = Self.autosaveName
         // AppKit changes the column on the main thread: from the divider, a menu, or `observePane`.
@@ -87,6 +95,9 @@ import SwiftUI
         needsInitialWidths = false
         splitView.setPosition(MainWindowMetrics.sidebarIdeal, ofDividerAt: 0)
     }
+
+    /// The screen's column, where the card begins: the list is on the backdrop, outside it.
+    var screenColumn: NSView { contentItem.viewController.view }
 
     // MARK: The list
 
@@ -199,7 +210,7 @@ private struct SettingsWindowOpener: ViewModifier {
 }
 
 /// The list's column, once the root model exists: the rows of the list the rail picked, on the
-/// list's own wash over the window's backdrop.
+/// card's wash (`MainWindowViewController`), lighter than the rail beside it.
 private struct MainListColumn: View {
     let coordinator: AppCoordinator
 
@@ -210,7 +221,6 @@ private struct MainListColumn: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: SidebarPalette.list))
     }
 }
 
@@ -227,5 +237,16 @@ private struct MainPaneColumn: View {
         SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.inspectorWorkspace, part: .pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.paneBackground)
+    }
+}
+
+/// The card's split view: the list's divider is not drawn, since the card's own rounded edge is the
+/// line between the list and the screen (`MainWindowViewController`); the pane's divider is. A
+/// divider is told by where its middle falls, before the screen's column or after its start, so a
+/// fractional width after a drag, or a list shut to nothing, never turns one into the other.
+private final class MainColumnsSplitView: RuleSplitView {
+    override func drawDivider(in rect: NSRect) {
+        guard arrangedSubviews.count > 1, rect.midX > arrangedSubviews[1].frame.minX else { return }
+        super.drawDivider(in: rect)
     }
 }

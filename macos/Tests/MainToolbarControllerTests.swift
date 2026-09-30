@@ -94,6 +94,7 @@ import Testing
                           trailing: [WindowToolbarItem("mode") { Color.clear.frame(width: 40, height: 20) }])
         }
         controller.splitView = Self.split(of: window)
+        controller.screenColumn = Self.column(of: window)
         controller.window = window
         window.orderFront(nil)
         let column = try #require(Self.column(of: window))
@@ -129,6 +130,7 @@ import Testing
                                              selected: fixture.selected) { fixture.selected = $0 }])
         }
         controller.splitView = Self.split(of: window)
+        controller.screenColumn = Self.column(of: window)
         controller.window = window
         window.orderFront(nil)
         try await settle { controller.room.afterLeading > 0 }

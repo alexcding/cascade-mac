@@ -29,6 +29,7 @@ import SwiftUI
         window.contentViewController = content
         // The toolbar's sections track the card's dividers, so it is made against the card's split view.
         toolbarController.splitView = content.columns.splitView
+        toolbarController.screenColumn = content.columns.screenColumn
         toolbarController.window = window
         window.contentMinSize = NSSize(width: 760, height: 480)
         super.init(window: window)

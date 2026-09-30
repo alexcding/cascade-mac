@@ -71,6 +71,8 @@ import Observation
     /// somewhere else brings the list that has its row. Landing where the window already is
     /// leaves the list alone: the rail was the last to choose.
     private(set) var sidebarMode: SidebarMode
+    /// Where the window last was from each list, so the rail can take it back there.
+    @ObservationIgnored private var lastSelection: [SidebarMode: SidebarDestination] = [:]
     @ObservationIgnored let selectionStore: any SidebarSelectionPersisting
     @ObservationIgnored weak var rootRuntime: (any RootCoordinating)?
     @ObservationIgnored var rootBindingID = UUID()
@@ -141,6 +143,7 @@ import Observation
         let restored = selectionStore.load() ?? .overview
         selection = restored
         sidebarMode = restored.sidebarMode
+        lastSelection[restored.sidebarMode] = restored
         documentCloseCoordinator.presentationEnded = { [weak self] in self?.schedulePendingDeepLink() }
         browserDialogCoordinator.canPresent = { [weak self] in
             guard let self else { return false }
@@ -157,9 +160,30 @@ import Observation
         documentCloseCoordinator.canPresent = { [weak fileOpenCoordinator] in fileOpenCoordinator?.isPresenting == false }
     }
 
-    /// The rail picked a list. The selection stays: the window shows what it showed.
+    /// The rail picked a list: the sidebar shows it, and the window shows that list's selection —
+    /// where it last was from that list, while its row is still there, or else the list's first
+    /// place: the Dashboard for Home, the first saved tab for Browser, or with no tab a blank page.
     /// (`MainWindowViewController` draws the rail and hands its pick here.)
-    func showSidebar(_ mode: SidebarMode) { sidebarMode = mode }
+    func showSidebar(_ mode: SidebarMode) {
+        sidebarMode = mode
+        guard selection.sidebarMode != mode, let target = railDestination(for: mode) else { return }
+        // As a click on its row would, so whatever holds a row click back holds this back too.
+        if let rootModel { rootModel.select(target) } else { navigate(to: target) }
+    }
+
+    private func railDestination(for mode: SidebarMode) -> SidebarDestination? {
+        func listed(_ entries: [SidebarEntry]) -> [SidebarDestination] {
+            entries.filter { $0.mode == mode }.flatMap { $0.destinations + listed($0.children) }
+        }
+        // Before the root model exists nothing is listed yet, and the last place stands. After, a
+        // place that has a row must still have it: a tab closed or a session removed since is gone.
+        // Terminal has no row and never goes stale, so it is kept whatever the list holds.
+        let rows = rootModel.map { listed($0.entries) }
+        // The blank page stands in for a tab until there is one: once there is, the tab is shown.
+        if lastSelection[mode] == .blankPage, let first = rows?.first { return first }
+        if let last = lastSelection[mode], rows == nil || !last.isSidebarBacked || rows?.contains(last) == true { return last }
+        return mode == .home ? .overview : rows?.first ?? .blankPage
+    }
 
     func navigate(to destination: SidebarDestination) {
         // Picking Overview always lands on the Dashboard's home, never on a My Tickets left pushed.
@@ -171,6 +195,7 @@ import Observation
         }
         routingError = nil
         selection = destination
+        lastSelection[destination.sidebarMode] = destination
         for (id, child) in projectCoordinators { child.model.active = destination == .project(id) }
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()
@@ -214,6 +239,8 @@ import Observation
         case .tab(let id):
             return activeWorkspaceCoordinator.map(Destination.sessionWorkspaceCoordinator)
                 ?? rootModel.map { .tab(id: id, $0) } ?? .none
+        case .blankPage:
+            return rootModel.map(Destination.blankPage) ?? .none
         }
     }
 
