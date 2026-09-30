@@ -1519,12 +1519,14 @@ public final class AppViewModel {
                     // Tabs and preferences are the app's now; what an earlier version left in the
                     // backend is adopted once, alongside the first inventory read, and a failure
                     // there costs nothing but a retry with the next refresh.
+                    let importsSettings = shell.needsLegacyPreferenceImport || viewer.needsImport
                     async let tabRequest: SavedTabs? = tabStore.needsImport ? (try? await api.get(Routes.TABS)) : nil
-                    async let settingsRequest: [String: String?]? = shell.needsLegacyPreferenceImport ? (try? await api.get(Routes.SETTINGS)) : nil
+                    async let settingsRequest: [String: String?]? = importsSettings ? (try? await api.get(Routes.SETTINGS)) : nil
                     let (snapshot, sessionSnapshot, imported, legacy) = try await (projectRequest, sessionRequest, tabRequest, settingsRequest)
                     try Task.checkCancellation()
                     if let imported { tabStore.adopt(imported); showTabs(tabStore.saved) }
-                    if let legacy { shell.importLegacyPreferences(legacy) }
+                    if let notice = tabStore.takeRecoveryNotice() { error = notice }
+                    if let legacy { shell.importLegacyPreferences(legacy); viewer.importLegacySnapshots(legacy) }
                     // A newer request invalidates only its own inventory. Keep the other
                     // results, and let the pending set reload only what changed mid-flight.
                     let current = inventory.filter { generations[$0] == inventoryGenerations[$0] }

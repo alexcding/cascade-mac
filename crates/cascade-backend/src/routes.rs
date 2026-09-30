@@ -652,7 +652,7 @@ pub async fn stream(
             Ok(value) => Some(Ok(Event::default().data(value.to_string()))),
             // The subscriber lagged and missed events; a reload has it refetch rather than stay stale.
             Err(_) => Some(Ok(Event::default().data(
-                serde_json::to_string(&crate::Event::Reload).expect("an event serializes"),
+                crate::Event::lagged(),
             ))),
         }
     });

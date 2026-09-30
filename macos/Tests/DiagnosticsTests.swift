@@ -112,4 +112,16 @@ actor DiagnosticsFixture: DiagnosticsService {
     let settled = await service.calls
     try await Task.sleep(for: .milliseconds(120))
     #expect(await service.calls == settled, "hidden, it asks no more")
+    // Stopped while hidden, then connected to a new backend: still silent, no ticker left behind.
+    model.stop()
+    let next = DiagnosticsFixture()
+    model.connect(next)
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(await next.calls == 0, "hidden through a stop and a reconnect: nothing asks")
+    // Shown again: it reads, and keeps reading, from the new backend.
+    model.setVisible(true)
+    try await waitForDiagnostics { await next.calls >= 1 }
+    await next.complete(1, with: .success(try diagnosticsFixture()))
+    try await waitForDiagnostics { await next.calls >= 2 }
+    model.setVisible(false)
 }

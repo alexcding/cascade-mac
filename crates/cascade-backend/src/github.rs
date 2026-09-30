@@ -44,10 +44,14 @@ pub async fn cached_login() -> Option<String> {
     if cfg!(test) {
         return None;
     }
-    if let Some((login, at)) = LOGIN.lock().unwrap().as_ref() {
-        if at.elapsed() < Duration::from_secs(600) {
-            return Some(login.clone());
-        }
+    if let Some(login) = fresh_login() {
+        return Some(login);
+    }
+    // One ask at a time: the syncs of every project start together on a cold cache, and the
+    // ones that waited find the answer instead of each running `gh api user`.
+    let _asking = ASKING.lock().await;
+    if let Some(login) = fresh_login() {
+        return Some(login);
     }
     let login = current_user().await?;
     *LOGIN.lock().unwrap() = Some((login.clone(), Instant::now()));
@@ -56,6 +60,13 @@ pub async fn cached_login() -> Option<String> {
 
 /// Who `gh` is signed in as, kept for ten minutes: every sync of every project asks.
 static LOGIN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+static ASKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn fresh_login() -> Option<String> {
+    let cached = LOGIN.lock().unwrap();
+    let (login, at) = cached.as_ref()?;
+    (at.elapsed() < Duration::from_secs(600)).then(|| login.clone())
+}
 
 /// Forgets the cached login, so the next sync asks `gh` again. A manual poll calls it: after
 /// `gh auth switch`, refreshing is what a person does, and the review list must follow the

@@ -102757,6 +102757,9 @@
     "The saved tabs could not be read and were set aside." : {
 
     },
+    "The saved tabs could not be read; the list starts empty." : {
+
+    },
     "The session could not be removed" : {
       "extractionState" : "manual",
       "localizations" : {

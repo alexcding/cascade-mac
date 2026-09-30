@@ -53,24 +53,36 @@ import Observation
         self.service = service
         snapshot = nil; projects = []; updatedAt = nil; error = nil
         invalidate()
+        if visible { startTicker() }
     }
 
     func setVisible(_ value: Bool) {
         visible = value
-        ticker?.cancel(); ticker = nil
         if value {
             refresh()
-            let interval = refreshInterval
-            ticker = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: interval)
-                    guard !Task.isCancelled else { return }
-                    self?.invalidate()
-                }
-            }
+            startTicker()
         } else {
+            stopTicker()
             cancelRead()
         }
+    }
+
+    /// Reads again every `refreshInterval` while the panel is shown and a backend is connected.
+    private func startTicker() {
+        stopTicker()
+        guard service != nil else { return }
+        let interval = refreshInterval
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled else { return }
+                self?.invalidate()
+            }
+        }
+    }
+
+    private func stopTicker() {
+        ticker?.cancel(); ticker = nil
     }
 
     // SSE invalidations are coalesced, with one trailing read if data changed
@@ -116,8 +128,10 @@ import Observation
         loading = false; refreshPending = false
     }
 
+    /// The backend is going away: the ticker ends with it, and a new connection resumes it only
+    /// while the panel is still shown.
     func stop() {
-        cancelRead(); service = nil
+        stopTicker(); cancelRead(); service = nil
         snapshot = nil; projects = []; updatedAt = nil; error = nil
     }
 }

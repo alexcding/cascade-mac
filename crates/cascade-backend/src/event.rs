@@ -72,6 +72,14 @@ pub enum Event {
     },
 }
 
+impl Event {
+    /// What a subscriber that fell behind is told in place of the events it missed: refetch
+    /// everything. Both transports, the embedded callback and SSE, answer a lag with this, once.
+    pub fn lagged() -> String {
+        serde_json::to_string(&Event::Reload).expect("an event serializes")
+    }
+}
+
 impl From<Event> for Value {
     fn from(event: Event) -> Value {
         serde_json::to_value(event).expect("an event serializes")

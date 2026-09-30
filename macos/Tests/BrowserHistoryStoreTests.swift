@@ -147,3 +147,23 @@ import Testing
     #expect(relaunched.restore(id: "task:two", url: "https://example.com/two", title: "Two").pane == .term)
     #expect(relaunched.select(id: "task:one", url: "https://example.com/one", title: "One").pane == .off)
 }
+
+/// The page-tab snapshots an earlier version kept in the backend are adopted once, only on a Mac
+/// with no page-tabs.json of its own; the file is then written, so the next launch reads it.
+@MainActor @Test func legacyPageTabSnapshotsAreAdoptedOnceWhereNoFileExists() throws {
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: cache) }
+    var snapshot = ContextSnapshot()
+    snapshot.history = [.init(url: "https://example.com/carried", title: "Carried")]
+    snapshot.historyOrder = snapshot.history.map(\.id)
+    let json = String(decoding: try JSONEncoder().encode(snapshot), as: UTF8.self)
+    let viewer = ViewerStore(cacheURL: cache)
+    #expect(viewer.needsImport, "no file: the backend's snapshots are looked at once")
+    viewer.importLegacySnapshots(["native.context.task:two": json, "theme": "dark", "native.context.bad": "{"])
+    #expect(!viewer.needsImport)
+    let restored = viewer.select(id: "task:two", url: "session:two", title: "Two")
+    #expect(restored.history.map(\.url) == ["https://example.com/carried"])
+    #expect(FileManager.default.fileExists(atPath: cache.path), "written for the next launch")
+    #expect(!ViewerStore(cacheURL: cache).needsImport, "a Mac with a file of its own adopts nothing")
+    #expect(!ViewerStore().needsImport, "no file location: nothing to adopt into")
+}

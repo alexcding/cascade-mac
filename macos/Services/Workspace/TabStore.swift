@@ -17,27 +17,53 @@ import Foundation
     private(set) var saved = SavedTabs(tabs: [], active: nil)
     /// Why the last write failed, for the app to show; nil while writes succeed.
     private(set) var lastError: String?
+    /// What happened to a saved list that could not be read, told once at startup. Unlike
+    /// `lastError`, a later successful write does not clear it.
+    private(set) var recoveryNotice: String?
     private let fileURL: URL?
     /// True until the backend's list has been adopted: the first connect imports it.
     private(set) var needsImport = true
+    /// Whether the file's contents are in `saved`, or there was no file. A file that was not read
+    /// is never written over: it is set aside first.
+    private var readFromDisk = false
 
     init(fileURL: URL?) {
         self.fileURL = fileURL
-        // No file: nothing saved on this Mac yet, and the backend's list is adopted on connect.
-        guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return }
+        guard let fileURL else { readFromDisk = true; return }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            // No file: nothing saved on this Mac yet, and the backend's list is adopted on connect.
+            readFromDisk = true
+            return
+        }
+        // A file this build wrote is here, so the import happened; adopting the backend's old
+        // list again would bury every tab opened or closed since.
+        needsImport = false
+        guard let data = try? Data(contentsOf: fileURL) else {
+            recoveryNotice = String(localized: "The saved tabs could not be read; the list starts empty.")
+            return
+        }
         guard let file = try? JSONDecoder().decode(File.self, from: data) else {
-            // A file this build wrote that no longer reads. The import happened; adopting the
-            // backend's old list again would bury every tab opened or closed since. The file is
-            // kept aside for a look, and the list starts empty.
-            needsImport = false
-            lastError = String(localized: "The saved tabs could not be read and were set aside.")
-            let aside = fileURL.appendingPathExtension("broken")
-            try? FileManager.default.removeItem(at: aside)
-            try? FileManager.default.moveItem(at: fileURL, to: aside)
+            recoveryNotice = String(localized: "The saved tabs could not be read and were set aside.")
+            setAside(fileURL)
             return
         }
         saved = SavedTabs(tabs: file.tabs, active: file.active)
         needsImport = !(file.imported ?? false)
+        readFromDisk = true
+    }
+
+    /// The notice, once: nil after it is taken.
+    func takeRecoveryNotice() -> String? {
+        defer { recoveryNotice = nil }
+        return recoveryNotice
+    }
+
+    /// Moves the file out of the way as `tabs.json.broken`, for a look, and frees the path.
+    private func setAside(_ fileURL: URL) {
+        let aside = fileURL.appendingPathExtension("broken")
+        try? FileManager.default.removeItem(at: aside)
+        try? FileManager.default.moveItem(at: fileURL, to: aside)
+        readFromDisk = true
     }
 
     var tabs: [SavedTab] { saved.tabs }
@@ -112,6 +138,10 @@ import Foundation
 
     private func write() {
         guard let fileURL else { return }
+        if !readFromDisk, FileManager.default.fileExists(atPath: fileURL.path) {
+            // Unread at startup (an I/O error), still here now: set aside, never written over.
+            setAside(fileURL)
+        }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(File(tabs: saved.tabs, active: saved.active, imported: !needsImport)).write(to: fileURL, options: .atomic)

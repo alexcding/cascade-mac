@@ -160,18 +160,6 @@ fn new_directory(path: &Path) -> Result<PathBuf> {
     directory(path)
 }
 
-/// The folder a nested entry sits in: made when it is missing (a fresh checkpoint), reused when
-/// it exists (a live installation's daemon folder, which a restore writes into), and never a
-/// symlink.
-fn nested_directory(path: &Path) -> Result<PathBuf> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_dir() => directory(path),
-        Ok(_) => bail!("Expected a directory: {}", path.display()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => new_directory(path),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn sqlite_sidecars(path: &Path, forbidden: bool) -> Result<()> {
     let parent = path.parent().context("Missing database parent")?;
     let name = path
@@ -259,7 +247,7 @@ pub fn backup(source: &Path, destination: &Path) -> Result<Manifest> {
     for (name, input) in inputs {
         let output = target.join(name);
         if name.contains('/') {
-            nested_directory(output.parent().unwrap())?;
+            new_directory(output.parent().unwrap())?;
         }
         let kind = kind(name).unwrap();
         if kind == "sqlite" {
@@ -338,7 +326,7 @@ pub fn restore(source: &Path, destination: &Path) -> Result<Manifest> {
         let input = required_file(&source, &entry.path)?;
         let output = target.join(&entry.path);
         if entry.path.contains('/') {
-            nested_directory(output.parent().unwrap())?;
+            new_directory(output.parent().unwrap())?;
         }
         let mut file = new_file(&output)?;
         std::io::copy(&mut open_read(&input)?, &mut file)?;
@@ -524,17 +512,5 @@ mod tests {
             assert!(restored.join(name).is_file(), "{name} was not restored");
         }
         assert!(!restored.join(TABS).exists(), "the app's tabs are not the checkpoint's to restore");
-    }
-
-    #[test]
-    fn a_nested_folder_is_made_once_reused_after_and_never_a_symlink_or_a_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let made = nested_directory(&dir.path().join("fresh")).unwrap();
-        assert_eq!(fs::metadata(&made).unwrap().mode() & 0o777, 0o700);
-        assert_eq!(nested_directory(&dir.path().join("fresh")).unwrap(), made);
-        fs::write(dir.path().join("file"), b"").unwrap();
-        assert!(nested_directory(&dir.path().join("file")).is_err());
-        std::os::unix::fs::symlink(dir.path().join("fresh"), dir.path().join("link")).unwrap();
-        assert!(nested_directory(&dir.path().join("link")).is_err(), "a link is refused even to a directory");
     }
 }

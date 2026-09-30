@@ -67,6 +67,10 @@ pub async fn create_session(
             "The page address must use HTTP or HTTPS.",
         ));
     }
+    // No agent at all, a plain shell, or one the registry knows: what a later PATCH allows.
+    if !body.cli.is_empty() && crate::agents::Agent::of(&body.cli).is_none() {
+        return Err(ApiError::bad_request("Unsupported agent"));
+    }
 
     let trees = local::list_worktrees(&workspace).await;
     let found = trees.iter().find(|tree| tree.branch == branch);
@@ -189,13 +193,34 @@ async fn free_main_checkout(
 }
 
 /// The base a new session's branch forks from: `develop` when the repository has it, else its
-/// default branch (`origin/HEAD`, else `main`, `master` or `develop`, whichever exists). Two
-/// short questions to git, not a listing of every branch and worktree.
+/// default branch (`origin/HEAD`, else `main`, `master` or `develop`, whichever exists), else the
+/// most recently committed local branch, as the app used to pick. Short questions to git, not a
+/// listing of every branch and worktree.
 async fn session_base(workspace: &str) -> Result<String, ApiError> {
     if local::ref_exists(workspace, "refs/heads/develop").await {
         return Ok("develop".into());
     }
-    Ok(local::default_branch(workspace).await)
+    let default = local::default_branch(workspace).await;
+    if local::ref_exists(workspace, &format!("refs/heads/{default}")).await
+        || local::ref_exists(workspace, &format!("refs/remotes/origin/{default}")).await
+    {
+        return Ok(default);
+    }
+    let recent = local::git(
+        workspace,
+        vec![
+            "for-each-ref".into(),
+            "--sort=-committerdate".into(),
+            "--count=1".into(),
+            "--format=%(refname:short)".into(),
+            "refs/heads".into(),
+        ],
+        15,
+    )
+    .await
+    .unwrap_or_default();
+    let recent = recent.trim();
+    Ok(if recent.is_empty() { default } else { recent.to_owned() })
 }
 
 /// An http(s) address with a host and no credentials: what a session page may be.

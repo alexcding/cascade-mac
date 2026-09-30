@@ -470,6 +470,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private var api: APIClient?
     /// Every context's last snapshot, open or not: what `cacheURL` holds between launches.
     @ObservationIgnored private var saved: [String: ContextSnapshot] = [:]
+    /// True until the page-tab snapshots an earlier version kept in the backend have been looked
+    /// at. Only a Mac with no page-tabs.json of its own has anything to adopt (a data directory
+    /// carried over, a file lost): the Mac they were written on rewrote the file after every
+    /// restore, so it already holds them.
+    @ObservationIgnored private(set) var needsImport = false
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
     @ObservationIgnored private let pagePool: PagePool
@@ -509,7 +514,29 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             saved = cache.snapshots
             // Pages visited in a context not opened this launch still belong in the address bar.
             for snapshot in saved.values { browserHistory.seed(snapshot.history) }
+        } else if let cacheURL {
+            needsImport = !FileManager.default.fileExists(atPath: cacheURL.path)
         }
+    }
+
+    /// Takes over, once, the snapshots an earlier version kept in the backend as
+    /// `native.context.<id>`, for every context this Mac has nothing saved for. Contexts already
+    /// open take theirs at once, and the file is written so the next launch reads it.
+    func importLegacySnapshots(_ settings: [String: String?]) {
+        guard needsImport else { return }
+        needsImport = false
+        var adopted = false
+        for (key, value) in settings where key.hasPrefix("native.context.") {
+            let id = String(key.dropFirst("native.context.".count))
+            guard saved[id] == nil, let value, let data = value.data(using: .utf8),
+                  let snapshot = try? JSONDecoder().decode(ContextSnapshot.self, from: data) else { continue }
+            saved[id] = snapshot
+            contexts[id]?.apply(snapshot)
+            contexts[id]?.documents.forEach(configure)
+            browserHistory.seed(snapshot.history)
+            adopted = true
+        }
+        if adopted { cache() }
     }
     var active: WorkspaceContext? { activeContextID.flatMap { contexts[$0] } }
     func configure(_ document: EditorDocumentViewModel) {

@@ -364,7 +364,7 @@ pub unsafe extern "C" fn cascade_backend_subscribe(
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     // Events were missed. A reload has the host refetch everything, rather than
                     // stay stale until the next change happens to be broadcast.
-                    let json = serde_json::to_string(&crate::Event::Reload).expect("an event serializes");
+                    let json = crate::Event::lagged();
                     let _ = catch_unwind(AssertUnwindSafe(|| unsafe {
                         callback(ctx.ptr(), json.as_ptr(), json.len())
                     }));
