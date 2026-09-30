@@ -66,6 +66,34 @@ private final class BuildHTTPFixtureMac: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+/// `XCODE_BUILD_SETTINGS` as the backend answers it for a Mac app whose scheme passes arguments
+/// and environment. Asked about the worktree `/tmp/own`, the app it builds is this very process.
+private final class BuildHTTPFixtureLaunch: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let path = request.url!.path
+        let body: String
+        switch path {
+        case Routes.XCODE_SCHEMES: body = #"{"target":"/tmp/Fixture.xcodeproj","schemes":["Fixture"]}"#
+        case Routes.XCODE_DESTINATIONS: body = #"[{"udid":"this-mac","name":"This Mac","runtime":"","kind":"mac"}]"#
+        case Routes.XCODE_BUILD_SETTINGS:
+            let own = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.contains { $0.name == "path" && $0.value == "/tmp/own" } == true
+            let executable = own ? Bundle.main.executablePath! : "/tmp/Fixture.app/Contents/MacOS/Fixture"
+            let settings: [String: Any] = ["appPath": "/tmp/Fixture.app", "executablePath": executable, "platform": "macosx",
+                "bundleId": "fixture.app", "productName": "Fixture.app", "target": "/tmp/Fixture.xcodeproj", "configuration": "Debug",
+                "launchArguments": ["--data-dir", "/tmp/dev data"], "launchEnvironment": ["LOG": "1"]]
+            body = String(decoding: try! JSONSerialization.data(withJSONObject: settings), as: UTF8.self)
+        default: body = #"{"id":"fixture","name":"Fixture","repo":"","workspace":"/tmp","ide":"xcode"}"#
+        }
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil,
+                                                           headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 /// A `SimulatorPreviewing` fake that answers immediately, for tests that only care whether it was asked.
 private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked Sendable {
     func start(udid: String) async throws -> URL { URL(string: "http://127.0.0.1:3100")! }
@@ -237,6 +265,37 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     #expect(simulatorRuns == 0)
     #expect(preview.state == .idle && preview.udid == nil)
     model.disconnect()
+}
+
+/// From the Run button's model to the line typed into the terminal: what the backend answers for
+/// the scheme reaches the launch, and a scheme that builds the app doing the running asks it to
+/// leave instead of ending it.
+@MainActor @Test func runTypesTheLaunchTheBackendDescribes() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [BuildHTTPFixtureLaunch.self]
+    let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
+    let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    func typed(worktree: String) async throws -> String {
+        let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: worktree, title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
+        let build = BuildTerminalRecorder()
+        let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session, terminalFactory: { build })
+        let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+        coordinator.presentBuild { model }
+        let presentation = try #require(coordinator.sheet)
+        guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return "" }
+        await destination.load()
+        await destination.run()
+        defer { model.disconnect() }
+        #expect(build.commands.count == 1, "\(model.error ?? "no command")")
+        return build.commands.first ?? ""
+    }
+    let other = try await typed(worktree: "/tmp")
+    #expect(other.contains("export 'LOG=1' && exec '/tmp/Fixture.app/Contents/MacOS/Fixture' '--data-dir' '/tmp/dev data'; }"), "\(other)")
+    #expect(other.contains(#"/usr/bin/pkill -f -- '^\/tmp\/Fixture\.app\/Contents\/MacOS\/Fixture( |$)'"#), "\(other)")
+    let own = try await typed(worktree: "/tmp/own")
+    #expect(own.contains("/api/hooks/relaunch?pid=\(ProcessInfo.processInfo.processIdentifier)\""), "\(own)")
+    #expect(own.hasSuffix("exec /usr/bin/open -n '/tmp/Fixture.app' --env 'LOG=1' --args '--data-dir' '/tmp/dev data'; }; })"), "\(own)")
+    #expect(!own.contains("pkill"))
 }
 
 @Test func buildCommandKeepsOneForegroundGroupAndQuotesDestinationValues() throws {

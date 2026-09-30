@@ -12,6 +12,7 @@
 
 use std::{
     cmp::Reverse,
+    collections::{BTreeMap, HashMap},
     fs,
     future::Future,
     path::{Path, PathBuf},
@@ -914,6 +915,164 @@ pub async fn destinations(
     Ok(Json(value))
 }
 
+/// What a scheme's Run hands the app it launches: the enabled arguments and environment
+/// variables of its launch action. `xcodebuild` builds a scheme and never runs it, so these
+/// are read from the scheme's file. Without them the app launched here is not the one Xcode
+/// launches.
+#[derive(Debug, Default, PartialEq)]
+struct Launch {
+    arguments: Vec<String>,
+    environment: BTreeMap<String, String>,
+}
+
+/// The file of `scheme` in the first of `containers` that has one, shared before a user's
+/// own. A scheme Xcode makes up for a target has no file, and passes nothing.
+fn scheme_file(containers: &[PathBuf], scheme: &str) -> Option<PathBuf> {
+    // A name, never a path out of the schemes folder.
+    if Path::new(scheme).file_name().and_then(|name| name.to_str()) != Some(scheme) {
+        return None;
+    }
+    let file = format!("{scheme}.xcscheme");
+    containers.iter().find_map(|container| {
+        let shared = container.join("xcshareddata/xcschemes").join(&file);
+        if shared.is_file() {
+            return Some(shared);
+        }
+        // This user's before anyone else's, which a checkout can carry too.
+        let mine = std::env::var("USER").map(|user| format!("{user}.xcuserdatad")).ok();
+        let mut own: Vec<_> = fs::read_dir(container.join("xcuserdata"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|user| (Some(user.file_name().to_string_lossy().into_owned()) != mine, user.path()))
+            .map(|(other, user)| (other, user.join("xcschemes").join(&file)))
+            .filter(|(_, path)| path.is_file())
+            .collect();
+        own.sort();
+        own.into_iter().next().map(|(_, path)| path)
+    })
+}
+
+/// An attribute's value as it was before the scheme file escaped it.
+fn xml_text(value: &str) -> String {
+    Regex::new(r"&(#x[0-9A-Fa-f]+|#[0-9]+|[a-z]+);")
+        .unwrap()
+        .replace_all(value, |found: &regex::Captures| {
+            let name = &found[1];
+            let character = match name {
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "amp" => Some('&'),
+                _ => name
+                    .strip_prefix("#x")
+                    .map(|hex| u32::from_str_radix(hex, 16))
+                    .or_else(|| name.strip_prefix('#').map(str::parse))
+                    .and_then(Result::ok)
+                    .and_then(char::from_u32),
+            };
+            character.map_or_else(|| found[0].to_owned(), String::from)
+        })
+        .into_owned()
+}
+
+/// `$(NAME)` and `${NAME}` replaced from the build's settings, as Xcode expands what a scheme
+/// passes against the target it runs. A setting the build does not have is empty.
+fn expand(text: &str, settings: &Value) -> String {
+    Regex::new(r"\$(?:\((\w+)\)|\{(\w+)\})")
+        .unwrap()
+        .replace_all(text, |found: &regex::Captures| {
+            let name = found.get(1).or(found.get(2)).map_or("", |name| name.as_str());
+            settings[name].as_str().unwrap_or("").to_owned()
+        })
+        .into_owned()
+}
+
+/// One scheme argument as the words a shell would make of it: quotes group, a backslash keeps
+/// the next character. Xcode splits after expanding, which is why a scheme quotes a path.
+fn shell_words(text: &str) -> Vec<String> {
+    let mut words = vec![];
+    let mut word: Option<String> = None;
+    let mut quote = None;
+    let mut rest = text.chars().peekable();
+    while let Some(character) = rest.next() {
+        match (quote, character) {
+            (None, c) if c.is_whitespace() => words.extend(word.take()),
+            (None, '\'' | '"') => {
+                quote = Some(character);
+                // Quotes around nothing are still a word.
+                word.get_or_insert_with(String::new);
+            }
+            (Some(open), c) if c == open => quote = None,
+            (None | Some('"'), '\\') => {
+                // Inside double quotes a backslash only escapes what would still be special.
+                let kept = rest.next_if(|next| quote.is_none() || matches!(next, '"' | '\\' | '$' | '`'));
+                word.get_or_insert_with(String::new).push(kept.unwrap_or('\\'));
+            }
+            (_, c) => word.get_or_insert_with(String::new).push(c),
+        }
+    }
+    words.extend(word);
+    words
+}
+
+/// What the launch action of a scheme file passes, expanded from `settings`. Its test and
+/// profile actions have arguments of their own, which a Run never sees.
+fn scheme_launch(scheme: &str, settings: &Value) -> Launch {
+    let action = Regex::new(r"(?s)<LaunchAction\b.*?</LaunchAction>").unwrap();
+    let Some(action) = action.find(scheme) else {
+        return Launch::default();
+    };
+    let attribute = Regex::new(r#"(\w+)\s*=\s*"([^"]*)""#).unwrap();
+    // The attributes of every enabled element of one kind, in the file's order.
+    let enabled = |element: &str| -> Vec<HashMap<String, String>> {
+        // A tag runs to the first `>` outside an attribute's quotes.
+        Regex::new(&format!(r#"<{element}\s((?:[^>"]|"[^"]*")*)>"#))
+            .unwrap()
+            .captures_iter(action.as_str())
+            .map(|tag| {
+                attribute
+                    .captures_iter(&tag[1])
+                    .map(|found| (found[1].to_owned(), expand(&xml_text(&found[2]), settings)))
+                    .collect::<HashMap<_, _>>()
+            })
+            .filter(|attributes| attributes.get("isEnabled").is_some_and(|value| value == "YES"))
+            .collect()
+    };
+    Launch {
+        arguments: enabled("CommandLineArgument")
+            .iter()
+            .filter_map(|attributes| attributes.get("argument"))
+            .flat_map(|argument| shell_words(argument))
+            .collect(),
+        environment: enabled("EnvironmentVariable")
+            .into_iter()
+            .filter_map(|mut attributes| {
+                Some((attributes.remove("key")?, attributes.remove("value").unwrap_or_default()))
+            })
+            .collect(),
+    }
+}
+
+/// What `scheme` passes the app whose build settings are `settings`. The scheme is looked for
+/// in what was opened, then in the project of the app it builds, where a workspace's scheme
+/// is usually kept.
+fn launch_of(root: &Path, target: &Path, scheme: &str, settings: &Value) -> Launch {
+    let opened = if target_args(target).is_empty() {
+        xcode_cwd(root, target).join(".swiftpm/xcode")
+    } else {
+        target.to_owned()
+    };
+    let containers: Vec<PathBuf> = std::iter::once(opened)
+        .chain(settings["PROJECT_FILE_PATH"].as_str().map(PathBuf::from))
+        .collect();
+    scheme_file(&containers, scheme)
+        .and_then(|file| fs::read_to_string(file).ok())
+        .map(|xml| scheme_launch(&xml, settings))
+        .unwrap_or_default()
+}
+
 pub async fn build_settings(
     headers: HeaderMap,
     State(app): State<AppState>,
@@ -951,7 +1110,9 @@ pub async fn build_settings(
     let question = Question {
         root: &root,
         target: &target,
-        key: format!("settings\n{}\n{scheme}\n{configuration}\n{sim}", target.display()),
+        // Named for all the answer holds, so one kept before it held the scheme's launch is
+        // never taken for one that does.
+        key: format!("settings+launch\n{}\n{scheme}\n{configuration}\n{sim}", target.display()),
         devices: false,
         // The app path is under derived data, or a build location, which the user can move in
         // Xcode's settings. Unread settings could hide such a move, so nothing kept is used.
@@ -997,7 +1158,8 @@ pub async fn build_settings(
         if product.is_empty() || directory.is_empty() {
             return Err(ApiError::internal(format!("Scheme {scheme} builds no app")));
         }
-        Ok(json!({"appPath":Path::new(directory).join(product),"executablePath":Path::new(directory).join(settings["EXECUTABLE_PATH"].as_str().unwrap_or("")),"platform":settings["PLATFORM_NAME"],"bundleId":settings["PRODUCT_BUNDLE_IDENTIFIER"],"productName":product,"target":target,"configuration":configuration}))
+        let launch = launch_of(&root, &target, scheme, settings);
+        Ok(json!({"appPath":Path::new(directory).join(product),"executablePath":Path::new(directory).join(settings["EXECUTABLE_PATH"].as_str().unwrap_or("")),"platform":settings["PLATFORM_NAME"],"bundleId":settings["PRODUCT_BUNDLE_IDENTIFIER"],"productName":product,"target":target,"configuration":configuration,"launchArguments":launch.arguments,"launchEnvironment":launch.environment}))
     })
     .await?;
     Ok(Json(value))
@@ -1382,6 +1544,91 @@ mod tests {
         let unread = Question { kept: Kept::Never, ..question(1000) };
         let fetched = remembered(&app, unread, || async { Ok(json!(["fourth"])) }).await;
         assert_eq!(fetched.ok(), Some(json!(["fourth"])));
+    }
+
+    /// Run passes what the scheme's launch action passes, as Xcode would: expanded, split
+    /// where a shell would split, and only what is enabled and only that action's.
+    #[test]
+    fn a_scheme_passes_its_launch_arguments_and_environment() {
+        let scheme = r#"<Scheme>
+   <TestAction buildConfiguration = "Debug">
+      <CommandLineArguments>
+         <CommandLineArgument argument = "--only-for-tests" isEnabled = "YES"/>
+      </CommandLineArguments>
+   </TestAction>
+   <LaunchAction buildConfiguration = "Debug">
+      <PreActions>
+         <ExecutionAction>
+            <ActionContent title = "Seed" scriptText = "&quot;${PROJECT_DIR}/seed.sh&quot; &gt;/dev/null&#10;">
+               <EnvironmentBuildable></EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
+      <CommandLineArguments>
+         <CommandLineArgument argument = "--data-dir" isEnabled = "YES"/>
+         <CommandLineArgument
+            argument = "&quot;$(PROJECT_DIR)/.build/dev data&quot;"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument argument = "--off" isEnabled = "NO"/>
+         <CommandLineArgument argument = "-level 3 &apos;&apos; it\&apos;s" isEnabled = "YES"/>
+      </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable key = "LOG" value = "${CONFIGURATION} &amp; $(MISSING)more" isEnabled = "YES"/>
+         <EnvironmentVariable key = "OFF" value = "1" isEnabled = "NO"/>
+         <EnvironmentVariable key = "FILTER" value = "a>b" isEnabled = "YES"/>
+      </EnvironmentVariables>
+   </LaunchAction>
+</Scheme>"#;
+        let settings = json!({"PROJECT_DIR": "/Users/me/My App/macos", "CONFIGURATION": "Debug"});
+        let launch = scheme_launch(scheme, &settings);
+        assert_eq!(
+            launch.arguments,
+            ["--data-dir", "/Users/me/My App/macos/.build/dev data", "-level", "3", "", "it's"]
+        );
+        let environment = [("FILTER", "a>b"), ("LOG", "Debug & more")].map(|(key, value)| (key.to_owned(), value.to_owned()));
+        assert_eq!(launch.environment, BTreeMap::from(environment));
+        assert_eq!(scheme_launch("<Scheme><BuildAction/></Scheme>", &settings), Launch::default());
+
+        assert_eq!(shell_words(r#"a\ b "c \"d\" \e" 'f "g"'"#), ["a b", r#"c "d" \e"#, r#"f "g""#]);
+        assert_eq!(xml_text("&#x41;&#66;&lt;&unknown;"), "AB<&unknown;");
+    }
+
+    /// The scheme's file is found where Xcode keeps one, and a scheme's name is never a path.
+    #[test]
+    fn a_scheme_is_read_from_what_was_opened_or_the_project_of_its_app() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace = root.path().join("App.xcworkspace");
+        let project = root.path().join("ios/App.xcodeproj");
+        let scheme = |container: &Path, folder: &str, argument: &str| {
+            let schemes = container.join(folder).join("xcschemes");
+            fs::create_dir_all(&schemes).unwrap();
+            let xml = format!(
+                "<LaunchAction><CommandLineArgument argument = \"{argument}\" isEnabled = \"YES\"/></LaunchAction>"
+            );
+            fs::write(schemes.join("App.xcscheme"), xml).unwrap();
+        };
+        fs::create_dir_all(&workspace).unwrap();
+        let settings = json!({"PROJECT_FILE_PATH": project});
+        let arguments = || launch_of(root.path(), &workspace, "App", &settings).arguments;
+        assert!(arguments().is_empty(), "a scheme with no file passes nothing");
+
+        scheme(&project, "xcuserdata/0-other.xcuserdatad", "--other");
+        assert_eq!(arguments(), ["--other"], "the app's project holds the scheme");
+        if let Ok(user) = std::env::var("USER") {
+            scheme(&project, &format!("xcuserdata/{user}.xcuserdatad"), "--own");
+            assert_eq!(arguments(), ["--own"], "this user's scheme before another's");
+        }
+        scheme(&project, "xcshareddata", "--shared");
+        assert_eq!(arguments(), ["--shared"], "shared before a user's own");
+        scheme(&workspace, "xcshareddata", "--workspace");
+        assert_eq!(arguments(), ["--workspace"], "what was opened comes first");
+        assert!(launch_of(root.path(), &workspace, "../App", &settings).arguments.is_empty());
+
+        let package = tempfile::tempdir().unwrap();
+        scheme(&package.path().join(".swiftpm/xcode"), "xcshareddata", "--package");
+        let manifest = package.path().join("Package.swift");
+        assert_eq!(launch_of(package.path(), &manifest, "App", &json!({})).arguments, ["--package"]);
     }
 
     /// `refresh` reads only answers given since a moment; older ones are fetched again.

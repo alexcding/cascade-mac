@@ -119,6 +119,7 @@ public enum Routes {
     public static let HOOK_TURN_DONE = "/api/hooks/turn-done"
     public static let HOOK_SESSION_START = "/api/hooks/session-start"
     public static let HOOK_OPEN_URL = "/api/hooks/open-url"
+    public static let HOOK_RELAUNCH = "/api/hooks/relaunch"
 
     private static func encodeComponent(_ value: String) -> String {
         let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")

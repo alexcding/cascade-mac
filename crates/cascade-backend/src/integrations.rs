@@ -848,6 +848,27 @@ pub async fn open_url(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
+#[derive(Deserialize)]
+pub struct RelaunchQuery {
+    pid: u32,
+}
+/// A Run that has rebuilt the copy of the app its terminal belongs to, asking that copy to leave
+/// so the new build can take its place. It is asked because it cannot always be ended: a debugger
+/// holds the copy it is attached to against every signal. The copy is named by its process ID and
+/// leaves by itself; nothing else is relayed, and a page's origin is refused as for `open_url`.
+pub async fn relaunch(
+    State(app): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<RelaunchQuery>,
+) -> StatusCode {
+    if crate::local::foreign_origin(&headers) {
+        return StatusCode::FORBIDDEN;
+    }
+    match app.events.send(json!({"type":"terminal-relaunch","pid":query.pid})) {
+        Ok(_) => StatusCode::NO_CONTENT,
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
 pub async fn turn_start(
     State(app): State<AppState>,
     Query(query): Query<HookQuery>,

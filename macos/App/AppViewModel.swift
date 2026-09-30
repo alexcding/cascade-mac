@@ -85,6 +85,7 @@ public final class AppViewModel {
     @ObservationIgnored private let backendFactory: any BackendFeatureFactory
     @ObservationIgnored private var api: APIClient?
     @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private var relaunching: Task<Void, Never>?
     @ObservationIgnored private var startGeneration = UUID()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     private enum Inventory: Hashable { case projects, sessions }
@@ -1409,7 +1410,20 @@ public final class AppViewModel {
 
     public func cancelBrowserPresentation() { coordinator.browserDialogCoordinator.cancel() }
 
-    private func prepareToTerminate() async throws {
+    /// Leaves so that the build a Run just made of this very copy can take its place. It is Quit
+    /// in everything but the shells: unsaved files are asked about, and the backend stops with
+    /// its forwarders, but the daemon stays for the new build to pick up, and the Run waiting in
+    /// one of its terminals with it. Hence `exit`, which `terminate` would not reach this way.
+    /// Asked again while it is still asking about files, it is already leaving.
+    private func leaveForRelaunch() {
+        guard relaunching == nil else { return }
+        relaunching = Task {
+            do { try await prepareToTerminate(keepingShells: true) } catch { relaunching = nil; return }
+            exit(0)
+        }
+    }
+
+    private func prepareToTerminate(keepingShells: Bool = false) async throws {
         let browserDialogs = coordinator.browserDialogCoordinator
         let browserWasEnabled = browserDialogs.enabled
         let picker = viewer.fileOpenCoordinator
@@ -1421,12 +1435,14 @@ public final class AppViewModel {
         for action in actions { await action.suspendAndWait() }
         defer { actions.forEach { $0.resume() } }
         guard await viewer.closeDocuments() else { throw CancellationError() }
-        for terminal in terminals.values { await terminal.stopConnecting() }
-        try await terminalControl.stopExisting()
-        for terminal in terminals.values { terminal.disconnect() }
-        // Simulator streams go with the shells. serve-sim cannot tell ours from a stream started in
-        // a terminal, so Quit stops those too.
-        if let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
+        if !keepingShells {
+            for terminal in terminals.values { await terminal.stopConnecting() }
+            try await terminalControl.stopExisting()
+            for terminal in terminals.values { terminal.disconnect() }
+            // Simulator streams go with the shells. serve-sim cannot tell ours from a stream started in
+            // a terminal, so Quit stops those too.
+            if let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
+        }
         // A page visited just before quitting would otherwise miss the debounced write.
         await viewer.browserHistory.flush()
         await viewer.browserBookmarks.flush()
@@ -1680,6 +1696,9 @@ public final class AppViewModel {
             if let terminal = terminals.values.first(where: { $0.termID == runID }) { terminal.openLink(url, terminal.cwd, false) }
             else if let web = safeWebURL(url) { desktop.openBrowser(web) }
         }
+        // A Run in one of this copy's terminals has rebuilt this very copy, and waits for it to
+        // leave before it opens the new build.
+        if event.type == "terminal-relaunch", event.pid == Int(ProcessInfo.processInfo.processIdentifier) { leaveForRelaunch() }
         if ["agent-permission", "agent-permission-done"].contains(event.type) {
             receivePermission(event)
             // Whether or not a chat shows it, the agent's own prompt is up in that terminal.

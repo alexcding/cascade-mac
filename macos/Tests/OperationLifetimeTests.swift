@@ -407,6 +407,72 @@ private func operationSession(_ id: String, scheme: String? = nil, simulator: St
     #expect(!device.contains("simctl") && device.contains("devicectl device install app") && device.contains("process launch --console"))
 }
 
+/// Run ends the copy of the app already running before it launches the new one. When that copy is
+/// the Cascade doing the running, a development build on its own scheme, it is asked to leave and
+/// the new build opens outside its terminal: a copy under Xcode's debugger cannot be ended, and
+/// was left stopped while the new build yielded to it.
+@Test func runAsksTheAppThatIsRunningItToLeave() throws {
+    var settings = BuildSettings(appPath: "/tmp/Fixture.app", bundleId: "fixture.app", target: "/tmp/Fixture.xcodeproj", configuration: "Debug")
+    settings.platform = "macosx"
+    settings.executablePath = "/tmp/Fixture.app/Contents/MacOS/Fixture"
+    settings.launchArguments = ["--data-dir", "/tmp/dev data"]
+    settings.launchEnvironment = ["LOG": "a b"]
+    let own = try settings.command(scheme: "Fixture", simulator: "mac-1", host: "/tmp/Fixture.app/Contents/MacOS/../MacOS/Fixture", pid: 4242)
+    #expect(own.contains(#" build && { heard=; n=0; while kill -0 4242 2>/dev/null; do "#), "\(own)")
+    // Asked on the app's own port, past any proxy; ended like any other app while it cannot hear.
+    #expect(own.contains(#"port=$(/bin/cat "$CASCADE_PORT_FILE" 2>/dev/null) && [ -n "$port" ] && /usr/bin/curl -fs --noproxy '*' --connect-timeout 2 -o /dev/null -X POST "http://127.0.0.1:$port/api/hooks/relaunch?pid=4242" && heard=1; } || kill 4242 2>/dev/null; }"#), "\(own)")
+    #expect(own.hasSuffix("done; exec /usr/bin/open -n '/tmp/Fixture.app' --env 'LOG=a b' --args '--data-dir' '/tmp/dev data'; }; })"), "\(own)")
+    #expect(!own.contains("pkill") && !own.contains("\n"))
+    let shell = Process()
+    shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+    shell.arguments = ["-n", "-c", own] // Parse only; nothing is built, asked or opened.
+    shell.standardOutput = FileHandle.nullDevice; shell.standardError = FileHandle.nullDevice
+    try shell.run(); shell.waitUntilExit()
+    #expect(shell.terminationStatus == 0)
+    // Any other app is ended and takes the terminal, as before.
+    let other = try settings.command(scheme: "Fixture", simulator: "mac-1", host: "/Applications/Fixture.app/Contents/MacOS/Fixture", pid: 4242)
+    #expect(other.contains("pkill") && other.contains("exec '/tmp/Fixture.app/Contents/MacOS/Fixture' '--data-dir'") && !other.contains("curl"))
+    // Only the Mac launch ends anything on this Mac.
+    settings.platform = "iphonesimulator"
+    #expect(try settings.command(scheme: "Fixture", simulator: "sim-1", host: "/tmp/Fixture.app/Contents/MacOS/Fixture").contains("simctl launch"))
+}
+
+/// An app launched here gets what its scheme's Run passes, or it is not the app Xcode launches:
+/// Cascade's own scheme names the data folder a development build runs on.
+@Test func runCommandPassesWhatTheSchemePasses() throws {
+    var settings = BuildSettings(appPath: "/tmp/Fixture.app", bundleId: "fixture.app", target: "/tmp/Fixture.xcodeproj", configuration: "Debug")
+    settings.executablePath = "/tmp/Fixture.app/Contents/MacOS/Fixture"
+    settings.launchArguments = ["--data-dir", "/tmp/dev data", "it's"]
+    settings.launchEnvironment = ["LOG": "a b", "ALSO": "1", "not a name": "x"]
+    let launches = [
+        "macosx": "export 'ALSO=1' 'LOG=a b' && exec '/tmp/Fixture.app/Contents/MacOS/Fixture'",
+        "iphoneos": "export 'DEVICECTL_CHILD_ALSO=1' 'DEVICECTL_CHILD_LOG=a b' && exec /usr/bin/xcrun devicectl device process launch --console --terminate-existing --device 'id-1' -- 'fixture.app'",
+        "iphonesimulator": "export 'SIMCTL_CHILD_ALSO=1' 'SIMCTL_CHILD_LOG=a b' && exec /usr/bin/xcrun simctl launch --console-pty --terminate-running-process 'id-1' 'fixture.app'",
+    ]
+    for (platform, launch) in launches {
+        settings.platform = platform
+        let command = try settings.command(scheme: "Fixture", simulator: "id-1")
+        #expect(command.contains(launch + " '--data-dir' '/tmp/dev data' 'it'\"'\"'s'; }"), "\(platform): \(command)")
+        #expect(!command.contains("not a name"))
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        shell.arguments = ["-n", "-c", command] // Parse only; nothing is built or launched.
+        shell.standardOutput = FileHandle.nullDevice; shell.standardError = FileHandle.nullDevice
+        try shell.run(); shell.waitUntilExit()
+        #expect(shell.terminationStatus == 0, "\(platform)")
+    }
+    // The line is typed into a shell: a line break or a tab in a value is spelled out, not typed.
+    settings.launchArguments = ["a\nb\t'c'\\"]; settings.launchEnvironment = ["LINES": "1\r\n2"]; settings.platform = "macosx"
+    let spelled = try settings.command(scheme: "Fixture", simulator: "id-1")
+    #expect(spelled.contains(#"export $'LINES=1\r\n2' && exec '/tmp/Fixture.app/Contents/MacOS/Fixture' $'a\nb\t\'c\'\\'; }"#))
+    #expect(!spelled.contains(where: { $0.isNewline || $0 == "\t" }))
+    // A scheme that passes nothing launches as before, on a device too.
+    settings.launchArguments = nil; settings.launchEnvironment = [:]
+    #expect(try settings.command(scheme: "Fixture", simulator: "id-1").hasSuffix("exec '/tmp/Fixture.app/Contents/MacOS/Fixture'; }; })"))
+    settings.platform = "iphoneos"
+    #expect(try settings.command(scheme: "Fixture", simulator: "id-1").hasSuffix("--terminate-existing --device 'id-1' 'fixture.app'; })"))
+}
+
 @MainActor @Test(.timeLimit(.minutes(1))) func changingTheSchemeReloadsItsDestinations() async throws {
     let service = OperationBuildService()
     let runtime = BuildWorkspaceViewModel(service: service, project: operationProject, session: operationSession("schemes"),

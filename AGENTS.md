@@ -167,6 +167,18 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   installed, and removing them in Settings takes them out for good. Each hook reports to the app
   that started its terminal (`CASCADE_PORT_FILE`, set by `cascade-ptyd`), so a development build
   and the installed app can run side by side.
+- **Run launches what the scheme launches.** `xcodebuild` only builds, so the launch is Cascade's:
+  it passes the enabled arguments and environment of the scheme's launch action, read from the
+  scheme file (`xcode.rs` `launch_of`), on a Mac, a simulator and a device. Cascade's own scheme
+  names the data folder a development build runs on; without it the build finds the installed
+  app holding the default folder and yields. The scheme's launch pre-actions are not run.
+- **A copy of Cascade that runs its own scheme is asked to leave, not ended.** Run ends the app's
+  running copy before it launches the new build (`pkill`), but a debugger holds the copy it is
+  attached to against every signal, SIGKILL included, and the new build then yields to it. So the
+  chain asks through `/api/hooks/relaunch`, the copy leaves by itself as Quit does, asking about
+  unsaved files, but keeps the daemon the chain runs in (`AppViewModel.leaveForRelaunch`), and
+  the new build is opened outside the terminal with `open -n`. A copy that cannot hear the ask is
+  ended as any other app is.
 - **`acli` flags**: `workitem transition --key K --status S --yes`; use `--json` for reads.
 - **`gh webhook` extension may be missing.** Polling still catches merges. Install it with
   `gh extension install cli/gh-webhook`.

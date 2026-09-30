@@ -628,6 +628,36 @@ mod tests {
         unsafe { cascade_backend_stop(backend) };
     }
 
+    #[test]
+    fn a_run_asks_the_copy_it_rebuilt_to_leave() {
+        let (backend, _dir) = start_temp();
+        let (sender, receiver) = mpsc::channel::<String>();
+        let ctx = Box::into_raw(Box::new(sender)) as *mut c_void;
+        let id = unsafe { cascade_backend_subscribe(backend, ctx, Some(on_event), Some(on_dropped)) };
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(call(backend, "POST", "/api/hooks/relaunch?pid=4242", "").status, 204);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let event = loop {
+            let raw = receiver.recv_timeout(deadline - std::time::Instant::now()).expect("relaunch event");
+            let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            if event["type"] == "terminal-relaunch" { break event; }
+        };
+        assert_eq!(event["pid"], 4242);
+        // It names a copy by its process ID and nothing else.
+        assert_eq!(call(backend, "POST", "/api/hooks/relaunch", "").status, 400);
+        assert_eq!(call(backend, "POST", "/api/hooks/relaunch?pid=all", "").status, 400);
+        // A web page may send this POST without a preflight; its origin is refused.
+        let port = unsafe { cascade_backend_port(backend) };
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        use std::io::{Read, Write};
+        write!(stream, "POST /api/hooks/relaunch?pid=4242 HTTP/1.1\r\nHost: 127.0.0.1\r\nOrigin: https://evil.example\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+        unsafe { cascade_backend_unsubscribe(backend, id) };
+        unsafe { cascade_backend_stop(backend) };
+    }
+
     // The release is the drop callback firing (it runs on a runtime thread);
     // pollers and forwarders may still broadcast while shutting down.
     fn assert_released(receiver: &mpsc::Receiver<String>, expected: usize) {

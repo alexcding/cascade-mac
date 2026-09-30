@@ -18,6 +18,8 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var message: String? = nil
     /// `terminal-open-url` only: the web address a terminal's BROWSER asked to open.
     public var url: String? = nil
+    /// `terminal-relaunch` only: the copy of the app a Run rebuilt and asks to leave.
+    public var pid: Int? = nil
     /// `agent-permission` only: what the agent asks to run, for the chat view to allow or deny.
     public var request: AgentPermissionPrompt.Details? = nil
     /// `agent-permission-done` only: `answered`, `terminal` (the CLI shows its own prompt), or

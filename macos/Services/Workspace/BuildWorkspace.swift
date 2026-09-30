@@ -50,6 +50,10 @@ struct BuildSettings: Decodable, Sendable {
     /// `PLATFORM_NAME` for the chosen destination; it decides how the app is launched.
     var platform: String? = nil
     var executablePath: String? = nil
+    /// What the scheme's Run passes the app, as Xcode would: the arguments already split into
+    /// words, and the environment.
+    var launchArguments: [String]? = nil
+    var launchEnvironment: [String: String]? = nil
 }
 
 protocol BuildServing: Sendable {
