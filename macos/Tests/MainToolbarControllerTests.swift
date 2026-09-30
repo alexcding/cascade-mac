@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftUI
 import Testing
 @testable import Cascade
 
@@ -81,4 +82,85 @@ import Testing
         #expect(group.label == "Shown")
         #expect(window.toolbar === first)
     }
+
+    // A wide title before the middle and a narrow control after it: the middle still sits at the
+    // centre of the screen's column, not pushed right by half the difference.
+    @Test(.timeLimit(.minutes(1))) func middleIsCentredInTheScreenColumn() async throws {
+        let window = Self.splitWindow()
+        defer { window.close() }
+        let controller = MainToolbarController {
+            WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 300, height: 20) }],
+                          center: [WindowToolbarItem("agent") { Color.clear.frame(width: 120, height: 20) }],
+                          trailing: [WindowToolbarItem("mode") { Color.clear.frame(width: 40, height: 20) }])
+        }
+        controller.window = window
+        window.orderFront(nil)
+        let column = try #require(Self.column(of: window))
+        func offset() -> CGFloat? {
+            guard let agent = Self.view("agent", in: window), agent.frame.width > 0 else { return nil }
+            return agent.convert(agent.bounds, to: nil).midX - column.convert(column.bounds, to: nil).midX
+        }
+        try await settle { offset().map { abs($0) < 2 } ?? false }
+        #expect(try abs(#require(offset())) < 2)
+
+        // The title is told of the free width up to the middle, less a gap, to draw into.
+        let title = try #require(Self.view("title", in: window))
+        let agent = try #require(Self.view("agent", in: window))
+        let free = agent.convert(agent.bounds, to: nil).minX - title.convert(title.bounds, to: nil).maxX
+        try await settle { controller.room.afterLeading > 0 }
+        #expect(abs(controller.room.afterLeading - (free - 20)) < 2)
+
+        // A wider window moves the column's centre; the middle follows it.
+        window.setContentSize(NSSize(width: 1500, height: 300))
+        try await settle { offset().map { abs($0) < 2 } ?? false }
+        #expect(try abs(#require(offset())) < 2)
+    }
+
+    // With no middle, and a picker after the title that hosts no view of its own, the title is
+    // still told of the free width up to the picker.
+    @Test(.timeLimit(.minutes(1))) func roomReachesAPickerWithNoMiddle() async throws {
+        let window = Self.splitWindow()
+        defer { window.close() }
+        let fixture = fixture
+        let controller = MainToolbarController {
+            WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }],
+                          trailing: [.picker("mode-picker", label: fixture.label, choices: fixture.choices,
+                                             selected: fixture.selected) { fixture.selected = $0 }])
+        }
+        controller.window = window
+        window.orderFront(nil)
+        try await settle { controller.room.afterLeading > 0 }
+        // The column is 1000 wide; the title and the picker take a few hundred of it at most.
+        #expect(controller.room.afterLeading > 500)
+    }
+
+    private static func splitWindow() -> NSWindow {
+        let split = NSSplitViewController()
+        split.addSplitViewItem(NSSplitViewItem(sidebarWithViewController: NSViewController.sized(width: 200)))
+        split.addSplitViewItem(NSSplitViewItem(viewController: NSViewController.sized(width: 1000)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300),
+                              styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.titleVisibility = .hidden
+        window.contentViewController = split
+        window.setContentSize(NSSize(width: 1200, height: 300))
+        return window
+    }
+
+    private static func column(of window: NSWindow) -> NSView? {
+        (window.contentViewController as? NSSplitViewController)?.splitViewItems.last?.viewController.view
+    }
+
+    private static func view(_ id: String, in window: NSWindow) -> NSView? {
+        window.toolbar?.items.first { $0.itemIdentifier.rawValue == id }?.view.flatMap { $0.window === window ? $0 : nil }
+    }
 }
+
+private extension NSViewController {
+    static func sized(width: CGFloat) -> NSViewController {
+        let controller = NSViewController()
+        controller.view = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 300))
+        return controller
+    }
+}
+

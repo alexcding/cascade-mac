@@ -417,38 +417,81 @@ struct SessionWorkspaceRunButton: View {
 /// session title. The text is one button that opens the current build settings.
 struct SessionWorkspaceBuildTitle: View {
     let model: SessionWorkspaceViewModel
+    @Environment(ToolbarRoom.self) private var room: ToolbarRoom?
 
     var body: some View {
         HStack(spacing: 8) {
             SessionWorkspaceEditorButton(model: model, height: 22)
             Button(action: model.configureRun) {
-                VStack(alignment: .leading, spacing: 0) {
+                // Measured as wide as the scheme and no wider, so a long session title neither moves
+                // the agent's controls nor widens the button. The line itself is drawn over its
+                // place, running on into the free toolbar after the title and not clickable there.
+                SchemeWidthStack {
                     HStack(spacing: 4) {
                         Text(model.runScheme).font(.headline).lineLimit(1)
                         Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.textSecondary)
                     }
-                    // While the worktree is being prepared, that is the more useful subtitle:
-                    // the session's name is in the sidebar, the reason Run is slow is not.
-                    if model.warmup.running || model.warmup.failed {
-                        SessionWorkspaceWarmupLine(state: model.warmup)
-                    } else {
-                        // Capped well short of the scheme's width: a long session title
-                        // otherwise stretches the whole activity view across the toolbar.
-                        Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1).truncationMode(.tail)
-                            .frame(maxWidth: 180, alignment: .leading)
-                    }
+                    .frame(maxWidth: 320, alignment: .leading)
+                    // The line's height, held by text that draws nothing: the line itself may animate.
+                    Text(verbatim: " ").font(.subheadline).lineLimit(1).hidden()
                 }
-                .frame(maxWidth: 320, alignment: .leading)
                 .contentShape(Rectangle())
+                .overlay {
+                    GeometryReader { proxy in
+                        subtitle
+                            .frame(width: proxy.size.width + overhang, alignment: .leading)
+                            .frame(height: proxy.size.height, alignment: .bottom)
+                    }
+                    .allowsHitTesting(false)
+                }
             }
             .buttonStyle(.plain)
-            .help(String(localized: "Show the build settings: scheme and simulator"))
+            // The line is drawn where the pointer never reaches it, so its explanation is the button's.
+            .help(model.warmup.running || model.warmup.failed
+                ? SessionWorkspaceWarmupLine.help(model.warmup)
+                : String(localized: "Show the build settings: scheme and simulator"))
             .disabled(!model.canRun)
             SessionWorkspaceBuildLogButton(model: model)
         }
         .padding(.leading, 8)
+    }
+
+    /// While the worktree is being prepared, that is the more useful subtitle: the session's name
+    /// is in the sidebar, the reason Run is slow is not.
+    @ViewBuilder private var subtitle: some View {
+        if model.warmup.running || model.warmup.failed {
+            SessionWorkspaceWarmupLine(state: model.warmup)
+        } else {
+            Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                .lineLimit(1).truncationMode(.tail)
+        }
+    }
+
+    /// The free toolbar past the title; none while the log button stands beside the text, since the
+    /// line would run under it.
+    private var overhang: CGFloat {
+        SessionWorkspaceBuildLogButton.shows(model) ? 0 : room?.afterLeading ?? 0
+    }
+}
+
+/// A leading-aligned column as wide as its first view: every line under it is offered that
+/// width alone, and truncates to it.
+private struct SchemeWidthStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let first = subviews.first else { return .zero }
+        let top = first.sizeThatFits(proposal)
+        let below = subviews.dropFirst().map { $0.sizeThatFits(ProposedViewSize(width: top.width, height: nil)).height }
+        return CGSize(width: top.width, height: top.height + below.reduce(0, +))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for subview in subviews {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            subview.place(at: CGPoint(x: bounds.minX, y: y), proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            y += size.height
+        }
     }
 }
 
@@ -475,7 +518,10 @@ private struct SessionWorkspaceWarmupLine: View {
                 .font(.subheadline).foregroundStyle(Theme.textSecondary)
                 .lineLimit(1).truncationMode(.tail)
         }
-        .help(state.failed ? state.message : String(localized: "\(state.displayLabel) in this worktree, so the first build does not wait on it"))
+    }
+
+    static func help(_ state: IDEWarmupState) -> String {
+        state.failed ? state.message : String(localized: "\(state.displayLabel) in this worktree, so the first build does not wait on it")
     }
 
     private static func angle(at date: Date) -> Double {
@@ -489,10 +535,16 @@ private struct SessionWorkspaceBuildLogButton: View {
     let model: SessionWorkspaceViewModel
     @State private var presented = false
 
+    /// Once the app is launched the build is over; it still holds the terminal, so Stop stays.
+    static func busy(_ model: SessionWorkspaceViewModel) -> Bool {
+        model.build?.starting == true || (model.build?.running == true && model.build?.launched != true)
+    }
+
+    static func shows(_ model: SessionWorkspaceViewModel) -> Bool { busy(model) || model.buildTerminal != nil }
+
     var body: some View {
-        // Once the app is launched the build is over; it still holds the terminal, so Stop stays.
-        let busy = model.build?.starting == true || (model.build?.running == true && model.build?.launched != true)
-        if busy || model.buildTerminal != nil {
+        let busy = Self.busy(model)
+        if Self.shows(model) {
             Button { presented.toggle() } label: {
                 Group {
                     if busy { ProgressView().controlSize(.small) }

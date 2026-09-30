@@ -7,8 +7,8 @@ import SwiftUI
 struct WindowToolbar {
     /// The leading edge of the screen's section: its title, or what stands in for one.
     var leading: [WindowToolbarItem] = []
-    /// The middle of the screen's section, between its leading and trailing items, so it moves
-    /// with the pane's divider rather than sitting at the window's centre.
+    /// The middle of the screen's section, centred in it however wide its leading and trailing
+    /// items are, so it moves with the pane's divider rather than sitting at the window's centre.
     var center: [WindowToolbarItem] = []
     /// The trailing edge of the screen's section, against the pane's.
     var trailing: [WindowToolbarItem] = []
