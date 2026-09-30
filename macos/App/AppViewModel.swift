@@ -1528,9 +1528,13 @@ public final class AppViewModel {
                     if let legacy {
                         shell.importLegacyPreferences(legacy)
                         // Only sessions and tabs that still exist: the backend kept snapshots of
-                        // ones deleted long ago, and nothing else would prune them.
-                        let live = Set((sessionSnapshot ?? sessions).map { "task:\($0.id)" } + tabStore.tabs.map { "tab:\($0.id)" })
-                        viewer.importLegacySnapshots(legacy) { live.contains($0) || !($0.hasPrefix("task:") || $0.hasPrefix("tab:")) }
+                        // ones deleted long ago, and nothing else would prune them. Pruned against
+                        // the tabs once they are in, so a tab import that failed this pass costs
+                        // nothing but a retry with the next.
+                        if !tabStore.needsImport {
+                            let live = Set((sessionSnapshot ?? sessions).map { "task:\($0.id)" } + tabStore.tabs.map { "tab:\($0.id)" })
+                            viewer.importLegacySnapshots(legacy) { live.contains($0) || !($0.hasPrefix("task:") || $0.hasPrefix("tab:")) }
+                        }
                     }
                     // A newer request invalidates only its own inventory. Keep the other
                     // results, and let the pending set reload only what changed mid-flight.
@@ -1561,7 +1565,7 @@ public final class AppViewModel {
                     lastUpdate = Date()
                     // The pass is clean; what is left to say is a saved list that could not be
                     // read, told once, after the pass so nothing here clears it.
-                    error = tabStore.takeRecoveryNotice()
+                    error = tabStore.takeRecoveryNotice() ?? tabStore.lastError
                     coordinator.setRoutingReady(started && connection == "Connected")
                 } catch {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }

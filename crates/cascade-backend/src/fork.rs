@@ -85,13 +85,18 @@ pub async fn fork_task(State(app): State<AppState>, Path(id): Path<String>) -> A
     extra.insert("forkFrom".into(), json!(from.unwrap_or_default()));
     extra.insert("forkedFrom".into(), json!(id));
     let saved = match app.db.upsert_task(&record).await {
-        Ok(_) => app.db.patch_task(&new_id, &extra).await,
-        Err(error) => Err(error),
+        Ok(true) => app.db.patch_task(&new_id, &extra).await,
+        other => other,
     };
-    if let Err(error) = saved {
+    // A refused record (`Ok(false)`) leaves a worktree without a session just as an error does.
+    if !matches!(saved, Ok(true)) {
         let _ = app.db.delete_task(&new_id).await;
         local::discard_fork(&workspace, &forked).await;
-        return Err(ApiError::internal(format!("The fork could not be saved: {error}")));
+        let reason = match saved {
+            Err(error) => error.to_string(),
+            Ok(_) => "the record was incomplete".to_owned(),
+        };
+        return Err(ApiError::internal(format!("The fork could not be saved: {reason}")));
     }
     app.publish(crate::Event::Tasks);
     let task = app

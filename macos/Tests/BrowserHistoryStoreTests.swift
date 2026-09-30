@@ -175,3 +175,19 @@ import Testing
     fresh.importLegacySnapshots(["theme": "dark"])
     #expect(FileManager.default.fileExists(atPath: empty.path) && !ViewerStore(cacheURL: empty).needsImport)
 }
+
+/// A page-tabs file this build cannot read is set aside before the first save writes the file, so
+/// the other contexts' page tabs are kept for a look instead of being replaced by one context's.
+@MainActor @Test func anUnreadablePageTabsFileIsSetAsideBeforeTheFirstSave() throws {
+    let cache = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-tabs-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: cache); try? FileManager.default.removeItem(at: cache.appendingPathExtension("broken")) }
+    try Data("not a cache".utf8).write(to: cache)
+    let viewer = ViewerStore(cacheURL: cache)
+    #expect(!viewer.needsImport, "a file is here, so nothing is imported over it")
+    let live = viewer.select(id: "task:one", url: "session:one", title: "One")
+    _ = try #require(live.open("https://example.com/live", title: "Live"))
+    #expect(try String(contentsOf: cache.appendingPathExtension("broken"), encoding: .utf8) == "not a cache")
+    struct Cache: Decodable { let snapshots: [String: ContextSnapshot] }
+    let written = try JSONDecoder().decode(Cache.self, from: Data(contentsOf: cache))
+    #expect(written.snapshots.keys.contains("task:one"))
+}

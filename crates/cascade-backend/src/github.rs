@@ -44,32 +44,53 @@ pub async fn cached_login() -> Option<String> {
     if cfg!(test) {
         return None;
     }
-    if let Some(known) = fresh_login() {
-        return known;
+    if let Some(login) = fresh_login() {
+        return Some(login);
+    }
+    if retry_deferred() {
+        return last_login();
     }
     // One ask at a time: the syncs of every project start together on a cold cache, and the
-    // ones that waited find the answer, or the failure, instead of each running `gh api user`.
+    // ones that waited find the answer instead of each running `gh api user`.
     let _asking = ASKING.lock().await;
-    if let Some(known) = fresh_login() {
-        return known;
+    if let Some(login) = fresh_login() {
+        return Some(login);
     }
-    let login = current_user().await;
-    *LOGIN.lock().unwrap() = Some((login.clone(), Instant::now()));
-    login
+    if retry_deferred() {
+        return last_login();
+    }
+    match current_user().await {
+        Some(login) => {
+            *LOGIN.lock().unwrap() = Some((login.clone(), Instant::now()));
+            Some(login)
+        }
+        None => {
+            // Not asked again for thirty seconds, and the last answer stands meanwhile: one bad
+            // moment must not turn every pull request into somebody else's.
+            *RETRY_AFTER.lock().unwrap() = Some(Instant::now() + Duration::from_secs(30));
+            last_login()
+        }
+    }
 }
 
-/// Who `gh` is signed in as, kept for ten minutes, or that it could not say, kept for thirty
-/// seconds: every sync of every project asks, and a request the user is waiting on must not
-/// queue behind a retry of an ask that just failed.
-static LOGIN: Mutex<Option<(Option<String>, Instant)>> = Mutex::new(None);
+/// Who `gh` is signed in as, kept for ten minutes: every sync of every project asks.
+static LOGIN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+/// Until when a failed ask is not repeated.
+static RETRY_AFTER: Mutex<Option<Instant>> = Mutex::new(None);
 static ASKING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// `Some(answer)` while the last ask still stands; `None` when it is time to ask again.
-fn fresh_login() -> Option<Option<String>> {
+fn fresh_login() -> Option<String> {
     let cached = LOGIN.lock().unwrap();
     let (login, at) = cached.as_ref()?;
-    let keep = if login.is_some() { Duration::from_secs(600) } else { Duration::from_secs(30) };
-    (at.elapsed() < keep).then(|| login.clone())
+    (at.elapsed() < Duration::from_secs(600)).then(|| login.clone())
+}
+
+fn last_login() -> Option<String> {
+    LOGIN.lock().unwrap().as_ref().map(|(login, _)| login.clone())
+}
+
+fn retry_deferred() -> bool {
+    RETRY_AFTER.lock().unwrap().is_some_and(|until| Instant::now() < until)
 }
 
 /// Forgets the cached login, so the next sync asks `gh` again. A manual poll calls it: after
@@ -77,6 +98,7 @@ fn fresh_login() -> Option<Option<String>> {
 /// account.
 pub fn forget_login() {
     *LOGIN.lock().unwrap() = None;
+    *RETRY_AFTER.lock().unwrap() = None;
 }
 
 pub async fn user_name() -> String {

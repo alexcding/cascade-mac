@@ -143,7 +143,7 @@ pub async fn samples(State(app): State<AppState>, Query(query): Query<SampleQuer
         let items = if query.jql.trim().is_empty() {
             let mut items = Vec::new();
             for project in &projects {
-                if let Ok(Some(snapshot)) = app.db.jira_snapshot(&project.id).await {
+                if let Ok(Some(snapshot)) = app.db.jira_snapshot(&format!("board:{}", project.id)).await {
                     items.extend(snapshot["items"].as_array().cloned().unwrap_or_default());
                 }
             }

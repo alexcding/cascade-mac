@@ -124,8 +124,9 @@ struct Generation {
 impl Generation {
     /// Whether the sync's results still apply: nothing invalidated the project, and it exists.
     async fn current(&self, app: &AppState, id: &str) -> bool {
-        self.counter.load(Ordering::SeqCst) == self.started
-            && app.db.project(id).await.ok().flatten().is_some()
+        // The counter is read after the lookup: an invalidate that lands during it counts.
+        app.db.project(id).await.ok().flatten().is_some()
+            && self.counter.load(Ordering::SeqCst) == self.started
     }
 }
 
@@ -477,6 +478,9 @@ async fn sync_project(app: &AppState, generation: &Generation, project: Project)
     let previous = app.db.pr_snapshot(&id, "open", None).await.ok().flatten();
     if repo.is_empty() {
         let changed = snapshot_changed(previous.as_ref(), &[], None);
+        if !generation.current(app, &id).await {
+            return;
+        }
         let _ = app.db.set_pr_snapshot(&id, &PrSnapshot::taken(Vec::new(), None)).await;
         if changed {
             app.publish(crate::Event::Sync { scope: Some("prs"), project_id: Some(id.to_string()) });
@@ -534,6 +538,11 @@ async fn sync_project(app: &AppState, generation: &Generation, project: Project)
             let lean: Vec<Value> = open.iter().map(|pr| github::lean(pr, &repo)).collect();
             let _ = app.db.prune_review_state(&repo, &numbers).await;
             let changed = snapshot_changed(previous.as_ref(), &lean, None);
+            // Asked once more right before the write: the lifecycle and automation steps above
+            // awaited long enough for a project edit or delete to have landed meanwhile.
+            if !generation.current(app, &id).await {
+                return;
+            }
             let _ = app.db.set_pr_snapshot(&id, &PrSnapshot::taken(lean, None)).await;
             changed
         }
@@ -544,7 +553,17 @@ async fn sync_project(app: &AppState, generation: &Generation, project: Project)
                 event(app, "sync_failed", json!({"repo":repo,"error":message})).await;
             }
             let changed = snapshot_changed(previous.as_ref(), &prs, Some(&message));
-            let _ = app.db.set_pr_snapshot(&id, &PrSnapshot::taken(prs, Some(message))).await;
+            if !generation.current(app, &id).await {
+                return;
+            }
+            // The stamp stays at the last success: the next sync's closed-PR window starts there,
+            // so a merge during the outage is still seen.
+            let snapshot = PrSnapshot {
+                prs,
+                last_synced: previous.as_ref().and_then(|v| v.last_synced.clone()),
+                error: Some(message),
+            };
+            let _ = app.db.set_pr_snapshot(&id, &snapshot).await;
             changed
         }
     };

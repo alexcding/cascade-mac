@@ -5,16 +5,16 @@
 /// The workflow stage: `toDo`, `inProgress`, `pendingRelease` or `blocked`. The status name is
 /// read first and Jira's category second: a board names "Ready for Development" as in progress,
 /// but nobody has started it yet, and "Reopened" is `new` but is back in someone's hands. The
-/// name is read by its words' stems ("Blocking" and "Blockers" are blocked, "Releasing" is a
-/// release), a word is not its negation ("Unblocked" is not blocked, "Abandoned" is not done),
-/// and a "not" anywhere before a word denies it ("Not yet released").
+/// name is read by its words ("Blocking" and "Blockers" are blocked, "Releasing" is a release;
+/// "Unblocked", "Abandoned" and "Blockchain" are none of these), and a denial anywhere before a
+/// word ("Not yet released", "Unable to resolve") takes it back.
 pub fn stage(status: &str, category: &str) -> &'static str {
     let words = words(status);
-    if says(&words, &["block"]) {
+    if says(&words, BLOCKED) {
         "blocked"
-    } else if says(&words, &["releas", "done", "resolv"]) || category == "done" {
+    } else if says(&words, RELEASED) || category == "done" {
         "pendingRelease"
-    } else if says(&words, &["reopen"]) {
+    } else if says(&words, REOPENED) {
         "inProgress"
     } else if category == "new"
         || status.to_lowercase().starts_with("ready for")
@@ -32,8 +32,13 @@ pub fn stage(status: &str, category: &str) -> &'static str {
 /// Whether the status says the ticket came back after being closed. The home screen ranks such
 /// a ticket ahead of other work in progress.
 pub fn reopened(status: &str) -> bool {
-    says(&words(status), &["reopen"])
+    says(&words(status), REOPENED)
 }
+
+const BLOCKED: &[&str] = &["blocked", "blocking", "blocker", "blockers", "block"];
+const RELEASED: &[&str] = &["release", "released", "releasing", "done", "resolved", "resolve"];
+const REOPENED: &[&str] = &["reopened", "reopen"];
+const DENIALS: &[&str] = &["not", "no", "never", "unable", "cannot"];
 
 /// Jira's priority names folded onto four levels, most pressing first: `urgent`, `high`,
 /// `medium`, `low`. Anything unrecognised, or no priority at all, is Medium, Jira's own default.
@@ -46,10 +51,10 @@ pub fn level(priority: &str) -> &'static str {
     }
 }
 
-/// Whether a word starting with one of `stems` is said, and not denied by a "not" before it.
-fn says(words: &[String], stems: &[&str]) -> bool {
+/// Whether one of `said` is among the words, with no denial before it.
+fn says(words: &[String], said: &[&str]) -> bool {
     words.iter().enumerate().any(|(index, word)| {
-        stems.iter().any(|stem| word.starts_with(stem)) && !words[..index].iter().any(|w| w == "not")
+        said.contains(&word.as_str()) && !words[..index].iter().any(|w| DENIALS.contains(&w.as_str()))
     })
 }
 
@@ -93,14 +98,15 @@ mod tests {
     }
 
     #[test]
-    fn a_word_is_read_by_its_stem_and_a_not_before_it_denies_it() {
+    fn a_word_is_read_whole_and_a_denial_before_it_takes_it_back() {
         for name in ["Blocking Issue", "Blockers", "Blocked"] {
             assert_eq!(stage(name, "indeterminate"), "blocked", "{name}");
         }
         for name in ["Releasing", "Released", "Resolve", "Done"] {
             assert_eq!(stage(name, "indeterminate"), "pendingRelease", "{name}");
         }
-        for name in ["Unblocked", "Not Blocked", "Not currently blocked", "Abandoned", "Undone", "Not Done", "Not yet released"] {
+        for name in ["Unblocked", "Not Blocked", "Not currently blocked", "Abandoned", "Undone", "Not Done", "Not yet released",
+                     "Blockchain Audit", "Unable to resolve", "Cannot release", "No release"] {
             assert_eq!(stage(name, "indeterminate"), "inProgress", "{name}");
         }
         // Jira's own category still decides a name that says nothing.

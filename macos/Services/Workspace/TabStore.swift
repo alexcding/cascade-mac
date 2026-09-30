@@ -43,8 +43,9 @@ import Foundation
             return
         }
         guard let file = try? JSONDecoder().decode(File.self, from: data) else {
-            recoveryNotice = String(localized: "The saved tabs could not be read and were set aside.")
-            _ = setAside(fileURL)
+            recoveryNotice = setAside(fileURL)
+                ? String(localized: "The saved tabs could not be read and were set aside.")
+                : String(localized: "The saved tabs could not be read; the list starts empty.")
             return
         }
         saved = SavedTabs(tabs: file.tabs, active: file.active)
@@ -155,6 +156,7 @@ import Foundation
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(File(tabs: saved.tabs, active: saved.active, imported: !needsImport)).write(to: fileURL, options: .atomic)
+            readFromDisk = true
             lastError = nil
         } catch {
             lastError = String(localized: "Could not save tabs: \(error.localizedDescription)")

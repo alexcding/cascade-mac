@@ -475,6 +475,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// carried over, a file lost): the Mac they were written on rewrote the file after every
     /// restore, so it already holds them.
     @ObservationIgnored private(set) var needsImport = false
+    /// Whether the file's contents are in `saved`, or there was no file. A file that was not read
+    /// is never written over: it is set aside first.
+    @ObservationIgnored private var readFromDisk = false
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
     @ObservationIgnored private let pagePool: PagePool
@@ -512,11 +515,16 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         pagePool.shown = { [weak self] in self?.active?.activePage }
         if let cacheURL, let data = try? Data(contentsOf: cacheURL), let cache = try? JSONDecoder().decode(Cache.self, from: data) {
             saved = cache.snapshots
+            readFromDisk = true
             // Pages visited in a context not opened this launch still belong in the address bar.
             for snapshot in saved.values { browserHistory.seed(snapshot.history) }
-        } else if let cacheURL {
-            needsImport = !FileManager.default.fileExists(atPath: cacheURL.path)
+        } else if let cacheURL, !FileManager.default.fileExists(atPath: cacheURL.path) {
+            needsImport = true
+            readFromDisk = true
+        } else if cacheURL == nil {
+            readFromDisk = true
         }
+        // Otherwise a file this build could not read: it is set aside before the first write.
     }
 
     /// Takes over, once, the snapshots an earlier version kept in the backend as
@@ -685,9 +693,24 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     private func cache() {
         guard let cacheURL else { return }
+        if !readFromDisk, FileManager.default.fileExists(atPath: cacheURL.path) {
+            // Unread at startup, still here now: kept beside the file for a look, never written over.
+            var aside = cacheURL.appendingPathExtension("broken")
+            var attempt = 1
+            while FileManager.default.fileExists(atPath: aside.path) {
+                attempt += 1
+                aside = cacheURL.appendingPathExtension("broken-\(attempt)")
+            }
+            guard (try? FileManager.default.moveItem(at: cacheURL, to: aside)) != nil else {
+                active?.error = String(localized: "Could not save page tabs: the unread saved file could not be set aside.")
+                return
+            }
+            active?.error = String(localized: "The saved page tabs could not be read and were set aside.")
+        }
         do {
             try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(Cache(snapshots: saved, pending: [])).write(to: cacheURL, options: .atomic)
+            readFromDisk = true
         } catch { active?.error = String(localized: "Could not save page tabs: \(error.localizedDescription)") }
     }
     func stop() async {

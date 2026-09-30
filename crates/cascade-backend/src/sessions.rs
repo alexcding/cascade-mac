@@ -79,7 +79,8 @@ pub async fn create_session(
     let parks = reused.is_none() && matches!(found, Some(tree) if tree.main);
     let mut base = body.base.trim().to_owned();
     if base.is_empty() && (parks || body.create_branch) {
-        let taken: Vec<String> = trees.iter().map(|tree| tree.branch.clone()).collect();
+        // Parking needs a branch no worktree holds; a fork may start from any branch.
+        let taken: Vec<String> = if parks { trees.iter().map(|tree| tree.branch.clone()).collect() } else { Vec::new() };
         base = session_base(&workspace, &taken).await?;
     }
     let worktree = match reused {
@@ -195,15 +196,16 @@ async fn free_main_checkout(workspace: &str, branch: &str, base: &str) -> Result
 
 /// The base a new session's branch forks from, and the main checkout is parked on: `develop` when
 /// the repository has it locally, else its default branch when that exists locally, else the most
-/// recently committed local branch, as the app used to pick. A branch a worktree holds (`taken`)
-/// cannot be parked on, so it is never the fallback. Short questions to git, not a listing of
+/// recently committed local branch, as the app used to pick. None of them may be a branch in
+/// `taken`: what a worktree holds cannot be parked on. Short questions to git, not a listing of
 /// every branch and worktree.
 async fn session_base(workspace: &str, taken: &[String]) -> Result<String, ApiError> {
-    if local::ref_exists(workspace, "refs/heads/develop").await {
+    let free = |name: &str| !taken.iter().any(|held| held == name);
+    if free("develop") && local::ref_exists(workspace, "refs/heads/develop").await {
         return Ok("develop".into());
     }
     let default = local::default_branch(workspace).await;
-    if local::ref_exists(workspace, &format!("refs/heads/{default}")).await {
+    if free(&default) && local::ref_exists(workspace, &format!("refs/heads/{default}")).await {
         return Ok(default);
     }
     Ok(local::most_recent_branch(workspace, taken).await.unwrap_or(default))

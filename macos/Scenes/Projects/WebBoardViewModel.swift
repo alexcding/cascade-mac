@@ -293,6 +293,8 @@ struct APIBoardService: BoardService {
     /// card being dragged never moves under the pointer.
     func refresh(force: Bool = false) {
         guard !retired, active else { return }
+        // A filter adopted from an earlier version may have landed after this model was made.
+        if assigneeFilter.isEmpty, let saved = preferences?.string(forKey: filterKey), !saved.isEmpty { assigneeFilter = saved }
         guard task == nil, draggingKey == nil else { queuedRefresh = (queuedRefresh ?? false) || force; return }
         let generation = generation, service = service
         loading = true; error = nil

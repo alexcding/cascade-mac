@@ -31023,6 +31023,9 @@
     "Could not save tabs: %@" : {
 
     },
+    "Could not save tabs: the unread saved list could not be set aside." : {
+
+    },
     "Could not start session: %@" : {
       "extractionState" : "manual",
       "localizations" : {

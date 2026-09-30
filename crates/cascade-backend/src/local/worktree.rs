@@ -141,10 +141,11 @@ pub(crate) async fn create_worktree_value(app: &AppState, body: &Value) -> ApiRe
     let location = worktrees::location(&app).await;
     let root = worktrees::root(dir, &location);
     let destination = root.join(folder);
+    // The branch's own worktree is reused; another branch's worktree at the folder is a conflict.
     if list_worktrees(dir)
         .await
         .iter()
-        .any(|w| Path::new(&w.path) == destination)
+        .any(|w| Path::new(&w.path) == destination && w.branch == branch)
     {
         return Ok(Json(json!({"ok":true,"path":destination})));
     }
