@@ -1,4 +1,4 @@
-# Cascade
+# Cascade ADE for Mac
 
 **One workspace for your coding agents, pull requests, and tickets. Built for Mac.**
 
