@@ -30866,6 +30866,9 @@
     "Could not save page tabs: %@" : {
 
     },
+    "Could not save page tabs: the unread saved file could not be set aside." : {
+
+    },
     "Could not save tab order: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -102756,6 +102759,9 @@
           }
         }
       }
+    },
+    "The saved page tabs could not be read and were set aside." : {
+
     },
     "The saved tabs could not be read and were set aside." : {
 

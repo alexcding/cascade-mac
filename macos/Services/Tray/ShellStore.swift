@@ -214,7 +214,8 @@ import Observation
         guard needsLegacyPreferenceImport else { return }
         var adopted = false
         for (key, value) in settings {
-            guard let value, !value.isEmpty else { continue }
+            // An empty icon theme is a choice, "None"; an empty anything else is nothing to adopt.
+            guard let value, !value.isEmpty || key == "fileIconTheme" else { continue }
             let local: String
             if key.hasPrefix("board_filter_") {
                 local = "native.boardFilter.\(key.dropFirst("board_filter_".count))"

@@ -81,7 +81,7 @@ pub async fn create_session(
     if base.is_empty() && (parks || body.create_branch) {
         // Parking needs a branch no worktree holds; a fork may start from any branch.
         let taken: Vec<String> = if parks { trees.iter().map(|tree| tree.branch.clone()).collect() } else { Vec::new() };
-        base = session_base(&workspace, &taken).await?;
+        base = session_base(&workspace, parks, &taken).await?;
     }
     let worktree = match reused {
         // The page resolved to this worktree; it must still be the one, and still a worktree.
@@ -195,17 +195,22 @@ async fn free_main_checkout(workspace: &str, branch: &str, base: &str) -> Result
 }
 
 /// The base a new session's branch forks from, and the main checkout is parked on: `develop` when
-/// the repository has it locally, else its default branch when that exists locally, else the most
-/// recently committed local branch, as the app used to pick. None of them may be a branch in
-/// `taken`: what a worktree holds cannot be parked on. Short questions to git, not a listing of
-/// every branch and worktree.
-async fn session_base(workspace: &str, taken: &[String]) -> Result<String, ApiError> {
+/// the repository has it locally, else its default branch, else the most recently committed
+/// branch, as the app used to pick. When the checkout `parks`, the base must be a local branch no
+/// worktree holds (none in `taken`). A fork alone may also start from `origin/<default>`, which
+/// the checkout knows even when the local branch was deleted, rather than from whatever branch
+/// happens to be newest; a default git only guessed at, resolving nowhere, is no base for either.
+/// Short questions to git, not a listing of every branch and worktree.
+async fn session_base(workspace: &str, parks: bool, taken: &[String]) -> Result<String, ApiError> {
     let free = |name: &str| !taken.iter().any(|held| held == name);
     if free("develop") && local::ref_exists(workspace, "refs/heads/develop").await {
         return Ok("develop".into());
     }
     let default = local::default_branch(workspace).await;
     if free(&default) && local::ref_exists(workspace, &format!("refs/heads/{default}")).await {
+        return Ok(default);
+    }
+    if !parks && local::ref_exists(workspace, &format!("refs/remotes/origin/{default}")).await {
         return Ok(default);
     }
     Ok(local::most_recent_branch(workspace, taken).await.unwrap_or(default))

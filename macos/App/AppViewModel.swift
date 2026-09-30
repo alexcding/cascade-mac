@@ -1564,8 +1564,9 @@ public final class AppViewModel {
                        !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
                     lastUpdate = Date()
                     // The pass is clean; what is left to say is a saved list that could not be
-                    // read, told once, after the pass so nothing here clears it.
-                    error = tabStore.takeRecoveryNotice() ?? tabStore.lastError
+                    // read, told once, after the pass so nothing here clears it. The page tabs'
+                    // store has no screen of its own, so its notice is told here as well.
+                    error = tabStore.takeRecoveryNotice() ?? viewer.takeRecoveryNotice() ?? tabStore.lastError ?? viewer.lastError
                     coordinator.setRoutingReady(started && connection == "Connected")
                 } catch {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }

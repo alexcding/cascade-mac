@@ -184,6 +184,8 @@ import Testing
     try Data("not a cache".utf8).write(to: cache)
     let viewer = ViewerStore(cacheURL: cache)
     #expect(!viewer.needsImport, "a file is here, so nothing is imported over it")
+    #expect(viewer.takeRecoveryNotice() != nil && viewer.takeRecoveryNotice() == nil, "told once, to the app")
+    #expect(viewer.lastError == nil)
     let live = viewer.select(id: "task:one", url: "session:one", title: "One")
     _ = try #require(live.open("https://example.com/live", title: "Live"))
     #expect(try String(contentsOf: cache.appendingPathExtension("broken"), encoding: .utf8) == "not a cache")

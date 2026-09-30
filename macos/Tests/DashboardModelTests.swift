@@ -200,9 +200,11 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
 }
 
 @MainActor @Test func deriveWarningsOrderSyncErrorFirstThenPRErrorsThenWaitingMessage() async throws {
-    let project = makeProject("p", name: "Foo", prs: [makePR(1, error: "boom")], lastSynced: nil, syncError: "Sync failed")
-    let snapshot = await DashboardPullRequestsModel.derive([project])
-    #expect(snapshot.warnings == ["Foo: Sync failed", "Foo: boom", "Foo: waiting for the first sync."])
+    let failed = makeProject("p", name: "Foo", prs: [makePR(1, error: "boom")], lastSynced: nil, syncError: "Sync failed")
+    let unsynced = makeProject("q", name: "Bar", prs: [makePR(2, error: "bang")], lastSynced: nil)
+    let snapshot = await DashboardPullRequestsModel.derive([failed, unsynced])
+    // A first sync that failed says why; only one still to come is waited for.
+    #expect(snapshot.warnings == ["Foo: Sync failed", "Foo: boom", "Bar: bang", "Bar: waiting for the first sync."])
 }
 
 @MainActor @Test func groupKeepsProjectOrderAndDropsEmptyProjects() {

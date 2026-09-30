@@ -241,7 +241,8 @@ extension DashboardPullRequestsModel {
         snapshot.warnings = projects.flatMap { project -> [String] in
             var messages = project.prs.compactMap { $0.error.map { "\(project.name): \($0)" } }
             if let error = project.syncError { messages.insert("\(project.name): \(error)", at: 0) }
-            if project.lastSynced == nil { messages.append(String(localized: "\(project.name): waiting for the first sync.")) }
+            // A first sync that failed says why above; it is not also being waited for.
+            if project.lastSynced == nil, project.syncError == nil { messages.append(String(localized: "\(project.name): waiting for the first sync.")) }
             return messages
         }
         return snapshot

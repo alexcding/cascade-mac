@@ -488,3 +488,60 @@ async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
     let (status, _) = post(&app, "/api/sessions", json!({"projectId":"missing","branch":"feat/two"})).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+/// A new branch with no base named is cut from the repository's default branch, even when that
+/// branch is gone locally: `origin/main` is what the checkout knows, never the branch that happens
+/// to have the newest commit. The most-recent fallback is for parking the main checkout alone.
+#[tokio::test]
+async fn a_fork_with_no_base_starts_from_the_default_branch_not_the_newest() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    let path = dir.to_str().unwrap();
+    // A remote publishing main as its HEAD; then the local main is dropped after moving on.
+    let origin = root.join("origin.git");
+    git(&root, &["clone", "-q", "--bare", path, origin.to_str().unwrap()]);
+    git(&dir, &["remote", "add", "origin", origin.to_str().unwrap()]);
+    git(&dir, &["fetch", "-q", "origin"]);
+    git(&dir, &["remote", "set-head", "origin", "main"]);
+    git(&dir, &["checkout", "-q", "-b", "feature/a"]);
+    fs::write(dir.join("later.txt"), "later").unwrap();
+    git(&dir, &["add", "later.txt"]);
+    git(&dir, &["commit", "-qm", "later"]);
+    git(&dir, &["branch", "-D", "main"]);
+    let main = git(&dir, &["rev-parse", "origin/main"]);
+    assert_ne!(git(&dir, &["rev-parse", "feature/a"]), main);
+    let (status, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":path})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let project_id = project["id"].as_str().unwrap();
+
+    let (status, session) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/new","createBranch":true})).await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(git(&dir, &["rev-parse", "feat/new"]), main, "forked from origin/main, not feature/a");
+    assert_eq!(git(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]), "feature/a", "nothing was parked");
+}
+
+/// A repository whose default branch git cannot name (no `origin/HEAD`, none of main, master or
+/// develop) forks from its most recently committed branch, not from a name only guessed at.
+#[tokio::test]
+async fn a_fork_with_no_base_and_no_known_default_starts_from_the_newest_branch() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = root.join("app");
+    fs::create_dir_all(&dir).unwrap();
+    git(&dir, &["init", "-q", "-b", "trunk"]);
+    fs::write(dir.join("a.txt"), "a").unwrap();
+    git(&dir, &["add", "a.txt"]);
+    git(&dir, &["commit", "-qm", "init"]);
+    let trunk = git(&dir, &["rev-parse", "trunk"]);
+    let path = dir.to_str().unwrap();
+    let (status, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":path})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let project_id = project["id"].as_str().unwrap();
+
+    let (status, session) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/new","createBranch":true})).await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    assert_eq!(git(&dir, &["rev-parse", "feat/new"]), trunk, "forked from trunk, the one branch there is");
+}
