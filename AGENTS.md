@@ -177,10 +177,15 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   `macos/scripts/vendor-vscode-languages.py <vscode-checkout>`; rerun it rather than editing.
 - **Cascade Remote mirrors the chat through iCloud, from the app.** `Services/Remote/RemoteMirror`
   copies each live session's chat into the user's CloudKit private database and carries out what
-  the iPhone app sends back (a message typed through `AgentMessageTyper`, an approval answered).
-  It is the one place the app talks to CloudKit, off unless turned on in Settings → iPhone, and
-  inert in a build without the iCloud entitlement (`macos/Signing.local.xcconfig`, opt-in). The
-  backend stays Apple-free and is still the source of truth (`/api/agent/transcript`).
+  an iPhone sends back (a message typed through `RemoteDelivery`, an approval answered), but only
+  a command signed by a phone approved on this Mac in Settings → iPhone: anything on the Apple
+  Account can write one. `RemoteDelivery` is the one way a message is typed for someone who
+  cannot see the terminal; never type for the phone around it.
+  The mirror is the one place the app talks to CloudKit, off unless turned on in Settings →
+  iPhone, and inert in a build without the iCloud entitlement (`macos/Signing.local.xcconfig`,
+  opt-in). Its state lives in the data directory, not `UserDefaults`, so a run with its own data
+  folder is its own mirror. The backend stays Apple-free and is still the source of truth
+  (`/api/agent/transcript`).
   `Services/Remote/Shared/` is the wire format: the `cascade-ios` repository compiles a copy, so
   change both together. See `docs/remote/06-chat-mirror.md`.
 - Project IDs are UUIDs.

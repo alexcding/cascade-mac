@@ -167,7 +167,7 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); remote.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()

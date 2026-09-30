@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 
@@ -17,9 +18,12 @@ private func session(_ id: String = "s1") -> RemoteSession {
                   updatedAt: Date(timeIntervalSince1970: 1_700_000_000))
 }
 
-@MainActor private func mirror(defaults: UserDefaults, idleSeconds: @escaping () -> TimeInterval = { 0 }) -> RemoteMirror {
-    RemoteMirror(defaults: defaults, dataDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString),
-                 available: false, idleSeconds: idleSeconds, hostName: "Test Mac")
+private func temporaryDirectory() -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent("RemoteMirrorTests-\(UUID().uuidString)")
+}
+
+@MainActor private func mirror(in directory: URL, idleSeconds: @escaping () -> TimeInterval = { 0 }) -> RemoteMirror {
+    RemoteMirror(dataDirectory: directory, available: false, idleSeconds: idleSeconds, hostName: "Test Mac")
 }
 
 @Test func remoteTurnsKeepTheLastTurnsInOrderWithTheSession() {
@@ -112,51 +116,129 @@ private func session(_ id: String = "s1") -> RemoteSession {
     #expect(first.decode(RemoteSession.self) == value)
 }
 
-@MainActor @Test func remoteMirrorWithoutEntitlementPersistsEnabledButIsUnavailable() throws {
-    let suite = "RemoteMirrorTests-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-    let mirror = mirror(defaults: defaults, idleSeconds: { 10_000 })
-    #expect(!mirror.enabled)
-    mirror.setEnabled(true)
-    #expect(defaults.bool(forKey: RemoteMirror.enabledKey))
-    #expect(mirror.enabled)
-    guard case .unavailable = mirror.status else {
-        Issue.record("expected unavailable, got \(mirror.status)")
-        return
-    }
-    #expect(!mirror.holdsApprovals)
+@MainActor @Test func remoteMirrorWithoutEntitlementPersistsEnabledButIsUnavailable() {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let first = mirror(in: directory, idleSeconds: { 10_000 })
+    #expect(!first.enabled)
+    #expect(first.status == .unavailable(RemoteMirror.unsigned))
+    first.setEnabled(true)
+    #expect(first.enabled)
+    #expect(first.status == .unavailable(RemoteMirror.unsigned))
+    #expect(!first.holdsApprovals)
+    #expect(mirror(in: directory).enabled)
 }
 
-@MainActor @Test func remoteSettingsModelReportsTheMirrorsState() throws {
+@MainActor @Test func remoteSettingsModelReportsTheMirrorsState() {
     let empty = RemoteSettingsViewModel(mirror: nil)
     #expect(!empty.available)
     #expect(!empty.enabled)
     #expect(!empty.statusText.isEmpty)
 
-    let suite = "RemoteMirrorTests-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-    let mirror = mirror(defaults: defaults)
-    let model = RemoteSettingsViewModel(mirror: mirror)
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let subject = mirror(in: directory)
+    let model = RemoteSettingsViewModel(mirror: subject)
+    #expect(!model.enabled)
+    #expect(model.statusText == RemoteMirror.unsigned)
     model.setEnabled(true)
-    guard case .unavailable(let reason) = mirror.status else {
-        Issue.record("expected unavailable, got \(mirror.status)")
+    guard case .unavailable(let reason) = subject.status else {
+        Issue.record("expected unavailable, got \(subject.status)")
         return
     }
     #expect(model.enabled)
     #expect(model.statusText == reason)
 }
 
-@MainActor @Test func remoteMirrorKeepsOneHostIDPerMac() throws {
-    let suite = "RemoteMirrorTests-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suite))
-    defer { defaults.removePersistentDomain(forName: suite) }
-    let first = mirror(defaults: defaults)
-    let second = mirror(defaults: defaults)
+@MainActor @Test func remoteSettingsModelIgnoresEverythingOnceRetired() {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let subject = mirror(in: directory)
+    let model = RemoteSettingsViewModel(mirror: subject)
+    model.retire()
+    model.setEnabled(true)
+    #expect(!subject.enabled)
+}
+
+@MainActor @Test func remoteMirrorKeepsOneHostIDPerMac() {
+    let directory = temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let first = mirror(in: directory)
+    let second = mirror(in: directory)
     #expect(!first.hostID.isEmpty)
     #expect(first.hostID == second.hostID)
-    #expect(defaults.string(forKey: RemoteMirror.hostIDKey) == first.hostID)
+}
+
+@Test func remoteSignatureSurvivesTheWireAndCatchesEveryChange() throws {
+    let phone = P256.Signing.PrivateKey()
+    let publicKey = phone.publicKey.x963Representation
+    var command = RemoteCommand(id: "c1", session: "s1", host: "mac", action: .allow, text: "hi", permission: "p1",
+                                device: RemoteSigning.deviceID(for: publicKey), createdAt: RemoteSigning.now())
+    command.signature = try RemoteSigning.sign(command, with: phone)
+    #expect(RemoteSigning.verify(command, publicKey: publicKey))
+
+    let entry = try RemoteCodec.entry(command)
+    let read = try #require(entry.decode(RemoteCommand.self))
+    #expect(RemoteSigning.verify(read, publicKey: publicKey))
+
+    var text = command; text.text = "rm -rf"
+    var session = command; session.session = "s2"
+    var host = command; host.host = "other"
+    var permission = command; permission.permission = "p2"
+    var shown = command; shown.shown = "another card"
+    // A value cannot pass for the end of one field and the start of the next.
+    var shifted = command; shifted.text = "h"; shifted.permission = "ip1"
+    for changed in [text, session, host, permission, shown, shifted] {
+        #expect(!RemoteSigning.verify(changed, publicKey: publicKey))
+    }
+    #expect(!RemoteSigning.verify(command, publicKey: P256.Signing.PrivateKey().publicKey.x963Representation))
+}
+
+@Test func remoteDeviceIDsFollowTheirKeys() {
+    let first = P256.Signing.PrivateKey().publicKey.x963Representation
+    let second = P256.Signing.PrivateKey().publicKey.x963Representation
+    #expect(RemoteSigning.deviceID(for: first) == RemoteSigning.deviceID(for: first))
+    #expect(RemoteSigning.deviceID(for: first) != RemoteSigning.deviceID(for: second))
+    #expect(RemoteSigning.code(for: "a1b2c3d4e5f6a7b8") == "A1B2-C3D4-E5F6")
+    #expect(RemoteSigning.code(for: RemoteSigning.deviceID(for: first)).count == 14)
+}
+
+@Test func remoteHostRecordFromAnOlderMacStillSaysWhomItApproved() throws {
+    let older = Data(#"{"approved":["abc"],"host":"mac","name":"Old Mac"}"#.utf8)
+    let host = try RemoteCodec.decoder.decode(RemoteHost.self, from: older)
+    #expect(host.approved == ["abc"])
+    #expect(host.denied.isEmpty)
+}
+
+@Test func remoteLocalStateKeepsWhatAnOlderFileHas() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RemoteMirrorTests-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let url = directory.appendingPathComponent("mirror.json")
+    // A file from before later fields existed: on, with one command begun.
+    try Data(#"{"enabled":true,"attempts":{"c1":1700000000}}"#.utf8).write(to: url)
+    let state = RemoteLocalState.load(from: url)
+    #expect(state.enabled)
+    #expect(state.attempts["c1"] == 1_700_000_000)
+    #expect(state.approved.isEmpty)
+    #expect(!state.accountChanged)
+}
+
+@Test func remoteDigestChangesWithAnythingAPhoneIsShown() {
+    let request = RemotePermission(id: "p1", session: "s1", host: "mac", tool: "Edit", kind: "edit", detail: "/tmp/a.swift",
+                                   reason: "Fix it", old: "a", new: "b", truncated: false, createdAt: Date())
+    var later = request; later.createdAt = Date(timeIntervalSince1970: 0)
+    #expect(RemoteSigning.digest(of: request) == RemoteSigning.digest(of: later))
+    var detail = request; detail.detail = "/tmp/b.swift"
+    var old = request; old.old = nil
+    var new = request; new.new = "c"
+    var cut = request; cut.truncated = true
+    var tool = request; tool.tool = "Write"
+    // Text moved from one side to the other is not the same change.
+    var moved = request; moved.old = "ab"; moved.new = ""
+    for changed in [detail, old, new, cut, tool, moved] {
+        #expect(RemoteSigning.digest(of: changed) != RemoteSigning.digest(of: request))
+    }
 }
 
 @Test func remoteEntriesCarryTheMacTheyBelongTo() throws {

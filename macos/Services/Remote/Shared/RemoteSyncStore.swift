@@ -7,6 +7,11 @@ enum RemoteSyncEvent: Sendable {
     case changed(saved: [String: RemoteEntry], deleted: [String])
     /// The iCloud account went away or changed; the local mirror was emptied.
     case reset
+    /// The zone was deleted under the same account (the app's iCloud data was removed); the local
+    /// mirror was emptied and the zone will be made again.
+    case cleared
+    /// iCloud signed in. What was saved while signed out is on its way again.
+    case signedIn
     /// A fetch or send finished.
     case synced(Date)
     case failed(String)
@@ -23,6 +28,10 @@ protocol RemoteStoring: Sendable {
     func delete(_ name: String) async
     func fetchNow() async
     func sendNow() async
+    /// Whether any save or delete made here has yet to reach the server.
+    func hasUnsent() async -> Bool
+    /// Saves a record as the owner holds it, over whatever the mirror has under that name.
+    func save(_ entry: RemoteEntry, named name: String) async throws
 }
 
 /// A local mirror of the `Remote` zone, kept in step with CloudKit by `CKSyncEngine`.
@@ -48,6 +57,10 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
     private var saved: Saved
     private var engine: CKSyncEngine?
     private var flush: Task<Void, Never>?
+    /// Names whose record on the server is of another type than ours, written there by something
+    /// else. Saving cannot change a record's type, so each is deleted first and saved once that
+    /// is confirmed.
+    private var replacing: Set<String> = []
     /// Stopped for good. A later store owns the file, so this one changes and writes nothing more.
     private var stopped = false
 
@@ -83,17 +96,37 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
     /// Everything the mirror holds, keyed by record name.
     func entries() -> [String: RemoteEntry] { saved.entries }
 
+    func hasUnsent() -> Bool { !saved.unsent.isEmpty }
+
     func save<T: RemotePayload>(_ value: T) throws {
+        try save(try RemoteCodec.entry(value), named: value.recordName)
+    }
+
+    func save(_ entry: RemoteEntry, named name: String) throws {
         guard !stopped else { return }
-        var entry = try RemoteCodec.entry(value)
+        var entry = entry
         guard entry.payload.count <= RemoteSchema.maxPayload else { throw CKError(.limitExceeded) }
-        let name = value.recordName
         guard saved.entries[name]?.payload != entry.payload else { return }
-        entry.systemFields = saved.entries[name]?.systemFields
+        let existing = saved.entries[name]
+        entry.systemFields = existing?.type == entry.type ? existing?.systemFields : nil
         saved.entries[name] = entry
         saved.unsent.insert(name)
         persist()
-        engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(name))])
+        if let existing, existing.type != entry.type {
+            replace(name, engine: engine)
+        } else if !replacing.contains(name) {
+            // While its old record is being deleted, the save waits for that.
+            engine?.state.add(pendingRecordZoneChanges: [.saveRecord(recordID(name))])
+        }
+    }
+
+    /// Deletes the record under `name`, which is of another type than ours. Ours is saved when
+    /// the deletion is confirmed.
+    private func replace(_ name: String, engine: CKSyncEngine?) {
+        guard let engine else { return } // `start()` sends it as a save; the conflict brings it back here.
+        replacing.insert(name)
+        engine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID(name))])
+        engine.state.add(pendingRecordZoneChanges: [.deleteRecord(recordID(name))])
     }
 
     func delete(_ name: String) {
@@ -128,12 +161,22 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
             persist()
         case .accountChange(let change):
             switch change.changeType {
-            case .signIn: break
-            case .signOut, .switchAccounts: reset()
-            @unknown default: reset()
+            case .signIn:
+                // What was saved while signed out may have been dropped with the old state.
+                let pending = saved.unsent.map { name -> CKSyncEngine.PendingRecordZoneChange in
+                    saved.entries[name] == nil ? .deleteRecord(recordID(name)) : .saveRecord(recordID(name))
+                }
+                if !pending.isEmpty { syncEngine.state.add(pendingRecordZoneChanges: pending) }
+                continuation.yield(.signedIn)
+            case .signOut, .switchAccounts: reset(account: true)
+            @unknown default: reset(account: true)
             }
         case .fetchedDatabaseChanges(let changes):
-            if changes.deletions.contains(where: { $0.zoneID == RemoteSchema.zone }) { reset() }
+            if changes.deletions.contains(where: { $0.zoneID == RemoteSchema.zone }) {
+                // Same account, zone gone: start over in a zone made anew.
+                reset(account: false)
+                syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: RemoteSchema.zone))])
+            }
         case .fetchedRecordZoneChanges(let changes):
             var changed: [String: RemoteEntry] = [:]
             for modification in changes.modifications {
@@ -145,7 +188,15 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
                 saved.entries[name] = entry
                 changed[name] = entry
             }
-            let deleted = changes.deletions.map(\.recordID.recordName).filter { !saved.unsent.contains($0) }
+            // A deletion of something still waiting to be sent from here is ignored, except a
+            // command: the Mac removed it once handled, and sending it again would only recreate it.
+            let deleted = changes.deletions.map(\.recordID.recordName).filter { name in
+                guard saved.unsent.contains(name) else { return true }
+                guard saved.entries[name]?.type == .command else { return false }
+                saved.unsent.remove(name)
+                syncEngine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID(name))])
+                return true
+            }
             for name in deleted { saved.entries[name] = nil }
             persist()
             if !changed.isEmpty || !deleted.isEmpty { continuation.yield(.changed(saved: changed, deleted: deleted)) }
@@ -165,11 +216,22 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
                     saved.unsent.remove(name)
                 }
             }
-            for id in sent.deletedRecordIDs where saved.entries[id.recordName] == nil {
-                saved.unsent.remove(id.recordName)
+            let gone = sent.deletedRecordIDs + sent.failedRecordDeletes.filter { $0.value.code == .unknownItem }.map(\.key)
+            for id in gone {
+                let name = id.recordName
+                if replacing.remove(name) != nil, saved.entries[name] != nil {
+                    // The record of another type is out of the way: ours goes in, new.
+                    saved.entries[name]?.systemFields = nil
+                    syncEngine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
+                } else if saved.entries[name] == nil {
+                    saved.unsent.remove(name)
+                }
             }
-            for (id, error) in sent.failedRecordDeletes where error.code == .unknownItem {
-                saved.unsent.remove(id.recordName)
+            // A replacement whose delete failed for good is given up for this run, and said: the
+            // name stays unsent, so the next start tries again. One the engine retries is left to it.
+            for (id, error) in sent.failedRecordDeletes
+            where error.code != .unknownItem && !Self.retried.contains(error.code) && replacing.remove(id.recordName) != nil {
+                continuation.yield(.failed(Self.describe(error)))
             }
             for failure in sent.failedRecordSaves { recover(failure, engine: syncEngine) }
             persist()
@@ -189,10 +251,11 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
             return nil
         }
         if !gone.isEmpty { syncEngine.state.remove(pendingRecordZoneChanges: gone) }
-        let records = Dictionary(uniqueKeysWithValues: pending.compactMap { change -> (CKRecord.ID, CKRecord)? in
+        // The same save may be listed twice: a trap here would take the app down on every launch.
+        let records = Dictionary(pending.compactMap { change -> (CKRecord.ID, CKRecord)? in
             guard case .saveRecord(let id) = change, let record = record(for: id) else { return nil }
             return (id, record)
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let sendable = pending.filter { change in
             if case .saveRecord(let id) = change { return records[id] != nil }
             return true
@@ -208,6 +271,12 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
         switch failure.error.code {
         case .serverRecordChanged:
             guard let server = failure.error.serverRecord, let ours = saved.entries[name] else { return }
+            // The record there is of another type, put under this name by something else.
+            if server.recordType != ours.type.rawValue {
+                saved.entries[name]?.systemFields = nil
+                replace(name, engine: engine)
+                return
+            }
             // A command is the one record two devices write: the phone makes it, the Mac marks
             // it handled. The handled one is never overwritten by a stale `pending` copy, which
             // is what a phone whose first save did land, unheard, would send again.
@@ -234,12 +303,16 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
                 saved.entries[name]?.systemFields = nil
                 engine.state.add(pendingRecordZoneChanges: [.saveRecord(id)])
             }
-        case .networkFailure, .networkUnavailable, .zoneBusy, .serviceUnavailable, .notAuthenticated, .operationCancelled, .requestRateLimited:
+        case let code where Self.retried.contains(code):
             break // The engine retries these itself.
         default:
             continuation.yield(.failed(Self.describe(failure.error)))
         }
     }
+
+    /// The failures the sync engine tries again by itself.
+    private static let retried: Set<CKError.Code> = [.networkFailure, .networkUnavailable, .zoneBusy, .serviceUnavailable,
+                                                     .notAuthenticated, .operationCancelled, .requestRateLimited]
 
     private func record(for id: CKRecord.ID) -> CKRecord? {
         guard let entry = saved.entries[id.recordName] else { return nil }
@@ -260,12 +333,13 @@ actor RemoteSyncStore: CKSyncEngineDelegate, RemoteStoring {
 
     private func recordID(_ name: String) -> CKRecord.ID { CKRecord.ID(recordName: name, zoneID: RemoteSchema.zone) }
 
-    private func reset() {
+    private func reset(account: Bool) {
         saved.entries = [:]
         saved.unsent = []
+        replacing = []
         saved.zoneCreated = false
         persist()
-        continuation.yield(.reset)
+        continuation.yield(account ? .reset : .cleared)
     }
 
     /// Written a moment later, once for a burst of changes: a busy tick saves many turns.

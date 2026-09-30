@@ -13,21 +13,31 @@ enum RemoteTurnMapper {
         static let tight = Limits(text: 4_000, thinking: 0, field: 500, output: 0)
     }
 
-    /// `known` is the order each turn already mirrored was given: a turn keeps its place, so one
-    /// without a time is not sent again just because the window of turns moved on.
-    static func turns(_ turns: [TranscriptTurn], session: String, host: String, known: [String: Double] = [:],
-                      limits: Limits = Limits()) -> [RemoteTurn] {
+    /// The turns the phone gets: the last of the conversation, each given its place.
+    static func window(_ turns: [TranscriptTurn]) -> [TranscriptTurn] { Array(turns.suffix(RemoteSchema.turnsPerSession)) }
+
+    /// Where each turn sits. `known` is the order a turn already mirrored was given: it keeps its
+    /// place, so one without a time is not sent again just because the window of turns moved on.
+    static func orders(_ turns: [TranscriptTurn], known: [String: Double] = [:]) -> [Double] {
         var previous = 0.0
-        return turns.suffix(RemoteSchema.turnsPerSession).map { turn in
+        return turns.map { turn in
             // Turns sort by time; one without a time goes just after the one before it.
             let stamp = known[turn.id] ?? turn.date.map { $0.timeIntervalSince1970 * 1000 } ?? previous + 1
-            let order = max(stamp, previous + 0.001)
-            previous = order
-            return fitted(turn, session: session, host: host, order: order, limits: limits)
+            previous = max(stamp, previous + 0.001)
+            return previous
         }
     }
 
-    private static func fitted(_ turn: TranscriptTurn, session: String, host: String, order: Double, limits: Limits) -> RemoteTurn {
+    static func turns(_ turns: [TranscriptTurn], session: String, host: String, known: [String: Double] = [:],
+                      limits: Limits = Limits()) -> [RemoteTurn] {
+        let window = window(turns)
+        return zip(window, orders(window, known: known)).map { turn, order in
+            self.turn(turn, session: session, host: host, order: order, limits: limits)
+        }
+    }
+
+    /// One turn, cut until it fits a record.
+    static func turn(_ turn: TranscriptTurn, session: String, host: String, order: Double, limits: Limits = Limits()) -> RemoteTurn {
         let mapped = map(turn, session: session, host: host, order: order, limits: limits)
         if fits(mapped) { return mapped }
         var tight = map(turn, session: session, host: host, order: order, limits: .tight)

@@ -401,9 +401,10 @@ public final class AppViewModel {
         }
         guard let details = event.request else { pass(id); return }
         let prompt = AgentPermissionPrompt(id: id, details: details)
-        // Only a session's own terminal is mirrored; a scratch terminal's requests never wait.
+        // Only a session the phone is shown can have its request held for the phone: a scratch
+        // terminal's, or one the mirror does not list, goes to its terminal as before.
         let session = terminals.values.first { $0.termID == runID }.map(\.pairKey).flatMap { key in
-            sessions.contains { $0.id == key } ? key : nil
+            remoteSources().contains { $0.id == key } ? key : nil
         }
         // The phone sees every request of a mirrored session. With no chat on screen one goes to
         // the terminal at once, unless the Mac has been left alone: then it waits for the phone.

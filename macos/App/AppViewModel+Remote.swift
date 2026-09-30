@@ -22,12 +22,22 @@ extension AppViewModel: RemoteMirrorHost {
         try await agentTranscript(cli: source.cli, worktree: source.worktree, since: since, conversation: source.conversation)
     }
 
-    func remoteDeliver(_ text: String, to sessionID: String) async throws {
+    func remoteDeliver(_ text: String, to sessionID: String) async throws -> RemoteDelivery.TurnStart? {
         guard let terminal = terminals["task:\(sessionID)"] else {
             throw RemoteCommandError(String(localized: "The session isn’t running on your Mac."))
         }
-        try await RemoteDelivery.deliver(text, to: terminal) { [weak self, weak terminal] in
+        return try await RemoteDelivery.deliver(text, to: terminal) { [weak self, weak terminal] in
             terminal?.termID.flatMap { self?.offeredPermissions[$0] }?.isEmpty == false
+        }
+    }
+
+    /// Asks each live session's terminal what is in front of it. Its turn tracker then knows when
+    /// the agent its hooks spoke for has exited or been replaced.
+    func remoteWatchAgents() async {
+        for session in sessions {
+            guard let terminal = terminals["task:\(session.id)"], terminal.isLive,
+                  let front = try? await terminal.foregroundProcess() else { continue }
+            terminal.agentTurns.watch(foreground: front.pgid, name: front.process, atShell: front.atShell)
         }
     }
 

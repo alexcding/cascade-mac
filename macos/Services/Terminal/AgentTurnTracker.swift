@@ -20,11 +20,28 @@ import Observation
     /// terminal's own prompt, or asked while nothing was listening.
     private var askingInTerminal = false
     @ObservationIgnored private var terminalID: String?
+    /// The process in front of the terminal when it was last watched, since the last hook.
+    @ObservationIgnored private var watchedProcess: Int32?
+    /// What the agent's process is called, learned the first time it is watched after a hook. A
+    /// later hook is taken to speak for what is in front only if it goes by this name. Forgotten
+    /// when an agent announces its start: the name is its binary's, which an update changes.
+    @ObservationIgnored private var agentName: String?
+    /// A hook has been heard since the last look. Only then is what is in front known to be the
+    /// agent, whose name can be learned.
+    @ObservationIgnored private var heardSinceWatch = false
+    /// What runs in the terminal is no longer what the hooks last spoke for: the agent exited to
+    /// its shell, or another took its place, and no hook has been heard since. `idle` still says
+    /// what the old one last reported, so whoever types for someone who cannot see the terminal
+    /// checks this too.
+    private(set) var processChanged = false
 
     func bind(terminalID: String) {
         guard self.terminalID != terminalID else { return }
         invalidate()
         self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false; betweenTurns = false
+        agentName = nil
+        hookHeard()
+        heardSinceWatch = false
         closePrompts()
     }
 
@@ -56,6 +73,9 @@ import Observation
     /// and a turn of the old conversation can no longer finish, so its busy state goes with it.
     /// A compaction is the exception: it lands mid-turn and the turn carries on.
     func adopt(sessionID id: String, midTurn: Bool) {
+        hookHeard()
+        // An agent starting, perhaps a newer one under another name.
+        if !midTurn { agentName = nil }
         if !midTurn { busy = false; betweenTurns = true; closePrompts() }
         guard sessionID != id else { return }
         sessionID = id; revision &+= 1
@@ -72,7 +92,10 @@ import Observation
         // turn's busy state.
         if event.type == "agent-turn-done",
            ((cli != nil && cli != incomingCLI) || (sessionID != nil && incomingID != nil && sessionID != incomingID)) { return false }
+        // Another CLI's process goes by another name.
+        if cli != incomingCLI { agentName = nil }
         cli = incomingCLI
+        hookHeard()
         if let incomingID { sessionID = incomingID }
         if event.type == "agent-turn-start" {
             revision &+= 1; busy = true; betweenTurns = false
@@ -97,6 +120,32 @@ import Observation
         default: return false
         }
         return true
+    }
+
+    /// What is in front of the terminal now, as its daemon reports it. A shell, or a process other
+    /// than the one watched since the last hook, means the agent the hooks spoke for is gone.
+    func watch(foreground process: Int32?, name: String = "", atShell: Bool) {
+        // At its shell the agent is gone: whatever runs next is not what the last hook spoke for,
+        // and its name is not the agent's to learn.
+        guard !atShell else { processChanged = true; watchedProcess = nil; heardSinceWatch = false; return }
+        if let watchedProcess {
+            if watchedProcess != process { processChanged = true }
+        } else if let agentName {
+            // First look since a hook: whatever is in front is the agent only if it is called
+            // what the agent is. A hook's turn may end and another program start before this.
+            if agentName != name { processChanged = true }
+        } else if heardSinceWatch {
+            agentName = name
+        }
+        heardSinceWatch = false
+        watchedProcess = process
+    }
+
+    /// A hook speaks for whatever runs now.
+    private func hookHeard() {
+        processChanged = false
+        watchedProcess = nil
+        heardSinceWatch = true
     }
 
     private func closePrompts() {
