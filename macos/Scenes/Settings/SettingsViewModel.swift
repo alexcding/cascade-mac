@@ -32,6 +32,7 @@ import Observation
     let resources: ResourceUsageViewModel
     let adBlock: BrowserSettingsViewModel
     let fileIcons: FileIconSettingsViewModel
+    let remote: RemoteSettingsViewModel
     var draft = AppConfigDraft() {
         didSet { if oldValue != draft { revision += 1; saved = false } }
     }
@@ -55,7 +56,9 @@ import Observation
 
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
          resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, fileIcons: FileIconSettingsViewModel, microphone: MicrophoneAccessViewModel,
-         webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel()) {
+         webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel(),
+         remote: RemoteSettingsViewModel = RemoteSettingsViewModel(mirror: nil)) {
+        self.remote = remote
         self.clis = clis; self.webhooks = webhooks; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
         self.resources = resources; self.adBlock = adBlock; self.fileIcons = fileIcons

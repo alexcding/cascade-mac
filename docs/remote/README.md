@@ -1,6 +1,7 @@
 # Cascade Remote — an iOS companion for the Mac app
 
-Status: **research and plan, no code yet.** Branch `remote`.
+Status: **the agent chat mirror is built** (branch `feat/remote-chat`, see
+[06-chat-mirror.md](06-chat-mirror.md)). The rest of this page is the original research and plan.
 
 Cascade Remote is a phone app that watches and drives a running Cascade on your Mac: the
 dashboard (PRs, CI, Jira), the agent sessions, the iOS Simulator the Mac is streaming, and
@@ -13,6 +14,8 @@ QR code, token or port to set up.
 | [02-research.md](02-research.md) | What the codebase and the platforms give us today, with `file:line` citations and verification status |
 | [03-architecture.md](03-architecture.md) | The design: pairing, transport, the remote listener and its allowlist, the simulator and terminal relays, background alerts |
 | [04-plan.md](04-plan.md) | Phases, work items, estimates, risks, open questions |
+| [05-session-control.md](05-session-control.md) | Session control over a direct connection, paired through iCloud key-value storage; superseded by 06 |
+| [06-chat-mirror.md](06-chat-mirror.md) | **As built.** The agent chat mirrored through CloudKit, the iPhone app, and how to turn it on; supersedes 01–05 where they differ |
 
 ## The short version
 

@@ -14,3 +14,6 @@ SWIFT_OPTIMIZATION_LEVEL = -O
 // `generate_keys --account cascade`. Cascade's own key, never Cascade's: Cascade's installs update
 // from cascade-mac's feed. Never put `//` in a value here: it starts a comment.
 CASCADE_UPDATE_PUBLIC_KEY = 6sg6zpE/9SjFBOouJDbaYdllH4rcPIn2PXhkPP3ybac=
+
+// Team signing for iCloud (Cascade Remote), when this checkout has it: see Signing.local.xcconfig.example.
+#include? "../../Signing.local.xcconfig"

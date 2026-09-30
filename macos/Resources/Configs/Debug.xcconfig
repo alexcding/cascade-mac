@@ -8,3 +8,6 @@ INFOPLIST_FILE = Resources/Configs/App-Info.plist
 SWIFT_OPTIMIZATION_LEVEL = -Onone
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG
 ENABLE_TESTABILITY = YES
+
+// Team signing for iCloud (Cascade Remote), when this checkout has it: see Signing.local.xcconfig.example.
+#include? "../../Signing.local.xcconfig"

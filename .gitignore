@@ -33,3 +33,6 @@ logs.db-shm
 
 # LLVM coverage output from instrumented Rust test runs
 *.profraw
+
+# Per-developer signing team (see macos/Signing.local.xcconfig.example)
+Signing.local.xcconfig

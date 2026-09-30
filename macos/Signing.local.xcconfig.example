@@ -1,0 +1,15 @@
+// Copy to Signing.local.xcconfig (git-ignored) to sign Cascade with your Apple Developer team,
+// which Cascade Remote's iCloud sync needs. Without it the app builds ad-hoc signed, as before,
+// and Settings → iPhone says the build isn't signed for iCloud.
+//
+// The team also needs, once, in the developer portal (Xcode's automatic signing creates them
+// when your account is added in Xcode → Settings → Accounts):
+//   - the iCloud container iCloud.com.alexcding.cascade
+//   - the App ID com.alexcding.cascade, with iCloud (CloudKit) and Push Notifications
+
+DEVELOPMENT_TEAM = YOURTEAMID
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_ENTITLEMENTS = Resources/Configs/CascadeRemote.entitlements
+// `production` for a Developer ID build.
+CASCADE_APS_ENVIRONMENT = development

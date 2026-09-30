@@ -14,6 +14,8 @@ import Observation
     /// The icon themes Settings installs into. Tests substitute it; the app's views and
     /// `ShellStore` always draw with `.shared`.
     var fileIconStore: FileIconStore = .shared
+    /// The app's iCloud mirror, which Settings → iPhone turns on and reports on.
+    var remote: RemoteMirror?
 
     func settings() -> SettingsViewModel {
         SettingsViewModel(clis: CLISettingsViewModel(copy: copy, openBrowser: desktop.openBrowser), diagnostics: DiagnosticsViewModel(),
@@ -21,7 +23,8 @@ import Observation
             resources: ResourceUsageViewModel(),
             adBlock: BrowserSettingsViewModel(blocker: adBlocker ?? .inert(), openBrowser: desktop.openBrowser),
             fileIcons: FileIconSettingsViewModel(library: fileIconStore.library, store: fileIconStore),
-            microphone: MicrophoneAccessViewModel(service: microphone))
+            microphone: MicrophoneAccessViewModel(service: microphone),
+            remote: RemoteSettingsViewModel(mirror: remote))
     }
 }
 

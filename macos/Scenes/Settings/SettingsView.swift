@@ -49,6 +49,7 @@ struct SettingsView: View {
             case .worktrees: WorktreeSettingsView(model: model) { saveRow }
             case .shortcuts: ShortcutsSettingsView(registry: .shared)
             case .clis: clis
+            case .remote: RemoteSettingsView(model: model.remote)
             case .system: system
             case .activity: EmptyView() // Not a form; `detail` shows it.
             }
@@ -215,6 +216,7 @@ private extension SettingsSection {
         case .worktrees: "arrow.triangle.branch"
         case .shortcuts: "keyboard"
         case .clis: "puzzlepiece.extension"
+        case .remote: "iphone"
         case .system: "cpu"
         case .activity: "clock"
         }

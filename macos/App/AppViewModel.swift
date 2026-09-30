@@ -33,7 +33,9 @@ public final class AppViewModel {
     @ObservationIgnored private var permissionWatchers: [String: PermissionWatcher] = [:]
     /// The requests each watched terminal is waiting on, oldest first: an agent can ask again
     /// before the first is answered, and each must be shown in turn, not dropped.
-    @ObservationIgnored private var offeredPermissions: [String: [AgentPermissionPrompt]] = [:]
+    @ObservationIgnored private(set) var offeredPermissions: [String: [AgentPermissionPrompt]] = [:]
+    /// Every live session's chat, mirrored to iCloud for Cascade Remote on iPhone (Settings → iPhone).
+    @ObservationIgnored let remote = RemoteMirror(dataDirectory: DataDirectory.explicit.map { URL(fileURLWithPath: $0) } ?? DataDirectory.standard)
     /// Opens the Settings window. The main window installs SwiftUI's `openSettings` here, since
     /// that action only exists in a view's environment.
     @ObservationIgnored var openSettingsWindow: (() -> Void)?
@@ -187,7 +189,8 @@ public final class AppViewModel {
             try await self.openPage(request)
         }), copy: copy)
         dashboard?.snapshotChanged = { [weak self] in self?.cachedResolverPullRequests = nil; self?.updateWorkspaceReviewState() }
-        _ = coordinator.makeSettings(factory: settingsFactory ?? NativeSettingsFeatureFactory(desktop: desktop, copy: copy, adBlocker: .shared), shell: shell, runtime: self)
+        _ = coordinator.makeSettings(factory: settingsFactory ?? NativeSettingsFeatureFactory(desktop: desktop, copy: copy, adBlocker: .shared, remote: remote), shell: shell, runtime: self)
+        remote.host = self
         viewer.contextChanged = { [weak self] context in
             guard let self, viewer.contexts[context.id] === context else { return }
             commitDraftTab(context)
@@ -370,6 +373,15 @@ public final class AppViewModel {
 
     private func pass(_ id: String) { Task { try? await answerPermission(id, decision: "pass") } }
 
+    /// Requests waiting with no chat on screen were held for the phone; with the phone gone they go
+    /// to their terminals.
+    func releaseHeldPermissions() {
+        for (runID, prompts) in offeredPermissions where permissionWatchers[runID] == nil {
+            offeredPermissions[runID] = nil
+            for prompt in prompts { pass(prompt.id) }
+        }
+    }
+
     /// Takes a request off its terminal's queue and shows the next one; whether it was queued.
     @discardableResult private func withdrawPermission(_ id: String) -> Bool {
         guard let runID = offeredPermissions.first(where: { $0.value.contains { $0.id == id } })?.key else { return false }
@@ -382,13 +394,24 @@ public final class AppViewModel {
     private func receivePermission(_ event: ServerEvent) {
         guard let id = event.id, let runID = event.runId else { return }
         if event.type == "agent-permission-done" {
+            remote.withdraw(id)
             // A request the chat was holding now waits in the terminal it covers: show that.
             if withdrawPermission(id), event.outcome == "terminal" { permissionWatchers[runID]?.movedToTerminal() }
             return
         }
-        guard let details = event.request, let watcher = permissionWatchers[runID] else { pass(id); return }
-        offeredPermissions[runID, default: []].append(AgentPermissionPrompt(id: id, details: details))
-        watcher.show(offeredPermissions[runID]?.first)
+        guard let details = event.request else { pass(id); return }
+        let prompt = AgentPermissionPrompt(id: id, details: details)
+        // Only a session's own terminal is mirrored; a scratch terminal's requests never wait.
+        let session = terminals.values.first { $0.termID == runID }.map(\.pairKey).flatMap { key in
+            sessions.contains { $0.id == key } ? key : nil
+        }
+        // The phone sees every request of a mirrored session. With no chat on screen one goes to
+        // the terminal at once, unless the Mac has been left alone: then it waits for the phone.
+        let watcher = permissionWatchers[runID]
+        guard watcher != nil || (session != nil && remote.holdsApprovals) else { pass(id); return }
+        offeredPermissions[runID, default: []].append(prompt)
+        if let session { remote.offer(prompt, session: session) }
+        watcher?.show(offeredPermissions[runID]?.first)
     }
 
     func prepareChanges(for session: WorkspaceSession, context: WorkspaceContext) {
@@ -1683,6 +1706,7 @@ public final class AppViewModel {
         // Now that it can say so: the agent hooks the person installed are brought up to date, and
         // each update comes back as a toast, since the CLI may ask them to allow it.
         if let api { Task { try? await api.updateAgentHooks() } }
+        remote.resume()
     }
 
     private struct LastHook: Decodable { let event: ServerEvent? }
@@ -1779,6 +1803,11 @@ public final class AppViewModel {
         startGeneration = UUID()
         backendRuntime.onEvent = { _ in }
         coordinator.setRoutingReady(false)
+        // Nothing will hear these end now: they go to their terminals, and no card or phone keeps them.
+        for prompt in Array(offeredPermissions.values.joined()) {
+            withdrawPermission(prompt.id)
+            pass(prompt.id)
+        }
         let task = Task { await finishStop() }
         shutdownTask = task
         await task.value
@@ -1786,6 +1815,7 @@ public final class AppViewModel {
     }
 
     private func finishStop() async {
+        await remote.stop()
         await backendRuntime.stopEvents()
         eventRefreshTask?.cancel()
         usageWatch?.cancel(); usageWatch = nil
