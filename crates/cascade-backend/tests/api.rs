@@ -247,18 +247,26 @@ async fn last_hook_type(app: &axum::Router, run: &str, expected: &str) -> Value 
 
 #[tokio::test]
 async fn a_stop_with_a_background_agent_running_keeps_the_turn_going() {
-    let (app, _directory) = app();
+    let directory = tempfile::tempdir().unwrap();
+    let state = AppState::new(Database::open(directory.path()).unwrap(), None);
+    let mut events = state.events.subscribe();
+    let app = build_app(state);
     let hook = |kind: &str| format!("/api/hooks/{kind}?cli=claude&runId=pty1-1");
     let agent = json!({"id":"a1","type":"subagent","status":"running","description":"Review","agent_type":"general-purpose"});
     let shell = json!({"id":"b1","type":"shell","status":"running","description":"Dev server","command":"npm run dev"});
 
     assert_eq!(post_hook(&app, &hook("turn-start"), json!({"session_id":"s1"})).await, StatusCode::NO_CONTENT);
-    assert_eq!(last_hook_type(&app, "pty1-1", "agent-turn-start").await, "agent-turn-start");
-
     let held = json!({"session_id":"s1","hook_event_name":"Stop","background_tasks":[shell, agent]});
     assert_eq!(post_hook(&app, &hook("turn-done"), held).await, StatusCode::NO_CONTENT);
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    assert_eq!(last_hook_type(&app, "pty1-1", "agent-turn-start").await, "agent-turn-start");
+    // Hooks are told in the order they came, so everything told before this one has been seen
+    // once it is.
+    assert_eq!(post_hook(&app, &hook("session-start"), json!({"session_id":"s1","source":"compact"})).await, StatusCode::NO_CONTENT);
+    let mut told = Vec::new();
+    while told.last().map(String::as_str) != Some("agent-session") {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
+        told.extend(event["type"].as_str().filter(|kind| kind.starts_with("agent-")).map(str::to_owned));
+    }
+    assert_eq!(told, ["agent-turn-start", "agent-session"]);
 
     // The agent has reported back; the dev server running on does not hold the turn open.
     let done = json!({"session_id":"s1","hook_event_name":"Stop","background_tasks":[shell]});
