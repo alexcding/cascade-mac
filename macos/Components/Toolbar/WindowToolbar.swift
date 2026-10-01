@@ -5,6 +5,9 @@ import SwiftUI
 /// context pane's while one is open, each tracking its divider. A screen names its items from its
 /// models, so an item's content stays live without the description being rebuilt.
 struct WindowToolbar {
+    /// The sidebar's section, from its leading edge beside the window's buttons; its toggle comes
+    /// after them. The same over every screen.
+    var sidebar: [WindowToolbarItem] = []
     /// The leading edge of the screen's section: its title, or what stands in for one.
     var leading: [WindowToolbarItem] = []
     /// The middle of the screen's section, centred in it however wide its leading and trailing

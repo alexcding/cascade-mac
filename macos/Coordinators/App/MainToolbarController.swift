@@ -3,11 +3,12 @@ import Observation
 import SwiftUI
 
 /// Draws the main window's toolbar from the description the screen on show gives
-/// (`AppCoordinator.windowToolbar`). The toolbar is split where the card's columns are: the list's
-/// section, the screen's, and beside a terminal the context pane's, each tracking its divider in
-/// `MainSplitViewController`'s split view, which the toolbar is told of (`splitView`). The columns
-/// are plain split items inside the card, not AppKit's sidebar and inspector, so the separators are
-/// tracking separators bound to that split view's dividers. Every item hosts its SwiftUI content; the description is read under
+/// (`AppCoordinator.windowToolbar`). The toolbar is split where the window's columns are: the
+/// sidebar's section, tracking AppKit's own sidebar, then the screen's, and beside a terminal the
+/// context pane's, tracking the divider in the card's split view (`MainSplitViewController`), which
+/// the toolbar is told of (`splitView`). The pane is a plain split item inside the card, not
+/// AppKit's inspector, so its separator is a tracking separator bound to that divider. Every item
+/// hosts its SwiftUI content; the description is read under
 /// observation, so anything it reads redraws the toolbar, and an item's content is handed over
 /// again on every pass rather than only when the set of items changes.
 ///
@@ -20,10 +21,10 @@ import SwiftUI
     weak var window: NSWindow? {
         didSet { window?.toolbar = toolbar }
     }
-    /// The card's columns: the list, the screen and the pane. Set before `window`, since the
-    /// toolbar's separators are made against it.
+    /// The card's columns: the screen and the pane. Set before `window`, since the toolbar's pane
+    /// separator is made against it.
     weak var splitView: NSSplitView?
-    /// The screen's column, between the list and the context pane: the section the middle is
+    /// The screen's column, between the sidebar and the context pane: the section the middle is
     /// centred in. Given by the columns' owner (`MainSplitViewController.screenColumn`), the one
     /// place that knows which column it is.
     weak var screenColumn: NSView?
@@ -110,8 +111,11 @@ import SwiftUI
                 (index > 0 && item.glass && items[index - 1].glass ? [.space] : []) + [NSToolbarItem.Identifier(item.id)]
             }
         }
-        // The list's section holds nothing: the window's buttons are over it.
-        var identifiers: [NSToolbarItem.Identifier] = [.listSeparator]
+        // The sidebar's section, from its leading edge beside the window's buttons: its items, then
+        // its toggle, set apart from them as two glass items side by side are.
+        var identifiers: [NSToolbarItem.Identifier] = run(toolbar.sidebar)
+        if toolbar.sidebar.last?.glass == true { identifiers.append(.space) }
+        identifiers += [.toggleSidebar, .flexibleSpace, .sidebarTrackingSeparator]
         identifiers += run(toolbar.leading)
         // Beside a bar that fills there is no slack to centre the middle in.
         let balanced = !toolbar.center.isEmpty && !toolbar.leading.contains(where: \.fills)
@@ -132,7 +136,7 @@ import SwiftUI
     }
 
     private func allItems(_ toolbar: WindowToolbar) -> [WindowToolbarItem] {
-        toolbar.leading + toolbar.center + toolbar.trailing + (toolbar.pane ?? [])
+        toolbar.sidebar + toolbar.leading + toolbar.center + toolbar.trailing + (toolbar.pane ?? [])
     }
 
     /// A picker whose choices are no longer the ones its group was made with; which are enabled
@@ -174,10 +178,9 @@ import SwiftUI
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == .leadingBalance || identifier == .trailingBalance { return balanceItem(identifier) }
-        if identifier == .listSeparator || identifier == .paneSeparator {
+        if identifier == .paneSeparator {
             guard let splitView else { return nil }
-            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView,
-                                                  dividerIndex: identifier == .listSeparator ? 0 : 1)
+            return NSTrackingSeparatorToolbarItem(identifier: identifier, splitView: splitView, dividerIndex: 0)
         }
         if identifier == .roomSpacer { return roomSpacerItem() }
         guard let spec = allItems(current).first(where: { $0.id == identifier.rawValue }) else { return nil }
@@ -415,8 +418,7 @@ private extension NSToolbarItem.Identifier {
     static let leadingBalance = Self("center-balance-leading")
     static let trailingBalance = Self("center-balance-trailing")
     static let roomSpacer = Self("leading-room")
-    /// The dividers of the card's columns: between the list and the screen, and the screen and the pane.
-    static let listSeparator = Self("list-separator")
+    /// The divider between the card's columns, the screen and the pane.
     static let paneSeparator = Self("pane-separator")
 }
 

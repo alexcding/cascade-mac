@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The main window, made and kept by AppKit rather than a SwiftUI scene, so its toolbar can be
-/// split where the card's columns are (`MainWindowViewController`, `MainToolbarController`). The
-/// toolbar is transparent, on the window's backdrop. It is never closed: the red button, like ⌘W
+/// split where the window's columns are (`MainWindowViewController`, `MainToolbarController`). The
+/// toolbar is transparent, over the sidebar and the card's backdrop. It is never closed: the red button, like ⌘W
 /// with no page open, only puts it away, and sessions keep running until Quit. Its frame persists
 /// across launches.
 @MainActor final class MainWindowController: NSWindowController, NSWindowDelegate {
@@ -15,7 +15,7 @@ import SwiftUI
         content = MainWindowViewController(model: model)
         let coordinator = model.coordinator
         toolbarController = MainToolbarController { coordinator.windowToolbar }
-        let window = MainWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
                                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                 backing: .buffered, defer: false)
         window.identifier = NSUserInterfaceItemIdentifier("main")
@@ -27,15 +27,13 @@ import SwiftUI
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.contentViewController = content
-        // The toolbar's sections track the card's dividers, so it is made against the card's split view.
+        // The toolbar's pane section tracks the card's divider, so it is made against the card's split view.
         toolbarController.splitView = content.columns.splitView
         toolbarController.screenColumn = content.columns.screenColumn
         toolbarController.window = window
         window.contentMinSize = NSSize(width: 760, height: 480)
         super.init(window: window)
         window.delegate = self
-        let columns = content.columns
-        window.onToggleSidebar = { [weak columns] in columns?.toggleSidebar(nil) }
         Self.restoreFrame(of: window)
     }
 
@@ -52,19 +50,5 @@ import SwiftUI
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
         return false
-    }
-}
-
-/// The main window answers Toggle Sidebar itself. The View menu's command goes by the responder
-/// chain, which reaches the window before anything that knows of the list whenever the keyboard is
-/// outside the columns, and AppKit's own window looks for a sidebar column that is not there.
-private final class MainWindow: NSWindow {
-    var onToggleSidebar: () -> Void = {}
-
-    @objc func toggleSidebar(_ sender: Any?) { onToggleSidebar() }
-
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        if item.action == #selector(toggleSidebar(_:)) { return true }
-        return super.validateUserInterfaceItem(item)
     }
 }

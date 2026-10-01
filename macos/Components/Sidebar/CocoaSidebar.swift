@@ -629,7 +629,7 @@ enum SidebarPalette {
     /// on the backdrop it is the material's own colour, and gone once the window is active. This is
     /// the text's colour thinned out, so it darkens whatever is behind it.
     static let rule = dynamic(0x16181d, 0xe8e8e8, alpha: 0.1)
-    /// The wash over the window's backdrop material, under the strip, the rail and the card: what
+    /// The wash over the window's backdrop material, under the toolbar, the rail and the card: what
     /// makes the backdrop solid rather than see-through. In light it is a pale grey as light as the
     /// material itself, not a white, so half of it halves what shows through without whitening the
     /// backdrop towards the card: over a blue sky it is still a pale blue. In dark the material

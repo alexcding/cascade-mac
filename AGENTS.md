@@ -258,48 +258,46 @@ A screen is four things, in this order:
 
 The main window is AppKit's, not a SwiftUI scene, so its toolbar can be split where its
 columns are, as Xcode's is. `MainWindowController` owns the window; its content is
-`MainWindowViewController`: one backdrop across the whole window, and on it the rail down the
-leading edge and, under the toolbar, a rounded container (`MainCardView`) holding
-`MainSplitViewController`'s columns: the sidebar's list, the screen (`AppCoordinatorView`), and
-the shown workspace's context pane. The list sits on the container's wash; the card proper is the
-screen and the pane, opaque, with its own rounded edge (`MainCardOutline`). AppKit holds each
-column to its minimum width. The pane column follows
+`MainWindowViewController`, a split view controller of two columns: AppKit's own sidebar
+(`NSSplitViewItem(sidebarWithViewController:)`), holding the rail and beside it the list the rail
+picks, and the card's column, a rounded container (`MainCardView`) under the toolbar holding
+`MainSplitViewController`'s columns: the screen (`AppCoordinatorView`) and the shown workspace's
+context pane. AppKit holds each column to its minimum width. The pane column follows
 `SessionWorkspaceViewModel.showsInspector`, and a pane the user collapses from the divider is
 told back to the workspace.
 
-- **A translucent outline round the card.** The toolbar is a unified one and transparent, so the
-  backdrop runs under it: along the top, down the rail, and in a thin margin at the card's
-  trailing and bottom edges (`MainWindowMetrics.cardInset`). The backdrop is a material of the
-  content view's own — the title bar's, which keeps the desktop's colour where the sidebar's
-  greys it — under a wash (`SidebarPalette.backdrop`). There are three levels: the rail on the
-  backdrop; the list on it too, under a lighter wash of its own (`SidebarPalette.list`), so the two
-  read as separate columns; and the card, the screen's and the pane's, opaque, its rounded edge
-  starting at the screen's column and following the list's divider (`MainCardOutline`). The
-  list's wash is the container's, so it also fills behind the screen column's rounded leading
-  corners. The list's divider itself is not drawn.
-- **The columns are plain split items.** None is AppKit's sidebar or inspector: those bring glass
-  of their own, and a strip or a rail beside such a column comes out a different colour. With
-  no sidebar item AppKit's Toggle Sidebar does nothing and disables whatever asked, so
-  `MainSplitViewController` and the window both answer `toggleSidebar:` for the View menu
-  (⌃⌘S). There is no sidebar toggle in the toolbar.
-- **The toolbar's sections track the card's dividers.** `MainToolbarController` splits the toolbar
-  with tracking separators bound to the card's split view (`NSTrackingSeparatorToolbarItem`
-  with `splitView:dividerIndex:`): the list's section holds nothing, the window's buttons being
-  over it; then the screen's, then beside a terminal the pane's. Bound to a split view that is
-  not the window's content, the separators still follow its dividers through a drag and a
-  column opening or shutting.
-- **The rail picks the sidebar's list.** It is the icon-only strip beside the card
+- **A native sidebar, on the window's backdrop.** The sidebar is a real one, so AppKit slides it
+  in and out and answers Toggle Sidebar for the View menu (⌃⌘S) and the toolbar's toggle; shut, it takes the rail with it. Both
+  columns draw the same backdrop (`MainBackdrop`): the title bar's material, which keeps the
+  desktop's colour where the sidebar's own material greys it, under a wash
+  (`SidebarPalette.backdrop`). Blending with what is behind the window, it covers AppKit's sidebar
+  material, so the columns match. The toolbar is a unified one and transparent, so the backdrop
+  runs under it, and in a thin margin at the card's trailing and bottom edges
+  (`MainWindowMetrics.cardInset`). There are three levels: the rail on the backdrop; the list on
+  a lighter wash of its own (`SidebarPalette.list`), its leading corners rounded; and the card,
+  opaque. Open, the list's wash and the card meet square at the sidebar's divider, which is not
+  drawn and takes no width (`MainSidebarSplitView`), so the two read as one container; with the
+  sidebar shut the card is inset from the window's edge and rounded there too.
+- **The toolbar's sections track the columns.** `MainToolbarController` puts the sidebar's items
+  (`WindowToolbar.sidebar`, the activity bell) and then its toggle at the leading edge of the
+  sidebar's section, beside the window's buttons, before AppKit's `.sidebarTrackingSeparator`; then the screen's
+  section, then beside a terminal the pane's, after a tracking separator bound to the card's split
+  view (`NSTrackingSeparatorToolbarItem` with `splitView:dividerIndex:`). The pane is a plain split
+  item, not AppKit's inspector, which reaches the window's top. Bound to a split view that is not
+  the window's content, the separator still follows its divider through a drag and the pane
+  opening or shutting.
+- **The rail picks the sidebar's list.** It is the icon-only strip down the sidebar's leading edge
   (`SidebarRail`), one fixed icon per `SidebarMode`: Home lists Dashboard, Automation and the
   projects with their sessions; Browser lists the saved tabs and nothing else. Settings is at the
-  rail's bottom; the sidebar has no footer, and the activity bell is in the Dashboard's toolbar
-  (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to them. The mode is
+  rail's bottom; the sidebar has no footer, and the activity bell is at the leading edge of the
+  toolbar's sidebar section, beside the window's buttons, over every screen (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to them. The mode is
   `AppCoordinator.sidebarMode`: the rail sets it and takes the window to that list's selection —
   where it last was from that list, while its row is there, else the Dashboard for Home and the
   first saved tab for Browser, or with no tab a blank page (`SidebarDestination.blankPage`) —
-  and a navigation brings the mode of where it lands. The rail stays when the list is collapsed, and picking a list
-  opens it again. Its first icon is level with the list's first row, which a source list sets
-  below its own inset (`SidebarMetrics.sourceListInset`). The sidebar builds every row once
-  (`SidebarEntry.make`) and shows the rows of the mode on show (`SidebarEntry.mode`).
+  and a navigation brings the mode of where it lands. Its first icon is level with the list's
+  first row, which a source list sets below its own inset (`SidebarMetrics.sourceListInset`). The
+  sidebar builds every row once (`SidebarEntry.make`) and shows the rows of the mode on show
+  (`SidebarEntry.mode`).
 - **The lines are the window's own, one display pixel wide.** The card's edge and the pane's
   divider (`RuleSplitView`) are drawn in `SidebarPalette.rule`, at `MainWindowMetrics.rule`. A
   split inside a screen uses `ThinSplitView` for the same rule; `HSplitView`'s divider is a point

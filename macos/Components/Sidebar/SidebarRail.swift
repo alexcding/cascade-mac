@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The icon-only strip down the window's leading edge, on the window's backdrop beside the card.
+/// The icon-only strip down the sidebar's leading edge, beside the list it picks.
 /// From the top: one icon per sidebar list (`SidebarMode`); Settings is at the bottom. Picking a
 /// list changes what the sidebar lists, not what the window shows. The icons are fixed: nothing
 /// adds to them, removes one or reorders them.

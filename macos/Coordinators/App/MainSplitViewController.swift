@@ -2,19 +2,18 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// The columns inside the main window's card (`MainWindowViewController`): the sidebar's list, the
-/// screen (`AppCoordinatorView`), and the shown workspace's context pane. They are plain columns —
-/// none is AppKit's sidebar or inspector, which bring glass of their own and reach the window's
-/// top — so each starts at the card's top, under the toolbar, whose sections track their dividers
-/// (`MainToolbarController`, `splitView`). AppKit keeps
-/// each column to its minimum width, so no drag or window resize can squeeze one to nothing.
+/// The columns inside the main window's card (`MainWindowViewController`): the screen
+/// (`AppCoordinatorView`) and the shown workspace's context pane. They are plain columns — the pane
+/// is not AppKit's inspector, which reaches the window's top — so both start at the card's top,
+/// under the toolbar, whose pane section tracks their divider (`MainToolbarController`,
+/// `splitView`). AppKit keeps each column to its minimum width, so no drag or window resize can
+/// squeeze one to nothing.
 ///
 /// The pane column follows the workspace on show: open while its pane is (`showsInspector`), and
 /// the other way round, a pane the user collapses or opens from the divider or a menu is told to
 /// its workspace.
 @MainActor final class MainSplitViewController: NSSplitViewController {
     private let coordinator: AppCoordinator
-    private let sidebarItem: NSSplitViewItem
     private let contentItem: NSSplitViewItem
     private let paneItem: NSSplitViewItem
     /// The pane state last asked of the column; a collapse that differs came from the user.
@@ -22,29 +21,22 @@ import SwiftUI
     /// The workspace on show when the pane was last set, to tell a toggle from a switch.
     private var shownWorkspace: ObjectIdentifier?
     private var collapseObservation: NSKeyValueObservation?
+    /// Told whenever the pane's column opens or shuts, however it was asked to: the window holds
+    /// the card's column wide enough for it.
+    var onPaneCollapsed: (Bool) -> Void = { _ in }
 
-    /// No widths saved yet: the first time the window shows, the list opens at its ideal width.
-    private var needsInitialWidths = false
-    /// Not the old `CascadeMainColumns`: its first width included the rail, which is now beside the
-    /// card, so a saved list would open that much wider.
-    private static let autosaveName = "CascadeCardColumns"
+    /// Not the old `CascadeCardColumns`: its first column was the list, which is now the window's
+    /// sidebar, so a saved screen would open at the list's width.
+    static let autosaveName = "CascadeCardPane"
 
     init(model: AppViewModel) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
-        let sidebar = NSHostingController(rootView: MainListColumn(coordinator: coordinator))
         let content = NSHostingController(rootView: MainContentColumn(model: model))
         let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
         // The columns' widths are the split view's to decide, not their content's.
-        sidebar.sizingOptions = []
         content.sizingOptions = []
         pane.sizingOptions = []
-        sidebarItem = NSSplitViewItem(viewController: sidebar)
-        sidebarItem.minimumThickness = MainWindowMetrics.sidebarMin
-        sidebarItem.maximumThickness = MainWindowMetrics.sidebarMax
-        sidebarItem.canCollapse = true
-        // A window resize goes to the screen and the pane: the list keeps its width, as a sidebar does.
-        sidebarItem.holdingPriority = .defaultLow + 10
         contentItem = NSSplitViewItem(viewController: content)
         contentItem.minimumThickness = MainWindowMetrics.contentMin
         paneItem = NSSplitViewItem(viewController: pane)
@@ -55,8 +47,8 @@ import SwiftUI
         paneItem.holdingPriority = contentItem.holdingPriority
         paneItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
-        // The lines between the columns are the split view's own dividers, one display pixel wide.
-        let split = MainColumnsSplitView()
+        // The line between the columns is the split view's own divider, one display pixel wide.
+        let split = RuleSplitView()
         split.isVertical = true
         split.dividerStyle = .thin
         splitView = split
@@ -66,58 +58,22 @@ import SwiftUI
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        addSplitViewItem(sidebarItem)
         addSplitViewItem(contentItem)
         addSplitViewItem(paneItem)
-        // The card begins at the screen's column: its leading corners are rounded, and what it shows
-        // is clipped to them. The trailing ones are the card's own (`MainWindowViewController`).
-        let screen = contentItem.viewController.view
-        screen.wantsLayer = true
-        screen.layer?.cornerRadius = MainWindowMetrics.cardRadius
-        screen.layer?.cornerCurve = .continuous
-        screen.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-        screen.layer?.masksToBounds = true
-        needsInitialWidths = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames \(Self.autosaveName)") == nil
         splitView.autosaveName = Self.autosaveName
         // AppKit changes the column on the main thread: from the divider, a menu, or `observePane`.
         collapseObservation = paneItem.observe(\.isCollapsed) { [weak self] _, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.onPaneCollapsed(self.paneItem.isCollapsed)
                 self.paneCollapsedChanged(self.paneItem.isCollapsed)
             }
         }
         observePane()
     }
 
-    override func viewDidAppear() {
-        super.viewDidAppear()
-        guard needsInitialWidths else { return }
-        needsInitialWidths = false
-        splitView.setPosition(MainWindowMetrics.sidebarIdeal, ofDividerAt: 0)
-    }
-
-    /// The screen's column, where the card begins: the list is on the backdrop, outside it.
+    /// The screen's column, the card's first: the section of the toolbar its middle is centred in.
     var screenColumn: NSView { contentItem.viewController.view }
-
-    // MARK: The list
-
-    /// Toggle Sidebar, from the View menu (⌃⌘S). The list is a plain column, so the
-    /// split view has no sidebar of its own to toggle: AppKit's own answer is to do nothing, and to
-    /// disable whatever asked.
-    override func toggleSidebar(_ sender: Any?) {
-        sidebarItem.animator().isCollapsed = !sidebarItem.isCollapsed
-    }
-
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
-        if item.action == #selector(toggleSidebar(_:)) { return true }
-        return super.validateUserInterfaceItem(item)
-    }
-
-    /// Opens the list if it is shut: the rail picked a list, and a list nobody can see is no answer.
-    func revealList() {
-        guard sidebarItem.isCollapsed else { return }
-        sidebarItem.animator().isCollapsed = false
-    }
 
     // MARK: The pane
 
@@ -162,13 +118,14 @@ import SwiftUI
 }
 
 enum MainWindowMetrics {
-    /// The rail beside the card (`SidebarRail`): ChatGPT's and Codex's, measured at 56 points, one
-    /// plate wide with a little air either side.
+    /// The rail down the sidebar's leading edge (`SidebarRail`): ChatGPT's and Codex's, measured at
+    /// 56 points, one plate wide with a little air either side.
     static let railWidth: CGFloat = 56
-    /// The card's trailing and bottom edges to the window's.
+    /// The card's edges to the sidebar's and the window's.
     static let cardInset: CGFloat = 4
     /// The card's corners: the window's own corner, less the inset, so the two curve together.
     static let cardRadius: CGFloat = 12
+    /// The list's widths, beside the rail; the sidebar's column is the two together.
     static let sidebarMin: CGFloat = 170
     static let sidebarMax: CGFloat = 420
     static let sidebarIdeal: CGFloat = 250
@@ -209,21 +166,6 @@ private struct SettingsWindowOpener: ViewModifier {
     }
 }
 
-/// The list's column, once the root model exists: the rows of the list the rail picked, on the
-/// card's wash (`MainWindowViewController`), lighter than the rail beside it.
-private struct MainListColumn: View {
-    let coordinator: AppCoordinator
-
-    var body: some View {
-        Group {
-            if let viewModel = coordinator.rootModel {
-                SidebarView(viewModel: viewModel, mode: coordinator.sidebarMode)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 /// The context pane's column: a deck of every workspace's pane, the one the column is open for on
 /// top, so a switch between sessions rebuilds no pane and takes no web view out of the window, as the
 /// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
@@ -237,16 +179,5 @@ private struct MainPaneColumn: View {
         SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.inspectorWorkspace, part: .pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.paneBackground)
-    }
-}
-
-/// The card's split view: the list's divider is not drawn, since the card's own rounded edge is the
-/// line between the list and the screen (`MainWindowViewController`); the pane's divider is. A
-/// divider is told by where its middle falls, before the screen's column or after its start, so a
-/// fractional width after a drag, or a list shut to nothing, never turns one into the other.
-private final class MainColumnsSplitView: RuleSplitView {
-    override func drawDivider(in rect: NSRect) {
-        guard arrangedSubviews.count > 1, rect.midX > arrangedSubviews[1].frame.minX else { return }
-        super.drawDivider(in: rect)
     }
 }

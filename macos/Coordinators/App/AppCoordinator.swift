@@ -163,7 +163,7 @@ import Observation
     /// The rail picked a list: the sidebar shows it, and the window shows that list's selection —
     /// where it last was from that list, while its row is still there, or else the list's first
     /// place: the Dashboard for Home, the first saved tab for Browser, or with no tab a blank page.
-    /// (`MainWindowViewController` draws the rail and hands its pick here.)
+    /// (`MainWindowViewController`'s sidebar draws the rail and hands its pick here.)
     func showSidebar(_ mode: SidebarMode) {
         sidebarMode = mode
         guard selection.sidebarMode != mode, let target = railDestination(for: mode) else { return }
