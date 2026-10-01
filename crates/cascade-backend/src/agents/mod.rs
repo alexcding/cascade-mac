@@ -59,6 +59,11 @@ pub trait AgentProbe {
     fn tool_change(_name: &str, _input: &Value) -> Option<(String, String, String)> {
         None
     }
+    /// Its Stop hook's payload says the turn ended with work it set going in the background still
+    /// running: the agent is not done, and takes up what that work reports in a turn of its own.
+    fn works_on(_stop: &Value) -> bool {
+        false
+    }
     /// The last 30 days of its use (`agents::usage::daily`), or None when it cannot be read.
     async fn usage() -> Option<Value> {
         None
@@ -187,6 +192,13 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::tool_change(name, input),
             Agent::Codex => codex::Codex::tool_change(name, input),
+        }
+    }
+
+    pub fn works_on(self, stop: &Value) -> bool {
+        match self {
+            Agent::Claude => claude::Claude::works_on(stop),
+            Agent::Codex => codex::Codex::works_on(stop),
         }
     }
 

@@ -888,6 +888,11 @@ pub async fn turn_done(
     Query(query): Query<HookQuery>,
     Json(body): Json<Value>,
 ) -> StatusCode {
+    // A turn that ended with an agent of its own still working in the background is not the agent
+    // done: it stays at work until the Stop after that agent reports, and nothing is told or kept.
+    if query.cli.as_deref().and_then(Agent::of).is_some_and(|agent| agent.works_on(&body)) {
+        return StatusCode::NO_CONTENT;
+    }
     relay(app, query, body, "agent-turn-done").await
 }
 

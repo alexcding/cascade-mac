@@ -91,6 +91,19 @@ impl AgentProbe for Claude {
         }
     }
 
+    /// `background_tasks` lists the work still in flight, each with its `type`. An agent there ends
+    /// and Claude takes up its report in a turn that fires UserPromptSubmit and Stop again. A
+    /// shell or a monitor may never end, a dev server among them, so it holds nothing back: when
+    /// it does end, that turn reports itself the same way. Claude's own upkeep (`dream`, …) is
+    /// not the agent at work. Checked against Claude Code 2.1.286, which names
+    /// `local_agent` "subagent" and so on there.
+    fn works_on(stop: &Value) -> bool {
+        const AGENTS: [&str; 4] = ["subagent", "workflow", "teammate", "cloud session"];
+        stop["background_tasks"].as_array().is_some_and(|tasks| {
+            tasks.iter().any(|task| task["type"].as_str().is_some_and(|kind| AGENTS.contains(&kind)))
+        })
+    }
+
     async fn catalog(_home: &Path) -> Value {
         let models = initialize().await.map(|reply| models(&reply["models"])).unwrap_or_default();
         json!({ "models": models })
@@ -353,6 +366,23 @@ fn effort_name(level: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agents::Agent;
+
+    #[test]
+    fn a_stop_waits_only_on_a_background_agent() {
+        // As Claude Code 2.1.286 sent them: a background agent with a dev server beside it, then
+        // the dev server alone once the agent had reported back.
+        let shell = json!({"id":"b6d0ni7b3","type":"shell","status":"running","description":"Sleep in background","command":"sleep 600"});
+        let agent = json!({"id":"ab9cf5d81df9f9297","type":"subagent","status":"running","description":"Sleep then report","agent_type":"general-purpose"});
+        let stop = |tasks: Value| json!({"hook_event_name":"Stop","stop_hook_active":false,"background_tasks":tasks});
+        assert!(Claude::works_on(&stop(json!([shell, agent]))));
+        assert!(!Claude::works_on(&stop(json!([shell]))));
+        assert!(!Claude::works_on(&stop(json!([]))));
+        assert!(!Claude::works_on(&stop(json!([{"type":"dream","status":"running"}]))));
+        // A Claude Code from before the field reads as done, as it always did.
+        assert!(!Claude::works_on(&json!({"hook_event_name":"Stop"})));
+        assert!(!Agent::Codex.works_on(&stop(json!([agent]))));
+    }
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let home = std::env::temp_dir().join(format!("cascade-{name}-{}", std::process::id()));

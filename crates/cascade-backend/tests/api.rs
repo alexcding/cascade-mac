@@ -220,3 +220,48 @@ async fn project_webhook_forwarding_can_be_turned_off_and_on() {
     let (_, unchanged) = json_request(&app, "GET", &path, Value::Null).await;
     assert_eq!(unchanged["forwardWebhooks"], true);
 }
+
+async fn post_hook(app: &axum::Router, path: &str, body: Value) -> StatusCode {
+    let request = Request::builder()
+        .method("POST")
+        .uri(path)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    app.clone().oneshot(request).await.unwrap().status()
+}
+
+/// The hook last kept for `run`, waited for: the relay writes it off the request.
+async fn last_hook_type(app: &axum::Router, run: &str, expected: &str) -> Value {
+    let mut kept = Value::Null;
+    for _ in 0..100 {
+        let (_, value) = json_request(app, "GET", &format!("/api/agent/last-hook?runId={run}"), Value::Null).await;
+        kept = value["event"]["type"].clone();
+        if kept == expected {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    kept
+}
+
+#[tokio::test]
+async fn a_stop_with_a_background_agent_running_keeps_the_turn_going() {
+    let (app, _directory) = app();
+    let hook = |kind: &str| format!("/api/hooks/{kind}?cli=claude&runId=pty1-1");
+    let agent = json!({"id":"a1","type":"subagent","status":"running","description":"Review","agent_type":"general-purpose"});
+    let shell = json!({"id":"b1","type":"shell","status":"running","description":"Dev server","command":"npm run dev"});
+
+    assert_eq!(post_hook(&app, &hook("turn-start"), json!({"session_id":"s1"})).await, StatusCode::NO_CONTENT);
+    assert_eq!(last_hook_type(&app, "pty1-1", "agent-turn-start").await, "agent-turn-start");
+
+    let held = json!({"session_id":"s1","hook_event_name":"Stop","background_tasks":[shell, agent]});
+    assert_eq!(post_hook(&app, &hook("turn-done"), held).await, StatusCode::NO_CONTENT);
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(last_hook_type(&app, "pty1-1", "agent-turn-start").await, "agent-turn-start");
+
+    // The agent has reported back; the dev server running on does not hold the turn open.
+    let done = json!({"session_id":"s1","hook_event_name":"Stop","background_tasks":[shell]});
+    assert_eq!(post_hook(&app, &hook("turn-done"), done).await, StatusCode::NO_CONTENT);
+    assert_eq!(last_hook_type(&app, "pty1-1", "agent-turn-done").await, "agent-turn-done");
+}
