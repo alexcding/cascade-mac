@@ -213,10 +213,8 @@ struct SessionWorkspaceView: View {
         if model.showsTerminal {
             terminalContent
         } else {
-            VStack(spacing: 0) {
-                Divider()
-                SessionWorkspaceContextContent(context: context, model: model)
-            }
+            // Straight under the toolbar: the card's own edge is the line above it.
+            SessionWorkspaceContextContent(context: context, model: model)
         }
     }
 
@@ -273,7 +271,7 @@ private struct SessionWorkspaceContextContent: View {
 }
 
 /// What the context pane shows under its bar, wherever the bar is: its own row above, or the
-/// inspector's section of the toolbar.
+/// pane's section of the toolbar.
 struct SessionWorkspaceContextBody: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -287,10 +285,11 @@ struct SessionWorkspaceContextBody: View {
                     if context.reviewSection == .history, let history = model.history { GitHistoryView(model: history) }
                     else if context.reviewSection == .changes, let diff = model.diff {
                         // The changed files to the right of the diff; choosing one scrolls the diff to it.
-                        HSplitView {
-                            DiffView(model: diff, showsHeader: false).frame(minWidth: 240, maxWidth: .infinity)
+                        // The divider is the window's thin rule, not the point-wide one `HSplitView` draws.
+                        ThinSplitView(leading: .init(min: 240), trailing: .init(min: 160, ideal: 220, max: 360)) {
+                            DiffView(model: diff, showsHeader: false)
+                        } trailingContent: {
                             ChangedFilesView(files: diff.changedFiles, reveal: diff.reveal)
-                                .frame(minWidth: 160, idealWidth: 220, maxWidth: 360)
                         }
                     }
                     else { Color.clear }

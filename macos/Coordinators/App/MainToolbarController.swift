@@ -21,13 +21,12 @@ import SwiftUI
     weak var window: NSWindow? {
         didSet { window?.toolbar = toolbar }
     }
-    /// The card's columns: the screen and the pane. Set before `window`, since the toolbar's pane
-    /// separator is made against it.
-    weak var splitView: NSSplitView?
+    /// The card's columns: the screen and the pane, whose divider the pane's separator tracks.
+    private weak var splitView: NSSplitView?
     /// The screen's column, between the sidebar and the context pane: the section the middle is
     /// centred in. Given by the columns' owner (`MainSplitViewController.screenColumn`), the one
     /// place that knows which column it is.
-    weak var screenColumn: NSView?
+    private weak var screenColumn: NSView?
     private(set) var toolbar = NSToolbar()
     private let describe: () -> WindowToolbar
     private var current = WindowToolbar.empty
@@ -48,7 +47,10 @@ import SwiftUI
     /// The free width after the leading items, which their content may draw into but not claim.
     let room = ToolbarRoom()
 
-    init(describe: @escaping () -> WindowToolbar) {
+    /// Made against the columns it tracks, so they are there before any toolbar is.
+    init(splitView: NSSplitView? = nil, screenColumn: NSView? = nil, describe: @escaping () -> WindowToolbar) {
+        self.splitView = splitView
+        self.screenColumn = screenColumn
         self.describe = describe
         super.init()
         // A column's divider dragged or the window resized moves the section the middle is centred

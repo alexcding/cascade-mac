@@ -604,21 +604,22 @@ struct CocoaSidebar: NSViewRepresentable {
 
 /// css/tokens.css, as dynamic colours: the dark theme is the same palette swap.
 enum SidebarPalette {
-    private static func dynamic(_ light: UInt32, _ dark: UInt32, alpha: CGFloat = 1) -> NSColor {
+    private static func dynamic(_ light: UInt32, _ dark: UInt32, alpha: CGFloat = 1, darkAlpha: CGFloat? = nil) -> NSColor {
         NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let hex = isDark ? dark : light
             return NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
-                           blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+                           blue: CGFloat(hex & 0xff) / 255, alpha: isDark ? darkAlpha ?? alpha : alpha)
         }
     }
     static let navText = dynamic(0x3b3d3f, 0xc9cbce)   // --nav-text
     static let text = dynamic(0x16181d, 0xe8e8e8)      // --text
-    static let text2 = dynamic(0x565d68, 0xa2a2a2)     // --text-2
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
     /// A hover "+" at rest; the section headings and project folders share it.
     static let accessory = text3.withAlphaComponent(0.8)
-    /// A row's symbol, sampled from Finder's own sidebar in each appearance. No one system colour is
-    /// both: `systemGray` is this in light mode, but resolves well dimmer than Finder in dark.
+    /// The rail's resting symbols, sampled from Finder's own sidebar in each appearance. No one
+    /// system colour is both: `systemGray` is this in light mode, but resolves well dimmer than
+    /// Finder in dark.
     static let icon = dynamic(0x8d8d92, 0xc1c4cb)
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
@@ -634,17 +635,11 @@ enum SidebarPalette {
     /// mostly opaque, as ChatGPT's sidebar is: the desktop's colour is a faint tint, not the
     /// backdrop's colour. In dark the material alone is a lighter grey than a page, and the page's
     /// own colour brings it down to one.
-    static let backdrop = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            ? NSColor(srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x1e / 255, alpha: 0.65)
-            : NSColor(srgbRed: 0xf2 / 255, green: 0xf3 / 255, blue: 0xf5 / 255, alpha: 0.85)
-    }
+    static let backdrop = dynamic(0xf2f3f5, 0x1e1e1e, alpha: 0.85, darkAlpha: 0.65)
     /// The list's wash over the backdrop: a second, lighter layer of it, so the rail and the list
     /// read as two columns. Over the light backdrop it comes out about ChatGPT's sidebar, #f8f9fa.
     /// The card beside them is opaque, a third level.
-    static let list = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.55)
-    }
+    static let list = dynamic(0xffffff, 0xffffff, alpha: 0.55, darkAlpha: 0.05)
     static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }
 
@@ -663,8 +658,8 @@ enum SidebarMetrics {
         let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 450]])
         return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
     }()
-    static let iconSlot: CGFloat = 24        // a row's leading icon; a session's glyph has its own narrower slot
-    static let symbolSize: CGFloat = 17      // a row symbol's point size, a step up from the list's 13
+    static let iconSlot: CGFloat = 20        // a row's leading icon, as wide as a favicon; a session's glyph has its own narrower slot
+    static let symbolSize: CGFloat = 17      // a row symbol's point size, a step over the list's 13pt text
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
     static let leading: CGFloat = 2          // cell edge to the icon slot
     static let gap: CGFloat = 6              // icon to title, title to accessory
@@ -756,13 +751,13 @@ enum SidebarGlyphs {
         forkMark.contentTintColor = SidebarPalette.text3
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
         [icon, glyph, title, forkMark, badge, accessory, shortcut].forEach(addSubview)
-        imageView = icon
+        // Not the cell's `imageView`: a source list styles that itself, at the row size's symbol
+        // size whatever the image says, and in its own grey whatever the view's tint.
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    // The table builds a drag image from `imageView` and `textField`. This cell has no
-    // `textField` and a session hides its icon behind the glyph, so the default image is
-    // empty — and the gap style hides the row itself, so a dragged row would simply vanish
+    // The table builds a drag image from `imageView` and `textField`. This cell has neither,
+    // so the default image is empty — and the gap style hides the row itself, so a dragged row would simply vanish
     // until it was dropped. Drag a picture of the whole cell instead, minus the hover button.
     override var draggingImageComponents: [NSDraggingImageComponent] {
         guard bounds.width > 0, bounds.height > 0, let bitmap = bitmapImageRepForCachingDisplay(in: bounds) else {
@@ -857,11 +852,7 @@ enum SidebarGlyphs {
     private static let labelInset: CGFloat = 2
     private static let forkMarkSize: CGFloat = 12
 
-    /// A tab row's leading image size: favicons, brand art and avatars sit inside the slot; the globe fills it.
-    private var iconSize = SidebarMetrics.iconSlot
-
     private func configureTabIcon(_ tab: SidebarTabIcon) {
-        iconSize = SidebarMetrics.brandSize
         switch tab.kind {
         case "github":
             if let avatar = SidebarAvatars.image(login: tab.login, frozen: tab.avatar) {
@@ -891,7 +882,6 @@ enum SidebarGlyphs {
                 icon.layer?.masksToBounds = true
             } else {
                 icon.image = SidebarIcons.rowSymbol("globe")
-                iconSize = SidebarMetrics.iconSlot
             }
         }
     }
@@ -907,14 +897,10 @@ enum SidebarGlyphs {
     }
 
     private func applyState() {
-        // A heading, and a project folder's symbol, are in the "+"'s resting grey. Any other title,
-        // a project's included, is a system label colour, which follows the appearance and the
-        // selection by itself; any other symbol is Finder's grey, lighter than the title in light
-        // mode and dimmer than it in dark. No system label colour lands on both: secondary label is
-        // too dim in dark, --nav-text too dark in light.
-        let project = if case .project = entry.role { true } else { false }
+        // A heading is in the "+"'s resting grey. Any other title is a system label colour, which
+        // follows the appearance and the selection by itself; a row's symbol is its title's colour.
         title.textColor = entry.isHeading ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
-        icon.contentTintColor = project ? SidebarPalette.accessory : SidebarPalette.icon
+        icon.contentTintColor = title.textColor
         switch entry.role {
         case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
         case .session: accessory.isHidden = !hovered
@@ -984,7 +970,8 @@ enum SidebarGlyphs {
             shortcut.frame = NSRect(x: left + Self.glyphSlot + Self.labelInset - hint.width, y: ((height - hint.height) / 2).rounded(),
                                     width: hint.width, height: hint.height)
         case .tab:
-            icon.frame = centered(left + (slot - iconSize) / 2, iconSize)
+            // Favicons, brand art and avatars are drawn at their own size, centred in the slot.
+            icon.frame = centered(left + (slot - SidebarMetrics.brandSize) / 2, SidebarMetrics.brandSize)
             badge.frame = NSRect(x: icon.frame.maxX - 5, y: icon.frame.maxY - 6, width: 7, height: 7)
         case .pinnedTabs:
             return

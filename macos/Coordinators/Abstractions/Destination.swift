@@ -24,8 +24,6 @@ enum Destination: Hashable {
     case terminal(RootViewModel)
     case session(id: String, RootViewModel)
     case tab(id: String, RootViewModel)
-    /// The Browser list with no tab: a blank page.
-    case blankPage(RootViewModel)
     case unavailable(title: String, message: String)
 
     // MARK: Empty state
@@ -82,8 +80,6 @@ extension Destination {
             RootSessionPlaceholderView(id: id, model: root)
         case .tab(let id, let root):
             RootTabPlaceholderView(id: id, model: root)
-        case .blankPage(let root):
-            RootBlankPageView(model: root)
         case .unavailable(let title, let message):
             Text(message).foregroundStyle(.secondary)
                 .padding(28)
@@ -133,8 +129,6 @@ extension Destination {
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .terminal(let root), .session(_, let root), .tab(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
-        case .blankPage:
-            return .empty
         case .unavailable(let title, _):
             return WindowToolbar(leading: [.title(title)])
         case .dashboard, .dashboardTickets, .logs, .project, .sessionWorkspace, .none:

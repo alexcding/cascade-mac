@@ -113,9 +113,13 @@ the standard app bundle does not include a separate `cascade-backend` executable
 
 ## Sidebar and session workspace
 
-The sidebar is an AppKit `NSOutlineView` with projects, sessions, saved tabs, and
-pinned entries. It preserves selection and ordering and provides context actions
-for opening, pinning, removing, and revealing items.
+The sidebar is the window's native sidebar: a rail of icons down its leading edge,
+and beside it an AppKit `NSOutlineView` listing what the rail picked. **Home**
+lists the Dashboard, Automation, and the projects with their sessions; **Browser**
+lists the saved and pinned tabs, and opens a new tab when there is none. Settings
+is at the rail's bottom. The list preserves selection and ordering and provides
+context actions for opening, pinning, removing, and revealing items. The toolbar
+over the sidebar holds the activity bell and the sidebar toggle (**⌃⌘S**).
 
 **New Session** (**⌘N**) belongs to the selected project. Enter a branch name, PR
 URL, or Jira ticket URL, choose a base branch, and pick Claude, Codex, or Shell
@@ -244,8 +248,8 @@ The menu-bar popover shows pending review requests and available Claude/Codex us
 Its icon is the menu bar's own black or white.
 The first successful review snapshot seeds notifications silently; later review
 requests can trigger alerts and the configured sound. Notification permission is
-requested through the user's explicit action. The sidebar bell opens recent
-activity, with access to the full Activity section.
+requested through the user's explicit action. The bell in the toolbar, beside
+the window's buttons, opens recent activity, with access to the full Activity section.
 
 Common shortcuts are **⌘R** / **⌘.** to run and stop, **⌘1**–**⌘9** and **⌘0** for the first ten sessions in sidebar order, **⌘[** / **⌘]** for the previous and next session, **⌘D** for the
 next model preset, **⇧⌘H** for Overview, **⌃⌘T** for the terminal, **⇧⌘U** for Reviews &

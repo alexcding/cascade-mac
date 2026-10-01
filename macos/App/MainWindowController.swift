@@ -14,7 +14,9 @@ import SwiftUI
     init(model: AppViewModel) {
         content = MainWindowViewController(model: model)
         let coordinator = model.coordinator
-        toolbarController = MainToolbarController { coordinator.windowToolbar }
+        // The toolbar's pane section tracks the card's divider, so it is made against the card's split view.
+        toolbarController = MainToolbarController(splitView: content.columns.splitView,
+                                                  screenColumn: content.columns.screenColumn) { coordinator.windowToolbar }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
                                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                 backing: .buffered, defer: false)
@@ -27,9 +29,6 @@ import SwiftUI
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.contentViewController = content
-        // The toolbar's pane section tracks the card's divider, so it is made against the card's split view.
-        toolbarController.splitView = content.columns.splitView
-        toolbarController.screenColumn = content.columns.screenColumn
         toolbarController.window = window
         window.contentMinSize = NSSize(width: 760, height: 480)
         super.init(window: window)

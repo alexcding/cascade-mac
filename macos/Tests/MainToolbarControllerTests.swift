@@ -88,13 +88,11 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func middleIsCentredInTheScreenColumn() async throws {
         let window = Self.splitWindow()
         defer { window.close() }
-        let controller = MainToolbarController {
+        let controller = MainToolbarController(splitView: Self.split(of: window), screenColumn: Self.column(of: window)) {
             WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 300, height: 20) }],
                           center: [WindowToolbarItem("agent") { Color.clear.frame(width: 120, height: 20) }],
                           trailing: [WindowToolbarItem("mode") { Color.clear.frame(width: 40, height: 20) }])
         }
-        controller.splitView = Self.split(of: window)
-        controller.screenColumn = Self.column(of: window)
         controller.window = window
         window.orderFront(nil)
         let column = try #require(Self.column(of: window))
@@ -124,13 +122,11 @@ import Testing
         let window = Self.splitWindow()
         defer { window.close() }
         let fixture = fixture
-        let controller = MainToolbarController {
+        let controller = MainToolbarController(splitView: Self.split(of: window), screenColumn: Self.column(of: window)) {
             WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }],
                           trailing: [.picker("mode-picker", label: fixture.label, choices: fixture.choices,
                                              selected: fixture.selected) { fixture.selected = $0 }])
         }
-        controller.splitView = Self.split(of: window)
-        controller.screenColumn = Self.column(of: window)
         controller.window = window
         window.orderFront(nil)
         try await settle { controller.room.afterLeading > 0 }

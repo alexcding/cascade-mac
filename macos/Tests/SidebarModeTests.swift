@@ -127,10 +127,10 @@ private func modeEntries() -> [SidebarEntry] {
 @MainActor @Test func theRailPicksTheListAndANavigationBringsItsOwn() {
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     #expect(coordinator.sidebarMode == .home)
-    // A Browser that has no tab shows a blank page, not the page from Home.
+    // Before anything is listed, a Browser with no tab to go to shows its list and leaves the window.
     coordinator.showSidebar(.browser)
     #expect(coordinator.sidebarMode == .browser)
-    #expect(coordinator.selection == .blankPage)
+    #expect(coordinator.selection == .overview)
     // Landing where the window already is leaves the list the rail picked.
     coordinator.showSidebar(.home)
     #expect(coordinator.selection == .overview)
@@ -190,7 +190,7 @@ private func modeEntries() -> [SidebarEntry] {
     return coordinator
 }
 
-// A tab closed since it was last shown is gone: with no tab left, Browser shows a blank page, not
+// A tab closed since it was last shown is gone: with no tab left, Browser opens a new one, not
 // the closed tab again and not the page from Home.
 @MainActor @Test func theRailDoesNotBringBackAClosedTab() throws {
     let root = ListedRoot()
@@ -198,12 +198,16 @@ private func modeEntries() -> [SidebarEntry] {
     let coordinator = coordinator(listing: root)
     coordinator.navigate(to: .tab("a"))
     coordinator.navigate(to: .overview)
+    let model = try #require(coordinator.rootModel)
+    var actions: [RootViewModel.Action] = []
+    let forward = model.onAction
+    model.onAction = { actions.append($0); forward($0) }
     coordinator.showSidebar(.browser)
     #expect(coordinator.sidebarMode == .browser)
-    #expect(coordinator.selection == .blankPage)
-    #expect(coordinator.root == .blankPage(try #require(coordinator.rootModel)))
+    #expect(actions == [.newTab])
+    #expect(coordinator.selection == .overview)
 
-    // Once there is a tab, Browser shows it rather than the blank page it last showed.
+    // Once there is a tab, Browser shows it.
     root.state.entries = SidebarEntry.make(projects: [modeProject], sessions: [],
                                            tabs: [SavedTab(id: "b", kind: "web", title: "Docs", url: "https://docs.example")])
     coordinator.showSidebar(.home)

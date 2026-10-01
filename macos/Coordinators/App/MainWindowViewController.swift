@@ -37,10 +37,7 @@ import SwiftUI
         columns.onPaneCollapsed = { [weak self] collapsed in
             self?.cardItem.minimumThickness = Self.cardMinimum(paneOpen: !collapsed)
         }
-        let split = MainSidebarSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        splitView = split
+        splitView = MainSidebarSplitView()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -88,7 +85,7 @@ import SwiftUI
 
 /// The sidebar's split view: the divider between the list and the card is not drawn and takes no
 /// width, the card's edge being the line between them.
-private final class MainSidebarSplitView: NSSplitView {
+private final class MainSidebarSplitView: RuleSplitView {
     override var dividerThickness: CGFloat { 0 }
     override func drawDivider(in rect: NSRect) {}
 }
@@ -225,7 +222,7 @@ private final class MainCardView: NSView {
     /// Run under the view's own appearance, so the rule is the one for it.
     override func updateLayer() {
         layer?.borderColor = SidebarPalette.rule.cgColor
-        layer?.borderWidth = MainWindowMetrics.rule(window?.backingScaleFactor ?? 2)
+        layer?.borderWidth = MainWindowMetrics.rule(in: self)
     }
 
     override func viewDidChangeBackingProperties() {

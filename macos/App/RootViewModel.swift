@@ -72,7 +72,6 @@ import Observation
         case .project(let id): return state.projects.first { $0.id == id }?.name ?? String(localized: "Project")
         case .session(let id): return state.sessions.first { $0.id == id }?.label ?? String(localized: "Session")
         case .tab(let id): return state.tabs.first { $0.id == id }?.displayTitle ?? String(localized: "Tab")
-        case .blankPage: return String(localized: "Browser")
         }
     }
     func session(_ id: String) -> WorkspaceSession? { state.sessions.first { $0.id == id } }

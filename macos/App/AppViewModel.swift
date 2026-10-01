@@ -1434,14 +1434,14 @@ public final class AppViewModel {
         let sessionURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
         let visible = visibleTabs.filter { !$0.isOwned(by: sessionURLs) }.map(\.id)
         if let index = draftTabs.firstIndex(where: { $0.id == id }) {
-            if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
+            if selection == .tab(id) { leave(closing: id, among: visible) }
             draftTabs.remove(at: index)
             Task { await viewer.remove(id: "tab:\(id)") }
             return
         }
         guard let api, let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let key = "tab:\(id)"
-        if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
+        if selection == .tab(id) { leave(closing: id, among: visible) }
         tabs.remove(at: index)
         Task {
             await viewer.remove(id: key)
@@ -1456,11 +1456,18 @@ public final class AppViewModel {
     }
 
     /// Where the selection goes when the tab in view closes: the tab now at its place in the
-    /// sidebar's tab list, else the one before it, else the dashboard.
-    static func destination(closing url: String, among visible: [String]) -> SidebarDestination {
+    /// sidebar's tab list, else the one before it, else nil — no tab is left, and a new one opens.
+    /// A tab the list does not show has no neighbour there: the dashboard.
+    static func destination(closing url: String, among visible: [String]) -> SidebarDestination? {
         guard let index = visible.firstIndex(of: url) else { return .overview }
         let remaining = visible.filter { $0 != url }
-        return remaining.isEmpty ? .overview : .tab(remaining[min(index, remaining.count - 1)])
+        return remaining.isEmpty ? nil : .tab(remaining[min(index, remaining.count - 1)])
+    }
+
+    /// The tab in view closes: on to the next one, or with none left a new one, so the Browser list
+    /// is never left with nothing to show, as the rail picking a Browser with no tab opens one too.
+    private func leave(closing id: String, among visible: [String]) {
+        if let next = Self.destination(closing: id, among: visible) { select(next) } else { newTab() }
     }
 
     public func quit() async throws { try await prepareToTerminate() }
@@ -1604,8 +1611,14 @@ public final class AppViewModel {
                     // the menu and have no sidebar row, so they must never be bounced to Dashboard.
                     // Ask each entry for the destinations it presents, not for its own: a pinned tab
                     // is a tile inside the grid row and has no row of its own to match.
-                    if selection.isSidebarBacked,
-                       !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
+                    if selection.isSidebarBacked, !sidebarEntries.destinations().contains(selection) {
+                        // A tab gone from Browser goes on to its list's first tab, or opens a new one.
+                        if selection.sidebarMode == .browser {
+                            if let first = sidebarEntries.destinations(in: .browser).first { select(first) } else { newTab() }
+                        } else {
+                            select(.overview)
+                        }
+                    }
                     lastUpdate = Date()
                     error = nil
                     coordinator.setRoutingReady(started && connection == "Connected")

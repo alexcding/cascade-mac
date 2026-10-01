@@ -293,7 +293,7 @@ told back to the workspace.
   toolbar's sidebar section, beside the window's buttons, over every screen (`AppCoordinator.windowToolbar`). The icons are fixed — nothing adds to them. The mode is
   `AppCoordinator.sidebarMode`: the rail sets it and takes the window to that list's selection —
   where it last was from that list, while its row is there, else the Dashboard for Home and the
-  first saved tab for Browser, or with no tab a blank page (`SidebarDestination.blankPage`) —
+  first saved tab for Browser, or with no tab a new one, as closing the last tab opens —
   and a navigation brings the mode of where it lands. Its first icon is level with the list's
   first row, which a source list sets below its own inset (`SidebarMetrics.sourceListInset`). The
   sidebar builds every row once (`SidebarEntry.make`) and shows the rows of the mode on show

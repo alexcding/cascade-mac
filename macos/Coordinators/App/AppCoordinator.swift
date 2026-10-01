@@ -162,27 +162,27 @@ import Observation
 
     /// The rail picked a list: the sidebar shows it, and the window shows that list's selection —
     /// where it last was from that list, while its row is still there, or else the list's first
-    /// place: the Dashboard for Home, the first saved tab for Browser, or with no tab a blank page.
+    /// place: the Dashboard for Home, the first saved tab for Browser, or with no tab a new one, as
+    /// closing the last tab opens (`AppViewModel.closeTab`).
     /// (`MainWindowViewController`'s sidebar draws the rail and hands its pick here.)
     func showSidebar(_ mode: SidebarMode) {
         sidebarMode = mode
-        guard selection.sidebarMode != mode, let target = railDestination(for: mode) else { return }
+        guard selection.sidebarMode != mode else { return }
         // As a click on its row would, so whatever holds a row click back holds this back too.
-        if let rootModel { rootModel.select(target) } else { navigate(to: target) }
+        if let target = railDestination(for: mode) {
+            if let rootModel { rootModel.select(target) } else { navigate(to: target) }
+        } else {
+            rootModel?.newTab()
+        }
     }
 
     private func railDestination(for mode: SidebarMode) -> SidebarDestination? {
-        func listed(_ entries: [SidebarEntry]) -> [SidebarDestination] {
-            entries.filter { $0.mode == mode }.flatMap { $0.destinations + listed($0.children) }
-        }
         // Before the root model exists nothing is listed yet, and the last place stands. After, a
         // place that has a row must still have it: a tab closed or a session removed since is gone.
         // Terminal has no row and never goes stale, so it is kept whatever the list holds.
-        let rows = rootModel.map { listed($0.entries) }
-        // The blank page stands in for a tab until there is one: once there is, the tab is shown.
-        if lastSelection[mode] == .blankPage, let first = rows?.first { return first }
+        let rows = rootModel.map { $0.entries.destinations(in: mode) }
         if let last = lastSelection[mode], rows == nil || !last.isSidebarBacked || rows?.contains(last) == true { return last }
-        return mode == .home ? .overview : rows?.first ?? .blankPage
+        return mode == .home ? .overview : rows?.first
     }
 
     func navigate(to destination: SidebarDestination) {
@@ -239,8 +239,6 @@ import Observation
         case .tab(let id):
             return activeWorkspaceCoordinator.map(Destination.sessionWorkspaceCoordinator)
                 ?? rootModel.map { .tab(id: id, $0) } ?? .none
-        case .blankPage:
-            return rootModel.map(Destination.blankPage) ?? .none
         }
     }
 

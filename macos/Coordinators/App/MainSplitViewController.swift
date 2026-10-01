@@ -48,10 +48,7 @@ import SwiftUI
         paneItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
         // The line between the columns is the split view's own divider, one display pixel wide.
-        let split = RuleSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        splitView = split
+        splitView = RuleSplitView()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -135,7 +132,10 @@ enum MainWindowMetrics {
     static let paneMin: CGFloat = 320
     /// The width of the lines the window draws — the card's edge and the columns' dividers: one
     /// pixel of the display, thinner than the theme's one-point hairline.
-    static func rule(_ displayScale: CGFloat) -> CGFloat { 1 / max(displayScale, 1) }
+    /// Before the view is in a window, the main screen's pixel.
+    static func rule(in view: NSView) -> CGFloat {
+        1 / max(view.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, 1)
+    }
 }
 
 /// The screen's column, with the activity toasts over its trailing corner. Its bar is the window's

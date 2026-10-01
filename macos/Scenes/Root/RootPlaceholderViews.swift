@@ -60,19 +60,3 @@ struct RootTabPlaceholderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
-
-/// The Browser list with no tab: a blank page, with the one thing to do from here.
-struct RootBlankPageView: View {
-    let model: RootViewModel
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("No tabs open").font(Theme.Typography.emptyTitle)
-            Text("Open a tab to browse here.").font(Theme.Typography.emptyHint).foregroundStyle(.secondary)
-            Button("New Tab", action: model.newTab)
-                .accessibilityIdentifier("blank-page-new-tab")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
-    }
-}

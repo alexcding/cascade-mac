@@ -56,8 +56,8 @@ import AppKit
         return image
     }
 
-    /// A row's own icon, a step larger than the list would draw it. The size is baked into the image:
-    /// the source list resets its cell's image view to the row size's 13pt, but leaves the image alone.
+    /// A row's own icon, a step larger than the list's text. The size is baked into the image,
+    /// which the row's image view draws as it is (`SidebarCellView` keeps it from the list's styling).
     static func rowSymbol(_ name: String) -> NSImage? {
         let key = "\(name)@row"
         if let hit = cache[key] { return hit }

@@ -159,7 +159,8 @@ private struct InertRemovalService: SessionRemoving {
     #expect(AppViewModel.destination(closing: "a", among: tabs) == .tab("b"))
     #expect(AppViewModel.destination(closing: "b", among: tabs) == .tab("c"))
     #expect(AppViewModel.destination(closing: "c", among: tabs) == .tab("b"))
-    #expect(AppViewModel.destination(closing: "a", among: ["a"]) == .overview)
+    // The last tab leaves nothing to go to: the caller opens a new one.
+    #expect(AppViewModel.destination(closing: "a", among: ["a"]) == nil)
     // A tab the sidebar does not list (its URL belongs to a session) is never the neighbour.
     #expect(AppViewModel.destination(closing: "a", among: ["a", "c"]) == .tab("c"))
     #expect(AppViewModel.destination(closing: "missing", among: tabs) == .overview)

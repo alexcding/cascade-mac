@@ -136,15 +136,12 @@ enum SidebarMode: String, CaseIterable, Identifiable {
 
 enum SidebarDestination: Hashable, Codable {
     case overview, automation, terminal, project(String), session(String), tab(String)
-    /// The Browser list with no tab to show: a blank page, where the window goes when the rail picks
-    /// a Browser that has no tab, rather than keep showing a page from Home.
-    case blankPage
 
     var tabID: String? { if case .tab(let id) = self { id } else { nil } }
-    /// The list that shows this destination's row, or for the blank page the list it stands in for.
+    /// The list that shows this destination's row.
     var sidebarMode: SidebarMode {
         switch self {
-        case .tab, .blankPage: .browser
+        case .tab: .browser
         case .overview, .automation, .terminal, .project, .session: .home
         }
     }
@@ -152,7 +149,7 @@ enum SidebarDestination: Hashable, Codable {
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session, .tab: true
-        case .overview, .automation, .terminal, .blankPage: false
+        case .overview, .automation, .terminal: false
         }
     }
 }
@@ -320,6 +317,14 @@ struct SidebarEntry: Equatable {
     private func withTip(_ value: String) -> Self { var copy = self; copy.tooltip = value; return copy }
 
     var descendants: [Self] { [self] + children.flatMap(\.descendants) }
+}
+
+extension [SidebarEntry] {
+    /// Every destination these entries and the rows under them present, or only one list's: what a
+    /// selection must still be among to be shown.
+    func destinations(in mode: SidebarMode? = nil) -> [SidebarDestination] {
+        flatMap(\.descendants).filter { mode == nil || $0.mode == mode }.flatMap(\.destinations)
+    }
 }
 
 extension SavedTab {

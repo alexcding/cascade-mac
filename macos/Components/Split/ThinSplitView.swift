@@ -10,13 +10,7 @@ import SwiftUI
 /// a condition written in the builder here is evaluated when the split is updated, not when the
 /// model it reads changes.
 struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentable {
-    /// A pane's widths. The pane with an `ideal` opens at it and keeps its width when the split is
-    /// resized; the other takes what is left.
-    struct Pane {
-        var min: CGFloat
-        var ideal: CGFloat?
-        var max: CGFloat?
-    }
+    typealias Pane = ThinSplitPane
 
     let leading: Pane
     let trailing: Pane
@@ -24,7 +18,7 @@ struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentab
     @ViewBuilder let trailingContent: () -> Trailing
 
     func makeNSViewController(context: Context) -> ThinSplitViewController {
-        let controller = ThinSplitViewController(leading: .init(leading), trailing: .init(trailing))
+        let controller = ThinSplitViewController(leading: leading, trailing: trailing)
         update(controller, context: context)
         return controller
     }
@@ -40,29 +34,27 @@ struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentab
     }
 }
 
-@MainActor final class ThinSplitViewController: NSSplitViewController {
-    struct Widths {
-        let min: CGFloat
-        let ideal: CGFloat?
-        let max: CGFloat?
-        init<L, T>(_ pane: ThinSplitView<L, T>.Pane) { min = pane.min; ideal = pane.ideal; max = pane.max }
-    }
+/// A pane's widths. The pane with an `ideal` opens at it and keeps its width when the split is
+/// resized; the other takes what is left.
+struct ThinSplitPane {
+    var min: CGFloat
+    var ideal: CGFloat?
+    var max: CGFloat?
+}
 
+@MainActor final class ThinSplitViewController: NSSplitViewController {
     let leadingHost = NSHostingController(rootView: AnyView(EmptyView()))
     let trailingHost = NSHostingController(rootView: AnyView(EmptyView()))
-    private let leading: Widths
-    private let trailing: Widths
+    private let leading: ThinSplitPane
+    private let trailing: ThinSplitPane
     /// The divider is put at the ideal width once, when the split first has a width.
     private var placed = false
 
-    init(leading: Widths, trailing: Widths) {
+    init(leading: ThinSplitPane, trailing: ThinSplitPane) {
         self.leading = leading
         self.trailing = trailing
         super.init(nibName: nil, bundle: nil)
-        let split = RuleSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        splitView = split
+        splitView = RuleSplitView()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -73,7 +65,7 @@ struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentab
         addSplitViewItem(item(trailingHost, trailing))
     }
 
-    private func item(_ host: NSHostingController<AnyView>, _ widths: Widths) -> NSSplitViewItem {
+    private func item(_ host: NSHostingController<AnyView>, _ widths: ThinSplitPane) -> NSSplitViewItem {
         // The panes' widths are the split's to decide, not their content's.
         host.sizingOptions = []
         let item = NSSplitViewItem(viewController: host)
@@ -96,11 +88,17 @@ struct ThinSplitView<Leading: View, Trailing: View>: NSViewControllerRepresentab
     }
 }
 
-/// A split view whose divider is one pixel of the display, in the columns' rule colour.
+/// A side-by-side split view whose divider is one pixel of the display, in the columns' rule colour.
 class RuleSplitView: NSSplitView {
-    override var dividerThickness: CGFloat {
-        1 / max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, 1)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isVertical = true
+        dividerStyle = .thin
     }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var dividerThickness: CGFloat { MainWindowMetrics.rule(in: self) }
 
     override var dividerColor: NSColor { SidebarPalette.rule }
 
