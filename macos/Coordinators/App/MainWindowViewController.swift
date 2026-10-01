@@ -94,10 +94,10 @@ private final class MainSidebarSplitView: NSSplitView {
 }
 
 /// The window's backdrop, made for each column: the title bar's material, which lets the desktop's
-/// own colour through — over a blue sky it is a pale blue, where the sidebar's material greys it —
-/// and over it a wash (`SidebarPalette.backdrop`), which makes it solid: in light a pale grey as
-/// light as the material, so the tint stays; in dark the page's own colour, where the material alone
-/// is too light a grey. The material blends with what is behind the window, so drawn in the sidebar
+/// own colour through where the sidebar's material greys it, and over it a wash
+/// (`SidebarPalette.backdrop`), which makes it solid: in light a near-white, mostly opaque, so the
+/// desktop is a faint tint; in dark the page's own colour, where the material alone is too light a
+/// grey. The material blends with what is behind the window, so drawn in the sidebar
 /// it covers AppKit's own sidebar material, and the two columns match.
 private enum MainBackdrop {
     static func make() -> NSVisualEffectView {

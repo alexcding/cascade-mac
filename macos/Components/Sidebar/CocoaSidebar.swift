@@ -630,20 +630,20 @@ enum SidebarPalette {
     /// the text's colour thinned out, so it darkens whatever is behind it.
     static let rule = dynamic(0x16181d, 0xe8e8e8, alpha: 0.1)
     /// The wash over the window's backdrop material, under the toolbar, the rail and the card: what
-    /// makes the backdrop solid rather than see-through. In light it is a pale grey as light as the
-    /// material itself, not a white, so half of it halves what shows through without whitening the
-    /// backdrop towards the card: over a blue sky it is still a pale blue. In dark the material
-    /// alone is a lighter grey than a page, and the page's own colour brings it down to one.
+    /// makes the backdrop solid rather than see-through. In light it is a near-white cool grey,
+    /// mostly opaque, as ChatGPT's sidebar is: the desktop's colour is a faint tint, not the
+    /// backdrop's colour. In dark the material alone is a lighter grey than a page, and the page's
+    /// own colour brings it down to one.
     static let backdrop = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             ? NSColor(srgbRed: 0x1e / 255, green: 0x1e / 255, blue: 0x1e / 255, alpha: 0.65)
-            : NSColor(srgbRed: 0xe6 / 255, green: 0xea / 255, blue: 0xee / 255, alpha: 0.5)
+            : NSColor(srgbRed: 0xf2 / 255, green: 0xf3 / 255, blue: 0xf5 / 255, alpha: 0.85)
     }
     /// The list's wash over the backdrop: a second, lighter layer of it, so the rail and the list
-    /// read as two columns while both still let the desktop's colour through. The card beside them
-    /// is opaque, a third level.
+    /// read as two columns. Over the light backdrop it comes out about ChatGPT's sidebar, #f8f9fa.
+    /// The card beside them is opaque, a third level.
     static let list = NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.4)
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.05) : NSColor(white: 1, alpha: 0.55)
     }
     static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }
