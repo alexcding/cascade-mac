@@ -125,7 +125,7 @@ struct SessionWorkspaceDeck: NSViewControllerRepresentable {
         private func add(_ coordinator: SessionWorkspaceCoordinator, id: ObjectIdentifier, environment: EnvironmentValues) {
             let page = NSHostingController(rootView: Page(environment: environment, coordinator: coordinator, part: part))
             page.sizingOptions = []
-            // Both decks sit in the window's card, under its strip, so neither has a safe area to keep to.
+            // Both decks sit in the window's card, under the toolbar, so neither has a safe area to keep to.
             page.safeAreaRegions = []
             addChild(page)
             page.view.isHidden = true

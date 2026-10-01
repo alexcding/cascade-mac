@@ -387,7 +387,6 @@ import SwiftUI
     /// there is would go to the overflow menu, taking the balance with it.
     private static let minimumGap: CGFloat = 40
 
-
     // MARK: NSSearchFieldDelegate
 
     func controlTextDidChange(_ notification: Notification) {

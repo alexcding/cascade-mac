@@ -20,7 +20,7 @@ import SwiftUI
 
     /// No widths saved yet: the first time the window shows, the list opens at its ideal width.
     private var needsInitialWidths = false
-    private static let autosaveName = "CascadeSidebarColumns"
+    static let autosaveName = "CascadeSidebarColumns"
 
     init(model: AppViewModel) {
         let columns = MainSplitViewController(model: model)
@@ -52,7 +52,7 @@ import SwiftUI
         super.viewDidLoad()
         addSplitViewItem(sidebarItem)
         addSplitViewItem(cardItem)
-        needsInitialWidths = UserDefaults.standard.object(forKey: "NSSplitView Subview Frames \(Self.autosaveName)") == nil
+        needsInitialWidths = UserDefaults.standard.object(forKey: NSSplitView.savedFramesKey(Self.autosaveName)) == nil
         splitView.autosaveName = Self.autosaveName
         cardColumn.sidebarShut = sidebarItem.isCollapsed
         // AppKit changes the column on the main thread: from the toggle, the View menu or a drag.

@@ -104,7 +104,7 @@ private func modeEntries() -> [SidebarEntry] {
 }
 
 @Test func everySidebarRowBelongsToOneModeAndTabsAreOnlyBrowsers() {
-    let project = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
+    let project = modeProject
     let tabs = [SavedTab(id: "a", kind: "web", title: "Docs", url: "https://docs.example", pinned: true),
                 SavedTab(id: "b", kind: "web", title: "Plain", url: "https://plain.example")]
     let entries = SidebarEntry.make(projects: [project], sessions: [], tabs: tabs)

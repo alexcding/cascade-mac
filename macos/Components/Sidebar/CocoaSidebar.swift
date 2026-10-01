@@ -615,7 +615,7 @@ enum SidebarPalette {
     static let navText = dynamic(0x3b3d3f, 0xc9cbce)   // --nav-text
     static let text = dynamic(0x16181d, 0xe8e8e8)      // --text
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
-    /// A hover "+" at rest; the section headings and project folders share it.
+    /// A hover "+" at rest; the section headings share it.
     static let accessory = text3.withAlphaComponent(0.8)
     /// The rail's resting symbols, sampled from Finder's own sidebar in each appearance. No one
     /// system colour is both: `systemGray` is this in light mode, but resolves well dimmer than

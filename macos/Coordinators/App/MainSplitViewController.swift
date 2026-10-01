@@ -25,7 +25,7 @@ import SwiftUI
     /// the card's column wide enough for it.
     var onPaneCollapsed: (Bool) -> Void = { _ in }
 
-    /// Not the old `CascadeCardColumns`: its first column was the list, which is now the window's
+    /// Not the old `CascadeMainColumns`: its first column was the list, which is now the window's
     /// sidebar, so a saved screen would open at the list's width.
     static let autosaveName = "CascadeCardPane"
 

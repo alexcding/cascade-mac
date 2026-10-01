@@ -1464,10 +1464,15 @@ public final class AppViewModel {
         return remaining.isEmpty ? nil : .tab(remaining[min(index, remaining.count - 1)])
     }
 
-    /// The tab in view closes: on to the next one, or with none left a new one, so the Browser list
-    /// is never left with nothing to show, as the rail picking a Browser with no tab opens one too.
+    /// The tab in view closes: on to the next one, or with none left a new one.
     private func leave(closing id: String, among visible: [String]) {
-        if let next = Self.destination(closing: id, among: visible) { select(next) } else { newTab() }
+        showBrowserTab(Self.destination(closing: id, among: visible))
+    }
+
+    /// Shows a tab, or with none to show a new one, so the Browser list is never left with nothing
+    /// to show, as the rail picking a Browser with no tab opens one too (`AppCoordinator.showSidebar`).
+    private func showBrowserTab(_ tab: SidebarDestination?) {
+        if let tab { select(tab) } else { newTab() }
     }
 
     public func quit() async throws { try await prepareToTerminate() }
@@ -1614,7 +1619,7 @@ public final class AppViewModel {
                     if selection.isSidebarBacked, !sidebarEntries.destinations().contains(selection) {
                         // A tab gone from Browser goes on to its list's first tab, or opens a new one.
                         if selection.sidebarMode == .browser {
-                            if let first = sidebarEntries.destinations(in: .browser).first { select(first) } else { newTab() }
+                            showBrowserTab(sidebarEntries.destinations(in: .browser).first)
                         } else {
                             select(.overview)
                         }

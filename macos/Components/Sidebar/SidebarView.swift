@@ -3,8 +3,8 @@ import SwiftUI
 
 // The outline, from the top of the column to its bottom: the rows of the mode the rail picked
 // (`SidebarRail`), Home's or Browser's, never both. New Project is the "Projects" heading's hover
-// "+" (`SidebarEntry.Role.projectsHeader`). Settings is the rail's; the activity bell is in the
-// Dashboard's toolbar.
+// "+" (`SidebarEntry.Role.projectsHeader`). Settings is the rail's; the activity bell leads the
+// toolbar's sidebar section (`AppCoordinator.windowToolbar`).
 struct SidebarView: View {
     let viewModel: RootViewModel
     var mode = SidebarMode.home

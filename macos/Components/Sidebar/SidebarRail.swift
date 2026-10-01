@@ -33,7 +33,7 @@ struct SidebarRail: View {
 
 /// One of the rail's icons: a system symbol, on a plate only while the pointer is over it. The
 /// selected one is the symbol's filled variant in the text's full colour, and has no background;
-/// the rest are outlines in the grey of a row's symbol. Its title is its tooltip and its
+/// the rest are outlines in Finder's sidebar grey (`SidebarPalette.icon`). Its title is its tooltip and its
 /// accessibility name.
 private struct SidebarRailButton: View {
     let symbol: String

@@ -88,6 +88,11 @@ struct ThinSplitPane {
     }
 }
 
+extension NSSplitView {
+    /// Where AppKit keeps the widths of a split view saved under `autosaveName`.
+    static func savedFramesKey(_ autosaveName: String) -> String { "NSSplitView Subview Frames \(autosaveName)" }
+}
+
 /// A side-by-side split view whose divider is one pixel of the display, in the columns' rule colour.
 class RuleSplitView: NSSplitView {
     override init(frame frameRect: NSRect) {

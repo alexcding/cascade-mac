@@ -15,11 +15,6 @@ import Testing
         return root.subviews.lazy.compactMap { view(named: name, in: $0) }.first
     }
 
-    private func split(in root: NSView) -> NSSplitView? {
-        if let split = root as? NSSplitView { return split }
-        return root.subviews.lazy.compactMap { split(in: $0) }.first
-    }
-
     private func inWindow(_ view: NSView) -> NSRect { view.convert(view.bounds, to: nil) }
 
     @Test(.timeLimit(.minutes(1))) func toolbarSectionsTrackTheWindowsColumns() async throws {
@@ -29,7 +24,7 @@ import Testing
         defer { preferences.removePersistentDomain(forName: suite) }
         // The columns remember their widths, and whether the sidebar was shut: this test shuts it,
         // and would otherwise start the next run from there.
-        let saved = ["CascadeSidebarColumns", MainSplitViewController.autosaveName].map { "NSSplitView Subview Frames \($0)" }
+        let saved = [MainWindowViewController.autosaveName, MainSplitViewController.autosaveName].map(NSSplitView.savedFramesKey)
         for key in saved { UserDefaults.standard.removeObject(forKey: key) }
         defer { for key in saved { UserDefaults.standard.removeObject(forKey: key) } }
         let model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }),
