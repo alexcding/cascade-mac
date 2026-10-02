@@ -520,9 +520,9 @@ enum SidebarPalette {
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
     /// A hover "+" at rest; the section headings and project folders share it.
     static let accessory = text3.withAlphaComponent(0.8)
-    /// A row's symbol, sampled from Finder's own sidebar in each appearance. No one system colour is
-    /// both: `systemGray` is this in light mode, but resolves well dimmer than Finder in dark.
-    static let icon = dynamic(0x8d8d92, 0xc1c4cb)
+    /// A row's symbol: rgb(123, 123, 128) in light mode, rgb(180, 184, 191) in dark. No one system
+    /// colour is both: secondary label resolves well dimmer than Finder in dark.
+    static let icon = dynamic(0x7b7b80, 0xb4b8bf)
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
     static let danger = dynamic(0xdc2626, 0xf87171)
@@ -540,7 +540,7 @@ enum SidebarMetrics {
         return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
     }()
     static let iconSlot: CGFloat = 24        // a row's leading icon; a session's glyph has its own narrower slot
-    static let symbolSize: CGFloat = 17      // a row symbol's point size, a step up from the list's 13
+    static let symbolSize: CGFloat = 14      // a row symbol's point size, a point above the list's 13
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
     static let leading: CGFloat = 2          // cell edge to the icon slot
     static let gap: CGFloat = 6              // icon to title, title to accessory
@@ -620,7 +620,7 @@ enum SidebarGlyphs {
         accessory.target = self
         accessory.action = #selector(accessoryPressed)
         forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
-        forkMark.contentTintColor = SidebarPalette.text3
+        forkMark.contentTintColor = SidebarPalette.icon
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
         [icon, glyph, title, forkMark, accessory, shortcut].forEach(addSubview)
         imageView = icon
@@ -687,7 +687,7 @@ enum SidebarGlyphs {
             glyph.stringValue = status.busy ? SidebarGlyphs.frames(status.cli)[spinFrame % SidebarGlyphs.frameCount]
                 : SidebarGlyphs.resting(status.cli)
             glyph.font = Self.glyphFont(status.cli)
-            glyph.textColor = status.busy ? SidebarGlyphs.tint(status.cli) : SidebarPalette.text3
+            glyph.textColor = status.busy ? SidebarGlyphs.tint(status.cli) : SidebarPalette.icon
             alphaValue = status.live || status.busy ? 1 : 0.82
             accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
             accessory.toolTip = pinned ? String(localized: "Unpin session") : String(localized: "Pin session to the top")
@@ -723,14 +723,11 @@ enum SidebarGlyphs {
     }
 
     private func applyState() {
-        // A heading, and a project folder's symbol, are in the "+"'s resting grey. Any other title,
-        // a project's included, is a system label colour, which follows the appearance and the
-        // selection by itself; any other symbol is Finder's grey, lighter than the title in light
-        // mode and dimmer than it in dark. No system label colour lands on both: secondary label is
-        // too dim in dark, --nav-text too dark in light.
-        let project = if case .project = entry.role { true } else { false }
+        // A heading is in the "+"'s resting grey. Any other title is a system label colour, which
+        // follows the appearance and the selection by itself; every row symbol, a project folder's
+        // included, is the sidebar's icon grey (`SidebarPalette.icon`).
         title.textColor = entry.isHeading ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
-        icon.contentTintColor = project ? SidebarPalette.accessory : SidebarPalette.icon
+        icon.contentTintColor = SidebarPalette.icon
         switch entry.role {
         case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
         case .session: accessory.isHidden = !hovered
@@ -826,7 +823,7 @@ enum SidebarGlyphs {
 /// that darkens under the pointer — no plate of its own inside the row's highlight.
 @MainActor final class SidebarAccessoryButton: NSButton {
     private var tracking: NSTrackingArea?
-    private var pointed = false { didSet { contentTintColor = pointed ? SidebarPalette.text : SidebarPalette.accessory } }
+    private var pointed = false { didSet { contentTintColor = pointed ? SidebarPalette.text : SidebarPalette.icon } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -835,7 +832,7 @@ enum SidebarGlyphs {
         imagePosition = .imageOnly
         imageScaling = .scaleNone
         title = ""
-        contentTintColor = SidebarPalette.accessory
+        contentTintColor = SidebarPalette.icon
         focusRingType = .none
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
