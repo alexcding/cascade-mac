@@ -23,6 +23,11 @@ import CodeEditSourceEditor
     private var appearanceObservation: NSKeyValueObservation?
     private var version = 1
     private var savedVersion = 1
+    /// The text on disk: as loaded, then as each save wrote it. Edited is the text differing from
+    /// it, not the version moving, so undoing back to the saved text is not an edit.
+    private var savedText = ""
+    /// What the last snapshot handed out to save, which becomes `savedText` once acknowledged.
+    private var submitted: (version: Int, text: String)?
     private var readOnly = false
     private var suppressChanges = false
     private var font = CodeFont(size: 12)
@@ -33,7 +38,7 @@ import CodeEditSourceEditor
         coordinator.textChanged = { [weak self] in
             guard let self, !self.suppressChanges else { return }
             self.version += 1
-            self.changed(self.version != self.savedVersion)
+            self.changed(self.edited)
         }
 
         suppressChanges = true
@@ -62,6 +67,8 @@ import CodeEditSourceEditor
         controller.textView.setAccessibilityIdentifier("native-code-editor")
         version = 1
         savedVersion = 1
+        savedText = value.content
+        submitted = nil
         suppressChanges = false
 
         self.controller = controller
@@ -121,12 +128,22 @@ import CodeEditSourceEditor
     func snapshot(freeze: Bool) async throws -> EditorBuffer {
         guard let controller else { throw BackendError.operation(String(localized: "The editor is no longer available.")) }
         if freeze { controller.configuration.behavior.isEditable = false }
-        return EditorBuffer(content: controller.text, version: version, dirty: version != savedVersion)
+        let text = controller.text
+        submitted = (version, text)
+        return EditorBuffer(content: text, version: version, dirty: edited)
     }
 
     func acknowledge(version: Int) async throws -> Bool {
         savedVersion = version
-        return self.version != savedVersion
+        if let submitted, submitted.version == version { savedText = submitted.text }
+        return edited
+    }
+
+    /// Whether the text differs from what is on disk. Unchanged since the save, it cannot; the
+    /// length is checked before the text, as most edits change it.
+    private var edited: Bool {
+        guard version != savedVersion, let text = controller?.text else { return false }
+        return text.utf16.count != savedText.utf16.count || text != savedText
     }
 
     func unfreeze() async throws {

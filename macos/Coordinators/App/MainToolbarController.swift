@@ -9,10 +9,11 @@ import SwiftUI
 /// observation, so anything it reads redraws the toolbar, and an item's content is handed over
 /// again on every pass rather than only when the set of items changes.
 ///
-/// Nothing in the toolbar animates. A toolbar told to change its items slides the old ones out and
-/// the new ones in, even inside a zero-length animation, so a new set of items is a new toolbar,
-/// installed in the window at once. While the set stays the same, items are updated in place, never
-/// rebuilt, so the state inside them (a focused field, an open menu) survives.
+/// A changed set of items is edited in place (`edit(to:)`): only the run of items that changed is
+/// taken out and put in, so the rest — the title, the agent's controls — keep their places as the
+/// pane's section adds or drops its tabs. A new toolbar is made only when the window holds another
+/// or a picker is offered other choices. Items whose set stays the same are updated in place,
+/// never rebuilt, so the state inside them (a focused field, an open menu) survives.
 @MainActor final class MainToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldDelegate {
     /// The window the toolbar is installed in; each new toolbar replaces the last in it.
     weak var window: NSWindow? {
@@ -60,12 +61,53 @@ import SwiftUI
         current = next
         let identifiers = Self.identifiers(for: next)
         // A group's choices are fixed once it is made, so a picker offering others is a new toolbar too.
-        guard identifiers == self.identifiers, !allItems(next).contains(where: reshapesPicker) else {
+        if allItems(next).contains(where: reshapesPicker) || (identifiers != self.identifiers && !canEdit) {
             self.identifiers = identifiers
             install()
             return
         }
+        if identifiers != self.identifiers { edit(to: identifiers) }
         for item in allItems(next) { refresh(item) }
+    }
+
+    /// Whether the toolbar on the window holds the items this controller last described, so a
+    /// change can be made to it in place.
+    private var canEdit: Bool { window?.toolbar === toolbar && toolbar.items.map(\.itemIdentifier) == identifiers }
+
+    /// Takes out and puts in only the run of items that changed, keeping every item either side.
+    /// A new toolbar re-lays out every item: the pane opening or shutting, which adds or drops its
+    /// tabs, jolted the whole bar, title and agent controls included.
+    private func edit(to next: [NSToolbarItem.Identifier]) {
+        let old = identifiers
+        var prefix = 0
+        while prefix < min(old.count, next.count), old[prefix] == next[prefix] { prefix += 1 }
+        var suffix = 0
+        while suffix < min(old.count, next.count) - prefix, old[old.count - 1 - suffix] == next[next.count - 1 - suffix] { suffix += 1 }
+        // Allowed before they are asked for: the toolbar only inserts what its delegate allows.
+        identifiers = next
+        for index in stride(from: old.count - suffix - 1, through: prefix, by: -1) {
+            forget(toolbar.items[index].itemIdentifier)
+            toolbar.removeItem(at: index)
+        }
+        for index in prefix..<(next.count - suffix) { toolbar.insertItem(withItemIdentifier: next[index], at: index) }
+    }
+
+    /// Drops what this controller kept for an item taken out of the toolbar.
+    private func forget(_ identifier: NSToolbarItem.Identifier) {
+        let id = identifier.rawValue
+        if let host = hosts.removeValue(forKey: id) {
+            NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: host)
+        }
+        if identifier == .roomSpacer, let view = roomSpacer {
+            NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: view)
+            roomSpacer = nil
+        }
+        searchTexts[id] = nil
+        searchItems[id] = nil
+        segmentControls[id] = nil
+        pickers[id] = nil
+        segmentActions[id] = nil
+        balances[identifier] = nil
     }
 
     /// A fresh toolbar with the current items, made by the delegate from `current`.

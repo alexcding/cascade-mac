@@ -13,6 +13,10 @@ import Testing
     var label = "Panel"
 }
 
+@MainActor @Observable private final class PaneFixture {
+    var open = false
+}
+
 @MainActor struct MainToolbarControllerTests {
     private let fixture = PickerFixture()
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300),
@@ -134,10 +138,44 @@ import Testing
         #expect(controller.room.afterLeading > 500)
     }
 
-    private static func splitWindow() -> NSWindow {
+    // The pane opening adds its tabs to the toolbar and shutting takes them out. The toolbar is
+    // edited in place: the same toolbar, the title's item and view untouched, so nothing but the
+    // pane's section moves.
+    @Test(.timeLimit(.minutes(1))) func paneTabsComeAndGoInPlace() async throws {
+        let window = Self.splitWindow(inspector: true)
+        defer { window.close() }
+        let pane = PaneFixture()
+        let controller = MainToolbarController {
+            WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }],
+                          pane: pane.open
+                            ? [WindowToolbarItem("pane-bar", style: .fill) { Color.clear }, WindowToolbarItem("pane-toggle") { Color.clear.frame(width: 20, height: 20) }]
+                            : [WindowToolbarItem("pane-toggle") { Color.clear.frame(width: 20, height: 20) }])
+        }
+        controller.window = window
+        window.orderFront(nil)
+        let toolbar = try #require(window.toolbar)
+        let title = try #require(Self.view("title", in: window))
+        func ids() -> [String] { window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [] }
+        #expect(!ids().contains("pane-bar"))
+
+        pane.open = true
+        try await settle { ids().contains("pane-bar") }
+        #expect(ids().suffix(2) == ["pane-bar", "pane-toggle"])
+        #expect(window.toolbar === toolbar)
+        #expect(Self.view("title", in: window) === title)
+
+        pane.open = false
+        try await settle { !ids().contains("pane-bar") }
+        #expect(ids().last == "pane-toggle")
+        #expect(window.toolbar === toolbar)
+        #expect(Self.view("title", in: window) === title)
+    }
+
+    private static func splitWindow(inspector: Bool = false) -> NSWindow {
         let split = NSSplitViewController()
         split.addSplitViewItem(NSSplitViewItem(sidebarWithViewController: NSViewController.sized(width: 200)))
         split.addSplitViewItem(NSSplitViewItem(viewController: NSViewController.sized(width: 1000)))
+        if inspector { split.addSplitViewItem(NSSplitViewItem(inspectorWithViewController: NSViewController.sized(width: 300))) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300),
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

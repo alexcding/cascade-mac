@@ -26,7 +26,7 @@ struct DiffView: View {
             if let branch = model.snapshot?.branch { Text(branch).foregroundStyle(.secondary).lineLimit(1) }
             Spacer()
             if model.actions != nil {
-                Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: model.requestActions).disabled(model.actions?.busy == true)
+                Button(String(localized: "Commit…"), systemImage: "checkmark.circle", action: model.requestActions).disabled(model.actions?.busy == true)
                     .commitPopover(model)
             }
             if model.showsProgress { ProgressView().controlSize(.small) }

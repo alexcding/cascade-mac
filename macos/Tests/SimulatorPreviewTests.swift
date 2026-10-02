@@ -179,11 +179,6 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     #expect(APISimulatorPreviewService.loopback("http://10.0.0.2:3100") == nil)
 }
 
-@Test func workspaceModeSimulatorRoundTripsThroughPane() {
-    #expect(WorkspaceMode(pane: .simulator) == .simulator)
-    #expect(WorkspaceMode.simulator.pane == .simulator)
-}
-
 @Test func cliAvailabilityLabelsNodeAndServeSim() {
     #expect(CLIAvailability(present: true, version: "v22.1.0", supported: true).label(for: .node) == "Installed · v22.1.0")
     #expect(CLIAvailability(present: true, version: "v18.0.0", supported: false).label(for: .node) == "v18.0.0, needs 20 or later")

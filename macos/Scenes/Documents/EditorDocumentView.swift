@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// The file itself. Its Save and status sit in the row above it (`WorkspaceFileBrowser`).
 struct EditorDocumentView: View {
     let model: EditorDocumentViewModel
     var body: some View {
@@ -14,22 +15,8 @@ struct EditorDocumentView: View {
             }
             if let view = model.editorView { NativeEditorHost(view: view) }
             else { Color.clear }
-            Divider()
-            // The same glass capsules as the tab bar above.
-            HStack(spacing: 8) {
-                Spacer()
-                if model.readOnly { Text(String(localized: "Read Only")).font(.callout).foregroundStyle(Theme.textSecondary) }
-                if model.loading || model.saving { ProgressView().controlSize(.small) }
-                Button(String(localized: "Save")) { Task { await model.save() } }
-                    .padding(.horizontal, 14)
-                    .barGlass(iconOnly: false)
-                    .disabled(!canEdit)
-                    .opacity(canEdit ? 1 : 0.5)
-            }.padding(8)
         }
     }
-
-    private var canEdit: Bool { model.loaded && !model.readOnly && !model.saving && !model.closing }
 }
 
 private struct NativeEditorHost: NSViewRepresentable {

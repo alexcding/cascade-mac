@@ -39,6 +39,8 @@ struct APIDiffService: DiffService {
     enum Action { case showActions, openFile(DocumentLocation), hide }
     let coordinator: DiffCoordinator
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
+    /// Whether the changed files are shown beside the diff (`FileTreeToggle`).
+    var filesShown = true
     var presentation = DocumentPresentation() {
         didSet {
             guard oldValue != presentation else { return }

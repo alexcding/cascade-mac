@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or the run
-/// button and build title, flat at the leading edge; the agent's controls in the middle; the run
-/// controls and the mode picker trailing, against the context pane. Beside a terminal the pane's
-/// own section is its toggle alone, at the window's edge whether the pane is open or not: the pane
-/// draws its bar itself, in its title-bar zone (`SessionWorkspacePane`), so showing or hiding it
-/// changes no item, and the toolbar's items keep pace with the divider as it slides.
+/// button and build title, flat at the leading edge; the agent's controls trailing, against the
+/// context pane. Beside a terminal the pane's own section holds, while
+/// the pane is open, its tabs and then its toggle, as ChatGPT's does — the address and navigation
+/// are a row at the top of the pane (`SessionWorkspacePane`); shut, the toggle alone at the
+/// window's edge.
 @MainActor struct SessionWorkspaceToolbar {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -13,13 +13,19 @@ import SwiftUI
     var toolbar: WindowToolbar {
         var toolbar = WindowToolbar(leading: leading)
         if let driver = model.agentDriver {
-            toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
-        }
-        if model.showsModePicker {
-            toolbar.trailing.append(modePicker)
+            toolbar.trailing = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
         }
         if model.showsTerminal {
-            toolbar.pane = [item("pane-toggle") { SessionWorkspaceContextToggle(model: model) }]
+            // Over the Browser or Files the strip of that section's tabs; over Diff its review
+            // controls; over the Simulator nothing. Shut, the toggle alone, which brings the pane back.
+            let toggle = item("pane-toggle") { SessionWorkspaceContextToggle(model: model) }
+            if !model.showsPage || model.shownSection == .simulator {
+                toolbar.pane = [toggle]
+            } else if model.showsChanges {
+                toolbar.pane = [item("pane-review", style: .fill) { ReviewBar(context: context, diff: model.diff, inToolbar: true) }, toggle]
+            } else {
+                toolbar.pane = [item("pane-bar", style: .fill) { BrowserCompactTabBar(context: context, model: model, placement: .toolbar, part: .tabs) }, toggle]
+            }
         }
         return toolbar
     }
@@ -40,18 +46,6 @@ import SwiftUI
                 }
             }
         }]
-    }
-
-    /// Tabs, Diff and Simulator: segments while the screen's section has room, one pop-up button
-    /// with the chosen mode's symbol when it has not.
-    private var modePicker: WindowToolbarItem {
-        let modes = model.modes
-        return .picker("mode-picker",
-                       label: String(localized: "Panel"),
-                       choices: modes.map { .init(title: $0.title, symbol: $0.symbol, enabled: model.canSelectMode($0)) },
-                       selected: modes.firstIndex(of: model.mode) ?? 0) { index in
-            if modes.indices.contains(index) { model.selectMode(modes[index]) }
-        }
     }
 
     /// An item whose content belongs to this workspace. Another workspace's toolbar can have the

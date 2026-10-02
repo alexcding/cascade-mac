@@ -134,22 +134,25 @@ extension WorkspaceServing {
     var showsPage: Bool {
         !showsTerminal || showsChanges || context?.pane == .term || context?.pane == .simulator
     }
-    var mode: WorkspaceMode {
-        guard let context else { return .browser }
-        if let mode = WorkspaceMode(pane: context.pane), offers(mode) { return mode }
-        return offers(context.lastMode) ? context.lastMode : .browser
+    /// What the pane shows: its pages and files (`term`), Diff or Simulator, never `off`. A pane
+    /// this workspace cannot show falls back to the last one it can, then to the pages and files.
+    var shownPane: WorkspacePane {
+        guard let context else { return .term }
+        if offers(context.pane) { return context.pane }
+        return offers(context.lastPane) ? context.lastPane : .term
     }
     /// Diff needs a session, and Simulator an Xcode session's preview.
-    private func offers(_ mode: WorkspaceMode) -> Bool {
-        switch mode {
+    private func offers(_ pane: WorkspacePane) -> Bool {
+        switch pane {
         case .diff: session != nil
         case .simulator: simulatorPreview != nil
-        case .browser: true
+        case .term: true
+        case .off: false
         }
     }
     /// The Simulator panel's model, owned by the session's build.
     var simulatorPreview: SimulatorPreviewModel? { build?.preview }
-    var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
+    var showsBrowser: Bool { showsPage && !showsChanges && shownPane == .term }
     /// Beside a terminal the context pane is the window's inspector column, with its own section of
     /// the toolbar tracking the divider (`MainSplitViewController`).
     var showsInspector: Bool { showsTerminal && showsPage }
@@ -199,19 +202,6 @@ extension WorkspaceServing {
             pendingSelection = nil
         }
     }
-    /// A picker of one mode — a panel with no session and no Simulator — is not shown.
-    var showsModePicker: Bool { context != nil && modes.count > 1 }
-    func canSelectMode(_ mode: WorkspaceMode) -> Bool {
-        switch mode {
-        case .diff: canShowChanges
-        case .simulator: simulatorPreview != nil
-        case .browser: true
-        }
-    }
-    /// The picker lists Diff only for a session, and Simulator only where it can show one.
-    var modes: [WorkspaceMode] {
-        WorkspaceMode.allCases.filter { ($0 != .simulator || simulatorPreview != nil) && ($0 != .diff || session != nil) }
-    }
     var showsBuildActions: Bool { session != nil && state.project?.ide == "xcode" }
     /// What this worktree's IDE is still preparing, if anything. `ready` for every IDE that
     /// prepares nothing, so the toolbar can ask without knowing which ones do.
@@ -237,7 +227,7 @@ extension WorkspaceServing {
     /// state: closing it would only make another.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return context.tabs.count > 1 || !page.controls.isBlank
+        return context.stripTabs.count > 1 || !page.controls.isBlank
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
@@ -287,18 +277,47 @@ extension WorkspaceServing {
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
+    /// Whether there is a worktree for the Files picker to list. The scratch Terminal has none, but
+    /// can still open files, from the terminal's links.
+    var listsWorktree: Bool { session?.worktree.isEmpty == false }
+    /// The rail's sections: Files once there is a worktree to list or a file open, Diff for a
+    /// session, and the Simulator where a build has one.
+    var railSections: [WorkspaceSection] {
+        let files = listsWorktree || context?.documents.isEmpty == false
+        return [.browser] + (files ? [.files] : []) + (session != nil ? [.diff] : [])
+            + (simulatorPreview != nil ? [.simulator] : [])
+    }
+    func canShowSection(_ section: WorkspaceSection) -> Bool {
+        switch section { case .diff: canShowChanges; case .simulator: simulatorPreview != nil; case .browser, .files: true }
+    }
+    /// The section shown: Diff by what the pane shows, which the app loads before the tab follows.
+    var shownSection: WorkspaceSection? {
+        guard let context else { return nil }
+        return showsChanges ? .diff : context.section
+    }
+    /// The rail's choice. Diff goes through the app, which loads the changes before showing them.
+    func showSection(_ section: WorkspaceSection) {
+        guard let context, active, section != shownSection, canShowSection(section) else { return }
+        if section == .diff { toggleChanges() } else { context.showSection(section) }
+    }
+    /// The Simulator's run is over: its tab has nothing left to show, so the pane goes back to the
+    /// page or file shown before it rather than sitting blank with no tabs.
+    func leaveEndedSimulator() {
+        guard let context, simulatorPreview == nil, context.tools.contains(.simulator) else { return }
+        if context.activeTool == .simulator { context.showPages() }
+        context.close(.tool(.simulator))
+    }
+    /// The strip's New Tab: a web page in the Browser, the Files picker in Files — a web page there
+    /// too with no worktree to pick from.
+    func newSectionTab() {
+        guard canOpenTab, let context else { return }
+        if context.section == .files, listsWorktree { context.openTool(.files) } else { newTab() }
+    }
     /// A link from the chat opens in this session's browser, beside the chat, and brings it in.
     private func openInBrowser(_ url: URL) -> Bool {
         guard let context, context.open(url.absoluteString) != nil else { return false }
-        selectMode(.browser)
+        context.setPane(.term)
         return true
-    }
-    func selectMode(_ mode: WorkspaceMode) {
-        guard let context, canSelectMode(mode) else { return }
-        switch mode {
-        case .diff: if context.pane != .diff { perform(.changes) }
-        case .browser, .simulator: context.setPane(mode.pane)
-        }
     }
     func run() { if canRun { onAction(.run) } }
     func configureRun() { if canRun { onAction(.configureRun) } }
@@ -467,8 +486,13 @@ extension WorkspaceServing {
     isolated deinit { chat?.retire() }
     func setContextPresented(_ presented: Bool) {
         guard canToggleContext, let context else { return }
-        if presented { context.setPane(context.lastMode.pane) } else { context.setPane(.off) }
+        guard presented else { context.setPane(.off); return }
+        let shown = presentable(context.lastPane)
+        if shown == .term { context.showPages() } else { context.setPane(shown) }
     }
+    /// `pane` if this workspace can still show it, else the pages: a Simulator whose run has ended,
+    /// or Changes without a session, would open a tab with nothing in it.
+    func presentable(_ pane: WorkspacePane) -> WorkspacePane { offers(pane) ? pane : .term }
     func reopen(_ visit: WorkspaceVisit) {
         guard active, state.canPresent else { return }
         onAction(.reopen(visit.id))

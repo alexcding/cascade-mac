@@ -36,3 +36,20 @@ import Testing
     #expect(tree[1].folders == ["Sources/", "Sources/App/"] && tree[0].folders == ["docs/"])
     #expect(tree[0].children?.first?.file?.id == "u:docs/guide.md" && tree[2].file?.id == "f:README.md")
 }
+
+@Test func fileTreeExpansionStartsOpenOrClosedAndFollowsTheFilter() {
+    var diff = FileTreeExpansion(startsOpen: true)
+    #expect(diff.isOpen(["Sources/", "Sources/App/"], filtering: false))
+    diff.set(["Sources/", "Sources/App/"], open: false, filtering: false)
+    #expect(!diff.isOpen(["Sources/"], filtering: false))
+    #expect(diff.isOpen(["Sources/"], filtering: true), "a filter opens every folder of its matches")
+
+    var files = FileTreeExpansion(startsOpen: false)
+    #expect(!files.isOpen(["Scenes/"], filtering: false))
+    files.reveal("Scenes/Workspace/Pane.swift")
+    #expect(files.isOpen(["Scenes/"], filtering: false) && files.isOpen(["Scenes/Workspace/"], filtering: false))
+    files.set(["Scenes/"], open: false, filtering: true)
+    #expect(!files.isOpen(["Scenes/"], filtering: true))
+    files.filterChanged()
+    #expect(files.isOpen(["Scenes/"], filtering: true), "a new filter starts open again")
+}

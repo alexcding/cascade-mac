@@ -242,26 +242,24 @@ private extension NSView {
     model.dispose()
 }
 
-@MainActor @Test func browserHoldsPagesAndFilesInOneOrder() throws {
+@MainActor @Test func pagesAndFilesShareOneOrderButNotOneStrip() throws {
     let context = WorkspaceContext(id: "task:modes", sourceURL: "session:modes", title: "")
     let home = try #require(context.open("https://example.com/home", title: "Home"))
     let docs = try #require(context.open("https://example.com/docs", title: "Docs"))
-    #expect(context.pane == .term && context.lastMode == .browser)
+    #expect(context.pane == .term && context.lastPane == .term)
     let first = try #require(context.openFile("/tmp/first.swift"))
     #expect(context.pane == .term && context.activeDocument === first && context.activePage == nil)
     let second = try #require(context.openFile("/tmp/second.swift"))
     #expect(context.tabs.map(\.id) == [home.id, docs.id, first.id, second.id])
     context.cycle(1)
-    #expect(context.activePage === home, "cycling runs through pages and files alike")
+    #expect(context.activeDocument === first, "cycling stays among the files, wrapping")
     context.setPane(.off)
-    #expect(context.lastMode == .browser)
+    #expect(context.lastPane == .term)
     context.setPane(.term)
-    #expect(context.activePage === home, "showing the pane again keeps its tab")
-    context.select(.file(first))
+    #expect(context.activeDocument === first, "showing the pane again keeps its tab")
     context.remove(first)
     #expect(context.activeDocument === second, "closing a tab selects the one that took its place")
-    context.remove(second)
-    #expect(context.activePage === docs, "closing the last tab selects its neighbour, a page or a file")
+    context.select(.page(docs))
     let restored = WorkspaceContext(id: context.id, sourceURL: "session:modes", title: "", snapshot: context.snapshot)
     #expect(restored.pane == .term && restored.activePage?.id == docs.id)
 }

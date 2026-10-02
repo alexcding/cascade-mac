@@ -3,14 +3,21 @@ import SwiftUI
 /// Safari's compact tab layout: every tab — web pages and worktree files alike, in one order —
 /// sits inside one pill, and the selected page is a raised glass capsule that doubles as the
 /// address bar. Its close button is at the leading edge, the site icon and host are centred,
-/// reload is trailing; clicking the host edits the address. The address field also searches the
+/// Reload and the bookmark sit after it in a capsule of their own; clicking the host edits the address. The address field also searches the
 /// session's worktree, and a file picked from it opens as a tab of its own. There is no second
-/// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or a
-/// pane's title-bar zone, the bar hangs its suggestions under itself.
+/// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or at the
+/// top of a pane's column, the bar hangs its suggestions under itself.
 struct BrowserCompactTabBar: View {
+    /// Which of the bar's two jobs this one does: the tabs with the selected one as the address
+    /// field (a panel's own row); the tabs alone, each its title, with New Tab
+    /// (the context pane's, in the toolbar, as ChatGPT's tab strip is); or the address alone,
+    /// navigation leading it, with its suggestions (the row at the top of the pane).
+    enum Part { case all, tabs, address }
+
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
     var placement: CompactTabBarPlacement = .row
+    var part: Part = .all
     @FocusState private var editingAddress: Bool
 
     private var highlighted: Int? {
@@ -25,18 +32,30 @@ struct BrowserCompactTabBar: View {
     private var suggestions: [AddressSuggestion] { BrowserAddressSuggestions(context: context).items }
 
     var body: some View {
-        CompactTabBar(newTabTitle: String(localized: "New Tab"), newTabHelp: String(localized: "Open a new web tab"), newTab: model.newTab,
+        let files = context.section == .files
+        CompactTabBar(newTabTitle: String(localized: "New Tab"),
+                      newTabHelp: files ? String(localized: "Open a file from the worktree") : String(localized: "Open a new web tab"),
+                      newTab: model.newSectionTab,
+                      // With no tab yet the pane already shows what New Tab would: the blank page or the picker.
+                      showsNewTab: part != .address && (context.section == .browser || files) && !context.stripTabs.isEmpty,
                       placement: placement) {
-            NavigationCluster(controls: active?.controls)
+            if part != .tabs { NavigationCluster(controls: active?.controls) }
         } pill: { available in
             tabPill(available)
+        } trailing: {
+            if part != .tabs, let page = active, !page.controls.isBlank {
+                PageActionsCluster(page: page, bookmarks: context.bookmarks)
+            }
         } suggestions: {
-            BrowserAddressSuggestionList(context: context, model: model)
+            if part != .tabs { BrowserAddressSuggestionList(context: context, model: model) }
         }
+        // The tabs alone are ChatGPT's flat strip; the pane's address row, the pill's shapes with no
+        // glass; with the address among the tabs, Safari's glass pill.
+        .environment(\.compactTabStyle, part == .tabs ? .flat : part == .address ? .outlined : .capsule)
         .onChange(of: suggestions.map(\.id)) { _, _ in highlighted = nil }
         // Fetching is driven from here, once per keystroke, never from the body.
         .onChange(of: active?.controls.address) { _, text in
-            guard editingAddress, let text else { return }
+            guard part != .tabs, editingAddress, let text else { return }
             // Every change, cleared text included, so no earlier query's files sit under new text.
             context.fileSearch.query = active?.controls.addressEdited == true ? text : ""
             context.fileSearch.search(in: root)
@@ -51,40 +70,52 @@ struct BrowserCompactTabBar: View {
         // A browser panel always has a page to type into: a blank tab showing this panel's history
         // is the empty state, never a pill with nothing in it. Keyed on presentability too, so a
         // refusal while a sheet is up is retried once the sheet goes away.
-        .onChange(of: needsBlankTab, initial: true) { _, needed in
+        // The tabs keep the filler, not the address row: the row is there only over a page.
+        .onChange(of: part != .address && needsBlankTab, initial: true) { _, needed in
             if needed { model.newTab(); context.fillerPageID = context.activePage?.id }
         }
         .onChange(of: fillerIsBlank) { _, blank in if !blank { context.fillerPageID = nil } }
+        // The tabs alone have no field: the address row's editing state is not theirs to change.
         .onAppear { synchronizeEditing() }
         .onChange(of: context.activeID) { _, _ in synchronizeEditing() }
+        // New Tab over the pane's own blank page makes it a tab without selecting anything new.
+        .onChange(of: context.fillerPageID) { _, _ in synchronizeEditing() }
+        // The pane shutting releases the field, so the terminal keeps the keyboard; showing it
+        // again on a blank tab hands it back.
+        .onChange(of: model.showsPage) { _, shown in if shown { synchronizeEditing() } else if part != .tabs { editingAddress = false } }
         .onChange(of: editingAddress) { _, value in
+            guard part != .tabs else { return }
             active?.controls.setEditingAddress(value)
             if !value { highlighted = nil; context.fileSearch.reset() }
         }
-        // The reverse: a model that ends editing (the start page opening a site) releases the field.
-        .onChange(of: active?.controls.editingAddress) { _, value in if value == false { editingAddress = false } }
+        // The reverse: a model that ends editing (the start page opening a site) releases the field,
+        // and one that starts it takes the keyboard to it.
+        .onChange(of: active?.controls.editingAddress) { _, value in if part != .tabs, let value { editingAddress = value } }
         // A hidden workspace stays mounted, and opacity does not drop first responder: release the
         // field when this workspace leaves the screen, or the terminal shown instead loses keystrokes.
-        .onChange(of: model.isActive) { _, visible in if !visible { editingAddress = false } }
-        .onDisappear { active?.controls.setEditingAddress(false); context.fileSearch.reset() }
+        .onChange(of: model.isActive) { _, visible in if !visible, part != .tabs { editingAddress = false } }
+        .onDisappear { if part != .tabs { active?.controls.setEditingAddress(false); context.fileSearch.reset() } }
     }
 
     private func tabPill(_ available: CGFloat) -> some View {
-        CompactTabPill(ids: context.tabs.map(\.id), activeID: context.activeID, available: available, maxTabWidth: CompactTabMetrics.maxWebTabWidth,
+        // The address alone is the selected page, as wide as the row.
+        let ids = part == .address ? (active.map { [$0.id] } ?? []) : context.stripTabs.map(\.id)
+        return CompactTabPill(ids: ids, activeID: context.activeID, available: available,
+                       maxTabWidth: part == .address ? CompactTabMetrics.maxToolbarBarWidth
+                           : part == .tabs ? CompactTabMetrics.maxStripTabWidth : CompactTabMetrics.maxWebTabWidth,
                        select: { id in context.tab(id).map(model.selectTab) }, move: model.moveTab,
                        // A drag in the address field selects its text: the tab being edited stays put.
-                       canMove: { !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
+                       canMove: { part != .address && !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
-                // On screen means the pane too: a collapsed pane keeps its bar, and a field in it
-                // must not take the keyboard from the terminal.
-                CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID, workspaceActive: model.isActive && model.showsPage,
-                           autoFocus: page.id != context.fillerPageID, searchesFiles: root != nil,
+                CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID,
+                           searchesFiles: root != nil,
                            moveHighlight: moveHighlight, submitHighlighted: { submitHighlighted(page.controls) },
                            submitTyped: { submitTyped(page.controls) },
-                           closable: model.offersClose(page), iconOnly: iconOnly, editing: $editingAddress,
+                           closable: part != .address && model.offersClose(page), iconOnly: iconOnly,
+                           editable: part != .tabs, editing: $editingAddress,
                            select: { model.selectTab(.page(page)) }, close: { model.closeTab(.page(page)) })
             } else if let file = context.documents.first(where: { $0.id == id }) {
-                CompactFileTab(file: file, active: id == context.activeID, workspaceActive: model.isActive && model.showsPage,
+                CompactFileTab(file: file, active: id == context.activeID,
                                iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
             }
@@ -117,17 +148,23 @@ struct BrowserCompactTabBar: View {
     /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
     /// a blank tab is never saved, so on every launch the filler opened, selected itself and
     /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
-    private var needsBlankTab: Bool { context.tabs.isEmpty && model.showsBrowser && model.canOpenTab }
+    /// It is no tab selected, not no tabs: leaving the Changes tab for the pages when no page or
+    /// file is open selects nothing, and the tools' tabs stay.
+    private var needsBlankTab: Bool { context.activeID == nil && model.showsBrowser && model.canOpenTab }
 
-    /// Leaving a tab drops any address focus so it does not carry over. A blank tab takes focus
-    /// itself when its address field appears in `CompactTab`, once that field exists: a focus binding set before
-    /// the bound view is mounted is silently reset.
+    /// Leaving a tab drops any address focus so it does not carry over. A blank tab's keyboard goes
+    /// to the address field: its start page has no field of its own.
     private func synchronizeEditing() {
+        guard part != .tabs else { return }
         if active?.controls.isBlank != true { editingAddress = false }
+        // A new tab's keyboard goes to the address, never the filler's, which must not take it. Only
+        // while the pane is shown: a shut pane stays mounted, and its field would take the
+        // keyboard from the terminal.
+        else if model.isActive, model.showsPage, active?.id != context.fillerPageID { editingAddress = true }
     }
 }
 
-/// The address suggestions under the field: hung from the bar in its own row or title-bar zone, or
+/// The address suggestions under the field: hung from the bar in its own row or the pane's bar, or
 /// from the top of the page while the bar is in the toolbar. Picking one lets go of the field
 /// through the model, which the bar follows wherever it is drawn.
 struct BrowserAddressSuggestionList: View {
@@ -161,8 +198,9 @@ struct BrowserAddressSuggestionList: View {
 
     var items: [AddressSuggestion] {
         // Focusing the field selects the page's own address; offering that page back is noise.
-        guard let controls = context.activePage?.controls, controls.addressEdited else { return [] }
-        let text = controls.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let controls = context.activePage?.controls
+        guard let typed = controls?.addressEdited == true ? controls?.address : nil else { return [] }
+        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
         let files = context.fileSearch.results.prefix(Self.fileLimit).map { result in
             AddressSuggestion(id: "file:" + result.path, title: result.name, detail: result.folder, url: result.path, kind: .file)
@@ -214,46 +252,69 @@ struct BrowserAddressSuggestionList: View {
     }
 }
 
-/// Safari's history cluster: Back alone, widening to Back, a hairline and Forward only while
-/// there is a page to go forward to. One glass capsule around both, drawn with the same
-/// `barGlass` as New Tab so the two read as the same material. Always present, disabled with no
-/// page, so the row never shifts.
+/// The history cluster: Back, a hairline and Forward, both always there and each disabled with no
+/// page to go to, so the row never shifts. One glass capsule around both, drawn with the same
+/// `barGlass` as New Tab so the two read as the same material.
 private struct NavigationCluster: View {
     let controls: BrowserControlsViewModel?
-
-    private var showsForward: Bool { controls?.canGoForward == true }
 
     var body: some View {
         HStack(spacing: 0) {
             HoverCircleButton(String(localized: "Back"), systemImage: "chevron.left", enabled: controls?.canGoBack == true) { controls?.back() }
-            if showsForward {
+            Divider().frame(height: 16)
+            HoverCircleButton(String(localized: "Forward"), systemImage: "chevron.right", enabled: controls?.canGoForward == true) { controls?.forward() }
+        }
+        .padding(.horizontal, 2)
+        .barGlass()
+    }
+}
+
+/// The page's own buttons after the address, in a capsule of their own as Back and Forward are
+/// before it: Reload — Stop while the page loads — and the bookmark star, filled once bookmarked.
+private struct PageActionsCluster: View {
+    let page: BrowserPage
+    let bookmarks: BrowserBookmarkStore?
+
+    private var controls: BrowserControlsViewModel { page.controls }
+    private var bookmarked: Bool { bookmarks?.contains(page.url) == true }
+    private var canBookmark: Bool { bookmarks?.canBookmark(page.url) == true }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            HoverCircleButton(controls.loading ? String(localized: "Stop") : String(localized: "Reload Page"),
+                              systemImage: controls.loading ? "xmark" : "arrow.clockwise", enabled: true, action: controls.toggleLoading)
+                .help(controls.loading ? String(localized: "Stop loading this page") : String(localized: "Reload this page"))
+            if canBookmark {
                 Divider().frame(height: 16)
-                HoverCircleButton(String(localized: "Forward"), systemImage: "chevron.right", enabled: true) { controls?.forward() }
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                HoverCircleButton(bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"),
+                                  systemImage: bookmarked ? "star.fill" : "star", enabled: true,
+                                  tint: bookmarked ? Theme.accent : nil) { bookmarks?.toggle(url: page.url, title: page.title) }
+                    .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
+                    .accessibilityIdentifier("bookmark-page")
             }
         }
-        // Alone, Back is exactly its 32pt circle; the inset only appears once Forward joins.
-        .padding(.horizontal, showsForward ? 2 : 0)
+        .padding(.horizontal, canBookmark ? 2 : 0)
         .barGlass()
     }
 }
 
 /// One tab in the pill. Unselected: icon and title, a close button on hover. Selected: close,
-/// icon and host, reload, and the address field over the label while editing. Both states share
+/// icon and host, and the address field over the label while editing; Reload and the bookmark
+/// are outside it (`PageActionsCluster`). Both states share
 /// the same slots, so the label never moves; only what fills the slots crossfades.
 private struct CompactTab: View {
     let page: BrowserPage
     let bookmarks: BrowserBookmarkStore?
     let active: Bool
-    /// Hidden workspaces stay mounted; opacity does not stop a field from taking first responder.
-    let workspaceActive: Bool
-    let autoFocus: Bool
     let searchesFiles: Bool
     let moveHighlight: (Int) -> Bool
     let submitHighlighted: () -> Bool
     let submitTyped: () -> Bool
     let closable: Bool
     let iconOnly: Bool
+    /// False for a tab in the strip whose address is edited in a row of its own: it shows its
+    /// title, selected or not, and none of the address's buttons.
+    var editable = true
     @FocusState.Binding var editing: Bool
     let select: () -> Void
     let close: () -> Void
@@ -265,22 +326,18 @@ private struct CompactTab: View {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
     private var controls: BrowserControlsViewModel { page.controls }
-    private var bookmarked: Bool { bookmarks?.contains(page.url) == true }
-    /// Always on the selected tab, hovered or not and loading or not, for a page a bookmark could
-    /// come back to.
-    private var showsBookmark: Bool { active && bookmarks?.canBookmark(page.url) == true }
     /// Safari shows the page title on an unselected tab and the host on the selected one.
     private var label: String {
-        if controls.isBlank { return active ? "" : String(localized: "New Tab") }
-        if active { return Self.displayHost(page.url) ?? (page.title.isEmpty ? page.url : page.title) }
+        if controls.isBlank { return active && editable ? "" : String(localized: "New Tab") }
+        if active && editable { return Self.displayHost(page.url) ?? (page.title.isEmpty ? page.url : page.title) }
         return page.title.isEmpty ? (Self.displayHost(page.url) ?? page.url) : page.title
     }
 
     var body: some View {
         @Bindable var controls = controls
         CompactTabShell(label: label, placeholder: searchesFiles ? String(localized: "Search files or the web, or enter website name") : String(localized: "Search or enter website name"), closeTitle: controls.isBlank ? String(localized: "Close Tab") : String(localized: "Close \(page.title)"), help: page.url,
-                        active: active, workspaceActive: workspaceActive, blank: controls.isBlank, autoFocus: autoFocus,
-                        closable: closable, iconOnly: iconOnly, text: $controls.address, editing: $editing, moveHighlight: moveHighlight,
+                        active: active,
+                        closable: closable, iconOnly: iconOnly, editable: editable, text: $controls.address, editing: $editing, moveHighlight: moveHighlight,
                         submit: { submitHighlighted() || submitTyped() }, select: select, close: close,
                         searching: controls.isBlank || FaviconStore.host(of: page.url) == nil) {
             if FaviconStore.host(of: page.url) != nil { FaviconImage(url: page.url, size: 16) }
@@ -290,14 +347,6 @@ private struct CompactTab: View {
             let speaker = controls.playingAudio || controls.muted
             // Safari packs a tab's trailing buttons about half as far apart as the bar's own gap.
             HStack(spacing: 0) {
-                // Reload appears only while the pointer is over the selected tab. Stop, the same button
-                // while a page loads, stays visible: a slow load must always have a way to be stopped.
-                if active {
-                    CompactTabAccessory(title: controls.loading ? String(localized: "Stop") : String(localized: "Reload Page"),
-                                        systemImage: controls.loading ? "xmark" : "arrow.clockwise", width: Self.slotWidth,
-                                        visible: !controls.isBlank && (hovering || controls.loading),
-                                        accessible: !controls.isBlank, action: controls.toggleLoading)
-                }
                 // As in Safari, a speaker sits on any tab making sound, and stays while muted so the
                 // tab can be unmuted after the page has gone quiet.
                 if speaker {
@@ -308,42 +357,27 @@ private struct CompactTab: View {
                         .help(controls.muted ? String(localized: "Unmute this tab") : String(localized: "Mute this tab"))
                         .accessibilityIdentifier("mute-tab")
                 }
-                if active {
-                    CompactTabAccessory(title: bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"), systemImage: bookmarked ? "star.fill" : "star",
-                                        size: 14, tint: bookmarked ? Theme.accent : Theme.textSecondary, width: Self.slotWidth,
-                                        visible: showsBookmark) {
-                        bookmarks?.toggle(url: page.url, title: page.title)
-                    }
-                    .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
-                    .accessibilityIdentifier("bookmark-page")
-                }
             }
         }
     }
 }
 
-/// A worktree file's tab: its name, a document icon and, where a page has reload, a dot for
-/// unsaved edits. Its title is fixed: selecting it shows the file, never an address field.
+/// A worktree file's tab: its name and a document icon. Its title is fixed: selecting it shows
+/// the file, never an address field.
 private struct CompactFileTab: View {
     let file: EditorDocumentViewModel
     let active: Bool
-    let workspaceActive: Bool
     let iconOnly: Bool
     @FocusState.Binding var editing: Bool
     let select: () -> Void
     let close: () -> Void
-
     var body: some View {
         CompactTabShell(label: file.title, placeholder: "", closeTitle: String(localized: "Close \(file.title)"), help: file.record.path,
-                        active: active, workspaceActive: workspaceActive, blank: false, autoFocus: false,
+                        active: active,
                         closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
                         moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
             FileIcon(name: file.record.path) { Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
-        } accessories: { _ in
-            Circle().fill(Theme.textSecondary).frame(width: 7, height: 7).frame(width: 24, height: 24)
-                .opacity(file.dirty ? 1 : 0)
-                .accessibilityLabel(String(localized: "Unsaved changes")).accessibilityHidden(!file.dirty)
-        }
+        } accessories: { _ in EmptyView() }
     }
 }
 

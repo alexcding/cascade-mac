@@ -9,6 +9,8 @@ enum CompactTabMetrics {
     static let maxTabWidth: CGFloat = 400
     /// A web tab's cap, a fifth narrower: an address needs less room than a file's name and search.
     static let maxWebTabWidth: CGFloat = 320
+    /// The widest a tab of a flat strip — the pane's, in the toolbar — grows: about ChatGPT's.
+    static let maxStripTabWidth: CGFloat = 180
     /// Safari's compact bar: a 36pt field inside a 40pt pill, 15pt text.
     static let pillHeight: CGFloat = 40
     static let tabHeight: CGFloat = 36
@@ -17,10 +19,9 @@ enum CompactTabMetrics {
     /// selected tab, and a ceiling the toolbar never reaches.
     static let minToolbarBarWidth: CGFloat = 200
     static let maxToolbarBarWidth: CGFloat = 4000
-    /// A bar in a column's title-bar zone ends this far from the window's edge: the toolbar's pane
-    /// toggle (36pt, 8pt in from the edge) and the toolbar's own gap before it.
-    static let titleBarTrailingInset: CGFloat = 60
     static let tabFont = Font.system(size: 15)
+    /// A flat strip's titles: the system's standard size and weight, as ChatGPT's tabs are.
+    static let stripTabFont = Font.system(size: 13)
     /// The same size as the text. AppKit draws a field's prompt in the field's own font whatever
     /// the prompt asks for, so a smaller placeholder on the resting label sat on a different line
     /// box from the focused field and the text jumped off-centre between the two states.
@@ -28,6 +29,9 @@ enum CompactTabMetrics {
     /// The least a tab can be and still show its title, and the least the selected tab can be and
     /// still be typed into. An icon-only tab is exactly its icon slot.
     static let minTitledTabWidth: CGFloat = 120
+    /// A flat strip's tab keeps its title down to this: its title fades rather than being cut, so a
+    /// few letters still name the tab.
+    static let minFlatTitledTabWidth: CGFloat = 72
     static let minActiveTabWidth: CGFloat = 180
     static let iconTabWidth: CGFloat = 36
     static let tabSpacing: CGFloat = 2
@@ -44,14 +48,15 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     let visible: [ID]
     let iconOnly: Bool
 
-    init(ids: [ID], activeID: ID?, available: CGFloat) {
+    /// `minTitled` is the least an unselected tab may shrink to before every one goes to its icon.
+    init(ids: [ID], activeID: ID?, available: CGFloat, minTitled: CGFloat = CompactTabMetrics.minTitledTabWidth) {
         func width(_ count: Int, inactive: CGFloat) -> CGFloat {
             guard count > 0 else { return 0 }
             return CompactTabMetrics.minActiveTabWidth + CGFloat(count - 1) * (inactive + CompactTabMetrics.tabSpacing)
                 + 2 * CompactTabMetrics.pillInset
         }
         // Unmeasured yet: lay out as if there were room, rather than flashing the icon-only state.
-        guard available > 0, width(ids.count, inactive: CompactTabMetrics.minTitledTabWidth) > available else {
+        guard available > 0, width(ids.count, inactive: minTitled) > available else {
             visible = ids; iconOnly = false; return
         }
         var kept = ids
@@ -63,20 +68,34 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     }
 }
 
-/// Where a compact bar sits: its own row over the panel, or the title-bar zone of a column that
-/// reaches the window's top, given the zone's height, beside the toolbar's pane toggle.
-enum CompactTabBarPlacement: Equatable {
-    case row
-    case titleBar(height: CGFloat)
+/// How a bar's tabs are drawn: Safari's — one capsule holding them, the selected tab raised glass,
+/// Close leading; the same shapes with no glass, tinted and hairline-bordered (`outlined`, the
+/// address row at the top of the pane); or ChatGPT's flat strip, for tabs alone: no outer shape,
+/// the selected tab a plain rounded rectangle in the page's colour, each title from the leading
+/// edge and Close at the trailing end.
+enum CompactTabStyle { case capsule, outlined, flat }
+
+extension EnvironmentValues {
+    @Entry var compactTabStyle = CompactTabStyle.capsule
 }
 
-/// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it,
-/// then New Tab. Either way the suggestion list hangs under the bar, above whatever the panel
-/// shows beneath.
+/// Where a compact bar sits: its own row over the panel, or an item in the window toolbar's
+/// section over the context pane, which gives it the width the section leaves.
+enum CompactTabBarPlacement: Equatable {
+    case row
+    case toolbar
+}
+
+/// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
+/// New Tab, where the panel offers one. In its own row the suggestion list hangs under the bar,
+/// above whatever the panel shows beneath; in the toolbar the host draws it in the panel, since a
+/// toolbar item clips anything drawn outside it.
 struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: View>: View {
     let newTabTitle: String
     let newTabHelp: String
     let newTab: () -> Void
+    /// False for the pane's address row, whose tabs are in the toolbar with New Tab beside them.
+    var showsNewTab = true
     var placement: CompactTabBarPlacement = .row
     @ViewBuilder let leading: Leading
     /// Given the width left between the leading control and the trailing actions.
@@ -84,6 +103,11 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
     /// Trailing the pill, beside New Tab: the panel's own action, if it has one.
     @ViewBuilder let trailing: Trailing
     @ViewBuilder let suggestions: Suggestions
+    @Environment(\.compactTabStyle) private var tabStyle
+    /// A flat strip's tabs start at the leading edge with New Tab right after the last of them, the
+    /// rest of the width empty, as ChatGPT's pane is; otherwise the pill is centred and New Tab
+    /// ends the row.
+    private var hugsLeading: Bool { tabStyle == .flat }
 
     var body: some View {
         switch placement {
@@ -94,14 +118,8 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 // Above the content beneath, or the list would render under it.
                 .zIndex(1)
                 .overlay(alignment: .top) { suggestions.padding(.top, 52) }
-        case .titleBar(let height):
-            content
-                .padding(.leading, 12)
-                // The toolbar draws the pane's toggle over the zone's trailing end.
-                .padding(.trailing, CompactTabMetrics.titleBarTrailingInset)
-                .frame(height: height)
-                .zIndex(1)
-                .overlay(alignment: .top) { suggestions.padding(.top, height - 4) }
+        case .toolbar:
+            content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
         }
     }
 
@@ -111,31 +129,38 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
             // The pill is centred in whatever the row has left, and told how much that is: tabs that
             // would overrun it fall back to icons rather than pushing the trailing actions out of the pane.
             GeometryReader { proxy in
-                pill(proxy.size.width).frame(width: proxy.size.width, height: proxy.size.height)
+                if hugsLeading {
+                    // New Tab inside the measured width, so it follows the pill however wide that is.
+                    let button = showsNewTab ? Theme.Size.largeControl + 8 : 0
+                    HStack(spacing: 8) {
+                        pill(max(0, proxy.size.width - button))
+                        if showsNewTab { newTabButton }
+                    }
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                } else {
+                    pill(proxy.size.width).frame(width: proxy.size.width, height: proxy.size.height)
+                }
             }
             trailing
-            // The 32pt square is the label, not a frame around the button, so the whole capsule
-            // takes the click rather than the 14pt glyph alone.
-            Button(action: newTab) {
-                Label(newTabTitle, systemImage: "plus")
-                    .labelStyle(SquareIconLabelStyle())
-                    .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
-                    .contentShape(Rectangle())
-            }
-            .help(newTabHelp)
-            .barGlass()
+            if showsNewTab, !hugsLeading { newTabButton }
         }
     }
-}
 
-extension CompactTabBar where Trailing == EmptyView {
-    /// A bar whose only trailing control is New Tab.
-    init(newTabTitle: String, newTabHelp: String, newTab: @escaping () -> Void,
-         placement: CompactTabBarPlacement = .row,
-         @ViewBuilder leading: () -> Leading, @ViewBuilder pill: @escaping (CGFloat) -> Pill,
-         @ViewBuilder suggestions: () -> Suggestions) {
-        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, placement: placement,
-                  leading: leading, pill: pill, trailing: { EmptyView() }, suggestions: suggestions)
+    /// The 32pt square is the label, not a frame around the button, so the whole capsule takes the
+    /// click rather than the 14pt glyph alone. A flat strip's is the bare symbol, no glass.
+    @ViewBuilder private var newTabButton: some View {
+        let button = Button(action: newTab) {
+            Label(newTabTitle, systemImage: "plus")
+                .labelStyle(SquareIconLabelStyle())
+                .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
+                .contentShape(Rectangle())
+        }
+        .help(newTabHelp)
+        if tabStyle == .flat {
+            button.buttonStyle(.plain).font(.system(size: 14)).foregroundStyle(Theme.textTertiary)
+        } else {
+            button.barGlass()
+        }
     }
 }
 
@@ -156,11 +181,34 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
     @ViewBuilder let tab: (ID, Bool) -> Tab
     /// Where each tab is laid out in the pill, which is what a drag is measured against.
     @State private var frames: [ID: CGRect] = [:]
+    /// How wide each flat tab's trailing buttons are — a speaker beside Close — which a drag
+    /// must not start on (`CompactTabTrailingWidth`).
+    @State private var trailingWidths: [ID: CGFloat] = [:]
     @State private var drag: TabDrag?
     private let pillSpace = "compact-tab-pill"
 
     /// The unselected tab a gesture has asked to select, so that it asks once and not per event.
     @State private var picked: ID?
+    @Environment(\.compactTabStyle) private var style
+    @Environment(\.controlActiveState) private var windowState
+
+    /// Whether a flat strip raises its selected tab. In a window that is not the key one it does
+    /// not, as Codex's: every tab the same grey, rules between them.
+    private var raisesActive: Bool { style != .flat || windowState != .inactive }
+    /// A flat strip's rule before a tab: between two tabs neither of which is raised.
+    private func ruled(_ id: ID, after previous: ID?) -> Bool {
+        guard style == .flat, let previous else { return false }
+        return !raisesActive || (id != activeID && previous != activeID)
+    }
+
+    /// A tab slides in from the trailing side and out to it, inside the pill whose round ends clip
+    /// it. A flat strip has no ends to clip a slide, which then crossed New Tab and the toggle: its
+    /// new tab fades in, growing from where it stands; closing still slides out.
+    private var transition: AnyTransition {
+        let slide = AnyTransition.move(edge: .trailing).combined(with: .opacity)
+        guard style == .flat else { return slide }
+        return .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)), removal: slide)
+    }
 
     /// A drag in progress: the tab, where the pointer was when it took hold, how far the tab's slot
     /// has moved along the row since, and where the pointer is.
@@ -174,24 +222,37 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
     }
 
     var body: some View {
-        let layout = CompactTabLayout(ids: allIDs, activeID: activeID, available: available)
+        let layout = CompactTabLayout(ids: allIDs, activeID: activeID, available: available,
+                                      minTitled: style == .flat ? CompactTabMetrics.minFlatTitledTabWidth : CompactTabMetrics.minTitledTabWidth)
         let ids = layout.visible
-        if ids.isEmpty {
+        if ids.isEmpty, style == .flat {
+            // The pane's strip with no tabs is nothing but its New Tab.
+            Color.clear.frame(height: CompactTabMetrics.pillHeight)
+        } else if ids.isEmpty {
             // Momentarily empty while the blank tab is created; holds the row's shape.
             Capsule().fill(Theme.surfaceHover)
-                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
+                .pixelOutline(Capsule())
                 .frame(maxWidth: maxTabWidth).frame(height: CompactTabMetrics.pillHeight)
         } else {
             HStack(spacing: CompactTabMetrics.tabSpacing) {
                 ForEach(ids, id: \.self) { id in
                     let iconOnly = layout.iconOnly && id != activeID
+                    let previous = ids.firstIndex(of: id).flatMap { $0 > 0 ? ids[$0 - 1] : nil }
                     tab(id, iconOnly)
+                        .onPreferenceChange(CompactTabTrailingWidth.self) { trailingWidths[id] = $0 }
                         .frame(maxWidth: iconOnly ? CompactTabMetrics.iconTabWidth : maxTabWidth)
                         // Behind its own tab, inside the transition, so a tab that slides in or out
                         // carries its capsule with it. One capsule gliding between slots arrives
                         // after the tab does, and the field's text shows outside it on the way.
-                        .background { if id == activeID { ActiveTabCapsule() } }
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .background { if id == activeID, raisesActive { if style == .flat { FlatActiveTab() } else { ActiveTabCapsule() } } }
+                        // In the gap before the tab, so it moves with it.
+                        .overlay(alignment: .leading) {
+                            if ruled(id, after: previous) {
+                                Rectangle().fill(Theme.border).frame(width: 1, height: 16)
+                                    .offset(x: -(CompactTabMetrics.tabSpacing + 1) / 2)
+                            }
+                        }
+                        .transition(transition)
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(pillSpace)) } action: { frames[id] = $0 }
                         // The dragged tab stays under the pointer: its slot changes as it passes its
                         // neighbours, and the offset makes up the difference. It takes each new slot
@@ -204,12 +265,7 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
             }
             .coordinateSpace(.named(pillSpace))
             .onChange(of: ids) { _, ids in frames = frames.filter { ids.contains($0.key) } }
-            .padding(2)
-            .frame(height: CompactTabMetrics.pillHeight)
-            .background(Theme.surfaceHover, in: Capsule())
-            // A tab sliding in starts a full width to the right: keep it inside the pill.
-            .clipShape(PillSlideClip())
-            .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
+            .modifier(PillShape(style: style))
         }
     }
 }
@@ -224,8 +280,12 @@ extension CompactTabPill {
                 // A press that began on Close is a click on Close, however far it wanders: it must
                 // not turn into a drag that selects the tab it was meant to close.
                 // Asked only before the drag takes hold: once the tab moves, so does its frame.
-                if drag == nil, titled, let frame = frames[id],
-                   value.startLocation.x - frame.minX < CompactTabMetrics.tabPadding + CompactTabMetrics.closeSlotWidth { return }
+                if drag == nil, titled, let frame = frames[id] {
+                    // A flat tab's Close is trailing, after any speaker: the whole run of its buttons.
+                    let closeEnd = CompactTabMetrics.tabPadding + CompactTabMetrics.closeSlotWidth
+                    let trailingEnd = CompactTabMetrics.tabPadding + max(trailingWidths[id] ?? 0, CompactTabMetrics.closeSlotWidth)
+                    if style == .flat ? frame.maxX - value.startLocation.x < trailingEnd : value.startLocation.x - frame.minX < closeEnd { return }
+                }
                 // A dragged tab is the selected tab, as in Safari. Selecting can change widths, so
                 // the drag takes hold only once this tab is the selected one, and asks just once.
                 guard id == activeID else {
@@ -265,12 +325,6 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     let closeTitle: String
     let help: String
     let active: Bool
-    /// Whether the bar is on screen: hidden workspaces and collapsed panes stay mounted, and
-    /// neither opacity nor a hidden ancestor stops a field from taking first responder.
-    let workspaceActive: Bool
-    /// A blank tab takes the keyboard when it becomes active, unless the bar opened it itself.
-    let blank: Bool
-    let autoFocus: Bool
     let closable: Bool
     /// The row has no room for titles: an unselected tab draws as its icon, and Close takes the
     /// icon's place under the pointer.
@@ -303,8 +357,92 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     /// and Close comes back under the pointer.
     private var showsClose: Bool { closable && (isEditing ? hoveringClose : active || hovering) }
 
+    @Environment(\.compactTabStyle) private var style
+    @Environment(\.controlActiveState) private var windowState
+
     var body: some View {
-        if iconOnly && !active { iconTab } else { titledTab }
+        if iconOnly && !active { iconTab } else if style == .flat { flatTab } else { titledTab }
+    }
+
+    /// A flat strip's selected title in the text's colour, while its window is the key one; out of
+    /// it every title is the same grey, as nothing is raised.
+    private var flatTitleStands: Bool { active && windowState != .inactive }
+
+    /// ChatGPT's tab: icon and title from the leading edge, the tab's buttons, then Close at the
+    /// trailing end, shown on the selected tab and under the pointer. Never a field. A title too
+    /// long for the tab is never cut with an ellipsis: it runs on and fades out before Close.
+    private var flatTab: some View {
+        ZStack(alignment: .trailing) {
+            Button(action: select) {
+                HStack(spacing: 6) {
+                    icon
+                    // Laid over a box the tab sizes, so the full title runs on under the fade without
+                    // asking the tab for its width.
+                    Color.clear.frame(height: CompactTabMetrics.tabHeight).overlay(alignment: .leading) {
+                        Text(label.isEmpty ? placeholder : label)
+                            .font(CompactTabMetrics.stripTabFont)
+                            .fixedSize()
+                            // An unselected tab's title is lighter still, so the selected one leads.
+                            .foregroundStyle(flatTitleStands ? .primary : active ? Theme.textSecondary : Theme.textTertiary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .mask {
+                    HStack(spacing: 0) {
+                        Rectangle()
+                        // Short, and ending at the cross itself rather than its slot: the title stays
+                        // solid until just before Close.
+                        LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black.opacity(0.5), location: 0.5),
+                                               .init(color: .clear, location: 1)],
+                                       startPoint: .leading, endPoint: .trailing).frame(width: 14)
+                        // Ending a few points short of the cross's left edge (7.5 into its 24-point
+                        // slot), so no letter is ever drawn under it.
+                        Color.clear.frame(width: max(0, flatTrailingWidth - 4))
+                    }
+                    // Past the leading edge too, so what the icon draws beside itself — a file's
+                    // unsaved mark — is not masked away.
+                    .padding(.leading, -16)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(help)
+            .accessibilityLabel(label.isEmpty ? placeholder : label)
+            .accessibilityHint(active ? "" : "Select tab")
+            HStack(spacing: 0) {
+                accessories(hovering)
+                if closable { flatClose }
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { accessoriesWidth = $0 }
+        }
+        .preference(key: CompactTabTrailingWidth.self, value: accessoriesWidth)
+        .padding(.leading, 12).padding(.trailing, 6)
+        .frame(height: CompactTabMetrics.tabHeight)
+        .background(hovering && !active ? Theme.border.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: FlatActiveTab.radius))
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityAction(named: closeTitle, close)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+
+    /// What the trailing buttons take, which the title fades out before; at least Close's slot, so
+    /// it fades the same with Close hidden.
+    private var flatTrailingWidth: CGFloat { max(accessoriesWidth, closable ? CompactTabMetrics.closeSlotWidth : 0) }
+
+    @ViewBuilder private var flatClose: some View {
+        let shown = active || hovering
+        // A bare cross, as ChatGPT's: the filled circle is Safari's.
+        Button(closeTitle, systemImage: "xmark", action: close)
+            .labelStyle(.iconOnly).buttonStyle(.plain)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(hoveringClose ? Theme.textSecondary : Theme.textTertiary)
+            .frame(width: CompactTabMetrics.closeSlotWidth, height: CompactTabMetrics.closeSlotWidth)
+            .contentShape(Rectangle())
+            .onHover { hoveringClose = $0 }
+            .help("Close tab")
+            .opacity(shown ? 1 : 0)
+            .allowsHitTesting(shown)
+            .accessibilityHidden(!shown)
     }
 
     private var iconTab: some View {
@@ -315,7 +453,8 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
         .accessibilityLabel(label.isEmpty ? placeholder : label)
         .accessibilityHint("Select tab")
         .frame(width: CompactTabMetrics.iconTabWidth, height: CompactTabMetrics.tabHeight)
-        .background(hovering ? Theme.border.opacity(0.5) : .clear, in: Capsule())
+        .background(hovering ? Theme.border.opacity(0.5) : .clear,
+                    in: RoundedRectangle(cornerRadius: style == .flat ? FlatActiveTab.radius : CompactTabMetrics.tabHeight / 2))
         .onHover { hovering = $0 }
         .help(label.isEmpty ? help : label)
         .accessibilityAction(named: closeTitle, close)
@@ -346,9 +485,6 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
         .accessibilityAction(named: closeTitle, close)
         .animation(.easeInOut(duration: 0.15), value: active)
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .onAppear { takeFocusIfBlank() }
-        .onChange(of: active) { _, _ in takeFocusIfBlank() }
-        .onChange(of: workspaceActive) { _, _ in takeFocusIfBlank() }
     }
 
     /// Safari's leading slot: one 24pt position that holds Close at rest and the magnifying glass
@@ -424,14 +560,6 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
             }
     }
 
-    /// Deferred one turn: the field is inserted in the same update that makes the tab active, and
-    /// a focus binding set before the focus system has registered its field is silently dropped.
-    private func takeFocusIfBlank() {
-        guard autoFocus, active, workspaceActive, blank else { return }
-        Task { @MainActor in
-            if active, workspaceActive, blank { editing = true }
-        }
-    }
 }
 
 /// A trailing button inside the selected tab: 24pt, icon only, faded out rather than removed so
@@ -464,22 +592,36 @@ struct CompactTabAccessory: View {
 struct HoverCircleButton: View {
     let title: String
     let systemImage: String
+    /// An icon of the app's own asset catalog, for a glyph SF Symbols lacks: drawn in place of the
+    /// symbol at the symbol's size.
+    var asset: String? = nil
     let enabled: Bool
+    /// The glyph's colour while enabled, where it says something — a page already bookmarked.
+    let tint: Color?
     let action: () -> Void
     @State private var hovering = false
 
-    init(_ title: String, systemImage: String, enabled: Bool, action: @escaping () -> Void) {
-        self.title = title; self.systemImage = systemImage; self.enabled = enabled; self.action = action
+    init(_ title: String, systemImage: String, enabled: Bool, tint: Color? = nil, action: @escaping () -> Void) {
+        self.title = title; self.systemImage = systemImage; self.enabled = enabled; self.tint = tint; self.action = action
+    }
+
+    init(_ title: String, asset: String, enabled: Bool, tint: Color? = nil, action: @escaping () -> Void) {
+        self.init(title, systemImage: "", enabled: enabled, tint: tint, action: action)
+        self.asset = asset
     }
 
     var body: some View {
         // The circle is the button's label, so the whole 32pt disc takes the click, not just the
         // glyph inside it.
         Button(action: action) {
-            Label(title, systemImage: systemImage)
+            Label {
+                Text(title)
+            } icon: {
+                if let asset { Image(asset).resizable().scaledToFit().frame(width: 17, height: 17) } else { Image(systemName: systemImage) }
+            }
                 .labelStyle(.iconOnly)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(enabled ? Theme.textSecondary : Theme.textTertiary.opacity(0.6))
+                .foregroundStyle(enabled ? tint ?? Theme.textSecondary : Theme.textTertiary.opacity(0.6))
                 .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
                 .background(hovering && enabled ? Theme.border.opacity(0.6) : .clear, in: Circle())
                 .contentShape(Circle())
@@ -560,14 +702,20 @@ func compactHighlight(_ highlighted: Int?, moving delta: Int, count: Int) -> Int
     return next == -1 ? nil : next
 }
 
-/// The suggestion list's panel: Liquid Glass on macOS 26, the window surface with a hairline before it.
+/// The suggestion list's panel: Liquid Glass on macOS 26 in a glass bar, the window surface with a
+/// hairline otherwise.
 private extension View {
-    @ViewBuilder func suggestionGlass() -> some View {
+    func suggestionGlass() -> some View { modifier(SuggestionGlass()) }
+}
+
+private struct SuggestionGlass: ViewModifier {
+    @Environment(\.compactTabStyle) private var style
+    func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
-        if #available(macOS 26.0, *) {
-            glassEffect(.regular, in: shape)
+        if #available(macOS 26.0, *), style == .capsule {
+            content.glassEffect(.regular, in: shape)
         } else {
-            background(Color(nsColor: .windowBackgroundColor), in: shape)
+            content.background(Color(nsColor: .windowBackgroundColor), in: shape)
                 .overlay(shape.strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
                 .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
         }
@@ -575,21 +723,50 @@ private extension View {
 }
 
 /// The bar's chrome buttons share one look: 32pt tall, icon-only at 20pt, plain buttons over a
-/// Liquid Glass capsule on macOS 26 and a tinted bordered capsule before it.
+/// Liquid Glass capsule on macOS 26 and a tinted bordered capsule before it, or in a bar drawn
+/// without glass.
 extension View {
-    @ViewBuilder func barGlass(iconOnly: Bool = true) -> some View {
-        let base = labelStyle(iconOnly ? AnyLabelStyle(SquareIconLabelStyle()) : AnyLabelStyle(.titleAndIcon))
+    func barGlass(iconOnly: Bool = true) -> some View { modifier(BarGlass(iconOnly: iconOnly)) }
+}
+
+private struct BarGlass: ViewModifier {
+    let iconOnly: Bool
+    @Environment(\.compactTabStyle) private var style
+    func body(content: Content) -> some View {
+        let base = content.labelStyle(iconOnly ? AnyLabelStyle(SquareIconLabelStyle()) : AnyLabelStyle(.titleAndIcon))
             .buttonStyle(.plain)
             .font(.system(size: 14, weight: .medium))
             .foregroundStyle(Theme.textSecondary)
             .frame(height: Theme.Size.largeControl)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), style == .capsule {
             base.glassEffect(.regular.interactive(), in: Capsule())
+        } else if style == .outlined {
+            // Beside the address's pill, as tall as it: the 32pt buttons sit inside, as the
+            // selected tab sits inside the pill.
+            let inset = (CompactTabMetrics.pillHeight - Theme.Size.largeControl) / 2
+            base.padding(.horizontal, inset)
+                .frame(minWidth: CompactTabMetrics.pillHeight, minHeight: CompactTabMetrics.pillHeight)
+                .background(Theme.surfaceHover, in: Capsule())
+                .pixelOutline(Capsule())
         } else {
             base.background(Theme.surfaceHover, in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
+                .pixelOutline(Capsule())
         }
     }
+}
+
+/// The outline of the bar's shapes drawn without glass — the pill, its buttons' capsules, the
+/// pane's address and file rows: one display pixel, lighter than the theme's one-point hairline.
+private struct PixelOutline<S: InsettableShape>: ViewModifier {
+    let shape: S
+    @Environment(\.displayScale) private var scale
+    func body(content: Content) -> some View {
+        content.overlay(shape.strokeBorder(Theme.border, lineWidth: 1 / max(scale, 1)))
+    }
+}
+
+extension View {
+    func pixelOutline<S: InsettableShape>(_ shape: S) -> some View { modifier(PixelOutline(shape: shape)) }
 }
 
 /// The pill's clip for tabs sliding in and out. Tabs only ever travel sideways, so the pill's round
@@ -602,10 +779,39 @@ private struct PillSlideClip: Shape {
     }
 }
 
+/// The selected tab of a flat strip: the page's colour on a rounded rectangle, lifted by a
+/// hairline shadow, with no glass.
+struct FlatActiveTab: View {
+    static let radius: CGFloat = 8
+    var body: some View {
+        RoundedRectangle(cornerRadius: Self.radius).fill(Theme.paneBackground)
+            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+    }
+}
+
+/// The outer pill around Safari's tabs; a flat strip has none.
+private struct PillShape: ViewModifier {
+    let style: CompactTabStyle
+    func body(content: Content) -> some View {
+        if style == .flat {
+            content.frame(height: CompactTabMetrics.pillHeight)
+        } else {
+            content
+                .padding(CompactTabMetrics.pillInset)
+                .frame(height: CompactTabMetrics.pillHeight)
+                .background(Theme.surfaceHover, in: Capsule())
+                // A tab sliding in starts a full width to the right: keep it inside the pill.
+                .clipShape(PillSlideClip())
+                .pixelOutline(Capsule())
+        }
+    }
+}
+
 /// The raised background of the selected tab: Liquid Glass on macOS 26, a lifted capsule before.
 struct ActiveTabCapsule: View {
+    @Environment(\.compactTabStyle) private var style
     var body: some View {
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), style == .capsule {
             Color.clear.glassEffect(.regular.interactive(), in: Capsule())
         } else {
             Capsule().fill(Color(nsColor: .controlBackgroundColor))
@@ -619,4 +825,10 @@ private struct AnyLabelStyle: LabelStyle {
     private let make: (Configuration) -> AnyView
     init<S: LabelStyle>(_ style: S) { make = { AnyView(style.makeBody(configuration: $0)) } }
     func makeBody(configuration: Configuration) -> some View { make(configuration) }
+}
+
+/// The width of a flat tab's trailing buttons, reported to the strip so a drag never starts on one.
+struct CompactTabTrailingWidth: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// What a blank tab shows in place of a web view: the bookmarks as icon tiles, then this
-/// session's own pages as the same tiles, newest first. A session with none left to show
+/// What a blank tab shows in place of a web view: the bookmarks as icon tiles and this session's
+/// own pages as the same tiles, newest first. A session with none left to show
 /// offers the pages visited in any panel instead. The History heading leads to the one history
 /// shared by every panel. Clicking a tile loads it in this tab. Last, the files this session's
 /// worktree last had open; picking one opens it in place of this tab.
@@ -19,6 +19,8 @@ struct BrowserStartPage: View {
     static let tileRows = 2, historyRows = 1
     static let tileMinimum: CGFloat = 92, tileSpacing: CGFloat = 8
     static let pagePadding: CGFloat = 24
+    /// The one column the field and the sections under it share, so every left edge lines up.
+    static let columnWidth: CGFloat = 680
 
     /// This session's pages, newest first, or every panel's when it has none. Bookmarked pages
     /// are left out, so nothing appears twice on the page, and so is a page since removed from
@@ -48,7 +50,7 @@ struct BrowserStartPage: View {
     }
 
     private func tileGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .top)], spacing: 12, content: content)
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .topLeading)], spacing: 12, content: content)
             .onGeometryChange(for: Int.self) { proxy in
                 max(1, Int((proxy.size.width + Self.tileSpacing) / (Self.tileMinimum + Self.tileSpacing)))
             } action: { tileColumns = $0 }
@@ -65,9 +67,15 @@ struct BrowserStartPage: View {
         .background(Theme.paneBackground)
     }
 
+    /// The bookmarks, this session's history and the worktree's recent files.
     private var startPage: some View {
         let bookmarks = context.bookmarks?.bookmarks ?? [], recent = recent(excluding: bookmarks), files = recentFiles
         return ScrollView {
+            startContent(bookmarks: bookmarks, recent: recent, files: files).padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder private func startContent(bookmarks: [BrowserBookmark], recent: [WebPageRecord], files: [FileDocumentRecord]) -> some View {
             if recent.isEmpty && bookmarks.isEmpty && files.isEmpty {
                 VStack(spacing: 5) {
                     Text(String(localized: "No bookmarks or history yet")).font(Theme.Typography.emptyTitle).foregroundStyle(Theme.textSecondary)
@@ -75,7 +83,7 @@ struct BrowserStartPage: View {
                                      : String(localized: "Pages you bookmark or visit, and files you open, appear here."))
                         .font(Theme.Typography.emptyHint).foregroundStyle(Theme.textTertiary)
                 }
-                .frame(maxWidth: .infinity).padding(.top, 80)
+                .frame(maxWidth: .infinity).padding(.top, 40)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     if !bookmarks.isEmpty {
@@ -135,10 +143,11 @@ struct BrowserStartPage: View {
                         .accessibilityLabel(String(localized: "Recent Files"))
                     }
                 }
-                .padding(Self.pagePadding)
-                .readableColumn()
+                .padding(.vertical, Self.pagePadding)
+                .frame(maxWidth: Self.columnWidth)
+                .padding(.horizontal, Self.pagePadding)
+                .frame(maxWidth: .infinity)
             }
-        }
     }
 
     private func open(_ url: String) {

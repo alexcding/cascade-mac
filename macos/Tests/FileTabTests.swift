@@ -6,6 +6,7 @@ private struct FileSearchFixture: FileSearchService {
     func files(in root: String, matching query: String) async throws -> [String] {
         files.filter { $0.localizedCaseInsensitiveContains(query) }
     }
+    func allFiles(in root: String) async throws -> (files: [String], truncated: Bool) { (files.sorted(), false) }
 }
 
 @MainActor @Test func aFileOpenedFromABlankPageTakesItsPlace() throws {
@@ -27,7 +28,7 @@ private struct FileSearchFixture: FileSearchService {
     snapshot.pane = "files"
     snapshot.documents = [.init(path: "/tmp/saved.swift")]
     let context = WorkspaceContext(id: "task:legacy", sourceURL: "", title: "", snapshot: snapshot)
-    #expect(context.pane == .term && context.lastMode == .browser && context.activeDocument?.record.path == "/tmp/saved.swift")
+    #expect(context.pane == .term && context.lastPane == .term && context.activeDocument?.record.path == "/tmp/saved.swift")
 }
 
 @MainActor @Test func aFileSuggestionOpensAsItsOwnTab() throws {
@@ -73,4 +74,7 @@ private struct FileSearchFixture: FileSearchService {
     let cut = CompactTabLayout(ids: ids, activeID: "a", available: 260)
     #expect(cut.iconOnly && cut.visible == ["a", "d", "e"])
     #expect(CompactTabLayout(ids: ids, activeID: "a", available: 50).visible == ["a"])
+    // A flat strip's titles fade rather than cut, so they hold on far longer: 180 + 4 * 74 + 4 = 480.
+    #expect(!CompactTabLayout(ids: ids, activeID: "c", available: 500, minTitled: CompactTabMetrics.minFlatTitledTabWidth).iconOnly)
+    #expect(CompactTabLayout(ids: ids, activeID: "c", available: 470, minTitled: CompactTabMetrics.minFlatTitledTabWidth).iconOnly)
 }

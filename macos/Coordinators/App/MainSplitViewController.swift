@@ -43,11 +43,9 @@ import SwiftUI
         paneItem.minimumThickness = MainWindowMetrics.paneMin
         paneItem.maximumThickness = NSSplitViewItem.unspecifiedDimension
         paneItem.canCollapse = true
-        // Full height, as Xcode's inspector is: the column reaches the window's top and draws its
-        // own bar in the title-bar zone (`SessionWorkspacePane`), so the toolbar's pane section is
-        // its toggle alone, and showing or hiding the pane changes no toolbar item — the tracking
-        // separator carries the screen's trailing items along with the divider, and the bar slides
-        // with the column it is part of.
+        // Full height, as Xcode's inspector is: the column reaches the window's top, under the
+        // toolbar's pane section, which holds the pane's tabs and its toggle and tracks the divider
+        // (`SessionWorkspaceToolbar`); the pane's content keeps to the safe area below it.
         // Equal holding priorities: a window resize is shared between the screen and the pane in
         // proportion, as it was between the terminal and the pane before.
         paneItem.holdingPriority = contentItem.holdingPriority
@@ -183,8 +181,8 @@ private struct MainSidebarColumn: View {
 /// The context pane's column: a deck of every workspace's pane, the one the column is open for on
 /// top, so a switch between sessions rebuilds no pane and takes no web view out of the window, as the
 /// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
-/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The column reaches the window's top: each pane draws its
-/// bar in the title-bar zone, which AppKit reports to it as the safe area. It is opaque: AppKit
+/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The column reaches the window's top, under the toolbar's
+/// pane section, which AppKit reports to each pane as the safe area its content keeps to. It is opaque: AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
 /// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
 /// column the divider is zero-width and AppKit draws no line, though it can still be dragged.

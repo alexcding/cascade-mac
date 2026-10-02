@@ -266,7 +266,7 @@ public final class AppViewModel {
     var sessionOperations: (any SessionServing)? { api.map { backendFactory.sessions(api: $0) } }
 
     func showChanges(for session: WorkspaceSession, context: WorkspaceContext) {
-        if context.pane == .diff { context.setPane(.term); return }
+        if context.pane == .diff { context.showPages(); return }
         prepareChanges(for: session, context: context)
         if diffModels[context.id] != nil { context.setPane(.diff) }
     }
@@ -491,7 +491,7 @@ public final class AppViewModel {
         case .saveFile: viewer.active?.activeDocument?.loaded == true && viewer.active?.activeDocument?.readOnly == false
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
-        case .nextPage, .previousPage: (viewer.active?.tabs.count ?? 0) > 1
+        case .nextPage, .previousPage: (viewer.active?.stripTabs.count ?? 0) > 1
         case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
@@ -638,7 +638,7 @@ public final class AppViewModel {
     /// front. A session panel showing something else switches to Browser first.
     func newBrowserTab() {
         guard coordinator.canPresent, let context = viewer.active else { return }
-        if context.pane != .term { context.setPane(.term) }
+        // Selecting the new page shows the pages: asking for them first would open a blank tab too.
         context.openBlankPage()
     }
 

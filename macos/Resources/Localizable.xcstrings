@@ -7555,83 +7555,6 @@
         }
       }
     },
-    "Add a Jira project key or saved JQL to a project to see its sprint board." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "স্প্রিন্ট বোর্ড দেখতে কোনো প্রকল্পে Jira প্রকল্প কী বা সংরক্ষিত JQL যোগ করুন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Añade una clave de proyecto de Jira o una JQL guardada a un proyecto para ver su tablero de sprint."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ajoutez une clé de projet Jira ou une requête JQL enregistrée à un projet pour voir son tableau de sprint."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "स्प्रिंट बोर्ड देखने के लिए किसी प्रोजेक्ट में Jira प्रोजेक्ट कुंजी या सहेजी गई JQL जोड़ें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aggiungi a un progetto una chiave di progetto Jira o una JQL salvata per vederne la board dello sprint."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スプリントボードを表示するには、プロジェクトに Jira のプロジェクトキーまたは保存済みの JQL を追加してください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "스프린트 보드를 보려면 프로젝트에 Jira 프로젝트 키나 저장된 JQL을 추가하세요."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Adicione uma chave de projeto do Jira ou uma JQL salva a um projeto para ver o quadro do sprint."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Добавьте к проекту ключ проекта Jira или сохранённый JQL, чтобы увидеть доску спринта."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lägg till en Jira-projektnyckel eller sparad JQL i ett projekt för att se dess sprinttavla."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "为项目添加 Jira 项目键或已保存的 JQL，即可查看其冲刺看板。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "為專案加入 Jira 專案鍵或已儲存的 JQL，即可查看其衝刺看板。"
-          }
-        }
-      }
-    },
     "Add a project and choose its local repository folder. Each project uses one repository. Add GitHub or Jira details if you want pull requests or tickets. Open Settings → Integrations to check your tools or run the setup assistant again. Agents are optional: choose Shell only to use a terminal." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -24788,6 +24711,9 @@
         }
       }
     },
+    "Commit…" : {
+
+    },
     "Commits ahead of %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31243,6 +31169,12 @@
           }
         }
       }
+    },
+    "Couldn't list this worktree's files." : {
+
+    },
+    "Couldn't load folder contents" : {
+
     },
     "CPU" : {
       "extractionState" : "manual",
@@ -40543,6 +40475,9 @@
         }
       }
     },
+    "Filter files…" : {
+
+    },
     "Filter loaded tickets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -45467,6 +45402,9 @@
         }
       }
     },
+    "Hide Files" : {
+
+    },
     "Hide Others" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -45543,6 +45481,9 @@
           }
         }
       }
+    },
+    "Hide the files" : {
+
     },
     "Hide token" : {
       "extractionState" : "manual",
@@ -49543,83 +49484,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jira 未連線，沒有可顯示的工作項目。"
-          }
-        }
-      }
-    },
-    "Jira isn’t connected, so there is no board to show." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira সংযুক্ত নেই, তাই দেখানোর মতো কোনো বোর্ড নেই।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira no está conectado, así que no hay ningún tablero que mostrar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira n’est pas connecté : aucun tableau à afficher."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira कनेक्ट नहीं है, इसलिए दिखाने के लिए कोई बोर्ड नहीं है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira non è collegato, quindi non c’è nessuna board da mostrare."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira が接続されていないため、表示できるボードはありません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira가 연결되지 않아 표시할 보드가 없습니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O Jira não está conectado, então não há quadro para mostrar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira не подключена, поэтому показать доску нельзя."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira är inte ansluten, så det finns ingen tavla att visa."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira 未连接，因此没有可显示的看板。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Jira 未連線，因此沒有可顯示的看板。"
           }
         }
       }
@@ -60401,6 +60265,12 @@
         }
       }
     },
+    "No files in this worktree" : {
+
+    },
+    "No files match" : {
+
+    },
     "No filters: every event continues" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -66021,6 +65891,9 @@
         }
       }
     },
+    "Open a file from the worktree" : {
+
+    },
     "Open a new file tab" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -66404,6 +66277,9 @@
           }
         }
       }
+    },
+    "Open file" : {
+
     },
     "Open File" : {
       "localizations" : {
@@ -69556,6 +69432,9 @@
         }
       }
     },
+    "Pane" : {
+
+    },
     "Panel" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -69863,6 +69742,9 @@
           }
         }
       }
+    },
+    "Path" : {
+
     },
     "Patterns" : {
       "extractionState" : "manual",
@@ -71936,83 +71818,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PR–Jira 連結：%lld"
-          }
-        }
-      }
-    },
-    "Preference saved locally; connect to sync it." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "পছন্দ স্থানীয়ভাবে সংরক্ষিত; সিঙ্ক করতে সংযুক্ত হন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preferencia guardada localmente; conéctate para sincronizarla."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Préférence enregistrée localement ; connectez-vous pour la synchroniser."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "पसंद स्थानीय रूप से सहेजी गई; सिंक करने के लिए कनेक्ट करें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preferenza salvata localmente; connettiti per sincronizzarla."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定をローカルに保存しました。同期するには接続してください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "설정을 로컬에 저장했습니다. 동기화하려면 연결하세요."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Preferência salva localmente; conecte-se para sincronizar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройка сохранена локально; подключитесь для синхронизации."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inställningen sparades lokalt; anslut för att synkronisera."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "偏好设置已保存在本地；连接后可同步。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "偏好設定已儲存在本機；連線後可同步。"
           }
         }
       }
@@ -77861,6 +77666,9 @@
           }
         }
       }
+    },
+    "Reload this page" : {
+
     },
     "Remove" : {
       "extractionState" : "manual",
@@ -85559,6 +85367,12 @@
         }
       }
     },
+    "Save this file" : {
+
+    },
+    "Save this file's changes" : {
+
+    },
     "Saved" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -87632,6 +87446,9 @@
           }
         }
       }
+    },
+    "Select a file from the workspace tree" : {
+
     },
     "Select All" : {
       "extractionState" : "manual",
@@ -90478,6 +90295,9 @@
         }
       }
     },
+    "Show Files" : {
+
+    },
     "Show in Finder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -91017,6 +90837,9 @@
         }
       }
     },
+    "Show the files" : {
+
+    },
     "Show the repository's issues in My Tickets" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -91247,6 +91070,9 @@
           }
         }
       }
+    },
+    "Showing the first %lld matches" : {
+
     },
     "Showing the last successful read." : {
       "extractionState" : "manual",
@@ -92321,83 +92147,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "快照外觀需要原生幾何資訊控制權。"
-          }
-        }
-      }
-    },
-    "Some preferences are saved locally; reconnect to sync them." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "কিছু পছন্দ স্থানীয়ভাবে সংরক্ষিত; সিঙ্ক করতে আবার সংযুক্ত হন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Algunas preferencias están guardadas localmente; reconéctate para sincronizarlas."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Certaines préférences sont enregistrées localement ; reconnectez-vous pour les synchroniser."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "कुछ पसंद स्थानीय रूप से सहेजी गई हैं; सिंक करने के लिए फिर कनेक्ट करें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alcune preferenze sono salvate localmente; riconnettiti per sincronizzarle."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "一部の設定をローカルに保存しました。同期するには再接続してください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "일부 설정이 로컬에 저장되었습니다. 동기화하려면 다시 연결하세요."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Algumas preferências estão salvas localmente; reconecte-se para sincronizar."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Некоторые настройки сохранены локально; подключитесь снова для синхронизации."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vissa inställningar sparades lokalt; återanslut för att synkronisera."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分偏好设置已保存在本地；重新连接后可同步。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "部分偏好設定已儲存在本機；重新連線後可同步。"
           }
         }
       }
@@ -93710,6 +93459,9 @@
           }
         }
       }
+    },
+    "Stop loading this page" : {
+
     },
     "Stop the build" : {
       "extractionState" : "manual",
@@ -99989,83 +99741,6 @@
         }
       }
     },
-    "The foreground program is %@, not the selected %@ agent. Return to the shell before running this workflow." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "সামনের প্রোগ্রাম %@, নির্বাচিত %@ এজেন্ট নয়। ওয়ার্কফ্লো চালানোর আগে শেলে ফিরুন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El programa en primer plano es %@, no el agente %@ seleccionado. Vuelve al shell antes de ejecutar el flujo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le programme au premier plan est %@, et non l’agent %@ sélectionné. Revenez au shell avant d’exécuter ce workflow."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "अग्रभूमि प्रोग्राम %@ है, चुना गया %@ एजेंट नहीं। वर्कफ़्लो चलाने से पहले शेल में लौटें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il programma in primo piano è %@, non l’agente %@ selezionato. Torna alla shell prima di eseguire il flusso."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォアグラウンドのプログラムは %@ で、選択した %@ エージェントではありません。このワークフローを実行する前にシェルに戻ってください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "포그라운드 프로그램은 %@이며 선택한 %@ 에이전트가 아닙니다. 이 워크플로를 실행하기 전에 셸로 돌아가세요."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O programa em primeiro plano é %@, não o agente %@ selecionado. Volte ao shell antes de executar o fluxo."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Программа на переднем плане — %@, а не выбранный агент %@. Вернитесь в оболочку перед запуском процесса."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Förgrundsprogrammet är %@, inte den valda agenten %@. Återgå till skalet innan du kör arbetsflödet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前台程序是 %@，而非所选的 %@ 代理。请返回 shell 后再运行此工作流。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前景程式是 %@，而非所選的 %@ 代理程式。請返回 shell 後再執行此工作流程。"
-          }
-        }
-      }
-    },
     "The forwarder could not start." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -100522,83 +100197,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連結的專案已無法使用。"
-          }
-        }
-      }
-    },
-    "The linked project section is not available yet." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "লিঙ্ক করা প্রকল্প বিভাগ এখনও উপলভ্য নয়।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La sección de proyecto enlazada aún no está disponible."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La section du projet liée n’est pas encore disponible."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "लिंक किया प्रोजेक्ट अनुभाग अभी उपलब्ध नहीं है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La sezione del progetto collegata non è ancora disponibile."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "リンク先のプロジェクトセクションはまだ利用できません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "연결된 프로젝트 섹션을 아직 사용할 수 없습니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "A seção do projeto vinculada ainda não está disponível."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Раздел проекта по ссылке пока недоступен."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Den länkade projektdelen är inte tillgänglig ännu."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "链接的项目分区尚不可用。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "連結的專案區段尚無法使用。"
           }
         }
       }
@@ -104343,83 +103941,6 @@
         }
       }
     },
-    "The whole team’s sprint" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "পুরো দলের স্প্রিন্ট"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El sprint de todo el equipo"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le sprint de toute l’équipe"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "पूरी टीम का स्प्रिंट"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lo sprint di tutto il team"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "チーム全体のスプリント"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "팀 전체의 스프린트"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O sprint de toda a equipe"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Спринт всей команды"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hela teamets sprint"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "整个团队的冲刺"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "整個團隊的衝刺"
-          }
-        }
-      }
-    },
     "The workspace closed before removal." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -105573,6 +105094,9 @@
           }
         }
       }
+    },
+    "This folder is empty" : {
+
     },
     "This issue belongs to %@. Choose its project before creating the session." : {
       "extractionState" : "manual",
@@ -107562,6 +107086,12 @@
           }
         }
       }
+    },
+    "This workspace has no worktree to open files from." : {
+
+    },
+    "This worktree has more files than are listed" : {
+
     },
     "Thought" : {
       "localizations" : {

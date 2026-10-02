@@ -48,6 +48,7 @@ pub struct LocalQuery {
     repo: Option<String>,
     sha: Option<String>,
     q: Option<String>,
+    all: Option<String>,
 }
 
 pub(crate) fn foreign_origin(headers: &HeaderMap) -> bool {
