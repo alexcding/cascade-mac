@@ -159,20 +159,15 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
-    /// The address field's worktree search; opening a result is this context's own `openFile`.
-    @ObservationIgnored private(set) lazy var fileSearch: FileSearchViewModel = {
-        let model = documentFactory.fileSearch()
-        model.onAction = { [weak self] action in
-            switch action { case .open(let path): self?.openFile(path) }
-        }
-        return model
-    }()
-    /// The Files tab's tree; it lists through the same service as the address field's search.
+    /// What lists the worktree's files. Resolved per listing, so a reconnect is picked up without
+    /// rebuilding the tree.
+    @ObservationIgnored var fileService: () -> (any FileSearchService)? = { nil }
+    /// The Files tab's tree, listed through `fileService`.
     /// Made when first asked for, so a context that never shows it has none to retire.
     var worktreeFiles: WorktreeFilesViewModel {
         if let filesModel { return filesModel }
         let model = WorktreeFilesViewModel()
-        model.service = { [weak self] in self?.fileSearch.service() }
+        model.service = { [weak self] in self?.fileService() }
         model.onAction = { [weak self] action in
             switch action { case .open(let path): self?.openFromTree(path) }
         }
@@ -388,7 +383,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let path = (path as NSString).standardizingPath
         // A file opened from a blank tab — its address field, or its start page — takes its place.
         let blank = replaceableBlank
-        fileSearch.reset()
         defer { if let blank { close(blank) } }
         if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
         let file = documentFactory.editor(record: .init(path: path))
@@ -759,7 +753,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         context.globalHistory = browserHistory
         context.bookmarks = browserBookmarks
         context.clearBrowsingHistory = { [weak self] in self?.clearBrowsingHistory() }
-        context.fileSearch.service = { [weak self] in
+        context.fileService = { [weak self] in
             guard let self, let api else { return nil }
             return documentFactory.fileSearchService(api: api)
         }
