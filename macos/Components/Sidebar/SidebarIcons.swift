@@ -45,6 +45,17 @@ import AppKit
         return image
     }
 
+    /// A session's pin, a step smaller than a button would draw it, so it sits no larger than the
+    /// status dot it stands in for under the pointer.
+    static let pinSize: CGFloat = 11
+    static func pinSymbol(_ name: String) -> NSImage? {
+        let key = "\(name)@pin"
+        if let hit = cache[key] { return hit }
+        let image = symbol(name)?.withSymbolConfiguration(.init(pointSize: pinSize, weight: .medium))
+        cache[key] = image
+        return image
+    }
+
     /// A row's own icon, a step larger than the list would draw it. The size is baked into the image:
     /// the source list resets its cell's image view to the row size's 13pt, but leaves the image alone.
     static func rowSymbol(_ name: String) -> NSImage? {

@@ -180,6 +180,54 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     window.close()
 }
 
+/// A pinned session sits at the top level, with no project before it: its name starts where a
+/// folder's glyph does, not where a nested session's does.
+@MainActor @Test func aPinnedSessionsNameStartsWhereAFolderDoes() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-pinned-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("pinned", created: nil, pinned: true),
+                                                                                               workspaceSession("nested", created: nil)]),
+                             selection: .overview, pinnedIDs: ["pinned"], onSelect: { _ in }, onTogglePin: { _ in })
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.headerView = nil
+    outline.style = .sourceList
+    outline.rowSizeStyle = .medium
+    outline.indentationPerLevel = 0
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    scroll.documentView = outline
+    let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = scroll
+    coordinator.update(value)
+    outline.expandItem(nil, expandChildren: true)
+    window.layoutIfNeeded(); outline.displayIfNeeded()
+    var titleX: [String: CGFloat] = [:]
+    var folderX: CGFloat?
+    for row in 0..<outline.numberOfRows {
+        guard let node = outline.item(atRow: row) as? CocoaSidebar.Node,
+              let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCellView else { continue }
+        cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
+        let title = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == node.entry.title })
+        titleX[node.entry.id] = cell.convert(title.frame, to: outline).minX
+        if node.entry.id == "project:p1", let icon = cell.imageView, let image = icon.image {
+            // The glyph is centred in its slot.
+            folderX = cell.convert(icon.frame, to: outline).minX + (icon.frame.width - image.size.width) / 2
+        }
+    }
+    window.close()
+    let pinned = try #require(titleX["pin:pinned"]), folder = try #require(folderX)
+    let project = try #require(titleX["project:p1"]), nested = try #require(titleX["session:nested"])
+    #expect(abs(pinned - folder) <= 0.5, "where the folder's glyph starts")
+    #expect(nested == project, "under its project's name")
+}
+
 @MainActor @Test func sessionReorderStaysInsideItsProjectAndTheDraggedOrderIsTheApps() throws {
     let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("x", created: "2026-02", project: "p2"),
                     workspaceSession("b", created: "2026-03"), workspaceSession("c", created: "2026-04")]
@@ -403,13 +451,19 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(inked)
 }
 
-/// While ⌘ is held a session shows the key that selects it in place of its dot, with no plate,
-/// and the title does not move. Let go, the dot is back.
-@MainActor @Test func aSessionShowsItsShortcutInPlaceOfItsDotWhileCommandIsHeld() throws {
+/// A session's name starts where its project's does; its dot sits trailing, on the name's middle,
+/// and gives way to the pin under the pointer. While ⌘ is held the key that selects it takes that
+/// same trailing slot, with no plate, from the dot and the pin alike, and the name does not move.
+@MainActor @Test func aSessionShowsItsShortcutAndItsDotTrailing() throws {
     _ = NSApplication.shared
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")],
                                     status: ["a": SidebarSessionStatus(live: true, cli: "claude")])
+    let project = try #require(entries.flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
     let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
+    let folder = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    folder.configure(project, nested: false)
+    folder.needsLayout = true; folder.layoutSubtreeIfNeeded()
+    let folderTitle = try #require(folder.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == project.title }).frame
     let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
     func label(_ text: String) -> NSTextField? {
         cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
@@ -417,16 +471,28 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     }
     cell.configure(session, nested: true)
     #expect(cell.accessibilityLabel() == "\(session.title), Idle", "the row reads its status after its title")
-    let title = try #require(label(session.title)).frame
+    let titleField = try #require(label(session.title))
+    let title = titleField.frame
+    #expect(title.minX == folderTitle.minX, "the name lines up under the project's")
     let glyph = try #require(cell.subviews.compactMap { $0 as? SidebarStatusDot }.first)
-    #expect(!glyph.isHidden)
+    #expect(!glyph.isHidden && glyph.frame.minX >= title.maxX, "the dot trails the name")
+    let font = try #require(titleField.font)
+    #expect(abs(glyph.frame.midY - (title.minY + font.ascender - (font.capHeight + font.xHeight) / 4)) <= 0.5, "the dot is on the letters' middle")
     #expect(label("⌘1") == nil)
+    let pin = try #require(cell.subviews.compactMap { $0 as? SidebarAccessoryButton }.first)
+    cell.hovered = true
+    #expect(glyph.isHidden && !pin.isHidden && label(session.title)?.frame == title, "the pin takes the dot's slot")
+    cell.hovered = false
     cell.configure(session, nested: true, shortcut: "⌘1")
     let hint = try #require(label("⌘1"))
-    #expect(glyph.isHidden, "the hint takes the dot's place")
-    #expect(label(session.title)?.frame == title, "the title does not move")
-    #expect(hint.frame.maxX <= title.minX, "the hint ends before the title")
+    #expect(glyph.isHidden, "the hint takes the dot's slot")
+    let hinted = try #require(label(session.title)).frame
+    #expect(hinted.minX == title.minX && hinted.minY == title.minY, "the name does not move")
+    #expect(hint.frame.minX > hinted.maxX && abs(hint.frame.maxX - (glyph.frame.midX + 9)) <= 0.5, "the hint ends where the slot does, clear of the name")
     #expect(!hint.drawsBackground && hint.layer?.backgroundColor == nil)
+    cell.hovered = true
+    #expect(pin.isHidden && glyph.isHidden, "and keeps it under the pointer")
+    cell.hovered = false
     cell.configure(session, nested: true)
     #expect(label("⌘1") == nil && !glyph.isHidden)
 }
@@ -508,36 +574,36 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
 }
 
 /// A session's dot: waiting on a person outranks working, working outranks a finished turn, and
-/// only working breathes — once the dot is in a window and shown, again after it leaves and comes
+/// only working ripples — once the dot is in a window and shown, again after it leaves and comes
 /// back, and never while Reduce Motion is on.
 @MainActor @Test func aSessionDotShowsTheAgentsState() {
     let dot = SidebarStatusDot()
     dot.reducesMotion = { false }
-    let breathing = { dot.layer?.sublayers?.first?.animation(forKey: "breath") != nil }
+    let rippling = { dot.isRippling }
     dot.set(SidebarSessionStatus(live: true, cli: "claude"))
     #expect(dot.state == .idle)
     dot.set(SidebarSessionStatus(live: true, done: true, cli: "claude"))
     #expect(dot.state == .done)
     dot.set(SidebarSessionStatus(live: true, busy: true, done: true, cli: "codex"))
     #expect(dot.state == .working(cli: "codex"))
-    #expect(!breathing(), "out of a window")
+    #expect(!rippling(), "out of a window")
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [], backing: .buffered, defer: true)
     window.contentView?.addSubview(dot)
-    #expect(breathing(), "working, in a window")
+    #expect(rippling(), "working, in a window")
     dot.removeFromSuperview()
     window.contentView?.addSubview(dot)
-    #expect(breathing(), "back in a window")
+    #expect(rippling(), "back in a window")
     dot.isHidden = true
-    #expect(!breathing(), "hidden behind the shortcut hint")
+    #expect(!rippling(), "hidden behind the hover pin")
     dot.isHidden = false
-    #expect(breathing(), "shown again")
+    #expect(rippling(), "shown again")
     var reduced = true
     dot.reducesMotion = { reduced }
-    #expect(!breathing(), "Reduce Motion on")
+    #expect(!rippling(), "Reduce Motion on")
     reduced = false
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-    #expect(breathing(), "Reduce Motion turned off while working")
+    #expect(rippling(), "Reduce Motion turned off while working")
     dot.set(SidebarSessionStatus(live: true, busy: true, needsInput: true, cli: "claude"))
     #expect(dot.state == .needsInput && dot.statusLabel == "Needs input")
-    #expect(!breathing(), "waiting is steady")
+    #expect(!rippling(), "waiting is steady")
 }

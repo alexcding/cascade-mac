@@ -13,7 +13,7 @@ struct CocoaSidebar: NSViewRepresentable {
     let pinnedIDs: Set<String>
     /// The sessions whose menu offers Fork Session.
     var forkableIDs: Set<String> = []
-    /// Shown in place of each session's dot while ⌘ alone is held, then gone once it is let go.
+    /// Shown in each session's status slot, at its trailing edge, while ⌘ alone is held, then gone once it is let go.
     var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
     let onTogglePin: (String) -> Void
@@ -45,7 +45,7 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.style = .sourceList
         outline.rowSizeStyle = .medium
         outline.floatsGroupRows = false
-        // Nesting is laid out by the cell, so a session's dot lines up under its project's title.
+        // Nesting is laid out by the cell, so a session's name lines up under its project's.
         outline.indentationPerLevel = 0
         outline.indentationMarkerFollowsCell = false
         outline.allowsEmptySelection = true
@@ -494,8 +494,6 @@ enum SidebarPalette {
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
     /// A hover "+" at rest; the section headings and project folders share it.
     static let accessory = text3.withAlphaComponent(0.8)
-    /// An idle session's dot: the faintest grey, so the coloured states stand out beside it.
-    static let idleDot = text3.withAlphaComponent(0.5)
     /// A row's symbol: rgb(123, 123, 128) in light mode, rgb(180, 184, 191) in dark. No one system
     /// colour is both: secondary label resolves well dimmer than Finder in dark.
     static let icon = dynamic(0x7b7b80, 0xb4b8bf)
@@ -527,40 +525,47 @@ enum SidebarMetrics {
         let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 450]])
         return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
     }()
-    static let iconSlot: CGFloat = 24        // a row's leading icon; a session's dot has its own narrower slot
+    static let iconSlot: CGFloat = 24        // a row's leading icon
     static let symbolSize: CGFloat = 14      // a row symbol's point size, a point above the list's 13
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
     static let leading: CGFloat = 2          // cell edge to the icon slot
     static let gap: CGFloat = 6              // icon to title, title to accessory
     static let trailing: CGFloat = 4         // accessory to the cell edge
-    static let nestedIndent: CGFloat = 16    // a session under its project
     static let radius: CGFloat = 8
 }
 
 // MARK: - Views
 
-/// A session's status: a dot, in the agent's own colour while it works (Claude's orange, Codex's
-/// purple), yellow while it waits on a person, green when a turn finished that nobody has looked
-/// at, grey otherwise. Working, it breathes: a slow, shallow fade that never takes it far from
-/// full, and holds still when the system asks for reduced motion. Every other state is steady.
+/// A session's status, a small solid dot at the row's trailing edge: in the agent's own colour while
+/// it works (Claude's orange, Codex's purple), yellow while it waits on a person, green when a turn
+/// finished that nobody has looked at. Idle, nothing: an empty slot reads as nothing happening, and
+/// leaves the coloured states to stand out. Working, a thin ring ripples out of it and fades; the
+/// dot itself never changes size, and the ripple is left out when the system asks for reduced
+/// motion. Every other state is steady.
 @MainActor final class SidebarStatusDot: NSView {
     enum State: Equatable {
         case idle, done, needsInput
         case working(cli: String?)
     }
-    static let size: CGFloat = 9
+    static let size: CGFloat = 7
     private let dot = CALayer()
+    /// The working ripple: a ring the dot's size that grows past it and fades. It draws outside the
+    /// view, which is only the dot's size.
+    private let ripple = CAShapeLayer()
     private(set) var state = State.idle
     /// The system's Reduce Motion setting; a test answers it for itself.
     var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion } {
-        didSet { breathe() }
+        didSet { animate() }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         dot.cornerRadius = Self.size / 2
-        layer?.addSublayer(dot)
+        ripple.fillColor = nil
+        ripple.lineWidth = 1
+        ripple.opacity = 0
+        [ripple, dot].forEach { layer?.addSublayer($0) }
         // Reduce Motion turned on or off while a session works takes effect at once.
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
                                                           name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
@@ -573,46 +578,52 @@ enum SidebarMetrics {
         guard next != state || dot.backgroundColor == nil else { return }
         state = next
         paint()
-        breathe()
+        animate()
     }
 
-    private static let breathKey = "breath"
+    private static let rippleKey = "ripple"
+    /// Whether the working ripple is running.
+    var isRippling: Bool { ripple.animation(forKey: Self.rippleKey) != nil }
 
-    /// Starts or stops the working state's breath: only while the dot is in a window and shown — the
-    /// ⌘ shortcut hint hides it — and Reduce Motion is off. A layer's animation does not survive the
-    /// view leaving its window, so it is started again on the way back in.
-    private func breathe() {
+    /// Starts or stops the working ripple: only while the dot is in a window and shown — the hover pin
+    /// hides it — and Reduce Motion is off. A layer's animation does not survive the view leaving its
+    /// window, so it is started again on the way back in.
+    private func animate() {
         guard case .working = state, window != nil, !isHiddenOrHasHiddenAncestor, !reducesMotion() else {
-            dot.removeAnimation(forKey: Self.breathKey)
+            ripple.removeAnimation(forKey: Self.rippleKey)
             return
         }
-        guard dot.animation(forKey: Self.breathKey) == nil else { return }
-        let breath = CABasicAnimation(keyPath: "opacity")
-        breath.fromValue = 1
-        breath.toValue = 0.5
-        breath.duration = 1.6
-        breath.autoreverses = true
-        breath.repeatCount = .infinity
-        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        dot.add(breath, forKey: Self.breathKey)
+        guard !isRippling else { return }
+        let grow = CABasicAnimation(keyPath: "transform.scale")
+        grow.fromValue = 1
+        grow.toValue = 2.4
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0.8
+        fade.toValue = 0
+        let wave = CAAnimationGroup()
+        wave.animations = [grow, fade]
+        wave.duration = 1.6
+        wave.repeatCount = .infinity
+        wave.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        ripple.add(wave, forKey: Self.rippleKey)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        breathe()
+        animate()
     }
 
     override func viewDidHide() {
         super.viewDidHide()
-        breathe()
+        animate()
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        breathe()
+        animate()
     }
 
-    @objc private func displayOptionsChanged() { breathe() }
+    @objc private func displayOptionsChanged() { animate() }
 
     /// The state in words. The dot is not an accessibility element; its row reads this after its title.
     var statusLabel: String {
@@ -626,7 +637,7 @@ enum SidebarMetrics {
 
     private var color: NSColor {
         switch state {
-        case .idle: SidebarPalette.idleDot
+        case .idle: .clear
         case .done: SidebarPalette.success
         case .needsInput: SidebarPalette.waiting
         case .working(let cli): AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3
@@ -636,7 +647,11 @@ enum SidebarMetrics {
     /// A layer takes a resolved colour, so it is resolved again when the appearance changes.
     private func paint() {
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        effectiveAppearance.performAsCurrentDrawingAppearance { dot.backgroundColor = color.cgColor }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            dot.backgroundColor = color.cgColor
+            ripple.strokeColor = color.cgColor
+        }
+        dot.isHidden = state == .idle
         CATransaction.commit()
     }
 
@@ -648,8 +663,12 @@ enum SidebarMetrics {
     override func layout() {
         super.layout()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        dot.frame = NSRect(x: ((bounds.width - Self.size) / 2).rounded(), y: ((bounds.height - Self.size) / 2).rounded(),
-                           width: Self.size, height: Self.size)
+        let box = NSRect(x: ((bounds.width - Self.size) / 2 * 2).rounded() / 2, y: ((bounds.height - Self.size) / 2 * 2).rounded() / 2,
+                         width: Self.size, height: Self.size)
+        dot.frame = box
+        // The ring's outside edge is the dot's: a stroke is centred on its path.
+        ripple.frame = box
+        ripple.path = CGPath(ellipseIn: CGRect(origin: .zero, size: box.size).insetBy(dx: 0.5, dy: 0.5), transform: nil)
         CATransaction.commit()
     }
 }
@@ -688,7 +707,7 @@ enum SidebarMetrics {
 
     private let icon = NSImageView()
     private let dot = SidebarStatusDot()
-    /// The ⌘-held hint, in the dot's place.
+    /// The ⌘-held hint, in the status dot's trailing slot.
     private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
     /// After a forked session's name.
@@ -702,7 +721,7 @@ enum SidebarMetrics {
         title.lineBreakMode = .byTruncatingTail
         title.cell?.truncatesLastVisibleLine = true
         title.maximumNumberOfLines = 1
-        shortcut.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        shortcut.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         shortcut.textColor = .secondaryLabelColor
         shortcut.alignment = .right
         // Down only: a symbol is already the size its font makes it, and must not be stretched to the slot.
@@ -719,17 +738,20 @@ enum SidebarMetrics {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // The table builds a drag image from `imageView` and `textField`. This cell has no
-    // `textField` and a session hides its icon behind the dot, so the default image is
+    // `textField` and a session has no icon, so the default image is
     // empty — and the gap style hides the row itself, so a dragged row would simply vanish
     // until it was dropped. Drag a picture of the whole cell instead, minus the hover button.
     override var draggingImageComponents: [NSDraggingImageComponent] {
         guard bounds.width > 0, bounds.height > 0, let bitmap = bitmapImageRepForCachingDisplay(in: bounds) else {
             return super.draggingImageComponents
         }
-        let accessoryWasHidden = accessory.isHidden
+        // A dragged row is under the pointer, where a session's pin stands in for its dot: the picture
+        // shows the dot, unless the ⌘-held hint has the slot.
+        let accessoryWasHidden = accessory.isHidden, dotWasHidden = dot.isHidden
         accessory.isHidden = true
+        if case .session = entry.role { dot.isHidden = !shortcut.isHidden }
         cacheDisplay(in: bounds, to: bitmap)
-        accessory.isHidden = accessoryWasHidden
+        accessory.isHidden = accessoryWasHidden; dot.isHidden = dotWasHidden
         let image = NSImage(size: bounds.size)
         image.addRepresentation(bitmap)
         let component = NSDraggingImageComponent(key: .icon)
@@ -752,7 +774,9 @@ enum SidebarMetrics {
         setAccessibilityLabel(entry.title)
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
-        icon.isHidden = false; dot.isHidden = true; accessory.isHidden = true
+        // The dot is shown or hidden once, in `applyState`: hiding it here and showing it again there
+        // would restart a working dot's ripple on every refresh.
+        icon.isHidden = false; accessory.isHidden = true
         forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
         alphaValue = 1
@@ -773,21 +797,23 @@ enum SidebarMetrics {
             icon.image = SidebarIcons.rowSymbol("folder")
         case .session(let status, let pinned):
             icon.isHidden = true
-            // The ⌘-held hint takes the dot's place.
-            dot.isHidden = !shortcut.isHidden
             dot.set(status)
             setAccessibilityLabel("\(entry.title), \(dot.statusLabel)")
             alphaValue = status.live || status.busy ? 1 : 0.82
-            accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
+            accessory.image = SidebarIcons.pinSymbol(pinned ? "pinFilled" : "pin")
             accessory.toolTip = pinned ? String(localized: "Unpin session") : String(localized: "Pin session to the top")
             accessory.setAccessibilityLabel(accessory.toolTip)
         }
         applyState()
     }
 
-    /// The status dot's slot, a little wider than the dot.
-    private static let dotSlot: CGFloat = 12
     private static let forkMarkSize: CGFloat = 12
+    /// Where a folder's glyph starts inside its icon slot: the glyph is centred in the slot, narrower
+    /// than it.
+    private static let folderInset: CGFloat = {
+        let width = SidebarIcons.rowSymbol("folder")?.size.width ?? SidebarMetrics.iconSlot
+        return ((SidebarMetrics.iconSlot - width) / 2 * 2).rounded() / 2
+    }()
 
     private var stopped: Bool {
         if case .session(let status, _) = entry.role { return !status.live && !status.busy }
@@ -801,9 +827,13 @@ enum SidebarMetrics {
         title.textColor = entry.isHeading ? SidebarPalette.accessory : stopped ? .tertiaryLabelColor : .labelColor
         icon.contentTintColor = SidebarPalette.icon
         switch entry.role {
-        case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
-        case .session: accessory.isHidden = !hovered
-        default: accessory.isHidden = true
+        case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate); dot.isHidden = true
+        // The pin takes the dot's trailing slot under the pointer, and the ⌘-held hint takes it from both.
+        case .session:
+            let hinting = !shortcut.isHidden
+            accessory.isHidden = !hovered || hinting
+            dot.isHidden = hovered || hinting
+        default: accessory.isHidden = true; dot.isHidden = true
         }
         needsLayout = true
     }
@@ -834,7 +864,7 @@ enum SidebarMetrics {
         // The source list has already inset the cell from the sidebar's edge and its selection plate.
         let height = bounds.height
         let slot = SidebarMetrics.iconSlot
-        let left = SidebarMetrics.leading + (nested ? SidebarMetrics.nestedIndent : 0)
+        let left = SidebarMetrics.leading
         let right = bounds.width - SidebarMetrics.trailing
         func centered(_ x: CGFloat, _ size: CGFloat) -> NSRect {
             NSRect(x: x, y: ((height - size) / 2).rounded(), width: size, height: size)
@@ -855,24 +885,46 @@ enum SidebarMetrics {
         case .nav, .project:
             icon.frame = centered(left, slot)
         case .session:
-            dot.frame = centered(left, Self.dotSlot)
-            // Ends where the dot's slot does; wider than the slot, it reaches back into the margin
-            // before it, so the title never moves for it.
-            shortcut.sizeToFit()
-            let hint = shortcut.frame.size
-            shortcut.frame = NSRect(x: left + Self.dotSlot - hint.width, y: ((height - hint.height) / 2).rounded(),
-                                    width: hint.width, height: hint.height)
+            break
         }
-        // An icon fills its slot, so the gap is what separates it from the title. The status dot is far
-        // narrower than the slot: it gets a slot of its own width, or the same gap would read twice as wide.
-        let leadingSlot = if case .session = entry.role { Self.dotSlot } else { slot }
-        let titleX = left + leadingSlot + SidebarMetrics.gap
+        // A session has no icon. Under its project, its name starts where the project's does; at the top
+        // level (Pinned, or a project that is gone) it starts where a folder's icon does.
+        let session = if case .session = entry.role { true } else { false }
+        let titleX = !session || nested ? left + slot + SidebarMetrics.gap : left + Self.folderInset
         let accessorySlot: CGFloat = 18
-        let slotX = right - accessorySlot
+        // A session's dot and pin sit nearer the edge than a heading's "+", as they are smaller: their
+        // slot ends at the cell's own edge, where the pin can still be clicked.
+        let slotX = (session ? bounds.width : right) - accessorySlot
         accessory.frame = centered(slotX, accessorySlot)
-        let titleRight = accessory.isHidden ? right : slotX - SidebarMetrics.gap
+        // A session's dot holds the trailing slot whether or not the pin is in it, so its name never shifts.
+        // A session's name runs to a gap before the pin's glyph, the wider of the two it stands beside,
+        // not before the slot: the glyphs are far narrower than the slot they are centred in.
+        var titleRight = session ? slotX + (accessorySlot - SidebarIcons.pinSize) / 2 - SidebarMetrics.gap
+            : accessory.isHidden ? right : slotX - SidebarMetrics.gap
         title.sizeToFit()
         let titleHeight = title.frame.height
+        let titleY = ((height - titleHeight) / 2).rounded()
+        if session {
+            // On the letters' own middle, not the label's frame, whose descender space sets the dot
+            // low: halfway between a lowercase letter's middle and a capital's, as a name is mostly
+            // lowercase under a capital. Placed to the half point, which a whole-point round misses
+            // by enough to see on a dot this small.
+            let font = title.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            let baseline = titleY + font.ascender
+            let middle = baseline - (font.capHeight + font.xHeight) / 4
+            let size = SidebarStatusDot.size
+            dot.frame = NSRect(x: slotX + (accessorySlot - size) / 2, y: ((middle - size / 2) * 2).rounded() / 2,
+                               width: size, height: size)
+            // In the dot's place, ending where its slot does, on the name's baseline: the same place on
+            // every row, nested or not.
+            shortcut.sizeToFit()
+            let hint = shortcut.frame.size
+            let hintAscender = shortcut.font?.ascender ?? font.ascender
+            shortcut.frame = NSRect(x: slotX + accessorySlot - hint.width, y: (baseline - hintAscender).rounded(),
+                                    width: hint.width, height: hint.height)
+            // The hint is wider than the dot or the pin: while it shows, a long name ends a gap before it.
+            if !shortcut.isHidden { titleRight = min(titleRight, shortcut.frame.minX - SidebarMetrics.gap) }
+        }
         var titleWidth = max(0, titleRight - titleX)
         // The mark follows the name, and a long name gives way to it rather than hide it.
         if !forkMark.isHidden {
@@ -881,7 +933,7 @@ enum SidebarMetrics {
             titleWidth = min(title.intrinsicContentSize.width.rounded(.up), max(0, titleWidth - size - gap))
             forkMark.frame = centered(titleX + titleWidth + gap, size)
         }
-        title.frame = NSRect(x: titleX, y: ((height - titleHeight) / 2).rounded(), width: titleWidth, height: titleHeight)
+        title.frame = NSRect(x: titleX, y: titleY, width: titleWidth, height: titleHeight)
     }
 
     override func resizeSubviews(withOldSize oldSize: NSSize) { super.resizeSubviews(withOldSize: oldSize); needsLayout = true }
