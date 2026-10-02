@@ -206,6 +206,14 @@ private struct RefusedStops: TerminalRuntimeControlling {
         return nil
     }
 
+    /// Whether the sidebar shows session `id` with a finished turn nobody has looked at.
+    func done(_ id: String) -> Bool? {
+        for entry in model.root.entries.flatMap(\.descendants) where entry.sessionID == id {
+            if case .session(let status, _) = entry.role { return status.done }
+        }
+        return nil
+    }
+
     /// Stops Cascade, then the daemon and every shell in it.
     func finish() async throws {
         for (terminal, _) in opened { terminal.disconnect() }
@@ -263,10 +271,11 @@ private struct RefusedStops: TerminalRuntimeControlling {
     try await Task.sleep(for: .milliseconds(500))
     #expect(try await pool.shells() == ["a", "b"])
 
-    // Its turn ends: now it is idle and hidden, and it goes.
+    // Its turn ends: now it is idle and hidden, and it goes, still showing a turn nobody has seen.
     try pool.hook("agent-turn-done", "b")
     try await sessionEventually { try await pool.shells() == ["a"] }
     try await sessionEventually { pool.terminal("b") == nil && pool.live("b") == false }
+    #expect(pool.done("b") == true)
 
     // A refresh does not bring it back.
     let served = await pool.runtime.transport.paths.filter { $0 == Routes.TASKS }.count
@@ -282,6 +291,7 @@ private struct RefusedStops: TerminalRuntimeControlling {
     try await sessionEventually { pool.launches().count == 3 }
     #expect(pool.launches().last == "claude --resume conversation-b")
     try await sessionEventually { pool.live("a") == false && pool.live("b") == true }
+    #expect(pool.done("b") == false, "shown, its finished turn has been seen")
     try await pool.finish()
 }
 

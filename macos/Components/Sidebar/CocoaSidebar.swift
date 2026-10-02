@@ -6,14 +6,14 @@ import SwiftUI
 // over the sidebar material, with its selection, its section headers and its label colours.
 // What is ours sits inside that: no disclosure triangles (a click on the already-selected
 // folder collapses it), sessions nested under their project, hover-only pin / "+" / close
-// accessories, and the session status glyph.
+// accessories, and the session status dot.
 struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
     let selection: SidebarDestination
     let pinnedIDs: Set<String>
     /// The sessions whose menu offers Fork Session.
     var forkableIDs: Set<String> = []
-    /// Shown in place of each session's glyph while ⌘ alone is held, then gone once it is let go.
+    /// Shown in place of each session's dot while ⌘ alone is held, then gone once it is let go.
     var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
     let onTogglePin: (String) -> Void
@@ -45,7 +45,7 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.style = .sourceList
         outline.rowSizeStyle = .medium
         outline.floatsGroupRows = false
-        // Nesting is laid out by the cell, so a session's glyph lines up under its project's title.
+        // Nesting is laid out by the cell, so a session's dot lines up under its project's title.
         outline.indentationPerLevel = 0
         outline.indentationMarkerFollowsCell = false
         outline.allowsEmptySelection = true
@@ -79,7 +79,6 @@ struct CocoaSidebar: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        coordinator.stopSpinner()
         coordinator.stopShortcutHints()
     }
 
@@ -101,8 +100,6 @@ struct CocoaSidebar: NSViewRepresentable {
         private var selectedPlacement: String?
         private var collapsed: Set<String>
         private let preferences: UserDefaults
-        private var spinTimer: Timer?
-        private var spinFrame = 0
         private var flagsMonitor: Any?
         private var resignObserver: NSObjectProtocol?
         private var holdingCommand = false { didSet { if oldValue != holdingCommand { refreshVisibleCells() } } }
@@ -147,7 +144,7 @@ struct CocoaSidebar: NSViewRepresentable {
             if snapshot != value.entries {
                 if Self.shape(snapshot) == Self.shape(value.entries) {
                     // Same rows, new state (a busy edge, a title, a pin): update in place, so the
-                    // spinner and hover state survive and nothing reloads under the pointer.
+                    // hover state survives and nothing reloads under the pointer.
                     func apply(_ entry: SidebarEntry) {
                         if let node = nodes[entry.id], node.entry != entry {
                             node.entry = entry
@@ -179,7 +176,6 @@ struct CocoaSidebar: NSViewRepresentable {
                     }
                     if let scrollPosition { outline.enclosingScrollView?.contentView.scroll(to: scrollPosition) }
                 }
-                syncSpinner()
             }
             let placed = selectedPlacement.flatMap { nodes[$0] }
             let selected = placed?.entry.destination == value.selection ? placed
@@ -348,7 +344,7 @@ struct CocoaSidebar: NSViewRepresentable {
             let nested = outline.parent(forItem: node) != nil
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewProject = { [weak self] in self?.parent.onNewProject() }
-            cell.configure(node.entry, nested: nested, spinFrame: spinFrame,
+            cell.configure(node.entry, nested: nested,
                            shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
             if row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) as? SidebarRowView {
                 rowView.hoverable = node.entry.hoverable
@@ -361,30 +357,6 @@ struct CocoaSidebar: NSViewRepresentable {
             outline.enumerateAvailableRowViews { _, row in
                 guard let node = outline.item(atRow: row) as? Node else { return }
                 configureCell(atRow: row, node: node)
-            }
-        }
-
-        // One shared 180ms ticker advances every visible busy row in lockstep, and runs only
-        // while at least one session is busy (sidebar.js syncSpinner).
-        private func syncSpinner() {
-            let anyBusy = snapshot.flatMap(\.descendants).contains {
-                if case .session(let status, _) = $0.role { status.busy } else { false }
-            }
-            if anyBusy, spinTimer == nil {
-                let timer = Timer(timeInterval: 0.18, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.tick() }
-                }
-                RunLoop.main.add(timer, forMode: .common)
-                spinTimer = timer
-            } else if !anyBusy { stopSpinner() }
-        }
-
-        func stopSpinner() { spinTimer?.invalidate(); spinTimer = nil }
-
-        private func tick() {
-            spinFrame = (spinFrame + 1) % SidebarGlyphs.frameCount
-            outline?.enumerateAvailableRowViews { rowView, _ in
-                (rowView.view(atColumn: 0) as? SidebarCellView)?.advanceSpinner(to: spinFrame)
             }
         }
 
@@ -525,6 +497,8 @@ enum SidebarPalette {
     static let icon = dynamic(0x7b7b80, 0xb4b8bf)
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
+    /// A session waiting on a person: yellow, well clear of Claude's terracotta beside it.
+    static let waiting = dynamic(0xeab308, 0xfacc15)
     static let danger = dynamic(0xdc2626, 0xf87171)
 }
 
@@ -539,7 +513,7 @@ enum SidebarMetrics {
         let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 450]])
         return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
     }()
-    static let iconSlot: CGFloat = 24        // a row's leading icon; a session's glyph has its own narrower slot
+    static let iconSlot: CGFloat = 24        // a row's leading icon; a session's dot has its own narrower slot
     static let symbolSize: CGFloat = 14      // a row symbol's point size, a point above the list's 13
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
     static let leading: CGFloat = 2          // cell edge to the icon slot
@@ -549,17 +523,75 @@ enum SidebarMetrics {
     static let radius: CGFloat = 8
 }
 
-/// Busy-spinner frames per CLI (sidebar.js SPIN_FRAMES), from each agent's driver; the resting
-/// glyph is the full-bloom frame held still. A plain shell spins a braille cycle.
-enum SidebarGlyphs {
-    static let frameCount = 10
-    private static let shellFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    static func frames(_ cli: String?) -> [String] { AgentDrivers.of(cli)?.spinnerFrames ?? shellFrames }
-    static func resting(_ cli: String?) -> String { AgentDrivers.of(cli)?.restingGlyph ?? "⠿" }
-    static func tint(_ cli: String?) -> NSColor { AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3 }
-}
-
 // MARK: - Views
+
+/// A session's status: a steady dot, in the agent's own colour while it works (Claude's orange,
+/// Codex's purple), yellow while it waits on a person, green when a turn finished that nobody has
+/// looked at, grey otherwise.
+@MainActor final class SidebarStatusDot: NSView {
+    enum State: Equatable {
+        case idle, done, needsInput
+        case working(cli: String?)
+    }
+    static let size: CGFloat = 6
+    private let dot = CALayer()
+    private(set) var state = State.idle
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        dot.cornerRadius = Self.size / 2
+        layer?.addSublayer(dot)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func set(_ status: SidebarSessionStatus) {
+        let next: State = status.needsInput ? .needsInput : status.busy ? .working(cli: status.cli)
+            : status.done ? .done : .idle
+        guard next != state || dot.backgroundColor == nil else { return }
+        state = next
+        paint()
+    }
+
+    /// The state in words. The dot is not an accessibility element; its row reads this after its title.
+    var statusLabel: String {
+        switch state {
+        case .idle: String(localized: "Idle")
+        case .done: String(localized: "Done")
+        case .needsInput: String(localized: "Needs input")
+        case .working: String(localized: "Working")
+        }
+    }
+
+    private var color: NSColor {
+        switch state {
+        case .idle: SidebarPalette.text3
+        case .done: SidebarPalette.success
+        case .needsInput: SidebarPalette.waiting
+        case .working(let cli): AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3
+        }
+    }
+
+    /// A layer takes a resolved colour, so it is resolved again when the appearance changes.
+    private func paint() {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        effectiveAppearance.performAsCurrentDrawingAppearance { dot.backgroundColor = color.cgColor }
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        dot.frame = NSRect(x: ((bounds.width - Self.size) / 2).rounded(), y: ((bounds.height - Self.size) / 2).rounded(),
+                           width: Self.size, height: Self.size)
+        CATransaction.commit()
+    }
+}
 
 /// The system draws the selection. The row only tracks the pointer, for the cell's hover accessory.
 @MainActor final class SidebarRowView: NSTableRowView {
@@ -594,8 +626,8 @@ enum SidebarGlyphs {
     var hovered = false { didSet { if oldValue != hovered { applyState() } } }
 
     private let icon = NSImageView()
-    private let glyph = NSTextField(labelWithString: "")
-    /// The ⌘-held hint, in the glyph's place.
+    private let dot = SidebarStatusDot()
+    /// The ⌘-held hint, in the dot's place.
     private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
     /// After a forked session's name.
@@ -609,8 +641,6 @@ enum SidebarGlyphs {
         title.lineBreakMode = .byTruncatingTail
         title.cell?.truncatesLastVisibleLine = true
         title.maximumNumberOfLines = 1
-        glyph.alignment = .center
-        glyph.font = Self.glyphFont
         shortcut.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
         shortcut.textColor = .secondaryLabelColor
         shortcut.alignment = .right
@@ -622,13 +652,13 @@ enum SidebarGlyphs {
         forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
         forkMark.contentTintColor = SidebarPalette.icon
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
-        [icon, glyph, title, forkMark, accessory, shortcut].forEach(addSubview)
+        [icon, dot, title, forkMark, accessory, shortcut].forEach(addSubview)
         imageView = icon
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // The table builds a drag image from `imageView` and `textField`. This cell has no
-    // `textField` and a session hides its icon behind the glyph, so the default image is
+    // `textField` and a session hides its icon behind the dot, so the default image is
     // empty — and the gap style hides the row itself, so a dragged row would simply vanish
     // until it was dropped. Drag a picture of the whole cell instead, minus the hover button.
     override var draggingImageComponents: [NSDraggingImageComponent] {
@@ -647,7 +677,7 @@ enum SidebarGlyphs {
         return [component]
     }
 
-    func configure(_ entry: SidebarEntry, nested: Bool, spinFrame: Int, shortcut hint: String? = nil) {
+    func configure(_ entry: SidebarEntry, nested: Bool, shortcut hint: String? = nil) {
         self.entry = entry
         shortcut.stringValue = hint ?? ""
         shortcut.isHidden = hint == nil
@@ -661,7 +691,7 @@ enum SidebarGlyphs {
         setAccessibilityLabel(entry.title)
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
-        icon.isHidden = false; glyph.isHidden = true; accessory.isHidden = true
+        icon.isHidden = false; dot.isHidden = true; accessory.isHidden = true
         forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
         alphaValue = 1
@@ -682,12 +712,10 @@ enum SidebarGlyphs {
             icon.image = SidebarIcons.rowSymbol("folder")
         case .session(let status, let pinned):
             icon.isHidden = true
-            // The ⌘-held hint takes the glyph's place.
-            glyph.isHidden = (!status.live && !status.busy) || !shortcut.isHidden
-            glyph.stringValue = status.busy ? SidebarGlyphs.frames(status.cli)[spinFrame % SidebarGlyphs.frameCount]
-                : SidebarGlyphs.resting(status.cli)
-            glyph.font = Self.glyphFont(status.cli)
-            glyph.textColor = status.busy ? SidebarGlyphs.tint(status.cli) : SidebarPalette.icon
+            // The ⌘-held hint takes the dot's place.
+            dot.isHidden = !shortcut.isHidden
+            dot.set(status)
+            setAccessibilityLabel("\(entry.title), \(dot.statusLabel)")
             alphaValue = status.live || status.busy ? 1 : 0.82
             accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
             accessory.toolTip = pinned ? String(localized: "Unpin session") : String(localized: "Pin session to the top")
@@ -696,26 +724,9 @@ enum SidebarGlyphs {
         applyState()
     }
 
-    /// Shared by the glyph label and the slot measured for it, so the two cannot drift apart.
-    private static let glyphFont = NSFont.monospacedSystemFont(ofSize: 14.7, weight: .bold)
-    /// Each agent's own face for its glyph (`AgentDriver.sidebarGlyphFont`); a shell's is the shared one.
-    private static func glyphFont(_ cli: String?) -> NSFont { AgentDrivers.of(cli)?.sidebarGlyphFont ?? glyphFont }
-    /// The status glyph's slot: the widest glyph either CLI shows, fixed so a spinner frame of another
-    /// width cannot nudge the title.
-    private static let glyphSlot: CGFloat = {
-        let widths = AgentDrivers.all.map(\.cli).flatMap { cli in
-            (SidebarGlyphs.frames(cli) + [SidebarGlyphs.resting(cli)]).map { ($0 as NSString).size(withAttributes: [.font: glyphFont(cli)]).width }
-        }
-        return (widths.max() ?? 10).rounded(.up)
-    }()
-    /// What a label insets its text by on each side; the glyph's frame is widened by it so nothing clips.
-    private static let labelInset: CGFloat = 2
+    /// The status dot's slot, a little wider than the dot.
+    private static let dotSlot: CGFloat = 12
     private static let forkMarkSize: CGFloat = 12
-
-    func advanceSpinner(to frame: Int) {
-        guard case .session(let status, _) = entry.role, status.busy else { return }
-        glyph.stringValue = SidebarGlyphs.frames(status.cli)[frame % SidebarGlyphs.frameCount]
-    }
 
     private var stopped: Bool {
         if case .session(let status, _) = entry.role { return !status.live && !status.busy }
@@ -783,20 +794,17 @@ enum SidebarGlyphs {
         case .nav, .project:
             icon.frame = centered(left, slot)
         case .session:
-            glyph.sizeToFit()
-            let glyphHeight = glyph.frame.height
-            glyph.frame = NSRect(x: left - Self.labelInset, y: ((height - glyphHeight) / 2).rounded(),
-                                 width: Self.glyphSlot + Self.labelInset * 2, height: glyphHeight)
-            // Ends where the glyph's slot does; wider than the slot, it reaches back into the margin
+            dot.frame = centered(left, Self.dotSlot)
+            // Ends where the dot's slot does; wider than the slot, it reaches back into the margin
             // before it, so the title never moves for it.
             shortcut.sizeToFit()
             let hint = shortcut.frame.size
-            shortcut.frame = NSRect(x: left + Self.glyphSlot + Self.labelInset - hint.width, y: ((height - hint.height) / 2).rounded(),
+            shortcut.frame = NSRect(x: left + Self.dotSlot - hint.width, y: ((height - hint.height) / 2).rounded(),
                                     width: hint.width, height: hint.height)
         }
-        // An icon fills its slot, so the gap is what separates it from the title. A status glyph is far
+        // An icon fills its slot, so the gap is what separates it from the title. The status dot is far
         // narrower than the slot: it gets a slot of its own width, or the same gap would read twice as wide.
-        let leadingSlot = if case .session = entry.role { Self.glyphSlot } else { slot }
+        let leadingSlot = if case .session = entry.role { Self.dotSlot } else { slot }
         let titleX = left + leadingSlot + SidebarMetrics.gap
         let accessorySlot: CGFloat = 18
         let slotX = right - accessorySlot

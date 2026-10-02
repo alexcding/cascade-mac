@@ -80,14 +80,11 @@ protocol AgentDriver: Sendable {
     /// Its mark in the asset catalogue.
     var asset: String { get }
     /// Its brand colour, 0xRRGGBB, for what is that agent's and not the app's: its usage, its used
-    /// context, its spinner. Not a palette colour, so it does not swap with the theme; it reads on
+    /// context, its sidebar dot while it works. Not a palette colour, so it does not swap with the theme; it reads on
     /// light and dark.
     var brandColor: UInt32 { get }
-    /// Its busy spinner, frame by frame, and the glyph it rests on.
-    var spinnerFrames: [String] { get }
+    /// Its mark as a character, and a list row's face for it.
     var restingGlyph: String { get }
-    /// The sidebar's face for its glyph, and a list row's lighter one.
-    var sidebarGlyphFont: NSFont { get }
     var markGlyphFont: Font { get }
     var installationGuide: URL { get }
     /// The app names its conversation at launch, so a session keeps one conversation across
@@ -142,10 +139,8 @@ struct ClaudeDriver: AgentDriver {
     var chatPlaceholder: String { String(localized: "Ask Claude") }
     let asset = "AgentClaude"
     let brandColor: UInt32 = 0xd97757
-    /// Claude Code's own blooming asterisk; at rest, full bloom held still.
-    let spinnerFrames = ["·", "✢", "✳", "✶", "✻", "✽", "✻", "✶", "✳", "✢"]
+    /// Claude Code's own asterisk in full bloom.
     let restingGlyph = "✻"
-    var sidebarGlyphFont: NSFont { .systemFont(ofSize: 14, weight: .light) }
     var markGlyphFont: Font { .system(size: 14, weight: .ultraLight) }
     let installationGuide = URL(string: "https://docs.claude.com/en/docs/claude-code/setup")!
     /// `--session-id` takes an id the app chooses, and `--resume` finds it again.
@@ -204,11 +199,7 @@ struct CodexDriver: AgentDriver {
     var chatPlaceholder: String { String(localized: "Ask Codex") }
     let asset = "AgentCodex"
     let brandColor: UInt32 = 0x707af0
-    let spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     let restingGlyph = "⠿"
-    /// Braille dots are thin at the sidebar's weight: a heavier, larger face gives them the weight
-    /// of Claude's asterisk.
-    var sidebarGlyphFont: NSFont { .monospacedSystemFont(ofSize: 16, weight: .black) }
     var markGlyphFont: Font { .system(size: 16) }
     let installationGuide = URL(string: "https://github.com/openai/codex")!
     /// It names its own sessions, and `resume` takes the one it reports.

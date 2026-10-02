@@ -19,12 +19,19 @@ import Observation
     /// One may be up in the terminal with no word of its answer until the turn ends: handed to the
     /// terminal's own prompt, or asked while nothing was listening.
     private var askingInTerminal = false
+    /// Handed to the terminal's own prompt this turn, with nobody looking at the session since
+    /// (`acknowledge`). No hook reports the answer, so once the session is shown its person is
+    /// trusted to see the prompt, and the dot stops claiming one waits.
+    private var handedToTerminal = false
+    /// A turn ended and nobody has looked at the session since (`acknowledge`).
+    private(set) var finishedUnseen = false
     @ObservationIgnored private var terminalID: String?
 
     func bind(terminalID: String) {
         guard self.terminalID != terminalID else { return }
         invalidate()
         self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false; betweenTurns = false
+        finishedUnseen = false
         closePrompts()
     }
 
@@ -52,11 +59,22 @@ import Observation
     /// or any at all while the stream that would report one is down.
     var mayBeAsking: Bool { !streamAvailable || !asking.isEmpty || askingInTerminal }
 
+    /// Known to be waiting on a person: an approval or question its hook asked and nobody has
+    /// answered, or one handed to the terminal's prompt while nobody was looking. Unlike
+    /// `mayBeAsking`, never a guess.
+    var needsInput: Bool { streamAvailable && (!asking.isEmpty || handedToTerminal) }
+
+    /// The session has been looked at: its finished turn is seen, and so is a prompt in its terminal.
+    func acknowledge() {
+        if finishedUnseen { finishedUnseen = false }
+        if handedToTerminal { handedToTerminal = false }
+    }
+
     /// The agent started, or its conversation changed (Claude's SessionStart): it is at its prompt,
     /// and a turn of the old conversation can no longer finish, so its busy state goes with it.
     /// A compaction is the exception: it lands mid-turn and the turn carries on.
     func adopt(sessionID id: String, midTurn: Bool) {
-        if !midTurn { busy = false; betweenTurns = true; closePrompts() }
+        if !midTurn { busy = false; betweenTurns = true; finishedUnseen = false; closePrompts() }
         guard sessionID != id else { return }
         sessionID = id; revision &+= 1
     }
@@ -75,9 +93,9 @@ import Observation
         cli = incomingCLI
         if let incomingID { sessionID = incomingID }
         if event.type == "agent-turn-start" {
-            revision &+= 1; busy = true; betweenTurns = false
+            revision &+= 1; busy = true; betweenTurns = false; finishedUnseen = false
         } else {
-            busy = false; betweenTurns = true
+            busy = false; betweenTurns = true; finishedUnseen = true
         }
         // A turn begins only from the prompt, and one that ends leaves nothing asked.
         closePrompts()
@@ -93,7 +111,7 @@ import Observation
         case "agent-permission": asking.insert(id)
         case "agent-permission-done":
             asking.remove(id)
-            if event.outcome == "terminal" { askingInTerminal = true }
+            if event.outcome == "terminal" { askingInTerminal = true; handedToTerminal = true }
         default: return false
         }
         return true
@@ -102,6 +120,7 @@ import Observation
     private func closePrompts() {
         if !asking.isEmpty { asking = [] }
         if askingInTerminal { askingInTerminal = false }
+        if handedToTerminal { handedToTerminal = false }
     }
 
     func invalidate() {

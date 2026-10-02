@@ -45,12 +45,14 @@ enum SidebarDestination: Hashable, Codable {
     }
 }
 
-/// What the sidebar knows about a session's agent at render time — the
-/// `.busy` / `.stopped` row states. Busy spins the CLI's glyph; live-but-idle holds it still
-/// in grey; stopped dims the row.
+/// What the sidebar knows about a session's agent at render time, drawn as the row's status dot
+/// (`SidebarStatusDot`): busy is the agent's colour, waiting on a person is yellow, a turn
+/// finished and not yet looked at is green, anything else grey; stopped also dims the row.
 struct SidebarSessionStatus: Equatable {
     var live = false
     var busy = false
+    var needsInput = false
+    var done = false
     var cli: String?
 }
 

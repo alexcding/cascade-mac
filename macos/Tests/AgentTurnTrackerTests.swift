@@ -113,3 +113,32 @@ private func permission(_ type: String, _ id: String, outcome: String? = nil, te
     tracker.adopt(sessionID: "conversation", midTurn: false)
     #expect(!tracker.mayBeAsking)
 }
+
+/// A finished turn is news until the session is looked at or the next turn begins; a question the
+/// agent asked is waiting on a person until it is answered.
+@MainActor @Test func agentTurnsReportAFinishedTurnAndAQuestionWaitingOnAPerson() {
+    let tracker = connectedTurns()
+    tracker.receive(hook("agent-turn-start"))
+    #expect(!tracker.finishedUnseen && !tracker.needsInput)
+    tracker.receivePermission(permission("agent-permission", "a"))
+    #expect(tracker.needsInput)
+    tracker.receivePermission(permission("agent-permission-done", "a", outcome: "answered"))
+    #expect(!tracker.needsInput)
+    tracker.receivePermission(permission("agent-permission", "b"))
+    tracker.receivePermission(permission("agent-permission-done", "b", outcome: "terminal"))
+    #expect(tracker.needsInput, "handed to the terminal's own prompt while nobody looks, it waits there")
+    tracker.acknowledge()
+    #expect(!tracker.needsInput && tracker.mayBeAsking, "once looked at, the terminal's prompt is the person's to see")
+    tracker.receivePermission(permission("agent-permission", "c"))
+    tracker.receivePermission(permission("agent-permission-done", "c", outcome: "terminal"))
+    #expect(tracker.needsInput)
+    tracker.receive(hook("agent-turn-done"))
+    #expect(tracker.finishedUnseen && !tracker.needsInput)
+    tracker.acknowledge()
+    #expect(!tracker.finishedUnseen)
+    tracker.receive(hook("agent-turn-start")); tracker.receive(hook("agent-turn-done"))
+    tracker.receive(hook("agent-turn-start"))
+    #expect(!tracker.finishedUnseen, "a new turn is not done")
+    tracker.promptsUnheard()
+    #expect(!tracker.needsInput, "a prompt that may have come unheard is not known to wait")
+}

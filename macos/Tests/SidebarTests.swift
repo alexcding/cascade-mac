@@ -391,7 +391,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")])
     let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
     let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
-    cell.configure(session, nested: true, spinFrame: 0)
+    cell.configure(session, nested: true)
     cell.layoutSubtreeIfNeeded()
     let component = try #require(cell.draggingImageComponents.first)
     #expect(cell.draggingImageComponents.count == 1)
@@ -403,9 +403,9 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(inked)
 }
 
-/// While ⌘ is held a session shows the key that selects it in place of its glyph, with no plate,
-/// and the title does not move. Let go, the glyph is back.
-@MainActor @Test func aSessionShowsItsShortcutInPlaceOfItsGlyphWhileCommandIsHeld() throws {
+/// While ⌘ is held a session shows the key that selects it in place of its dot, with no plate,
+/// and the title does not move. Let go, the dot is back.
+@MainActor @Test func aSessionShowsItsShortcutInPlaceOfItsDotWhileCommandIsHeld() throws {
     _ = NSApplication.shared
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")],
                                     status: ["a": SidebarSessionStatus(live: true, cli: "claude")])
@@ -415,17 +415,19 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
         return cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == text && !$0.isHidden }
     }
-    cell.configure(session, nested: true, spinFrame: 0)
+    cell.configure(session, nested: true)
+    #expect(cell.accessibilityLabel() == "\(session.title), Idle", "the row reads its status after its title")
     let title = try #require(label(session.title)).frame
-    let glyph = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { !$0.isHidden && $0.stringValue != session.title })
+    let glyph = try #require(cell.subviews.compactMap { $0 as? SidebarStatusDot }.first)
+    #expect(!glyph.isHidden)
     #expect(label("⌘1") == nil)
-    cell.configure(session, nested: true, spinFrame: 0, shortcut: "⌘1")
+    cell.configure(session, nested: true, shortcut: "⌘1")
     let hint = try #require(label("⌘1"))
-    #expect(glyph.isHidden, "the hint takes the glyph's place")
+    #expect(glyph.isHidden, "the hint takes the dot's place")
     #expect(label(session.title)?.frame == title, "the title does not move")
     #expect(hint.frame.maxX <= title.minX, "the hint ends before the title")
     #expect(!hint.drawsBackground && hint.layer?.backgroundColor == nil)
-    cell.configure(session, nested: true, spinFrame: 0)
+    cell.configure(session, nested: true)
     #expect(label("⌘1") == nil && !glyph.isHidden)
 }
 
@@ -503,4 +505,19 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(!chooses(clicks: 2), "a double-click's second press")
     #expect(!chooses(selected: 5), "a Command-click that deselected, or a refused selection")
     #expect(!chooses(row: -1, selected: -1), "a click below the rows")
+}
+
+/// A session's dot: waiting on a person outranks working, working outranks a finished turn, and
+/// none of them animates.
+@MainActor @Test func aSessionDotShowsTheAgentsState() {
+    let dot = SidebarStatusDot()
+    dot.set(SidebarSessionStatus(live: true, cli: "claude"))
+    #expect(dot.state == .idle)
+    dot.set(SidebarSessionStatus(live: true, done: true, cli: "claude"))
+    #expect(dot.state == .done)
+    dot.set(SidebarSessionStatus(live: true, busy: true, done: true, cli: "codex"))
+    #expect(dot.state == .working(cli: "codex"))
+    #expect(dot.layer?.sublayers?.first?.animationKeys() == nil)
+    dot.set(SidebarSessionStatus(live: true, busy: true, needsInput: true, cli: "claude"))
+    #expect(dot.state == .needsInput && dot.statusLabel == "Needs input")
 }

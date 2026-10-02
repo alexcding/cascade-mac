@@ -59,6 +59,9 @@ public final class AppViewModel {
     }
     var projectModels: [String: ProjectPageViewModel] { coordinator.projectModels }
     private(set) var changingSessions: Set<String> = []
+    /// Sessions the pool stopped with a finished turn nobody had looked at: their terminal, and the
+    /// tracker that knew it, are gone, but the row stays done until the session is shown.
+    private var finishedUnseenStopped: Set<String> = []
     /// First prompts for sessions the project composer created, by session id, until their agent launches.
     @ObservationIgnored private var launchPrompts: [String: String] = [:]
     /// Sessions a fork is being made of, so a second request waits for the first.
@@ -214,6 +217,7 @@ public final class AppViewModel {
     private func loadSidebar() async {
         guard sidebarNeedsLoad else { return }
         sidebarNeedsLoad = false
+        acknowledgeShownSession()
         let (entries, pinnedIDs) = withObservationTracking {
             (makeSidebarEntries(), Set(sessions.filter(\.pinned).map(\.id)))
         } onChange: { [weak self] in
@@ -231,14 +235,17 @@ public final class AppViewModel {
     }
 
     private func makeSidebarEntries() -> [SidebarEntry] {
-        // Per-session agent state for the row glyph (sidebar.js taskSessions + refreshTermBusy):
-        // live while its terminal is attached, busy between the CLI's turn hooks.
+        // Per-session agent state for the row's dot: live while its terminal is attached, busy
+        // between the CLI's turn hooks, done once a turn ends until the session is shown
+        // (`acknowledgeShownSession`).
         var status: [String: SidebarSessionStatus] = [:]
         for session in sessions {
             let terminal = terminals["task:\(session.id)"]
-            let live = terminal?.isLive ?? false
-            let busy = terminal?.agentBusy == true
-            status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli ?? session.cli)
+            let turns = terminal?.agentTurns
+            status[session.id] = SidebarSessionStatus(
+                live: terminal?.isLive ?? false, busy: terminal?.agentBusy == true,
+                needsInput: turns?.needsInput == true, done: turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id),
+                cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status,
             order: sidebarOrder, canCreateProject: canPerform(.newProject))
@@ -731,8 +738,16 @@ public final class AppViewModel {
 
     func activateRootDestination() {
         showSelectedContext()
+        acknowledgeShownSession()
         // A switch hides the session it leaves, which the pool may now stop.
         sessionPool.trim()
+    }
+    /// The session on screen has been seen: its finished turn is no news, now or once it is left.
+    /// Called on every navigation and before each sidebar load, so the rows never read the selection.
+    private func acknowledgeShownSession() {
+        guard case .session(let id) = selection else { return }
+        terminals["task:\(id)"]?.agentTurns.acknowledge()
+        if finishedUnseenStopped.contains(id) { finishedUnseenStopped.remove(id) }
     }
     /// For the area extensions: `error` is only settable from this file.
     func reportRootError(_ message: String) { error = message }
@@ -1168,7 +1183,10 @@ public final class AppViewModel {
         let stopping = stillIdle()
         if stopping { try? await terminalControl.stopPaired(keys: [id]) }
         let owned = terminals[key] === terminal
-        if owned { terminals.removeValue(forKey: key) }
+        if owned {
+            if terminal.agentTurns.finishedUnseen { finishedUnseenStopped.insert(id) }
+            terminals.removeValue(forKey: key)
+        }
         changingSessions.remove(id)
         if selection == .session(id) {
             // Opened meanwhile: its pane attaches to the shell left running, or starts it again.
@@ -1371,6 +1389,7 @@ public final class AppViewModel {
                             workspaceLaunch.cancel(sessionID: session.id)
                         }
                         sessions = sessionSnapshot
+                        finishedUnseenStopped.formIntersection(retained)
                         sessionPool.retain(retained)
                     }
                     restoreSessionTerminals()
