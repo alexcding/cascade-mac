@@ -73,31 +73,18 @@ import Testing
     #expect(shell.editorStyle == EditorStyle())
     var changes = 0
     shell.documentStyleChanged = { changes += 1 }
-    shell.setEditorTheme(dark: "Dracula"); shell.setEditorMinimap(true)
-    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "", showMinimap: true))
+    shell.setEditorTheme(dark: "Dracula")
+    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: ""))
     #expect(preferences.string(forKey: "native.editorThemeDark") == "Dracula")
-    #expect(preferences.string(forKey: "native.editorMinimap") == "on")
     #expect(changes > 0)
     shell.setEditorTheme(light: "Nord") // Dark only: refused, and said so.
     #expect(shell.editorStyle.lightTheme == "" && shell.settingsError != nil)
-    shell.setEditorTheme(light: "One Light"); shell.setEditorMinimap(false)
-    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: false))
+    shell.setEditorTheme(light: "One Light")
+    #expect(shell.editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light"))
     #expect(preferences.string(forKey: "native.editorThemeLight") == "One Light")
     #expect(shell.settingsError == nil) // An accepted change clears the refusal.
     // The next launch reads what was saved.
-    #expect(ShellStore(preferences: preferences).editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light", showMinimap: false))
-}
-
-@MainActor @Test func shellEditorMinimapIsOffUnlessChosen() throws {
-    let suite = "shell-editor-minimap-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    #expect(!ShellStore(preferences: preferences).editorStyle.showMinimap)
-    preferences.set("on", forKey: "native.editorMinimap")
-    let shell = ShellStore(preferences: preferences)
-    #expect(shell.editorStyle.showMinimap)
-    shell.setEditorMinimap(false)
-    #expect(!shell.editorStyle.showMinimap && preferences.string(forKey: "native.editorMinimap") == "off")
+    #expect(ShellStore(preferences: preferences).editorStyle == EditorStyle(darkTheme: "Dracula", lightTheme: "One Light"))
 }
 
 @MainActor @Test func nativeShellAppearanceAppliesSystemLightAndDark() {

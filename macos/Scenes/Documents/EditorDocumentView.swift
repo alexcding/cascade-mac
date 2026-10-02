@@ -3,8 +3,6 @@ import SwiftUI
 
 struct EditorDocumentView: View {
     let model: EditorDocumentViewModel
-    /// App-wide, so it is the workspace's to change, not the document's.
-    var togglePreview: () -> Void = {}
     var body: some View {
         VStack(spacing: 0) {
             if let error = model.error {
@@ -19,9 +17,6 @@ struct EditorDocumentView: View {
             Divider()
             // The same glass capsules as the tab bar above.
             HStack(spacing: 8) {
-                HoverCircleButton(String(localized: "Show or Hide Preview"), systemImage: "map", enabled: model.loaded, action: togglePreview)
-                    .help(String(localized: "Show or Hide Preview"))
-                    .barGlass()
                 Spacer()
                 if model.readOnly { Text(String(localized: "Read Only")).font(.callout).foregroundStyle(Theme.textSecondary) }
                 if model.loading || model.saving { ProgressView().controlSize(.small) }

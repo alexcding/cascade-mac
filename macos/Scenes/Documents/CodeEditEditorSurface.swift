@@ -49,7 +49,8 @@ import CodeEditSourceEditor
                 // Explicit zeros turn automatic insetting off: this editor sits under a tab bar, not
                 // the title bar the scroll view would otherwise inset itself for.
                 layout: .init(contentInsets: NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)),
-                peripherals: .init(showMinimap: style.showMinimap)
+                // No minimap: the file has the pane's width to itself.
+                peripherals: .init(showMinimap: false)
             ),
             cursorPositions: [],
             coordinators: [coordinator]
@@ -186,8 +187,6 @@ import CodeEditSourceEditor
     func setStyle(_ value: EditorStyle) {
         style = value
         applyTheme()
-        guard let controller, controller.configuration.peripherals.showMinimap != value.showMinimap else { return }
-        controller.configuration.peripherals.showMinimap = value.showMinimap
     }
 
     func dispose() {

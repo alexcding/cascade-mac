@@ -83,6 +83,8 @@ import Observation
         self.notifications = notifications ?? NotificationStore()
         self.preferences = preferences
         self.fileIcons = fileIcons
+        // The code minimap's switch, from before the editor dropped it.
+        preferences.removeObject(forKey: "native.editorMinimap")
         let saved = SavedPreferences(preferences)
         appearance = saved.appearance
         usageAgent = saved.usageAgent
@@ -182,8 +184,7 @@ import Observation
                 return CodeTheme.has(name, dark: dark) ? name : ""
             }
             editorStyle = EditorStyle(darkTheme: savedTheme("editorThemeDark", dark: true),
-                                      lightTheme: savedTheme("editorThemeLight", dark: false),
-                                      showMinimap: preferences.string(forKey: "native.editorMinimap") == "on")
+                                      lightTheme: savedTheme("editorThemeLight", dark: false))
         }
     }
 
@@ -202,7 +203,7 @@ import Observation
         "theme", "usageAgent", "defaultCli", "activityNotify", "reviewSound", "gitClient", "fileIconTheme",
         "gitClientCmd", "term_font_family", "term_font_size", "diff_font_family", "diff_font_size",
         "terminalThicken", "terminalThickenStrength", "terminalThemeDark", "terminalThemeLight", "terminalKeybinds",
-        "sessionMemoryLimit", "pageMemoryLimit", "editorThemeDark", "editorThemeLight", "editorMinimap",
+        "sessionMemoryLimit", "pageMemoryLimit", "editorThemeDark", "editorThemeLight",
     ]
 
     /// Adopts, once, what an earlier version kept in the backend: the boards' assignee filters,
@@ -469,12 +470,6 @@ import Observation
             preferences.set(value, forKey: "native.\(key)")
             settingsError = nil
         }
-    }
-    func setEditorMinimap(_ shown: Bool) {
-        guard shown != editorStyle.showMinimap else { return }
-        editorStyle.showMinimap = shown
-        preferences.set(shown ? "on" : "off", forKey: "native.editorMinimap")
-        settingsError = nil
     }
 
     func stop() async {

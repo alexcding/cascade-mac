@@ -13,12 +13,6 @@ struct EditorSettingsView: View {
         }
         FontSettingsView(model: fonts, shell: shell, kinds: [.diff])
         theme
-        Section("Editor") {
-            SettingsRow(title: String(localized: "Show code preview"), caption: String(localized: "Show a miniature overview beside the file.")) {
-                Toggle("Show code preview", isOn: Binding(get: { shell.editorStyle.showMinimap }, set: shell.setEditorMinimap))
-                    .labelsHidden().accessibilityIdentifier("settings-editor-minimap")
-            }
-        }
         FileIconSettingsSection(model: icons, shell: shell)
         if let error = shell.settingsError {
             Section { Text(error).foregroundStyle(Theme.danger) }

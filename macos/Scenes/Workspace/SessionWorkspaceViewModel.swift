@@ -33,7 +33,7 @@ import Observation
 
 enum WorkspaceOperation: Equatable {
     case openEditor, openFile
-    case changes, openTerminal, hookSettings, prepareChanges, toggleEditorPreview
+    case changes, openTerminal, hookSettings, prepareChanges
 }
 
 /// Where a terminal's approval requests go while its chat is on screen.
@@ -473,8 +473,6 @@ extension WorkspaceServing {
         guard active, state.canPresent else { return }
         onAction(.reopen(visit.id))
     }
-    /// The preview beside the code is one app-wide preference, so the button reports out.
-    func toggleEditorPreview() { perform(.toggleEditorPreview) }
     private func perform(_ operation: WorkspaceOperation) {
         guard context != nil else { return }
         onAction(.operation(operation))

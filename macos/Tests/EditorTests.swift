@@ -197,15 +197,15 @@ actor FileFixture: FileDocumentService {
 @MainActor @Test func codeEditEditorSurfaceAppliesTheStyleItIsGivenBeforeAndAfterLoading() async throws {
     _ = NSApplication.shared
     let surface = CodeEditEditorSurface()
-    surface.setStyle(EditorStyle(darkTheme: "Dracula", lightTheme: "Solarized Light", showMinimap: false))
+    surface.setStyle(EditorStyle(darkTheme: "Dracula", lightTheme: "Solarized Light"))
     try await surface.load(.init(content: "let a = 1\n", readOnly: false, revision: String(repeating: "a", count: 64)),
                            path: "/tmp/Fixture.swift")
     let controller = try #require(surface.view?.descendantSourceTextView?.delegate as? TextViewController)
     #expect(!controller.configuration.peripherals.showMinimap)
     let background = controller.configuration.appearance.theme.background
     #expect([CodeTheme.color(0x282A36), CodeTheme.color(0xFDF6E3)].contains(background))
-    surface.setStyle(EditorStyle(showMinimap: true))
-    #expect(controller.configuration.peripherals.showMinimap)
+    surface.setStyle(EditorStyle())
+    #expect(!controller.configuration.peripherals.showMinimap, "the minimap is never shown")
     surface.dispose()
 }
 

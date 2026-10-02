@@ -54,7 +54,7 @@ queue, and Jira tickets one click away. It's free and open source under the
   request, ticket, or documentation beside the agent working on it. Block ads with
   uBlock Origin Lite from the App Store (**Settings → Browser**).
 - **Files.** Search the worktree, reopen recent files, and edit with syntax
-  highlighting and an optional code minimap.
+  highlighting.
 - **Review before you ship.** Inspect working changes, discard a single change block
   after a preview, search the branch history, and commit and push from the session.
   Cascade warns you when the branch is behind its upstream.

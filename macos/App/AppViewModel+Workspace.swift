@@ -83,7 +83,6 @@ extension AppViewModel: WorkspaceCoordinating {
         case .openFile: viewer.openFile(in: context, directory: state.session?.worktree)
         case .changes: if let session = state.session { showChanges(for: session, context: context) }
         case .openTerminal: openTerminal()
-        case .toggleEditorPreview: shell.setEditorMinimap(!shell.editorStyle.showMinimap)
         case .hookSettings: openWorkflowHookSettings()
         case .prepareChanges: if let session = state.session { prepareChanges(for: session, context: context) }
         }

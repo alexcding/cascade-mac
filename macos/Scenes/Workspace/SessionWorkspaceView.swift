@@ -290,7 +290,7 @@ struct SessionWorkspaceContextBody: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } else if model.mode == .browser, let document = context.activeDocument {
-            EditorDocumentView(model: document, togglePreview: model.toggleEditorPreview).id(document.id)
+            EditorDocumentView(model: document).id(document.id)
         } else if model.mode == .browser, let page = context.activePage {
             // Not keyed by page: a new identity would rebuild the surface and re-parent the web views.
             BrowserPane(page: page, context: context, model: page.controls, workspace: model)
