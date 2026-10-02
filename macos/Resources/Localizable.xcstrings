@@ -67584,6 +67584,9 @@
         }
       }
     },
+    "Open this page in your default browser" : {
+
+    },
     "Open this session’s shell in its worktree." : {
       "extractionState" : "manual",
       "localizations" : {

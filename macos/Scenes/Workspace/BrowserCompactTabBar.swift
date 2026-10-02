@@ -3,7 +3,8 @@ import SwiftUI
 /// Safari's compact tab layout: every tab — web pages and worktree files alike, in one order —
 /// sits inside one pill, and the selected page is a raised glass capsule that doubles as the
 /// address bar. Its close button is at the leading edge, the site icon and host are centred,
-/// Reload and the bookmark sit after it in a capsule of their own; clicking the host edits the address. The address field also searches the
+/// Reload sits inside it, and the bookmark and Open in Browser after it in a capsule of their own;
+/// clicking the host edits the address. The address field also searches the
 /// session's worktree, and a file picked from it opens as a tab of its own. There is no second
 /// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or at the
 /// top of a pane's column, the bar hangs its suggestions under itself.
@@ -285,24 +286,21 @@ struct NavigationCluster: View {
 }
 
 /// The page's own buttons after the address, in a capsule of their own as Back and Forward are
-/// before it: Reload — Stop while the page loads — and the bookmark star, filled once bookmarked.
-/// Both always there, as Back and Forward are, and each disabled with no page to act on — a blank
-/// tab, or an address that cannot be bookmarked — so the row never shifts.
+/// before it: the bookmark star, filled once bookmarked, and Open in Browser, which hands the page
+/// to the default browser. Both always there, as Back and Forward are, and each disabled with no
+/// page to act on — a blank tab, or an address that cannot be bookmarked — so the row never shifts.
 private struct PageActionsCluster: View {
     let page: BrowserPage?
     let bookmarks: BrowserBookmarkStore?
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         // The page they act on: none on a blank tab.
         let shown = page.flatMap { $0.controls.isBlank ? nil : $0 }
-        let loading = shown?.controls.loading == true
+        let external = shown.flatMap { safeWebURL($0.url) }
         let bookmarked = shown.map { bookmarks?.contains($0.url) == true } == true
         let canBookmark = shown.map { bookmarks?.canBookmark($0.url) == true } == true
         HStack(spacing: 0) {
-            HoverCircleButton(loading ? String(localized: "Stop") : String(localized: "Reload Page"),
-                              systemImage: loading ? "xmark" : "arrow.clockwise", enabled: shown != nil) { shown?.controls.toggleLoading() }
-                .help(loading ? String(localized: "Stop loading this page") : String(localized: "Reload this page"))
-            Divider().frame(height: 16)
             HoverCircleButton(bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"),
                               systemImage: bookmarked ? "star.fill" : "star", enabled: canBookmark,
                               tint: bookmarked ? Theme.accent : nil) {
@@ -310,6 +308,12 @@ private struct PageActionsCluster: View {
             }
                 .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
                 .accessibilityIdentifier("bookmark-page")
+            Divider().frame(height: 16)
+            HoverCircleButton(String(localized: "Open in Browser"), systemImage: "arrow.up.forward.square", enabled: external != nil) {
+                if let external { openURL(external) }
+            }
+                .help(String(localized: "Open this page in your default browser"))
+                .accessibilityIdentifier("open-in-browser")
         }
         .padding(.horizontal, 2)
         .barGlass()
@@ -317,8 +321,8 @@ private struct PageActionsCluster: View {
 }
 
 /// One tab in the pill. Unselected: icon and title, a close button on hover. Selected: close,
-/// icon and host, and the address field over the label while editing; Reload and the bookmark
-/// are outside it (`PageActionsCluster`). Both states share
+/// icon and host, the address field over the label while editing, and Reload; the bookmark and
+/// Open in Browser are outside it (`PageActionsCluster`). Both states share
 /// the same slots, so the label never moves; only what fills the slots crossfades.
 private struct CompactTab: View {
     let page: BrowserPage
@@ -365,6 +369,15 @@ private struct CompactTab: View {
             let speaker = controls.playingAudio || controls.muted
             // Safari packs a tab's trailing buttons about half as far apart as the bar's own gap.
             HStack(spacing: 0) {
+                // Reload appears only while the pointer is over the address. Stop, the same button
+                // while a page loads, stays visible: a slow load must always have a way to be stopped.
+                if active && editable {
+                    CompactTabAccessory(title: controls.loading ? String(localized: "Stop") : String(localized: "Reload Page"),
+                                        systemImage: controls.loading ? "xmark" : "arrow.clockwise", width: Self.slotWidth,
+                                        visible: !controls.isBlank && (hovering || controls.loading),
+                                        accessible: !controls.isBlank, action: controls.toggleLoading)
+                        .help(controls.loading ? String(localized: "Stop loading this page") : String(localized: "Reload this page"))
+                }
                 // As in Safari, a speaker sits on any tab making sound, and stays while muted so the
                 // tab can be unmuted after the page has gone quiet.
                 if speaker {
