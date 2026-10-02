@@ -433,8 +433,8 @@ struct APIBoardService: BoardService {
             catch { self.error = error.localizedDescription }
         }
     }
-    func open(_ ticket: Ticket, inTab: Bool = false) { emit(ticket) { $0.inTab = inTab } }
-    func openSession(_ ticket: Ticket, agent: SessionAgent? = nil) { emit(ticket) { $0.inSession = true; $0.agent = agent } }
+    func open(_ ticket: Ticket) { emit(ticket) { _ in } }
+    func openSession(_ ticket: Ticket) { emit(ticket) { $0.inSession = true } }
     /// A missing site sets `error` rather than opening nothing silently.
     private func emit(_ ticket: Ticket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired else { return }

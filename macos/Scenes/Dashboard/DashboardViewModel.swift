@@ -191,34 +191,32 @@ extension DashboardViewModel {
 extension DashboardViewModel {
     /// Only a row the dashboard still shows opens, in its current form: a row kept by a view that
     /// has not redrawn since the snapshot dropped it resolves to nothing.
-    func open(_ row: DashboardRow, inTab: Bool = false) {
-        request(currentRow(row).map { Self.tabRequest($0.openPageRequest, inTab: inTab) })
+    func open(_ row: DashboardRow) {
+        request(currentRow(row).map(\.openPageRequest))
     }
-    func openSession(_ row: DashboardRow, agent: SessionAgent? = nil) {
-        request(currentRow(row).map { Self.sessionRequest($0, agent: agent) })
+    func openSession(_ row: DashboardRow) {
+        request(currentRow(row).map { Self.sessionRequest($0) })
     }
     func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
 
-    func open(_ row: DashboardTicketRow, inTab: Bool = false) {
-        request(currentTicket(row).map { Self.tabRequest($0.openPageRequest, inTab: inTab) })
+    func open(_ row: DashboardTicketRow) {
+        request(currentTicket(row).map(\.openPageRequest))
     }
-    func openSession(_ row: DashboardTicketRow, agent: SessionAgent? = nil) {
-        request(currentTicket(row).map { Self.sessionRequest($0, agent: agent) })
+    func openSession(_ row: DashboardTicketRow) {
+        request(currentTicket(row).map { Self.sessionRequest($0) })
     }
     func sessionMark(_ row: DashboardTicketRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
 
-    static func sessionRequest(_ row: DashboardRow, agent: SessionAgent? = nil) -> OpenPageRequest {
+    static func sessionRequest(_ row: DashboardRow) -> OpenPageRequest {
         var request = row.openPageRequest
         request.inSession = true
         request.projectID = row.projectID
-        request.agent = agent
         return request
     }
 
-    static func sessionRequest(_ row: DashboardTicketRow, agent: SessionAgent? = nil) -> OpenPageRequest {
+    static func sessionRequest(_ row: DashboardTicketRow) -> OpenPageRequest {
         var request = row.openPageRequest
         request.inSession = true
-        request.agent = agent
         return request
     }
 
@@ -238,11 +236,5 @@ extension DashboardViewModel {
     private func request(_ value: OpenPageRequest?) {
         guard !retired, let value else { return }
         onAction(.open(value))
-    }
-
-    private static func tabRequest(_ request: OpenPageRequest, inTab: Bool) -> OpenPageRequest {
-        var request = request
-        request.inTab = inTab
-        return request
     }
 }

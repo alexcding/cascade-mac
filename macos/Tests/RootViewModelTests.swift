@@ -6,9 +6,7 @@ import Testing
     var state = RootState()
     var commands: [ShellCommand] = []
     var pins: [String] = []
-    var closedTabs: [String] = []
     var selections: [SidebarDestination] = []
-    var opens: [URL] = []
     var terminals = 0
     var reconnects = 0
     var removalRequests: [String] = []
@@ -33,9 +31,7 @@ import Testing
     func togglePin(_ id: String) { pins.append(id) }
     func renameSession(_ id: String, to name: String) { renames.append("\(id)=\(name)") }
     func focusSession(_ id: String) { focuses.append(id) }
-    func closeTab(_ url: String) { closedTabs.append(url) }
     func openTerminal() { terminals += 1 }
-    func openRootBrowser(_ url: URL) { opens.append(url) }
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel? {
         removalRequests.append(id)
         guard let session = state.sessions.first(where: { $0.id == id }) else { return nil }
@@ -75,11 +71,9 @@ private struct InertRemovalService: SessionRemoving {
     model.select(.session("session"))
     #expect(coordinator.selection == .session("session") && store.load() == .session("session"))
     #expect(runtime.selections == [.session("session")])
-    model.togglePin("session"); model.closeTab("https://example.test/tab"); model.openTerminal(); model.reconnect()
-    let url = try #require(URL(string: "https://example.test/page"))
-    model.openBrowser(url)
+    model.togglePin("session"); model.openTerminal(); model.reconnect()
     await Task.yield()
-    #expect(runtime.pins == ["session"] && runtime.closedTabs == ["https://example.test/tab"] && runtime.terminals == 1 && runtime.reconnects == 1 && runtime.opens == [url])
+    #expect(runtime.pins == ["session"] && runtime.terminals == 1 && runtime.reconnects == 1)
     let replacement = coordinator.makeRoot(factory: factory, runtime: runtime, shell: shell, viewer: viewer)
     model.select(.overview)
     #expect(coordinator.selection == .session("session") && factory.creations == 2)
@@ -133,16 +127,13 @@ private struct InertRemovalService: SessionRemoving {
     #expect(model.session("s")?.id == "s")
     runtime.state.sessions = []
     #expect(model.session("s") == nil)
-    runtime.state.selection = .tab("file:///tmp/private")
-    #expect(model.browserAddress("file:///tmp/private") == nil)
-    #expect(model.browserAddress("https://example.com")?.host == "example.com")
 }
 
 @MainActor @Test func sidebarSelectionPreservesExistingJSONFormatAndIgnoresCorruption() throws {
     let suite = "CascadeSelectionTests-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
-    let selection = SidebarDestination.tab("https://example.test/a?q=one%20two")
+    let selection = SidebarDestination.session("https://example.test/a?q=one%20two")
     preferences.set(try JSONEncoder().encode(selection), forKey: "sidebar.selection")
     let storage = UserDefaultsSidebarSelectionStore(preferences: preferences)
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }), selectionStore: storage)
@@ -152,17 +143,6 @@ private struct InertRemovalService: SessionRemoving {
     preferences.set(Data("corrupt".utf8), forKey: "sidebar.selection")
     let restored = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }), selectionStore: storage)
     #expect(restored.selection == .overview)
-}
-
-@MainActor @Test func closingTheTabInViewSelectsItsSidebarNeighbour() {
-    let tabs = ["a", "b", "c"]
-    #expect(AppViewModel.destination(closing: "a", among: tabs) == .tab("b"))
-    #expect(AppViewModel.destination(closing: "b", among: tabs) == .tab("c"))
-    #expect(AppViewModel.destination(closing: "c", among: tabs) == .tab("b"))
-    #expect(AppViewModel.destination(closing: "a", among: ["a"]) == .overview)
-    // A tab the sidebar does not list (its URL belongs to a session) is never the neighbour.
-    #expect(AppViewModel.destination(closing: "a", among: ["a", "c"]) == .tab("c"))
-    #expect(AppViewModel.destination(closing: "missing", among: tabs) == .overview)
 }
 
 
@@ -259,21 +239,4 @@ private struct InertRemovalService: SessionRemoving {
     // Letting a context go prunes its coordinator on the way out (contextRemoved -> refreshRoot).
     await viewer.remove(id: "task:two")
     #expect(coordinator.workspaceCoordinator(for: two) == nil && coordinator.workspaceCoordinators.count == 1)
-}
-
-// Closing a sidebar tab's last page lets the page and its web view go but keeps the tab: the panel shows
-// its empty state rather than the sidebar losing the row.
-@MainActor @Test func closingASidebarTabsLastPageKeepsTheTab() throws {
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
-    coordinator.rootRuntime = runtime
-    let tab = WorkspaceContext(id: "tab:t1", sourceURL: "", title: "Tab")
-    let tabModel = SessionWorkspaceViewModel(context: tab, service: runtime)
-    coordinator.bindWorkspace(tabModel, context: tab, runtime: runtime)
-    let page = try #require(tab.open("https://example.test/tab"))
-    page.materialize(load: false)
-    #expect(page.webView != nil)
-    tabModel.closeTab(.page(page))
-    #expect(runtime.closedTabs.isEmpty)
-    #expect(tab.pages.isEmpty && page.webView == nil)
 }

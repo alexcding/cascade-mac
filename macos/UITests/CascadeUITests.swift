@@ -565,7 +565,7 @@ final class CascadeUITests: XCTestCase {
     }
 
     @MainActor
-    func testProjectSprintBoardMovesAssignsAndOpensNativeTicketContext() throws {
+    func testProjectSprintBoardMovesAndAssigns() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
               let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
@@ -604,9 +604,6 @@ final class CascadeUITests: XCTestCase {
         app.buttons["Assign"].firstMatch.click()
         app.menuItems["Alice"].click()
         XCTAssertTrue(app.buttons["Assignee Alice"].waitForExistence(timeout: 10))
-        card.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native ticket fixture"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Create Session"].exists)
     }
 
     @MainActor
@@ -680,70 +677,6 @@ final class CascadeUITests: XCTestCase {
         app.sheets.buttons["Delete Project"].click()
         let removed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.outlines["workspace-sidebar"].staticTexts["Renamed UI project"])
         wait(for: [removed], timeout: 10)
-    }
-
-    @MainActor
-    func testNativeDashboardPendingOpenDoesNotInterruptDraft() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let base = environment["CASCADE_UI_BACKEND_URL"],
-              let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
-            throw XCTSkip("Run macos/scripts/test-browser-ui.sh with its isolated action fixture.")
-        }
-        func post(_ route: String) async throws {
-            var request = URLRequest(url: URL(string: base + route)!); request.httpMethod = "POST"
-            _ = try await URLSession.shared.data(for: request)
-        }
-        let app = XCUIApplication()
-        app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.launch()
-        XCTAssertTrue(app.scrollViews["native-dashboard"].waitForExistence(timeout: 10))
-        let review = app.buttons["dashboard-pr-2"]
-        XCTAssertTrue(review.waitForExistence(timeout: 10))
-        try await post("/fixture/arm-project-open")
-        review.click()
-        var held = false
-        for _ in 0..<100 {
-            let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/project-opens")!)
-            held = (try JSONSerialization.jsonObject(with: data) as? [String: Any])?["held"] as? Bool == true
-            if held { break }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertTrue(held)
-        app.buttons["New Project"].click()
-        let draft = app.sheets.textFields["project-name"]
-        XCTAssertTrue(draft.waitForExistence(timeout: 5)); draft.click(); app.typeText("Keep dashboard draft")
-        try await post("/fixture/release-project-open")
-        XCTAssertEqual(draft.value as? String, "Keep dashboard draft")
-        app.sheets.buttons["Cancel"].click()
-        XCTAssertTrue(app.scrollViews["native-dashboard"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.webViews.staticTexts["Native browser fixture"].exists)
-        XCTAssertTrue(review.isEnabled); review.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native browser fixture"].waitForExistence(timeout: 10))
-        let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/project-opens")!)
-        XCTAssertEqual((try JSONSerialization.jsonObject(with: data) as? [String: Any])?["opens"] as? Int, 2)
-    }
-
-    @MainActor
-    func testNativeDashboardOpensContextPage() throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let base = environment["CASCADE_UI_BACKEND_URL"],
-              let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
-            throw XCTSkip("Run macos/scripts/test-browser-ui.sh to provide the isolated dashboard fixture.")
-        }
-        let app = XCUIApplication()
-        app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.launch()
-        XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
-        app.outlines["workspace-sidebar"].staticTexts["Dashboard"].click()
-        XCTAssertTrue(app.scrollViews["native-dashboard"].waitForExistence(timeout: 10))
-        let reviewed = app.buttons["dashboard-pr-2"]
-        XCTAssertTrue(reviewed.waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(app.buttons["dashboard-pr-1"].exists)
-        XCTAssertTrue(app.buttons["dashboard-pr-3"].exists)
-        reviewed.click()
-        XCTAssertTrue(app.webViews.staticTexts["Native browser fixture"].waitForExistence(timeout: 10))
-        app.typeKey("1", modifierFlags: .command)
-        XCTAssertTrue(app.scrollViews["native-dashboard"].waitForExistence(timeout: 5))
     }
 
     @MainActor

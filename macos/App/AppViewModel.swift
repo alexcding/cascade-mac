@@ -53,23 +53,12 @@ public final class AppViewModel {
     public private(set) var lastUpdate: Date?
     public private(set) var backendAddress = ""
     private(set) var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateWorkspaceReviewState() } } }
-    /// The saved tabs, as `tabStore` keeps them; every change goes through the store first.
-    private(set) var tabs: [SavedTab] = []
-    @ObservationIgnored private let tabStore: TabStore
-    /// Tabs the user opened from the sidebar but has not given an address yet. They live only
-    /// here until their first navigation turns them into saved tabs.
-    private(set) var draftTabs: [SavedTab] = []
-    var visibleTabs: [SavedTab] { tabs + draftTabs }
-    func isDraftTab(_ id: String) -> Bool { draftTabs.contains { $0.id == id } }
-    func tabURL(_ id: String) -> String? { visibleTabs.first { $0.id == id }?.url }
     var selection: SidebarDestination { coordinator.selection }
     private(set) var terminals: [String: TerminalSession] = [:] {
         didSet { updateWorkspaceTerminalState() }
     }
     var projectModels: [String: ProjectPageViewModel] { coordinator.projectModels }
     private(set) var changingSessions: Set<String> = []
-    /// PR / ticket pages whose session is being created right now (their Create Session is busy).
-    private(set) var startingPages: Set<String> = []
     /// First prompts for sessions the project composer created, by session id, until their agent launches.
     @ObservationIgnored private var launchPrompts: [String: String] = [:]
     /// Sessions a fork is being made of, so a second request waits for the first.
@@ -97,7 +86,7 @@ public final class AppViewModel {
     @ObservationIgnored private var pendingRefreshEvents: [ServerEvent] = []
     @ObservationIgnored private var started = false
     // Keep navigation visible on the first frame, before the async inventory load.
-    private(set) var sidebarEntries = SidebarEntry.make(projects: [], sessions: [], tabs: [])
+    private(set) var sidebarEntries = SidebarEntry.make(projects: [], sessions: [])
     private(set) var sidebarPinnedIDs: Set<String> = []
     @ObservationIgnored private var sidebarLoadTask: Task<Void, Never>?
     @ObservationIgnored private var sidebarLoadPending = false
@@ -138,7 +127,6 @@ public final class AppViewModel {
         let terminalControl = platformFactory.terminalControl()
         self.terminalControl = terminalControl
         self.workspaceLaunch = platformFactory.workspaceLauncher()
-        tabStore = platformFactory.tabStore()
         self.shellFactory = shellFactory
         let shell = shellFactory.shell(notifications: notificationFactory.notifications())
         self.shell = shell
@@ -191,21 +179,6 @@ public final class AppViewModel {
         }), copy: copy)
         dashboard?.snapshotChanged = { [weak self] in self?.cachedResolverPullRequests = nil; self?.updateWorkspaceReviewState() }
         _ = coordinator.makeSettings(factory: settingsFactory ?? NativeSettingsFeatureFactory(desktop: desktop, copy: copy, adBlocker: .shared), shell: shell, runtime: self)
-        viewer.contextChanged = { [weak self] context in
-            guard let self, viewer.contexts[context.id] === context else { return }
-            commitDraftTab(context)
-            syncTabTitle(context)
-        }
-        // A link opened from a sidebar tab becomes its own tab under Tabs, the way one opened from
-        // the dashboard does. A session's second panel keeps such links as pages of that panel.
-        // An address that cannot be a tab opens in its own panel rather than not at all.
-        viewer.openSidebarTab = { [weak self] url, keepInPanel in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                do { try await openPage(OpenPageRequest(url: url, kind: "web", title: "")) }
-                catch { keepInPanel() }
-            }
-        }
         viewer.prepareContext = { [weak self] context in
             guard let self else { return }
             context.configureWorkspace(factory: workspaceFactory, service: self)
@@ -217,7 +190,6 @@ public final class AppViewModel {
             guard let self else { throw CancellationError() }
             try await openActivityEntry(entry)
         }
-        tabs = tabStore.tabs
         scheduleSidebarLoad()
     }
 
@@ -266,39 +238,8 @@ public final class AppViewModel {
             let busy = terminal?.agentBusy == true
             status[session.id] = SidebarSessionStatus(live: live, busy: busy, cli: terminal?.agentTurns.cli ?? session.cli)
         }
-        let prs = Dictionary((dashboard?.prs.projects ?? []).flatMap(\.prs).compactMap { pr in pr.url.map { ($0, pr) } },
-                             uniquingKeysWith: { first, _ in first })
-        var tabIcons: [String: SidebarTabIcon] = [:]
-        for tab in tabs where tab.kind == "github" {
-            let pr = prs[tab.url]
-            let ci: SidebarTabIcon.CI = switch (pr?.ci?.status, pr?.ci?.conclusion) {
-            case ("in_progress", _), ("queued", _): .running
-            case (_, "success"): .success
-            case (_, "failure"): .failure
-            default: .none
-            }
-            tabIcons[tab.id] = SidebarTabIcon(kind: tab.kind, login: pr?.author?.login ?? tab.login, avatar: tab.avatar, ci: ci)
-        }
-        // A web tab keeps the address it was saved under while its page browses on, so the row's
-        // favicon follows the page in view, the way its title does, not the saved address.
-        for tab in tabs where tab.kind == "web" {
-            guard let live = viewer.contexts["tab:\(tab.id)"]?.activePage?.url,
-                  let host = FaviconStore.host(of: live), host != FaviconStore.host(of: tab.url) else { continue }
-            tabIcons[tab.id] = SidebarTabIcon(kind: tab.kind, login: tab.login, avatar: tab.avatar, url: live)
-        }
-        // A saved tab whose page is back on the start page reads as a new tab, the way a draft does,
-        // until it has an address again. Only the row changes: the saved tab keeps its address, and a
-        // tab a session owns stays out of the list under that address.
-        let sessionURLs = Set(sessions.map(\.url))
-        let shownTabs = visibleTabs.map { tab in
-            guard !tab.isOwned(by: sessionURLs),
-                  viewer.contexts["tab:\(tab.id)"]?.activePage?.controls.isBlank == true else { return tab }
-            var blank = SavedTab(id: tab.id, kind: "web", title: "", url: "")
-            blank.pinned = tab.pinned
-            return blank
-        }
-        return SidebarEntry.make(projects: projects, sessions: sessions, tabs: shownTabs, status: status,
-            tabIcons: tabIcons, order: sidebarOrder, canCreateProject: canPerform(.newProject))
+        return SidebarEntry.make(projects: projects, sessions: sessions, status: status,
+            order: sidebarOrder, canCreateProject: canPerform(.newProject))
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -456,9 +397,6 @@ public final class AppViewModel {
         case .session(let id):
             guard let session = sessions.first(where: { $0.id == id }) else { return nil }
             return local.first { $0.id == session.projectId }
-        case .tab(let id):
-            guard let url = tabURL(id), SessionPage.parse(url) != nil else { return local.count == 1 ? local[0] : nil }
-            return Self.pageProject(url, in: projects)
         default: return local.count == 1 ? local[0] : nil
         }
     }
@@ -479,24 +417,20 @@ public final class AppViewModel {
 
     private var canStartSession: Bool {
         connection == "Connected" && coordinator.canPresent
-            && !(selection.tabID.flatMap(tabURL).map(startingPages.contains) ?? false)
     }
 
-    /// New Session for the selection: its project's Start, on the page in view when that is a PR or
-    /// ticket, or with the plain page in view as the session's context. `agent` picks Start's agent;
-    /// nil keeps the one it has.
+    /// New Session for the selection: its project's Start. `agent` picks Start's agent; nil keeps
+    /// the one it has.
     func newSession(agent: SessionAgent?) {
         guard canPerform(.newSession), let project = sessionProject(for: selection) else { return }
-        let pageURL: String? = if case .tab(let id) = selection { tabURL(id) } else { nil }
-        let onPage = pageURL.map { SessionPage.parse($0) != nil } ?? false
-        openStart(in: project.id, text: onPage ? pageURL : nil, contextURL: onPage ? nil : pageURL, agent: agent)
+        openStart(in: project.id, agent: agent)
     }
 
     /// Every session starts on its project's Start page: this opens it, filled in.
-    func openStart(in projectID: String, text: String? = nil, contextURL: String? = nil, agent: SessionAgent? = nil) {
+    func openStart(in projectID: String, text: String? = nil, agent: SessionAgent? = nil) {
         guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
         select(.project(projectID))
-        projectModels[projectID]?.start(text: text, contextURL: contextURL, agent: agent)
+        projectModels[projectID]?.start(text: text, agent: agent)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,
@@ -535,7 +469,8 @@ public final class AppViewModel {
         existingSession(for: request).map(PageSessionMark.init)
     }
 
-    /// Open in Session from a list row: go to the page's session, or start one as its page would.
+    /// A list row's Go to Session or New Session: go to the page's session, or open its project's
+    /// Start with the page filled in. No session is created here.
     func openPageSession(_ request: OpenPageRequest) async throws {
         if let session = existingSession(for: request) {
             select(.session(session.id)); return
@@ -543,31 +478,15 @@ public final class AppViewModel {
         guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
             throw BackendError.operation(String(localized: "No project with a workspace matches this page."))
         }
-        // One start at a time: a second row asked meanwhile would create and select a session too.
-        guard canStartSession, let operations = sessionOperations, startingPages.isEmpty else {
-            throw BackendError.operation(String(localized: "A session cannot be started right now."))
-        }
-        startingPages.insert(request.url)
-        // Its own task: the row's action is cancelled by any navigation, and a
-        // create cancelled between the worktree and its record would leave a checkout with no session.
-        let agent = request.agent ?? shell.defaultAgent
-        let jiraKey = request.jiraKeys.first ?? ""
-        let outcome = await Task { await PageSessionStart.run(url: request.url, project: project, agent: agent, jiraKey: jiraKey, operations: operations) }.value
-        startingPages.remove(request.url)
-        switch outcome {
-        case .created(let session): createdSession(session)
-        // Start looks the pull request up again and asks for the branch nothing could name.
-        case .needsBranch: openStart(in: project.id, text: request.url, agent: agent)
-        case .failed(let message): throw BackendError.operation(message)
-        }
+        guard canStartSession else { throw BackendError.operation(String(localized: "A session cannot be started right now.")) }
+        openStart(in: project.id, text: request.url)
     }
 
     public func canPerform(_ command: ShellCommand) -> Bool {
         switch command {
         case .newProject: connection == "Connected" && coordinator.canPresent
-        // ⌘T, as `newBrowserTab`: a blank tab, which a panel holding one page has nowhere to put.
-        case .newTab: coordinator.canPresent && viewer.active.map { !$0.holdsOnePage } == true
-        case .newSidebarTab: coordinator.canPresent
+        // ⌘T, as `newBrowserTab`: a blank tab in the workspace on screen.
+        case .newTab: coordinator.canPresent && viewer.active != nil
         case .newSession: canStartSession && sessionProject(for: selection) != nil
         case .back: coordinator.canPresent && viewer.active?.activePage?.controls.canGoBack == true
         case .forward: coordinator.canPresent && viewer.active?.activePage?.controls.canGoForward == true
@@ -636,7 +555,6 @@ public final class AppViewModel {
             coordinator.presentNewProject(service: backendFactory.projects(api: api), didSave: { [weak self] in self?.savedProject($0) })
         case .newSession: newSession(agent: nil)
         case .newTab: if canPerform(.newTab) { newBrowserTab() }
-        case .newSidebarTab: if canPerform(.newSidebarTab) { newTab() }
         case .runProject: if canPerform(.runProject) { coordinator.activeWorkspaceModel?.run() }
         case .stopBuild: if canPerform(.stopBuild), let model = coordinator.activeWorkspaceModel { Task { await model.stopBuild() } }
         case .openFile: if canPerform(.openFile), let context = viewer.active { performWorkspaceOperation(.openFile, in: context) }
@@ -720,65 +638,11 @@ public final class AppViewModel {
     }
 
     /// Cmd-T: a blank tab in the browser panel of the workspace on screen, as in Safari's window in
-    /// front. A session panel showing something else switches to Browser first. Never a sidebar tab.
+    /// front. A session panel showing something else switches to Browser first.
     func newBrowserTab() {
         guard coordinator.canPresent, let context = viewer.active else { return }
         if context.pane != .term { context.setPane(.term) }
         context.openBlankPage()
-    }
-
-    /// The Tabs heading's "+" and ⌥⌘T: a new draft at the end of Tabs, selected, with a blank page
-    /// whose address field takes focus. Entering an address commits it as a saved tab.
-    func newTab() {
-        guard coordinator.canPresent else { return }
-        let draft = SavedTab(id: UUID().uuidString, kind: "web", title: "", url: "")
-        draftTabs.append(draft)
-        select(.tab(draft.id))
-    }
-
-    /// A draft's page reached a real address: save it as a tab under the same id, so the
-    /// live context and its web view stay where they are.
-    private func commitDraftTab(_ context: WorkspaceContext) {
-        guard let draft = draftTabs.first(where: { "tab:\($0.id)" == context.id }),
-              let page = context.activePage, let address = safeWebURL(page.url)?.absoluteString else { return }
-        let request = OpenPageRequest(id: draft.id, url: address, kind: "web",
-                                      title: page.title.isEmpty ? (URL(string: address)?.host ?? address) : page.title)
-        do {
-            let saved = try tabStore.open(request)
-            // The saved tab takes the draft's place under the same id, so the sidebar row and
-            // the selection never blink out between the two.
-            draftTabs.removeAll { $0.id == draft.id }
-            showTabs(saved)
-        } catch {
-            self.error = String(localized: "Could not save \(address): \(error.localizedDescription)")
-        }
-    }
-
-    /// The page in a saved tab has a title now, or a new one: the sidebar follows the page.
-    private func syncTabTitle(_ context: WorkspaceContext) {
-        guard let index = tabs.firstIndex(where: { "tab:\($0.id)" == context.id }), let page = context.activePage,
-              !page.title.isEmpty, page.title != tabs[index].title, safeWebURL(page.url) != nil else { return }
-        showTabs(tabStore.rename(tabs[index].id, title: page.title))
-    }
-
-    /// The store's list, and its complaint if the file could not be written.
-    private func showTabs(_ saved: SavedTabs) {
-        if tabs != saved.tabs { tabs = saved.tabs }
-        if let failure = tabStore.lastError { error = failure }
-    }
-
-    /// Reorders the Tabs list. Saved tabs keep their order in the store; drafts only exist
-    /// here and always follow the saved ones.
-    func moveTab(_ id: String, before: String?) {
-        guard id != before else { return }
-        // Reorder the list as the sidebar shows it, then split it back: saved tabs keep
-        // their relative order, drafts keep theirs and stay after the saved ones.
-        guard let shown = Self.reordered(visibleTabs, moving: id, before: before) else { return }
-        let previous = tabs.map(\.id)
-        draftTabs = shown.filter { isDraftTab($0.id) }
-        let order = shown.filter { !isDraftTab($0.id) }.map(\.id)
-        guard order != previous else { return }
-        showTabs(tabStore.reorder(order))
     }
 
     /// Reorders the Projects list: `id` lands before `before`, or last when nil. The order is
@@ -824,15 +688,6 @@ public final class AppViewModel {
         shown.insert(moving, at: target)
         return shown
     }
-    /// `tabs` in the relative order `ids` gives; tabs `ids` does not know keep their place at the end.
-    static func ordered(_ tabs: [SavedTab], by ids: [String]) -> [SavedTab] {
-        let rank = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        return tabs.enumerated().sorted { lhs, rhs in
-            let l = rank[lhs.element.id] ?? Int.max, r = rank[rhs.element.id] ?? Int.max
-            return l != r ? l < r : lhs.offset < rhs.offset
-        }.map(\.element)
-    }
-
     /// A Today-popover row: its PR opens by link; a ticket by its key on the configured Jira site.
     func openActivityEntry(_ entry: LogEntry) async throws {
         if let link = entry.link {
@@ -850,20 +705,11 @@ public final class AppViewModel {
         try Task.checkCancellation()
         guard safeWebURL(request.url) != nil else { throw BackendError.operation(String(localized: "Invalid page address.")) }
         if request.inSession { try await openPageSession(request); return }
-        // A page that already has a session — its own, or one on its branch or ticket key — goes
-        // there; only a page with none opens a tab. Open in Tab asked for the tab regardless.
-        if !request.inTab, let session = existingSession(for: request) {
-            select(.session(session.id))
-            viewer.active?.open(request.url, title: request.title)
-            return
+        // Any other page opens in the system browser, even one that has a session: Go to Session is
+        // the row menu's.
+        guard let url = safeWebURL(request.url), desktop.openBrowser(url) else {
+            throw BackendError.operation(String(localized: "Could not open the page in the browser."))
         }
-        try Task.checkCancellation()
-        let saved = try tabStore.open(request)
-        showTabs(saved)
-        // A background tab loads when it is selected; the row's screen stays where it was.
-        guard let id = saved.active, !request.inTab else { return }
-        select(.tab(id))
-        viewer.active?.open(request.url, title: request.title)
     }
 
     public func makeTray(openWindow: @escaping () -> Void, dismiss: @escaping () -> Void,
@@ -881,7 +727,6 @@ public final class AppViewModel {
         // A switch hides the session it leaves, which the pool may now stop.
         sessionPool.trim()
     }
-    func openRootBrowser(_ url: URL) { _ = desktop.openBrowser(url) }
     /// For the area extensions: `desktop` is private to this file.
     func openInBrowser(_ url: URL) -> Bool { desktop.openBrowser(url) }
     /// For the area extensions: `error` is only settable from this file.
@@ -907,18 +752,13 @@ public final class AppViewModel {
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
                 sessionPool.shown(id)
-                let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title, legacy: tabs.first { $0.url == session.url && !$0.standalone })
+                let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title)
                 warmIDE(for: session)
                 buildModel(for: session, context: context)?.warmDestinations()
                 openTerminal()
             } else { viewer.deactivate() }
         case .terminal:
             viewer.select(id: "scratch", url: "", title: String(localized: "Terminal"))
-        case .tab(let id):
-            let tab = visibleTabs.first { $0.id == id }
-            let context = viewer.select(id: "tab:\(id)", url: tab?.url ?? "", title: tab?.displayTitle ?? String(localized: "New Tab"), legacy: tabs.first { $0.id == id })
-            // A draft has no address to load; it starts as one blank page with the address field focused.
-            if isDraftTab(id), context.pages.isEmpty { context.openBlankPage() }
         default: viewer.deactivate()
         }
     }
@@ -1372,38 +1212,6 @@ public final class AppViewModel {
         }
     }
 
-    /// Pins a saved tab into the grid under Dashboard, or returns it to the Tabs list. A draft
-    /// is not saved yet, so it cannot be pinned.
-    func togglePinTab(_ id: String) {
-        guard !isDraftTab(id), let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        showTabs(tabStore.pin(id, !tabs[index].pinned))
-    }
-
-    /// Closes a task-less tab: moves the selection to its neighbour first when it is the tab in
-    /// view, then drops the tab and releases its pages.
-    func closeTab(_ id: String) {
-        let sessionURLs = Set(sessions.map(\.url).filter { !$0.isEmpty })
-        let visible = visibleTabs.filter { !$0.isOwned(by: sessionURLs) }.map(\.id)
-        if let index = draftTabs.firstIndex(where: { $0.id == id }) {
-            if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
-            draftTabs.remove(at: index)
-            Task { await viewer.remove(id: "tab:\(id)") }
-            return
-        }
-        guard tabs.contains(where: { $0.id == id }) else { return }
-        if selection == .tab(id) { select(Self.destination(closing: id, among: visible)) }
-        showTabs(tabStore.close(id))
-        Task { await viewer.remove(id: "tab:\(id)") }
-    }
-
-    /// Where the selection goes when the tab in view closes: the tab now at its place in the
-    /// sidebar's tab list, else the one before it, else the dashboard.
-    static func destination(closing url: String, among visible: [String]) -> SidebarDestination {
-        guard let index = visible.firstIndex(of: url) else { return .overview }
-        let remaining = visible.filter { $0 != url }
-        return remaining.isEmpty ? .overview : .tab(remaining[min(index, remaining.count - 1)])
-    }
-
     public func quit() async throws { try await prepareToTerminate() }
 
     public func prepareForUpdate() async throws { try await prepareToTerminate() }
@@ -1452,8 +1260,7 @@ public final class AppViewModel {
     private func restoreSessionTerminals() {
         for record in sessions {
             let key = "task:\(record.id)"
-            _ = viewer.restore(id: key, url: record.url, title: record.title,
-                               legacy: tabs.first { $0.url == record.url && !$0.standalone })
+            _ = viewer.restore(id: key, url: record.url, title: record.title)
             // One the memory pool stopped stays stopped until it is opened.
             if terminals[key] == nil, !sessionPool.stopped.contains(record.id) { terminals[key] = makeTerminal(record) }
         }
@@ -1532,25 +1339,19 @@ public final class AppViewModel {
                 do {
                     async let projectRequest: [Project]? = inventory.contains(.projects) ? api.get(Routes.PROJECTS) : nil
                     async let sessionRequest: [WorkspaceSession]? = inventory.contains(.sessions) ? api.get(Routes.TASKS) : nil
-                    // Tabs and preferences are the app's now; what an earlier version left in the
+                    // Preferences are the app's now; what an earlier version left in the
                     // backend is adopted once, alongside the first inventory read, and a failure
                     // there costs nothing but a retry with the next refresh.
                     let importsSettings = shell.needsLegacyPreferenceImport || viewer.needsImport
-                    async let tabRequest: SavedTabs? = tabStore.needsImport ? (try? await api.get(Routes.TABS)) : nil
                     async let settingsRequest: [String: String?]? = importsSettings ? (try? await api.get(Routes.SETTINGS)) : nil
-                    let (snapshot, sessionSnapshot, imported, legacy) = try await (projectRequest, sessionRequest, tabRequest, settingsRequest)
+                    let (snapshot, sessionSnapshot, legacy) = try await (projectRequest, sessionRequest, settingsRequest)
                     try Task.checkCancellation()
-                    if let imported { tabStore.adopt(imported); showTabs(tabStore.saved) }
                     if let legacy {
                         shell.importLegacyPreferences(legacy)
-                        // Only sessions and tabs that still exist: the backend kept snapshots of
-                        // ones deleted long ago, and nothing else would prune them. Pruned against
-                        // the tabs once they are in, so a tab import that failed this pass costs
-                        // nothing but a retry with the next.
-                        if !tabStore.needsImport {
-                            let live = Set((sessionSnapshot ?? sessions).map { "task:\($0.id)" } + tabStore.tabs.map { "tab:\($0.id)" })
-                            viewer.importLegacySnapshots(legacy) { live.contains($0) || !($0.hasPrefix("task:") || $0.hasPrefix("tab:")) }
-                        }
+                        // Only sessions that still exist: the backend kept snapshots of ones deleted
+                        // long ago, and nothing else would prune them.
+                        let live = Set((sessionSnapshot ?? sessions).map { "task:\($0.id)" })
+                        viewer.importLegacySnapshots(legacy) { live.contains($0) || !($0.hasPrefix("task:") || $0.hasPrefix("tab:")) }
                     }
                     // A newer request invalidates only its own inventory. Keep the other
                     // results, and let the pending set reload only what changed mid-flight.
@@ -1571,18 +1372,15 @@ public final class AppViewModel {
                     showSelectedContext()
                     guard refreshPending.isEmpty else { continue }
                     await loadSidebar()
-                    // Only sidebar-backed destinations can go stale: a project, session or tab that
+                    // Only sidebar-backed destinations can go stale: a project or session that
                     // the inventory no longer lists. Settings, Activity and Terminal are reached from
                     // the menu and have no sidebar row, so they must never be bounced to Dashboard.
-                    // Ask each entry for the destinations it presents, not for its own: a pinned tab
-                    // is a tile inside the grid row and has no row of its own to match.
                     if selection.isSidebarBacked,
                        !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
                     lastUpdate = Date()
-                    // The pass is clean; what is left to say is a saved list that could not be
-                    // read, told once, after the pass so nothing here clears it. The page tabs'
-                    // store has no screen of its own, so its notice is told here as well.
-                    error = tabStore.takeRecoveryNotice() ?? viewer.takeRecoveryNotice() ?? tabStore.lastError ?? viewer.lastError
+                    // The pass is clean; what is left to say is the page tabs' store's notice, told
+                    // once, after the pass so nothing here clears it: it has no screen of its own.
+                    error = viewer.takeRecoveryNotice() ?? viewer.lastError
                     coordinator.setRoutingReady(started && connection == "Connected")
                 } catch {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }

@@ -169,13 +169,14 @@ actor FileFixture: FileDocumentService {
 }
 
 @MainActor @Test func fileAndWebTabsShareOrderHistoryAndRestoreActiveFiles() throws {
-    let legacy = SavedTab(kind: "web", title: "Root", url: "https://example.com", links: [
-        .init(kind: "file", path: "/tmp/one.swift"), .init(url: "https://example.com/two", title: "Two"),
-        .init(kind: "file", path: "/tmp/three.swift", active: true)])
     #expect(SavedTabContent(kind: "file", url: "file:///tmp/file%20name.swift").filePath == "/tmp/file name.swift")
     #expect(SavedTabContent(kind: "file", url: "https://example.com/secret").filePath == nil)
-    let snapshot = ContextSnapshot.importing(legacy)
-    let context = WorkspaceContext(id: "files", sourceURL: legacy.url, title: "", snapshot: snapshot)
+    let root = WebPageRecord(url: "https://example.com", title: "Root"), two = WebPageRecord(url: "https://example.com/two", title: "Two")
+    let one = FileDocumentRecord(path: "/tmp/one.swift"), three = FileDocumentRecord(path: "/tmp/three.swift")
+    let snapshot = ContextSnapshot(pages: [root, two], activeID: three.id, history: [], pane: "term", documents: [one, three],
+                                   tabOrder: [root.id, one.id, two.id, three.id])
+    let sourceURL = "https://example.com"
+    let context = WorkspaceContext(id: "files", sourceURL: sourceURL, title: "", snapshot: snapshot)
     #expect(context.tabs.map(\.title) == ["Root", "one.swift", "Two", "three.swift"])
     #expect(context.activeDocument?.record.path == "/tmp/three.swift")
     let first = try #require(context.documents.first)
@@ -186,7 +187,7 @@ actor FileFixture: FileDocumentService {
     context.remove(first)
     #expect(context.visits.suffix(2).map(\.title) == ["Four", "/tmp/one.swift"])
     let data = try JSONEncoder().encode(context.snapshot)
-    let restored = WorkspaceContext(id: "files", sourceURL: legacy.url, title: "", snapshot: try JSONDecoder().decode(ContextSnapshot.self, from: data))
+    let restored = WorkspaceContext(id: "files", sourceURL: sourceURL, title: "", snapshot: try JSONDecoder().decode(ContextSnapshot.self, from: data))
     #expect(restored.tabOrder == context.tabOrder)
     #expect(restored.documents.count == 1) // Legacy metadata must not resurrect the closed file.
     #expect(restored.visits.map(\.title) == context.visits.map(\.title))

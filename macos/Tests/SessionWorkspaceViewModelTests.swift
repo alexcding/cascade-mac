@@ -211,32 +211,8 @@ import Testing
     viewer.deactivate(); old.disconnect(); fresh.disconnect()
 }
 
-@MainActor @Test func onlyAPanelThatHoldsManyPagesOffersNewTab() {
-    // A sidebar tab is one page: its row in the sidebar is the tab, so the panel shows no ＋ and
-    // ⌘T does nothing. A session's second panel and the scratch terminal keep both.
-    #expect(WorkspaceContext(id: "tab:one", sourceURL: "", title: "Tab").holdsOnePage)
-    #expect(!WorkspaceContext(id: "task:one", sourceURL: "", title: "Session").holdsOnePage)
-    #expect(!WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal").holdsOnePage)
-
-    let context = WorkspaceContext(id: "tab:one", sourceURL: "", title: "Tab")
-    let service = WorkspaceFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
-    model.onAction = { [weak service, weak context] action in
-        if let context { service?.record(action, in: context) }
-    }
-    service.state.canPresent = true
-    model.setActive(true)
-    service.state.offersNewTab = false
-    // The panel still fills itself with its blank page; only the affordance is gone.
-    #expect(!model.offersNewTab && model.canOpenTab)
-    model.newTab()
-    #expect(service.actions == [.newTab])
-    service.state.offersNewTab = true
-    #expect(model.offersNewTab && model.canOpenTab)
-}
-
 // A page's X lets the page and its web view go. A lone page with content can be closed (the panel then
-// shows its empty state, a blank page) but a lone blank one cannot, since it is that empty state. A
-// sidebar tab's panel follows the same rule.
+// shows its empty state, a blank page) but a lone blank one cannot, since it is that empty state.
 @MainActor @Test func aPageOffersCloseUnlessItIsTheLoneBlankPageOfAPanel() throws {
     let service = WorkspaceFixture()
     let session = WorkspaceContext(id: "task:close", sourceURL: "", title: "Session")
@@ -247,18 +223,5 @@ import Testing
     #expect(model.offersClose(page) && model.offersClose(blank))
     session.close(page)
     #expect(session.pages.count == 1 && !model.offersClose(blank))
-    let tab = WorkspaceContext(id: "tab:close", sourceURL: "", title: "Tab")
-    let tabModel = SessionWorkspaceViewModel(context: tab, service: service)
-    let tabPage = try #require(tab.open("https://example.test/tab"))
-    #expect(tabModel.offersClose(tabPage))
-    tab.close(tabPage)
-    #expect(!tabModel.offersClose(tab.openBlankPage()))
 }
 
-@MainActor @Test func aSidebarTabNeverOffersToCloseItsOnlyPageBesideAFile() throws {
-    let tab = WorkspaceContext(id: "tab:beside", sourceURL: "", title: "Tab")
-    let model = SessionWorkspaceViewModel(context: tab, service: WorkspaceFixture())
-    let page = tab.openBlankPage()
-    tab.openFile("/tmp/beside.swift")
-    #expect(tab.tabs.count == 2 && !model.offersClose(page), "a file beside it is no address field")
-}

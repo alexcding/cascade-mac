@@ -40,8 +40,7 @@ struct DashboardSearchView: View {
         return DashboardPRRow(row: row, mark: mark, opening: model.navigation.opening == row.url.absoluteString,
                               first: first, open: { model.open(row) })
             .contextMenu {
-                PageRowMenu(hasSession: mark != nil, open: { model.open(row, inTab: true) },
-                            session: { model.openSession(row, agent: $0) })
+                PageRowMenu(hasSession: mark != nil, session: { model.openSession(row) })
             }
     }
 
@@ -49,8 +48,8 @@ struct DashboardSearchView: View {
         VStack(alignment: .leading, spacing: 0) {
             DashboardSectionHeader(title: String(localized: "Tickets"), detail: "")
             DashboardTicketTable(rows: rows, opening: model.navigation.opening,
-                open: { model.open($0) }, openTab: { model.open($0, inTab: true) },
-                session: { model.openSession($0, agent: $1) }, sessionMark: model.sessionMark)
+                open: { model.open($0) },
+                session: { model.openSession($0) }, sessionMark: model.sessionMark)
         }
     }
 

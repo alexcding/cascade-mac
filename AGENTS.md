@@ -112,9 +112,9 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   migration framework. `data.db` and `logs.db` are regenerable caches; **`cascade.db` is
   not** — it holds projects, tasks, links and the backend's config. Window state is the app's
   and never goes through the backend: preferences (theme, fonts, terminal, editor, board filters)
-  in `UserDefaults`, the sidebar's saved tabs in `tabs.json` (`TabStore`), each context's page
-  tabs in `page-tabs.json` (`ViewerStore`). `GET /api/tabs` and `GET /api/settings` stay
-  read-only for one release so what an earlier version left in the backend is imported once.
+  in `UserDefaults`, each context's page tabs in `page-tabs.json` (`ViewerStore`).
+  `GET /api/settings` stays read-only for one release so what an earlier version left in the
+  backend is imported once.
 - **The backend tells the app what changed through `Event`** (`crates/cascade-backend/src/event.rs`),
   sent with `AppState::publish`; its variant and field names are what the app's `ServerEvent`
   decodes. A snapshot equal to the one stored is not an event. The one untyped broadcast left is
@@ -320,10 +320,7 @@ user collapses from the divider is told back to the workspace.
   toolbar item: the tracking separator carries the screen's trailing items along with the
   divider, and the bar slides with its column. Putting the bar in the toolbar instead broke
   that — a changed item set is re-laid out on the toolbar's own animation, not the divider's,
-  and a hidden item keeps its width. The one bar that is a toolbar item is a page-only sidebar
-  tab's (`CompactTabBarPlacement.toolbar`); it cannot hang its suggestions under itself, since
-  a toolbar item clips what it draws outside, so the bar keeps its editing state and highlight
-  on the models and the page beneath draws the list.
+  and a hidden item keeps its width.
 - Settings is the app's only SwiftUI scene. SwiftUI opens an app's first window scene at
   every launch but leaves a lone `Settings` shut, so any other window — Help included
   (`AppDelegate.showHelp`) — is AppKit's.

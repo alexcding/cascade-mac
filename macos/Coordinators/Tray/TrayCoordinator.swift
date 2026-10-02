@@ -12,8 +12,9 @@ import Observation
 }
 
 @MainActor protocol TrayCoordinating: TrayServing {
-    /// Opens a review in a Cascade tab (or the session that already owns its address).
-    func openTrayReview(_ request: OpenPageRequest) async throws
+    /// Opens a review: the session that already owns it, answering true, or else the system
+    /// browser, answering false.
+    func openTrayReview(_ request: OpenPageRequest) async throws -> Bool
     /// Shows the screen that carries the plan usage the tray summarises.
     func openTrayUsage()
 }
@@ -59,13 +60,17 @@ import Observation
                                           repo: review.repo, branch: review.headRefName ?? "", category: review.category)
             request.projectID = review.projectId; request.jiraKeys = review.jiraKeys ?? []
             let task = Task { [weak self, weak runtime] in
-                var opened = false
-                do { try await runtime?.openTrayReview(request); opened = runtime != nil } catch {}
+                var opened = false, inApp = false
+                do {
+                    if let runtime { inApp = try await runtime.openTrayReview(request); opened = true }
+                } catch {}
                 guard let self, !retired, !Task.isCancelled, opening?.id == id else { return }
                 opening = nil
                 model.reviewDidOpen(review, success: opened)
                 guard opened else { return }
-                model.setActive(false); presentation?.dismiss(); presentation?.openWindow()
+                model.setActive(false); presentation?.dismiss()
+                // Only a session is in Cascade; a page in the browser keeps the browser in front.
+                if inApp { presentation?.openWindow() }
             }
             opening = (id, task)
         }

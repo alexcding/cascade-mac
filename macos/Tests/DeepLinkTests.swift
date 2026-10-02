@@ -17,7 +17,6 @@ import Testing
     let board = DeepLink([.destination(.project("p-123")), .projectBoard(projectID: "p-123")])
     #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/board")!) == board)
     #expect(router.url(for: board)?.absoluteString == "cascade://app/projects/p-123/board")
-    #expect(router.url(for: DeepLink(.destination(.tab("https://example.test")))) == nil)
     #expect(router.url(for: DeepLink([.destination(.terminal), .projectBoard(projectID: "p-123")])) == nil)
     #expect(router.url(for: DeepLink([.destination(.project("other")), .projectBoard(projectID: "p-123")])) == nil)
     #expect(router.deepLink(for: URL(string: "cascade://app/projects/p-123/unknown")!) == nil)
@@ -65,9 +64,7 @@ private struct TestRouteHandler: DeepLinkRouteHandling {
     func performRootCommand(_ command: ShellCommand) {}
     func reconnect() async {}
     func togglePin(_ id: String) {}
-    func closeTab(_ url: String) {}
     func openTerminal() { terminals += 1 }
-    func openRootBrowser(_ url: URL) {}
 }
 
 private struct DeepLinkProjectService: ProjectService {

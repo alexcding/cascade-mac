@@ -157,9 +157,7 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
     var sortDate: Date { created ?? .distantPast }
 }
 
-struct OpenPageRequest: Encodable, Equatable, Sendable {
-    /// Reuses a draft tab's id; nil lets the backend mint one.
-    var id: String? = nil
+struct OpenPageRequest: Equatable, Sendable {
     let url: String
     let kind: String
     let title: String
@@ -167,21 +165,13 @@ struct OpenPageRequest: Encodable, Equatable, Sendable {
     var branch: String = ""
     var category: String = ""
     var login: String = ""
-    /// Open the page's session instead of a tab: the one it already has, else a new one.
-    /// Routing only — the backend never sees it. `projectID` is the row's project, which scopes
-    /// the session lookup for a click and its badge alike; two projects can track one repository.
+    /// Open the page's session instead of the browser: the one it already has, else its project's
+    /// Start with the page filled in. `projectID` is the row's project, which scopes the session
+    /// lookup for a click and its badge alike; two projects can track one repository.
     var inSession = false
-    /// Open in Tab from a row menu: always a tab, even when the page has a session, and opened
-    /// behind the current screen so the list keeps focus. Sent as `standalone`, so the saved tab is
-    /// never mistaken for the session's own (`SavedTab.standalone`).
-    var inTab = false
     var projectID: String? = nil
     /// The Jira keys a PR references: a session started from one of those tickets is the PR's too.
     var jiraKeys: [String] = []
-    /// The agent a New Session menu item chose; nil starts the default agent.
-    var agent: SessionAgent? = nil
-
-    private enum CodingKeys: String, CodingKey { case id, url, kind, title, repo, branch, category, login, inTab = "standalone" }
 
     /// A session start already says what failed; a page open needs the surface's own words.
     func failure(_ description: String, _ error: any Error) -> String {

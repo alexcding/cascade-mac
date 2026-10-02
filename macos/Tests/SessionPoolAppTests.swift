@@ -32,7 +32,6 @@ private actor PoolBackend: BackendTransport {
             body = "[" + ids.map { id in
                 #"{"id":"\#(id)","projectId":"p","workspace":"\#(worktree)","worktree":"\#(worktree)","title":"\#(id)","branch":"\#(id)","url":"","pinned":false,"cli":"claude","sessionId":"\#(unreserved.contains(id) ? "" : "conversation-\(id)")"}"#
             }.joined(separator: ",") + "]"
-        case Routes.TABS: body = #"{"tabs":[]}"#
         case Routes.AGENT_CONVERSATION:
             let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
             body = #"{"exists":\#(!missing.contains(id) || looked.insert(id).inserted)}"#

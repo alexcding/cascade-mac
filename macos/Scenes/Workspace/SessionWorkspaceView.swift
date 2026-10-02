@@ -253,21 +253,12 @@ private struct SessionWorkspaceContextContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.barFillsToolbar {
-                // A sidebar tab's browser: its tab bar is the toolbar (`SessionWorkspaceToolbar`), and
-                // the suggestions that bar's field brings up hang over the page.
-                SessionWorkspaceContextBody(context: context, model: model)
-                    .overlay(alignment: .top) {
-                        BrowserAddressSuggestionList(context: context, model: model).padding(.top, 4).padding(.horizontal, 8)
-                    }
-            } else {
-                if model.mode == .browser, !model.showsChanges {
-                    // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
-                    BrowserCompactTabBar(context: context, model: model)
-                    Divider()
-                }
-                SessionWorkspaceContextBody(context: context, model: model)
+            if model.mode == .browser, !model.showsChanges {
+                // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
+                BrowserCompactTabBar(context: context, model: model)
+                Divider()
             }
+            SessionWorkspaceContextBody(context: context, model: model)
         }
     }
 }

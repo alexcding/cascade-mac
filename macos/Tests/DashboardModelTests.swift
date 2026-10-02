@@ -486,10 +486,9 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     model.connect(ModelFixture(projects: [makeProject("p", prs: [makePR(1)])]))
     while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
     let row = try #require(model.prs.visibleRows.first)
-    model.open(row, inTab: true)
-    model.openSession(row, agent: .claude)
-    var tab = row.openPageRequest; tab.inTab = true
-    #expect(emitted == [.open(tab), .open(DashboardViewModel.sessionRequest(row, agent: .claude))])
+    model.open(row)
+    model.openSession(row)
+    #expect(emitted == [.open(row.openPageRequest), .open(DashboardViewModel.sessionRequest(row))])
     // A row the snapshot no longer holds resolves to nothing, so nothing reaches the coordinator.
     emitted = []
     model.open(rows(makeProject("gone", prs: [makePR(999)]))[0])

@@ -13,7 +13,7 @@ struct AppCoordinatorView: View {
             let shown = coordinator.shownDeckWorkspace
             // A session's workspace, or the terminal's, is built once and kept in the deck, the
             // way a Ghostty tab keeps its window: a switch shows one and hides the last, and
-            // nothing is taken down or rebuilt. Anything else — a screen, a sidebar tab — is
+            // nothing is taken down or rebuilt. Anything else — a screen — is
             // built from `root` while it is selected, and only then.
             SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: shown)
             if shown == nil { coordinator.root.view() }

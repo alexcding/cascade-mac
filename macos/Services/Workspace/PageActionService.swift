@@ -37,8 +37,8 @@ struct PageSessionMark: Equatable, Sendable {
     func pageSession(_ request: OpenPageRequest) -> PageSessionMark? { session(request) }
 }
 
-/// Where a row opens: its session's agent glyph, or a globe for a row with no session, which opens a
-/// tab. Grey like the sidebar at rest: the row's colour belongs to its status, not its agent.
+/// What a row has: its session's agent glyph, or an arrow for a row with no session, whose click opens
+/// the system browser. Grey like the sidebar at rest: the row's colour belongs to its status, not its agent.
 struct PageDestinationMark: View {
     let mark: PageSessionMark?
     var body: some View {
@@ -48,28 +48,18 @@ struct PageDestinationMark: View {
                     .help(mark.label).accessibilityLabel(mark.label)
             } else {
                 Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    .help(String(localized: "Opens in a tab")).accessibilityLabel(String(localized: "Opens in a tab"))
+                    .help(String(localized: "Opens in the browser")).accessibilityLabel(String(localized: "Opens in the browser"))
             }
         }.frame(width: 18, height: 18)
     }
 }
 
-/// The row menu for a PR or ticket. The first item is what a click does: the page's session when it
-/// has one, else a tab; the other way of opening follows. Open in Tab always makes a tab, behind the
-/// current screen, even for a page with a session. A new session is started with the agent picked
-/// from the submenu.
+/// The row menu for a PR or ticket: Go to Session when the page has one, else New Session, which
+/// opens its project's Start with the page filled in.
 struct PageRowMenu: View {
-    /// The agents a New Session menu offers, in menu order.
-    static let agents: [SessionAgent] = AgentDrivers.all.compactMap { SessionAgent(rawValue: $0.cli) } + [.shell]
     let hasSession: Bool
-    let open: () -> Void
-    let session: (SessionAgent?) -> Void
+    let session: () -> Void
     var body: some View {
-        if hasSession {
-            Button(String(localized: "Go to Session")) { session(nil) }; Button(String(localized: "Open in Tab"), action: open)
-        } else {
-            Button(String(localized: "Open in Tab"), action: open)
-            Menu(String(localized: "New Session")) { ForEach(Self.agents) { agent in Button(agent.label) { session(agent) } } }
-        }
+        Button(hasSession ? String(localized: "Go to Session") : String(localized: "New Session"), action: session)
     }
 }

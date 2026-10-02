@@ -45,17 +45,6 @@ import AppKit
         return image
     }
 
-    /// A tab row's close mark: `Theme.Symbol.close`, the one a panel's tab bar closes a tab with,
-    /// sized for the 18pt accessory slot. Like "+", it is an action rather than a state of the row,
-    /// so it is drawn a step larger than the pin.
-    static var closeSymbol: NSImage? {
-        let key = "close@tab"
-        if let hit = cache[key] { return hit }
-        let image = symbol("close")?.withSymbolConfiguration(.init(pointSize: 15, weight: .regular))
-        cache[key] = image
-        return image
-    }
-
     /// A row's own icon, a step larger than the list would draw it. The size is baked into the image:
     /// the source list resets its cell's image view to the row size's 13pt, but leaves the image alone.
     static func rowSymbol(_ name: String) -> NSImage? {

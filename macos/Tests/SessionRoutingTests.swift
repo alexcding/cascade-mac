@@ -64,40 +64,6 @@ private func routed(_ id: String, project: String = "w", branch: String = "", ur
     #expect(AppViewModel.pageSession(for: untracked, sessions: [routed("own", url: untracked.url)], projects: [widgets])?.id == "own")
 }
 
-private actor KeyStartService: SessionCreating {
-    let draft: SessionDraft
-    private(set) var createdDraft: SessionDraft?
-    init(_ draft: SessionDraft) { self.draft = draft }
-    func references(_ project: Project) -> GitReferences { GitReferences(branches: [.init(name: "main")], defaultBranch: "main") }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) -> SessionDraft { self.draft }
-    func switchMainCheckout(to branch: String, project: Project) {}
-    func create(project: Project, draft: SessionDraft) -> WorkspaceSession {
-        createdDraft = draft
-        return WorkspaceSession(id: "page", projectId: project.id, workspace: project.workspace, worktree: "/tmp/new",
-                                title: draft.title, branch: draft.branch, url: draft.url, createdAt: nil, pinned: false, jiraKey: draft.jiraKey)
-    }
-}
-
-@Test func aSessionStartedFromAPullRequestRecordsItsTicket() async {
-    var pr = SessionDraft(); pr.url = prURL; pr.kind = "github"; pr.branch = "me/fix/WID-3-thing"
-    let fromPR = KeyStartService(pr)
-    guard case .created(let session) = await PageSessionStart.run(url: prURL, project: widgets, agent: .shell, jiraKey: "wid-3", operations: fromPR) else {
-        Issue.record("The PR page should create its session"); return
-    }
-    #expect(session.jiraKey == "WID-3")
-    // A ticket page's own key is never overwritten by the row's.
-    var ticket = SessionDraft(); ticket.url = ticketURL; ticket.kind = "jira"; ticket.jiraKey = "WID-3"; ticket.branch = "WID-3-thing"
-    let fromTicket = KeyStartService(ticket)
-    _ = await PageSessionStart.run(url: ticketURL, project: widgets, agent: .shell, jiraKey: "WID-9", operations: fromTicket)
-    let created = await fromTicket.createdDraft
-    #expect(created?.jiraKey == "WID-3")
-    // No key known: none recorded.
-    let plain = KeyStartService(pr)
-    _ = await PageSessionStart.run(url: prURL, project: widgets, agent: .shell, operations: plain)
-    let plainDraft = await plain.createdDraft
-    #expect(plainDraft?.jiraKey == "")
-}
-
 @MainActor private final class RoutingPageActions: PageActionServing {
     var sessionURLs: Set<String> = []
     var asked: [OpenPageRequest] = []

@@ -107,9 +107,8 @@ pub fn build_app(state: AppState) -> Router {
             get(routes::get_config).post(routes::set_config),
         )
         .route("/api/sounds", get(routes::sounds))
-        // Read only: the app keeps preferences and tabs itself now and imports these once.
+        // Read only: the app keeps preferences itself now and imports these once.
         .route("/api/settings", get(routes::get_settings))
-        .route("/api/tabs", get(routes::get_tabs))
         .route("/api/sessions", post(sessions::create_session))
         .route(
             "/api/tasks",

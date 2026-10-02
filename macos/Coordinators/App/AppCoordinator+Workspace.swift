@@ -32,13 +32,12 @@ extension AppCoordinator {
         workspaceCoordinators.first { $0.context === context }
     }
 
-    /// The workspaces the detail column keeps alive (`SessionWorkspaceDeck`): every live one but a
-    /// sidebar tab's, whose page-only panel draws into the title-bar zone and stays a destination.
-    var deckWorkspaces: [SessionWorkspaceCoordinator] { workspaceCoordinators.filter { !$0.context.holdsOnePage } }
+    /// The workspaces the detail column keeps alive (`SessionWorkspaceDeck`): every live one.
+    var deckWorkspaces: [SessionWorkspaceCoordinator] { workspaceCoordinators }
 
     /// The one of them on screen, when the selection shows it.
     var shownDeckWorkspace: SessionWorkspaceCoordinator? {
-        guard case .sessionWorkspaceCoordinator(let child) = root, !child.context.holdsOnePage else { return nil }
+        guard case .sessionWorkspaceCoordinator(let child) = root else { return nil }
         return child
     }
 

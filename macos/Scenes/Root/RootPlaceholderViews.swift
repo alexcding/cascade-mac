@@ -43,20 +43,3 @@ struct RootSessionPlaceholderView: View {
         }
     }
 }
-
-struct RootTabPlaceholderView: View {
-    let id: String
-    let model: RootViewModel
-
-    var body: some View {
-        let url = model.tab(id)?.url ?? ""
-        VStack(alignment: .leading, spacing: 16) {
-            Text(url).textSelection(.enabled).foregroundStyle(.secondary)
-            if let address = model.browserAddress(url) {
-                Button("Open in Browser") { model.openBrowser(address) }
-            }
-        }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}

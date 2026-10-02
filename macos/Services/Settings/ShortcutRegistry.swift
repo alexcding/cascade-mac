@@ -88,7 +88,6 @@ extension ShellCommand {
         case .newProject: String(localized: "New Project…")
         case .newSession: String(localized: "New Session…")
         case .newTab: String(localized: "New Tab")
-        case .newSidebarTab: String(localized: "New Sidebar Tab")
         case .openFile: String(localized: "Open File…")
         case .saveFile: String(localized: "Save File")
         case .closePage: String(localized: "Close Tab / Window")
@@ -119,7 +118,7 @@ extension ShellCommand {
         switch self {
         case .settings, .checkForUpdates: nil
         case .newProject, .newSession, .openFile, .saveFile, .closePage: .file
-        case .newTab, .newSidebarTab, .nextPage, .previousPage: .tabs
+        case .newTab, .nextPage, .previousPage: .tabs
         case .back, .forward, .reloadPage, .findPage, .zoomIn, .zoomOut, .resetZoom: .browser
         case .overview, .terminal, .sidebar, .activity: .go
         case .nextSession, .previousSession: .go
@@ -144,7 +143,6 @@ extension ShellCommand {
         case .smallerFont: KeyShortcut(key: "-", command: true)
         case .newProject: KeyShortcut(key: "p", command: true)
         case .newTab: KeyShortcut(key: "t", command: true)
-        case .newSidebarTab: KeyShortcut(key: "t", command: true, option: true)
         case .openFile: KeyShortcut(key: "o", command: true)
         case .saveFile: KeyShortcut(key: "s", command: true)
         case .closePage: KeyShortcut(key: "w", command: true)
@@ -165,5 +163,5 @@ extension ShellCommand {
 
     /// The terminal surface binds these itself and would consume them before the menu, so the
     /// app claims them ahead of the responder chain.
-    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .newSidebarTab, .nextPage, .previousPage, .nextModel, .previousModel, .toggleChat].contains(self) }
+    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .nextPage, .previousPage, .nextModel, .previousModel, .toggleChat].contains(self) }
 }

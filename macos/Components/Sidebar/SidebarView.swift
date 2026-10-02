@@ -13,9 +13,9 @@ struct SidebarView: View {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
                          pinnedIDs: viewModel.pinnedIDs, forkableIDs: viewModel.forkableIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
-                         onCloseTab: viewModel.closeTab, onNewTab: viewModel.newTab, onNewProject: viewModel.newProject, onMoveTab: viewModel.moveTab,
+                         onNewProject: viewModel.newProject,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
-                         onTogglePinTab: viewModel.togglePinTab, onRemoveSession: viewModel.removeSession,
+                         onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession, onForkSession: viewModel.forkSession,
                          onFocusSession: viewModel.focusSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)

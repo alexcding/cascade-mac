@@ -90,10 +90,6 @@ pub async fn get_settings(State(state): State<AppState>) -> ApiResult<Value> {
     Ok(Json(state.db.settings().await?))
 }
 
-pub async fn get_tabs(State(state): State<AppState>) -> ApiResult<Value> {
-    Ok(Json(state.db.tabs().await?))
-}
-
 pub async fn get_tasks(State(state): State<AppState>) -> ApiResult<Vec<Session>> {
     Ok(Json(state.db.tasks().await?))
 }

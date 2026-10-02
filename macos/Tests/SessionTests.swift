@@ -281,57 +281,6 @@ private final class SessionRequestFixture: URLProtocol, @unchecked Sendable {
     await #expect(throws: BackendError.self) { _ = try await operations.create(project: project, draft: draft("")) }
 }
 
-private actor PageStartService: SessionCreating {
-    let resolution: Result<SessionDraft, any Error>
-    var baseRequests = 0
-    private(set) var createdDraft: SessionDraft?
-    init(_ resolution: Result<SessionDraft, any Error>) { self.resolution = resolution }
-    func references(_ project: Project) -> GitReferences {
-        baseRequests += 1
-        return GitReferences(branches: [.init(name: "main"), .init(name: "develop")], defaultBranch: "main")
-    }
-    func resolvePage(_ raw: String, project: Project, draft: SessionDraft) throws -> SessionDraft {
-        var result = try resolution.get(); result.agent = draft.agent; return result
-    }
-    private(set) var movedMainCheckoutTo: String?
-    func switchMainCheckout(to branch: String, project: Project) { movedMainCheckoutTo = branch }
-    func create(project: Project, draft: SessionDraft) -> WorkspaceSession {
-        createdDraft = draft
-        return WorkspaceSession(id: "page", projectId: project.id, workspace: project.workspace, worktree: draft.reuseWorktree ?? "/tmp/new",
-                                title: draft.title, branch: draft.branch, url: draft.url, createdAt: nil, pinned: false)
-    }
-}
-
-@Test func pageSessionStartCreatesAtOnceFallsBackToStartAndReportsFailures() async {
-    var ticket = SessionDraft(); ticket.url = "https://jira.test/browse/REC-1"; ticket.kind = "jira"; ticket.branch = "REC-1-fix"; ticket.createBranch = true
-    let fresh = PageSessionStart.self
-    let newBranch = PageStartService(.success(ticket))
-    guard case .created(let session) = await fresh.run(url: ticket.url, project: scriptedProject, agent: .codex, operations: newBranch) else {
-        Issue.record("A ticket page should create its session at once"); return
-    }
-    #expect(session.branch == "REC-1-fix")
-    let createdDraft = await newBranch.createdDraft
-    #expect(createdDraft?.base == "develop" && createdDraft?.agent == .codex)
-
-    var reused = ticket; reused.reuseWorktree = "/tmp/existing"; reused.createBranch = false
-    let existing = PageStartService(.success(reused))
-    guard case .created(let onExisting) = await fresh.run(url: ticket.url, project: scriptedProject, agent: .shell, operations: existing) else {
-        Issue.record("An existing checkout should be reused"); return
-    }
-    let baseRequests = await existing.baseRequests
-    #expect(onExisting.worktree == "/tmp/existing" && baseRequests == 0)
-
-    guard case .needsBranch = await fresh.run(url: "https://github.com/fixture/repo/pull/1", project: scriptedProject, agent: .shell,
-                                              operations: PageStartService(.failure(PullRequestBranchUnknown()))) else {
-        Issue.record("An unknown PR branch should fall back to Start"); return
-    }
-    guard case .failed(let message) = await fresh.run(url: ticket.url, project: scriptedProject, agent: .shell,
-                                                      operations: PageStartService(.failure(BackendError.operation("feature/x is checked out in the main repo — switch it away there first.")))) else {
-        Issue.record("Other failures should be reported"); return
-    }
-    #expect(message.contains("checked out in the main repo"))
-}
-
 @MainActor @Test func onlyPullRequestAndTicketPagesWithAProjectOfferASession() {
     let widgets = Project(id: "w", name: "Widgets", repo: "Acme/Widgets", color: nil, workspace: "/tmp/widgets", jiraProjectKey: "WID, OPS")
     let unconfigured = Project(id: "u", name: "No workspace", repo: "acme/other", color: nil, workspace: "", jiraProjectKey: "OTH")

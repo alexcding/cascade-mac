@@ -200,9 +200,6 @@ import Observation
         case .session(let id):
             return activeWorkspaceCoordinator.map(Destination.sessionWorkspaceCoordinator)
                 ?? rootModel.map { .session(id: id, $0) } ?? .none
-        case .tab(let id):
-            return activeWorkspaceCoordinator.map(Destination.sessionWorkspaceCoordinator)
-                ?? rootModel.map { .tab(id: id, $0) } ?? .none
         }
     }
 

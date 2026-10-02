@@ -9,7 +9,6 @@ public enum Routes {
     /// Read only: the preferences an earlier version kept in the backend, adopted once.
     public static let SETTINGS = "/api/settings"
     public static let SOUNDS = "/api/sounds"
-    public static let TABS = "/api/tabs"
     /// One request creates a session: worktree resolved, made or reused, main checkout freed if it
     /// held the branch, record written last.
     public static let SESSIONS = "/api/sessions"

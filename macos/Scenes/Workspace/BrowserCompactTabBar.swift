@@ -6,9 +6,7 @@ import SwiftUI
 /// reload is trailing; clicking the host edits the address. The address field also searches the
 /// session's worktree, and a file picked from it opens as a tab of its own. There is no second
 /// row: back/forward lead the pill, New Tab and Recently Closed trail it. In its own row, or a
-/// pane's title-bar zone, the bar hangs its suggestions under itself; in the toolbar — a sidebar
-/// tab's — the page beneath draws them (`BrowserAddressSuggestionList`), from the editing state
-/// and highlight the bar keeps on the models.
+/// pane's title-bar zone, the bar hangs its suggestions under itself.
 struct BrowserCompactTabBar: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -28,20 +26,10 @@ struct BrowserCompactTabBar: View {
 
     var body: some View {
         CompactTabBar(newTabTitle: String(localized: "New Tab"), newTabHelp: String(localized: "Open a new web tab"), newTab: model.newTab,
-                      showsNewTab: model.offersNewTab, placement: placement) {
+                      placement: placement) {
             NavigationCluster(controls: active?.controls)
         } pill: { available in
             tabPill(available)
-        } trailing: {
-            // Create Session takes the end of the row, where New Tab sits in a panel that has one.
-            // A sidebar tab offers the session and no New Tab; a session's panel, the other way round.
-            if model.offersPageSession, model.barFillsToolbar {
-                CreateSessionButton(model: model)
-                    .disabled(!model.canCreateSession)
-                    .help(String(localized: "Start an agent session for this page in its project"))
-                    .padding(.horizontal, 12)
-                    .barGlass(iconOnly: false)
-            }
         } suggestions: {
             BrowserAddressSuggestionList(context: context, model: model)
         }
@@ -129,8 +117,7 @@ struct BrowserCompactTabBar: View {
     /// Only while the browser panel is on screen. This bar stays mounted behind a hidden panel, and
     /// a blank tab is never saved, so on every launch the filler opened, selected itself and
     /// showed a panel the user had hidden. Showing the panel flips this and the filler arrives then.
-    /// A sidebar tab needs a page whatever files it holds: it has no New Tab to make one.
-    private var needsBlankTab: Bool { (context.holdsOnePage ? context.pages.isEmpty : context.tabs.isEmpty) && model.showsBrowser && model.canOpenTab }
+    private var needsBlankTab: Bool { context.tabs.isEmpty && model.showsBrowser && model.canOpenTab }
 
     /// Leaving a tab drops any address focus so it does not carry over. A blank tab takes focus
     /// itself when its address field appears in `CompactTab`, once that field exists: a focus binding set before

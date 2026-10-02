@@ -10,11 +10,13 @@ extension AppViewModel: TrayCoordinating {
         refresh()
     }
     func acknowledgeTrayReview(_ review: TrayPR) { shell.acknowledge(review) }
-    /// A tray click selects the session that already owns the PR, leaving the page it shows alone;
-    /// a PR with none opens in a tab. It never starts a session.
-    func openTrayReview(_ request: OpenPageRequest) async throws {
-        if let session = existingSession(for: request) { select(.session(session.id)); return }
+    /// A tray click selects the session that already owns the PR, leaving the page it shows alone,
+    /// and answers true; a PR with none opens in the system browser and answers false. It never
+    /// starts a session.
+    func openTrayReview(_ request: OpenPageRequest) async throws -> Bool {
+        if let session = existingSession(for: request) { select(.session(session.id)); return true }
         try await openPage(request)
+        return false
     }
     // The usage picker lives on the Dashboard toolbar.
     func openTrayUsage() { select(.overview) }

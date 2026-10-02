@@ -97,12 +97,10 @@ private final class DocumentHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(context.activeDocument?.surface == nil)
     let second = try #require(context.openFile("/fixture/two.swift"))
     #expect(factory.editors.last?.id == second.id && factory.editors.count == 3)
-    let legacy = SavedTab(kind: "web", title: "Legacy", url: "session:legacy", links: [
-        .init(kind: "file", url: "file:///fixture/legacy.swift", active: true),
-        .init(kind: "file", path: "relative.swift")
-    ])
-    let imported = WorkspaceContext(id: "legacy", sourceURL: legacy.url, title: legacy.title,
-        snapshot: .importing(legacy), documentFactory: factory)
+    var legacy = ContextSnapshot()
+    legacy.legacyDocuments = [.init(kind: "file", url: "file:///fixture/legacy.swift", active: true), .init(kind: "file", path: "relative.swift")]
+    let imported = WorkspaceContext(id: "legacy", sourceURL: "session:legacy", title: "Legacy",
+        snapshot: legacy, documentFactory: factory)
     #expect(imported.activeDocument?.record.path == "/fixture/legacy.swift")
     #expect(imported.documents.count == 1 && factory.editors.count == 4)
 }

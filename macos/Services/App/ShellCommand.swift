@@ -2,7 +2,7 @@ import Foundation
 
 public enum ShellCommand: String, Sendable, CaseIterable {
     case overview, terminal, activity, settings, sidebar, refresh, tray, biggerFont, smallerFont, resetFont, checkForUpdates
-    case newProject, newSession, newTab, newSidebarTab, openFile, saveFile, closePage, findPage, back, forward, nextPage, previousPage, zoomIn, zoomOut, resetZoom
+    case newProject, newSession, newTab, openFile, saveFile, closePage, findPage, back, forward, nextPage, previousPage, zoomIn, zoomOut, resetZoom
     case reloadPage
     case runProject, stopBuild
     case nextModel, previousModel, toggleChat

@@ -22,9 +22,9 @@ use uuid::Uuid;
 
 const MAX_JSON: u64 = 16 * 1024 * 1024;
 const PAGE_CACHE: &str = "ptyd-native-spike/page-tabs.json";
-// The sidebar's saved tabs (`ptyd-native-spike/tabs.json`) are the app's window state and stay
-// out of the checkpoint on purpose: format 1 allows these three entries, and a fourth would make
-// an earlier build, and the Node utility, refuse the checkpoint at its next start.
+// The `ptyd-native-spike/tabs.json` an earlier build kept its sidebar tabs in is no longer read by
+// the app, and stays out of the checkpoint: format 1 allows these three entries, and a fourth would
+// make an earlier build, and the Node utility, refuse the checkpoint at its next start.
 
 #[derive(Serialize, Deserialize)]
 pub struct Manifest {
@@ -486,8 +486,8 @@ mod tests {
 
     const TABS: &str = "ptyd-native-spike/tabs.json";
 
-    /// A data folder as an installation has it: both databases, and the app's two JSON files in
-    /// the daemon's folder, of which only the page cache is the checkpoint's.
+    /// A data folder as an installation has it: both databases, the page cache in the daemon's
+    /// folder, and the tabs file an earlier build left beside it, which is not the checkpoint's.
     fn installation() -> tempfile::TempDir {
         let data = tempfile::tempdir().unwrap();
         crate::Database::open(data.path()).unwrap();
@@ -513,6 +513,6 @@ mod tests {
         for name in [DURABLE, "logs.db", PAGE_CACHE] {
             assert!(restored.join(name).is_file(), "{name} was not restored");
         }
-        assert!(!restored.join(TABS).exists(), "the app's tabs are not the checkpoint's to restore");
+        assert!(!restored.join(TABS).exists(), "an earlier build's tabs file is not the checkpoint's to restore");
     }
 }

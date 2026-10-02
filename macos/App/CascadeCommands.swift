@@ -21,7 +21,6 @@ struct CascadeCommands: Commands {
             command(.newProject)
             command(.newSession)
             command(.newTab)
-            command(.newSidebarTab)
             command(.openFile)
         }
         CommandGroup(replacing: .saveItem) {

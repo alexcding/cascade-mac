@@ -8,17 +8,15 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
           branch: id, url: url, createdAt: created, pinned: pinned)
 }
 
-@Test func sidebarPinsLeaveProjectsAndOrphansAndTaskTabsAreNotDuplicated() {
+@Test func sidebarPinsLeaveProjectsAndOrphans() {
     let sessions = [workspaceSession("new", created: "2026-02", pinned: true, url: "https://example.com/task"),
                     workspaceSession("old", created: nil),
                     workspaceSession("orphan", created: "2026-01", project: "deleted"),
                     workspaceSession("pinned-orphan", created: "2026-03", pinned: true, project: "deleted")]
-    let tabs = [SavedTab(kind: "web", title: "Task context", url: "https://example.com/task"),
-                SavedTab(kind: "web", title: "Docs", url: "https://example.com/docs")]
-    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs)
-    // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans, Tabs.
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions)
+    // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans.
     #expect(entries.map(\.id) == ["overview", "automation", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
-                                   "session:orphan", "label:tabs", "tab:https://example.com/docs"])
+                                   "session:orphan"])
     let project = entries.first { $0.id == "project:p1" }
     #expect(project?.children.map(\.id) == ["session:old"])
     for session in sessions {
@@ -27,7 +25,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(entries.filter { $0.role == .label }.allSatisfy { $0.destination == nil && $0.children.isEmpty })
     #expect(Set(entries.flatMap(\.descendants).map(\.id)).count == entries.flatMap(\.descendants).count)
     let unpinned = sessions.map { session in var value = session; value.pinned = false; return value }
-    let restored = SidebarEntry.make(projects: [sidebarProject], sessions: unpinned, tabs: tabs)
+    let restored = SidebarEntry.make(projects: [sidebarProject], sessions: unpinned)
     #expect(!restored.contains { $0.id == "label:pinned" })
     #expect(restored.first { $0.id == "project:p1" }?.children.map(\.id) == ["session:old", "session:new"])
     #expect(restored.contains { $0.id == "session:pinned-orphan" })
@@ -40,7 +38,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     defer { preferences.removePersistentDomain(forName: suite) }
     var selected: SidebarDestination = .overview
     func sidebar(_ sessions: [WorkspaceSession], selection: SidebarDestination) -> CocoaSidebar {
-        .init(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: []),
+        .init(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions),
               selection: selection, pinnedIDs: Set(sessions.filter(\.pinned).map(\.id)),
               onSelect: { selected = $0 }, onTogglePin: { _ in })
     }
@@ -79,74 +77,15 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(preferences.stringArray(forKey: "sidebar.collapsed")?.contains("project:p1") == true)
 }
 
-@Test func sidebarSessionRowsCarryAgentStatusAndTabIcons() {
+@Test func sidebarSessionRowsCarryAgentStatus() {
     let sessions = [workspaceSession("busy", created: "2026-01"), workspaceSession("stopped", created: "2026-02")]
-    let tabs = [SavedTab(kind: "github", title: "PR", url: "https://github.com/o/r/pull/1", login: "octocat")]
-    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs,
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions,
                                     status: ["busy": .init(live: true, busy: true, cli: "claude")])
     let rows = entries.flatMap(\.descendants)
     #expect(rows.first { $0.id == "session:busy" }?.role == .session(.init(live: true, busy: true, cli: "claude"), pinned: false))
     #expect(rows.first { $0.id == "session:stopped" }?.role == .session(.init(), pinned: false))
     #expect(rows.first { $0.id == "session:stopped" }?.tooltip?.contains("Stopped") == true)
-    #expect(rows.first { $0.id == "tab:https://github.com/o/r/pull/1" }?.role == .tab(.init(kind: "github", login: "octocat", url: "https://github.com/o/r/pull/1")))
     #expect(rows.first { $0.id == "project:p1" }?.role == .project)
-}
-
-@Test func pinnedTabsFormOneGridRowUnderDashboardAndLeaveTheTabsList() {
-    let tabs = [SavedTab(id: "a", kind: "web", title: "Docs", url: "https://docs.example", pinned: true),
-                SavedTab(id: "b", kind: "github", title: "PR", url: "https://github.com/o/r/pull/1", login: "octocat", pinned: true),
-                SavedTab(id: "c", kind: "web", title: "", url: "https://plain.example")]
-    let entries = SidebarEntry.make(projects: [], sessions: [], tabs: tabs)
-    #expect(entries.map(\.id) == ["overview", "automation", "pinned-tabs", "label:projects", "label:tabs", "tab:c"])
-    let grid = entries.first { $0.id == "pinned-tabs" }
-    #expect(grid?.destination == nil)
-    #expect(grid?.role == .pinnedTabs([
-        .init(id: "a", title: "Docs", url: "https://docs.example", icon: .init(kind: "web", url: "https://docs.example")),
-        .init(id: "b", title: "PR", url: "https://github.com/o/r/pull/1", icon: .init(kind: "github", login: "octocat", url: "https://github.com/o/r/pull/1")),
-    ]))
-    // The grid row is no row's destination, but it presents one per tile, so a selected pinned
-    // tab is still a destination the sidebar lists and never goes stale back to Dashboard.
-    #expect(grid?.destinations == [.tab("a"), .tab("b")])
-    #expect(entries.flatMap(\.descendants).flatMap(\.destinations).contains(.tab("a")))
-    #expect(entries.first { $0.id == "tab:c" }?.destinations == [.tab("c")])
-    #expect(entries.first { $0.id == "label:projects" }?.destinations == [])
-    // A pinned tab that belongs to a session stays hidden, like any task tab.
-    let owned = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs)
-    if case .pinnedTabs(let shown)? = owned.first(where: { $0.id == "pinned-tabs" })?.role { #expect(shown.map(\.id) == ["b"]) } else { Issue.record("grid missing") }
-    // Open in Tab beside that session made a standalone tab: same address, but its own row.
-    let standalone = SavedTab(id: "d", kind: "web", title: "Docs again", url: "https://docs.example", standalone: true)
-    let beside = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil, url: "https://docs.example")], tabs: tabs + [standalone])
-    #expect(beside.first { $0.id == "tab:d" }?.destinations == [.tab("d")], "A standalone tab is never taken for the session's own")
-    // One tile is a full row; more wrap four to a row.
-    #expect(SidebarPinnedTabsGrid.height(count: 1) == SidebarPinnedTabsGrid.height(count: 4))
-    #expect(SidebarPinnedTabsGrid.height(count: 4) == SidebarPinnedTabsGrid.height(count: 2))
-    #expect(SidebarPinnedTabsGrid.height(count: 5) > SidebarPinnedTabsGrid.height(count: 4))
-}
-
-private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", title: id, url: "https://\(id).example") }
-
-@MainActor @Test func tabReorderMovesBeforeTargetOrToEndAndKeepsDraftsAfterSavedTabs() throws {
-    let shown = ["a", "b", "c", "d1", "d2"].map(savedTab)
-    let drafts: Set<String> = ["d1", "d2"]
-    func split(_ list: [SavedTab]) -> ([String], [String]) {
-        (list.filter { !drafts.contains($0.id) }.map(\.id), list.filter { drafts.contains($0.id) }.map(\.id))
-    }
-    #expect(try #require(AppViewModel.reordered(shown, moving: "c", before: "a")).map(\.id) == ["c", "a", "b", "d1", "d2"])
-    #expect(try #require(AppViewModel.reordered(shown, moving: "a", before: nil)).map(\.id) == ["b", "c", "d1", "d2", "a"])
-    #expect(try #require(AppViewModel.reordered(shown, moving: "a", before: "missing")).map(\.id) == ["b", "c", "d1", "d2", "a"])
-    #expect(AppViewModel.reordered(shown, moving: "missing", before: "a") == nil)
-    // A saved tab dropped among drafts still lands in the saved list; a draft dropped among
-    // saved tabs stays a draft and follows them, each list keeping its relative order.
-    let mixed = try #require(AppViewModel.reordered(shown, moving: "a", before: "d2"))
-    #expect(split(mixed) == (["b", "c", "a"], ["d1", "d2"]))
-    let draftFirst = try #require(AppViewModel.reordered(shown, moving: "d2", before: "a"))
-    #expect(split(draftFirst) == (["a", "b", "c"], ["d2", "d1"]))
-}
-
-@MainActor @Test func tabOrderRollbackRestoresRelativeOrderAndKeepsUnknownTabsAtTheEnd() {
-    let current = ["c", "new", "a", "b"].map(savedTab)
-    #expect(AppViewModel.ordered(current, by: ["a", "b", "c", "gone"]).map(\.id) == ["a", "b", "c", "new"])
-    #expect(AppViewModel.ordered([], by: ["a"]).isEmpty)
 }
 
 @MainActor @Test func faviconFallbackIsLimitedToPublicHosts() {
@@ -156,15 +95,14 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     }
 }
 
-/// The "+" on the Tabs heading and the "+" on a project row are the same control in the same
-/// place. A source list frames a heading's cell differently from an item's, so they only line up
+/// The "+" on the Projects heading and a project row's accessory sit in the same place. A source list frames a heading's cell differently from an item's, so they only line up
 /// on screen if the heading reads the item's edge rather than reusing its own offset.
-@MainActor @Test func tabsHeadingAddButtonLinesUpWithAProjectRows() throws {
+@MainActor @Test func projectsHeadingAddButtonLinesUpWithAProjectRows() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-align-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
-    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], tabs: []),
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], canCreateProject: true),
                              selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
     let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
@@ -197,7 +135,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
         }
         throw BackendError.operation("no such row")
     }
-    let heading = try accessoryEdge { if case .tabsHeader = $0 { true } else { false } }
+    let heading = try accessoryEdge { if case .projectsHeader = $0 { true } else { false } }
     let project = try accessoryEdge { if case .project = $0 { true } else { false } }
     #expect(abs(heading - project) < 0.5, "heading + ends at \(heading), project + at \(project)")
     window.close()
@@ -210,8 +148,8 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let suite = "cascade-sidebar-heading-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
-    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], tabs: []),
-                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("pinned", created: nil, pinned: true)]),
+                             selection: .overview, pinnedIDs: ["pinned"], onSelect: { _ in }, onTogglePin: { _ in })
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
     let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
     let column = NSTableColumn(identifier: .init("name"))
@@ -260,13 +198,13 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let projects = [sidebarProject, Project(id: "p2", name: "Second", repo: "o/s", color: nil, workspace: "/tmp"),
                     Project(id: "p3", name: "Third", repo: "o/t", color: nil, workspace: "/tmp")]
     #expect(SidebarEntry.displayOrder(projects, dragged: ["p3", "gone", "p1"]).map(\.id) == ["p3", "p1", "p2"])
-    let entries = SidebarEntry.make(projects: projects, sessions: sessions, tabs: [], order: .init(projects: ["p2"], sessions: dragged))
+    let entries = SidebarEntry.make(projects: projects, sessions: sessions, order: .init(projects: ["p2"], sessions: dragged))
     #expect(entries.filter { $0.projectID != nil }.map(\.id) == ["project:p2", "project:p1", "project:p3"])
     #expect(entries.first { $0.id == "project:p1" }?.children.map(\.id) == ["session:c", "session:a", "session:b"])
     // Pinned mirrors span projects and keep an order of their own, whatever was dragged inside one.
     let everyPinned = sessions.map { session in var pinned = session; pinned.pinned = true; return pinned }
     func pins(_ order: SidebarOrder) -> [String] {
-        SidebarEntry.make(projects: projects, sessions: everyPinned, tabs: [], order: order).filter { $0.id.hasPrefix("pin:") }.map(\.id)
+        SidebarEntry.make(projects: projects, sessions: everyPinned, order: order).filter { $0.id.hasPrefix("pin:") }.map(\.id)
     }
     #expect(pins(.init(sessions: dragged)) == ["pin:a", "pin:x", "pin:b", "pin:c"])
     #expect(pins(.init(sessions: dragged, pinned: ["c", "a"])) == ["pin:c", "pin:a", "pin:x", "pin:b"])
@@ -323,12 +261,9 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
                     workspaceSession("pa", created: "2026-01", pinned: true),
                     workspaceSession("px", created: "2026-04", pinned: true, project: "p2"),
                     workspaceSession("orphan", created: "2026-05", project: "deleted")]
-    let tabs = [SavedTab(id: "t1", kind: "web", title: "One", url: "https://example.com/1"),
-                SavedTab(id: "t2", kind: "web", title: "Two", url: "https://example.com/2")]
     var moves: [String] = []
-    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: tabs),
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions),
                              selection: .overview, pinnedIDs: ["pa", "px"], onSelect: { _ in }, onTogglePin: { _ in })
-    value.onMoveTab = { moves.append("tab \($0) before \($1 ?? "end")") }
     value.onMoveProject = { moves.append("project \($0) before \($1 ?? "end")") }
     value.onMoveSession = { moves.append("session \($0) before \($1 ?? "end")") }
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
@@ -360,8 +295,6 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(coordinator.outlineView(outline, pasteboardWriterForItem: try node("session:b")) != nil)
     #expect(!drop("session:a", on: try node("project:p2"), at: 0))
     #expect(!drop("session:a", on: nil, at: try root("project:p2")))
-    #expect(!drop("project:p1", on: nil, at: try root("label:tabs") + 1))
-    #expect(!drop("tab:t2", on: nil, at: try root("project:p1")))
     // Dropping a row where it already is moves nothing.
     #expect(!drop("session:a", on: try node("project:p1"), at: 0))
     #expect(!drop("session:a", on: try node("project:p1"), at: 1))
@@ -380,17 +313,14 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(drop("project:p3", on: try node("project:p1"), at: 1))
     #expect(drop("project:p1", on: nil, at: try root("project:p2") + 1))
     #expect(moves == ["project p3 before p1", "project p3 before p2", "project p1 before end"])
-    #expect(drop("tab:t2", on: try node("tab:t1"), at: -1))
-    #expect(drop("tab:t2", on: nil, at: -1))
 
     // Every row is still listed, and the model's answer in the new order is not a reload.
     #expect(rows().sorted() == before.sorted())
     let kept = try node("session:b")
     let answer = ["p3", "p2", "p1"]
-    value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: tabs,
+    value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions,
                                                     order: .init(projects: answer, sessions: ["a", "c", "b"])),
                          selection: .overview, pinnedIDs: ["pa", "px"], onSelect: { _ in }, onTogglePin: { _ in })
-    value.onMoveTab = { moves.append("tab \($0) before \($1 ?? "end")") }
     value.onMoveProject = { moves.append("project \($0) before \($1 ?? "end")") }
     value.onMoveSession = { moves.append("session \($0) before \($1 ?? "end")") }
     value.onMovePinned = { moves.append("pinned \($0) before \($1 ?? "end")") }
@@ -406,7 +336,6 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(drop("project:p1", on: try node("project:p2"), at: 0))
     #expect(drop("project:p1", on: try node("session:x"), at: -1))
     #expect(drop("session:a", on: try node("session:c"), at: -1))
-    #expect(drop("tab:t1", on: try node("tab:t2"), at: -1))
     // A session dropped on its own folder's row goes to the top; the top one stays put.
     #expect(!drop("session:c", on: try node("project:p1"), at: -1))
     #expect(drop("session:b", on: try node("project:p1"), at: -1))
@@ -415,7 +344,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     #expect(drop("pin:pa", on: try node("pin:px"), at: -1))
     #expect(drop("pin:pa", on: nil, at: try root("pin:px")))
     #expect(moves == ["project p3 before p1", "project p1 before p2", "project p1 before p3",
-                      "session a before b", "tab t1 before end", "session b before c", "session b before end",
+                      "session a before b", "session b before c", "session b before end",
                       "pinned pa before end", "pinned pa before px"])
     #expect(try node("project:p1").children.map(\.entry.id) == ["session:c", "session:a", "session:b"])
     #expect(rows().sorted() == before.sorted())
@@ -430,9 +359,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     defer { preferences.removePersistentDomain(forName: suite) }
     let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("pa", created: "2026-02", pinned: true),
                     workspaceSession("orphan", created: "2026-05", project: "deleted")]
-    let tabs = [SavedTab(id: "t1", kind: "web", title: "One", url: "https://example.com/1"),
-                SavedTab(id: "t2", kind: "web", title: "Two", url: "https://example.com/2", pinned: true)]
-    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions, tabs: tabs),
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions),
                              selection: .overview, pinnedIDs: ["pa"], onSelect: { _ in }, onTogglePin: { _ in })
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
     let outline = SidebarOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
@@ -452,16 +379,16 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
         return outline.canDragRows(with: [row], at: NSPoint(x: 40, y: outline.rect(ofRow: row).midY))
     }
 
-    for id in ["overview", "automation", "pinned-tabs", "label:pinned", "label:projects", "label:tabs", "session:orphan"] {
+    for id in ["overview", "automation", "label:pinned", "label:projects", "session:orphan"] {
         #expect(try !canDrag(id), "\(id)")
     }
-    for id in ["pin:pa", "project:p1", "session:a", "tab:t1"] { #expect(try canDrag(id), "\(id)") }
+    for id in ["pin:pa", "project:p1", "session:a"] { #expect(try canDrag(id), "\(id)") }
     window.close()
 }
 
 @MainActor @Test func aDraggedSidebarRowCarriesAPictureOfItself() throws {
     _ = NSApplication.shared
-    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")], tabs: [])
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")])
     let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
     let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
     cell.configure(session, nested: true, spinFrame: 0)
@@ -480,7 +407,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
 /// and the title does not move. Let go, the glyph is back.
 @MainActor @Test func aSessionShowsItsShortcutInPlaceOfItsGlyphWhileCommandIsHeld() throws {
     _ = NSApplication.shared
-    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")], tabs: [],
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")],
                                     status: ["a": SidebarSessionStatus(live: true, cli: "claude")])
     let session = try #require(entries.flatMap(\.descendants).first { $0.id == "session:a" })
     let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
@@ -512,10 +439,10 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     var child = workspaceSession("agent (2)", created: "2026-03"); child.forkedFrom = "agent"
     let sessions = [workspaceSession("agent", created: "2026-01"), workspaceSession("shell", created: "2026-02"), child]
     // A fork is marked after its name; the rest are not.
-    let marked = SidebarEntry.make(projects: projects, sessions: sessions, tabs: []).flatMap(\.descendants).filter(\.forked).map(\.id)
+    let marked = SidebarEntry.make(projects: projects, sessions: sessions).flatMap(\.descendants).filter(\.forked).map(\.id)
     #expect(marked == ["session:agent (2)"])
     var forked: [String] = []
-    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: []),
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions),
                              selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
     value.forkableIDs = ["agent"]
     value.onForkSession = { forked.append($0) }
@@ -546,7 +473,7 @@ private func savedTab(_ id: String) -> SavedTab { SavedTab(id: id, kind: "web", 
     let projects = [Project(id: "p1", name: "First", repo: "o/f", color: nil, workspace: "/tmp")]
     let sessions = [workspaceSession("agent", created: "2026-01")]
     var focused: [String] = []
-    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, tabs: []),
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions),
                              selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
     value.onFocusSession = { focused.append($0) }
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)

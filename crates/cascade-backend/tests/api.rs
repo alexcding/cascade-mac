@@ -69,27 +69,6 @@ async fn project_task_and_dashboard_contracts_round_trip() {
 }
 
 #[tokio::test]
-async fn tabs_are_served_read_only_for_the_one_time_import() {
-    let (app, _directory) = app();
-    let (status, tabs) = json_request(&app, "GET", "/api/tabs", Value::Null).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(tabs, json!({"tabs":[],"active":null}));
-    let response = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/tabs")
-                .header("content-type", "application/json")
-                .body(Body::from(r#"{"url":"https://example.test","kind":"web"}"#))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-}
-
-#[tokio::test]
 async fn invalid_project_inputs_match_node_errors() {
     let (app, _directory) = app();
     let (status, value) = json_request(

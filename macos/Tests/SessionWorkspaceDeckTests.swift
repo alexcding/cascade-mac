@@ -180,21 +180,21 @@ private final class ProbeView: NSView {
     window.close()
 }
 
-@MainActor @Test func deckWorkspacesExcludesTabContextsAndShownDeckWorkspaceFollowsRoot() {
+@MainActor @Test func deckWorkspacesListEveryWorkspaceAndShownDeckWorkspaceFollowsRoot() {
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let runtime = DeckRuntimeFixture()
     let taskContext = WorkspaceContext(id: "task:a", sourceURL: "", title: "A")
-    let tabContext = WorkspaceContext(id: "tab:b", sourceURL: "", title: "B")
+    let scratchContext = WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal")
     let taskModel = SessionWorkspaceViewModel(context: taskContext, service: runtime)
-    let tabModel = SessionWorkspaceViewModel(context: tabContext, service: runtime)
+    let scratchModel = SessionWorkspaceViewModel(context: scratchContext, service: runtime)
     let taskChild = coordinator.bindWorkspace(taskModel, context: taskContext, runtime: runtime)
-    let tabChild = coordinator.bindWorkspace(tabModel, context: tabContext, runtime: runtime)
-    #expect(coordinator.deckWorkspaces.map(ObjectIdentifier.init) == [ObjectIdentifier(taskChild)])
+    let scratchChild = coordinator.bindWorkspace(scratchModel, context: scratchContext, runtime: runtime)
+    #expect(coordinator.deckWorkspaces.map(ObjectIdentifier.init) == [ObjectIdentifier(taskChild), ObjectIdentifier(scratchChild)])
     #expect(coordinator.shownDeckWorkspace == nil)
     coordinator.root = .sessionWorkspaceCoordinator(taskChild)
     #expect(coordinator.shownDeckWorkspace === taskChild)
-    coordinator.root = .sessionWorkspaceCoordinator(tabChild)
-    #expect(coordinator.shownDeckWorkspace == nil)
+    coordinator.root = .sessionWorkspaceCoordinator(scratchChild)
+    #expect(coordinator.shownDeckWorkspace === scratchChild)
     coordinator.root = .none
     #expect(coordinator.shownDeckWorkspace == nil)
 }

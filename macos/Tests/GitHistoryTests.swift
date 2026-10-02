@@ -94,12 +94,12 @@ actor HistoryFixture: GitHistoryService {
     #expect(model.detail == nil && model.patch == nil && !model.loadingDetail)
 }
 @MainActor @Test func reviewHistoryChoiceRestoresIndependentlyPerContext() throws {
-    let tab = SavedTab(kind: "web", title: "Review", url: "https://example.com", reviewView: "history")
-    let context = WorkspaceContext(id: "review", sourceURL: tab.url, title: "", snapshot: ContextSnapshot.importing(tab))
+    var snapshot = ContextSnapshot(); snapshot.reviewSection = .history
+    let context = WorkspaceContext(id: "review", sourceURL: "https://example.com", title: "", snapshot: snapshot)
     #expect(context.reviewSection == .history)
     context.setPane(.diff)
     let encoded = try JSONEncoder().encode(context.snapshot)
-    let restored = WorkspaceContext(id: "review", sourceURL: tab.url, title: "", snapshot: try JSONDecoder().decode(ContextSnapshot.self, from: encoded))
+    let restored = WorkspaceContext(id: "review", sourceURL: "https://example.com", title: "", snapshot: try JSONDecoder().decode(ContextSnapshot.self, from: encoded))
     #expect(restored.reviewSection == .history && restored.pane == .diff)
     let other = WorkspaceContext(id: "other", sourceURL: "", title: "")
     #expect(other.reviewSection == .changes)

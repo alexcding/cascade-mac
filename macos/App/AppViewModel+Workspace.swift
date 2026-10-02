@@ -34,7 +34,7 @@ extension AppViewModel: WorkspaceCoordinating {
         let title: String
         if context.id == "scratch" { title = String(localized: "Terminal") }
         else if let session { title = session.label }
-        else { title = visibleTabs.first { "tab:\($0.id)" == context.id }?.displayTitle ?? String(localized: "Tab") }
+        else { title = String(localized: "Tab") }
         return SessionWorkspaceState(session: session, project: project, terminal: terminals[context.id],
             buildTerminal: terminals["build:\(context.sourceURL)"], build: buildModels[context.id],
             history: historyModels[context.id], diff: diffModels[context.id],
@@ -42,20 +42,11 @@ extension AppViewModel: WorkspaceCoordinating {
             changingSession: session.map { changingSessions.contains($0.id) } ?? false,
             removingSession: session.map { isRemoving($0.id) } ?? false,
             openingExternal: workspaceLaunch.opening.contains(context.id), canPresent: coordinator.canPresent,
-            canCreateSession: canPerform(.newSession), title: title,
-            offersPageSession: offersPageSession(in: context), offersNewTab: !context.holdsOnePage, editorID: project?.ide,
+            title: title, editorID: project?.ide,
             editorLabel: workspaceLaunch.editorLabel(project),
             launchError: workspaceLaunch.errors[context.id],
             reviewBase: base,
             warmup: ideWarmup.state(for: session?.worktree ?? ""))
-    }
-
-    /// Create Session belongs in the toolbar only where the page decides the session: a GitHub PR
-    /// or Jira ticket tab in view whose repository or Jira key maps to a local project. A plain
-    /// page, or one no project claims, gets nothing.
-    private func offersPageSession(in context: WorkspaceContext) -> Bool {
-        guard case .tab(let id) = selection, context.id == "tab:\(id)", let url = tabURL(id) else { return false }
-        return Self.pageProject(url, in: projects) != nil
     }
 
     func ownsWorkspace(_ context: WorkspaceContext) -> Bool {
@@ -91,7 +82,6 @@ extension AppViewModel: WorkspaceCoordinating {
             if let session = state.session {
                 Task { await workspaceLaunch.openEditor(session: session, project: state.project) }
             }
-        case .createSession(let agent): newSession(agent: agent)
         case .openFile: viewer.openFile(in: context, directory: state.session?.worktree)
         case .changes: if let session = state.session { showChanges(for: session, context: context) }
         case .openTerminal: openTerminal()

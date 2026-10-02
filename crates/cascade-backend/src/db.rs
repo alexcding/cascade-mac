@@ -299,31 +299,6 @@ impl Database {
             .await
     }
 
-    pub async fn tabs(&self) -> rusqlite::Result<Value> {
-        self.durable
-            .call(|conn| {
-                let mut statement = conn.prepare("SELECT * FROM tabs ORDER BY position ASC")?;
-                let rows: Vec<Value> = statement
-                    .query_map([], tab_from_row)?
-                    .collect::<rusqlite::Result<_>>()?;
-                let active = rows
-                    .iter()
-                    .find(|row| row.get("_active").and_then(Value::as_bool) == Some(true))
-                    .and_then(|row| row.get("id"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                let tabs = rows
-                    .into_iter()
-                    .map(|mut row| {
-                        row.as_object_mut().unwrap().remove("_active");
-                        row
-                    })
-                    .collect::<Vec<_>>();
-                Ok(json!({ "tabs": tabs, "active": active }))
-            })
-            .await
-    }
-
     pub async fn tasks(&self) -> rusqlite::Result<Vec<Session>> {
         self.durable
             .call(|conn| {
@@ -1102,27 +1077,6 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
     })
 }
 
-fn tab_from_row(row: &Row<'_>) -> rusqlite::Result<Value> {
-    let pane = text(row, "pane_view")?;
-    let pane = if pane.is_empty() {
-        "term".to_owned()
-    } else {
-        pane
-    };
-    Ok(json!({
-        "id": row.get::<_,String>("id")?,
-        "kind": row.get::<_,String>("kind")?, "title": text(row,"title")?, "url": row.get::<_,String>("url")?,
-        "cur": text(row,"cur")?, "repo": text(row,"repo")?, "branch": text(row,"branch")?,
-        "paneView": pane,
-        "diffOpen": row.get::<_,i64>("diff_open")? != 0, "pageClosed": row.get::<_,i64>("page_closed")? != 0,
-        "diffIdx": row.get::<_,i64>("diff_pos")?, "history": parse_json(&text(row,"history")?,json!([])),
-        "category": text(row,"category")?, "login": text(row,"login")?, "avatar": text(row,"avatar")?,
-        "links": parse_json(&text(row,"links")?,json!([])), "_active": row.get::<_,i64>("active")? != 0,
-        "pinned": row.get::<_,i64>("pinned")? != 0,
-        "standalone": row.get::<_,i64>("standalone")? != 0,
-    }))
-}
-
 fn snapshot_from_row(row: &Row<'_>) -> rusqlite::Result<PrSnapshot> {
     snapshot_from_row_offset(row, 0)
 }
@@ -1203,25 +1157,6 @@ pub fn project_identity(project: &Project) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tabs_keyed_by_url_gain_ids_and_keep_every_current_column() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE tabs (url TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT, repo TEXT, branch TEXT,
-               position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0, pinned INTEGER NOT NULL DEFAULT 0);
-             INSERT INTO tabs(url, kind, title) VALUES ('https://example.test/a', 'web', 'A');",
-        )
-        .unwrap();
-        initialize_durable(&conn).unwrap();
-        // The rebuilt table is read by `tab_from_row`, which names every column the schema has.
-        let tab = conn
-            .query_row("SELECT * FROM tabs", [], tab_from_row)
-            .unwrap();
-        assert_eq!(tab["url"], "https://example.test/a");
-        assert_eq!(tab["standalone"], false);
-        assert!(!tab["id"].as_str().unwrap().is_empty());
-    }
 
     #[tokio::test]
     async fn a_terminal_keeps_only_its_last_hook() {

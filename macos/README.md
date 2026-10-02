@@ -113,8 +113,8 @@ the standard app bundle does not include a separate `cascade-backend` executable
 
 ## Sidebar and session workspace
 
-The sidebar is an AppKit `NSOutlineView` with projects, sessions, saved tabs, and
-pinned entries. It preserves selection and ordering and provides context actions
+The sidebar is an AppKit `NSOutlineView` with projects, sessions, and pinned
+entries. It preserves selection and ordering and provides context actions
 for opening, pinning, removing, and revealing items.
 
 **New Session** (**⌘N**) belongs to the selected project. Enter a branch name, PR

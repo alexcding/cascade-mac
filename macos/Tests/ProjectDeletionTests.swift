@@ -53,9 +53,7 @@ private actor ProjectDeletionService: ProjectService {
     func performRootCommand(_ command: ShellCommand) {}
     func reconnect() async {}
     func togglePin(_ id: String) {}
-    func closeTab(_ url: String) {}
     func openTerminal() {}
-    func openRootBrowser(_ url: URL) {}
 }
 
 @MainActor private func deletionModel(service: any ProjectService) -> ProjectPageViewModel {

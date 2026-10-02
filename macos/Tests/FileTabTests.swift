@@ -74,10 +74,3 @@ private struct FileSearchFixture: FileSearchService {
     #expect(cut.iconOnly && cut.visible == ["a", "d", "e"])
     #expect(CompactTabLayout(ids: ids, activeID: "a", available: 50).visible == ["a"])
 }
-
-@MainActor @Test func aSidebarTabKeepsItsBlankPageBesideAnOpenedFile() throws {
-    let context = WorkspaceContext(id: "tab:draft", sourceURL: "", title: "")
-    let page = context.openBlankPage()
-    let file = try #require(context.openFile("/tmp/sidebar.swift"))
-    #expect(context.tabs.map(\.id) == [page.id, file.id], "its one page is its only address field")
-}

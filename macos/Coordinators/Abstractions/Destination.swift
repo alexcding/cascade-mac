@@ -23,7 +23,6 @@ enum Destination: Hashable {
 
     case terminal(RootViewModel)
     case session(id: String, RootViewModel)
-    case tab(id: String, RootViewModel)
     case unavailable(title: String, message: String)
 
     // MARK: Empty state
@@ -78,8 +77,6 @@ extension Destination {
             RootTerminalPlaceholderView(model: root)
         case .session(let id, let root):
             RootSessionPlaceholderView(id: id, model: root)
-        case .tab(let id, let root):
-            RootTabPlaceholderView(id: id, model: root)
         case .unavailable(let title, let message):
             Text(message).foregroundStyle(.secondary)
                 .padding(28)
@@ -127,7 +124,7 @@ extension Destination {
             }])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
-        case .terminal(let root), .session(_, let root), .tab(_, let root):
+        case .terminal(let root), .session(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):
             return WindowToolbar(leading: [.title(title)])

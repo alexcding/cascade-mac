@@ -17,14 +17,10 @@ struct CocoaSidebar: NSViewRepresentable {
     var sessionShortcuts: [String: String] = [:]
     let onSelect: (SidebarDestination) -> Void
     let onTogglePin: (String) -> Void
-    var onCloseTab: (String) -> Void = { _ in }
-    var onNewTab: () -> Void = {}
     var onNewProject: () -> Void = {}
-    var onMoveTab: (String, String?) -> Void = { _, _ in }
     var onMoveProject: (String, String?) -> Void = { _, _ in }
     var onMoveSession: (String, String?) -> Void = { _, _ in }
     var onMovePinned: (String, String?) -> Void = { _, _ in }
-    var onTogglePinTab: (String) -> Void = { _ in }
     var onRemoveSession: (String) -> Void = { _ in }
     var onRenameSession: (String, String) -> Void = { _, _ in }
     var onForkSession: (String) -> Void = { _ in }
@@ -65,7 +61,6 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.contextMenu = { [weak coordinator = context.coordinator] item in coordinator?.menu(for: item) }
         outline.onReselect = { [weak coordinator = context.coordinator] item in coordinator?.reselected(item) }
         outline.onClick = { [weak coordinator = context.coordinator] item in coordinator?.clicked(item) }
-        outline.onMiddleClick = { [weak coordinator = context.coordinator] item in coordinator?.middleClicked(item) }
         outline.canDrag = { [weak coordinator = context.coordinator] item in coordinator?.canDrag(item) ?? false }
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
@@ -159,13 +154,9 @@ struct CocoaSidebar: NSViewRepresentable {
                     // spinner and hover state survive and nothing reloads under the pointer.
                     func apply(_ entry: SidebarEntry) {
                         if let node = nodes[entry.id], node.entry != entry {
-                            let grewOrShrank = Self.pinnedTabsHeight(node.entry) != Self.pinnedTabsHeight(entry)
                             node.entry = entry
                             let row = outline.row(forItem: node)
-                            if row >= 0 {
-                                if grewOrShrank { outline.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row)) }
-                                configureCell(atRow: row, node: node)
-                            }
+                            if row >= 0 { configureCell(atRow: row, node: node) }
                         }
                         entry.children.forEach(apply)
                     }
@@ -194,11 +185,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 }
                 syncSpinner()
             }
-            // The grid's tiles draw their own selection, so they follow a selection change too.
-            if changedSelection, let node = nodes["pinned-tabs"] {
-                let row = outline.row(forItem: node)
-                if row >= 0 { configureCell(atRow: row, node: node) }
-            }
             let placed = selectedPlacement.flatMap { nodes[$0] }
             let selected = placed?.entry.destination == value.selection ? placed
                 : roots.flatMap(flatten).first { $0.entry.destination == value.selection }
@@ -217,10 +203,6 @@ struct CocoaSidebar: NSViewRepresentable {
             } else { outline.deselectAll(nil) }
         }
 
-        private static func pinnedTabsHeight(_ entry: SidebarEntry) -> CGFloat? {
-            if case .pinnedTabs(let tabs) = entry.role { SidebarPinnedTabsGrid.height(count: tabs.count) } else { nil }
-        }
-
         private struct Shape: Equatable { let id: String; let children: [Shape] }
         private static func shape(_ entries: [SidebarEntry]) -> [Shape] {
             entries.map { Shape(id: $0.id, children: shape($0.children)) }
@@ -235,13 +217,11 @@ struct CocoaSidebar: NSViewRepresentable {
         /// Headings are the source list's own section headers, so they take its typography.
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool { (item as? Node)?.entry.isHeading == true }
 
-        // Drag to reorder, always among siblings: a tab within the Tabs section, a project within
-        // Projects, a session within its own project, a pinned session within Pinned. The
-        // pasteboard carries the row's placement id.
-        private enum Drag: Equatable { case tab, project, session, pinned }
+        // Drag to reorder, always among siblings: a project within Projects, a session within its
+        // own project, a pinned session within Pinned. The pasteboard carries the row's placement id.
+        private enum Drag: Equatable { case project, session, pinned }
         private func drag(for node: Node) -> Drag? {
             switch node.entry.destination {
-            case .tab: return .tab
             case .project: return .project
             case .session(let id):
                 // A pinned session moves within Pinned, a project's row within its project; an orphan stays put.
@@ -292,8 +272,7 @@ struct CocoaSidebar: NSViewRepresentable {
                 guard let top = roots.firstIndex(where: { $0 === target || $0.children.contains(target) }) else { return nil }
                 gap = top < from ? top : top + 1
             } else if index < 0 {
-                guard kind == .tab else { return nil } // below the last row: the end of Tabs
-                gap = last + 1
+                return nil
             } else { gap = index }
             guard gap >= first, gap <= last + 1, gap != from, gap != from + 1 else { return nil }
             return Drop(dragged: dragged, parent: parent, from: from, gap: gap, before: gap <= last ? siblings[gap] : nil)
@@ -308,7 +287,7 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int) -> Bool {
             func id(_ node: Node?) -> String? {
                 switch node?.entry.destination {
-                case .tab(let id), .project(let id), .session(let id): id
+                case .project(let id), .session(let id): id
                 default: nil
                 }
             }
@@ -333,7 +312,6 @@ struct CocoaSidebar: NSViewRepresentable {
             outlineView.moveItem(at: drop.from, inParent: drop.parent, to: drop.to, inParent: drop.parent)
             outlineView.endUpdates()
             switch kind {
-            case .tab: parent.onMoveTab(moving, id(drop.before))
             case .project: parent.onMoveProject(moving, id(drop.before))
             case .session: parent.onMoveSession(moving, id(drop.before))
             case .pinned: parent.onMovePinned(moving, id(drop.before))
@@ -342,7 +320,6 @@ struct CocoaSidebar: NSViewRepresentable {
         }
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             guard let entry = (item as? Node)?.entry else { return SidebarMetrics.rowHeight }
-            if let height = Self.pinnedTabsHeight(entry) { return height }
             return entry.isHeading ? SidebarMetrics.labelHeight : SidebarMetrics.rowHeight
         }
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
@@ -352,15 +329,6 @@ struct CocoaSidebar: NSViewRepresentable {
         }
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? Node else { return nil }
-            if case .pinnedTabs = node.entry.role {
-                let cell = outlineView.makeView(withIdentifier: SidebarPinnedTabsCell.identifier, owner: self) as? SidebarPinnedTabsCell ?? {
-                    let cell = SidebarPinnedTabsCell()
-                    cell.identifier = SidebarPinnedTabsCell.identifier
-                    return cell
-                }()
-                configure(cell, node: node)
-                return cell
-            }
             // Headings never share a cell with rows: each kind sets its own font and colour, and a
             // cell reused from the other kind would start from the wrong one.
             let identifier = NSUserInterfaceItemIdentifier(node.entry.isHeading ? "sidebar-heading" : "sidebar-cell")
@@ -373,31 +341,16 @@ struct CocoaSidebar: NSViewRepresentable {
             return cell
         }
 
-        /// Reconfigures whichever cell class the row holds.
+        /// Reconfigures the row's cell.
         private func configureCell(atRow row: Int, node: Node) {
-            guard let outline else { return }
-            switch outline.view(atColumn: 0, row: row, makeIfNecessary: false) {
-            case let cell as SidebarPinnedTabsCell: configure(cell, node: node)
-            case let cell as SidebarCellView: configure(cell, node: node, row: row)
-            default: break
-            }
-        }
-
-        private func configure(_ cell: SidebarPinnedTabsCell, node: Node) {
-            guard case .pinnedTabs(let tabs) = node.entry.role else { return }
-            cell.configure(SidebarPinnedTabsGrid(
-                tabs: tabs, selectedID: parent.selection.tabID,
-                onSelect: { [weak self] id in self?.parent.onSelect(.tab(id)) },
-                onUnpin: { [weak self] id in self?.parent.onTogglePinTab(id) },
-                onClose: { [weak self] id in self?.parent.onCloseTab(id) }))
+            guard let outline, let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarCellView else { return }
+            configure(cell, node: node, row: row)
         }
 
         private func configure(_ cell: SidebarCellView, node: Node, row: Int) {
             guard let outline else { return }
             let nested = outline.parent(forItem: node) != nil
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
-            cell.onCloseTab = { [weak self] url in self?.parent.onCloseTab(url) }
-            cell.onNewTab = { [weak self] in self?.parent.onNewTab() }
             cell.onNewProject = { [weak self] in self?.parent.onNewProject() }
             cell.configure(node.entry, nested: nested, spinFrame: spinFrame,
                            shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
@@ -459,11 +412,6 @@ struct CocoaSidebar: NSViewRepresentable {
             else { outline.animator().expandItem(node) }
         }
 
-        // A middle-click closes a tab row, as in a browser (sidebar.js onauxclick).
-        func middleClicked(_ node: Node) {
-            if case .tab(let url) = node.entry.destination { parent.onCloseTab(url) }
-        }
-
         func outlineViewItemDidCollapse(_ notification: Notification) { expansionChanged(notification, collapsed: true) }
         func outlineViewItemDidExpand(_ notification: Notification) { expansionChanged(notification, collapsed: false) }
         private func expansionChanged(_ notification: Notification, collapsed isCollapsed: Bool) {
@@ -490,14 +438,6 @@ struct CocoaSidebar: NSViewRepresentable {
                     add(title, action: #selector(openGitClient(_:)))
                 }
                 add("Reveal in Finder", action: #selector(reveal(_:)))
-            } else if case .tab = destination {
-                add("Pin Tab", action: #selector(pinTab(_:)))
-                add("Close Tab", action: #selector(closeTab(_:)))
-                // A new tab has no address until one is entered.
-                if safeWebURL(node.entry.detail) != nil {
-                    menu.addItem(.separator())
-                    add("Copy Link", action: #selector(copyLink(_:)))
-                }
             }
             // The session and its worktree go together (one unit); the sheet spells out what is
             // stopped and removed, so the menu item only asks for it.
@@ -560,18 +500,6 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             parent.onOpenGitClient(id)
         }
-        @objc private func pinTab(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .tab(let id) = node.entry.destination else { return }
-            parent.onTogglePinTab(id)
-        }
-        @objc private func closeTab(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .tab(let url) = node.entry.destination else { return }
-            parent.onCloseTab(url)
-        }
-        @objc private func copyLink(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .tab = node.entry.destination else { return }
-            NativeClipboard.copy(node.entry.detail)
-        }
         @objc private func reveal(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node else { return }
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: node.entry.detail)])
@@ -602,9 +530,6 @@ enum SidebarPalette {
     static let success = dynamic(0x16a34a, 0x4ade80)
     static let warn = dynamic(0xd97706, 0xfbbf24)
     static let danger = dynamic(0xdc2626, 0xf87171)
-    // The pinned tiles draw their own plates: the list's selection colour, and a fainter hover.
-    static let hover = dynamic(0x16181d, 0xe8e8e8, alpha: 0.08)
-    static let selected = NSColor.unemphasizedSelectedContentBackgroundColor
 }
 
 /// A medium source list's own measures, and the few the cell adds inside it.
@@ -625,9 +550,6 @@ enum SidebarMetrics {
     static let gap: CGFloat = 6              // icon to title, title to accessory
     static let trailing: CGFloat = 4         // accessory to the cell edge
     static let nestedIndent: CGFloat = 16    // a session under its project
-    /// How far the selection plate reaches past a cell on each side. The pinned tiles are plates
-    /// of their own, so they are laid out to the plate's edges rather than the cell's.
-    static let plateOutset: CGFloat = 6
     static let radius: CGFloat = 8
 }
 
@@ -672,8 +594,6 @@ enum SidebarGlyphs {
 
 @MainActor final class SidebarCellView: NSTableCellView {
     var onTogglePin: (String) -> Void = { _ in }
-    var onCloseTab: (String) -> Void = { _ in }
-    var onNewTab: () -> Void = {}
     var onNewProject: () -> Void = {}
     var hovered = false { didSet { if oldValue != hovered { applyState() } } }
 
@@ -682,7 +602,6 @@ enum SidebarGlyphs {
     /// The ⌘-held hint, in the glyph's place.
     private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
-    private let badge = NSView()
     /// After a forked session's name.
     private let forkMark = NSImageView()
     private let accessory = SidebarAccessoryButton()
@@ -702,15 +621,12 @@ enum SidebarGlyphs {
         // Down only: a symbol is already the size its font makes it, and must not be stretched to the slot.
         icon.imageScaling = .scaleProportionallyDown
         icon.wantsLayer = true
-        badge.wantsLayer = true
-        badge.layer?.cornerRadius = 3.5
-        badge.layer?.borderWidth = 1.5
         accessory.target = self
         accessory.action = #selector(accessoryPressed)
         forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
         forkMark.contentTintColor = SidebarPalette.text3
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
-        [icon, glyph, title, forkMark, badge, accessory, shortcut].forEach(addSubview)
+        [icon, glyph, title, forkMark, accessory, shortcut].forEach(addSubview)
         imageView = icon
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -749,18 +665,13 @@ enum SidebarGlyphs {
         setAccessibilityLabel(entry.title)
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
-        icon.isHidden = false; glyph.isHidden = true; badge.isHidden = true; accessory.isHidden = true
+        icon.isHidden = false; glyph.isHidden = true; accessory.isHidden = true
         forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
         alphaValue = 1
         switch entry.role {
         case .label:
             icon.isHidden = true
-        case .tabsHeader:
-            icon.isHidden = true
-            accessory.image = SidebarIcons.addSymbol
-            accessory.toolTip = String(localized: "New tab")
-            accessory.setAccessibilityLabel(String(localized: "New tab"))
         case .projectsHeader(let canCreate):
             icon.isHidden = true
             if canCreate {
@@ -785,13 +696,6 @@ enum SidebarGlyphs {
             accessory.image = SidebarIcons.symbol(pinned ? "pinFilled" : "pin")
             accessory.toolTip = pinned ? String(localized: "Unpin session") : String(localized: "Pin session to the top")
             accessory.setAccessibilityLabel(accessory.toolTip)
-        case .tab(let tab):
-            configureTabIcon(tab)
-            accessory.image = SidebarIcons.closeSymbol
-            accessory.toolTip = String(localized: "Close tab")
-            accessory.setAccessibilityLabel(String(localized: "Close tab"))
-        case .pinnedTabs:
-            break // Hosted by SidebarPinnedTabsCell, never this cell.
         }
         applyState()
     }
@@ -811,45 +715,6 @@ enum SidebarGlyphs {
     /// What a label insets its text by on each side; the glyph's frame is widened by it so nothing clips.
     private static let labelInset: CGFloat = 2
     private static let forkMarkSize: CGFloat = 12
-
-    /// A tab row's leading image size: favicons, brand art and avatars sit inside the slot; the globe fills it.
-    private var iconSize = SidebarMetrics.iconSlot
-
-    private func configureTabIcon(_ tab: SidebarTabIcon) {
-        iconSize = SidebarMetrics.brandSize
-        switch tab.kind {
-        case "github":
-            if let avatar = SidebarAvatars.image(login: tab.login, frozen: tab.avatar) {
-                icon.image = avatar
-                icon.layer?.cornerRadius = SidebarMetrics.brandSize / 2
-                icon.layer?.masksToBounds = true
-            } else {
-                icon.image = SidebarIcons.brand("github", size: SidebarMetrics.brandSize)
-            }
-            let color: NSColor? = switch tab.ci {
-            case .none: nil
-            case .running: SidebarPalette.warn
-            case .success: SidebarPalette.success
-            case .failure: SidebarPalette.danger
-            }
-            if let color {
-                badge.isHidden = false
-                badge.layer?.backgroundColor = color.cgColor
-                badge.layer?.borderColor = NSColor.windowBackgroundColor.cgColor
-            }
-        case "jira": icon.image = SidebarIcons.brand("jira", size: SidebarMetrics.brandSize)
-        case "issue": icon.image = SidebarIcons.brand("github", size: SidebarMetrics.brandSize)
-        default:
-            if let url = tab.url, let favicon = FaviconStore.shared.image(forURL: url) {
-                icon.image = favicon
-                icon.layer?.cornerRadius = 3
-                icon.layer?.masksToBounds = true
-            } else {
-                icon.image = SidebarIcons.rowSymbol("globe")
-                iconSize = SidebarMetrics.iconSlot
-            }
-        }
-    }
 
     func advanceSpinner(to frame: Int) {
         guard case .session(let status, _) = entry.role, status.busy else { return }
@@ -873,17 +738,14 @@ enum SidebarGlyphs {
         switch entry.role {
         case .projectsHeader(let canCreate): accessory.isHidden = !(hovered && canCreate)
         case .session: accessory.isHidden = !hovered
-        case .tab, .tabsHeader: accessory.isHidden = !hovered
         default: accessory.isHidden = true
         }
         needsLayout = true
     }
 
     @objc private func accessoryPressed() {
-        if entry.role == .tabsHeader { onNewTab() }
-        else if case .projectsHeader = entry.role { onNewProject() }
+        if case .projectsHeader = entry.role { onNewProject() }
         else if let id = entry.sessionID { onTogglePin(id) }
-        else if let id = entry.destination?.tabID { onCloseTab(id) }
     }
 
     /// Where an item row's accessory slot ends, in this cell's coordinates: the trailing edge of
@@ -913,7 +775,7 @@ enum SidebarGlyphs {
             NSRect(x: x, y: ((height - size) / 2).rounded(), width: size, height: size)
         }
         switch entry.role {
-        case .label, .tabsHeader, .projectsHeader:
+        case .label, .projectsHeader:
             title.sizeToFit()
             let titleHeight = title.frame.height
             // The heading's "+" sits in the same trailing slot as a project row's, centred on the title.
@@ -938,11 +800,6 @@ enum SidebarGlyphs {
             let hint = shortcut.frame.size
             shortcut.frame = NSRect(x: left + Self.glyphSlot + Self.labelInset - hint.width, y: ((height - hint.height) / 2).rounded(),
                                     width: hint.width, height: hint.height)
-        case .tab:
-            icon.frame = centered(left + (slot - iconSize) / 2, iconSize)
-            badge.frame = NSRect(x: icon.frame.maxX - 5, y: icon.frame.maxY - 6, width: 7, height: 7)
-        case .pinnedTabs:
-            return
         }
         // An icon fills its slot, so the gap is what separates it from the title. A status glyph is far
         // narrower than the slot: it gets a slot of its own width, or the same gap would read twice as wide.
@@ -1003,7 +860,6 @@ enum SidebarGlyphs {
     var onReselect: ((CocoaSidebar.Node) -> Void)?
     /// A click that left its row selected, as opposed to a drag or the arrow keys.
     var onClick: ((CocoaSidebar.Node) -> Void)?
-    var onMiddleClick: ((CocoaSidebar.Node) -> Void)?
     var canDrag: ((CocoaSidebar.Node) -> Bool)?
 
     // No disclosure triangles: a project folder collapses by clicking it again.
@@ -1036,14 +892,6 @@ enum SidebarGlyphs {
     /// second press has already been counted by its first.
     static func chooses(row: Int, selectedRow: Int, clickCount: Int, flags: NSEvent.ModifierFlags, travel: CGFloat) -> Bool {
         row >= 0 && row == selectedRow && clickCount == 1 && !flags.contains(.control) && travel < 4
-    }
-
-    override func otherMouseUp(with event: NSEvent) {
-        let row = row(at: convert(event.locationInWindow, from: nil))
-        guard event.buttonNumber == 2, row >= 0, let node = item(atRow: row) as? CocoaSidebar.Node else {
-            super.otherMouseUp(with: event); return
-        }
-        onMiddleClick?(node)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

@@ -18,9 +18,7 @@ import Testing
     func performRootCommand(_ command: ShellCommand) {}
     func reconnect() async {}
     func togglePin(_ id: String) {}
-    func closeTab(_ url: String) {}
     func openTerminal() {}
-    func openRootBrowser(_ url: URL) {}
 }
 
 @MainActor private final class HeldNotificationDelivery: NotificationDelivery {

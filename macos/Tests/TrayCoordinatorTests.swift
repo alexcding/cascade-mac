@@ -19,11 +19,14 @@ import Testing
     var holdsOpens = false
     private var held: [CheckedContinuation<Void, Never>] = []
     func release() { held.forEach { $0.resume() }; held = [] }
-    func openTrayReview(_ request: OpenPageRequest) async throws {
+    /// Whether an open lands in Cascade (a session) rather than the system browser.
+    var inApp = true
+    func openTrayReview(_ request: OpenPageRequest) async throws -> Bool {
         if holdsOpens { await withCheckedContinuation { held.append($0) } }
         try Task.checkCancellation()
         if failsOpen { throw BackendError.operation("offline") }
         opened.append(request)
+        return inApp
     }
     func openTrayUsage() { usageOpens += 1 }
 }
@@ -120,6 +123,19 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(runtime.acknowledged == [second] && window.events == ["dismiss", "window"] && model.actionError == nil)
 }
 
+/// A review that went to the system browser closes the panel but leaves the browser in front.
+@MainActor @Test func aTrayReviewOpenedInTheBrowserDoesNotBringTheWindowUp() async {
+    let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
+    let review = trayReview(5)
+    runtime.state.pendingReviews = [review]; runtime.inApp = false
+    let model = TrayViewModel(service: runtime, shell: trayShell())
+    let coordinator = TrayCoordinator(model: model, runtime: runtime, presentation: window.presentation)
+    coordinator.setActive(true)
+    model.openReview(review); await settle()
+    #expect(runtime.opened.map(\.url) == [review.url])
+    #expect(runtime.acknowledged == [review] && window.events == ["dismiss"] && !model.active && model.actionError == nil)
+}
+
 @MainActor @Test func trayFactoryReplacementRetiresCallbacksAndDoesNotRetainRuntimeOrRoot() {
     let factory = TrayFactoryFixture(), window = TrayWindowFixture(), shell = trayShell()
     var runtime: TrayRuntimeFixture? = TrayRuntimeFixture()
@@ -191,7 +207,7 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     model.openReview(review); await settle()
     let opened = runtime.opened.last
     #expect(opened?.projectID == "w" && opened?.branch == "me/fix/WID-3-thing" && opened?.jiraKeys == ["WID-3"])
-    #expect(opened?.inSession == false, "The app decides between the session and a tab, not the tray")
+    #expect(opened?.inSession == false, "The app decides between the session and the browser, not the tray")
     // A review the snapshot knows nothing more about still opens, with nothing to match on.
     runtime.state.pendingReviews = [trayReview(4)]
     coordinator.setActive(true); model.openReview(trayReview(4)); await settle()

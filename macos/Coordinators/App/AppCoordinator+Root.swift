@@ -6,14 +6,9 @@ import Foundation
     func reconnect() async
     func togglePin(_ id: String)
     func openTerminal()
-    func openRootBrowser(_ url: URL)
-    func closeTab(_ url: String)
-    func newTab()
-    func moveTab(_ id: String, before: String?)
     func moveProject(_ id: String, before: String?)
     func moveSession(_ id: String, before: String?)
     func movePinned(_ id: String, before: String?)
-    func togglePinTab(_ id: String)
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel?
     func openGitClient(_ id: String)
     func renameSession(_ id: String, to name: String)
@@ -22,12 +17,9 @@ import Foundation
 }
 
 extension RootCoordinating {
-    func newTab() {}
-    func moveTab(_ id: String, before: String?) {}
     func moveProject(_ id: String, before: String?) {}
     func moveSession(_ id: String, before: String?) {}
     func movePinned(_ id: String, before: String?) {}
-    func togglePinTab(_ id: String) {}
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel? { nil }
     func openGitClient(_ id: String) {}
     func renameSession(_ id: String, to name: String) {}
@@ -60,16 +52,11 @@ extension AppCoordinator {
         case .select(let destination): discardQueuedDeepLink(); navigate(to: destination)
         case .command(let command): rootRuntime?.performRootCommand(command)
         case .togglePin(let id): rootRuntime?.togglePin(id)
-        case .closeTab(let url): rootRuntime?.closeTab(url)
-        case .newTab: rootRuntime?.newTab()
-        case .moveTab(let id, let before): rootRuntime?.moveTab(id, before: before)
         case .moveProject(let id, let before): rootRuntime?.moveProject(id, before: before)
         case .moveSession(let id, let before): rootRuntime?.moveSession(id, before: before)
         case .movePinned(let id, let before): rootRuntime?.movePinned(id, before: before)
-        case .togglePinTab(let id): rootRuntime?.togglePinTab(id)
         case .reconnect: Task { [weak rootRuntime] in await rootRuntime?.reconnect() }
         case .openTerminal: rootRuntime?.openTerminal()
-        case .openBrowser(let url): rootRuntime?.openRootBrowser(url)
         case .removeSession(let id): presentRemoval { rootRuntime?.makeSessionRemoval(id) }
         case .openGitClient(let id): rootRuntime?.openGitClient(id)
         case .renameSession(let id, let name): rootRuntime?.renameSession(id, to: name)

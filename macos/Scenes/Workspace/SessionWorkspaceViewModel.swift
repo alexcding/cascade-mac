@@ -20,13 +20,8 @@ import Observation
     var removingSession = false
     var openingExternal = false
     var canPresent = false
-    var canCreateSession = false
-    /// What the toolbar calls this workspace: the session's label, the tab's title, or "Terminal".
+    /// What the toolbar calls this workspace: the session's label, or "Terminal".
     var title = ""
-    /// A GitHub PR or Jira ticket page whose project exists: the toolbar offers Create Session.
-    var offersPageSession = false
-    /// Whether this panel offers New Tab at all — false for a sidebar tab, which is one page.
-    var offersNewTab = true
     var editorID: String?
     var editorLabel: String?
     var launchError: String?
@@ -37,7 +32,7 @@ import Observation
 }
 
 enum WorkspaceOperation: Equatable {
-    case openEditor, createSession(agent: SessionAgent?), openFile
+    case openEditor, openFile
     case changes, openTerminal, hookSettings, prepareChanges, toggleEditorPreview
 }
 
@@ -155,11 +150,6 @@ extension WorkspaceServing {
     /// The Simulator panel's model, owned by the session's build.
     var simulatorPreview: SimulatorPreviewModel? { build?.preview }
     var showsBrowser: Bool { showsPage && !showsChanges && mode == .browser }
-    /// A page-only context (a sidebar tab) browsing the web has no title: its compact tab bar is the
-    /// screen's whole section of the toolbar, as Safari's is (`SessionWorkspaceToolbar`). Only a
-    /// sidebar tab: a session's workspace keeps its title, even while it has no session record to
-    /// show a terminal for.
-    var barFillsToolbar: Bool { context?.holdsOnePage == true && !showsTerminal && mode == .browser }
     /// Beside a terminal the context pane is the window's inspector column, with its own section of
     /// the toolbar tracking the divider (`MainSplitViewController`).
     var showsInspector: Bool { showsTerminal && showsPage }
@@ -226,8 +216,6 @@ extension WorkspaceServing {
     /// What this worktree's IDE is still preparing, if anything. `ready` for every IDE that
     /// prepares nothing, so the toolbar can ask without knowing which ones do.
     var warmup: IDEWarmupState { state.warmup }
-    var canCreateSession: Bool { state.canCreateSession }
-    var offersPageSession: Bool { session == nil && state.offersPageSession }
     var canOpenExternal: Bool { session != nil && !state.openingExternal && !state.changingSession }
     var canShowChanges: Bool { session != nil && state.connected }
     var canRun: Bool { showsBuildActions && state.connected && state.canPresent && !state.changingSession }
@@ -244,16 +232,12 @@ extension WorkspaceServing {
     func moveTab(_ id: String, before target: String?) { onAction(.moveTab(id, before: target)) }
     /// Only the workspace on screen may open tabs.
     var canOpenTab: Bool { active && state.canPresent }
-    /// Whether the panel shows New Tab and answers ⌘T. A sidebar tab is one page, so it shows
-    /// neither; `canOpenTab` still holds, so the panel's own blank filler page is unaffected.
-    var offersNewTab: Bool { state.offersNewTab }
     /// Whether a page's tab shows its close button, which lets the page and its web view go. Closing
-    /// a panel's last tab leaves its empty state, a blank page, and a sidebar tab stays in the
-    /// sidebar. A lone blank page is that empty state: closing it would only make another. A sidebar
-    /// tab counts its pages alone: with no New Tab, its last page is its only address field.
+    /// a panel's last tab leaves its empty state, a blank page. A lone blank page is that empty
+    /// state: closing it would only make another.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return (context.holdsOnePage ? context.pages.count : context.tabs.count) > 1 || !page.controls.isBlank
+        return context.tabs.count > 1 || !page.controls.isBlank
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
@@ -301,8 +285,6 @@ extension WorkspaceServing {
     }
     func prepareChanges() { if active && showsChanges { perform(.prepareChanges) } }
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
-    /// `agent` nil starts the default agent — the button's click; the dropdown names one.
-    func createSession(agent: SessionAgent? = nil) { if canCreateSession { perform(.createSession(agent: agent)) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
     /// A link from the chat opens in this session's browser, beside the chat, and brings it in.

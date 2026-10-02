@@ -6,10 +6,8 @@ import Testing
 private actor RefreshTransport: BackendTransport {
     var requests: [URLRequest] = []
     var includesProject = true
-    private var includesTab = false
     private var includesSession = false
     func addSession() { includesSession = true }
-    func addTab() { includesTab = true }
     func removeProject() { includesProject = false }
     func reset() { requests.removeAll() }
     var paths: [String] { requests.compactMap { $0.url?.path } }
@@ -21,8 +19,6 @@ private actor RefreshTransport: BackendTransport {
         switch url.path {
         case Routes.PROJECTS:
             body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC","boardEnabled":true}]"# : "[]"
-        case Routes.TABS:
-            body = includesTab ? #"{"tabs":[{"id":"t","kind":"web","title":"New tab","url":"https://example.test"}]}"# : #"{"tabs":[]}"#
         case Routes.TASKS:
             body = includesSession ? #"[{"id":"s","projectId":"p","workspace":"/fixture","worktree":"/fixture/work","title":"Session","branch":"feature","url":"","pinned":true}]"# : "[]"
         case Routes.DASHBOARD:
@@ -50,9 +46,10 @@ private actor RefreshTransport: BackendTransport {
     }
 }
 
-@MainActor private func refreshApp(_ runtime: RefreshRuntime, preferences: UserDefaults) -> AppViewModel {
+@MainActor private func refreshApp(_ runtime: RefreshRuntime, preferences: UserDefaults,
+                                    desktop: any DesktopActions = NativeDesktopActions()) -> AppViewModel {
     _ = NSApplication.shared
-    return AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), backendRuntime: runtime,
+    return AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }), desktop: desktop, backendRuntime: runtime,
         shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil),
         platformFactory: NativeAppPlatformFactory(configuration: { throw BackendError.configuration("No test terminal") }),
         welcomeStore: TransientWelcomeStore(shown: true),
@@ -95,9 +92,9 @@ private actor RefreshTransport: BackendTransport {
             print("First sidebar layout: \(path.path)")
         }
     }
-    #expect(initial.map(\.id) == ["overview", "automation", "label:projects", "label:tabs"])
+    #expect(initial.map(\.id) == ["overview", "automation", "label:projects"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 4)
+    #expect(list.numberOfRows == 3)
     #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "overview")
 }
 
@@ -136,7 +133,7 @@ private actor RefreshTransport: BackendTransport {
     runtime.emit("sync", project: "p")
     try await refreshEventually { model.projects.isEmpty && model.projectModels["p"] == nil }
     let paths = await transport.paths
-    #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS) && !paths.contains(Routes.TABS))
+    #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS))
     await model.stop()
 }
 
@@ -162,11 +159,6 @@ private actor RefreshTransport: BackendTransport {
     try await refreshEventually { busy() }
     terminal.agentTurns.receive(ServerEvent(type: "agent-turn-done", projectId: nil, id: nil, runId: "sidebar-test", cli: "claude", sessionId: "conversation"))
     try await refreshEventually { !busy() }
-    model.newTab()
-    let draft = try #require(model.draftTabs.first)
-    try await refreshEventually { model.root.entries.contains { $0.destination == .tab(draft.id) } }
-    model.closeTab(draft.id)
-    try await refreshEventually { !model.root.entries.contains { $0.destination == .tab(draft.id) } }
     await model.stop()
 }
 
@@ -206,41 +198,16 @@ private actor RefreshTransport: BackendTransport {
     #expect(await transport.paths.isEmpty)
 }
 
-/// The tabs an earlier version kept in the backend are adopted once, with the first inventory
-/// read, and never asked for again.
-@MainActor @Test func savedTabsAreImportedFromTheBackendOnceAndKeptLocally() async throws {
-    let suite = "refresh-tabs-import-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let runtime = RefreshRuntime(), transport = runtime.transport
-    let model = refreshApp(runtime, preferences: preferences)
-    await transport.addTab()
-    await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.tabs.map(\.id) == ["t"] }
-    await transport.reset()
-    model.refresh()
-    try await refreshEventually { await transport.paths.contains(Routes.PROJECTS) }
-    let afterRefresh = await transport.paths
-    #expect(!afterRefresh.contains(Routes.TABS))
-    // Local changes never reach the backend.
-    model.togglePinTab("t")
-    #expect(model.tabs.first?.pinned == true)
-    model.closeTab("t")
-    #expect(model.tabs.isEmpty)
-    let afterChanges = await transport.paths
-    #expect(!afterChanges.contains(Routes.TABS))
-    await model.stop()
-}
-
 /// A tray click on a review selects the session that already owns the PR; a PR with no session
-/// opens in a tab. Neither starts a session.
-@MainActor @Test func aTrayReviewSelectsItsSessionOrOpensATabAndNeverStartsOne() async throws {
+/// opens in the system browser. Neither starts a session.
+@MainActor @Test func aTrayReviewSelectsItsSessionOrOpensTheBrowserAndNeverStartsOne() async throws {
     let suite = "tray-review-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let runtime = RefreshRuntime(), transport = runtime.transport
     await transport.addSession()
-    let model = refreshApp(runtime, preferences: preferences)
+    let desktop = ProjectPageActions()
+    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
     await model.start()
     try await refreshEventually { model.sessions.contains { $0.id == "s" } }
     func review(_ number: Int, branch: String) -> OpenPageRequest {
@@ -257,14 +224,63 @@ private actor RefreshTransport: BackendTransport {
     }
 
     await transport.reset()
-    try await model.openTrayReview(review(7, branch: "feature"))
+    #expect(try await model.openTrayReview(review(7, branch: "feature")))
     #expect(model.selection == .session("s"))
     #expect(await starts() == 0)
-    #expect(model.tabs.isEmpty)
+    #expect(desktop.browsers.isEmpty)
 
     await transport.reset()
-    try await model.openTrayReview(review(8, branch: "elsewhere"))
-    #expect(model.tabs.map(\.url) == ["https://github.com/example/repo/pull/8"])
+    #expect(try await !model.openTrayReview(review(8, branch: "elsewhere")))
+    #expect(desktop.browsers.map(\.absoluteString) == ["https://github.com/example/repo/pull/8"])
     #expect(await starts() == 0)
+    await model.stop()
+}
+
+/// A row's New Session opens the page's project on Start with the page filled in; nothing is
+/// created until Start is submitted.
+@MainActor @Test func aRowsNewSessionOpensItsProjectsStartWithThePageAndCreatesNothing() async throws {
+    let suite = "row-new-session-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime(), transport = runtime.transport
+    let desktop = ProjectPageActions()
+    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
+    await model.start()
+    try await refreshEventually { model.lastUpdate != nil && model.connection == "Connected" }
+    await transport.reset()
+    var request = OpenPageRequest(url: "https://github.com/example/repo/pull/9", kind: "github", title: "PR #9")
+    request.inSession = true; request.projectID = "p"
+    try await model.openPage(request)
+    #expect(model.selection == .project("p"))
+    #expect(model.projectModels["p"]?.section == .start && model.projectModels["p"]?.composer.text == request.url)
+    let creates = await transport.requests.filter {
+        $0.httpMethod == "POST" && [Routes.SESSIONS, Routes.WORKTREE, Routes.TASKS].contains($0.url?.path ?? "")
+    }
+    #expect(creates.isEmpty && model.sessions.isEmpty && desktop.browsers.isEmpty)
+    await model.stop()
+}
+
+/// A notice for a page with a session selects it and says so, so the window comes up; any other
+/// page goes to the system browser and says it stayed out of Cascade.
+@MainActor @Test func aNotificationPageIsInCascadeOnlyForItsSession() async throws {
+    let suite = "notification-page-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime(), transport = runtime.transport
+    await transport.addSession()
+    let desktop = ProjectPageActions()
+    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
+    await model.start()
+    try await refreshEventually { model.sessions.contains { $0.id == "s" } }
+    func page(_ number: Int, branch: String) -> OpenPageRequest {
+        var request = OpenPageRequest(url: "https://github.com/example/repo/pull/\(number)", kind: "github", title: "PR #\(number)",
+                                      repo: "example/repo", branch: branch)
+        request.projectID = "p"
+        return request
+    }
+    #expect(try await model.openNotificationPage(page(7, branch: "feature")))
+    #expect(model.selection == .session("s") && desktop.browsers.isEmpty)
+    #expect(try await !model.openNotificationPage(page(8, branch: "elsewhere")))
+    #expect(desktop.browsers.map(\.absoluteString) == ["https://github.com/example/repo/pull/8"])
     await model.stop()
 }

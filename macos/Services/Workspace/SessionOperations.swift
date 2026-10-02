@@ -87,32 +87,6 @@ protocol SessionCreating: Sendable {
     func switchMainCheckout(to branch: String, project: Project) async throws
 }
 
-/// A session started straight from a PR or ticket page (viewer.js newSession): the page decides
-/// the branch, an existing checkout is reused, and a new branch forks from the session base.
-enum PageSessionStart {
-    enum Outcome: Sendable {
-        case created(WorkspaceSession)
-        /// The PR's head branch couldn't be looked up — the project's Start asks for it.
-        case needsBranch
-        case failed(String)
-    }
-
-    /// `jiraKey` is the ticket a PR page references, recorded on the session so the ticket's row finds it too.
-    static func run(url: String, project: Project, agent: SessionAgent, jiraKey: String = "", operations: any SessionCreating) async -> Outcome {
-        do {
-            var draft = SessionDraft(); draft.agent = agent
-            draft = try await operations.resolvePage(url, project: project, draft: draft)
-            if draft.jiraKey.isEmpty { draft.jiraKey = jiraKey.uppercased() }
-            if draft.createBranch && draft.reuseWorktree == nil { draft.base = try await operations.references(project).sessionBase }
-            return .created(try await operations.create(project: project, draft: draft))
-        } catch is PullRequestBranchUnknown {
-            return .needsBranch
-        } catch {
-            return .failed(String(localized: "Could not start session: \(error.localizedDescription)"))
-        }
-    }
-}
-
 protocol SessionServing: SessionCreating {
     func saveAgentID(_ id: String, session: WorkspaceSession) async throws
     func conversationExists(cli: String, id: String) async throws -> Bool

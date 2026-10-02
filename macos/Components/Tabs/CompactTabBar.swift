@@ -63,25 +63,20 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
     }
 }
 
-/// Where a compact bar sits: its own row over the panel; an item in the window toolbar's section
-/// over the panel, which gives it the width the section leaves; or the title-bar zone of a column
-/// that reaches the window's top, given the zone's height, beside the toolbar's pane toggle.
+/// Where a compact bar sits: its own row over the panel, or the title-bar zone of a column that
+/// reaches the window's top, given the zone's height, beside the toolbar's pane toggle.
 enum CompactTabBarPlacement: Equatable {
     case row
-    case toolbar
     case titleBar(height: CGFloat)
 }
 
-/// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
-/// New Tab, where the panel offers one. In its own row the suggestion list hangs under the bar,
-/// above whatever the panel shows beneath; in the toolbar the host draws it in the panel, since a
-/// toolbar item clips anything drawn outside it.
+/// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it,
+/// then New Tab. Either way the suggestion list hangs under the bar, above whatever the panel
+/// shows beneath.
 struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: View>: View {
     let newTabTitle: String
     let newTabHelp: String
     let newTab: () -> Void
-    /// False for a panel that is one page — a sidebar tab — which offers no New Tab at all.
-    var showsNewTab = true
     var placement: CompactTabBarPlacement = .row
     @ViewBuilder let leading: Leading
     /// Given the width left between the leading control and the trailing actions.
@@ -99,8 +94,6 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 // Above the content beneath, or the list would render under it.
                 .zIndex(1)
                 .overlay(alignment: .top) { suggestions.padding(.top, 52) }
-        case .toolbar:
-            content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
         case .titleBar(let height):
             content
                 .padding(.leading, 12)
@@ -121,29 +114,27 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 pill(proxy.size.width).frame(width: proxy.size.width, height: proxy.size.height)
             }
             trailing
-            if showsNewTab {
-                // The 32pt square is the label, not a frame around the button, so the whole capsule
-                // takes the click rather than the 14pt glyph alone.
-                Button(action: newTab) {
-                    Label(newTabTitle, systemImage: "plus")
-                        .labelStyle(SquareIconLabelStyle())
-                        .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
-                        .contentShape(Rectangle())
-                }
-                .help(newTabHelp)
-                .barGlass()
+            // The 32pt square is the label, not a frame around the button, so the whole capsule
+            // takes the click rather than the 14pt glyph alone.
+            Button(action: newTab) {
+                Label(newTabTitle, systemImage: "plus")
+                    .labelStyle(SquareIconLabelStyle())
+                    .frame(width: Theme.Size.largeControl, height: Theme.Size.largeControl)
+                    .contentShape(Rectangle())
             }
+            .help(newTabHelp)
+            .barGlass()
         }
     }
 }
 
 extension CompactTabBar where Trailing == EmptyView {
     /// A bar whose only trailing control is New Tab.
-    init(newTabTitle: String, newTabHelp: String, newTab: @escaping () -> Void, showsNewTab: Bool = true,
+    init(newTabTitle: String, newTabHelp: String, newTab: @escaping () -> Void,
          placement: CompactTabBarPlacement = .row,
          @ViewBuilder leading: () -> Leading, @ViewBuilder pill: @escaping (CGFloat) -> Pill,
          @ViewBuilder suggestions: () -> Suggestions) {
-        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, showsNewTab: showsNewTab, placement: placement,
+        self.init(newTabTitle: newTabTitle, newTabHelp: newTabHelp, newTab: newTab, placement: placement,
                   leading: leading, pill: pill, trailing: { EmptyView() }, suggestions: suggestions)
     }
 }

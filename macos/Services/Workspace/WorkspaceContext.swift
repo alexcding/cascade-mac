@@ -35,6 +35,24 @@ enum WorkspaceMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// A file or page an earlier version kept in a snapshot, before documents had records of their own.
+struct SavedTabContent: Codable, Equatable, Sendable {
+    var kind: String? = nil
+    var url: String? = nil
+    var title: String? = nil
+    var path: String? = nil
+    var active: Bool? = nil
+
+    var filePath: String? {
+        guard kind == "file" else { return nil }
+        if let path, path.hasPrefix("/"), !path.contains("\0") { return (path as NSString).standardizingPath }
+        guard let url, let value = URL(string: url), value.isFileURL,
+              value.host == nil || value.host == "" || value.host == "localhost",
+              !value.path.contains("\0") else { return nil }
+        return value.path
+    }
+}
+
 struct ContextSnapshot: Codable, Equatable, Sendable {
     var pages: [WebPageRecord] = []
     var activeID: String?
@@ -54,63 +72,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var historyOrder: [String]? = nil
     var legacyDocuments: [SavedTabContent]? = nil
     var legacyFileHistory: [SavedTabContent]? = nil
-
-    static func importing(_ tab: SavedTab) -> Self {
-        var result = Self()
-        result.reviewSection = tab.reviewView == "history" ? .history : .changes
-        result.documents = []; result.tabOrder = []; result.fileHistory = []; result.historyOrder = []
-        result.pane = tab.paneView == "off" ? "off" : "term"
-        if tab.pageClosed != true, safeWebURL(tab.url) != nil {
-            let current = tab.cur.flatMap { safeWebURL($0)?.absoluteString } ?? tab.url
-            let page = WebPageRecord(url: current, title: tab.title)
-            result.pages.append(page); result.tabOrder?.append(page.id); result.activeID = page.id
-        }
-        for link in tab.links ?? [] {
-            if link.kind == "file" {
-                if let path = link.filePath {
-                    let file = FileDocumentRecord(path: path)
-                    result.documents?.append(file); result.tabOrder?.append(file.id)
-                    if link.active == true { result.activeID = file.id }
-                }
-                continue
-            }
-            guard let raw = link.url, safeWebURL(raw) != nil else { continue }
-            let page = WebPageRecord(url: raw, title: link.title ?? raw)
-            result.pages.append(page); result.tabOrder?.append(page.id)
-            if link.active == true { result.activeID = page.id }
-        }
-        if result.activeID == nil { result.activeID = result.tabOrder?.first }
-        for link in (tab.history ?? []).suffix(100) {
-            if let path = link.filePath {
-                let file = FileDocumentRecord(path: path)
-                result.fileHistory?.append(file); result.historyOrder?.append(file.id)
-            } else if let raw = link.url, safeWebURL(raw) != nil {
-                let page = WebPageRecord(url: raw, title: link.title ?? raw)
-                result.history.append(page); result.historyOrder?.append(page.id)
-            }
-        }
-        // Retain the original metadata for older clients; native documents never navigate a remote WebKit page.
-        result.legacyDocuments = (tab.links ?? []).filter { $0.kind == "file" }
-        result.legacyFileHistory = (tab.history ?? []).filter { $0.kind == "file" }
-        return result
-    }
 }
 
 @MainActor @Observable final class WorkspaceContext: @MainActor Identifiable {
     /// What a panel is, which decides what it can hold. Read from the id where the id is minted and
     /// again where promotion rewrites it, so nothing else has to know how an id is spelled.
     enum Kind: Equatable {
-        case tab, session, scratch
+        case session, scratch
         init(id: String) {
-            if id.hasPrefix("tab:") { self = .tab } else if id.hasPrefix("task:") { self = .session } else { self = .scratch }
+            if id.hasPrefix("task:") { self = .session } else { self = .scratch }
         }
     }
     fileprivate(set) var id: String { didSet { kind = Kind(id: id) } }
     private(set) var kind: Kind
-    /// A sidebar tab's panel *is* that one tab: its row in the sidebar is the tab, so the panel
-    /// offers no New Tab of its own. A session's workspace and the scratch terminal hold as many
-    /// pages as they are asked for. The blank filler page is not a New Tab and is unaffected.
-    var holdsOnePage: Bool { kind == .tab }
     let sourceURL: String
     private(set) var pages: [BrowserPage] = []
     private(set) var documents: [EditorDocumentViewModel] = []
@@ -145,10 +119,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored lazy var clearBrowsingHistory: () -> Void = { [weak self] in
         self?.clearPageHistory(); self?.globalHistory?.clear()
     }
-    /// Where a link that asked for a new window goes when this panel holds one page: the sidebar's
-    /// Tabs list, as a tab of its own. The second argument keeps the link in this panel instead,
-    /// for when the list cannot take it. Nil in a bare context (tests), which keeps the link here.
-    @ObservationIgnored var openSidebarTab: ((String, @escaping () -> Void) -> Void)?
     @ObservationIgnored var activateDocument: (EditorDocumentViewModel) -> Void = { _ in }
     @ObservationIgnored var activatePage: (BrowserPage) -> Void = { _ in }
     /// Called when one of its pages creates its web view.
@@ -278,8 +248,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         guard path.hasPrefix("/"), !path.contains("\0") else { error = String(localized: "Choose an absolute file path."); return nil }
         let path = (path as NSString).standardizingPath
         // A file opened from a blank tab — its address field, or its start page — takes its place.
-        // Not in a sidebar tab: its one page is its only address field, and it offers no New Tab.
-        let blank = holdsOnePage ? nil : activePage.flatMap { $0.controls.isBlank ? $0 : nil }
+        let blank = activePage.flatMap { $0.controls.isBlank ? $0 : nil }
         fileSearch.reset()
         defer { if let blank { close(blank) } }
         if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
@@ -429,15 +398,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
                 popup?.opener = page
                 return popup?.webView
             }
-            // The user opening a link into a new window is a page they asked for. A panel that
-            // holds one page — a sidebar tab, pinned or not — has nowhere to put it, so it becomes
-            // its own tab under Tabs; a session's second panel opens it as another of its pages.
-            // Where the sidebar cannot take it, it opens here rather than nowhere.
-            if holdsOnePage, let openSidebarTab {
-                openSidebarTab(url.absoluteString) { [weak self] in self?.open(url.absoluteString, allowDuplicate: true) }
-            } else {
-                open(url.absoluteString, allowDuplicate: true)
-            }
+            // The user opening a link into a new window is a page they asked for: it opens as
+            // another of this panel's pages.
+            open(url.absoluteString, allowDuplicate: true)
             return nil
         }
     }
@@ -462,11 +425,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored var contextRemoved: (WorkspaceContext) -> Void = { _ in }
     /// Called after `active` changes: the context a selection shows is now a different one, or none.
     @ObservationIgnored var activeContextChanged: () -> Void = {}
-    /// Called whenever a context's snapshot changes: a page navigated, a tab opened or closed.
-    @ObservationIgnored var contextChanged: (WorkspaceContext) -> Void = { _ in }
-    /// Opens a link as a new tab in the sidebar's Tabs list, for the panels that hold one page.
-    /// Calls `keepInPanel` instead where the list cannot take it, so the link still opens.
-    @ObservationIgnored var openSidebarTab: (String, @escaping () -> Void) -> Void = { _, _ in }
     @ObservationIgnored private var api: APIClient?
     /// Every context's last snapshot, open or not: what `cacheURL` holds between launches.
     @ObservationIgnored private var saved: [String: ContextSnapshot] = [:]
@@ -525,7 +483,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             return
         }
         guard let data = try? Data(contentsOf: cacheURL) else {
-            // Unread (an I/O error), as TabStore treats its file: set aside before the first write.
+            // Unread (an I/O error): set aside before the first write.
             recoveryNotice = String(localized: "The saved page tabs could not be read; they start empty.")
             return
         }
@@ -537,7 +495,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
                 : String(localized: "The saved page tabs could not be read; they start empty.")
             return
         }
-        saved = cache.snapshots
+        // Sidebar tabs are gone: their snapshots (`tab:<id>`) have no context to restore into, and
+        // are dropped rather than seeding history; the next write leaves them out of the file.
+        saved = cache.snapshots.filter { !$0.key.hasPrefix("tab:") }
         readFromDisk = true
         // Pages visited in a context not opened this launch still belong in the address bar.
         for snapshot in saved.values { browserHistory.seed(snapshot.history) }
@@ -617,12 +577,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         self.api = api
         contexts.values.flatMap(\.documents).forEach(configure)
     }
-    private func workspace(id: String, url: String, title: String, legacy: SavedTab?) -> WorkspaceContext {
+    private func workspace(id: String, url: String, title: String) -> WorkspaceContext {
         // An open context is already wired. Writing `contexts` or its observed properties again
         // would invalidate every view of the workspace on screen, on every sidebar switch.
         if let existing = contexts[id] { prepareContext(existing); return existing }
         let context = WorkspaceContext(id: id, sourceURL: url, title: title,
-                                       snapshot: saved[id] ?? legacy.map(ContextSnapshot.importing), pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
+                                       snapshot: saved[id], pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
         contexts[id] = context
         context.globalHistory = browserHistory
         context.bookmarks = browserBookmarks
@@ -646,16 +606,15 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             pagePool.used(page)
             pagePool.trim()
         }
-        context.openSidebarTab = { [weak self] url, keepInPanel in self?.openSidebarTab(url, keepInPanel) }
         context.activateDocument = { [weak self] in self?.configure($0) }
         context.documents.forEach(configure)
         return context
     }
-    @discardableResult func restore(id: String, url: String, title: String, legacy: SavedTab? = nil) -> WorkspaceContext {
-        workspace(id: id, url: url, title: title, legacy: legacy)
+    @discardableResult func restore(id: String, url: String, title: String) -> WorkspaceContext {
+        workspace(id: id, url: url, title: title)
     }
-    @discardableResult func select(id: String, url: String, title: String, legacy: SavedTab? = nil) -> WorkspaceContext {
-        let context = workspace(id: id, url: url, title: title, legacy: legacy)
+    @discardableResult func select(id: String, url: String, title: String) -> WorkspaceContext {
+        let context = workspace(id: id, url: url, title: title)
         activeContextID = id
         if let page = context.activePage { activate(page) }
         return context
@@ -717,7 +676,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         }
     }
     private func save(_ context: WorkspaceContext) {
-        contextChanged(context)
         saved[context.id] = context.snapshot
         cache()
     }
