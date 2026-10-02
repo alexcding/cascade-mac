@@ -315,21 +315,27 @@ user collapses from the divider is told back to the workspace.
   description under observation, so what it reads redraws the toolbar.
 - **The pane's tabs are in the toolbar, as ChatGPT's are.** The pane column runs the window's
   full height, as Xcode's inspector does, and the toolbar's pane section, tracking its divider,
-  holds its tabs (`BrowserCompactTabBar.Part.tabs`, `CompactTabBarPlacement.toolbar`) then the
-  toggle; the pane's content keeps to the safe area under it. A rail down the pane's trailing
-  edge (`SessionWorkspacePaneRail`) picks its section (`WorkspaceSection`): Browser, Files, Diff or
-  the Simulator, and the strip holds that section's own tabs (`WorkspaceContext.stripTabs`) — the
-  web pages, or the open files. Diff and the Simulator are one view each, with no strip: over
-  Diff the pane section holds its review controls (`ReviewBar`: Changes/History, the branch,
-  Commit and Push), and over the Simulator only the toggle.
+  holds its tabs (`BrowserCompactTabBar.Part.tabs`, `CompactTabBarPlacement.toolbar`); the pane's
+  content keeps to the safe area under it. The session toolbar is the run button and build title
+  leading and the agent's controls in the middle; the pane section ends at the window's edge in the
+  pane picker (`SessionWorkspaceToolbar.panePicker`), alone while the pane is shut: a native
+  segmented control, never folded into a pop-up, with one symbol per section (`WorkspaceSection`) —
+  Tabs, Diff, the Simulator — which is also the pane's only toggle. Choosing a section opens the
+  pane on it; choosing the selected one hides the pane, and with the pane hidden none is selected
+  (a `toggles` picker, `WindowToolbarItem.picker`). Tabs is the web pages and the open files in one
+  strip (`WorkspaceContext.stripTabs`), and the address field searches the worktree's files beside
+  the web. Diff and the Simulator are one view each, with no strip: over Diff the pane section
+  holds its review controls at its leading edge (`ReviewBar`: Changes/History, Commit and Push, the
+  changed files), and over
+  the Simulator only the picker. The strip's floor (`CompactTabMetrics.minToolbarBarWidth`) leaves
+  the picker room in the narrowest pane; any more and AppKit moves the picker off the toolbar.
   Underneath, Diff, the Simulator and the Files picker (which browses the worktree as a tree) are
   tool tabs (`WorkspaceTool`) in the one tab order, and the active tab decides the section;
-  closing a tab selects its nearest neighbour in the same section. There is no mode picker: the
-  screen's section is the title leading and the agent's controls trailing. Over a web page the
+  closing a tab selects its nearest neighbour in the same section. Over a web page the
   pane's top row is its navigation and address (`.address`), whose suggestions hang under it.
-  Shut, the pane section is the toggle alone, which brings the pane back. The blank page the pane
-  opens for itself when it has no page is not a tab (`WorkspaceContext.isFiller`): the strip with
-  no tabs is New Tab alone, and New Tab makes that page a tab rather than opening a second one. The pane opening or shutting adds or drops its tabs:
+  The blank page the pane opens for itself when it has no page is not a tab
+  (`WorkspaceContext.isFiller`): the strip with no tabs is New Tab alone, and New Tab makes that
+  page a tab rather than opening a second one. The pane opening or shutting adds or drops its tabs:
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the
   whole bar.

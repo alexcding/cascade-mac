@@ -31,6 +31,37 @@ import Testing
     }
 }
 
+/// The toolbar's pane picker is the pane's toggle: a section opens the pane on it, the shown one
+/// hides it, and with the pane hidden the section it was on brings it back as it was.
+@MainActor @Test func thePanePickerShowsAndHidesThePane() throws {
+    let context = WorkspaceContext(id: "task:picker", sourceURL: "", title: "")
+    let service = WorkspaceFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
+    model.onAction = { [weak service, weak context] action in
+        if let context { service?.record(action, in: context) }
+    }
+    service.state.session = WorkspaceSession(id: "picker", projectId: "p", workspace: "/tmp", worktree: "/tmp/picker", title: "Picker",
+                                             branch: "picker", url: "", createdAt: nil, pinned: false)
+    model.setActive(true)
+    #expect(model.paneSections == [.browser, .diff] && !model.showsPage)
+    let page = try #require(context.open("https://example.test/picker"))
+    model.toggleSection(.browser)
+    #expect(!model.showsPage, "the shown section hides the pane")
+    model.toggleSection(.browser)
+    #expect(model.showsPage && context.activePage === page, "and brings it back on the same page")
+    model.toggleSection(.browser)
+    service.state.connected = true
+    model.toggleSection(.diff)
+    #expect(service.actions.last == .operation(.changes), "another section opens the pane on it, Diff through the app")
+    context.setPane(.diff)
+    service.state.connected = false
+    #expect(!model.canShowSection(.diff) && model.shownSection == .diff)
+    model.toggleSection(.diff)
+    #expect(!model.showsPage, "the shown section hides the pane even when it could not be opened now")
+    model.setActive(false)
+    model.toggleSection(.browser)
+    #expect(!model.showsPage, "a workspace off screen is not toggled")
+}
+
 @MainActor @Test func workspaceModelComputesPaneVisibilityAndGatesOperationsAgainstCurrentState() throws {
     let context = WorkspaceContext(id: "task:one", sourceURL: "", title: "")
     let service = WorkspaceFixture(), model = SessionWorkspaceViewModel(context: context, service: service)

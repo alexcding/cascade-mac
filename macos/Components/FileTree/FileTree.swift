@@ -315,10 +315,11 @@ extension FileTreeNode {
 /// same grey — while the tree is shown: the editor's worktree files and the diff's changed files alike.
 struct FileTreeToggle: View {
     @Binding var shown: Bool
+    var enabled = true
 
     var body: some View {
         HoverCircleButton(shown ? String(localized: "Hide Files") : String(localized: "Show Files"),
-                          systemImage: shown ? "folder.fill" : "folder", enabled: true) { shown.toggle() }
+                          systemImage: shown ? "folder.fill" : "folder", enabled: enabled) { shown.toggle() }
             .help(shown ? String(localized: "Hide the files") : String(localized: "Show the files"))
             .accessibilityIdentifier("toggle-file-tree")
     }

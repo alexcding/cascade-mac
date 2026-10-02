@@ -156,7 +156,7 @@ struct BrowserPane: View {
                     // Safari's start page: a blank tab shows where this panel has been.
                     // Per tab: what one blank tab expanded or searched is not the next one's.
                     BrowserStartPage(context: context, controls: model, worktree: workspace.session?.worktree,
-                                     reopenFile: { workspace.reopen(.file($0)) }).id(page.id)
+                                     reopenFile: { workspace.reopen(.file($0)) }, tools: workspace.startPageTools()).id(page.id)
                 } else if page.webView == nil {
                     ContentUnavailableView(String(localized: "Page suspended"), systemImage: "globe", description: Text(String(localized: "Select this tab to reload it.")))
                 }
@@ -311,7 +311,8 @@ struct SessionWorkspaceContextBody: View {
     }
 }
 
-/// The review's controls: the Changes/History switch, the branch and Commit. Beside a
+/// The review's controls, all leading: the Changes/History switch, Commit and the changed files'
+/// toggle. Beside a
 /// terminal they are the toolbar's pane section (`SessionWorkspaceToolbar`); a pane with no
 /// terminal beside it draws them as its own top row.
 struct ReviewBar: View {
@@ -323,13 +324,11 @@ struct ReviewBar: View {
         HStack(spacing: 10) {
             GlassSegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
                                  selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
-            if context.reviewSection == .changes, let diff {
+            // Everything leading, beside Changes/History, clear of the pane picker at the window's
+            // edge; the slack after it. The same buttons over History, so switching moves nothing:
+            // Commit still commits the working changes, and the changed files' toggle waits.
+            if let diff {
                 let busy = diff.showsProgress
-                if let branch = diff.snapshot?.branch {
-                    Label(branch, systemImage: "arrow.triangle.branch").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-                Spacer(minLength: 4)
-                if busy { ProgressView().controlSize(.small) }
                 if let actions = diff.actions {
                     // The padded capsule is the label, so all of it takes the click.
                     Button(action: diff.requestActions) {
@@ -341,11 +340,12 @@ struct ReviewBar: View {
                     .opacity(actions.busy ? 0.5 : 1)
                     .commitPopover(diff)
                 }
-                // Last, as the editor's tree button is after Save.
-                FileTreeToggle(shown: Binding(get: { diff.filesShown }, set: { diff.filesShown = $0 })).barGlass()
-            } else {
-                Spacer(minLength: 4)
+                // After Commit, as the editor's tree button is after Save.
+                FileTreeToggle(shown: Binding(get: { diff.filesShown }, set: { diff.filesShown = $0 }),
+                               enabled: context.reviewSection == .changes).barGlass()
+                if busy { ProgressView().controlSize(.small) }
             }
+            Spacer(minLength: 4)
         }
         .padding(.horizontal, inToolbar ? 0 : 12)
         .frame(height: inToolbar ? CompactTabMetrics.pillHeight : 44)
@@ -578,20 +578,3 @@ private struct SessionWorkspaceBuildLogButton: View {
     }
 }
 
-/// Shows or hides the context pane; shut with no tabs, it brings the pane in on a blank page.
-struct SessionWorkspaceContextToggle: View {
-    let model: SessionWorkspaceViewModel
-
-    var body: some View {
-        // A plain button, not a toggle: no pressed-state fill while the pane is shown.
-        Button {
-            model.setContextPresented(!model.showsPage)
-        } label: {
-            Label(model.showsPage ? String(localized: "Hide Context Pane") : String(localized: "Show Context Pane"),
-                  systemImage: "sidebar.trailing")
-        }
-        .buttonStyle(.toolbarIcon)
-        .help(model.showsPage ? String(localized: "Hide Context Pane") : String(localized: "Show Context Pane"))
-        .disabled(!model.canToggleContext)
-    }
-}

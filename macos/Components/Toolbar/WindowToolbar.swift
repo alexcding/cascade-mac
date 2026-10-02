@@ -36,9 +36,11 @@ struct WindowToolbarItem: Identifiable {
         case segments(titles: [String], selected: Int, select: (Int) -> Void)
         /// A choice of one as the system's toolbar item group: segments of symbols while the
         /// section has room, one pop-up button showing the chosen symbol when it is short of it.
-        /// AppKit decides which. `selected` and each choice's `enabled` are read as the toolbar is
-        /// described. One choice is always selected: AppKit ignores -1 here.
-        case picker(label: String, choices: [Choice], selected: Int, select: (Int) -> Void)
+        /// AppKit decides which, except for choices that toggle, which are always segments. `selected` and each choice's `enabled` are read as the toolbar is
+        /// described. One choice is always selected — AppKit ignores -1 here — unless the choices
+        /// `toggle`: then none is while `selected` is -1, and clicking the selected one reports it
+        /// again rather than leaving it selected, so the caller can turn it off.
+        case picker(label: String, choices: [Choice], selected: Int, toggles: Bool, select: (Int) -> Void)
     }
 
     struct Choice {
@@ -74,9 +76,10 @@ struct WindowToolbarItem: Identifiable {
 
     /// A choice of one that collapses to a pop-up button when short of room. A different set of
     /// choices rebuilds the toolbar itself, so the id can stay the same.
-    static func picker(_ id: String, label: String, choices: [Choice], selected: Int,
+    static func picker(_ id: String, label: String, choices: [Choice], selected: Int, toggles: Bool = false,
                        priority: NSToolbarItem.VisibilityPriority = .standard, select: @escaping (Int) -> Void) -> Self {
-        Self(id, style: .picker(label: label, choices: choices, selected: selected, select: select), priority: priority) { EmptyView() }
+        Self(id, style: .picker(label: label, choices: choices, selected: selected, toggles: toggles, select: select),
+             priority: priority) { EmptyView() }
     }
 
     /// The page name, flat at the leading edge: the window's own title is hidden.

@@ -242,7 +242,7 @@ private extension NSView {
     model.dispose()
 }
 
-@MainActor @Test func pagesAndFilesShareOneOrderButNotOneStrip() throws {
+@MainActor @Test func pagesAndFilesShareOneOrderAndOneStrip() throws {
     let context = WorkspaceContext(id: "task:modes", sourceURL: "session:modes", title: "")
     let home = try #require(context.open("https://example.com/home", title: "Home"))
     let docs = try #require(context.open("https://example.com/docs", title: "Docs"))
@@ -252,7 +252,9 @@ private extension NSView {
     let second = try #require(context.openFile("/tmp/second.swift"))
     #expect(context.tabs.map(\.id) == [home.id, docs.id, first.id, second.id])
     context.cycle(1)
-    #expect(context.activeDocument === first, "cycling stays among the files, wrapping")
+    #expect(context.activePage === home, "cycling walks the pages and files, wrapping")
+    context.cycle(-1); context.cycle(-1)
+    #expect(context.activeDocument === first)
     context.setPane(.off)
     #expect(context.lastPane == .term)
     context.setPane(.term)

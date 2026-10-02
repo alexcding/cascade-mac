@@ -28,6 +28,9 @@ import SwiftUI
     private var searchItems: [String: NSSearchToolbarItem] = [:]
     private var segmentControls: [String: NSSegmentedControl] = [:]
     private var pickers: [String: (group: NSToolbarItemGroup, choices: [WindowToolbarItem.Choice])] = [:]
+    /// Toggling pickers: a segmented control of this controller's, which can have no segment
+    /// selected and whose choices can change in place. `selected` is the one last described.
+    private var toggles: [String: (control: NSSegmentedControl, selected: Int)] = [:]
     private var segmentActions: [String: (Int) -> Void] = [:]
     /// The widths of the spacers either side of the middle items, which keep them centred in the
     /// screen's section however wide its leading and trailing items are.
@@ -106,6 +109,7 @@ import SwiftUI
         searchItems[id] = nil
         segmentControls[id] = nil
         pickers[id] = nil
+        toggles[id] = nil
         segmentActions[id] = nil
         balances[identifier] = nil
     }
@@ -121,6 +125,7 @@ import SwiftUI
         searchItems = [:]
         segmentControls = [:]
         pickers = [:]
+        toggles = [:]
         segmentActions = [:]
         balances = [:]
         // Its own identifier: toolbars sharing one keep their items in step, and the old one may
@@ -171,7 +176,7 @@ import SwiftUI
     /// A picker whose choices are no longer the ones its group was made with; which are enabled
     /// is updated in place.
     private func reshapesPicker(_ item: WindowToolbarItem) -> Bool {
-        guard case .picker(_, let choices, _, _) = item.style, let built = pickers[item.id]?.choices else { return false }
+        guard case .picker(_, let choices, _, _, _) = item.style, let built = pickers[item.id]?.choices else { return false }
         return built.map(\.title) != choices.map(\.title) || built.map(\.symbol) != choices.map(\.symbol)
     }
 
@@ -185,8 +190,14 @@ import SwiftUI
         case .segments(_, let selected, let select):
             segmentActions[item.id] = select
             if let control = segmentControls[item.id], control.selectedSegment != selected { control.selectedSegment = selected }
-        case .picker(let label, let choices, let selected, let select):
+        case .picker(let label, let choices, let selected, let toggling, let select):
             segmentActions[item.id] = select
+            if toggling, let control = toggles[item.id]?.control {
+                toggles[item.id]?.selected = selected
+                Self.configure(control, choices: choices)
+                if control.selectedSegment != selected { control.selectedSegment = selected }
+                break
+            }
             guard let group = pickers[item.id]?.group else { break }
             if group.label != label { group.label = label }
             if group.selectedIndex != selected { group.selectedIndex = selected }
@@ -234,7 +245,26 @@ import SwiftUI
             item.view = control
             segmentControls[spec.id] = control
             segmentActions[spec.id] = select
-        case .picker(let label, let choices, let selected, let select):
+        case .picker(let label, let choices, let selected, true, let select):
+            // The system's segmented control, of this controller's: in one-of mode it draws the
+            // toolbar's own selection, and unlike a group it can have none selected and take new
+            // choices without a new toolbar. It never collapses to a pop-up button: the shown
+            // section stays in sight, and it is how the pane is hidden.
+            let control = NSSegmentedControl()
+            control.trackingMode = .selectOne
+            control.target = self
+            control.action = #selector(toggleChanged(_:))
+            control.identifier = NSUserInterfaceItemIdentifier(spec.id)
+            control.setAccessibilityIdentifier(spec.id)
+            control.setAccessibilityLabel(label)
+            Self.configure(control, choices: choices)
+            control.selectedSegment = selected
+            item = NSToolbarItem(itemIdentifier: identifier)
+            item.label = label
+            item.view = control
+            toggles[spec.id] = (control, selected)
+            segmentActions[spec.id] = select
+        case .picker(let label, let choices, let selected, _, let select):
             // AppKit's own group, not a control made here: only the group collapses to one pop-up
             // button when its section is short of room, rather than leaving for the overflow menu.
             // It builds that control privately, so it carries no identifier for accessibility and
@@ -430,6 +460,28 @@ import SwiftUI
 
     @objc private func pickerChanged(_ group: NSToolbarItemGroup) {
         segmentActions[group.itemIdentifier.rawValue]?(group.selectedIndex)
+    }
+
+    /// A click reports the segment clicked, the selected one included, and leaves the selection to
+    /// the description, which follows whatever the caller made of it.
+    @objc private func toggleChanged(_ control: NSSegmentedControl) {
+        guard let id = control.identifier?.rawValue, let described = toggles[id]?.selected else { return }
+        let clicked = control.selectedSegment
+        control.selectedSegment = described
+        if clicked >= 0 { segmentActions[id]?(clicked) }
+    }
+
+    /// A toggling picker's segments: one symbol per choice, named by its title, enabled as it says.
+    /// Only what differs is set, so a description that changed nothing redraws nothing.
+    private static func configure(_ control: NSSegmentedControl, choices: [WindowToolbarItem.Choice]) {
+        if control.segmentCount != choices.count { control.segmentCount = choices.count }
+        for (index, choice) in choices.enumerated() {
+            if control.toolTip(forSegment: index) != choice.title {
+                control.setImage(NSImage(systemSymbolName: choice.symbol, accessibilityDescription: choice.title), forSegment: index)
+                control.setToolTip(choice.title, forSegment: index)
+            }
+            if control.isEnabled(forSegment: index) != choice.enabled { control.setEnabled(choice.enabled, forSegment: index) }
+        }
     }
 
     @objc private func searchFieldChanged(_ field: NSSearchField) {

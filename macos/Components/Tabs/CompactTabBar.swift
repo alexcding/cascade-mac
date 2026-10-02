@@ -16,8 +16,10 @@ enum CompactTabMetrics {
     static let tabHeight: CGFloat = 36
     static let barHeight: CGFloat = 56
     /// A bar in the toolbar takes its section's slack between these: the least that still shows the
-    /// selected tab, and a ceiling the toolbar never reaches.
-    static let minToolbarBarWidth: CGFloat = 200
+    /// selected tab, and a ceiling the toolbar never reaches. The floor leaves the pane picker room
+    /// beside the strip in the narrowest pane (`MainWindowMetrics.paneMin`); any more and AppKit
+    /// moves the picker off the toolbar.
+    static let minToolbarBarWidth: CGFloat = 150
     static let maxToolbarBarWidth: CGFloat = 4000
     static let tabFont = Font.system(size: 15)
     /// A flat strip's titles: the system's standard size and weight, as ChatGPT's tabs are.

@@ -69,7 +69,7 @@ struct WorkspaceFileBrowser: View {
             Divider()
             if files.treeShown, root != nil {
                 // The tree keeps its width as the pane is resized, and its divider can be dragged. The
-                // two minimums fit the narrowest pane beside its rail.
+                // two minimums fit the narrowest pane.
                 ThinSplitView(leading: .init(min: 140), trailing: .init(min: 120, ideal: 240, max: 400)) {
                     FileBrowserMain(document: document, hasRoot: true)
                 } trailingContent: {
@@ -82,11 +82,14 @@ struct WorkspaceFileBrowser: View {
         .background(Theme.paneBackground)
     }
 
-    /// The browser's address row, drawn the same way (`BrowserCompactTabBar`, part `address`): the
-    /// path in the address's pill, and the file's buttons after it in a capsule of their own, as
-    /// Reload and the bookmark are — one height and one look for both.
+    /// The browser's address row, drawn the same way (`BrowserCompactTabBar`, part `address`): Back
+    /// and Forward through this tab's files, the path in the address's pill, and the file's buttons
+    /// after it in a capsule of their own, as Reload and the bookmark are — one height and one look
+    /// for both.
     private var header: some View {
         HStack(spacing: 8) {
+            NavigationCluster(canGoBack: context.canGoBackInFiles, canGoForward: context.canGoForwardInFiles,
+                              back: context.goBackInFiles, forward: context.goForwardInFiles)
             FileBreadcrumb(crumbs: crumbs) { index, entry, x in
                 menu = menu?.index == index ? nil : CrumbMenu(index: index, entry: entry, x: x)
             }

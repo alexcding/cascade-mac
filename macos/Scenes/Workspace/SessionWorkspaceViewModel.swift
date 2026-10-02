@@ -277,28 +277,43 @@ extension WorkspaceServing {
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
+    /// What a session's blank tab offers to open in its place: its worktree's Files explorer. Diff
+    /// and the Simulator are the toolbar picker's; a web page is the blank tab itself.
+    func startPageTools() -> [StartPageTool] {
+        guard let context, listsWorktree else { return [] }
+        return [.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
+            context?.openTool(.files, replacingBlank: true)
+        }]
+    }
     /// Whether there is a worktree for the Files picker to list. The scratch Terminal has none, but
     /// can still open files, from the terminal's links.
     var listsWorktree: Bool { session?.worktree.isEmpty == false }
-    /// The rail's sections: Files once there is a worktree to list or a file open, Diff for a
-    /// session, and the Simulator where a build has one.
-    var railSections: [WorkspaceSection] {
-        let files = listsWorktree || context?.documents.isEmpty == false
-        return [.browser] + (files ? [.files] : []) + (session != nil ? [.diff] : [])
-            + (simulatorPreview != nil ? [.simulator] : [])
+    /// The toolbar picker's sections: the tabs, Diff for a session, and the Simulator where a build
+    /// has one.
+    var paneSections: [WorkspaceSection] {
+        [.browser] + (session != nil ? [.diff] : []) + (simulatorPreview != nil ? [.simulator] : [])
     }
     func canShowSection(_ section: WorkspaceSection) -> Bool {
-        switch section { case .diff: canShowChanges; case .simulator: simulatorPreview != nil; case .browser, .files: true }
+        switch section { case .diff: canShowChanges; case .simulator: simulatorPreview != nil; case .browser: true }
     }
     /// The section shown: Diff by what the pane shows, which the app loads before the tab follows.
     var shownSection: WorkspaceSection? {
         guard let context else { return nil }
         return showsChanges ? .diff : context.section
     }
-    /// The rail's choice. Diff goes through the app, which loads the changes before showing them.
+    /// Shows a section. Diff goes through the app, which loads the changes before showing them.
     func showSection(_ section: WorkspaceSection) {
         guard let context, active, section != shownSection, canShowSection(section) else { return }
         if section == .diff { toggleChanges() } else { context.showSection(section) }
+    }
+    /// The toolbar picker's choice, which is also the pane's toggle: the section shown hides the
+    /// pane; with the pane hidden, the section it was showing brings it back as it was, and any
+    /// other opens on that one.
+    /// The shown section toggles even when it could not be opened now — Diff with the backend gone
+    /// — so the pane can always be hidden from it.
+    func toggleSection(_ section: WorkspaceSection) {
+        guard active, canToggleContext else { return }
+        if section == shownSection { setContextPresented(!showsPage) } else if canShowSection(section) { showSection(section) }
     }
     /// The Simulator's run is over: its tab has nothing left to show, so the pane goes back to the
     /// page or file shown before it rather than sitting blank with no tabs.
@@ -306,12 +321,6 @@ extension WorkspaceServing {
         guard let context, simulatorPreview == nil, context.tools.contains(.simulator) else { return }
         if context.activeTool == .simulator { context.showPages() }
         context.close(.tool(.simulator))
-    }
-    /// The strip's New Tab: a web page in the Browser, the Files picker in Files — a web page there
-    /// too with no worktree to pick from.
-    func newSectionTab() {
-        guard canOpenTab, let context else { return }
-        if context.section == .files, listsWorktree { context.openTool(.files) } else { newTab() }
     }
     /// A link from the chat opens in this session's browser, beside the chat, and brings it in.
     private func openInBrowser(_ url: URL) -> Bool {

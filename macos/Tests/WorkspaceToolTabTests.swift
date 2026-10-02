@@ -22,14 +22,14 @@ import Testing
         #expect(context.activeTool == .simulator && context.pane == .simulator, "asking for a pane opens its tab")
     }
 
-    @Test func theStripShowsTheSectionsOwnTabs() throws {
+    @Test func theStripShowsThePagesAndFilesTogether() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         let other = try #require(context.open("https://example.com/other", title: "Other"))
         let file = try #require(context.openFile("/tmp/sections.swift"))
-        #expect(context.section == .files && context.stripTabs.map(\.id) == [file.id], "files only, no pages")
+        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, other.id, file.id], "a file among the pages")
         context.select(.page(page))
-        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, other.id], "pages only, no files")
+        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, other.id, file.id])
         context.openTool(.changes)
         #expect(context.section == .diff && context.stripTabs.isEmpty)
         context.openTool(.simulator)
@@ -38,21 +38,25 @@ import Testing
         context.cycle(1)
         #expect(context.activePage === other)
         context.cycle(1)
-        #expect(context.activePage === page, "cycling stays among the pages")
+        #expect(context.activeDocument === file, "cycling walks the pages and files")
+        context.cycle(1)
+        #expect(context.activePage === page)
     }
 
-    @Test func aSectionReturnsToItsLastTabOrOpensItsEmptyOne() throws {
+    @Test func theTabsReturnToTheirLastTabOrOpenABlankPage() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
-        context.showSection(.files)
-        #expect(context.activeTool == .files, "no file open: the Files picker")
+        context.showSection(.browser)
+        #expect(context.activePage?.controls.isBlank == true, "no tab open: a blank page")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         _ = try #require(context.open("https://example.com/other", title: "Other"))
         context.select(.page(page))
-        let file = try #require(context.openFile("/tmp/sections.swift"))
+        context.openTool(.changes)
         context.showSection(.browser)
         #expect(context.activePage === page, "the page last selected, not the last opened")
-        context.showSection(.files)
-        #expect(context.activeDocument === file)
+        let file = try #require(context.openFile("/tmp/sections.swift"))
+        context.openTool(.changes)
+        context.showSection(.browser)
+        #expect(context.activeDocument === file, "or the file")
         context.showSection(.simulator)
         #expect(context.section == .simulator && context.pane == .simulator)
     }
@@ -88,16 +92,56 @@ import Testing
         #expect(context.snapshot.activeID == page.id)
     }
 
-    @Test func closingATabStaysInItsSection() throws {
+    // A file picked from the tree goes on in the explorer's place, as a link does in a browser tab:
+    // Back returns to the explorer and Forward to the file, in the one tab, and a new pick drops
+    // what was ahead.
+    @Test func aFileTabGoesBackAndForwardThroughWhatItShowed() throws {
+        let context = WorkspaceContext(id: "task:trail", sourceURL: "session:trail", title: "")
+        let page = try #require(context.open("https://example.com/home", title: "Home"))
+        context.openTool(.files)
+        #expect(!context.canGoBackInFiles && !context.canGoForwardInFiles)
+        context.openFromTree("/tmp/trail/first.swift")
+        #expect(context.activeDocument?.record.path == "/tmp/trail/first.swift" && !context.tools.contains(.files))
+        #expect(context.canGoBackInFiles && !context.canGoForwardInFiles)
+        context.openFromTree("/tmp/trail/second.swift")
+        #expect(context.documents.map(\.record.path) == ["/tmp/trail/second.swift"], "the tab went on, not a second one")
+        context.goBackInFiles()
+        #expect(context.activeDocument?.record.path == "/tmp/trail/first.swift" && context.canGoForwardInFiles)
+        context.goBackInFiles()
+        #expect(context.activeTool == .files && context.documents.isEmpty && !context.canGoBackInFiles)
+        #expect(context.tabs.map(\.id) == [page.id, WorkspaceTool.files.id], "in the same place")
+        context.goForwardInFiles()
+        #expect(context.activeDocument?.record.path == "/tmp/trail/first.swift")
+        context.openFromTree("/tmp/trail/third.swift")
+        #expect(!context.canGoForwardInFiles, "a new pick drops what was ahead")
+        context.goBackInFiles()
+        #expect(context.activeDocument?.record.path == "/tmp/trail/first.swift")
+        context.select(.page(page))
+        #expect(!context.canGoBackInFiles, "a page has no file trail")
+    }
+
+    // A pick already open in another tab selects that tab, its own trail kept, and leaves this one.
+    @Test func aPickOpenInAnotherTabSelectsItAndKeepsBothTrails() throws {
+        let context = WorkspaceContext(id: "task:trail", sourceURL: "session:trail", title: "")
+        context.openTool(.files)
+        context.openFromTree("/tmp/trail/b.swift")
+        let b = try #require(context.activeDocument)
+        #expect(context.canGoBackInFiles)
+        let a = try #require(context.openFile("/tmp/trail/a.swift"))
+        context.openFromTree("/tmp/trail/b.swift")
+        #expect(context.activeDocument === b && context.canGoBackInFiles, "B's own way back is kept")
+        #expect(context.documents.contains { $0 === a }, "the tab left is not closed")
+    }
+
+    @Test func closingATabSelectsTheNearestPageOrFile() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         let first = try #require(context.openFile("/tmp/first.swift"))
         let second = try #require(context.openFile("/tmp/second.swift"))
         context.remove(second)
-        #expect(context.activeDocument === first, "the file beside it, not the page")
+        #expect(context.activeDocument === first, "the file beside it")
         context.remove(first)
-        #expect(context.activeTool == .files, "the last file gone: the Files picker")
-        context.select(.page(page))
+        #expect(context.activePage === page, "the last file gone: the page before it")
         context.close(page)
         #expect(context.activeID == nil && context.pane == .term, "the last page gone: the bar opens a blank one")
     }

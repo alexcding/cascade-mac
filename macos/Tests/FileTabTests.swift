@@ -1,6 +1,14 @@
 import Foundation
 import Testing
 
+private struct FileSearchFixture: FileSearchService {
+    let files: [String]
+    func files(in root: String, matching query: String) async throws -> [String] {
+        files.filter { $0.localizedCaseInsensitiveContains(query) }
+    }
+    func allFiles(in root: String) async throws -> (files: [String], truncated: Bool) { (files.sorted(), false) }
+}
+
 @MainActor @Test func aFileOpenedFromABlankPageTakesItsPlace() throws {
     let context = WorkspaceContext(id: "task:files", sourceURL: "", title: "Files")
     let home = try #require(context.open("https://example.com/home", title: "Home"))
@@ -21,6 +29,34 @@ import Testing
     snapshot.documents = [.init(path: "/tmp/saved.swift")]
     let context = WorkspaceContext(id: "task:legacy", sourceURL: "", title: "", snapshot: snapshot)
     #expect(context.pane == .term && context.lastPane == .term && context.activeDocument?.record.path == "/tmp/saved.swift")
+}
+
+@MainActor @Test func aFileSuggestionOpensAsItsOwnTab() throws {
+    let context = WorkspaceContext(id: "task:suggest", sourceURL: "", title: "")
+    let page = context.openBlankPage()
+    let item = AddressSuggestion(id: "file:/repo/README.md", title: "README.md", detail: "", url: "/repo/README.md", kind: .file)
+    #expect(item.heading == String(localized: "Files") && !item.isSearch)
+    #expect(BrowserAddressSuggestions.open(item, in: page.controls, context: context))
+    #expect(context.activeDocument?.record.path == "/repo/README.md" && context.pages.isEmpty)
+}
+
+@MainActor @Test func fileSearchListsOnlyTypedQueriesAndStopsOnceRetired() async throws {
+    let model = FileSearchViewModel()
+    model.service = { FileSearchFixture(files: ["macos/App/AppDelegate.swift", "README.md"]) }
+    model.search(in: "/repo")
+    #expect(model.results.isEmpty, "nothing typed: the worktree is not listed")
+    model.query = "deleg"
+    model.search(in: "/repo")
+    // The suite runs in parallel on one main actor: wait for the result, not for a fixed time.
+    for _ in 0..<100 where model.results.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.results.map(\.path) == ["/repo/macos/App/AppDelegate.swift"])
+    #expect(model.results.first?.name == "AppDelegate.swift" && model.results.first?.folder == "macos/App")
+    model.query = "/tmp/typed.swift"; model.search(in: "/repo")
+    #expect(model.results.isEmpty, "a typed path is opened as typed, not searched")
+    model.retire()
+    model.query = "readme"; model.search(in: "/repo")
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(model.results.isEmpty)
 }
 
 @Test func compactTabsFallBackToIconsThenLeaveOutTheLeftmost() {

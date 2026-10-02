@@ -65891,9 +65891,6 @@
         }
       }
     },
-    "Open a file from the worktree" : {
-
-    },
     "Open a new file tab" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -85984,6 +85981,82 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在 %@ 中搜尋檔案"
+          }
+        }
+      }
+    },
+    "Search files or the web, or enter website name" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ফাইল বা ওয়েবে খুঁজুন, অথবা ওয়েবসাইটের নাম লিখুন"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Busca archivos o en la web, o escribe el nombre de un sitio web"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher des fichiers ou sur le web, ou saisir le nom d’un site"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "फ़ाइलें या वेब खोजें, या वेबसाइट का नाम दर्ज करें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerca file o sul web, oppure inserisci il nome di un sito"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルや Web を検索、または Web サイト名を入力"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "파일 또는 웹 검색, 또는 웹사이트 이름 입력"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pesquise arquivos ou na web, ou digite o nome de um site"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ищите файлы или в интернете либо введите адрес сайта"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sök efter filer eller på webben, eller ange webbplatsens namn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索文件或网页，或输入网站名称"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋檔案或網頁，或輸入網站名稱"
           }
         }
       }
@@ -108860,6 +108933,9 @@
           }
         }
       }
+    },
+    "Tools" : {
+
     },
     "Top model: %@" : {
       "extractionState" : "manual",

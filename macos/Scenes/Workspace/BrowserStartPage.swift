@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// What a blank tab shows in place of a web view: the bookmarks as icon tiles and this session's
+/// What a blank tab shows in place of a web view: in a session's pane first the tools it can open in
+/// this tab's place, as ChatGPT's new tab does; then the bookmarks as icon tiles and this session's
 /// own pages as the same tiles, newest first. A session with none left to show
 /// offers the pages visited in any panel instead. The History heading leads to the one history
 /// shared by every panel. Clicking a tile loads it in this tab. Last, the files this session's
@@ -10,6 +11,8 @@ struct BrowserStartPage: View {
     let controls: BrowserControlsViewModel
     var worktree: String? = nil
     var reopenFile: (FileDocumentRecord) -> Void = { _ in }
+    /// What a pick here can open in this tab's place: a session's, the worktree's Files explorer.
+    var tools: [StartPageTool] = []
     /// The full-history screen replaces the start page in this tab until Back is pressed.
     @State private var showingAll = false
     /// Bookmarks fold to `tileRows` rows of however many tiles the pane's width fits, history to `historyRows`.
@@ -67,11 +70,28 @@ struct BrowserStartPage: View {
         .background(Theme.paneBackground)
     }
 
-    /// The bookmarks, this session's history and the worktree's recent files.
+    /// The tools in two columns, then the bookmarks, this session's history and the worktree's
+    /// recent files.
     private var startPage: some View {
         let bookmarks = context.bookmarks?.bookmarks ?? [], recent = recent(excluding: bookmarks), files = recentFiles
         return ScrollView {
-            startContent(bookmarks: bookmarks, recent: recent, files: files).padding(.top, 8)
+            VStack(spacing: 0) {
+                if !tools.isEmpty {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text(String(localized: "Tools")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                        // Two columns where the pane is wide enough for both, one where it is not.
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 10) {
+                            ForEach(tools) { StartPageToolRow(tool: $0) }
+                        }
+                        .accessibilityLabel(String(localized: "Tools"))
+                    }
+                    .padding(.top, 32)
+                    .frame(maxWidth: Self.columnWidth)
+                    .padding(.horizontal, Self.pagePadding)
+                    .frame(maxWidth: .infinity)
+                }
+                startContent(bookmarks: bookmarks, recent: recent, files: files).padding(.top, tools.isEmpty ? 8 : 16)
+            }
         }
     }
 
@@ -395,6 +415,38 @@ private struct RecentFileRow: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(file.path)
+        .animation(.easeOut(duration: 0.12), value: hovering)
+    }
+}
+
+/// Something a blank tab can open in its place.
+struct StartPageTool: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let perform: () -> Void
+}
+
+/// A tool on the blank tab: its symbol and name on a raised row, the whole row the button.
+private struct StartPageToolRow: View {
+    let tool: StartPageTool
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: tool.perform) {
+            HStack(spacing: 12) {
+                Image(systemName: tool.symbol).font(.system(size: 15)).foregroundStyle(Theme.textSecondary).frame(width: 20)
+                Text(tool.title).font(.body).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).frame(height: 44)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.surfaceHover.opacity(hovering ? 1 : 0.6), in: RoundedRectangle(cornerRadius: 10))
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityIdentifier("start-tool-\(tool.id)")
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

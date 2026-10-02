@@ -74,6 +74,88 @@ import Testing
         #expect(group.selectedIndex == 0)
     }
 
+    // A toggling picker is the system's segmented control: it can have nothing selected, a click
+    // reports the segment clicked while the selection stays the description's, so clicking the
+    // selected one turns it off, and new choices change it in place rather than the toolbar.
+    @Test(.timeLimit(.minutes(1))) func aTogglingPickerReportsClicksAndCanSelectNone() async throws {
+        let fixture = PickerFixture()
+        fixture.selected = -1
+        var clicks: [Int] = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let controller = MainToolbarController {
+            WindowToolbar(trailing: [.picker("pane-picker", label: fixture.label, choices: fixture.choices,
+                                             selected: fixture.selected, toggles: true) { clicks.append($0) }])
+        }
+        controller.window = window
+        let control = try #require(Self.view("pane-picker", in: window) as? NSSegmentedControl)
+        let toolbar = window.toolbar
+        #expect(control.trackingMode == .selectOne && control.segmentCount == 2 && control.selectedSegment == -1)
+        func click(_ segment: Int) throws {
+            control.selectedSegment = segment
+            NSApp.sendAction(try #require(control.action), to: control.target, from: control)
+        }
+
+        try click(1)
+        #expect(clicks == [1] && control.selectedSegment == -1, "the description decides what is selected")
+        fixture.selected = 1
+        try await settle { control.selectedSegment == 1 }
+        #expect(control.selectedSegment == 1)
+
+        try click(1)
+        #expect(clicks == [1, 1] && control.selectedSegment == 1)
+        fixture.selected = -1
+        try await settle { control.selectedSegment == -1 }
+        #expect(control.selectedSegment == -1)
+
+        fixture.choices.append(.init(title: "Simulator", symbol: "iphone"))
+        try await settle { control.segmentCount == 3 }
+        #expect(control.segmentCount == 3 && control.toolTip(forSegment: 2) == "Simulator")
+        #expect(window.toolbar === toolbar && Self.view("pane-picker", in: window) === control, "changed in place")
+    }
+
+    // The pane picker ends the toolbar at the window's edge in every state: the pane shut, open on a
+    // strip that fills its section, open with nothing before the picker, and the column collapsed.
+    @Test(.timeLimit(.minutes(1))) func thePanePickerStaysAtTheWindowsEdge() async throws {
+        // The pane at its narrowest, `MainWindowMetrics.paneMin`.
+        let window = Self.splitWindow(inspector: true, paneWidth: MainWindowMetrics.paneMin)
+        defer { window.close() }
+        let pane = PaneFixture()
+        let fixture = PickerFixture()
+        fixture.choices.append(.init(title: "Simulator", symbol: "iphone"))
+        var strip = true
+        let controller = MainToolbarController {
+            let picker = WindowToolbarItem.picker("pane-picker", label: fixture.label, choices: fixture.choices,
+                                                  selected: pane.open ? 0 : -1, toggles: true) { _ in }
+            return WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }],
+                                 pane: pane.open && strip ? [WindowToolbarItem("pane-bar", style: .fill) { Color.clear }, picker] : [picker])
+        }
+        controller.window = window
+        window.orderFront(nil)
+        let control = try #require(Self.view("pane-picker", in: window) as? NSSegmentedControl)
+        func edge() -> CGFloat {
+            window.layoutIfNeeded()
+            guard let shown = Self.view("pane-picker", in: window) else { return -1 }
+            return window.frame.width - shown.convert(shown.bounds, to: nil).maxX
+        }
+        let shut = edge()
+        #expect(shut >= 0 && shut < 24, "at the window's edge: \(shut) pt from it, \(control.frame.width) pt wide")
+
+        pane.open = true
+        try await settle { Self.view("pane-bar", in: window) != nil }
+        #expect(abs(edge() - shut) < 0.5, "open on a strip: \(edge()) against \(shut)")
+        strip = false
+        pane.open = false; pane.open = true
+        try await settle { Self.view("pane-bar", in: window) == nil }
+        #expect(abs(edge() - shut) < 0.5, "open with no strip: \(edge()) against \(shut)")
+        let split = try #require(window.contentViewController as? NSSplitViewController)
+        split.splitViewItems.last?.isCollapsed = true
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(abs(edge() - shut) < 0.5, "column collapsed: \(edge()) against \(shut)")
+        #expect(Self.view("pane-picker", in: window) === control)
+    }
+
     // A new label is not new choices: the group keeps its toolbar and takes the label.
     @Test(.timeLimit(.minutes(1))) func pickerTakesANewLabelInPlace() async throws {
         defer { window.close() }
@@ -171,11 +253,15 @@ import Testing
         #expect(Self.view("title", in: window) === title)
     }
 
-    private static func splitWindow(inspector: Bool = false) -> NSWindow {
+    private static func splitWindow(inspector: Bool = false, paneWidth: CGFloat = 300) -> NSWindow {
         let split = NSSplitViewController()
         split.addSplitViewItem(NSSplitViewItem(sidebarWithViewController: NSViewController.sized(width: 200)))
         split.addSplitViewItem(NSSplitViewItem(viewController: NSViewController.sized(width: 1000)))
-        if inspector { split.addSplitViewItem(NSSplitViewItem(inspectorWithViewController: NSViewController.sized(width: 300))) }
+        if inspector {
+            let pane = NSSplitViewItem(inspectorWithViewController: NSViewController.sized(width: paneWidth))
+            pane.minimumThickness = paneWidth
+            split.addSplitViewItem(pane)
+        }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 300),
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

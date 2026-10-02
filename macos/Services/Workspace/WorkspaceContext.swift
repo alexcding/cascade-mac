@@ -35,29 +35,21 @@ struct SavedTabContent: Codable, Equatable, Sendable {
     }
 }
 
-/// What the pane's rail switches between, each with tabs of its own in the strip: the web pages,
-/// the worktree's files, the changes and the Simulator — the last two one view each, no tabs.
+/// What the toolbar's pane picker switches between: the tabs — web pages and open files together,
+/// in one strip — the changes and the Simulator, the last two one view each, with no tabs.
 enum WorkspaceSection: String, CaseIterable {
-    case browser, files, diff, simulator
-    /// Whether SF Symbols has the symbol's filled form, which the rail draws it in when selected.
-    /// Looked up once per section, not on every draw.
-    var hasFilledSymbol: Bool { Self.filled[self] ?? false }
-    private static let filled = Dictionary(uniqueKeysWithValues: allCases.map {
-        ($0, NSImage(systemSymbolName: $0.symbol + ".fill", accessibilityDescription: nil) != nil)
-    })
+    case browser, diff, simulator
     var title: String {
         switch self {
-        case .browser: String(localized: "Browser")
-        case .files: String(localized: "Files")
+        case .browser: String(localized: "Tabs")
         case .diff: WorkspaceTool.changes.title
         case .simulator: WorkspaceTool.simulator.title
         }
     }
+    /// Outlines with no circle round them, so the three read as one set.
     var symbol: String {
         switch self {
-        case .browser: "safari"
-        // `text.page` is macOS 15's; 14 has no glyph for it and would draw an empty button.
-        case .files: if #available(macOS 15, *) { "text.page" } else { "doc.text" }
+        case .browser: "rectangle.stack"
         case .diff: WorkspaceTool.changes.symbol
         case .simulator: WorkspaceTool.simulator.symbol
         }
@@ -86,7 +78,7 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         }
     }
     var symbol: String {
-        switch self { case .changes: "plusminus.circle"; case .simulator: "iphone"; case .files: "doc" }
+        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc" }
     }
 }
 
@@ -159,15 +151,21 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
-    /// What lists the worktree's files. Resolved per listing, so a reconnect is picked up without
-    /// rebuilding the tree.
-    @ObservationIgnored var fileService: () -> (any FileSearchService)? = { nil }
-    /// The Files tab's tree, listed through `fileService`.
+    /// The address field's worktree search. Made when first asked for, so a context that never
+    /// searches has none to retire.
+    var fileSearch: FileSearchViewModel {
+        if let searchModel { return searchModel }
+        let model = documentFactory.fileSearch()
+        searchModel = model
+        return model
+    }
+    @ObservationIgnored private var searchModel: FileSearchViewModel?
+    /// The Files tab's tree; it lists through the same service as the address field's search.
     /// Made when first asked for, so a context that never shows it has none to retire.
     var worktreeFiles: WorktreeFilesViewModel {
         if let filesModel { return filesModel }
         let model = WorktreeFilesViewModel()
-        model.service = { [weak self] in self?.fileService() }
+        model.service = { [weak self] in self?.fileSearch.service() }
         model.onAction = { [weak self] action in
             switch action { case .open(let path): self?.openFromTree(path) }
         }
@@ -175,18 +173,66 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         return model
     }
     @ObservationIgnored private var filesModel: WorktreeFilesViewModel?
-    func retireWorktreeFiles() { filesModel?.retire() }
-    /// A file chosen in the tree beside a file shows in that file's tab, as ChatGPT's file viewer
-    /// browses: the file there gives way, unless it has unsaved edits, when the chosen one opens
-    /// beside it instead. Chosen in the Files tab, it takes that tab's place; a file opened any
-    /// other way — a link in the terminal — leaves the Files tab and its filter alone.
+    /// The worktree's tree and search go with the context: a listing still running must not land.
+    func retireWorktreeFiles() { filesModel?.retire(); searchModel?.retire() }
+    /// A file picked from the tree goes on in the explorer's or the shown file's place, as a link
+    /// does in a browser tab, which can then go back to it. The file there gives way unless it has
+    /// unsaved edits, when the picked one opens beside it instead.
     func openFromTree(_ path: String) {
+        guard let id = activeID, let here = fileLocation, here != .file(path) else { openFile(path); return }
+        var trail = fileTrails[id] ?? FileTrail()
+        trail.back.append(here); trail.forward = []
+        go(to: .file(path), trail: trail)
+    }
+
+    /// Where a file tab has been: the Files explorer, or a file. Each tab keeps its own way back and
+    /// forward, as a browser tab does; it lasts as long as the tab, and is not saved.
+    enum FileLocation: Equatable { case explorer, file(String) }
+    struct FileTrail { var back: [FileLocation] = [], forward: [FileLocation] = [] }
+    private var fileTrails: [String: FileTrail] = [:]
+    private var fileLocation: FileLocation? {
+        if activeTool == .files { return .explorer }
+        return activeDocument.map { .file($0.record.path) }
+    }
+    var canGoBackInFiles: Bool { activeID.flatMap { fileTrails[$0] }?.back.isEmpty == false }
+    var canGoForwardInFiles: Bool { activeID.flatMap { fileTrails[$0] }?.forward.isEmpty == false }
+    func goBackInFiles() { stepInFiles(back: true) }
+    func goForwardInFiles() { stepInFiles(back: false) }
+    private func stepInFiles(back: Bool) {
+        guard let id = activeID, var trail = fileTrails[id], let here = fileLocation,
+              let target = back ? trail.back.popLast() : trail.forward.popLast() else { return }
+        if back { trail.forward.append(here) } else { trail.back.append(here) }
+        go(to: target, trail: trail)
+    }
+    /// Opens `location` in the active tab's place, the tab carrying `trail` on. The explorer is one
+    /// tab, so one open elsewhere moves here. A file with unsaved changes is not closed: it stays a
+    /// tab of its own beside the one that went on. A file already open in another tab is that tab,
+    /// selected with its own trail, and this tab stays as it was.
+    private func go(to location: FileLocation, trail: FileTrail) {
+        guard let id = activeID, let current = tab(id) else { return }
+        if case .file(let path) = location,
+           let open = documents.first(where: { $0.record.path == (path as NSString).standardizingPath }), open.id != id {
+            select(.file(open))
+            return
+        }
         let previous = activeDocument
-        let picker = activeTool == .files
-        guard let file = openFile(path) else { return }
-        // Closed as any tab is, which saves again: `select` saved with the picker still open.
-        if picker { close(.tool(.files)); worktreeFiles.query = "" }
-        else if let previous, previous !== file, !previous.dirty { remove(previous) }
+        let leavingExplorer = activeTool == .files
+        let next: String
+        switch location {
+        case .explorer:
+            if tools.contains(.files), !leavingExplorer { close(.tool(.files)); select(current) }
+            openTool(.files)
+            next = WorkspaceTool.files.id
+        case .file(let path):
+            guard let file = openFile(path) else { return }
+            next = file.id
+        }
+        guard next != id else { fileTrails[id] = trail; return }
+        fileTrails[id] = nil
+        // Closed as any tab is, which saves again: `select` saved with the explorer still open.
+        if leavingExplorer { close(.tool(.files)); worktreeFiles.query = "" }
+        else if let previous, !previous.dirty { remove(previous) }
+        fileTrails[next] = trail
     }
     private(set) var workspaceViewModel: SessionWorkspaceViewModel?
 
@@ -252,43 +298,38 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
-    /// The section the active tab belongs to: a file or the Files picker is Files, a tool its own,
-    /// a page — or nothing selected — the Browser.
+    /// The section the active tab belongs to: Diff and the Simulator their own; a page, a file, the
+    /// Files picker — or nothing selected — the tabs.
     var section: WorkspaceSection { Self.section(of: activeID.flatMap(tab)) ?? .browser }
-    /// The tabs the strip shows and cycling walks: the section's own — the pages in the Browser,
-    /// the open files in Files, none for Diff or the Simulator, which are one view each. The blank
+    /// The tabs the strip shows and cycling walks: the pages and open files, in their order, none
+    /// for Diff or the Simulator, which are one view each. The blank
     /// page the pane opened for itself is not a tab until it goes somewhere: the strip is then just
     /// New Tab, and the address row over the start page is where to type.
     var stripTabs: [WorkspaceTab] {
         switch section {
-        case .browser: tabs.filter { if case .page(let page) = $0 { !isFiller(page) } else { false } }
-        case .files: tabs.filter { if case .file = $0 { true } else { false } }
+        case .browser: tabs.filter {
+            switch $0 { case .page(let page): !isFiller(page); case .file: true; case .tool: false }
+        }
         case .diff, .simulator: []
         }
     }
     func isFiller(_ page: BrowserPage) -> Bool { page.id == fillerPageID && page.controls.isBlank }
-    /// The page and the file last shown, which the rail goes back to, and the last of either,
-    /// which a save on the Simulator keeps. Noted whenever the active tab changes, and on restore.
-    private var lastPageID: String?
-    private var lastFileID: String?
+    /// The page or file last shown, which the tabs go back to and a save on the Simulator keeps.
+    /// Noted whenever the active tab changes, and on restore.
     private var lastShownID: String?
     private func remember() {
         guard let id = activeID else { return }
-        if pages.contains(where: { $0.id == id }) { lastPageID = id; lastShownID = id }
-        else if documents.contains(where: { $0.id == id }) { lastFileID = id; lastShownID = id }
+        if pages.contains(where: { $0.id == id }) || documents.contains(where: { $0.id == id }) { lastShownID = id }
     }
-    /// The rail's choice: the section's last tab, or with none a blank page, or the Files picker.
-    /// Diff goes through the workspace, which loads the changes first (`SessionWorkspaceViewModel`).
+    /// The picker's choice: the tabs' last page or file, or with none a blank page. Diff goes
+    /// through the workspace, which loads the changes first (`SessionWorkspaceViewModel`).
     func showSection(_ section: WorkspaceSection) {
-        func last(_ remembered: String?, where kind: (WorkspaceTab) -> Bool) -> WorkspaceTab? {
-            if let remembered, let tab = tab(remembered), kind(tab) { return tab }
-            return tabOrder.reversed().lazy.compactMap(tab).first(where: kind)
-        }
         switch section {
         case .browser:
-            if let page = last(lastPageID, where: { if case .page = $0 { true } else { false } }) { select(page) } else { openBlankPage() }
-        case .files:
-            if let file = last(lastFileID, where: { if case .file = $0 { true } else { false } }) { select(file) } else { openTool(.files) }
+            let shown = lastShownID.flatMap(tab) ?? tabOrder.reversed().lazy.compactMap(tab).first {
+                switch $0 { case .page, .file: true; case .tool: false }
+            }
+            if let shown { select(shown) } else { openBlankPage() }
         case .diff: setPane(.diff)
         case .simulator: setPane(.simulator)
         }
@@ -343,9 +384,12 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     /// A tool's tab, opened after the active tab or selected where it already is. A blank tab being
     /// typed in is left alone.
-    func openTool(_ tool: WorkspaceTool) {
+    /// `replacingBlank`: picked from a blank tab's start page, the tool takes that tab's place.
+    func openTool(_ tool: WorkspaceTool, replacingBlank: Bool = false) {
+        let blank = replacingBlank ? replaceableBlank : nil
         if !tools.contains(tool) { tools.append(tool); insert(tool.id) }
         select(.tool(tool))
+        if let blank { close(blank) }
     }
     /// The blank tab a pick from its start page replaces.
     var replaceableBlank: BrowserPage? { activePage.flatMap { $0.controls.isBlank ? $0 : nil } }
@@ -383,6 +427,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let path = (path as NSString).standardizingPath
         // A file opened from a blank tab — its address field, or its start page — takes its place.
         let blank = replaceableBlank
+        fileSearch.reset()
         defer { if let blank { close(blank) } }
         if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
         let file = documentFactory.editor(record: .init(path: path))
@@ -422,33 +467,31 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     func remove(_ file: EditorDocumentViewModel) {
         guard documents.contains(where: { $0 === file }) else { return }
-        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id, within: .files)
+        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id, within: .browser)
     }
-    /// A page or a file closed while shown gives way to the nearest tab of its own section, so
-    /// closing one never moves the strip to another section's tabs. The last page gone leaves the
-    /// pages' pane, where the bar opens a blank one; the last file, the Files picker.
+    /// A page or a file closed while shown gives way to the nearest page or file, so closing one
+    /// never moves the pane to Diff or the Simulator. The last one gone leaves the tabs' pane, where
+    /// the bar opens a blank page.
     private func removeTab(_ id: String, within section: WorkspaceSection? = nil) {
+        fileTrails[id] = nil
         let index = tabOrder.firstIndex(of: id) ?? 0
         tabOrder.removeAll { $0 == id }; tabEdits += 1
         if activeID == id {
             let candidates = section.map { section in
-                tabOrder.enumerated().filter { WorkspaceContext.section(of: tab($0.element)) == section }
+                // The pages and files, not the Files explorer, which a blank tab's start page opens.
+                tabOrder.enumerated().filter { WorkspaceContext.section(of: tab($0.element)) == section && WorkspaceTool(id: $0.element) == nil }
             } ?? Array(tabOrder.enumerated())
             // The tab that took the closed one's place, else the one before it.
             let next = candidates.first { $0.offset >= index } ?? candidates.last
             activeID = next?.element
             if let activeID, let tab = tab(activeID) { select(tab) }
-            else if section == .files, pane != .off, workspaceViewModel?.listsWorktree != false { openTool(.files) }
-            // With no worktree to pick from, the pages instead of an empty picker.
-            else if section == .files, pane != .off, let page = tabOrder.reversed().lazy.compactMap(tab).first(where: { if case .page = $0 { true } else { false } }) { select(page) }
             else if pane != .off { pane = .term }
         }
         changed()
     }
     private static func section(of tab: WorkspaceTab?) -> WorkspaceSection? {
         switch tab {
-        case .page?: .browser
-        case .file?, .tool(.files)?: .files
+        case .page?, .file?, .tool(.files)?: .browser
         case .tool(.changes)?: .diff
         case .tool(.simulator)?: .simulator
         case nil: nil
@@ -753,7 +796,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         context.globalHistory = browserHistory
         context.bookmarks = browserBookmarks
         context.clearBrowsingHistory = { [weak self] in self?.clearBrowsingHistory() }
-        context.fileService = { [weak self] in
+        context.fileSearch.service = { [weak self] in
             guard let self, let api else { return nil }
             return documentFactory.fileSearchService(api: api)
         }
