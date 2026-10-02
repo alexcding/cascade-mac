@@ -294,7 +294,9 @@ private let noNode = BackendError.operation("The simulator preview needs Node.js
     model.retry()
     await waitFor(model) { $0 == .live(second) }
     #expect(model.state == .live(second))
-    // Loaded by the state, in the same web view.
+    // Loaded by the state, in the same web view. WebKit reports the new address a moment after the
+    // load starts, so it is waited for rather than read once.
+    for _ in 0..<100 where page.url != second { try? await Task.sleep(for: .milliseconds(20)) }
     #expect(model.webView === page && page.url == second)
     model.retire()
 }
