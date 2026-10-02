@@ -508,16 +508,36 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
 }
 
 /// A session's dot: waiting on a person outranks working, working outranks a finished turn, and
-/// none of them animates.
+/// only working breathes — once the dot is in a window and shown, again after it leaves and comes
+/// back, and never while Reduce Motion is on.
 @MainActor @Test func aSessionDotShowsTheAgentsState() {
     let dot = SidebarStatusDot()
+    dot.reducesMotion = { false }
+    let breathing = { dot.layer?.sublayers?.first?.animation(forKey: "breath") != nil }
     dot.set(SidebarSessionStatus(live: true, cli: "claude"))
     #expect(dot.state == .idle)
     dot.set(SidebarSessionStatus(live: true, done: true, cli: "claude"))
     #expect(dot.state == .done)
     dot.set(SidebarSessionStatus(live: true, busy: true, done: true, cli: "codex"))
     #expect(dot.state == .working(cli: "codex"))
-    #expect(dot.layer?.sublayers?.first?.animationKeys() == nil)
+    #expect(!breathing(), "out of a window")
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [], backing: .buffered, defer: true)
+    window.contentView?.addSubview(dot)
+    #expect(breathing(), "working, in a window")
+    dot.removeFromSuperview()
+    window.contentView?.addSubview(dot)
+    #expect(breathing(), "back in a window")
+    dot.isHidden = true
+    #expect(!breathing(), "hidden behind the shortcut hint")
+    dot.isHidden = false
+    #expect(breathing(), "shown again")
+    var reduced = true
+    dot.reducesMotion = { reduced }
+    #expect(!breathing(), "Reduce Motion on")
+    reduced = false
+    NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    #expect(breathing(), "Reduce Motion turned off while working")
     dot.set(SidebarSessionStatus(live: true, busy: true, needsInput: true, cli: "claude"))
     #expect(dot.state == .needsInput && dot.statusLabel == "Needs input")
+    #expect(!breathing(), "waiting is steady")
 }

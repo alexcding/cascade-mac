@@ -494,6 +494,8 @@ enum SidebarPalette {
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
     /// A hover "+" at rest; the section headings and project folders share it.
     static let accessory = text3.withAlphaComponent(0.8)
+    /// An idle session's dot: the faintest grey, so the coloured states stand out beside it.
+    static let idleDot = text3.withAlphaComponent(0.5)
     /// A row's symbol: rgb(123, 123, 128) in light mode, rgb(180, 184, 191) in dark. No one system
     /// colour is both: secondary label resolves well dimmer than Finder in dark.
     static let icon = dynamic(0x7b7b80, 0xb4b8bf)
@@ -537,23 +539,31 @@ enum SidebarMetrics {
 
 // MARK: - Views
 
-/// A session's status: a steady dot, in the agent's own colour while it works (Claude's orange,
-/// Codex's purple), yellow while it waits on a person, green when a turn finished that nobody has
-/// looked at, grey otherwise.
+/// A session's status: a dot, in the agent's own colour while it works (Claude's orange, Codex's
+/// purple), yellow while it waits on a person, green when a turn finished that nobody has looked
+/// at, grey otherwise. Working, it breathes: a slow, shallow fade that never takes it far from
+/// full, and holds still when the system asks for reduced motion. Every other state is steady.
 @MainActor final class SidebarStatusDot: NSView {
     enum State: Equatable {
         case idle, done, needsInput
         case working(cli: String?)
     }
-    static let size: CGFloat = 8
+    static let size: CGFloat = 9
     private let dot = CALayer()
     private(set) var state = State.idle
+    /// The system's Reduce Motion setting; a test answers it for itself.
+    var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion } {
+        didSet { breathe() }
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         dot.cornerRadius = Self.size / 2
         layer?.addSublayer(dot)
+        // Reduce Motion turned on or off while a session works takes effect at once.
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
+                                                          name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -563,7 +573,46 @@ enum SidebarMetrics {
         guard next != state || dot.backgroundColor == nil else { return }
         state = next
         paint()
+        breathe()
     }
+
+    private static let breathKey = "breath"
+
+    /// Starts or stops the working state's breath: only while the dot is in a window and shown — the
+    /// ⌘ shortcut hint hides it — and Reduce Motion is off. A layer's animation does not survive the
+    /// view leaving its window, so it is started again on the way back in.
+    private func breathe() {
+        guard case .working = state, window != nil, !isHiddenOrHasHiddenAncestor, !reducesMotion() else {
+            dot.removeAnimation(forKey: Self.breathKey)
+            return
+        }
+        guard dot.animation(forKey: Self.breathKey) == nil else { return }
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 1
+        breath.toValue = 0.5
+        breath.duration = 1.6
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dot.add(breath, forKey: Self.breathKey)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        breathe()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        breathe()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        breathe()
+    }
+
+    @objc private func displayOptionsChanged() { breathe() }
 
     /// The state in words. The dot is not an accessibility element; its row reads this after its title.
     var statusLabel: String {
@@ -577,7 +626,7 @@ enum SidebarMetrics {
 
     private var color: NSColor {
         switch state {
-        case .idle: SidebarPalette.text3
+        case .idle: SidebarPalette.idleDot
         case .done: SidebarPalette.success
         case .needsInput: SidebarPalette.waiting
         case .working(let cli): AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3
