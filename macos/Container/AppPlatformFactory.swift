@@ -39,11 +39,31 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
     func resources(api: APIClient?) -> any ResourceUsageService
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void,
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing
+    /// Says once that sidebar tabs are gone, where an earlier build left its `tabs.json`.
+    func sidebarTabsRemovalNotice() -> String?
 }
 
 extension AppPlatformFactory {
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
         pageActions(open: open, session: { _ in nil })
+    }
+    /// Nothing on disk: what tests get unless they say otherwise.
+    func sidebarTabsRemovalNotice() -> String? { nil }
+}
+
+/// The one-time notice for an upgrade from a build with sidebar tabs: shown once, while the
+/// `tabs.json` that build wrote is still there. The file is left as it is.
+@MainActor struct SidebarTabsRemovalNotice {
+    static let shownKey = "sidebarTabsRemovalNoticeShown"
+    let defaults: UserDefaults
+    let tabsFile: URL?
+
+    /// The notice the first time it is asked for with the file present; nil ever after.
+    func take() -> String? {
+        guard !defaults.bool(forKey: Self.shownKey), let tabsFile,
+              FileManager.default.fileExists(atPath: tabsFile.path) else { return nil }
+        defaults.set(true, forKey: Self.shownKey)
+        return String(localized: "Sidebar tabs have been removed.")
     }
 }
 
@@ -62,6 +82,9 @@ extension AppPlatformFactory {
                     documentFactory: documents, closeCoordinator: close, memory: processSampler())
     }
     func workspaceLauncher() -> WorkspaceLaunchViewModel { WorkspaceLaunchViewModel(launcher: launcher) }
+    func sidebarTabsRemovalNotice() -> String? {
+        SidebarTabsRemovalNotice(defaults: .standard, tabsFile: (try? configuration().directory)?.appendingPathComponent("tabs.json")).take()
+    }
     func terminal(_ request: AppTerminalRequest) -> TerminalSession {
         TerminalSession(pairKey: request.key, cwd: request.directory, paired: request.paired, configurationProvider: configuration)
     }

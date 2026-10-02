@@ -16,40 +16,36 @@ private func session(_ id: String, project: String = "w", branch: String = "", u
                      url: url ?? "session:\(id)", createdAt: nil, pinned: false, jiraKey: jiraKey)
 }
 
-@MainActor @Test func dashboardOpenInSessionMarksTheRequestAndNamesItsProject() async throws {
+@MainActor @Test func dashboardRowOpenNamesItsProjectAndSaysWhatFailed() async throws {
     let actions = ProjectPageActions()
     let model = DashboardViewModel(pageActions: actions), coordinator = DashboardCoordinator(model: model)
     model.connect(SessionRowService())
     while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
     let row = try #require(model.prs.mine.first)
     model.open(row); await model.navigation.waitForOpen()
-    #expect(actions.opened.last?.inSession == false && actions.opened.last?.projectID == "p", "A browser open names the row's project too, so its session lookup matches the badge's")
-    model.openSession(row); await model.navigation.waitForOpen()
     let opened = try #require(actions.opened.last)
-    #expect(opened.inSession && opened.projectID == "p" && opened.branch == "feature/one" && opened.url == row.url.absoluteString)
-    // A session start already says what failed; a browser open keeps the dashboard's words.
+    // The row's project goes with the click, so its session lookup matches the badge's.
+    #expect(opened.projectID == "p" && opened.branch == "feature/one" && opened.url == row.url.absoluteString)
     actions.failOpen = true
-    model.openSession(row); await model.navigation.waitForOpen()
-    #expect(model.navigation.error == "Fixture open failed")
     model.open(row); await model.navigation.waitForOpen()
     #expect(model.navigation.error == "Could not open pull request: Fixture open failed")
     await model.stop(); coordinator.retire()
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func openInSessionIsNotDroppedWhileTheSameRowOpensInATab() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func aRepeatOfTheOpenInFlightIsIgnoredAndAnotherPageSupersedesIt() async throws {
     let gate = ProjectPageGate(), actions = ProjectPageActions()
     actions.gate = gate
     let navigation = PageActionViewModel(service: actions)
-    let tab = OpenPageRequest(url: "https://github.com/o/r/pull/1", kind: "github", title: "#1")
-    var inSession = tab; inSession.inSession = true
-    navigation.open(tab)
+    let first = OpenPageRequest(url: "https://github.com/o/r/pull/1", kind: "github", title: "#1")
+    let second = OpenPageRequest(url: "https://github.com/o/r/pull/2", kind: "github", title: "#2")
+    navigation.open(first)
     await gate.waitForStart()
-    navigation.open(tab) // A repeat of the request in flight is still ignored.
-    navigation.open(inSession)
+    navigation.open(first) // A repeat of the request in flight is ignored.
+    navigation.open(second)
     await gate.finish()
     await navigation.waitForOpen()
-    #expect(actions.opened.map(\.inSession) == [false, true])
-    #expect(actions.navigated == [tab.url]) // Only the session request landed; the tab open was superseded.
+    #expect(actions.opened.map(\.url) == [first.url, second.url])
+    #expect(actions.navigated == [second.url]) // The first open was superseded.
 }
 
 @MainActor @Test func aPageFindsTheSessionItAlreadyHas() {

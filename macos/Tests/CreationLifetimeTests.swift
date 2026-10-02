@@ -175,17 +175,17 @@ func creationLifetimeInputChangeDuringResolutionCannotCreateWorktree(failing: Bo
     let model = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
     var created = 0
     model.onAction = { _ in created += 1 }
-    model.prepare(text: "first-branch", contextURL: "https://docs.example.test/one", agent: nil)
+    model.prepare(text: "first-branch", agent: nil)
     model.pullRequestBranch = "feature-a"
     let creating = Task { await model.submit() }
     await gate.waitForStart()
     // Start is opened on a link while the first session is still being made.
-    model.prepare(text: "https://github.com/fixture/repo/pull/43", contextURL: "https://docs.example.test/two", agent: nil)
+    model.prepare(text: "https://github.com/fixture/repo/pull/43", agent: nil)
     await gate.finish(.success(WorkspaceSession(id: "one", projectId: lifetimeProject.id, workspace: lifetimeProject.workspace,
         worktree: "/tmp/one", title: "", branch: "first-branch", url: "", createdAt: nil, pinned: false)))
     await creating.value
     #expect(created == 1)
-    #expect(model.text == "https://github.com/fixture/repo/pull/43" && model.contextURL == "https://docs.example.test/two")
+    #expect(model.text == "https://github.com/fixture/repo/pull/43")
     #expect(model.pullRequestBranch.isEmpty, "A branch named for one pull request is not offered for the next")
     model.retire()
 }

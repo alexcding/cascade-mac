@@ -198,89 +198,118 @@ private actor RefreshTransport: BackendTransport {
     #expect(await transport.paths.isEmpty)
 }
 
-/// A tray click on a review selects the session that already owns the PR; a PR with no session
-/// opens in the system browser. Neither starts a session.
-@MainActor @Test func aTrayReviewSelectsItsSessionOrOpensTheBrowserAndNeverStartsOne() async throws {
-    let suite = "tray-review-\(UUID().uuidString)"
+/// Every PR or ticket click — a row, a tray review, a notice — goes to the page's session; a page with
+/// none opens its project's Start with the link and its ticket filled in, creating nothing; a page no
+/// project claims opens nothing anywhere, the browser included, and says why.
+@MainActor @Test func aPageClickGoesToItsSessionOrItsProjectsStartAndNeverElsewhere() async throws {
+    enum Surface: CaseIterable { case row, tray, notification }
+    for surface in Surface.allCases {
+        let suite = "page-click-\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let runtime = RefreshRuntime(), transport = runtime.transport
+        await transport.addSession()
+        let desktop = ProjectPageActions()
+        let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
+        var windows = 0
+        model.showMainWindow = { windows += 1 }
+        await model.start()
+        try await refreshEventually { model.sessions.contains { $0.id == "s" } && model.connection == "Connected" }
+        func page(_ url: String, branch: String, project: String? = "p") -> OpenPageRequest {
+            var request = OpenPageRequest(url: url, kind: "github", title: "PR", repo: "example/repo", branch: branch, category: "review")
+            request.projectID = project; request.jiraKeys = ["REC-8"]
+            return request
+        }
+        func open(_ request: OpenPageRequest) async throws {
+            switch surface {
+            case .row: try await model.openPage(request)
+            case .tray: try await model.openTrayReview(request)
+            case .notification: _ = try await model.openNotificationPage(request)
+            }
+        }
+        func creates() async -> Int {
+            let requests = await transport.requests
+            return requests.filter {
+                $0.httpMethod == "POST" && [Routes.SESSIONS, Routes.WORKTREE, Routes.TASKS].contains($0.url?.path ?? "")
+            }.count
+        }
+        model.select(.overview)
+        await transport.reset()
+        try await open(page("https://github.com/example/repo/pull/7", branch: "feature"))
+        #expect(model.selection == .session("s"), "\(surface)")
+
+        try await open(page("https://github.com/example/repo/pull/8", branch: "elsewhere"))
+        #expect(model.selection == .project("p"), "\(surface)")
+        let start = try #require(model.projectModels["p"])
+        #expect(start.section == .start && start.composer.text == "https://github.com/example/repo/pull/8", "\(surface)")
+        #expect(start.composer.linkedKey?.key == "REC-8", "\(surface)")
+        let started = await creates()
+        #expect(started == 0 && model.sessions.map(\.id) == ["s"], "\(surface)")
+
+        model.select(.overview)
+        await #expect(throws: BackendError.self) {
+            try await open(page("https://github.com/someone/else/pull/3", branch: "x", project: nil))
+        }
+        let startedElsewhere = await creates()
+        #expect(model.selection == .overview && desktop.browsers.isEmpty && startedElsewhere == 0, "\(surface)")
+        if surface != .row {
+            // From outside the window, the reason is where the app reports errors.
+            #expect(model.error == "No project with a workspace matches this page.", "\(surface)")
+        }
+        // The tray brings the window up itself for a failure; the notice's coordinator does.
+        #expect(windows == (surface == .tray ? 1 : 0), "\(surface)")
+        await model.stop()
+    }
+}
+
+/// A tray review or notice that cannot open, clicked while a session is on screen, takes the window
+/// to the Dashboard, where the root error shows, rather than leaving the reason invisible.
+@MainActor @Test func aFailedOutsideOpenShowsItsReasonOnTheDashboard() async throws {
+    for notice in [false, true] {
+        let suite = "outside-failure-\(UUID().uuidString)"
+        let preferences = try #require(UserDefaults(suiteName: suite))
+        defer { preferences.removePersistentDomain(forName: suite) }
+        let runtime = RefreshRuntime(), transport = runtime.transport
+        await transport.addSession()
+        let model = refreshApp(runtime, preferences: preferences, desktop: ProjectPageActions())
+        var windows = 0
+        model.showMainWindow = { windows += 1 }
+        await model.start()
+        try await refreshEventually { model.sessions.contains { $0.id == "s" } && model.connection == "Connected" }
+        model.select(.session("s"))
+        let elsewhere = OpenPageRequest(url: "https://github.com/someone/else/pull/3", kind: "github", title: "PR #3")
+        await #expect(throws: BackendError.self) {
+            if notice { _ = try await model.openNotificationPage(elsewhere) } else { try await model.openTrayReview(elsewhere) }
+        }
+        #expect(model.selection == .overview, "notice: \(notice)")
+        #expect(model.root.error == "No project with a workspace matches this page.", "notice: \(notice)")
+        // The tray raises the window itself; a notice's coordinator does it for the notice.
+        #expect(windows == (notice ? 0 : 1), "notice: \(notice)")
+        await model.stop()
+    }
+}
+
+/// Activity lives in the Settings window: a log row that opened brings the main window up.
+@MainActor @Test func anActivityRowThatOpensBringsTheMainWindowUp() async throws {
+    let suite = "logs-open-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
     let runtime = RefreshRuntime(), transport = runtime.transport
     await transport.addSession()
-    let desktop = ProjectPageActions()
-    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
+    let model = refreshApp(runtime, preferences: preferences, desktop: ProjectPageActions())
+    var windows = 0
+    model.showMainWindow = { windows += 1 }
     await model.start()
-    try await refreshEventually { model.sessions.contains { $0.id == "s" } }
-    func review(_ number: Int, branch: String) -> OpenPageRequest {
-        var request = OpenPageRequest(url: "https://github.com/example/repo/pull/\(number)", kind: "github", title: "PR #\(number)",
-                                      repo: "example/repo", branch: branch, category: "review")
-        request.projectID = "p"
-        return request
-    }
-    func posts(to path: String) async -> Int { await transport.requests.filter { $0.httpMethod == "POST" && $0.url?.path == path }.count }
-    // A start looks the pull request up, then asks the backend for the session in one request.
-    func starts() async -> Int {
-        let lookups = await transport.requests.filter { $0.url?.path == Routes.PR_LOOKUP }.count
-        return await lookups + posts(to: Routes.SESSIONS) + posts(to: Routes.WORKTREE) + posts(to: Routes.TASKS)
-    }
-
-    await transport.reset()
-    #expect(try await model.openTrayReview(review(7, branch: "feature")))
-    #expect(model.selection == .session("s"))
-    #expect(await starts() == 0)
-    #expect(desktop.browsers.isEmpty)
-
-    await transport.reset()
-    #expect(try await !model.openTrayReview(review(8, branch: "elsewhere")))
-    #expect(desktop.browsers.map(\.absoluteString) == ["https://github.com/example/repo/pull/8"])
-    #expect(await starts() == 0)
-    await model.stop()
-}
-
-/// A row's New Session opens the page's project on Start with the page filled in; nothing is
-/// created until Start is submitted.
-@MainActor @Test func aRowsNewSessionOpensItsProjectsStartWithThePageAndCreatesNothing() async throws {
-    let suite = "row-new-session-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let runtime = RefreshRuntime(), transport = runtime.transport
-    let desktop = ProjectPageActions()
-    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
-    await model.start()
-    try await refreshEventually { model.lastUpdate != nil && model.connection == "Connected" }
-    await transport.reset()
-    var request = OpenPageRequest(url: "https://github.com/example/repo/pull/9", kind: "github", title: "PR #9")
-    request.inSession = true; request.projectID = "p"
-    try await model.openPage(request)
-    #expect(model.selection == .project("p"))
-    #expect(model.projectModels["p"]?.section == .start && model.projectModels["p"]?.composer.text == request.url)
-    let creates = await transport.requests.filter {
-        $0.httpMethod == "POST" && [Routes.SESSIONS, Routes.WORKTREE, Routes.TASKS].contains($0.url?.path ?? "")
-    }
-    #expect(creates.isEmpty && model.sessions.isEmpty && desktop.browsers.isEmpty)
-    await model.stop()
-}
-
-/// A notice for a page with a session selects it and says so, so the window comes up; any other
-/// page goes to the system browser and says it stayed out of Cascade.
-@MainActor @Test func aNotificationPageIsInCascadeOnlyForItsSession() async throws {
-    let suite = "notification-page-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let runtime = RefreshRuntime(), transport = runtime.transport
-    await transport.addSession()
-    let desktop = ProjectPageActions()
-    let model = refreshApp(runtime, preferences: preferences, desktop: desktop)
-    await model.start()
-    try await refreshEventually { model.sessions.contains { $0.id == "s" } }
-    func page(_ number: Int, branch: String) -> OpenPageRequest {
-        var request = OpenPageRequest(url: "https://github.com/example/repo/pull/\(number)", kind: "github", title: "PR #\(number)",
-                                      repo: "example/repo", branch: branch)
-        request.projectID = "p"
-        return request
-    }
-    #expect(try await model.openNotificationPage(page(7, branch: "feature")))
-    #expect(model.selection == .session("s") && desktop.browsers.isEmpty)
-    #expect(try await !model.openNotificationPage(page(8, branch: "elsewhere")))
-    #expect(desktop.browsers.map(\.absoluteString) == ["https://github.com/example/repo/pull/8"])
+    try await refreshEventually { model.sessions.contains { $0.id == "s" } && model.connection == "Connected" }
+    let logs = try #require(model.logs)
+    var request = OpenPageRequest(url: "https://github.com/example/repo/pull/7", kind: "github", title: "PR #7",
+                                  repo: "example/repo", branch: "feature")
+    request.projectID = "p"
+    logs.navigation.open(request); await logs.navigation.waitForOpen()
+    #expect(model.selection == .session("s") && windows == 1)
+    // One that fails leaves the window where it is; the row shows why.
+    logs.navigation.open(OpenPageRequest(url: "https://github.com/someone/else/pull/3", kind: "github", title: "PR #3"))
+    await logs.navigation.waitForOpen()
+    #expect(windows == 1 && logs.navigation.error != nil)
     await model.stop()
 }

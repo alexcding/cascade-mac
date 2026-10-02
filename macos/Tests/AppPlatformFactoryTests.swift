@@ -101,3 +101,23 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     do { try await factory.terminalControl().stopExisting(); Issue.record("Failed configuration unexpectedly stopped a daemon") }
     catch { #expect(error.localizedDescription == "Injected isolated terminal failure") }
 }
+
+/// An upgrade from a build with sidebar tabs says so once, while its `tabs.json` is still there,
+/// and leaves the file alone; a Mac without the file is never told.
+@MainActor @Test func theSidebarTabsRemovalNoticeIsToldOnceAndOnlyWhereTheOldFileIs() throws {
+    let suite = "tabs-removal-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("tabs-removal-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("tabs.json")
+    #expect(SidebarTabsRemovalNotice(defaults: defaults, tabsFile: file).take() == nil, "no old file, nothing to say")
+    #expect(SidebarTabsRemovalNotice(defaults: defaults, tabsFile: nil).take() == nil)
+    try Data(#"{"tabs":[],"active":null}"#.utf8).write(to: file)
+    let notice = SidebarTabsRemovalNotice(defaults: defaults, tabsFile: file)
+    #expect(notice.take() == "Sidebar tabs have been removed.")
+    #expect(notice.take() == nil, "told once")
+    #expect(SidebarTabsRemovalNotice(defaults: defaults, tabsFile: file).take() == nil, "still once after a relaunch")
+    #expect(FileManager.default.fileExists(atPath: file.path), "the old file is left alone")
+}

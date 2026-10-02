@@ -103,7 +103,6 @@ struct CocoaSidebar: NSViewRepresentable {
         private let preferences: UserDefaults
         private var spinTimer: Timer?
         private var spinFrame = 0
-        private var avatarObserver: NSObjectProtocol?
         private var flagsMonitor: Any?
         private var resignObserver: NSObjectProtocol?
         private var holdingCommand = false { didSet { if oldValue != holdingCommand { refreshVisibleCells() } } }
@@ -113,9 +112,6 @@ struct CocoaSidebar: NSViewRepresentable {
             self.preferences = preferences
             collapsed = Set(preferences.stringArray(forKey: "sidebar.collapsed") ?? [])
             super.init()
-            avatarObserver = NotificationCenter.default.addObserver(forName: SidebarAvatars.loaded, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshVisibleCells() }
-            }
             // ⌘ alone, in this sidebar's window. Any other modifier with it is a different shortcut,
             // and a window that loses the keyboard never hears ⌘ let go.
             flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
@@ -901,9 +897,9 @@ enum SidebarGlyphs {
     }
 }
 
-/// GitHub avatars for PR tab rows: the data URI frozen onto the tab when there is one, else
-/// github.com/<login>.png fetched once and kept for the process. A finished fetch posts
-/// `loaded` so visible rows swap the octicon for the face.
+/// GitHub avatars for the Dashboard's review tiles and the menu-bar tray: a frozen data URI when
+/// one is given, else github.com/<login>.png fetched once and kept for the process. A finished
+/// fetch posts `loaded` so those surfaces swap the octicon for the face.
 @MainActor enum SidebarAvatars {
     static let loaded = Notification.Name("SidebarAvatars.loaded")
     private static var images: [String: NSImage] = [:]

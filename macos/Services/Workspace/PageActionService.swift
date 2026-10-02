@@ -37,8 +37,8 @@ struct PageSessionMark: Equatable, Sendable {
     func pageSession(_ request: OpenPageRequest) -> PageSessionMark? { session(request) }
 }
 
-/// What a row has: its session's agent glyph, or an arrow for a row with no session, whose click opens
-/// the system browser. Grey like the sidebar at rest: the row's colour belongs to its status, not its agent.
+/// Where a row opens: its session's agent glyph, or a mark for a row with no session, whose click
+/// opens its project's Start to begin one. Grey like the sidebar at rest: the row's colour belongs to its status, not its agent.
 struct PageDestinationMark: View {
     let mark: PageSessionMark?
     var body: some View {
@@ -48,18 +48,18 @@ struct PageDestinationMark: View {
                     .help(mark.label).accessibilityLabel(mark.label)
             } else {
                 Image(systemName: "arrow.up.right").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
-                    .help(String(localized: "Opens in the browser")).accessibilityLabel(String(localized: "Opens in the browser"))
+                    .help(String(localized: "Opens a new session")).accessibilityLabel(String(localized: "Opens a new session"))
             }
         }.frame(width: 18, height: 18)
     }
 }
 
 /// The row menu for a PR or ticket: Go to Session when the page has one, else New Session, which
-/// opens its project's Start with the page filled in.
+/// opens its project's Start with the page filled in — where a click goes too, named.
 struct PageRowMenu: View {
     let hasSession: Bool
-    let session: () -> Void
+    let open: () -> Void
     var body: some View {
-        Button(hasSession ? String(localized: "Go to Session") : String(localized: "New Session"), action: session)
+        Button(hasSession ? String(localized: "Go to Session") : String(localized: "New Session"), action: open)
     }
 }

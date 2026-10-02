@@ -487,8 +487,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
     let row = try #require(model.prs.visibleRows.first)
     model.open(row)
-    model.openSession(row)
-    #expect(emitted == [.open(row.openPageRequest), .open(DashboardViewModel.sessionRequest(row))])
+    #expect(emitted == [.open(row.openPageRequest)])
     // A row the snapshot no longer holds resolves to nothing, so nothing reaches the coordinator.
     emitted = []
     model.open(rows(makeProject("gone", prs: [makePR(999)]))[0])
@@ -547,9 +546,8 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     #expect(model.prs.visibleRows.isEmpty)
     let row = try #require(model.prs.others.first)
     model.open(row)
-    model.openSession(row)
-    #expect(emitted == [.open(row.openPageRequest), .open(DashboardViewModel.sessionRequest(row))])
-    let session = DashboardViewModel.sessionRequest(row)
-    #expect(session.inSession && session.projectID == "p" && session.branch == "REC-1-fix" && session.jiraKeys == ["REC-1"])
+    #expect(emitted == [.open(row.openPageRequest)])
+    let request = row.openPageRequest
+    #expect(request.projectID == "p" && request.branch == "REC-1-fix" && request.jiraKeys == ["REC-1"])
     await model.stop()
 }

@@ -434,7 +434,6 @@ struct APIBoardService: BoardService {
         }
     }
     func open(_ ticket: Ticket) { emit(ticket) { _ in } }
-    func openSession(_ ticket: Ticket) { emit(ticket) { $0.inSession = true } }
     /// A missing site sets `error` rather than opening nothing silently.
     private func emit(_ ticket: Ticket, configure: (inout OpenPageRequest) -> Void) {
         guard !retired else { return }
@@ -447,7 +446,7 @@ struct APIBoardService: BoardService {
     func sessionMark(_ ticket: Ticket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)
-        request.inSession = true; request.projectID = projectID
+        request.projectID = projectID
         return navigation.pageSession(request)
     }
     private func ticketURL(_ ticket: Ticket) -> String? {

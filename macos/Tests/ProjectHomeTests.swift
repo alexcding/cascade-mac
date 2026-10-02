@@ -105,21 +105,22 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(asking.showsPullRequestBranch && asking.hint?.text == "Name that pull request’s branch below")
 }
 
-@MainActor @Test func openingStartFromAPageFillsItInAndKeepsAPlainPageAsContext() async throws {
+/// Start opened on a pull request link from a row carries the ticket the PR references, recorded on
+/// the session made from that same link when its lookup names none; edited away, the key goes too.
+@MainActor @Test func openingStartOnALinkFillsItInAndRecordsTheTicketItReferences() async throws {
     let operations = StartOperations()
     let (model, _) = await composer(operations)
     let focus = model.focusRequest
-    model.prepare(text: nil, contextURL: "https://docs.example.test/guide", agent: .codex)
-    #expect(model.contextURL == "https://docs.example.test/guide" && model.agent == .codex && model.focusRequest == focus + 1)
-    model.text = "Follow the guide"
+    model.prepare(text: "https://github.com/o/r/pull/7", jiraKey: "rec-9", agent: .codex)
+    #expect(model.text == "https://github.com/o/r/pull/7" && model.agent == .codex && model.focusRequest == focus + 1)
     await model.submit()
-    #expect(await operations.drafts.last?.url == "https://docs.example.test/guide" && model.contextURL == nil)
-    // A PR or ticket link is what to start on, not context.
-    model.prepare(text: "https://github.com/o/r/pull/7", contextURL: "https://github.com/o/r/pull/7", agent: nil)
-    #expect(model.contextURL == nil && model.text == "https://github.com/o/r/pull/7" && model.agent == .codex)
-    model.prepare(text: nil, contextURL: "https://docs.example.test/guide", agent: nil)
-    model.clearContext()
-    #expect(model.contextURL == nil)
+    let first = await operations.drafts.last
+    #expect(first?.jiraKey == "REC-9" && first?.url == "https://github.com/o/r/pull/7")
+    model.prepare(text: "https://github.com/o/r/pull/8", jiraKey: "REC-10", agent: nil)
+    model.text = "https://github.com/o/r/pull/11"
+    await model.submit()
+    let edited = await operations.drafts.last
+    #expect(edited?.jiraKey == "" && edited?.url == "https://github.com/o/r/pull/11")
 }
 
 @MainActor @Test func startKeepsTheTextWhenCreatingFailsAndNeedsAFolderAndAConnection() async throws {
@@ -136,7 +137,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     model.connect(nil)
     #expect(!model.canStart)
     model.retire()
-    model.prepare(text: "late", contextURL: nil, agent: nil)
+    model.prepare(text: "late", agent: nil)
     #expect(model.text == "Try this")
 }
 

@@ -44,10 +44,9 @@ import Observation
         }
     }
 
-    /// A linked notice opens its page's session in Cascade, or else the system browser, as a row's
-    /// click does; a later click replaces one still opening. A notice with no link shows Activity.
-    /// The window comes up for a session, or for a failed open so its error is seen; a page that
-    /// went to the browser leaves the browser in front.
+    /// A linked notice opens as a row's click does — its page's session or its project's Start in
+    /// Cascade; a later click replaces one still opening. A notice with no link shows Activity.
+    /// The window comes up either way, for a failed open so its error is seen.
     private func open(_ notice: NativeNotice, runtime: any NotificationCoordinating) {
         guard let address = notice.url else {
             showWindow(); openActivity(); model.didOpen(notice, success: true); return

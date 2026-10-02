@@ -173,9 +173,11 @@ public final class AppViewModel {
             try await self.openPage(request)
         }, session: { [weak self] request in self?.pageSessionMark(request) }), shell: shell)
         _ = coordinator.makeAutomation(factory: NativeAutomationFeatureFactory())
+        // Activity lives in the Settings window: what a row opened is in the main window, so it comes up.
         _ = coordinator.makeLogs(factory: logsFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
             try await self.openPage(request)
+            self.showMainWindow?()
         }), copy: copy)
         dashboard?.snapshotChanged = { [weak self] in self?.cachedResolverPullRequests = nil; self?.updateWorkspaceReviewState() }
         _ = coordinator.makeSettings(factory: settingsFactory ?? NativeSettingsFeatureFactory(desktop: desktop, copy: copy, adBlocker: .shared), shell: shell, runtime: self)
@@ -426,11 +428,12 @@ public final class AppViewModel {
         openStart(in: project.id, agent: agent)
     }
 
-    /// Every session starts on its project's Start page: this opens it, filled in.
-    func openStart(in projectID: String, text: String? = nil, agent: SessionAgent? = nil) {
+    /// Every session starts on its project's Start page: this opens it, filled in. `jiraKey` is
+    /// the ticket a pull request link references, for the session created from it.
+    func openStart(in projectID: String, text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) {
         guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
         select(.project(projectID))
-        projectModels[projectID]?.start(text: text, agent: agent)
+        projectModels[projectID]?.start(text: text, jiraKey: jiraKey, agent: agent)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,
@@ -467,19 +470,6 @@ public final class AppViewModel {
     /// The session a list row's page already has — what its badge and menu title show.
     func pageSessionMark(_ request: OpenPageRequest) -> PageSessionMark? {
         existingSession(for: request).map(PageSessionMark.init)
-    }
-
-    /// A list row's Go to Session or New Session: go to the page's session, or open its project's
-    /// Start with the page filled in. No session is created here.
-    func openPageSession(_ request: OpenPageRequest) async throws {
-        if let session = existingSession(for: request) {
-            select(.session(session.id)); return
-        }
-        guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
-            throw BackendError.operation(String(localized: "No project with a workspace matches this page."))
-        }
-        guard canStartSession else { throw BackendError.operation(String(localized: "A session cannot be started right now.")) }
-        openStart(in: project.id, text: request.url)
     }
 
     public func canPerform(_ command: ShellCommand) -> Bool {
@@ -701,15 +691,32 @@ public final class AppViewModel {
                                            kind: "jira", title: key))
     }
 
+    /// Every PR or ticket click — a row or its Go to Session / New Session, a board card, an
+    /// Activity entry, a tray review, a notice: the page's session when it has one, else its
+    /// project's Start with the link (and the ticket a pull request references) filled in. No
+    /// session is created here, and nothing opens outside Cascade: a page no local project claims
+    /// is an error for the surface to show. A superseded click opens nothing.
     func openPage(_ request: OpenPageRequest) async throws {
         try Task.checkCancellation()
         guard safeWebURL(request.url) != nil else { throw BackendError.operation(String(localized: "Invalid page address.")) }
-        if request.inSession { try await openPageSession(request); return }
-        // Any other page opens in the system browser, even one that has a session: Go to Session is
-        // the row menu's.
-        guard let url = safeWebURL(request.url), desktop.openBrowser(url) else {
-            throw BackendError.operation(String(localized: "Could not open the page in the browser."))
+        if let session = existingSession(for: request) {
+            select(.session(session.id)); return
         }
+        guard SessionPage.parse(request.url) != nil, let project = Self.pageSessionProject(for: request, in: projects) else {
+            throw BackendError.operation(String(localized: "No project with a workspace matches this page."))
+        }
+        guard canStartSession else { throw BackendError.operation(String(localized: "A session cannot be started right now.")) }
+        openStart(in: project.id, text: request.url, jiraKey: request.jiraKeys.first)
+    }
+
+    /// A click from outside the window (the tray, a notice) that could not open: the window shows
+    /// the Dashboard, where the app reports its errors, with the reason. `showWindow` is false
+    /// where the caller brings the window up itself.
+    func reportOutsideOpenFailure(_ error: any Error, showWindow: Bool = true) {
+        guard !(error is CancellationError) else { return }
+        select(.overview)
+        reportRootError(error.localizedDescription)
+        if showWindow { showMainWindow?() }
     }
 
     public func makeTray(openWindow: @escaping () -> Void, dismiss: @escaping () -> Void,
@@ -727,8 +734,6 @@ public final class AppViewModel {
         // A switch hides the session it leaves, which the pool may now stop.
         sessionPool.trim()
     }
-    /// For the area extensions: `desktop` is private to this file.
-    func openInBrowser(_ url: URL) -> Bool { desktop.openBrowser(url) }
     /// For the area extensions: `error` is only settable from this file.
     func reportRootError(_ message: String) { error = message }
 
@@ -1378,9 +1383,10 @@ public final class AppViewModel {
                     if selection.isSidebarBacked,
                        !sidebarEntries.flatMap(\.descendants).contains(where: { $0.destinations.contains(selection) }) { select(.overview) }
                     lastUpdate = Date()
-                    // The pass is clean; what is left to say is the page tabs' store's notice, told
-                    // once, after the pass so nothing here clears it: it has no screen of its own.
-                    error = viewer.takeRecoveryNotice() ?? viewer.lastError
+                    // The pass is clean; what is left to say is the page tabs' store's notice, or
+                    // that an earlier build's sidebar tabs are gone, each told once, after the pass
+                    // so nothing here clears it: neither has a screen of its own.
+                    error = viewer.takeRecoveryNotice() ?? platformFactory.sidebarTabsRemovalNotice() ?? viewer.lastError
                     coordinator.setRoutingReady(started && connection == "Connected")
                 } catch {
                     if !Task.isCancelled { self.error = error.localizedDescription; coordinator.setRoutingReady(false) }

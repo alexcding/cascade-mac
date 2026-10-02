@@ -4,14 +4,14 @@ extension AppViewModel: NotificationCoordinating {
     func acknowledgeNotificationReview(repo: String, number: Int) {
         shell.acknowledgeReview(repo: repo, number: number)
     }
-    /// A notice whose page has a session selects it, in Cascade; any other link opens in the system
-    /// browser. True only for the session, so the caller brings the window up only then.
+    /// A notice opens as a row's click does (`openPage`): its page's session or its project's
+    /// Start, in Cascade, so the caller brings the window up. A page no project claims is reported
+    /// where the app reports errors, and the caller brings the window up for that too. A
+    /// superseded click opens nothing.
     func openNotificationPage(_ request: OpenPageRequest) async throws -> Bool {
-        if let session = existingSession(for: request) { select(.session(session.id)); return true }
-        do { try await openPage(request) } catch {
-            guard let url = safeWebURL(request.url), openInBrowser(url) else { throw error }
-        }
-        return false
+        // The notice's coordinator brings the window up for a failure itself.
+        do { try await openPage(request) } catch { reportOutsideOpenFailure(error, showWindow: false); throw error }
+        return true
     }
 
     public func configureNativeNotifications(isMainWindowFocused: @escaping () -> Bool,

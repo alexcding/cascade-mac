@@ -92,7 +92,7 @@ private struct RoutingRows: DashboardService {
     #expect(model.sessionMark(worked)?.cli == "claude" && model.sessionMark(fresh) == nil)
     // The lookup is asked exactly what Open in Session would send: the row's project, branch and keys.
     let asked = try #require(actions.asked.first)
-    #expect(asked.inSession && asked.projectID == "w" && asked.branch == "me/fix/WID-3-thing" && asked.jiraKeys == ["WID-3"])
+    #expect(asked.projectID == "w" && asked.branch == "me/fix/WID-3-thing" && asked.jiraKeys == ["WID-3"])
     await model.stop(); coordinator.retire()
 }
 
@@ -131,5 +131,5 @@ private struct RoutingBoard: BoardService {
     while model.loading || model.siteURL == nil { await Task.yield() }
     #expect(model.sessionMark(one)?.cli == "claude" && model.sessionMark(Ticket(key: "REC-2", summary: "two", status: "Ready", statusId: "1")) == nil)
     let asked = actions.asked.first
-    #expect(asked?.inSession == true && asked?.projectID == "w" && asked?.kind == "jira" && asked?.url == "https://jira.test/browse/REC-1")
+    #expect(asked?.projectID == "w" && asked?.kind == "jira" && asked?.url == "https://jira.test/browse/REC-1")
 }

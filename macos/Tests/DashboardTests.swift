@@ -78,7 +78,7 @@ private actor DashboardFixture: DashboardService {
     let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil })), actions = ProjectPageActions()
     let model = await connectedDashboard(root, actions: actions), row = try #require(model.prs.reviews.first)
     #expect(root.dashboardCoordinator?.model === model)
-    root.navigate(to: .terminal); model.open(row); model.openSession(row); await model.navigation.waitForOpen()
+    root.navigate(to: .terminal); model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.isEmpty)
     root.navigate(to: .overview)
     actions.failOpen = true; model.open(row); await model.navigation.waitForOpen()
@@ -91,7 +91,7 @@ private actor DashboardFixture: DashboardService {
     let project = try #require(model.prs.projects.first)
     let missing = try JSONDecoder().decode(DashboardPR.self, from: Data(#"{"number":999,"title":"Gone","url":"https://github.com/o/r/pull/999","state":"OPEN","category":"other"}"#.utf8))
     let hidden = DashboardRow(projectID: project.id, projectName: project.name, pr: missing, url: URL(string: missing.url!)!)
-    model.open(hidden); model.openSession(hidden); await model.navigation.waitForOpen()
+    model.open(hidden); await model.navigation.waitForOpen()
     #expect(!actions.opened.contains { $0.url == hidden.url.absoluteString })
     root.dashboardCoordinator?.retire()
     model.connect(DashboardFixture()); model.open(row)
@@ -132,7 +132,7 @@ func dashboardPendingOpenCancelsWhenItsOwnerOrSelectionChanges(change: String) a
     await gate.finish(failing: true); await Task.yield()
     #expect(actions.navigated == [second.url.absoluteString] && model.navigation.error == nil)
     root = nil
-    model.open(first); model.openSession(first); await model.navigation.waitForOpen()
+    model.open(first); await model.navigation.waitForOpen()
     #expect(actions.opened.count == 2)
     child.retire()
 }
@@ -198,10 +198,8 @@ private actor HeldDashboardSnapshot: DashboardService {
     await model.stop()
     model.open(row)
     #expect(actions.opened.isEmpty && model.navigation.error == "Connect to open pull requests in Cascade.")
-    model.openSession(row)
-    #expect(actions.opened.isEmpty && model.navigation.error == "Connect to open pull requests in Cascade.")
     root.dashboardCoordinator?.retire()
-    model.open(row); model.openSession(row); await model.navigation.waitForOpen()
+    model.open(row); await model.navigation.waitForOpen()
     #expect(actions.opened.isEmpty)
 }
 

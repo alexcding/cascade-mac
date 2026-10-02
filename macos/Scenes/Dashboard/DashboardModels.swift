@@ -165,18 +165,11 @@ struct OpenPageRequest: Equatable, Sendable {
     var branch: String = ""
     var category: String = ""
     var login: String = ""
-    /// Open the page's session instead of the browser: the one it already has, else its project's
-    /// Start with the page filled in. `projectID` is the row's project, which scopes the session
-    /// lookup for a click and its badge alike; two projects can track one repository.
-    var inSession = false
+    /// The row's project, which scopes the session lookup for a click and its badge alike; two
+    /// projects can track one repository.
     var projectID: String? = nil
     /// The Jira keys a PR references: a session started from one of those tickets is the PR's too.
     var jiraKeys: [String] = []
-
-    /// A session start already says what failed; a page open needs the surface's own words.
-    func failure(_ description: String, _ error: any Error) -> String {
-        inSession ? error.localizedDescription : "\(description): \(error.localizedDescription)"
-    }
 }
 
 /// A Jira ticket or GitHub issue assigned to the user, as the home screen's Tickets section and My Tickets show it.

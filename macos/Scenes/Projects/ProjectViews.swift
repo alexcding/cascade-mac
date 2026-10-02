@@ -213,7 +213,6 @@ struct ProjectComposerView: View {
             Text("What are we working on in \(project.name)?")
                 .font(.system(size: 24, weight: .semibold)).multilineTextAlignment(.center)
             VStack(alignment: .leading, spacing: 10) {
-                if let context = model.contextURL { contextChip(context) }
                 TextField(model.placeholderText, text: $model.text, axis: .vertical)
                     .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(3...10)
                     .frame(minHeight: 64, alignment: .topLeading)
@@ -297,21 +296,6 @@ struct ProjectComposerView: View {
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .help(String(localized: "The branch a new branch forks from"))
         .accessibilityLabel(String(localized: "Branch from \(model.base)"))
-    }
-
-    /// The plain page this start was asked from: the session opens beside it, unless removed.
-    private func contextChip(_ url: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "globe").foregroundStyle(.secondary)
-            Text(URL(string: url)?.host() ?? url).lineLimit(1).truncationMode(.middle)
-            Button { model.clearContext() } label: { Image(systemName: "xmark") }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                .help(String(localized: "Start without this page"))
-                .accessibilityLabel(String(localized: "Start without this page"))
-        }
-        .font(.system(size: 12))
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(Theme.surfaceHover))
     }
 }
 

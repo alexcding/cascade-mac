@@ -44,7 +44,7 @@ private final class DocumentHTTPFixture: URLProtocol, @unchecked Sendable {
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState { .init(connected: true) }
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func documentFactorySurvivesCacheRestorationReopenAndContextPromotion() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func documentFactorySurvivesCacheRestorationAndReopen() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [DocumentHTTPFixture.self]
     let session = URLSession(configuration: configuration)
@@ -70,7 +70,6 @@ private final class DocumentHTTPFixture: URLProtocol, @unchecked Sendable {
     #expect(existing === restored && factory.editors.count == 1)
     let surface = try #require(factory.surfaces.first)
     surface.edit("unsaved restored buffer")
-    try viewer.promoteContext(from: "documents", to: "task:documents")
     #expect(viewer.active === context && context.activeDocument === restored)
     #expect(factory.editors.count == 1 && restored.dirty && restored.surface === surface)
     let second = try #require(context.openFile("/fixture/new.swift"))

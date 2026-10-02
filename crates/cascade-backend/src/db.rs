@@ -952,17 +952,6 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
     }
     conn.execute_batch(include_str!("schema_durable.sql"))?;
     for migration in [
-        "ALTER TABLE tabs ADD COLUMN category TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE tabs ADD COLUMN pane_view TEXT NOT NULL DEFAULT 'term'",
-        "ALTER TABLE tabs ADD COLUMN login TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE tabs ADD COLUMN avatar TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE tabs ADD COLUMN links TEXT NOT NULL DEFAULT '[]'",
-        "ALTER TABLE tabs ADD COLUMN cur TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE tabs ADD COLUMN diff_open INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE tabs ADD COLUMN diff_pos INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE tabs ADD COLUMN page_closed INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE tabs ADD COLUMN history TEXT NOT NULL DEFAULT '[]'",
-        "ALTER TABLE tabs ADD COLUMN standalone INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN forward_webhooks INTEGER NOT NULL DEFAULT 1",
         "ALTER TABLE projects ADD COLUMN fix_version_enabled INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN fix_version_prefix TEXT NOT NULL DEFAULT ''",
@@ -983,7 +972,6 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tasks ADD COLUMN fork_from TEXT NOT NULL DEFAULT ''",
         // The session a fork was made from, kept for good so the sidebar can mark it.
         "ALTER TABLE tasks ADD COLUMN forked_from TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE tabs ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
         // Whether the project page shows its Jira sprint board as a tab.
         "ALTER TABLE projects ADD COLUMN board_enabled INTEGER NOT NULL DEFAULT 0",
@@ -995,38 +983,7 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "UPDATE projects SET fix_version_script = fix_version_prefix || fix_version_script, fix_version_prefix = '' WHERE fix_version_prefix <> ''",
         [],
     );
-    migrate_tabs_to_ids(conn)?;
     Ok(())
-}
-
-/// Tabs used to be keyed by URL, so two tabs could never show the same page. Each tab now has
-/// its own id; existing rows get one and keep everything else.
-fn migrate_tabs_to_ids(conn: &Connection) -> rusqlite::Result<()> {
-    let columns: Vec<String> = conn
-        .prepare("PRAGMA table_info(tabs)")?
-        .query_map([], |r| r.get::<_, String>(1))?
-        .collect::<rusqlite::Result<_>>()?;
-    if columns.is_empty() || columns.iter().any(|name| name == "id") {
-        return Ok(());
-    }
-    conn.execute_batch(
-        "BEGIN;
-         DROP TABLE IF EXISTS tabs_with_ids;
-         CREATE TABLE tabs_with_ids (
-           id TEXT PRIMARY KEY, url TEXT NOT NULL, kind TEXT NOT NULL, title TEXT, repo TEXT, branch TEXT,
-           pane_view TEXT NOT NULL DEFAULT 'term', diff_open INTEGER NOT NULL DEFAULT 0,
-           page_closed INTEGER NOT NULL DEFAULT 0, diff_pos INTEGER NOT NULL DEFAULT 0,
-           category TEXT NOT NULL DEFAULT '', login TEXT NOT NULL DEFAULT '', avatar TEXT NOT NULL DEFAULT '',
-           links TEXT NOT NULL DEFAULT '[]', cur TEXT NOT NULL DEFAULT '', history TEXT NOT NULL DEFAULT '[]',
-           position INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 0,
-           pinned INTEGER NOT NULL DEFAULT 0, standalone INTEGER NOT NULL DEFAULT 0
-         );
-         INSERT INTO tabs_with_ids(id,url,kind,title,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,cur,history,position,active,pinned)
-           SELECT lower(hex(randomblob(16))),url,kind,title,repo,branch,pane_view,diff_open,page_closed,diff_pos,category,login,avatar,links,cur,history,position,active,pinned FROM tabs;
-         DROP TABLE tabs;
-         ALTER TABLE tabs_with_ids RENAME TO tabs;
-         COMMIT;",
-    )
 }
 
 fn initialize_cache(conn: &Connection) -> rusqlite::Result<()> {

@@ -194,31 +194,12 @@ extension DashboardViewModel {
     func open(_ row: DashboardRow) {
         request(currentRow(row).map(\.openPageRequest))
     }
-    func openSession(_ row: DashboardRow) {
-        request(currentRow(row).map { Self.sessionRequest($0) })
-    }
-    func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
+    func sessionMark(_ row: DashboardRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(row.openPageRequest) }
 
     func open(_ row: DashboardTicketRow) {
         request(currentTicket(row).map(\.openPageRequest))
     }
-    func openSession(_ row: DashboardTicketRow) {
-        request(currentTicket(row).map { Self.sessionRequest($0) })
-    }
-    func sessionMark(_ row: DashboardTicketRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(Self.sessionRequest(row)) }
-
-    static func sessionRequest(_ row: DashboardRow) -> OpenPageRequest {
-        var request = row.openPageRequest
-        request.inSession = true
-        request.projectID = row.projectID
-        return request
-    }
-
-    static func sessionRequest(_ row: DashboardTicketRow) -> OpenPageRequest {
-        var request = row.openPageRequest
-        request.inSession = true
-        return request
-    }
+    func sessionMark(_ row: DashboardTicketRow) -> PageSessionMark? { retired ? nil : navigation.pageSession(row.openPageRequest) }
 
     func cancelActions() { navigation.cancel() }
 

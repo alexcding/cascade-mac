@@ -75,16 +75,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
 }
 
 @MainActor @Observable final class WorkspaceContext: @MainActor Identifiable {
-    /// What a panel is, which decides what it can hold. Read from the id where the id is minted and
-    /// again where promotion rewrites it, so nothing else has to know how an id is spelled.
-    enum Kind: Equatable {
-        case session, scratch
-        init(id: String) {
-            if id.hasPrefix("task:") { self = .session } else { self = .scratch }
-        }
-    }
-    fileprivate(set) var id: String { didSet { kind = Kind(id: id) } }
-    private(set) var kind: Kind
+    let id: String
     let sourceURL: String
     private(set) var pages: [BrowserPage] = []
     private(set) var documents: [EditorDocumentViewModel] = []
@@ -146,7 +137,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
          pageFactory: BrowserPageFactory = BrowserPageFactory(),
          documentFactory: any DocumentFeatureFactory = NativeDocumentFeatureFactory(),
          closeCoordinator: EditorCloseCoordinator? = nil) {
-        self.id = id; self.kind = Kind(id: id); self.sourceURL = sourceURL
+        self.id = id; self.sourceURL = sourceURL
         self.pageFactory = pageFactory
         self.documentFactory = documentFactory
         self.closeCoordinator = closeCoordinator ?? EditorCloseCoordinator(factory: documentFactory)
@@ -216,21 +207,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         pane = value; changed()
     }
     func present() { if pane == .off { setPane(lastMode.pane) } }
-    fileprivate func absorb(_ source: WorkspaceContext) {
-        let pageIDs = Set(pages.map(\.id)), documentIDs = Set(documents.map(\.id))
-        let incomingPages = source.pages.filter { !pageIDs.contains($0.id) }
-        let incomingDocuments = source.documents.filter { !documentIDs.contains($0.id) }
-        pages += incomingPages; documents += incomingDocuments
-        incomingPages.forEach(wire); incomingDocuments.forEach(wire)
-        tabOrder = Self.order(tabOrder + source.tabOrder, ids: pages.map(\.id) + documents.map(\.id))
-        history += source.history.filter { value in !history.contains { $0.id == value.id } }
-        fileHistory += source.fileHistory.filter { value in !fileHistory.contains { $0.id == value.id } }
-        historyOrder = Self.order(historyOrder + source.historyOrder, ids: history.map(\.id) + fileHistory.map(\.id))
-        trimHistory()
-        if let selected = source.activeID, tabOrder.contains(selected) { activeID = selected }
-        source.changed = {}; source.activatePage = { _ in }; source.activateDocument = { _ in }
-        source.pages = []; source.documents = []; source.tabOrder = []; source.activeID = nil
-    }
     func select(_ page: BrowserPage) {
         activeID = page.id; pane = .term; activatePage(page); changed()
     }
@@ -620,26 +596,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         return context
     }
     func deactivate() { activeContextID = nil }
-    func promoteContext(from sourceID: String, to destinationID: String) throws {
-        guard sourceID != destinationID, let source = contexts[sourceID] else {
-            throw BackendError.operation(String(localized: "The source page is no longer available. Open its session to continue."))
-        }
-        // Move the actual objects, including dirty documents and live WebKit
-        // pages. Recreating them from a snapshot would discard unsaved buffers.
-        fileOpen.cancel()
-        contexts.removeValue(forKey: sourceID)
-        let context: WorkspaceContext
-        if let existing = contexts[destinationID] {
-            source.workspaceViewModel?.setActive(false)
-            existing.absorb(source); context = existing
-        } else {
-            source.id = destinationID; contexts[destinationID] = source; context = source
-        }
-        if activeContextID == sourceID { activeContextID = destinationID }
-        context.setPane(.term)
-        // Keep the old persisted snapshot as history for reopening the page.
-        // Outstanding writes under its old key cannot overwrite this context.
-    }
     func remove(id: String) async {
         if fileOpen.request?.contextID == id { fileOpen.cancel() }
         let context = contexts.removeValue(forKey: id)

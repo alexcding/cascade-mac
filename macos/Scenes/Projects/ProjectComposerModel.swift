@@ -15,8 +15,9 @@ import Observation
     /// "Branch from": what a new branch forks from.
     var base = ""
     private(set) var agent: SessionAgent
-    /// A plain page the session was asked for from: its context, when no PR or ticket is typed.
-    private(set) var contextURL: String?
+    /// The ticket a link put here references (a PR row's Jira key), kept with the text it came
+    /// with: recorded on the session created from that same text when its lookup names none.
+    private(set) var linkedKey: (text: String, key: String)?
     private(set) var branches: [String] = []
     /// The typed address, resolved: its title, branch, and an existing checkout to reuse.
     private(set) var resolved: SessionDraft?
@@ -120,16 +121,18 @@ import Observation
         self.agent = agent
     }
 
-    /// Opens the page to start something: a link to start on, or the plain page it was asked from.
-    func prepare(text: String?, contextURL: String?, agent: SessionAgent?) {
+    /// Opens the page to start something, on a link when one is given, with the ticket that
+    /// link's pull request references.
+    func prepare(text: String?, jiraKey: String? = nil, agent: SessionAgent?) {
         guard !retired else { return }
         if let agent { self.agent = agent }
-        self.contextURL = contextURL.flatMap { SessionPage.parse($0) == nil ? $0 : nil }
-        if let text { self.text = text }
+        if let text {
+            self.text = text
+            let key = jiraKey?.trimmingCharacters(in: .whitespaces).uppercased() ?? ""
+            linkedKey = key.isEmpty ? nil : (text.trimmingCharacters(in: .whitespacesAndNewlines), key)
+        }
         focusRequest += 1
     }
-
-    func clearContext() { guard !retired else { return }; contextURL = nil }
 
     func retire() {
         retired = true; operations = nil; onAction = { _ in }
@@ -229,14 +232,16 @@ import Observation
         } else if namesBranch {
             let branch = shellBranch
             if let problem = ProjectSessionStart.branchNameError(branch) { inputError = problem; return }
-            creation.branch = branch; creation.createBranch = !branches.contains(branch); creation.url = contextURL ?? ""
+            creation.branch = branch; creation.createBranch = !branches.contains(branch)
         } else {
             creation.branch = taskBranch; creation.createBranch = true
-            creation.title = ProjectSessionStart.title(for: typed); creation.url = contextURL ?? ""
+            creation.title = ProjectSessionStart.title(for: typed)
             prompt = typed
         }
         guard !retired, !Task.isCancelled, inputGeneration == generation else { return }
-        let usedContext = contextURL, usedBranch = pullRequestBranch
+        // A ticket the row's pull request references, when the lookup names none.
+        if page != nil, creation.jiraKey.isEmpty, let linkedKey, linkedKey.text == typed { creation.jiraKey = linkedKey.key }
+        let usedBranch = pullRequestBranch
         do {
             let session = try await operations.create(project: project, draft: creation)
             guard !retired else { return }
@@ -246,7 +251,6 @@ import Observation
             // The branch named for a pull request belongs to that one: it never carries over to a
             // link opened meanwhile, unless it was typed again since.
             if pullRequestBranch == usedBranch { pullRequestBranch = "" }
-            if contextURL == usedContext { contextURL = nil }
             onAction(.created(session, prompt: prompt))
             // The new branch is the repository's now: the next task must not take its name.
             referenceTask = nil

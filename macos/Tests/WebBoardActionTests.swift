@@ -19,17 +19,15 @@ private struct BoardTicketActionService: BoardService {
     board.onAction = { emitted.append($0) }
     let ticket = Ticket(key: "REC-1", summary: "Login crash")
     board.open(ticket)
-    board.openSession(ticket)
     var page = OpenPageRequest(url: "https://jira.example.test/browse/REC-1", kind: "jira", title: "REC-1")
     page.projectID = "board-actions"
-    var session = page; session.inSession = true
-    #expect(emitted == [.open(page), .open(session)])
+    #expect(emitted == [.open(page)])
     // No configured Jira site resolves to nothing, so nothing reaches the coordinator.
     emitted = []
     let unconfigured = WebBoardViewModel(projectID: "board-actions", service: BoardTicketActionService(configured: false), pageActions: actions)
     unconfigured.active = true
     while unconfigured.loading { await Task.yield() }
     unconfigured.onAction = { emitted.append($0) }
-    unconfigured.open(ticket); unconfigured.openSession(ticket)
+    unconfigured.open(ticket)
     #expect(emitted.isEmpty && unconfigured.error == "Configure the Jira site before opening a ticket.")
 }

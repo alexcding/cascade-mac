@@ -57,12 +57,3 @@ import WebKit
     #expect(!PageMenuTracking.active)
 }
 
-@MainActor @Test func aPanelsKindFollowsItsIdThroughPromotion() throws {
-    #expect(WorkspaceContext(id: "task:one", sourceURL: "", title: "Session").kind == .session)
-    #expect(WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal").kind == .scratch)
-    let viewer = ViewerStore()
-    let context = viewer.select(id: "page:promoted", url: "", title: "Page")
-    #expect(context.kind == .scratch)
-    try viewer.promoteContext(from: "page:promoted", to: "task:promoted")
-    #expect(context.kind == .session)
-}

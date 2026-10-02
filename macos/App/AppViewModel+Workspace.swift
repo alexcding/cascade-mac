@@ -31,10 +31,8 @@ extension AppViewModel: WorkspaceCoordinating {
         let session = sessions.first { "task:\($0.id)" == context.id }
         let project = session.flatMap { session in projects.first { $0.id == session.projectId } }
         let base = session.flatMap { session in dashboard?.prs.projects.flatMap(\.prs).first { $0.url == session.url }?.baseRefName }
-        let title: String
-        if context.id == "scratch" { title = String(localized: "Terminal") }
-        else if let session { title = session.label }
-        else { title = String(localized: "Tab") }
+        // A session's context whose record has not loaded yet reads as a session, not a page.
+        let title = context.id == "scratch" ? String(localized: "Terminal") : session?.label ?? String(localized: "Session")
         return SessionWorkspaceState(session: session, project: project, terminal: terminals[context.id],
             buildTerminal: terminals["build:\(context.sourceURL)"], build: buildModels[context.id],
             history: historyModels[context.id], diff: diffModels[context.id],

@@ -89,11 +89,12 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         updateBoardModel()
         updateBoard()
     }
-    /// Opens Start to begin a session: on a link, or from the plain page it was asked from.
-    func start(text: String? = nil, contextURL: String? = nil, agent: SessionAgent? = nil) {
+    /// Opens Start to begin a session, on a link when one is given. `jiraKey` is the ticket the
+    /// link's pull request references, recorded on the session its lookup names no ticket for.
+    func start(text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) {
         guard !retired else { return }
         section = .start
-        composer.prepare(text: text, contextURL: contextURL, agent: agent)
+        composer.prepare(text: text, jiraKey: jiraKey, agent: agent)
     }
     /// A Jira sync for this project's board, or for every board.
     func refreshBoard(event id: String?) {

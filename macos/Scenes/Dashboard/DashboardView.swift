@@ -225,7 +225,7 @@ struct DashboardView: View {
         return DashboardPRRow(row: row, mark: mark, opening: model.navigation.opening == row.url.absoluteString,
                               first: first, compact: compact, showsAuthor: author, open: { model.open(row) })
             .contextMenu {
-                PageRowMenu(hasSession: mark != nil, session: { model.openSession(row) })
+                PageRowMenu(hasSession: mark != nil, open: { model.open(row) })
             }
     }
 
@@ -331,7 +331,7 @@ struct DashboardView: View {
         .disabled(model.navigation.opening == row.url.absoluteString)
         .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
         .contextMenu {
-            PageRowMenu(hasSession: model.sessionMark(row) != nil, session: { model.openSession(row) })
+            PageRowMenu(hasSession: model.sessionMark(row) != nil, open: { model.open(row) })
         }
     }
 
@@ -842,7 +842,7 @@ private struct ChecksIcon: View {
 }
 
 struct DashboardCard: View {
-    let row: DashboardRow; let opening: Bool; let open: () -> Void; let session: () -> Void
+    let row: DashboardRow; let opening: Bool; let open: () -> Void
     var sessionMark: PageSessionMark? = nil
     private var hasSession: Bool { sessionMark != nil }
     @State private var hovering = false
@@ -874,7 +874,7 @@ struct DashboardCard: View {
                 .background(hovering ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(opening).onHover { hovering = $0 }
             .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-            .contextMenu { PageRowMenu(hasSession: hasSession, session: session) }
+            .contextMenu { PageRowMenu(hasSession: hasSession, open: open) }
     }
     @ViewBuilder private func reviewState(_ status: String) -> some View {
         if row.pr.isDraft == true {

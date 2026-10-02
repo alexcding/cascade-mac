@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 
 /// Site icons for web tabs, keyed by host. The icon the site's page declares is tried first,
 /// then `/favicon.ico`, then DuckDuckGo's icon service for public hosts. Images live
-/// for the process; a finished fetch posts `SidebarAvatars.loaded` so AppKit rows refresh,
-/// and `images` is observable so SwiftUI toolbars update on their own.
+/// for the process; a finished fetch posts `SidebarAvatars.loaded` for the AppKit surfaces that
+/// listen (the tray), and `images` is observable so SwiftUI views update on their own.
 @MainActor @Observable final class FaviconStore {
     static let shared = FaviconStore()
     private(set) var images: [String: NSImage] = [:]

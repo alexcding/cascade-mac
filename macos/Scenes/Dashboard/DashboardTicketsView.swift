@@ -42,8 +42,7 @@ struct DashboardTicketsView: View {
                         .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
                 } else {
                     DashboardTicketTable(rows: rows, opening: model.navigation.opening,
-                        open: { model.open($0) },
-                        session: { model.openSession($0) }, sessionMark: model.sessionMark)
+                        open: { model.open($0) }, sessionMark: model.sessionMark)
                 }
             }
             .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
@@ -90,7 +89,6 @@ struct DashboardTicketTable: View {
     let rows: [DashboardTicketRow]
     let opening: String?
     let open: (DashboardTicketRow) -> Void
-    let session: (DashboardTicketRow) -> Void
     let sessionMark: (DashboardTicketRow) -> PageSessionMark?
     @State private var sortOrder: [KeyPathComparator<DashboardTicketRow>] = []
     @State private var selection: DashboardTicketRow.ID?
@@ -173,7 +171,7 @@ struct DashboardTicketTable: View {
         .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
         .contextMenu(forSelectionType: DashboardTicketRow.ID.self) { ids in
             if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, session: { session(row) })
+                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) })
             }
         } primaryAction: { ids in
             if let row = row(ids.first) { open(row) }

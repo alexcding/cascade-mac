@@ -67,7 +67,7 @@ import Testing
     #expect(!model.canShowChanges)
 }
 
-@MainActor @Test func workspaceModelRefreshesOnlyVisibleReviewsAndRetainsIdentityThroughPromotion() throws {
+@MainActor @Test func workspaceModelRefreshesOnlyVisibleReviewsAndRetainsIdentity() throws {
     let service = WorkspaceFixture(), factory = CountingWorkspaceFactory(), viewer = ViewerStore()
     viewer.prepareContext = { [service] context in
         context.configureWorkspace(factory: factory, service: service)
@@ -75,12 +75,9 @@ import Testing
             if let context { service?.record(action, in: context) }
         }
     }
-    let context = viewer.select(id: "page", url: "", title: "Page")
+    let context = viewer.select(id: "task:prepared", url: "", title: "Prepared")
     let model = try #require(context.workspaceViewModel)
     let document = try #require(context.openFile("/tmp/Workspace.swift"))
-    _ = viewer.select(id: "page", url: "", title: "Page")
-    #expect(context.workspaceViewModel === model && factory.creations == 1)
-    try viewer.promoteContext(from: "page", to: "task:prepared")
     _ = viewer.select(id: "task:prepared", url: "", title: "Prepared")
     #expect(viewer.active === context && context.workspaceViewModel === model && factory.creations == 1)
     #expect(context.activeDocument === document)

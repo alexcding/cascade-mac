@@ -95,25 +95,6 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
 }
 
 
-@MainActor @Test func pagePromotionRetainsLiveContextObjectsAndMergesExistingContext() throws {
-    let viewer = ViewerStore()
-    let pageID = "tab:https://jira.test/browse/REC-1"
-    let context = viewer.select(id: pageID, url: "", title: "Issue")
-    let document = try #require(context.openFile("/tmp/Page.swift"))
-    let selection = context.activeID
-    try viewer.promoteContext(from: pageID, to: "task:prepared")
-    #expect(viewer.contexts[pageID] == nil)
-    #expect(viewer.active === context && context.id == "task:prepared")
-    #expect(context.documents.first === document && context.activeID == selection)
-    let other = viewer.select(id: "task:other", url: "", title: "Other")
-    let otherDocument = try #require(other.openFile("/tmp/Other.swift"))
-    _ = viewer.select(id: "task:prepared", url: "", title: "")
-    try viewer.promoteContext(from: "task:prepared", to: "task:other")
-    #expect(viewer.contexts["task:prepared"] == nil && viewer.active === other)
-    #expect(other.documents.first === otherDocument && other.documents.last === document)
-    #expect(other.activeDocument === document && context.documents.isEmpty)
-}
-
 private actor ScriptedSessionService: SessionCreating {
     var resolutionError: (any Error)?
     var referencesFail = false

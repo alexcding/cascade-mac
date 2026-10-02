@@ -10,7 +10,6 @@ import Observation
     @ObservationIgnored private let failureDescription: String
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var feedbackGeneration = UUID()
-    @ObservationIgnored private var openingInSession = false
     @ObservationIgnored private var task: Task<Void, Never>? { didSet { oldValue?.cancel() } }
 
     init(service: any PageActionServing, failureDescription: String = String(localized: "Could not open ticket")) {
@@ -18,11 +17,11 @@ import Observation
     }
 
     func open(_ request: OpenPageRequest) {
-        // The same row asked another way — click or session — is a new request, not a repeat.
-        guard opening != request.url || openingInSession != request.inSession else { return }
+        // A repeat of the open in flight is ignored.
+        guard opening != request.url else { return }
         let generation = UUID(), feedback = UUID()
         self.generation = generation; feedbackGeneration = feedback
-        opening = request.url; openingInSession = request.inSession; error = nil
+        opening = request.url; error = nil
         let service = service
         let failureDescription = failureDescription
         task = Task { [weak self] in
@@ -32,7 +31,7 @@ import Observation
                 try await service.openPage(request)
             } catch {
                 if !Task.isCancelled && self?.generation == generation && self?.feedbackGeneration == feedback {
-                    self?.error = request.failure(failureDescription, error)
+                    self?.error = "\(failureDescription): \(error.localizedDescription)"
                 }
             }
         }
