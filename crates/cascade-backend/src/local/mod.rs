@@ -108,8 +108,11 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// `--no-optional-locks`: a read such as `git diff` or `git status` may otherwise refresh the index
+/// and take `index.lock` to write it back. The Changes pane reads as the worktree changes, so without
+/// it a commit made in a terminal meanwhile could find the lock held.
 async fn git(dir: &str, args: Vec<String>, timeout: u64) -> anyhow::Result<String> {
-    let mut all = vec!["-C".into(), dir.into()];
+    let mut all = vec!["--no-optional-locks".into(), "-C".into(), dir.into()];
     all.extend(args);
     cli::run("git", all, Duration::from_secs(timeout)).await
 }
