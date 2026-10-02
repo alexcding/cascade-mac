@@ -169,6 +169,9 @@ public actor APIClient {
         var components = URLComponents()
         components.path = path
         components.queryItems = values.keys.sorted().map { URLQueryItem(name: $0, value: values[$0]) }
+        // URLComponents leaves "+" as it is, and the backend reads a query's "+" as a space: a file
+        // named `View+Extensions.swift` was asked for as `View Extensions.swift`, and not found.
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         return components.string ?? path
     }
 
