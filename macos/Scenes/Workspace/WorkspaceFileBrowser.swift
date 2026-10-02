@@ -79,7 +79,9 @@ struct WorkspaceFileBrowser: View {
                 FileBrowserMain(document: document, hasRoot: root != nil)
             }
         }
-        .background(Theme.paneBackground)
+        // Not into the safe area, as a background goes by default: the pane draws its tab strip
+        // there, above this view, and the background would paint over it.
+        .background(Theme.paneBackground, ignoresSafeAreaEdges: [])
     }
 
     /// The browser's address row, drawn the same way (`BrowserCompactTabBar`, part `address`): Back

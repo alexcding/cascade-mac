@@ -62,6 +62,8 @@ import SwiftUI
 
     private func apply(_ next: WindowToolbar) {
         current = next
+        // A picker offered more or fewer choices is another width: read once AppKit has laid it out.
+        defer { DispatchQueue.main.async { [weak self] in self?.measurePane() } }
         let identifiers = Self.identifiers(for: next)
         // A group's choices are fixed once it is made, so a picker offering others is a new toolbar too.
         if allItems(next).contains(where: reshapesPicker) || (identifiers != self.identifiers && !canEdit) {
@@ -109,7 +111,9 @@ import SwiftUI
         searchItems[id] = nil
         segmentControls[id] = nil
         pickers[id] = nil
-        toggles[id] = nil
+        if let control = toggles.removeValue(forKey: id)?.control {
+            NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: control)
+        }
         segmentActions[id] = nil
         balances[identifier] = nil
     }
@@ -125,6 +129,9 @@ import SwiftUI
         searchItems = [:]
         segmentControls = [:]
         pickers = [:]
+        for control in toggles.values.map(\.control) {
+            NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: control)
+        }
         toggles = [:]
         segmentActions = [:]
         balances = [:]
@@ -263,6 +270,9 @@ import SwiftUI
             item.label = label
             item.view = control
             toggles[spec.id] = (control, selected)
+            control.postsFrameChangedNotifications = true
+            NotificationCenter.default.addObserver(self, selector: #selector(paneItemResized(_:)),
+                                                   name: NSView.frameDidChangeNotification, object: control)
             segmentActions[spec.id] = select
         case .picker(let label, let choices, let selected, _, let select):
             // AppKit's own group, not a control made here: only the group collapses to one pop-up
@@ -410,6 +420,8 @@ import SwiftUI
     /// with none to the end of the space after them. Read once the middle is balanced, since that
     /// moves it.
     private func measureRoom() {
+        // After the layout below, which it reads without forcing another.
+        defer { measurePane() }
         guard let window, let last = current.leading.last.flatMap({ hosts[$0.id] }), last.window != nil else {
             if room.afterLeading != 0 { room.afterLeading = 0 }
             return
@@ -422,6 +434,27 @@ import SwiftUI
         let free = end.map { max(0, $0 - Self.screenFrame(last).maxX - Self.minimumGap / 2) } ?? 0
         if abs(room.afterLeading - free) >= 1 { room.afterLeading = free.rounded() }
     }
+
+    /// The pane section's items as AppKit sized them, the toolbar's spacing between them, and its
+    /// inset at the window's edge: their width depends on the system and on how many choices a
+    /// picker offers. Widths, never positions: an item not laid out yet sits at the toolbar's origin,
+    /// and its position would read as the whole window. Zero until every item has a width; an
+    /// item's width changing measures again (`paneItemResized`). Only an item with a view of this
+    /// controller's — a toggling picker or a hosted item — can be measured; with any other kind in
+    /// the section (a group picker, a search field) it is not measured at all, rather than measured
+    /// short, and the pane keeps clear of its own estimate.
+    private func measurePane() {
+        let items = current.pane ?? []
+        let views = items.compactMap { toggles[$0.id]?.control ?? hosts[$0.id] }.filter { $0.window != nil }
+        let widths = views.map(\.frame.width)
+        let taken = views.isEmpty || views.count < items.count || widths.contains(0) ? 0
+            : (widths.reduce(0, +) + Self.itemSpacing * CGFloat(views.count - 1) + Self.edgeInset).rounded()
+        if abs(room.paneTrailing - taken) >= 1 { room.paneTrailing = taken }
+    }
+    /// The toolbar's own spacing between items, and from the last to the window's edge, on macOS 26.
+    private static let itemSpacing: CGFloat = 8, edgeInset: CGFloat = 8
+
+    @objc private func paneItemResized(_ notification: Notification) { measurePane() }
 
     /// In full screen the toolbar is in a window of its own, apart from the columns, so frames are
     /// compared on screen and both windows are laid out.
@@ -490,11 +523,15 @@ import SwiftUI
     }
 }
 
-/// The width free after the toolbar's leading items, from `MainToolbarController`. A leading item
-/// may draw into it, as the build title does its session name, but nothing measured may depend on
-/// it: an item that grew with it would take the room it was told of.
+/// The toolbar's room, from `MainToolbarController`. `afterLeading` is the width free after the
+/// leading items: a leading item may draw into it, as the build title does its session name, but
+/// nothing measured may depend on it, since an item that grew with it would take the room it was
+/// told of. `paneTrailing` is what the pane section's items take at the window's trailing edge,
+/// from the first of them to the edge: what a column drawing its own bar in the title-bar zone
+/// keeps clear of (`SessionWorkspacePane`). Zero until measured.
 @MainActor @Observable final class ToolbarRoom {
     var afterLeading: CGFloat = 0
+    var paneTrailing: CGFloat = 0
 }
 
 private extension NSToolbarItem.Identifier {

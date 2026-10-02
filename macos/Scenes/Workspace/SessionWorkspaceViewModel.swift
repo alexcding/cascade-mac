@@ -157,7 +157,7 @@ extension WorkspaceServing {
     /// the toolbar tracking the divider (`MainSplitViewController`).
     var showsInspector: Bool { showsTerminal && showsPage }
     /// Keyboard highlight in the address suggestions; nil means Enter submits the typed text. Here
-    /// rather than in the bar: in the toolbar the bar and its list are drawn apart.
+    /// rather than in the bar, which the list it highlights is drawn apart from.
     var addressHighlight: Int?
     /// The session's agent CLI; a scratch shell or a shell-only session has none, and no footer.
     var agentDriver: (any AgentDriver)? { session.flatMap { SessionAgent(rawValue: $0.cli ?? "")?.driver } }

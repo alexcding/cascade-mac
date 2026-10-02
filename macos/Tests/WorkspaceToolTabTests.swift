@@ -61,14 +61,20 @@ import Testing
         #expect(context.section == .simulator && context.pane == .simulator)
     }
 
-    @Test func thePanesOwnBlankPageIsNoTabUntilNewTabTakesIt() throws {
+    // The pane's own blank page is a New Tab in the strip, with no New Tab button while it is there;
+    // what is typed or picked in it takes its place, and then the button is back. The Files explorer
+    // is such a tab too, until a file picked in it takes its place.
+    @Test func aBlankTabOrTheExplorerIsTheNewTabUntilFilled() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let filler = context.openBlankPage()
         context.fillerPageID = filler.id
-        #expect(context.section == .browser && context.stripTabs.isEmpty, "the strip is only New Tab")
+        #expect(context.stripTabs.map(\.id) == [filler.id] && context.hasUnfilledTab, "a New Tab, and no button")
         let page = context.openBlankPage()
         #expect(page === filler && context.pages.count == 1, "New Tab takes the blank page, not a second one")
-        #expect(context.fillerPageID == nil && context.stripTabs.map(\.id) == [filler.id])
+        context.openTool(.files, replacingBlank: true)
+        #expect(context.stripTabs.map(\.id) == [WorkspaceTool.files.id] && context.hasUnfilledTab, "Files took its place")
+        context.openFromTree("/tmp/tools/picked.swift")
+        #expect(context.stripTabs.count == 1 && context.activeDocument != nil && !context.hasUnfilledTab, "filled: the button is back")
     }
 
     @Test func cyclingFromATabTheStripHidesStartsAtTheEnds() throws {
@@ -131,6 +137,18 @@ import Testing
         context.openFromTree("/tmp/trail/b.swift")
         #expect(context.activeDocument === b && context.canGoBackInFiles, "B's own way back is kept")
         #expect(context.documents.contains { $0 === a }, "the tab left is not closed")
+    }
+
+    // Closing the explorer's tab falls back to the tabs, never to Diff beside it.
+    @Test func closingTheExplorerStaysInTheTabs() throws {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        let blank = context.openBlankPage()
+        context.setPane(.diff)
+        context.select(.page(blank))
+        context.openTool(.files, replacingBlank: true)
+        #expect(context.tabs.map(\.id) == [WorkspaceTool.files.id, WorkspaceTool.changes.id])
+        context.close(.tool(.files))
+        #expect(context.activeTool != .changes && context.pane == .term, "not the Changes tab beside it")
     }
 
     @Test func closingATabSelectsTheNearestPageOrFile() throws {

@@ -312,13 +312,12 @@ struct SessionWorkspaceContextBody: View {
 }
 
 /// The review's controls, all leading: the Changes/History switch, Commit and the changed files'
-/// toggle. Beside a
-/// terminal they are the toolbar's pane section (`SessionWorkspaceToolbar`); a pane with no
-/// terminal beside it draws them as its own top row.
+/// toggle. Beside a terminal the pane draws them in its title-bar zone (`SessionWorkspacePane`); a
+/// pane with no terminal beside it draws them as its own top row.
 struct ReviewBar: View {
     let context: WorkspaceContext
     let diff: DiffViewModel?
-    var inToolbar = false
+    var inTitleBar = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -347,8 +346,8 @@ struct ReviewBar: View {
             }
             Spacer(minLength: 4)
         }
-        .padding(.horizontal, inToolbar ? 0 : 12)
-        .frame(height: inToolbar ? CompactTabMetrics.pillHeight : 44)
+        .padding(.horizontal, inTitleBar ? 0 : 12)
+        .frame(height: inTitleBar ? CompactTabMetrics.pillHeight : 44)
         .accessibilityIdentifier("workspace-review-bar")
     }
 }

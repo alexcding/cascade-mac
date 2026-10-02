@@ -2,11 +2,9 @@ import SwiftUI
 
 /// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or the run
 /// button and build title, flat at the leading edge; the agent's controls in the middle. Beside a
-/// terminal the pane's own section ends at the window's edge in the pane picker — Browser, Files,
-/// Diff, Simulator — which also shows and hides the pane. While the pane is open the section holds,
-/// before the picker, that section's tabs, as ChatGPT's does — the address and navigation are a row
-/// at the top of the pane (`SessionWorkspacePane`) — or over Diff its review controls; shut, the
-/// picker alone.
+/// terminal the pane's own section is the pane picker alone — Tabs, Diff, Simulator — at the
+/// window's edge, which also shows and hides the pane; the pane draws its tabs or Diff's controls
+/// itself, under the toolbar (`SessionWorkspacePane`).
 @MainActor struct SessionWorkspaceToolbar {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -17,22 +15,17 @@ import SwiftUI
             toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
         }
         if model.showsTerminal {
-            // Over the Browser or Files the strip of that section's tabs, over Diff its review
-            // controls, over the Simulator nothing; then the picker, at the window's edge. Shut,
-            // the picker alone.
-            if model.showsPage, model.showsChanges {
-                toolbar.pane = [item("pane-review", style: .fill) { ReviewBar(context: context, diff: model.diff, inToolbar: true) }, panePicker]
-            } else if model.showsPage, model.shownSection != .simulator {
-                toolbar.pane = [item("pane-bar", style: .fill) { BrowserCompactTabBar(context: context, model: model, placement: .toolbar, part: .tabs) }, panePicker]
-            } else {
-                toolbar.pane = [panePicker]
-            }
+            // The picker alone, pane open or shut: the pane draws its tabs or Diff's controls in its
+            // own title-bar zone (`SessionWorkspacePane`), so showing or hiding it changes no item,
+            // and the toolbar's items keep pace with the divider as it slides.
+            toolbar.pane = [panePicker]
         }
         return toolbar
     }
 
     /// The pane's sections, always as segments of symbols, and kept when the toolbar is short of
-    /// room. The shown one is selected only while the pane is open; choosing it again hides the pane.
+    /// room. The shown one is selected only while the pane is open; choosing it again hides the
+    /// pane. The toolbar measures its width for the pane's own bar to keep clear of (`ToolbarRoom`).
     private var panePicker: WindowToolbarItem {
         let sections = model.paneSections
         let shown = model.showsPage ? model.shownSection.flatMap { sections.firstIndex(of: $0) } : nil

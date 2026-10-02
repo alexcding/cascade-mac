@@ -9,17 +9,16 @@ enum CompactTabMetrics {
     static let maxTabWidth: CGFloat = 400
     /// A web tab's cap, a fifth narrower: an address needs less room than a file's name and search.
     static let maxWebTabWidth: CGFloat = 320
-    /// The widest a tab of a flat strip — the pane's, in the toolbar — grows: about ChatGPT's.
+    /// The widest a tab of a flat strip — the pane's, in its title-bar zone — grows: about ChatGPT's.
     static let maxStripTabWidth: CGFloat = 180
     /// Safari's compact bar: a 36pt field inside a 40pt pill, 15pt text.
     static let pillHeight: CGFloat = 40
     static let tabHeight: CGFloat = 36
     static let barHeight: CGFloat = 56
-    /// A bar in the toolbar takes its section's slack between these: the least that still shows the
-    /// selected tab, and a ceiling the toolbar never reaches. The floor leaves the pane picker room
-    /// beside the strip in the narrowest pane (`MainWindowMetrics.paneMin`); any more and AppKit
-    /// moves the picker off the toolbar.
-    static let minToolbarBarWidth: CGFloat = 150
+    /// A bar filling a toolbar section (a `.fill` item, `MainToolbarController`) takes the section's
+    /// slack between these: the least that still shows the selected tab, and a ceiling the toolbar
+    /// never reaches. No screen has one at present; the pane draws its strip itself.
+    static let minToolbarBarWidth: CGFloat = 200
     static let maxToolbarBarWidth: CGFloat = 4000
     static let tabFont = Font.system(size: 15)
     /// A flat strip's titles: the system's standard size and weight, as ChatGPT's tabs are.
@@ -85,18 +84,21 @@ extension EnvironmentValues {
 /// section over the context pane, which gives it the width the section leaves.
 enum CompactTabBarPlacement: Equatable {
     case row
-    case toolbar
+    /// In a column's title-bar zone, `height` tall, as Xcode's inspector draws its own bar: part of
+    /// the column, so it slides with it. The toolbar draws its items over the zone's trailing
+    /// `trailingInset` points, which the bar keeps clear of.
+    case titleBar(height: CGFloat, trailingInset: CGFloat)
 }
 
 /// The bar's row: a leading control, the centred pill, and the panel's own actions trailing it —
 /// New Tab, where the panel offers one. In its own row the suggestion list hangs under the bar,
-/// above whatever the panel shows beneath; in the toolbar the host draws it in the panel, since a
-/// toolbar item clips anything drawn outside it.
+/// above whatever the panel shows beneath; in a title-bar zone the bar is the tabs' strip alone,
+/// with no field to suggest for.
 struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: View>: View {
     let newTabTitle: String
     let newTabHelp: String
     let newTab: () -> Void
-    /// False for the pane's address row, whose tabs are in the toolbar with New Tab beside them.
+    /// False for the pane's address row, whose tabs are in the strip above with New Tab beside them.
     var showsNewTab = true
     var placement: CompactTabBarPlacement = .row
     @ViewBuilder let leading: Leading
@@ -120,8 +122,11 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                 // Above the content beneath, or the list would render under it.
                 .zIndex(1)
                 .overlay(alignment: .top) { suggestions.padding(.top, 52) }
-        case .toolbar:
-            content.frame(maxWidth: .infinity).frame(height: CompactTabMetrics.pillHeight)
+        case .titleBar(let height, let trailingInset):
+            content
+                .padding(.leading, 12)
+                .padding(.trailing, trailingInset)
+                .frame(height: height)
         }
     }
 

@@ -24,12 +24,13 @@ import SwiftUI
     private var needsInitialWidths = false
     private static let autosaveName = "CascadeMainColumns"
 
-    init(model: AppViewModel) {
+    init(model: AppViewModel, room: ToolbarRoom = ToolbarRoom()) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
         let sidebar = MainSidebarController(coordinator: coordinator)
         let content = NSHostingController(rootView: MainContentColumn(model: model))
-        let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
+        // The pane draws its own bar under the toolbar, clear of what the toolbar's pane section takes.
+        let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator).environment(room))
         // The columns' widths are the split view's to decide, not their content's.
         content.sizingOptions = []
         pane.sizingOptions = []
@@ -43,8 +44,8 @@ import SwiftUI
         paneItem.maximumThickness = NSSplitViewItem.unspecifiedDimension
         paneItem.canCollapse = true
         // Full height, as Xcode's inspector is: the column reaches the window's top, under the
-        // toolbar's pane section, which holds the pane's tabs and its toggle and tracks the divider
-        // (`SessionWorkspaceToolbar`); the pane's content keeps to the safe area below it.
+        // toolbar's pane section, which holds the pane picker and tracks the divider
+        // (`SessionWorkspaceToolbar`); the pane draws its own bar in that zone (`SessionWorkspacePane`).
         // Equal holding priorities: a window resize is shared between the screen and the pane in
         // proportion, as it was between the terminal and the pane before.
         paneItem.holdingPriority = contentItem.holdingPriority
@@ -250,8 +251,9 @@ private struct MainSidebarColumn: View {
 /// The context pane's column: a deck of every workspace's pane, the one the column is open for on
 /// top, so a switch between sessions rebuilds no pane and takes no web view out of the window, as the
 /// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
-/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The column reaches the window's top, under the toolbar's
-/// pane section, which AppKit reports to each pane as the safe area its content keeps to. It is opaque: AppKit
+/// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The
+/// column reaches the window's top, under the toolbar's pane section, which AppKit reports to each
+/// pane as the safe area; the pane draws its own bar there. It is opaque: AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
 /// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
 /// column the divider is zero-width and AppKit draws no line, though it can still be dragged.

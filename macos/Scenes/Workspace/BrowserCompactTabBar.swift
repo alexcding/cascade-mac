@@ -10,7 +10,7 @@ import SwiftUI
 struct BrowserCompactTabBar: View {
     /// Which of the bar's two jobs this one does: the tabs with the selected one as the address
     /// field (a panel's own row); the tabs alone, each its title, with New Tab
-    /// (the context pane's, in the toolbar, as ChatGPT's tab strip is); or the address alone,
+    /// (the context pane's, in its title-bar zone, as ChatGPT's tab strip is); or the address alone,
     /// navigation leading it, with its suggestions (the row at the top of the pane).
     enum Part { case all, tabs, address }
 
@@ -35,8 +35,8 @@ struct BrowserCompactTabBar: View {
         CompactTabBar(newTabTitle: String(localized: "New Tab"),
                       newTabHelp: String(localized: "Open a new web tab"),
                       newTab: model.newTab,
-                      // With no tab yet the pane already shows what New Tab would: the blank page.
-                      showsNewTab: part != .address && context.section == .browser && !context.stripTabs.isEmpty,
+                      // Not while a tab is still New Tab or Files: that one is where to go next.
+                      showsNewTab: part != .address && context.section == .browser && !context.hasUnfilledTab,
                       placement: placement) {
             if part != .tabs { NavigationCluster(controls: active?.controls) }
         } pill: { available in
@@ -118,6 +118,9 @@ struct BrowserCompactTabBar: View {
                 CompactFileTab(file: file, active: id == context.activeID,
                                iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
+            } else if id == WorkspaceTool.files.id {
+                CompactExplorerTab(active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                                   select: { model.selectTab(.tool(.files)) }, close: { model.closeTab(.tool(.files)) })
             }
         }
     }
@@ -164,8 +167,8 @@ struct BrowserCompactTabBar: View {
     }
 }
 
-/// The address suggestions under the field: hung from the bar in its own row or the pane's bar, or
-/// from the top of the page while the bar is in the toolbar. Picking one lets go of the field
+/// The address suggestions under the field, hung from the bar in its own row or the pane's address
+/// row. Picking one lets go of the field
 /// through the model, which the bar follows wherever it is drawn.
 struct BrowserAddressSuggestionList: View {
     let context: WorkspaceContext
@@ -392,6 +395,25 @@ private struct CompactFileTab: View {
                         closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
                         moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
             FileIcon(name: file.record.path) { Image(systemName: "doc.text").font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
+        } accessories: { _ in EmptyView() }
+    }
+}
+
+/// The Files explorer's tab: a New Tab that browses the worktree, until a file picked in it takes
+/// its place.
+private struct CompactExplorerTab: View {
+    let active: Bool
+    let iconOnly: Bool
+    @FocusState.Binding var editing: Bool
+    let select: () -> Void
+    let close: () -> Void
+    var body: some View {
+        let title = String(localized: "Files")
+        CompactTabShell(label: title, placeholder: "", closeTitle: String(localized: "Close \(title)"), help: title,
+                        active: active,
+                        closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
+                        moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
+            Image(systemName: "folder").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
         } accessories: { _ in EmptyView() }
     }
 }
