@@ -42,9 +42,8 @@ struct BrowserCompactTabBar: View {
         } pill: { available in
             tabPill(available)
         } trailing: {
-            if part != .tabs, let page = active, !page.controls.isBlank {
-                PageActionsCluster(page: page, bookmarks: context.bookmarks)
-            }
+            // Over the browser only: a file or a tool has no page for them to act on.
+            if part != .tabs, context.section == .browser { PageActionsCluster(page: active, bookmarks: context.bookmarks) }
         } suggestions: {
             if part != .tabs { BrowserAddressSuggestionList(context: context, model: model) }
         }
@@ -244,29 +243,32 @@ private struct NavigationCluster: View {
 
 /// The page's own buttons after the address, in a capsule of their own as Back and Forward are
 /// before it: Reload — Stop while the page loads — and the bookmark star, filled once bookmarked.
+/// Both always there, as Back and Forward are, and each disabled with no page to act on — a blank
+/// tab, or an address that cannot be bookmarked — so the row never shifts.
 private struct PageActionsCluster: View {
-    let page: BrowserPage
+    let page: BrowserPage?
     let bookmarks: BrowserBookmarkStore?
 
-    private var controls: BrowserControlsViewModel { page.controls }
-    private var bookmarked: Bool { bookmarks?.contains(page.url) == true }
-    private var canBookmark: Bool { bookmarks?.canBookmark(page.url) == true }
-
     var body: some View {
+        // The page they act on: none on a blank tab.
+        let shown = page.flatMap { $0.controls.isBlank ? nil : $0 }
+        let loading = shown?.controls.loading == true
+        let bookmarked = shown.map { bookmarks?.contains($0.url) == true } == true
+        let canBookmark = shown.map { bookmarks?.canBookmark($0.url) == true } == true
         HStack(spacing: 0) {
-            HoverCircleButton(controls.loading ? String(localized: "Stop") : String(localized: "Reload Page"),
-                              systemImage: controls.loading ? "xmark" : "arrow.clockwise", enabled: true, action: controls.toggleLoading)
-                .help(controls.loading ? String(localized: "Stop loading this page") : String(localized: "Reload this page"))
-            if canBookmark {
-                Divider().frame(height: 16)
-                HoverCircleButton(bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"),
-                                  systemImage: bookmarked ? "star.fill" : "star", enabled: true,
-                                  tint: bookmarked ? Theme.accent : nil) { bookmarks?.toggle(url: page.url, title: page.title) }
-                    .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
-                    .accessibilityIdentifier("bookmark-page")
+            HoverCircleButton(loading ? String(localized: "Stop") : String(localized: "Reload Page"),
+                              systemImage: loading ? "xmark" : "arrow.clockwise", enabled: shown != nil) { shown?.controls.toggleLoading() }
+                .help(loading ? String(localized: "Stop loading this page") : String(localized: "Reload this page"))
+            Divider().frame(height: 16)
+            HoverCircleButton(bookmarked ? String(localized: "Remove Bookmark") : String(localized: "Add Bookmark"),
+                              systemImage: bookmarked ? "star.fill" : "star", enabled: canBookmark,
+                              tint: bookmarked ? Theme.accent : nil) {
+                if let shown { bookmarks?.toggle(url: shown.url, title: shown.title) }
             }
+                .help(bookmarked ? String(localized: "Remove this page from your bookmarks") : String(localized: "Bookmark this page"))
+                .accessibilityIdentifier("bookmark-page")
         }
-        .padding(.horizontal, canBookmark ? 2 : 0)
+        .padding(.horizontal, 2)
         .barGlass()
     }
 }
