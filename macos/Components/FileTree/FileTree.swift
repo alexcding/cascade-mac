@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A folder or file of a file tree, as the diff's changed files and the editor's worktree files
 /// both list them. A folder holding one folder and nothing else shares its row, `Sources/App`, as
@@ -59,10 +61,9 @@ private final class FileTreeFolder<File> {
 }
 
 /// The rows of a file tree inside a sidebar `List`: a folder is its icon and name, the whole row
-/// opening and closing it; a file is its icon and name and whatever `detail` puts after it. The
-/// chosen file sits on a light fill in the text's own colours — not the list's selection, which
-/// paints the row in the accent colour.
-struct FileTreeRows<File, Detail: View>: View {
+/// opening and closing it; a file is its icon and name. The chosen file sits on a light fill in
+/// the text's own colours — not the list's selection, which paints the row in the accent colour.
+struct FileTreeRows<File>: View {
     let nodes: [FileTreeNode<File>]
     let expanded: (FileTreeNode<File>) -> Binding<Bool>
     var selected: String? = nil
@@ -70,33 +71,30 @@ struct FileTreeRows<File, Detail: View>: View {
     var choose: (FileTreeNode<File>) -> Void = { _ in }
     /// A file whose name is struck through, as a deleted one is.
     var struck: (File) -> Bool = { _ in false }
-    @ViewBuilder let detail: (File) -> Detail
 
     var body: some View {
         ForEach(nodes) { node in
-            FileTreeNodeRow(node: node, expanded: expanded, selected: selected, choose: choose, struck: struck, detail: detail)
+            FileTreeNodeRow(node: node, expanded: expanded, selected: selected, choose: choose, struck: struck)
         }
     }
 }
 
-private struct FileTreeNodeRow<File, Detail: View>: View {
+private struct FileTreeNodeRow<File>: View {
     let node: FileTreeNode<File>
     let expanded: (FileTreeNode<File>) -> Binding<Bool>
     let selected: String?
     let choose: (FileTreeNode<File>) -> Void
     let struck: (File) -> Bool
-    let detail: (File) -> Detail
 
     var body: some View {
         if let children = node.children {
             let isExpanded = expanded(node)
             DisclosureGroup(isExpanded: isExpanded) {
-                ForEach(children) { FileTreeNodeRow(node: $0, expanded: expanded, selected: selected, choose: choose, struck: struck, detail: detail) }
+                ForEach(children) { FileTreeNodeRow(node: $0, expanded: expanded, selected: selected, choose: choose, struck: struck) }
             } label: {
                 // Not a Label: a sidebar list paints a label's icon in the accent colour.
                 HStack(spacing: 6) {
-                    // As large as the 16pt file icons below it, not the text's size.
-                    Image(systemName: "folder").font(.system(size: 15)).foregroundStyle(Theme.textTertiary).frame(width: 18)
+                    SystemFileIcon(type: .folder)
                     Text(node.name).lineLimit(1).truncationMode(.middle)
                 }
                 // The whole row opens and closes the folder, not only its arrow.
@@ -106,10 +104,9 @@ private struct FileTreeNodeRow<File, Detail: View>: View {
             }
         } else if let file = node.file {
             HStack(spacing: 6) {
-                FileIcon(name: node.name) { Image(systemName: "doc").foregroundStyle(Theme.textTertiary) }
+                SystemFileIcon(type: SystemFileIcon.type(of: node.name))
                 Text(node.name).lineLimit(1).truncationMode(.middle).strikethrough(struck(file))
                 Spacer(minLength: 4)
-                detail(file)
             }
             .contentShape(Rectangle())
             .onTapGesture { choose(node) }
@@ -168,9 +165,8 @@ enum FileTreeStatus {
 }
 
 /// A file tree under a field that narrows it: the diff's changed files and the editor's worktree
-/// files are both this panel, with only their files, their messages and what follows a file's name
-/// told apart.
-struct FileTreePanel<File, Detail: View>: View {
+/// files are both this panel, with only their files and their messages told apart.
+struct FileTreePanel<File>: View {
     @Binding var query: String
     let nodes: [FileTreeNode<File>]
     @Binding var selection: String?
@@ -184,18 +180,16 @@ struct FileTreePanel<File, Detail: View>: View {
     var submit: () -> Void
     var tapped: (File) -> Void
     var struck: (File) -> Bool
-    let detail: (File) -> Detail
     @State private var expansion: FileTreeExpansion
     /// The list takes the arrow keys once a file is chosen in it, or Down is pressed in the field.
     @FocusState private var listFocused: Bool
 
     init(query: Binding<String>, nodes: [FileTreeNode<File>], selection: Binding<String?>, empty: String,
          startsOpen: Bool = false, status: FileTreeStatus = .ready, reveal: String? = nil, footer: String? = nil,
-         submit: @escaping () -> Void = {}, tapped: @escaping (File) -> Void = { _ in }, struck: @escaping (File) -> Bool = { _ in false },
-         @ViewBuilder detail: @escaping (File) -> Detail) {
+         submit: @escaping () -> Void = {}, tapped: @escaping (File) -> Void = { _ in }, struck: @escaping (File) -> Bool = { _ in false }) {
         _query = query; self.nodes = nodes; _selection = selection; self.empty = empty
         self.status = status; self.reveal = reveal; self.footer = footer
-        self.submit = submit; self.tapped = tapped; self.struck = struck; self.detail = detail
+        self.submit = submit; self.tapped = tapped; self.struck = struck
         _expansion = State(initialValue: FileTreeExpansion(startsOpen: startsOpen))
     }
 
@@ -224,7 +218,7 @@ struct FileTreePanel<File, Detail: View>: View {
         case .ready:
             List {
                 FileTreeRows(nodes: nodes, expanded: expanded, selected: selection,
-                             choose: { node in listFocused = true; choose(node) }, struck: struck, detail: detail)
+                             choose: { node in listFocused = true; choose(node) }, struck: struck)
                 if let footer { Text(footer).font(.caption).foregroundStyle(Theme.textTertiary) }
             }
             .listStyle(.sidebar)
@@ -279,6 +273,38 @@ struct FileTreePanel<File, Detail: View>: View {
     }
 }
 
+/// A folder or file of a tree as Finder draws it, as a Git client's trees do: the icon macOS keeps
+/// for its type, which needs no file on disk, so a deleted file has one too. Every file tree — the
+/// worktree's and the diff's changed files — draws its rows with it. 16 pt; the image carries
+/// every size and AppKit draws the sharpest.
+struct SystemFileIcon: View {
+    let type: UTType
+
+    /// A file's type by its extension; a file without one is plain data. An extension nothing claims
+    /// still has a type, one the system makes up for it, and draws as a plain document.
+    static func type(of name: String) -> UTType {
+        let ext = (name as NSString).pathExtension
+        return ext.isEmpty ? .data : UTType(filenameExtension: ext) ?? .data
+    }
+
+    /// One image per type: a tree redraws its rows on every keystroke in its filter, and the
+    /// workspace hands out a new image each time it is asked.
+    @MainActor private static var icons: [UTType: NSImage] = [:]
+
+    @MainActor private static func icon(for type: UTType) -> NSImage {
+        if let hit = icons[type] { return hit }
+        let image = NSWorkspace.shared.icon(for: type)
+        icons[type] = image
+        return image
+    }
+
+    var body: some View {
+        Image(nsImage: Self.icon(for: type)).resizable().frame(width: 16, height: 16)
+            .frame(width: 18)
+            .accessibilityHidden(true)
+    }
+}
+
 /// The field over a file tree that narrows it. Return picks the first file it leaves.
 struct FileTreeFilterField: View {
     @Binding var text: String
@@ -316,11 +342,30 @@ extension FileTreeNode {
 struct FileTreeToggle: View {
     @Binding var shown: Bool
     var enabled = true
+    /// Inside a segmented pill (`GlassSegmentedPicker`'s accessory), drawn as its segments are rather
+    /// than as a circle of its own, which would stand taller than the pill.
+    var inPill = false
 
     var body: some View {
-        HoverCircleButton(shown ? String(localized: "Hide Files") : String(localized: "Show Files"),
-                          systemImage: shown ? "folder.fill" : "folder", enabled: enabled) { shown.toggle() }
-            .help(shown ? String(localized: "Hide the files") : String(localized: "Show the files"))
-            .accessibilityIdentifier("toggle-file-tree")
+        let title = shown ? String(localized: "Hide Files") : String(localized: "Show Files")
+        let symbol = shown ? "folder.fill" : "folder"
+        Group {
+            if inPill {
+                Button { shown.toggle() } label: {
+                    Label(title, systemImage: symbol).labelStyle(.iconOnly)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(enabled ? Theme.textSecondary : Theme.textTertiary.opacity(0.6))
+                        .padding(.horizontal, 10)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
+            } else {
+                HoverCircleButton(title, systemImage: symbol, enabled: enabled) { shown.toggle() }
+            }
+        }
+        .help(shown ? String(localized: "Hide the files") : String(localized: "Show the files"))
+        .accessibilityIdentifier("toggle-file-tree")
     }
 }

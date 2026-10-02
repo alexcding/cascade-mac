@@ -24,7 +24,7 @@ struct WorkspaceFileBrowser: View {
         return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil
     }
 
-    /// The worktree's folder name, then the folders down to the file, each with its place in the
+    /// The project's folder name, then the folders down to the file, each with its place in the
     /// tree — "" for the worktree, `Scenes/` for a folder, the file's own path — so it can drop
     /// down its folder. A file outside the worktree shows its last folders, none of them a place
     /// in the tree. The Files tab shows the root alone.
@@ -33,7 +33,10 @@ struct WorkspaceFileBrowser: View {
             guard let document else { return [FileCrumb(name: "/", entry: nil)] }
             return document.record.path.split(separator: "/").suffix(4).map { FileCrumb(name: String($0), entry: nil) }
         }
-        let rootCrumb = FileCrumb(name: (root as NSString).lastPathComponent, entry: "")
+        // The project's folder, not the worktree's: a worktree is named after its branch, which is
+        // long and says nothing about where the file is.
+        let folder = model.session.map(\.workspace).flatMap { $0.isEmpty ? nil : $0 } ?? root
+        let rootCrumb = FileCrumb(name: (folder as NSString).lastPathComponent, entry: "")
         guard let document else { return [rootCrumb] }
         guard let relative else {
             return document.record.path.split(separator: "/").suffix(4).map { FileCrumb(name: String($0), entry: nil) }

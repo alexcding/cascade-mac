@@ -7,8 +7,6 @@ struct ChangedFile: Equatable, Identifiable {
     enum Status: String { case modified, added, deleted, renamed, untracked }
     let path: String
     let status: Status
-    let adds: Int
-    let dels: Int
     let index: Int
     /// By path, not place: a list redrawn after a commit keeps its selection on the same file.
     var id: String { "\(status == .untracked ? "u" : "f"):\(path)" }
@@ -27,12 +25,11 @@ struct ChangedFile: Equatable, Identifiable {
         let valid = { (path: String) in !path.isEmpty && path.utf8.count <= 4096 }
         let tracked = items.enumerated().compactMap { index, item -> ChangedFile? in
             guard let path = item["path"] as? String, valid(path),
-                  let status = (item["status"] as? String).flatMap(Status.init), status != .untracked,
-                  let adds = item["adds"] as? Int, let dels = item["dels"] as? Int, adds >= 0, dels >= 0 else { return nil }
-            return .init(path: path, status: status, adds: adds, dels: dels, index: index)
+                  let status = (item["status"] as? String).flatMap(Status.init), status != .untracked else { return nil }
+            return .init(path: path, status: status, index: index)
         }
         let loose = paths.enumerated().compactMap { index, path in
-            valid(path) ? ChangedFile(path: path, status: .untracked, adds: 0, dels: 0, index: index) : nil
+            valid(path) ? ChangedFile(path: path, status: .untracked, index: index) : nil
         }
         return tracked + loose
     }
@@ -46,8 +43,10 @@ extension FileTreeNode where File == ChangedFile {
 }
 
 /// The changed files beside the diff, in the tree of their folders, under a field that narrows
-/// them: the same panel as the editor's worktree files (`FileTreePanel`). Choosing one scrolls
-/// the diff to it; choosing it again goes back to it.
+/// them: the same panel, rows and icons as the editor's worktree files (`FileTreePanel`). Each row
+/// is its icon and name alone, with no counts or status letter, so the narrow column keeps its
+/// width for names; a deleted file is struck through. Choosing one scrolls the diff to it;
+/// choosing it again goes back to it.
 struct ChangedFilesView: View {
     let files: [ChangedFile]
     let reveal: (ChangedFile) -> Void
@@ -63,35 +62,8 @@ struct ChangedFilesView: View {
         let nodes = ChangedFileNode.tree(shown)
         FileTreePanel(query: $query, nodes: nodes, selection: $selection, empty: String(localized: "No changed files"),
                       startsOpen: true, submit: { ChangedFileNode.firstFile(nodes).map(reveal) }, tapped: reveal,
-                      struck: { $0.status == .deleted }) { file in
-            Group {
-                if file.adds > 0 { Text(verbatim: "+\(file.adds)").foregroundStyle(Theme.success) }
-                if file.dels > 0 { Text(verbatim: "−\(file.dels)").foregroundStyle(Theme.danger) }
-            }.font(.caption.monospacedDigit())
-            Text(verbatim: file.status.letter).font(.caption.weight(.semibold)).foregroundStyle(file.status.color).frame(width: 12)
-        }
+                      struck: { $0.status == .deleted })
         .accessibilityLabel(String(localized: "Changed files"))
         .accessibilityIdentifier("changed-files")
-    }
-}
-
-private extension ChangedFile.Status {
-    /// Git's letter for the change, as the diff's own badges and VS Code show it.
-    var letter: String {
-        switch self {
-        case .modified: "M"
-        case .added: "A"
-        case .deleted: "D"
-        case .renamed: "R"
-        case .untracked: "U"
-        }
-    }
-    var color: Color {
-        switch self {
-        case .modified: Theme.warn
-        case .added, .untracked: Theme.success
-        case .deleted: Theme.danger
-        case .renamed: Theme.accent
-        }
     }
 }

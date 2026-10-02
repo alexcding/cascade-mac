@@ -113,7 +113,7 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     // The page reports what it drew, the diff's files and then the untracked ones, for the list beside it.
     for _ in 0..<40 where model.changedFiles.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
     #expect(model.changedFiles.map(\.path) == ["Sources/App.swift", "fä.png", "Notes.md"])
-    #expect(model.changedFiles.first?.adds == 1 && model.changedFiles.first?.dels == 1 && model.changedFiles.last?.status == .untracked)
+    #expect(model.changedFiles.first?.status == .modified && model.changedFiles.last?.status == .untracked)
     // Choosing a collapsed file opens it.
     _ = try await view.evaluateJavaScript("document.querySelector('.diff-file').classList.add('collapsed'); 0")
     model.reveal(model.changedFiles[0])

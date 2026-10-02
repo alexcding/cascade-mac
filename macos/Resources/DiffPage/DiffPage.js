@@ -80,7 +80,7 @@ function renderUntracked(untracked, fileLinks) {
 // its order, so a row's index is what `reveal` scrolls to.
 function listed(files, untracked) {
   return {
-    files: files.slice(0, MAX_FILES).map(f => ({ path: f.newPath || f.oldPath, status: f.status, adds: f.adds, dels: f.dels })),
+    files: files.slice(0, MAX_FILES).map(f => ({ path: f.newPath || f.oldPath, status: f.status })),
     untracked: untracked.slice(0, MAX_UNTRACKED),
   };
 }

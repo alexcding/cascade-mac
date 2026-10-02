@@ -27,7 +27,7 @@ struct WorktreeFilesTree: View {
         FileTreePanel(query: Binding(get: { model.query }, set: { model.query = $0 }), nodes: nodes,
                       selection: Binding(get: { selected }, set: { id in if let id, !id.hasSuffix("/") { model.open(id) } }),
                       empty: String(localized: "No files in this worktree"), status: status, reveal: selected, footer: footer,
-                      submit: { FileTreeNode.firstFile(nodes).map(model.open) }) { _ in EmptyView() }
+                      submit: { FileTreeNode.firstFile(nodes).map(model.open) })
             .onAppear { model.show(root: root) }
             .onChange(of: root) { _, value in model.show(root: value) }
             .accessibilityIdentifier("worktree-files")
@@ -153,8 +153,7 @@ private struct FolderMenuRow: View {
                         .font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.textTertiary)
                         .frame(width: 14)
                 } else {
-                    FileIcon(name: node.name) { Image(systemName: "doc").foregroundStyle(Theme.textTertiary) }
-                        .frame(width: 16)
+                    SystemFileIcon(type: SystemFileIcon.type(of: node.name)).frame(width: 16)
                 }
                 Text(node.name).font(.body).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 0)
