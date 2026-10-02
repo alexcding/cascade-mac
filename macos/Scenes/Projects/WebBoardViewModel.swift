@@ -443,6 +443,11 @@ struct APIBoardService: BoardService {
         configure(&request)
         onAction(.open(request))
     }
+    /// The ticket's page on the Jira site, for Open in Browser; nil until the site is configured.
+    func browserURL(_ ticket: Ticket) -> URL? {
+        guard !retired, let url = ticketURL(ticket) else { return nil }
+        return URL(string: url)
+    }
     func sessionMark(_ ticket: Ticket) -> PageSessionMark? {
         guard !retired, let url = ticketURL(ticket) else { return nil }
         var request = OpenPageRequest(url: url, kind: "jira", title: ticket.key)

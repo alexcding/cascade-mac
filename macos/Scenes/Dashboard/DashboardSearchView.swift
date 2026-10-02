@@ -40,7 +40,7 @@ struct DashboardSearchView: View {
         return DashboardPRRow(row: row, mark: mark, opening: model.navigation.opening == row.url.absoluteString,
                               first: first, open: { model.open(row) })
             .contextMenu {
-                PageRowMenu(hasSession: mark != nil, open: { model.open(row) })
+                PageRowMenu(hasSession: mark != nil, url: row.url, open: { model.open(row) })
             }
     }
 

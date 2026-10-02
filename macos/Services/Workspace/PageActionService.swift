@@ -55,11 +55,15 @@ struct PageDestinationMark: View {
 }
 
 /// The row menu for a PR or ticket: Go to Session when the page has one, else New Session, which
-/// opens its project's Start with the page filled in — where a click goes too, named.
+/// opens its project's Start with the page filled in — where a click goes too, named — and Open in
+/// Browser, the one way to reach the page outside Cascade.
 struct PageRowMenu: View {
     let hasSession: Bool
+    var url: URL? = nil
     let open: () -> Void
+    @Environment(\.openURL) private var openURL
     var body: some View {
         Button(hasSession ? String(localized: "Go to Session") : String(localized: "New Session"), action: open)
+        if let url { Button(String(localized: "Open in Browser")) { openURL(url) } }
     }
 }

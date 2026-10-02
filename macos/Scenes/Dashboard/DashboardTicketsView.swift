@@ -171,7 +171,7 @@ struct DashboardTicketTable: View {
         .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))
         .contextMenu(forSelectionType: DashboardTicketRow.ID.self) { ids in
             if let row = row(ids.first) {
-                PageRowMenu(hasSession: sessionMark(row) != nil, open: { open(row) })
+                PageRowMenu(hasSession: sessionMark(row) != nil, url: row.url, open: { open(row) })
             }
         } primaryAction: { ids in
             if let row = row(ids.first) { open(row) }
