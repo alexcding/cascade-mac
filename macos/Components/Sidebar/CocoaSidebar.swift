@@ -481,10 +481,12 @@ struct CocoaSidebar: NSViewRepresentable {
 enum SidebarPalette {
     private static func dynamic(_ light: UInt32, _ dark: UInt32, alpha: CGFloat = 1) -> NSColor {
         NSColor(name: nil) { appearance in
-            let hex = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
-                           blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
+            rgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light, alpha: alpha)
         }
+    }
+    private static func rgb(_ hex: UInt32, alpha: CGFloat) -> NSColor {
+        NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
+                blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
     }
     static let navText = dynamic(0x3b3d3f, 0xc9cbce)   // --nav-text
     static let text = dynamic(0x16181d, 0xe8e8e8)      // --text
@@ -500,6 +502,16 @@ enum SidebarPalette {
     /// A session waiting on a person: yellow, well clear of Claude's terracotta beside it.
     static let waiting = dynamic(0xeab308, 0xfacc15)
     static let danger = dynamic(0xdc2626, 0xf87171)
+    /// The wash over the sidebar's backdrop material: what makes the backdrop solid rather than
+    /// see-through. In light it is a near-white cool grey, mostly opaque, as ChatGPT's sidebar is:
+    /// the desktop's colour is a faint tint, not the backdrop's colour. In dark the material alone is
+    /// a lighter grey than a page, and the page's own colour (`Theme.paneBackground`) brings it down
+    /// to one.
+    static let backdrop = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(Theme.paneBackground).withAlphaComponent(0.65)
+            : rgb(0xf2f3f5, alpha: 0.85)
+    }
 }
 
 /// A medium source list's own measures, and the few the cell adds inside it.
@@ -533,7 +545,7 @@ enum SidebarMetrics {
         case idle, done, needsInput
         case working(cli: String?)
     }
-    static let size: CGFloat = 6
+    static let size: CGFloat = 8
     private let dot = CALayer()
     private(set) var state = State.idle
 

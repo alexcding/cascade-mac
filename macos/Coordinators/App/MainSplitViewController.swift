@@ -27,11 +27,10 @@ import SwiftUI
     init(model: AppViewModel) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
-        let sidebar = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
+        let sidebar = MainSidebarController(coordinator: coordinator)
         let content = NSHostingController(rootView: MainContentColumn(model: model))
         let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
         // The columns' widths are the split view's to decide, not their content's.
-        sidebar.sizingOptions = []
         content.sizingOptions = []
         pane.sizingOptions = []
         sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
@@ -169,7 +168,77 @@ private struct SettingsWindowOpener: ViewModifier {
     }
 }
 
-/// The sidebar's column, once the root model exists.
+/// The sidebar's column: the list on its own backdrop, the title bar's material, which lets the
+/// desktop's own colour through where the sidebar's material greys it, and over it a wash
+/// (`SidebarPalette.backdrop`) that makes it solid: in light a near-white, so the desktop is a faint
+/// tint; in dark the page's own colour, where the material alone is too light a grey. The material
+/// blends with what is behind the window, so it covers AppKit's own sidebar material under it. It
+/// stays active in a window in the background: a material gone inactive flattens under the same
+/// wash, and the sidebar would change shade with the window's focus.
+///
+/// The list keeps its own hosting controller, a child of this one, so it is told the toolbar's
+/// safe area as it was when it was the column itself.
+private final class MainSidebarController: NSViewController {
+    private let list: NSHostingController<MainSidebarColumn>
+
+    init(coordinator: AppCoordinator) {
+        list = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
+        // The column's width is the split view's to decide, not its content's.
+        list.sizingOptions = []
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func loadView() {
+        let backdrop = NSVisualEffectView()
+        backdrop.material = .titlebar
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        view = backdrop
+        addChild(list)
+        for part in [MainSidebarWash(), list.view] {
+            part.translatesAutoresizingMaskIntoConstraints = false
+            backdrop.addSubview(part)
+            NSLayoutConstraint.activate([
+                part.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
+                part.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+                part.topAnchor.constraint(equalTo: backdrop.topAnchor),
+                part.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+            ])
+        }
+    }
+}
+
+/// The sidebar backdrop's wash: colour only, so neither VoiceOver nor the pointer finds it. A layer
+/// takes a resolved colour, so it is resolved again when the appearance changes.
+private final class MainSidebarWash: NSView {
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        setAccessibilityElement(false)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func paint() {
+        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = SidebarPalette.backdrop.cgColor }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        paint()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+}
+
+/// The sidebar's list, once the root model exists.
 private struct MainSidebarColumn: View {
     let coordinator: AppCoordinator
 
