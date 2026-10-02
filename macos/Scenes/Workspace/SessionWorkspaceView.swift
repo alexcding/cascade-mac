@@ -271,9 +271,11 @@ struct SessionWorkspaceContextBody: View {
 
     @ViewBuilder var body: some View {
         if model.showsChanges {
-            // The review layout: the diff fills the pane, and one footer carries the
-            // Changes/History switch and the commit action.
+            // The review layout: one bar on top carries the Changes/History switch and the commit
+            // action, and the diff fills the pane under it.
             VStack(spacing: 0) {
+                ReviewBar(context: context, diff: model.diff)
+                Divider()
                 Group {
                     if context.reviewSection == .history, let history = model.history { GitHistoryView(model: history) }
                     else if context.reviewSection == .changes, let diff = model.diff {
@@ -286,8 +288,6 @@ struct SessionWorkspaceContextBody: View {
                     }
                     else { Color.clear }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                ReviewFooter(context: context, diff: model.diff)
             }
         } else if model.mode == .browser, let document = context.activeDocument {
             EditorDocumentView(model: document, togglePreview: model.toggleEditorPreview).id(document.id)
@@ -302,7 +302,7 @@ struct SessionWorkspaceContextBody: View {
     }
 }
 
-private struct ReviewFooter: View {
+private struct ReviewBar: View {
     let context: WorkspaceContext
     let diff: DiffViewModel?
 
@@ -311,16 +311,12 @@ private struct ReviewFooter: View {
             GlassSegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
                                  selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
             if context.reviewSection == .changes, let diff {
-                let busy = diff.loading || diff.actions?.busy == true
+                let busy = diff.showsProgress
                 if let branch = diff.snapshot?.branch {
                     Label(branch, systemImage: "arrow.triangle.branch").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength: 4)
                 if busy { ProgressView().controlSize(.small) }
-                // The same glass capsules as the editor's footer.
-                HoverCircleButton(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", enabled: !busy, action: diff.refresh)
-                    .help(String(localized: "Refresh Changes"))
-                    .barGlass()
                 if let actions = diff.actions {
                     // The padded capsule is the label, so all of it takes the click.
                     Button(action: diff.requestActions) {
@@ -338,7 +334,7 @@ private struct ReviewFooter: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 44)
-        .accessibilityIdentifier("workspace-review-footer")
+        .accessibilityIdentifier("workspace-review-bar")
     }
 }
 

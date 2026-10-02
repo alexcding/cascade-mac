@@ -164,3 +164,121 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(model.error == "The changes view stopped. Reload to restore it.")
     model.disconnect()
 }
+
+@MainActor private final class WatchFixture: ChangeWatching {
+    var stopped = false
+    let onChange: @MainActor () -> Void
+    init(onChange: @escaping @MainActor () -> Void) { self.onChange = onChange }
+    func stop() { stopped = true }
+}
+
+@MainActor private final class WatchingFactory: DocumentFeatureFactory {
+    var watchers: [WatchFixture] = []
+    func watchChanges(worktree: String, onChange: @escaping @MainActor () -> Void) -> (any ChangeWatching)? {
+        let watcher = WatchFixture(onChange: onChange); watchers.append(watcher); return watcher
+    }
+}
+
+@MainActor @Test func theWorkingDiffRefreshesItselfWhenItsWorktreeChangesAndOnlyWhileShown() async throws {
+    let service = DiffFixture(), factory = WatchingFactory()
+    let model = DiffViewModel(worktree: "/tmp/diff-test", baseURL: URL(string: "http://127.0.0.1:3000")!, service: service,
+                              actionsService: GitActionFixture(), factory: factory)
+    model.show(appearance: .system); await model.waitForRefresh()
+    #expect(factory.watchers.count == 1 && model.snapshot?.diff == "diff for /tmp/diff-test")
+    // A change lands: the diff loads again without being asked.
+    await service.edit(); factory.watchers[0].onChange(); await model.waitForRefresh()
+    #expect(await service.calls == 2 && model.snapshot?.diff == "diff for /tmp/diff-test edit 1")
+    // A change during a load is not lost: another load follows the one in flight.
+    await service.edit(); factory.watchers[0].onChange(); factory.watchers[0].onChange()
+    await model.waitForRefresh(); await model.waitForRefresh()
+    #expect(await service.calls == 4 && model.snapshot?.diff == "diff for /tmp/diff-test edit 2")
+    // Hidden, it stops watching; a change reported late does nothing.
+    model.hide()
+    #expect(factory.watchers[0].stopped)
+    factory.watchers[0].onChange()
+    #expect(await service.calls == 4)
+    model.disconnect()
+}
+
+@MainActor @Test func aPatchFromHistoryIsNotWatched() {
+    let factory = WatchingFactory()
+    let model = factory.patch(worktree: "/tmp/diff-test", baseURL: URL(string: "http://127.0.0.1:3000")!, diff: "")
+    model.show(appearance: .system)
+    #expect(factory.watchers.isEmpty)
+    model.disconnect()
+}
+
+@Test func aLinkedWorktreesGitDirectoriesAreReadFromItsGitFiles() throws {
+    let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).resolvingSymlinksInPath()
+    let worktree = base.appendingPathComponent("one"), own = base.appendingPathComponent("repo/.git/worktrees/one")
+    try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: base) }
+    #expect(WorktreeWatcher.Filter(worktree: worktree.path).gitDirectories.isEmpty)
+    try "gitdir: \(own.path)\n".write(to: worktree.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
+    try "../..\n".write(to: own.appendingPathComponent("commondir"), atomically: true, encoding: .utf8)
+    #expect(WorktreeWatcher.Filter(worktree: worktree.path).gitDirectories == [own.path, base.appendingPathComponent("repo/.git").path])
+}
+
+@Test func onlyWhatCanChangeTheDiffWakesIt() {
+    let filter = WorktreeWatcher.Filter(worktree: "/nonexistent/wt")
+    #expect(filter.matters("/nonexistent/wt/Sources/App.swift"))
+    #expect(filter.matters("/nonexistent/wt/.git/index"))
+    #expect(filter.matters("/nonexistent/wt/.git/refs/heads/main"))
+    #expect(filter.matters("/nonexistent/wt/.git/HEAD"))
+    // Build output, dependencies, git's objects and logs, and a write still in progress do not.
+    #expect(!filter.matters("/nonexistent/wt/node_modules/left-pad/index.js"))
+    #expect(!filter.matters("/nonexistent/wt/.build/debug/App.o"))
+    #expect(!filter.matters("/nonexistent/wt/crates/app/target/debug/app"))
+    #expect(!filter.matters("/nonexistent/wt/.git/objects/ab/cdef"))
+    #expect(!filter.matters("/nonexistent/wt/.git/logs/HEAD"))
+    #expect(!filter.matters("/nonexistent/wt/.git/index.lock"))
+    #expect(!filter.matters("/elsewhere/file"))
+}
+
+@MainActor @Test func aRefreshTheWorktreeAskedForFailsQuietlyOverAShownDiff() async throws {
+    let service = DiffFixture(), factory = WatchingFactory()
+    let model = DiffViewModel(worktree: "/tmp/diff-test", baseURL: URL(string: "http://127.0.0.1:3000")!, service: service,
+                              actionsService: GitActionFixture(), factory: factory)
+    model.show(appearance: .system); await model.waitForRefresh()
+    await service.fail(true)
+    factory.watchers[0].onChange(); await model.waitForRefresh()
+    #expect(model.error == nil && model.snapshot?.diff == "diff for /tmp/diff-test")
+    // One the user asked for still says why it failed.
+    model.refresh(); await model.waitForRefresh()
+    #expect(model.error == "Repository unavailable")
+    model.disconnect()
+}
+
+@MainActor @Test func theWatcherHearsARealFileChangeAndNotBuildOutput() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("node_modules"), withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    var heard = 0
+    let watcher = try #require(WorktreeWatcher(worktree: root.path, latency: 0.05) { heard += 1 })
+    defer { watcher.stop() }
+    // The folders made just before the stream started can still be reported once: start counting after.
+    try await Task.sleep(for: .milliseconds(500))
+    heard = 0
+    try "x".write(to: root.appendingPathComponent("node_modules/dep.js"), atomically: true, encoding: .utf8)
+    try await Task.sleep(for: .milliseconds(700))
+    #expect(heard == 0)
+    try "x".write(to: root.appendingPathComponent("App.swift"), atomically: true, encoding: .utf8)
+    for _ in 0..<50 where heard == 0 { try await Task.sleep(for: .milliseconds(100)) }
+    #expect(heard > 0)
+    #expect(WorktreeWatcher(worktree: root.appendingPathComponent("missing").path) { } == nil)
+}
+
+@MainActor @Test func aWorktreeFSEventsCannotSeeIsPolledUntilStopped() async throws {
+    var heard = 0
+    let watcher = PollingWatcher(every: .milliseconds(30)) { heard += 1 }
+    for _ in 0..<50 where heard < 2 { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(heard >= 2)
+    watcher.stop()
+    let stopped = heard
+    try await Task.sleep(for: .milliseconds(120))
+    #expect(heard == stopped)
+    let fallback = NativeDocumentFeatureFactory().watchChanges(worktree: "/nonexistent/worktree") { }
+    #expect(fallback is PollingWatcher)
+    fallback?.stop()
+}

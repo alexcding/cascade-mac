@@ -3,7 +3,7 @@ import SwiftUI
 struct DiffView: View {
     @Bindable var model: DiffViewModel
     var title = String(localized: "Changes")
-    /// The session workspace draws these controls in its review footer instead.
+    /// The session workspace draws these controls in its review bar instead.
     var showsHeader = true
     var body: some View {
         VStack(spacing: 0) {
@@ -29,9 +29,7 @@ struct DiffView: View {
                 Button(String(localized: "Commit and Push…"), systemImage: "arrow.up.circle", action: model.requestActions).disabled(model.actions?.busy == true)
                     .commitPopover(model)
             }
-            if model.loading || model.actions?.busy == true { ProgressView().controlSize(.small) }
-            Button(String(localized: "Refresh Changes"), systemImage: "arrow.clockwise", action: model.refresh)
-                .labelStyle(.iconOnly).disabled(model.loading || model.actions?.busy == true)
+            if model.showsProgress { ProgressView().controlSize(.small) }
         }.padding(10)
     }
 }

@@ -55,6 +55,9 @@ struct APIDiffService: DiffService {
     private var loadError: String?
     private var documentError: String?
     var error: String? { documentError ?? loadError ?? actions?.error }
+    /// A first load or a git action in progress. A refresh of a diff already shown is quiet: the diff
+    /// refreshes itself as the worktree changes.
+    var showsProgress: Bool { (loading && snapshot == nil) || actions?.busy == true }
     var showsActions: Bool { get { coordinator.showsActions } set { newValue ? requestActions() : coordinator.dismissActions() } }
     var isActive: Bool { active }
     /// True once the page's module has posted `ready`; rendering before that is dropped.
@@ -76,6 +79,13 @@ struct APIDiffService: DiffService {
     @ObservationIgnored private var appearance = AppAppearance.system
     @ObservationIgnored private var font = CodeFont(size: 12)
     @ObservationIgnored private let allowsFileOpening: Bool
+    /// The working diff watches its worktree while it is on screen and refreshes itself; a patch
+    /// from history never changes, so it has no watcher.
+    @ObservationIgnored private let watch: ((@escaping @MainActor () -> Void) -> (any ChangeWatching)?)?
+    @ObservationIgnored private var watcher: (any ChangeWatching)?
+    /// A change reported while a load was running: that load may have read the files before it, so
+    /// another follows.
+    @ObservationIgnored private var refreshAgain = false
 
     init(worktree: String, baseURL: URL, service: (any DiffService)? = nil,
          actionsService: (any GitChangesService)? = nil, allowsFileOpening: Bool = true,
@@ -83,18 +93,19 @@ struct APIDiffService: DiffService {
          openFile: @escaping (DocumentLocation) -> Void = { _ in }) {
         self.allowsFileOpening = allowsFileOpening; coordinator = factory.diffCoordinator()
         self.worktree = worktree; self.service = service
+        watch = actionsService == nil ? nil : { [factory] onChange in factory.watchChanges(worktree: worktree, onChange: onChange) }
         super.init()
         if let actionsService {
             actions = factory.changes(worktree: worktree, service: actionsService, didChange: { [weak self] in
                 guard let self, active else { return }
-                task?.cancel(); task = nil; generation = UUID(); refresh()
+                task?.cancel(); task = nil; generation = UUID(); refreshAgain = false; refresh()
             })
         }
         coordinator.bind(self, openFile: openFile)
     }
     func requestActions() { onAction(.showActions) }
     func connect(baseURL: URL, service: any DiffService) {
-        task?.cancel(); task = nil; generation = UUID(); loading = false; self.service = service
+        task?.cancel(); task = nil; generation = UUID(); loading = false; refreshAgain = false; self.service = service
         if active { refresh() }
     }
     func show(appearance: AppAppearance) {
@@ -117,17 +128,33 @@ struct APIDiffService: DiffService {
             // macOS reclaimed the page while it was hidden, or it broke: showing it again starts it
             // afresh, as it did when every show built a new page.
             contentProcessEnded = false
-            reload(); return
+            reload(); startWatching(); return
         }
+        startWatching()
         refresh()
     }
-    func refresh() {
+    private func startWatching() {
+        guard watcher == nil, let watch else { return }
+        watcher = watch { [weak self] in self?.filesChanged() }
+    }
+    private func filesChanged() {
+        guard active else { return }
+        if task == nil { refresh(quietly: true) } else { refreshAgain = true }
+    }
+    /// `quietly`: a refresh the worktree asked for, not the user. One that fails — git mid-checkout or
+    /// mid-rebase — keeps the last diff without a banner; the next change looks again.
+    func refresh(quietly: Bool = false) {
         guard task == nil else { return }
         guard let service else { loadError = String(localized: "Connect to the backend to load changes."); return }
         loading = true; loadError = nil
         let generation = generation
         task = Task {
-            defer { if self.generation == generation { loading = false; task = nil } }
+            defer {
+                if self.generation == generation {
+                    loading = false; task = nil
+                    if refreshAgain, active { refreshAgain = false; refresh(quietly: true) }
+                }
+            }
             do {
                 var value = try await service.load(worktree: worktree)
                 value.labels = Self.localizedLabels
@@ -146,7 +173,9 @@ struct APIDiffService: DiffService {
                 try Task.checkCancellation()
                 guard self.generation == generation else { return }
                 if snapshot != value { snapshot = value; documentScript = script; render() }
-            } catch { if !Task.isCancelled, self.generation == generation { self.loadError = error.localizedDescription } }
+            } catch {
+                if !Task.isCancelled, self.generation == generation, !(quietly && snapshot != nil) { self.loadError = error.localizedDescription }
+            }
         }
     }
     private static var localizedLabels: [String: String] {
@@ -195,7 +224,8 @@ struct APIDiffService: DiffService {
     /// again — this pane or its session — is immediate. `show` then looks for newer changes.
     func hide() {
         active = false; onAction(.hide); actions?.cancelDiscard(); task?.cancel(); task = nil
-        generation = UUID(); loading = false
+        generation = UUID(); loading = false; refreshAgain = false
+        watcher?.stop(); watcher = nil
     }
     /// The model is going away, and its page and content process with it.
     func disconnect() {

@@ -16,6 +16,8 @@ import Foundation
     func history(worktree: String, baseURL: URL, base: String, service: any GitHistoryService,
                  copy: @escaping (String) -> Void) -> GitHistoryViewModel
     func patch(worktree: String, baseURL: URL, diff: String) -> DiffViewModel
+    /// Watches a worktree for the working diff, which refreshes itself on what it reports.
+    func watchChanges(worktree: String, onChange: @escaping @MainActor () -> Void) -> (any ChangeWatching)?
 }
 
 @MainActor struct NativeDocumentFeatureFactory: DocumentFeatureFactory {}
@@ -47,5 +49,8 @@ extension DocumentFeatureFactory {
     func patch(worktree: String, baseURL: URL, diff: String) -> DiffViewModel {
         DiffViewModel(worktree: worktree, baseURL: baseURL,
                       service: HistoricalPatchService(diff: diff), allowsFileOpening: false, factory: self)
+    }
+    func watchChanges(worktree: String, onChange: @escaping @MainActor () -> Void) -> (any ChangeWatching)? {
+        WorktreeWatcher(worktree: worktree, onChange: onChange) ?? PollingWatcher(onChange: onChange)
     }
 }

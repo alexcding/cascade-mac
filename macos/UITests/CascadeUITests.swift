@@ -128,7 +128,8 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(discard.waitForExistence(timeout: 10))
         discard.click()
         XCTAssertTrue(app.staticTexts["Fixture diff unavailable"].waitForExistence(timeout: 5))
-        app.buttons["Refresh Changes"].click()
+        app.buttons["Reload Changes"].click()
+        XCTAssertTrue(discard.waitForExistence(timeout: 10))
         discard.click()
         XCTAssertTrue(app.sheets.staticTexts["Discard this change block?"].waitForExistence(timeout: 5))
         app.sheets.buttons["Cancel"].click()
@@ -265,10 +266,11 @@ final class CascadeUITests: XCTestCase {
         wait(for: [collapsed], timeout: 5)
         file.click()
         XCTAssertTrue(code.waitForExistence(timeout: 5))
-        app.buttons["Refresh Changes"].click()
+        // The diff has no Refresh button: showing the changes again looks for newer ones.
+        app.buttons["Show Changes"].click(); app.buttons["Show Changes"].click()
         XCTAssertTrue(app.staticTexts["Fixture diff unavailable"].waitForExistence(timeout: 5))
         XCTAssertTrue(code.exists) // A failed refresh preserves the last good diff.
-        app.buttons["Refresh Changes"].click()
+        app.buttons["Reload Changes"].click()
         let recovered = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.staticTexts["Fixture diff unavailable"])
         wait(for: [recovered], timeout: 5)
         XCTAssertTrue(app.webViews.buttons["Untracked.txt"].exists)
