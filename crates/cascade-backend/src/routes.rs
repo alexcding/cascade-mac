@@ -675,6 +675,19 @@ fn sanitize_project_patch(body: &Value) -> Result<Map<String, Value>, ApiError> 
             patch.insert(key.into(), Value::String(trimmed.into()));
         }
     }
+    // An SF Symbol name, such as "hammer.fill"; empty is the folder.
+    if let Some(value) = body.get("icon") {
+        let icon = value
+            .as_str()
+            .map(str::trim)
+            .ok_or_else(|| ApiError::bad_request("icon must be an SF Symbol name"))?;
+        if icon.len() > 100
+            || !icon.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.')
+        {
+            return Err(ApiError::bad_request("icon must be an SF Symbol name"));
+        }
+        patch.insert("icon".into(), Value::String(icon.into()));
+    }
     if let Some(value) = body.get("jiraProjectKey") {
         patch.insert(
             "jiraProjectKey".into(),
@@ -783,7 +796,21 @@ fn required_string<'a>(body: &'a Value, key: &str, error: &str) -> Result<&'a st
 
 #[cfg(test)]
 mod tests {
-    use super::poll_targets;
+    use super::{poll_targets, sanitize_project_patch};
+    use serde_json::json;
+
+    #[test]
+    fn a_project_icon_must_be_a_symbol_name() {
+        let patch = sanitize_project_patch(&json!({"icon": " hammer.fill "})).unwrap();
+        assert_eq!(patch["icon"], "hammer.fill");
+        assert_eq!(sanitize_project_patch(&json!({"icon": ""})).unwrap()["icon"], "");
+        for bad in ["../etc", "Hammer", "a b", &"a".repeat(101)] {
+            assert!(sanitize_project_patch(&json!({"icon": bad})).is_err(), "{bad}");
+        }
+        for bad in [json!(null), json!(42), json!(["hammer"])] {
+            assert!(sanitize_project_patch(&json!({"icon": bad})).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn poll_scope_narrows_to_one_sync_and_defaults_to_both() {

@@ -9,6 +9,12 @@
 /* Begin PBXBuildFile section */
 		4415510CF7AF502B0F5DD509 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */; };
 		4E7DF3CF4810B4EC38A55D12 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C55F686B0B0D671AF14E3A3D /* GhosttyTerminal */; };
+		5F5B00000000000000000011 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000021 /* SFSymbolsPicker */; };
+		5F5B00000000000000000031 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000041 /* SFSafeSymbols */; };
+		5F5B00000000000000000012 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000022 /* SFSymbolsPicker */; };
+		5F5B00000000000000000032 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000042 /* SFSafeSymbols */; };
+		5F5B00000000000000000013 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000023 /* SFSymbolsPicker */; };
+		5F5B00000000000000000033 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000043 /* SFSafeSymbols */; };
 		62D68FC07EABB6B4C6958926 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3847F04EE724731C9EFB5B91 /* Sparkle */; };
 		728A6AA42A2A9D55ABD412B4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0A01EF5361B23C1FC613C721 /* Sparkle */; };
 		7AAB4F2B3EBA9D918EF3C7D0 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 904836571D4D28F3C2E7EB04 /* GhosttyTerminal */; };
@@ -157,6 +163,8 @@
 				A1B2C3D40000000000000012 /* GhosttyTheme in Frameworks */,
 				7F05583EB11B7BDAB70F064F /* Sparkle in Frameworks */,
 				CE5E00000000000000000011 /* CodeEditSourceEditor in Frameworks */,
+				5F5B00000000000000000011 /* SFSymbolsPicker in Frameworks */,
+				5F5B00000000000000000031 /* SFSafeSymbols in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -168,6 +176,8 @@
 				A1B2C3D40000000000000011 /* GhosttyTheme in Frameworks */,
 				728A6AA42A2A9D55ABD412B4 /* Sparkle in Frameworks */,
 				CE5E00000000000000000012 /* CodeEditSourceEditor in Frameworks */,
+				5F5B00000000000000000012 /* SFSymbolsPicker in Frameworks */,
+				5F5B00000000000000000032 /* SFSafeSymbols in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -186,6 +196,8 @@
 				A1B2C3D40000000000000013 /* GhosttyTheme in Frameworks */,
 				62D68FC07EABB6B4C6958926 /* Sparkle in Frameworks */,
 				CE5E00000000000000000013 /* CodeEditSourceEditor in Frameworks */,
+				5F5B00000000000000000013 /* SFSymbolsPicker in Frameworks */,
+				5F5B00000000000000000033 /* SFSafeSymbols in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -262,6 +274,8 @@
 				A1B2C3D40000000000000003 /* GhosttyTheme */,
 				3847F04EE724731C9EFB5B91 /* Sparkle */,
 				CE5E00000000000000000023 /* CodeEditSourceEditor */,
+				5F5B00000000000000000023 /* SFSymbolsPicker */,
+				5F5B00000000000000000043 /* SFSafeSymbols */,
 			);
 			productName = CascadeTerminalStress;
 			productReference = 5A200C8AEBCE06F85302EE31 /* CascadeTerminalStress */;
@@ -297,6 +311,8 @@
 				A1B2C3D40000000000000001 /* GhosttyTheme */,
 				0A01EF5361B23C1FC613C721 /* Sparkle */,
 				CE5E00000000000000000022 /* CodeEditSourceEditor */,
+				5F5B00000000000000000022 /* SFSymbolsPicker */,
+				5F5B00000000000000000042 /* SFSafeSymbols */,
 			);
 			productName = Cascade;
 			productReference = 8BC2655C2DEDD3F400F279A4 /* Cascade.app */;
@@ -354,6 +370,8 @@
 				A1B2C3D40000000000000002 /* GhosttyTheme */,
 				1A5E96BC02299C04C288CFCB /* Sparkle */,
 				CE5E00000000000000000021 /* CodeEditSourceEditor */,
+				5F5B00000000000000000021 /* SFSymbolsPicker */,
+				5F5B00000000000000000041 /* SFSafeSymbols */,
 			);
 			productName = CascadeTests;
 			productReference = FB9BE2BCFF7EB69F13DEF145 /* CascadeTests.xctest */;
@@ -404,6 +422,8 @@
 				0C764A1CC6D6A03E30F22A99 /* XCRemoteSwiftPackageReference "ghostty-terminal-spm" */,
 				EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */,
 				CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */,
+				5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */,
+				5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8BC2655D2DEDD3F400F279A4 /* Products */;
@@ -770,6 +790,14 @@
 				version = "1.6.20260922-cascade.1";
 			};
 		};
+		5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/alessiorubicini/SFSymbolsPickerForSwiftUI";
+			requirement = {
+				kind = exactVersion;
+				version = 1.1.0;
+			};
+		};
 		CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
@@ -784,6 +812,14 @@
 			requirement = {
 				kind = exactVersion;
 				version = 2.9.6;
+			};
+		};
+		5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SFSafeSymbols/SFSafeSymbols.git";
+			requirement = {
+				kind = exactVersion;
+				version = 7.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -803,6 +839,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EE43D3F9D8985BBC71A54EEC /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		5F5B00000000000000000021 /* SFSymbolsPicker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */;
+			productName = SFSymbolsPicker;
+		};
+		5F5B00000000000000000022 /* SFSymbolsPicker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */;
+			productName = SFSymbolsPicker;
+		};
+		5F5B00000000000000000023 /* SFSymbolsPicker */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */;
+			productName = SFSymbolsPicker;
 		};
 		8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -848,6 +899,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
 			productName = CodeEditSourceEditor;
+		};
+		5F5B00000000000000000041 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
+		};
+		5F5B00000000000000000042 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
+		};
+		5F5B00000000000000000043 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

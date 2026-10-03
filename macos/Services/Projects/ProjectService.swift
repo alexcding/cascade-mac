@@ -13,6 +13,10 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var forwardWebhooks = true
     var issuesEnabled = true
     var boardEnabled = false
+    /// The SF Symbol the sidebar draws the project with; empty is `defaultIcon`.
+    var icon = ""
+
+    static let defaultIcon = "folder"
 
     init(_ project: Project? = nil) {
         guard let project else { return }
@@ -22,6 +26,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
+        icon = project.icon ?? ""
     }
     var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Enter a project name.") }

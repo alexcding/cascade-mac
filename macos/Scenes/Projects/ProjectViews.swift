@@ -8,6 +8,7 @@ struct ProjectEditorView: View {
             Form {
                 Section("Project") {
                     TextField("Name", text: $model.draft.name).accessibilityIdentifier("project-name")
+                    LabeledContent("Icon") { ProjectIconButton(icon: $model.draft.icon) }
                     HStack {
                         TextField("Workspace folder", text: $model.draft.workspace).accessibilityIdentifier("project-workspace")
                         Button("Choose…") { Task { await model.pickFolder() } }
@@ -97,10 +98,13 @@ struct NewProjectSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             SheetTitle(String(localized: "New Project"))
             SheetField(String(localized: "Project Name")) {
-                TextField("", text: $model.draft.name)
-                    .textFieldStyle(.roundedBorder).focused($nameFocused)
-                    .accessibilityLabel("Project Name")
-                    .accessibilityIdentifier("project-name")
+                HStack(spacing: 8) {
+                    ProjectIconButton(icon: $model.draft.icon)
+                    TextField("", text: $model.draft.name)
+                        .textFieldStyle(.roundedBorder).focused($nameFocused)
+                        .accessibilityLabel("Project Name")
+                        .accessibilityIdentifier("project-name")
+                }
             }
             SheetField(String(localized: "Project Folder"), last: true) {
                 HStack(spacing: 8) {

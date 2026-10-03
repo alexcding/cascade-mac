@@ -183,7 +183,7 @@ impl Database {
                     .unwrap_or_else(now);
                 let get = |key: &str| patch.get(key).and_then(Value::as_str).unwrap_or("");
                 conn.execute(
-                    "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,issues_enabled,board_enabled,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+                    "INSERT INTO projects (id,name,repo,workspace,jira_project_key,merge_transition,forward_webhooks,fix_version_enabled,fix_version_prefix,fix_version_script,ide,ide_cmd,ide_target,run_scheme,run_sim,worktree_setup,worktree_include,issues_enabled,board_enabled,icon,created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
                     params![
                         id, get("name"), get("repo"), get("workspace"), get("jiraProjectKey"),
                         get("mergeTransition"), bool_int(patch.get("forwardWebhooks"), true),
@@ -192,6 +192,7 @@ impl Database {
                         get("runScheme"), get("runSim"), get("worktreeSetup"), get("worktreeInclude"),
                         bool_int(patch.get("issuesEnabled"), true),
                         bool_int(patch.get("boardEnabled"), false),
+                        get("icon"),
                         created_at,
                     ],
                 )?;
@@ -231,6 +232,7 @@ impl Database {
                     ("worktreeInclude", "worktree_include", FieldKind::String),
                     ("issuesEnabled", "issues_enabled", FieldKind::Bool),
                     ("boardEnabled", "board_enabled", FieldKind::Bool),
+                    ("icon", "icon", FieldKind::String),
                 ];
                 let mut sets = Vec::new();
                 let mut values = Vec::<rusqlite::types::Value>::new();
@@ -975,6 +977,8 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
         // Whether the project page shows its Jira sprint board as a tab.
         "ALTER TABLE projects ADD COLUMN board_enabled INTEGER NOT NULL DEFAULT 0",
+        // The SF Symbol the sidebar draws the project with; empty is the folder.
+        "ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''",
     ] {
         let _ = conn.execute(migration, []);
     }
@@ -1031,6 +1035,7 @@ fn project_from_row(row: &Row<'_>) -> rusqlite::Result<Project> {
         worktree_include: text(row, "worktree_include")?,
         issues_enabled: row.get::<_, i64>("issues_enabled")? != 0,
         board_enabled: row.get::<_, i64>("board_enabled")? != 0,
+        icon: text(row, "icon")?,
     })
 }
 
@@ -1137,6 +1142,20 @@ mod tests {
         let mut patch = Map::new();
         patch.insert("boardEnabled".into(), json!(true));
         assert!(opened.update_project(&created.id, &patch).await.unwrap().unwrap().board_enabled);
+    }
+
+    #[tokio::test]
+    async fn a_project_icon_is_kept_from_creation_and_patched() {
+        let opened = Database::open(tempfile::tempdir().unwrap().path()).unwrap();
+        let mut fields = Map::new();
+        fields.insert("name".into(), json!("App"));
+        assert!(opened.add_project(&fields).await.unwrap().icon.is_empty());
+        fields.insert("icon".into(), json!("hammer"));
+        let created = opened.add_project(&fields).await.unwrap();
+        assert_eq!(created.icon, "hammer");
+        let mut patch = Map::new();
+        patch.insert("icon".into(), json!(""));
+        assert!(opened.update_project(&created.id, &patch).await.unwrap().unwrap().icon.is_empty());
     }
 
     #[tokio::test]

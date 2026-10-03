@@ -794,7 +794,7 @@ enum SidebarMetrics {
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project:
             // A project's sessions start from its page's composer, so its row has no "+".
-            icon.image = SidebarIcons.rowSymbol("folder")
+            icon.image = SidebarIcons.rowSymbol(entry.symbol) ?? SidebarIcons.rowSymbol("folder")
         case .session(let status, let pinned):
             icon.isHidden = true
             dot.set(status)

@@ -26,10 +26,11 @@ import AppKit
     private static var cache: [String: NSImage] = [:]
 
     /// A symbol as the system hands it out, with no size of its own: the source list sizes a row's
-    /// icon for its row size, and a button sizes its glyph for its control size.
+    /// icon for its row size, and a button sizes its glyph for its control size. A name this table
+    /// does not know is taken as an SF Symbol's own, as one chosen for a project is.
     static func symbol(_ name: String) -> NSImage? {
         if let hit = cache[name] { return hit }
-        let image = symbols[name]?.lazy.compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: name) }.first
+        let image = (symbols[name] ?? [name]).lazy.compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: name) }.first
         cache[name] = image
         return image
     }

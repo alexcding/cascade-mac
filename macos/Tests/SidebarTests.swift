@@ -272,6 +272,21 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(UserDefaultsSidebarOrderStore(preferences: preferences).load() == .init(projects: ["p2"], sessions: dragged, pinned: ["x"]))
 }
 
+/// A project row is a folder until an icon is chosen for it in the project's forms, and the
+/// draft those forms edit sends the icon to the backend, storing nothing for the folder.
+@MainActor @Test func projectRowsDrawTheIconChosenForThem() throws {
+    #expect(SidebarEntry.make(projects: [sidebarProject], sessions: []).first { $0.id == "project:p1" }?.symbol == "folder")
+    let iconed = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "hammer")
+    #expect(SidebarEntry.make(projects: [iconed], sessions: []).first { $0.id == "project:p1" }?.symbol == "hammer")
+    #expect(Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "").symbol == "folder")
+    #expect(SidebarIcons.rowSymbol("hammer") != nil)
+
+    #expect(ProjectDraft(iconed).icon == "hammer")
+    #expect(ProjectDraft(sidebarProject).icon.isEmpty)
+    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProjectDraft(iconed))) as? [String: Any]
+    #expect(body?["icon"] as? String == "hammer")
+}
+
 @MainActor private final class SidebarDropInfo: NSObject, @MainActor NSDraggingInfo {
     let draggingPasteboard = NSPasteboard(name: .init("cascade-sidebar-test-\(UUID().uuidString)"))
     init(placement: String) {
@@ -606,4 +621,27 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     dot.set(SidebarSessionStatus(live: true, busy: true, needsInput: true, cli: "claude"))
     #expect(dot.state == .needsInput && dot.statusLabel == "Needs input")
     #expect(!rippling(), "waiting is steady")
+}
+
+/// The icon picker's categories come from the system's tables in their own order, All first with
+/// no list of its own, each category's symbols in the system's symbol order; with no tables there
+/// are none.
+@Test func symbolCategoriesReadTheSystemTables() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-glyphs-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    func write(_ value: Any, _ name: String) throws {
+        try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            .write(to: folder.appendingPathComponent(name))
+    }
+    #expect(SymbolCategories(resources: folder).categories.isEmpty)
+    try write([["key": "all", "icon": "square.grid.2x2"], ["key": "objectsandtools", "icon": "folder"],
+               ["key": "empty", "icon": "xmark"], ["key": "arrows", "icon": "arrow.forward"]], "categories.plist")
+    try write(["hammer": ["objectsandtools"], "folder": ["objectsandtools"], "arrow.up": ["arrows"]], "symbol_categories.plist")
+    try write(["folder", "hammer", "arrow.up"], "symbol_order.plist")
+    let read = SymbolCategories(resources: folder).categories
+    #expect(read.map(\.id) == ["all", "objectsandtools", "arrows"])
+    #expect(read[0].symbols == nil)
+    #expect(read[1].symbols == ["folder", "hammer"])
+    #expect(read[1].title == "Objects & Tools")
 }

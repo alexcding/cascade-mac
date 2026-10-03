@@ -125,7 +125,8 @@ struct SidebarEntry: Equatable {
         result.append(Self(id: "label:projects", title: String(localized: "Projects"), symbol: "",
                            role: .projectsHeader(canCreate: canCreateProject)))
         result += projects.map { project in
-            .init(id: "project:\(project.id)", title: project.name, symbol: "folder", detail: project.workspace,
+            .init(id: "project:\(project.id)", title: project.name, symbol: project.symbol,
+                  detail: project.workspace,
                   destination: .project(project.id), children: ordered.filter { $0.projectId == project.id }.map { row($0) },
                   role: .project)
         }
