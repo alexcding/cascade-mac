@@ -305,6 +305,15 @@ struct SessionWorkspaceContextBody: View {
             SimulatorPanelView(model: preview, openIntegrations: model.openHookSettings)
         } else if context.activeTool == .files {
             WorkspaceFileBrowser(context: context, model: model, document: nil)
+        } else if context.activeTool == .live {
+            Group {
+                if let live = model.live { LivePanelView(live: live, workspace: model) }
+                else if !model.canShowLive {
+                    ContentUnavailableView(String(localized: "No agent"), systemImage: WorkspaceTool.live.symbol,
+                                           description: Text(String(localized: "This session runs no agent to show.")))
+                } else { Color.clear }
+            }
+            .task(id: model.canShowLive) { model.prepareLive() }
         } else {
             BlankPane(context: context, model: model)
         }

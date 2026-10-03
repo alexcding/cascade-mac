@@ -127,6 +127,10 @@ struct BrowserCompactTabBar: View {
                 CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.tool(.simulator)) }, close: { model.closeTab(.tool(.simulator)) })
+            } else if id == WorkspaceTool.live.id {
+                CompactToolTab(title: WorkspaceTool.live.title, symbol: WorkspaceTool.live.symbol,
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(.live)) }, close: { model.closeTab(.tool(.live)) })
             }
         }
     }
@@ -418,7 +422,7 @@ private struct CompactFileTab: View {
 }
 
 /// A tool's tab in the strip: the Files explorer — a New Tab that browses the worktree, until a
-/// file picked in it takes its place — or the Simulator.
+/// file picked in it takes its place — the Simulator, or Live.
 private struct CompactToolTab: View {
     let title: String
     let symbol: String

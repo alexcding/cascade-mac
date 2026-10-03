@@ -55,9 +55,9 @@ enum WorkspaceSection: String, CaseIterable {
 }
 
 /// A tool the pane holds as a tab beside its pages and files, at most one of each: the worktree's
-/// changes, the Simulator, and the worktree's files to pick one from.
+/// changes, the Simulator, the worktree's files to pick one from, and the agent's live diagram.
 enum WorkspaceTool: String, Codable, CaseIterable {
-    case changes, simulator, files
+    case changes, simulator, files, live
     private static let prefix = "tool:"
     var id: String { Self.prefix + rawValue }
     init?(id: String) {
@@ -66,17 +66,18 @@ enum WorkspaceTool: String, Codable, CaseIterable {
     }
     /// The pane its tab shows.
     var pane: WorkspacePane {
-        switch self { case .changes: .diff; case .simulator: .simulator; case .files: .term }
+        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live: .term }
     }
     var title: String {
         switch self {
         case .changes: String(localized: "Diff")
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
+        case .live: String(localized: "Live")
         }
     }
     var symbol: String {
-        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc" }
+        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "waveform.path.ecg" }
     }
 }
 
@@ -299,14 +300,14 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The section the active tab belongs to: Diff its own; a page, a file, the Files picker, the
     /// Simulator — or nothing selected — the tabs.
     var section: WorkspaceSection { Self.section(of: activeID.flatMap(tab)) ?? .browser }
-    /// The tabs the strip shows and cycling walks: the pages, the open files, the Files explorer and
-    /// the Simulator, in their order, none for Diff, which is one view. A blank page — the
+    /// The tabs the strip shows and cycling walks: the pages, the open files, the Files explorer, the
+    /// Simulator and Live, in their order, none for Diff, which is one view. A blank page — the
     /// pane's own included — is a New Tab there, as the explorer is a Files tab, until what is
     /// typed or picked in it takes its place.
     var stripTabs: [WorkspaceTab] {
         switch section {
         case .browser: tabs.filter {
-            switch $0 { case .page, .file, .tool(.files), .tool(.simulator): true; case .tool: false }
+            switch $0 { case .page, .file, .tool(.files), .tool(.simulator), .tool(.live): true; case .tool: false }
         }
         case .diff: []
         }
@@ -503,7 +504,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     private static func section(of tab: WorkspaceTab?) -> WorkspaceSection? {
         switch tab {
-        case .page?, .file?, .tool(.files)?, .tool(.simulator)?: .browser
+        case .page?, .file?, .tool(.files)?, .tool(.simulator)?, .tool(.live)?: .browser
         case .tool(.changes)?: .diff
         case nil: nil
         }

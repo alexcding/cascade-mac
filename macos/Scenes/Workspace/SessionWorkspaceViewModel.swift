@@ -282,14 +282,19 @@ extension WorkspaceServing {
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
-    /// What a session's blank tab offers to open in its place: its worktree's Files explorer, and
-    /// the Simulator while a build has one. Diff is the toolbar picker's; a web page is the blank
-    /// tab itself.
+    /// What a session's blank tab offers to open in its place: its worktree's Files explorer, its
+    /// agent's Live diagram, and the Simulator while a build has one. Diff is the toolbar picker's;
+    /// a web page is the blank tab itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
         var tools: [StartPageTool] = [.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
             context?.openTool(.files, replacingBlank: true)
         }]
+        if canShowLive {
+            tools.append(.init(id: "live", title: WorkspaceTool.live.title, symbol: WorkspaceTool.live.symbol) { [weak context] in
+                context?.openTool(.live, replacingBlank: true)
+            })
+        }
         if simulatorPreview != nil {
             tools.append(.init(id: "simulator", title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol) { [weak context] in
                 context?.openTool(.simulator, replacingBlank: true)
@@ -394,6 +399,37 @@ extension WorkspaceServing {
     func openHookSettings() { perform(.hookSettings) }
     func stopBuild() async { await build?.stop() }
     func toggleContext() { setContextPresented(!showsPage) }
+
+    // MARK: Live
+
+    /// The Live tab's model, made when the tab is first shown and kept while the workspace lives.
+    private(set) var live: LivePanelModel?
+    var canShowLive: Bool { session?.cli != nil }
+    /// The Live tab on screen: this workspace shown, its pane open on the tab.
+    private var showsLive: Bool { active && showsBrowser && context?.activeTool == .live }
+
+    /// What the session's agent is doing, as its terminal's hooks report it.
+    enum AgentRunState { case notRunning, working, waiting, idle }
+    var agentRunState: AgentRunState {
+        guard let turns = terminal?.agentTurns else { return .notRunning }
+        if turns.needsInput { return .waiting }
+        return turns.busy ? .working : .idle
+    }
+
+    /// Made by the tab as it appears, and again should the session arrive after it: a tab restored
+    /// from a snapshot needs one as much as a new one.
+    func prepareLive() {
+        guard live == nil, context != nil, canShowLive, let session, let cli = session.cli else { return }
+        let worktree = session.worktree
+        live = LivePanelModel(
+            load: { [weak self] since in
+                guard let service = self?.service else { return AgentTranscript(revision: "", turns: [], hooks: nil) }
+                return try await service.agentTranscript(cli: cli, worktree: worktree, since: since,
+                                                         conversation: self?.agentConversation)
+            },
+            busy: { [weak self] in self?.terminal?.agentBusy == true },
+            visible: { [weak self] in self?.showsLive == true })
+    }
 
     // MARK: Chat overlay (prototype)
 
@@ -503,7 +539,7 @@ extension WorkspaceServing {
     }
 
     /// The workspace owns its chat, so its chat goes with it.
-    isolated deinit { chat?.retire() }
+    isolated deinit { chat?.retire(); live?.retire() }
     func setContextPresented(_ presented: Bool) {
         guard canToggleContext, let context else { return }
         guard presented else { context.setPane(.off); return }

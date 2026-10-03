@@ -1,0 +1,111 @@
+import Foundation
+import Testing
+@testable import Cascade
+
+/// The Live tab reads the agent's transcript into lanes, counts, a log and packets, by the kinds
+/// every CLI shares, and is a tab of the strip like the Files explorer.
+@MainActor struct LivePanelTests {
+    private func tool(_ id: String, kind: String, label: String, output: String? = "done", error: Bool = false) -> TranscriptBlock {
+        TranscriptBlock(type: .tool, text: nil, id: id, name: "Tool", summary: label, command: nil, path: nil,
+                        old: nil, new: nil, output: output, isError: error, kind: kind)
+    }
+    private func user(_ id: String) -> TranscriptTurn {
+        TranscriptTurn(id: id, role: .user, timestamp: nil, ended: nil, model: nil,
+                       blocks: [TranscriptBlock(type: .text, text: id, id: nil, name: nil, summary: nil, command: nil,
+                                                path: nil, old: nil, new: nil, output: nil, isError: nil)])
+    }
+    private func agent(_ id: String, _ blocks: [TranscriptBlock], model: String? = "opus") -> TranscriptTurn {
+        TranscriptTurn(id: id, role: .assistant, timestamp: nil, ended: nil, model: model, blocks: blocks)
+    }
+
+    @Test func theTranscriptFoldsIntoLanesCountsAndALog() {
+        let turns = [
+            user("u1"),
+            agent("a1", [tool("t1", kind: "read", label: "README.md"), tool("t2", kind: "create", label: "new.swift"),
+                         tool("t3", kind: "run", label: "ls\nmore", error: true), tool("t4", kind: "plan", label: "plan")]),
+            user("u2"),
+            agent("a2", [tool("t5", kind: "edit", label: "a.swift"), tool("t6", kind: "delegate", label: "explore", output: nil),
+                         tool("t7", kind: "fetch", label: "https://example.com", output: nil)], model: "sonnet"),
+        ]
+        let activity = LiveActivity.of(turns, busy: true)
+        #expect(activity.calls == 7 && activity.prompts == 2 && activity.failures == 1)
+        #expect(activity.counts == [.read: 1, .edit: 2, .run: 1, .delegate: 1, .web: 1], "create is an edit, fetch the web, plan no lane")
+        #expect(activity.running == [.delegate, .web], "calls with no output in the turn under way")
+        #expect(activity.subagents.map(\.id) == ["t6"])
+        #expect(activity.model == "sonnet")
+        #expect(activity.log.map(\.id) == ["t2", "t3", "t4", "t5", "t6", "t7"], "the latest six, oldest first")
+        #expect(activity.log.first { $0.id == "t3" }?.label == "ls", "a label is its first line")
+    }
+
+    @Test func nothingRunsOnceTheAgentStopsOrAPromptFollows() {
+        let open = agent("a1", [tool("t1", kind: "run", label: "make", output: nil)])
+        #expect(LiveActivity.of([user("u1"), open], busy: false).running.isEmpty, "an interrupted call is not running")
+        #expect(LiveActivity.of([user("u1"), open, user("u2")], busy: true).running.isEmpty, "only the turn under way runs")
+    }
+
+    @Test func aCallSeenAfterTheFirstReadSendsAPacket() async {
+        var transcript = AgentTranscript(revision: "r1", turns: [user("u1"), agent("a1", [tool("t1", kind: "read", label: "a")])], hooks: nil)
+        var since: [String?] = []
+        let model = LivePanelModel(load: { revision in since.append(revision); return transcript }, busy: { true })
+        await model.refresh()
+        #expect(model.loaded && model.pulses.isEmpty, "what was there at the first read is history")
+        transcript = AgentTranscript(revision: "r2", turns: [user("u1"), agent("a1", [tool("t1", kind: "read", label: "a"),
+                                                                                   tool("t2", kind: "search", label: "b", output: nil)])], hooks: nil)
+        await model.refresh()
+        #expect(model.pulses.map(\.id) == ["t2"] && model.pulses.first?.lane == .search)
+        #expect(model.activity.running == [.search])
+        #expect(since == [nil, "r1"], "each read asks from the revision last seen")
+    }
+
+    @Test func aTabOutOfSightReadsNothingAndAFailedReadStillStopsWhatRan() async {
+        var shown = false, busy = true, fail = false, reads = 0
+        let turns = [user("u1"), agent("a1", [tool("t1", kind: "run", label: "make", output: nil)])]
+        let model = LivePanelModel(load: { _ in
+            reads += 1
+            if fail { throw BackendError.operation("gone") }
+            return AgentTranscript(revision: "r", turns: turns, hooks: nil)
+        }, busy: { busy }, visible: { shown })
+        model.appear()
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(reads == 0 && !model.isVisible, "a hidden tab reads nothing")
+        shown = true
+        await model.refresh()
+        #expect(model.activity.running == [.run])
+        fail = true; busy = false
+        await model.refresh()
+        #expect(model.error != nil && model.activity.running.isEmpty, "the agent stopping ends what ran, read or not")
+        model.retire()
+    }
+
+    @Test func aRetiredModelStopsReading() async {
+        var reads = 0
+        let model = LivePanelModel(load: { _ in reads += 1; return AgentTranscript(revision: "r", turns: [], hooks: nil) }, busy: { false })
+        model.retire()
+        await model.refresh()
+        model.appear()
+        #expect(reads == 0 && !model.loaded)
+    }
+
+    @Test func liveIsATabOfTheStrip() throws {
+        let context = WorkspaceContext(id: "task:live", sourceURL: "session:live", title: "")
+        let page = try #require(context.open("https://example.com/home", title: "Home"))
+        context.openTool(.live)
+        #expect(context.section == .browser && context.pane == .term)
+        #expect(context.stripTabs.map(\.id) == [page.id, WorkspaceTool.live.id])
+        context.select(.page(page))
+        context.openTool(.live)
+        #expect(context.activeTool == .live && context.tools == [.live], "opening it again selects the one tab")
+        context.openTool(.changes)
+        context.select(.tool(.live))
+        context.close(.tool(.live))
+        #expect(context.activePage === page, "closing it falls back to the strip, not to Diff")
+    }
+
+    @Test func liveIsSavedWithTheTabs() throws {
+        let context = WorkspaceContext(id: "task:live", sourceURL: "session:live", title: "")
+        _ = try #require(context.open("https://example.com/home", title: "Home"))
+        context.openTool(.live)
+        let snapshot = context.snapshot
+        #expect(snapshot.tools == ["live"] && snapshot.activeID == WorkspaceTool.live.id)
+    }
+}
