@@ -205,19 +205,36 @@ struct SessionAgentControlsView: View {
         }
     }
 
-    /// The ring carries the percentage, so the text is only the size.
     private var contextTitle: String {
-        guard let status = model.agentStatus else { return String(localized: "Context") }
-        return status.tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
+        model.agentStatus?.contextTitle ?? String(localized: "Context")
     }
 
     private var contextHelp: String {
-        guard let status = model.agentStatus else { return String(localized: "Compact or clear the conversation") }
-        guard let fraction = status.fraction, let window = status.window else {
+        model.agentStatus?.contextHelp ?? String(localized: "Compact or clear the conversation")
+    }
+}
+
+extension AgentStatus {
+    /// How full the context is, as a percentage; the size, for an agent that has not reported a
+    /// percentage, since there is nothing else to show.
+    var contextTitle: String {
+        fraction.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? tokensText
+    }
+
+    /// The sizes behind the title's percentage, or why there is none.
+    var contextHelp: String {
+        guard let fraction else {
             return String(localized: "The agent has not reported its context window, so there is no percentage")
         }
-        let percent = fraction.formatted(.percent.precision(.fractionLength(0)))
-        return String(localized: "\(percent) of a \(window.formatted(.number.notation(.compactName))) context in use")
+        guard let window else {
+            let percent = fraction.formatted(.percent.precision(.fractionLength(0)))
+            return String(localized: "\(tokensText) in use, \(percent) of the context")
+        }
+        return String(localized: "\(tokensText) of a \(window.formatted(.number.notation(.compactName))) context in use")
+    }
+
+    private var tokensText: String {
+        tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
     }
 }
 

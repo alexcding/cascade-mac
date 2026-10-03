@@ -94,4 +94,18 @@ import Testing
         #expect(kept.shortcut?.title == "⌃⌘1")
         #expect(kept.shortcut?.keyboardShortcut == KeyboardShortcut("1", modifiers: [.command, .control]))
     }
+
+    /// The context readout's title is the percentage whenever the agent reports one, and its help
+    /// never says there is no percentage while the title shows one.
+    @Test func theContextReadoutAgreesWithItsHelp() {
+        let full = AgentStatus(model: nil, effort: nil, tokens: 45_000, window: 200_000, percent: 22.5)
+        #expect(full.contextTitle == 22.5.formatted(.percent.scale(1).precision(.fractionLength(0))))
+        #expect(full.contextHelp.contains("200"))
+        let noWindow = AgentStatus(model: nil, effort: nil, tokens: 45_000, window: nil, percent: 42)
+        #expect(noWindow.contextTitle == 0.42.formatted(.percent.precision(.fractionLength(0))))
+        #expect(noWindow.contextHelp.contains(noWindow.contextTitle), "the help names the percentage it has")
+        let none = AgentStatus(model: nil, effort: nil, tokens: 45_000, window: 200_000, percent: nil)
+        #expect(none.contextTitle == 45_000.formatted(.number.notation(.compactName)))
+        #expect(!none.contextHelp.contains("%"))
+    }
 }
