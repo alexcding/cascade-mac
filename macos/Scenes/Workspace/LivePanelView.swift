@@ -23,7 +23,8 @@ struct LivePanelView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Theme.paneBackground)
+        // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
+        .paneSurface(ignoresSafeAreaEdges: [])
         .onAppear { live.appear() }
         .onDisappear { live.disappear() }
         .accessibilityIdentifier("workspace-live-panel")

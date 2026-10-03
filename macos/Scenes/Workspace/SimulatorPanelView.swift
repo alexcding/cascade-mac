@@ -40,7 +40,8 @@ struct SimulatorPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .paneSurface()
+        // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
+        .paneSurface(ignoresSafeAreaEdges: [])
         .accessibilityIdentifier("workspace-simulator-panel")
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.applicationBecameActive()

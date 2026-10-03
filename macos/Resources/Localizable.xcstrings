@@ -4315,6 +4315,9 @@
         }
       }
     },
+    "%lld calls" : {
+
+    },
     "%lld failing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16826,6 +16829,9 @@
         }
       }
     },
+    "Calls" : {
+
+    },
     "Calls: %lld · Errors: %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -27097,6 +27103,9 @@
         }
       }
     },
+    "Context %lld%%" : {
+
+    },
     "Context status line" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31248,6 +31257,9 @@
 
     },
     "Couldn't load folder contents" : {
+
+    },
+    "Counted over the conversation's recent turns" : {
 
     },
     "CPU" : {
@@ -37406,6 +37418,9 @@
           }
         }
       }
+    },
+    "Edits" : {
+
     },
     "Effort" : {
       "extractionState" : "manual",
@@ -50769,6 +50784,9 @@
         }
       }
     },
+    "Latest" : {
+
+    },
     "Latest 200 entries for the selected category and level." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -51692,6 +51710,9 @@
           }
         }
       }
+    },
+    "Live" : {
+
     },
     "Load Older Commits" : {
       "extractionState" : "manual",
@@ -59111,6 +59132,9 @@
         }
       }
     },
+    "No agent" : {
+
+    },
     "No agent is running in this terminal." : {
       "localizations" : {
         "bn" : {
@@ -62584,6 +62608,9 @@
         }
       }
     },
+    "No tool calls yet." : {
+
+    },
     "No tracked changes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -64049,6 +64076,9 @@
           }
         }
       }
+    },
+    "Not running" : {
+
     },
     "Not saved yet" : {
       "extractionState" : "manual",
@@ -73929,6 +73959,9 @@
           }
         }
       }
+    },
+    "Prompts" : {
+
     },
     "PTY daemon did not become ready: %@. See %@." : {
       "localizations" : {
@@ -94117,6 +94150,9 @@
         }
       }
     },
+    "Subagents" : {
+
+    },
     "Submit a changes-requested review." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -106835,6 +106871,9 @@
         }
       }
     },
+    "This session runs no agent to show." : {
+
+    },
     "This shell has an incompatible appearance owner. The existing shell has been preserved." : {
       "localizations" : {
         "bn" : {
@@ -114924,6 +114963,9 @@
       }
     },
     "Weather" : {
+
+    },
+    "Web" : {
 
     },
     "Web page" : {
