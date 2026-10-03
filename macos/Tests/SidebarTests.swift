@@ -589,38 +589,38 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
 }
 
 /// A session's dot: waiting on a person outranks working, working outranks a finished turn, and
-/// only working ripples — once the dot is in a window and shown, again after it leaves and comes
+/// only working blinks — once the dot is in a window and shown, again after it leaves and comes
 /// back, and never while Reduce Motion is on.
 @MainActor @Test func aSessionDotShowsTheAgentsState() {
     let dot = SidebarStatusDot()
     dot.reducesMotion = { false }
-    let rippling = { dot.isRippling }
+    let blinking = { dot.isBlinking }
     dot.set(SidebarSessionStatus(live: true, cli: "claude"))
     #expect(dot.state == .idle)
     dot.set(SidebarSessionStatus(live: true, done: true, cli: "claude"))
     #expect(dot.state == .done)
     dot.set(SidebarSessionStatus(live: true, busy: true, done: true, cli: "codex"))
     #expect(dot.state == .working(cli: "codex"))
-    #expect(!rippling(), "out of a window")
+    #expect(!blinking(), "out of a window")
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 40), styleMask: [], backing: .buffered, defer: true)
     window.contentView?.addSubview(dot)
-    #expect(rippling(), "working, in a window")
+    #expect(blinking(), "working, in a window")
     dot.removeFromSuperview()
     window.contentView?.addSubview(dot)
-    #expect(rippling(), "back in a window")
+    #expect(blinking(), "back in a window")
     dot.isHidden = true
-    #expect(!rippling(), "hidden behind the hover pin")
+    #expect(!blinking(), "hidden behind the hover pin")
     dot.isHidden = false
-    #expect(rippling(), "shown again")
+    #expect(blinking(), "shown again")
     var reduced = true
     dot.reducesMotion = { reduced }
-    #expect(!rippling(), "Reduce Motion on")
+    #expect(!blinking(), "Reduce Motion on")
     reduced = false
     NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
-    #expect(rippling(), "Reduce Motion turned off while working")
+    #expect(blinking(), "Reduce Motion turned off while working")
     dot.set(SidebarSessionStatus(live: true, busy: true, needsInput: true, cli: "claude"))
     #expect(dot.state == .needsInput && dot.statusLabel == "Needs input")
-    #expect(!rippling(), "waiting is steady")
+    #expect(!blinking(), "waiting is steady")
 }
 
 /// The icon picker's categories come from the system's tables in their own order, All first with

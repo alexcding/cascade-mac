@@ -529,9 +529,9 @@ enum SidebarMetrics {
 /// A session's status, a small solid dot at the row's trailing edge: in the agent's own colour while
 /// it works (Claude's orange, Codex's purple), yellow while it waits on a person, green when a turn
 /// finished that nobody has looked at. Idle, nothing: an empty slot reads as nothing happening, and
-/// leaves the coloured states to stand out. Working, a thin ring ripples out of it and fades; the
-/// dot itself never changes size, and the ripple is left out when the system asks for reduced
-/// motion. Every other state is steady.
+/// leaves the coloured states to stand out. Working, the dot blinks softly, dimming and coming back;
+/// it never changes size, and it holds steady when the system asks for reduced motion. Every other
+/// state is steady.
 @MainActor final class SidebarStatusDot: NSView {
     enum State: Equatable {
         case idle, done, needsInput
@@ -539,9 +539,6 @@ enum SidebarMetrics {
     }
     static let size: CGFloat = 7
     private let dot = CALayer()
-    /// The working ripple: a ring the dot's size that grows past it and fades. It draws outside the
-    /// view, which is only the dot's size.
-    private let ripple = CAShapeLayer()
     private(set) var state = State.idle
     /// The system's Reduce Motion setting; a test answers it for itself.
     var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion } {
@@ -552,10 +549,7 @@ enum SidebarMetrics {
         super.init(frame: frameRect)
         wantsLayer = true
         dot.cornerRadius = Self.size / 2
-        ripple.fillColor = nil
-        ripple.lineWidth = 1
-        ripple.opacity = 0
-        [ripple, dot].forEach { layer?.addSublayer($0) }
+        layer?.addSublayer(dot)
         // Reduce Motion turned on or off while a session works takes effect at once.
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(displayOptionsChanged),
                                                           name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
@@ -571,31 +565,27 @@ enum SidebarMetrics {
         animate()
     }
 
-    private static let rippleKey = "ripple"
-    /// Whether the working ripple is running.
-    var isRippling: Bool { ripple.animation(forKey: Self.rippleKey) != nil }
+    private static let blinkKey = "blink"
+    /// Whether the working blink is running.
+    var isBlinking: Bool { dot.animation(forKey: Self.blinkKey) != nil }
 
-    /// Starts or stops the working ripple: only while the dot is in a window and shown — the hover pin
+    /// Starts or stops the working blink: only while the dot is in a window and shown — the hover pin
     /// hides it — and Reduce Motion is off. A layer's animation does not survive the view leaving its
     /// window, so it is started again on the way back in.
     private func animate() {
         guard case .working = state, window != nil, !isHiddenOrHasHiddenAncestor, !reducesMotion() else {
-            ripple.removeAnimation(forKey: Self.rippleKey)
+            dot.removeAnimation(forKey: Self.blinkKey)
             return
         }
-        guard !isRippling else { return }
-        let grow = CABasicAnimation(keyPath: "transform.scale")
-        grow.fromValue = 1
-        grow.toValue = 2.4
-        let fade = CABasicAnimation(keyPath: "opacity")
-        fade.fromValue = 0.8
-        fade.toValue = 0
-        let wave = CAAnimationGroup()
-        wave.animations = [grow, fade]
-        wave.duration = 1.6
-        wave.repeatCount = .infinity
-        wave.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        ripple.add(wave, forKey: Self.rippleKey)
+        guard !isBlinking else { return }
+        let blink = CABasicAnimation(keyPath: "opacity")
+        blink.fromValue = 1
+        blink.toValue = 0.6
+        blink.duration = 1.2
+        blink.autoreverses = true
+        blink.repeatCount = .infinity
+        blink.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dot.add(blink, forKey: Self.blinkKey)
     }
 
     override func viewDidMoveToWindow() {
@@ -639,7 +629,6 @@ enum SidebarMetrics {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         effectiveAppearance.performAsCurrentDrawingAppearance {
             dot.backgroundColor = color.cgColor
-            ripple.strokeColor = color.cgColor
         }
         dot.isHidden = state == .idle
         CATransaction.commit()
@@ -656,9 +645,6 @@ enum SidebarMetrics {
         let box = NSRect(x: ((bounds.width - Self.size) / 2 * 2).rounded() / 2, y: ((bounds.height - Self.size) / 2 * 2).rounded() / 2,
                          width: Self.size, height: Self.size)
         dot.frame = box
-        // The ring's outside edge is the dot's: a stroke is centred on its path.
-        ripple.frame = box
-        ripple.path = CGPath(ellipseIn: CGRect(origin: .zero, size: box.size).insetBy(dx: 0.5, dy: 0.5), transform: nil)
         CATransaction.commit()
     }
 }
@@ -765,7 +751,7 @@ enum SidebarMetrics {
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
         // The dot is shown or hidden once, in `applyState`: hiding it here and showing it again there
-        // would restart a working dot's ripple on every refresh.
+        // would restart a working dot's blink on every refresh.
         icon.isHidden = false; accessory.isHidden = true
         forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
