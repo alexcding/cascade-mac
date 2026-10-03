@@ -332,8 +332,8 @@ user collapses from the divider is told back to the workspace.
   (a `toggles` picker, `WindowToolbarItem.picker`). Tabs is the web pages and the open files in one
   strip (`WorkspaceContext.stripTabs`), and the address field searches the worktree's files beside
   the web. Diff and the Simulator are one view each, with no strip: over Diff the pane's bar holds
-  its review controls at its leading edge (`ReviewBar`: Changes/History with the changed files'
-  toggle in its pill, then Commit and Push), and over the Simulator nothing.
+  its review controls at its leading edge (`ReviewBar`: Changes/History, Commit and Push, the
+  changed files' toggle), and over the Simulator nothing.
   Underneath, Diff, the Simulator and the Files picker (which browses the worktree as a tree) are
   tool tabs (`WorkspaceTool`) in the one tab order, and the active tab decides the section;
   closing a tab selects its nearest neighbour in the same section. Over a web page the

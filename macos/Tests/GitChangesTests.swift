@@ -191,3 +191,21 @@ actor GitActionFixture: GitChangesService, DiffService {
     #expect(!model.coordinator.showsActions)
     model.disconnect()
 }
+
+/// Commit sits in the review's bar over History too, where the diff itself is hidden: it still opens
+/// its popover there, and only while that bar is on screen.
+@MainActor @Test func commitOpensOverHistoryWhileTheReviewIsShown() async throws {
+    let service = GitActionFixture()
+    let model = DiffViewModel(worktree: "/fixture", baseURL: URL(string: "http://127.0.0.1:3000")!, service: service, actionsService: service)
+    #expect(model.actions != nil && !model.isActive)
+    model.requestActions()
+    #expect(!model.coordinator.showsActions, "nothing on screen to anchor it")
+    model.reviewing = true
+    model.requestActions()
+    #expect(model.coordinator.showsActions, "the bar over History")
+    model.reviewing = false
+    #expect(!model.coordinator.showsActions && !model.coordinator.isPresenting, "the bar leaving takes it with it")
+    model.requestActions()
+    #expect(!model.coordinator.showsActions)
+    model.disconnect()
+}

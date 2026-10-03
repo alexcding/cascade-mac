@@ -311,8 +311,8 @@ struct SessionWorkspaceContextBody: View {
     }
 }
 
-/// The review's controls, all leading: the Changes/History switch with the changed files' toggle in
-/// its pill, then Commit. Beside a terminal the pane draws them in its title-bar zone (`SessionWorkspacePane`); a
+/// The review's controls, all leading: the Changes/History switch, Commit and the changed files'
+/// toggle. Beside a terminal the pane draws them in its title-bar zone (`SessionWorkspacePane`); a
 /// pane with no terminal beside it draws them as its own top row.
 struct ReviewBar: View {
     let context: WorkspaceContext
@@ -321,28 +321,33 @@ struct ReviewBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // The changed files' toggle belongs with Changes and History, in their pill; over History,
-            // which lists no files, and until the diff has loaded, it waits.
-            GlassSegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
-                                 selection: Binding(get: { context.reviewSection }, set: context.setReviewSection)) {
-                FileTreeToggle(shown: Binding(get: { diff?.filesShown ?? true }, set: { diff?.filesShown = $0 }),
-                               enabled: diff != nil && context.reviewSection == .changes, inPill: true)
-            }
+            SegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
+                                 selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
             // Everything leading, beside Changes/History, clear of the pane picker at the window's
             // edge; the slack after it. The same buttons over History, so switching moves nothing:
-            // Commit still commits the working changes.
+            // Commit still commits the working changes, and the changed files' toggle waits.
             if let diff {
                 let busy = diff.showsProgress
-                if let actions = diff.actions {
-                    // The padded capsule is the label, so all of it takes the click.
-                    Button(action: diff.requestActions) {
-                        Label(String(localized: "Commit…"), systemImage: "checkmark.circle")
-                            .padding(.horizontal, 14).frame(maxHeight: .infinity).contentShape(Capsule())
+                // Commit and the changed files' toggle in one capsule, as Run and Stop are.
+                ButtonGroup {
+                    if let actions = diff.actions {
+                        Button(action: diff.requestActions) {
+                            Label(String(localized: "Commit…"), systemImage: "checkmark.circle")
+                                .labelStyle(.titleAndIcon)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 10)
+                                .frame(maxHeight: .infinity)
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(actions.busy)
+                        .opacity(actions.busy ? 0.5 : 1)
+                        .commitPopover(diff)
+                        Divider().frame(height: 16)
                     }
-                    .barGlass(iconOnly: false)
-                    .disabled(actions.busy)
-                    .opacity(actions.busy ? 0.5 : 1)
-                    .commitPopover(diff)
+                    FileTreeToggle(shown: Binding(get: { diff.filesShown }, set: { diff.filesShown = $0 }),
+                                   enabled: context.reviewSection == .changes)
                 }
                 if busy { ProgressView().controlSize(.small) }
             }

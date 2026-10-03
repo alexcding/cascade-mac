@@ -342,30 +342,11 @@ extension FileTreeNode {
 struct FileTreeToggle: View {
     @Binding var shown: Bool
     var enabled = true
-    /// Inside a segmented pill (`GlassSegmentedPicker`'s accessory), drawn as its segments are rather
-    /// than as a circle of its own, which would stand taller than the pill.
-    var inPill = false
 
     var body: some View {
-        let title = shown ? String(localized: "Hide Files") : String(localized: "Show Files")
-        let symbol = shown ? "folder.fill" : "folder"
-        Group {
-            if inPill {
-                Button { shown.toggle() } label: {
-                    Label(title, systemImage: symbol).labelStyle(.iconOnly)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(enabled ? Theme.textSecondary : Theme.textTertiary.opacity(0.6))
-                        .padding(.horizontal, 10)
-                        .frame(maxHeight: .infinity)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .disabled(!enabled)
-            } else {
-                HoverCircleButton(title, systemImage: symbol, enabled: enabled) { shown.toggle() }
-            }
-        }
-        .help(shown ? String(localized: "Hide the files") : String(localized: "Show the files"))
-        .accessibilityIdentifier("toggle-file-tree")
+        HoverCircleButton(shown ? String(localized: "Hide Files") : String(localized: "Show Files"),
+                          systemImage: shown ? "folder.fill" : "folder", enabled: enabled) { shown.toggle() }
+            .help(shown ? String(localized: "Hide the files") : String(localized: "Show the files"))
+            .accessibilityIdentifier("toggle-file-tree")
     }
 }

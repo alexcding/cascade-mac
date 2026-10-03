@@ -18,7 +18,7 @@ import Observation
             guard let self, let model, self.model === model, bindingID == binding else { return }
             switch action {
             case .showActions:
-                guard model.isActive, model.actions != nil, !isPresenting, canPresent() else { return }
+                guard model.canCommit, !isPresenting, canPresent() else { return }
                 showsActions = true
             case .openFile(let location):
                 guard model.isActive, !isPresenting, canPresent() else { return }

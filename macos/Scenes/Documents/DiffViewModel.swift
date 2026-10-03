@@ -62,6 +62,13 @@ struct APIDiffService: DiffService {
     var showsProgress: Bool { (loading && snapshot == nil) || actions?.busy == true }
     var showsActions: Bool { get { coordinator.showsActions } set { newValue ? requestActions() : coordinator.dismissActions() } }
     var isActive: Bool { active }
+    /// The review's bar is on screen, over Changes or over History. Commit lives in that bar and
+    /// commits the working changes either way, so it may open its popover while History hides the
+    /// diff itself. The bar leaving takes the popover with it, as hiding the diff does over Changes.
+    @ObservationIgnored var reviewing = false {
+        didSet { if oldValue, !reviewing, !active { onAction(.hide) } }
+    }
+    var canCommit: Bool { (active || reviewing) && actions != nil }
     /// True once the page's module has posted `ready`; rendering before that is dropped.
     var isPageReady: Bool { loaded }
     private(set) var actions: GitChangesActions?
@@ -231,7 +238,7 @@ struct APIDiffService: DiffService {
     }
     /// The model is going away, and its page and content process with it.
     func disconnect() {
-        presentation.active = false; hide(); service = nil; showsActions = false
+        presentation.active = false; reviewing = false; hide(); service = nil; showsActions = false
         webView?.stopLoading(); webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "diff")
         webView?.removeFromSuperview(); webView = nil

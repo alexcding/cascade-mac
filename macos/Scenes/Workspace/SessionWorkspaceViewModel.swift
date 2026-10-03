@@ -251,11 +251,12 @@ extension WorkspaceServing {
         let state = state
         let visible = active && context != nil
         let reviewing = visible && showsChanges && state.connected
-        if presentedDiff !== state.diff { presentedDiff?.presentation.active = false }
+        if presentedDiff !== state.diff { presentedDiff?.presentation.active = false; presentedDiff?.reviewing = false }
         if presentedHistory !== state.history { presentedHistory?.presentation.active = false }
         presentedDiff = state.diff; presentedHistory = state.history
         state.diff?.presentation = .init(active: reviewing && context?.reviewSection == .changes,
                                          appearance: state.appearance, font: state.documentFont)
+        state.diff?.reviewing = reviewing
         state.history?.presentation = .init(active: reviewing && context?.reviewSection == .history,
                                             appearance: state.appearance, font: state.documentFont)
         // On any pane: switching back to the Simulator is instant, and a hidden session streams nothing.

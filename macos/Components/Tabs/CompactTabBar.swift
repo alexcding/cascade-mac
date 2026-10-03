@@ -70,8 +70,9 @@ struct CompactTabLayout<ID: Hashable>: Equatable {
 }
 
 /// How a bar's tabs are drawn: Safari's — one capsule holding them, the selected tab raised glass,
-/// Close leading; the same shapes with no glass, tinted and hairline-bordered (`outlined`, the
-/// address row at the top of the pane); or ChatGPT's flat strip, for tabs alone: no outer shape,
+/// Close leading; the same shapes with no glass (`outlined`, the address row at the top of the pane):
+/// the pill tinted with a one-pixel outline, the buttons beside it on the pane's own colour with
+/// only the outline; or ChatGPT's flat strip, for tabs alone: no outer shape,
 /// the selected tab a plain rounded rectangle in the page's colour, each title from the leading
 /// edge and Close at the trailing end.
 enum CompactTabStyle { case capsule, outlined, flat }
@@ -730,8 +731,8 @@ private struct SuggestionGlass: ViewModifier {
 }
 
 /// The bar's chrome buttons share one look: 32pt tall, icon-only at 20pt, plain buttons over a
-/// Liquid Glass capsule on macOS 26 and a tinted bordered capsule before it, or in a bar drawn
-/// without glass.
+/// Liquid Glass capsule on macOS 26 and a tinted bordered capsule before it. In a bar drawn without
+/// glass (`outlined`) they sit on the pane's own colour with a one-pixel outline.
 extension View {
     func barGlass(iconOnly: Bool = true) -> some View { modifier(BarGlass(iconOnly: iconOnly)) }
 }
@@ -749,11 +750,12 @@ private struct BarGlass: ViewModifier {
             base.glassEffect(.regular.interactive(), in: Capsule())
         } else if style == .outlined {
             // Beside the address's pill, as tall as it: the 32pt buttons sit inside, as the
-            // selected tab sits inside the pill.
+            // selected tab sits inside the pill. On the pane's own colour, with only the outline to
+            // set it apart: a grey fill read as a disabled control.
             let inset = (CompactTabMetrics.pillHeight - Theme.Size.largeControl) / 2
             base.padding(.horizontal, inset)
                 .frame(minWidth: CompactTabMetrics.pillHeight, minHeight: CompactTabMetrics.pillHeight)
-                .background(Theme.surfaceHover, in: Capsule())
+                .background(Theme.paneBackground, in: Capsule())
                 .pixelOutline(Capsule())
         } else {
             base.background(Theme.surfaceHover, in: Capsule())
