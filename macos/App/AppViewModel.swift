@@ -66,6 +66,8 @@ public final class AppViewModel {
     @ObservationIgnored private var launchPrompts: [String: String] = [:]
     /// Sessions a fork is being made of, so a second request waits for the first.
     @ObservationIgnored private var forkingSessions: Set<String> = []
+    /// The last open or close of each project's panel shell, which the next one waits for.
+    @ObservationIgnored private var projectTerminalSteps: [String: Task<Void, Never>] = [:]
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
@@ -378,6 +380,78 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire()
+        // The project's own shell goes with it; its sessions' shells are theirs and stay.
+        let id = model.project.id
+        Task { await closeProjectTerminal(id) }
+    }
+
+    static func projectTerminalKey(_ projectID: String) -> String { "project:\(projectID)" }
+
+    /// A new shell for a project's terminal panel, in `directory` (the project's checkout or one
+    /// of its worktrees) and needing no session. Any shell under the project's pair key is stopped
+    /// first, so the new one never attaches to it: one the panel had, or one an unexpected exit
+    /// left behind. Kept in `terminals`, so Quit stops it with every other.
+    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession {
+        try await projectTerminalStep(project.id) { [self] in
+            // Stopped before anything can fail, so a failed open never leaves the old shell running.
+            try await stopProjectTerminal(project.id)
+            let directory = directory.isEmpty ? project.workspace : directory
+            guard !directory.isEmpty else {
+                throw BackendError.operation(String(localized: "Choose a workspace folder for this project in its Settings."))
+            }
+            // Deleted while its old shell stopped.
+            guard projects.contains(where: { $0.id == project.id }) else { throw CancellationError() }
+            let key = Self.projectTerminalKey(project.id)
+            let terminal = platformFactory.terminal(.init(key: key, directory: directory, paired: true))
+            terminal.presentation.style = shell.terminalStyle
+            terminal.openLink = { [weak self] raw, directory, _ in
+                guard let self, let link = WorkspaceLink.parse(raw, directory: directory, home: platformFactory.homeDirectory) else { return }
+                switch link {
+                case .web(let url): NSWorkspace.shared.open(url)
+                case .file(let location): NSWorkspace.shared.open(URL(fileURLWithPath: location.path))
+                }
+            }
+            terminals[key] = terminal
+            return terminal
+        }
+    }
+
+    /// Stops the project's panel shell: the panel closed, or the project went.
+    func closeProjectTerminal(_ projectID: String) async {
+        _ = try? await projectTerminalStep(projectID) { [self] in try await stopProjectTerminal(projectID) }
+    }
+
+    private func stopProjectTerminal(_ projectID: String) async throws {
+        let key = Self.projectTerminalKey(projectID)
+        await terminals.removeValue(forKey: key)?.stopConnecting()
+        try await terminalControl.stopPaired(keys: [key])
+    }
+
+    /// Runs a project's terminal open or close after the ones asked for before it, so a panel
+    /// opened, closed and opened again ends with the shell the last asked for, and no other.
+    private func projectTerminalStep<T: Sendable>(_ projectID: String, _ body: @escaping @MainActor () async throws -> T) async throws -> T {
+        let previous = projectTerminalSteps[projectID]
+        let step = Task { @MainActor in
+            await previous?.value
+            return try await body()
+        }
+        let tail = Task { _ = await step.result }
+        projectTerminalSteps[projectID] = tail
+        defer { if projectTerminalSteps[projectID] == tail { projectTerminalSteps[projectID] = nil } }
+        return try await step.value
+    }
+
+    /// Panel shells a relaunch kept, or a crash left: no panel is open at launch, so each is stopped.
+    private func stopLeftoverProjectTerminals() async {
+        guard let shells = try? await terminalControl.pairedShells() else { return }
+        let prefix = Self.projectTerminalKey("")
+        for key in shells.keys where key.hasPrefix(prefix) {
+            let projectID = String(key.dropFirst(prefix.count))
+            // Through the project's steps, so a panel opened meanwhile keeps its new shell.
+            _ = try? await projectTerminalStep(projectID) { [self] in
+                if terminals[key] == nil { try await terminalControl.stopPaired(keys: [key]) }
+            }
+        }
     }
 
     private func savedProject(_ project: Project) {
@@ -1305,6 +1379,7 @@ public final class AppViewModel {
         viewer.fileOpenCoordinator.enabled = true
         coordinator.setRoutingReady(false)
         started = true
+        Task { [weak self] in await self?.stopLeftoverProjectTerminals() }
         let generation = UUID()
         startGeneration = generation
         backendRuntime.onEvent = { [weak self] event in

@@ -184,7 +184,7 @@ private struct VerticalSplit<Top: View, Bottom: View>: View {
 
 /// The up-and-down resize pointer over a divider. Before macOS 15 it is pushed on entry and popped
 /// on exit, and popped too if the view goes while the pointer is over it, so none is left behind.
-private struct RowResizePointer: ViewModifier {
+struct RowResizePointer: ViewModifier {
     @State private var pushed = false
 
     func body(content: Content) -> some View {

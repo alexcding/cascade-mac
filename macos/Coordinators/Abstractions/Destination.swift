@@ -119,9 +119,12 @@ extension Destination {
         case .projectCoordinator(let coordinator):
             // The tabs stand in for the page title, as the Dashboard's do.
             let model = coordinator.model
+            let terminal = model.terminal
             return WindowToolbar(leading: [.init("project-tabs") {
                 ProjectTabBar(sections: model.sections, selection: model.section, select: model.selectSection).id(model.project.id)
-            }])
+            }], trailing: [.picker("project-terminal", label: String(localized: "Terminal"),
+                                   choices: [.init(title: String(localized: "Terminal"), symbol: "terminal")],
+                                   selected: terminal.shown ? 0 : -1, toggles: true) { _ in terminal.toggle() }])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .terminal(let root), .session(_, let root):

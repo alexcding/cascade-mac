@@ -478,6 +478,9 @@
         }
       }
     },
+    "%@ — project folder" : {
+
+    },
     "%@ · %@" : {
       "comment" : "Layout of already localized labels or verbatim values; contains no app-owned words.",
       "extractionState" : "manual",
@@ -19571,6 +19574,9 @@
           }
         }
       }
+    },
+    "Choose a workspace folder for this project in its Settings." : {
+
     },
     "Choose an absolute file path." : {
       "extractionState" : "manual",
@@ -45524,6 +45530,9 @@
         }
       }
     },
+    "Hide Terminal" : {
+
+    },
     "Hide the files" : {
 
     },
@@ -52397,6 +52406,9 @@
           }
         }
       }
+    },
+    "Loading worktrees…" : {
+
     },
     "Loading…" : {
       "extractionState" : "manual",
@@ -61960,6 +61972,9 @@
         }
       }
     },
+    "No terminal" : {
+
+    },
     "No terminal theme named %@." : {
       "localizations" : {
         "bn" : {
@@ -62882,6 +62897,9 @@
           }
         }
       }
+    },
+    "No worktrees" : {
+
     },
     "Node.js 20 or later" : {
       "extractionState" : "manual",
@@ -77135,6 +77153,9 @@
           }
         }
       }
+    },
+    "Refresh Worktrees" : {
+
     },
     "Refusing an unowned or non-socket terminal endpoint." : {
       "localizations" : {

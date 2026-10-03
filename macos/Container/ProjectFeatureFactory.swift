@@ -21,7 +21,9 @@ struct ProjectFeatureServices {
                  pageActions: any PageActionServing) -> ProjectPageViewModel {
         let editor = creation.projectEditor(project: project, service: services.projects)
         let composer = ProjectComposerModel(project: project, agent: agent, operations: services.sessions)
-        let model = ProjectPageViewModel(project: project, editor: editor, composer: composer, pageActions: pageActions)
+        let terminal = ProjectTerminalViewModel(project: project, operations: services.sessions)
+        let model = ProjectPageViewModel(project: project, editor: editor, composer: composer, pageActions: pageActions,
+                                         terminal: terminal)
         model.connectBoard(services.boards)
         return model
     }

@@ -14,6 +14,8 @@ import Testing
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) { ids.remove(id); deletions.append(id) }
     var created: [(String, String?)] = []
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) { created.append((session.id, prompt)) }
+    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession { throw CancellationError() }
+    func closeProjectTerminal(_ projectID: String) async {}
 }
 
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {

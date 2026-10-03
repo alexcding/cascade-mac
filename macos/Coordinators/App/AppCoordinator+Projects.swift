@@ -6,6 +6,10 @@ import Foundation
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel)
     /// A session the project's Start made, with its agent's first prompt when it has one.
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?)
+    /// A new shell for the project's terminal panel in `directory`, in place of any running.
+    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession
+    /// Stops the project's terminal panel's shell.
+    func closeProjectTerminal(_ projectID: String) async
 }
 
 extension AppCoordinator {
@@ -68,6 +72,19 @@ extension AppCoordinator {
         case .sessionCreated(let session, let prompt):
             guard session.projectId == id else { return }
             runtime.projectSessionCreated(session, prompt: prompt)
+        case .terminalRequested(let directory, let request):
+            let project = model.project
+            Task { [weak runtime, weak model] in
+                guard let runtime else { return }
+                do {
+                    let terminal = try await runtime.projectTerminal(for: project, directory: directory)
+                    model?.terminal.attach(terminal, request: request)
+                } catch {
+                    model?.terminal.requestFailed(error.localizedDescription, request: request)
+                }
+            }
+        case .terminalClosed:
+            Task { [weak runtime] in await runtime?.closeProjectTerminal(id) }
         case .deleted(let deletedID):
             guard deletedID == id else { return }
             projectCoordinators.removeValue(forKey: id)?.retire()

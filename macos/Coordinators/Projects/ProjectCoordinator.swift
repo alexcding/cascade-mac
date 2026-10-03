@@ -13,7 +13,13 @@ import Observation
 @MainActor @Observable final class ProjectCoordinator: Coordinatable {
     /// Lifecycle events the parent needs: a save, a deletion, the end of a presentation, or a
     /// session Start made.
-    enum Event { case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?) }
+    enum Event {
+        case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?)
+        /// The terminal panel needs a new shell in `directory`, answered to `request`.
+        case terminalRequested(directory: String, request: UUID)
+        /// The terminal panel closed, and its shell is to stop.
+        case terminalClosed
+    }
     var root: Destination = .none
     var path: [Destination] = []
     @ObservationIgnored var action: ((Action) -> Void)?
@@ -43,6 +49,8 @@ import Observation
         switch action {
         case .saved(let project, let source): onEvent(.saved(project, source))
         case .sessionCreated(let session, let prompt): onEvent(.sessionCreated(session, prompt: prompt))
+        case .openTerminal(let directory, let request): onEvent(.terminalRequested(directory: directory, request: request))
+        case .closeTerminal: onEvent(.terminalClosed)
         case .deleted(let id):
             guard id == model.project.id else { return }
             deletionConfirmation = nil

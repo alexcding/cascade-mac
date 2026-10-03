@@ -17,7 +17,8 @@ enum ProjectSection: String, CaseIterable, Identifiable {
 }
 
 /// A project's screen: Start, the composer that starts its sessions; Board, its Jira sprint board
-/// when switched on; Orchestration; and Settings.
+/// when switched on; Orchestration; and Settings. Under whichever is shown, the project's own
+/// terminal can be split open (`terminal`).
 @MainActor @Observable final class ProjectPageViewModel {
     /// What the screen asks its coordinator to do.
     enum Action: Equatable {
@@ -27,6 +28,10 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         case sessionCreated(WorkspaceSession, prompt: String?)
         /// A board card asked to open; the coordinator gates it before the board opens it.
         case board(WebBoardViewModel.Action)
+        /// The terminal panel needs a new shell in `directory`, in place of any running.
+        case openTerminal(directory: String, request: UUID)
+        /// The terminal panel closed: its shell stops.
+        case closeTerminal
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
@@ -45,11 +50,15 @@ enum ProjectSection: String, CaseIterable, Identifiable {
                 }
             }
             board?.onAction = { [onAction] in onAction(.board($0)) }
+            terminal.requestTerminal = { [onAction] in onAction(.openTerminal(directory: $0, request: $1)) }
+            terminal.closeTerminal = { [onAction] in onAction(.closeTerminal) }
         }
     }
     private(set) var project: Project
     let editor: ProjectEditorViewModel
     let composer: ProjectComposerModel
+    /// The shell split under the pages, in the project's checkout.
+    let terminal: ProjectTerminalViewModel
     /// The sprint board, while the project shows one and a backend is connected.
     private(set) var board: WebBoardViewModel?
     private(set) var section = ProjectSection.start {
@@ -57,15 +66,23 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     }
     /// Whether the project is the selected screen: the board loads and follows Jira only while it
     /// is on screen.
-    var active = false { didSet { if oldValue != active { updateBoard() } } }
+    var active = false {
+        didSet {
+            guard oldValue != active else { return }
+            updateBoard()
+            if active && !retired { terminal.appear() }
+        }
+    }
     var appearance = AppAppearance.system { didSet { if oldValue != appearance { updateBoard() } } }
     private(set) var retired = false
     @ObservationIgnored private let pageActions: any PageActionServing
     @ObservationIgnored private var boardService: (any BoardService)?
 
     init(project: Project, editor: ProjectEditorViewModel, composer: ProjectComposerModel,
-         pageActions: any PageActionServing = NativePageActionService(open: { _ in })) {
+         pageActions: any PageActionServing = NativePageActionService(open: { _ in }),
+         terminal: ProjectTerminalViewModel? = nil) {
         self.project = project; self.editor = editor; self.composer = composer
+        self.terminal = terminal ?? ProjectTerminalViewModel(project: project)
         self.pageActions = pageActions
     }
 
@@ -78,7 +95,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     }
     func connect(_ service: (any ProjectService)?, sessions: (any SessionCreating)?, boards: (any BoardService)? = nil) {
         guard !retired else { return }
-        editor.connect(service); composer.connect(sessions)
+        editor.connect(service); composer.connect(sessions); terminal.connect(sessions)
         connectBoard(boards)
     }
     /// The board's backend; nil pauses a board already built, which keeps its filters.
@@ -104,12 +121,12 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     func retire() {
         active = false
         retired = true; onAction = { _ in }
-        editor.retire(); composer.retire()
+        editor.retire(); composer.retire(); terminal.retire()
         board?.retire(); board = nil
     }
     func update(_ project: Project) {
         guard !retired else { return }
-        self.project = project; editor.update(project); composer.update(project)
+        self.project = project; editor.update(project); composer.update(project); terminal.update(project)
         updateBoardModel()
     }
 

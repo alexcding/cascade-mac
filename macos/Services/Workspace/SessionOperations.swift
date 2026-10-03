@@ -51,8 +51,8 @@ struct PullRequestBranchUnknown: LocalizedError, Sendable {
 }
 
 struct GitReferences: Decodable, Sendable {
-    struct Branch: Decodable, Sendable { let name: String }
-    struct Worktree: Decodable, Sendable { let branch: String? }
+    struct Branch: Decodable, Sendable { let name: String; var current: Bool? = nil }
+    struct Worktree: Decodable, Sendable { let branch: String?; var isMain: Bool? = nil; var path: String? = nil }
     let branches: [Branch]
     let defaultBranch: String
     var worktrees: [Worktree]? = nil
