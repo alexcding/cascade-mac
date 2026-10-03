@@ -8,21 +8,22 @@ struct LivePanelView: View {
     let workspace: SessionWorkspaceViewModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                LiveAgentHeader(workspace: workspace, model: live.activity.model)
-                LiveDiagram(live: live, busy: workspace.agentRunState == .working, tint: workspace.agentDriver?.tint ?? Theme.accent)
-                    .frame(height: LiveDiagram.height)
-                if !live.activity.subagents.isEmpty { LiveSubagents(calls: live.activity.subagents) }
-                LiveCounters(activity: live.activity)
-                LiveLog(calls: live.activity.log)
-                if let error = live.error {
-                    Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Theme.warn)
-                }
+        // No scroll view: SwiftUI stretches one up under the title bar, over the pane's tabs, where
+        // it takes their clicks. The panel is short and fixed; a pane shorter than it cuts the log.
+        VStack(alignment: .leading, spacing: 16) {
+            LiveAgentHeader(workspace: workspace, model: live.activity.model)
+            LiveDiagram(live: live, busy: workspace.agentRunState == .working, tint: workspace.agentDriver?.tint ?? Theme.accent)
+                .frame(height: LiveDiagram.height)
+            if !live.activity.subagents.isEmpty { LiveSubagents(calls: live.activity.subagents) }
+            LiveCounters(activity: live.activity)
+            LiveLog(calls: live.activity.log)
+            if let error = live.error {
+                Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Theme.warn)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
         // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
         .paneSurface(ignoresSafeAreaEdges: [])
         .onAppear { live.appear() }
@@ -273,3 +274,4 @@ private struct LiveCallState: View {
         .frame(width: 12, height: 12)
     }
 }
+
