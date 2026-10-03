@@ -46,8 +46,6 @@ struct SessionWorkspacePane: View {
                 .frame(height: height)
         case .browser?, nil:
             BrowserCompactTabBar(context: context, model: model, placement: .titleBar(height: height, trailingInset: pickerInset), part: .tabs)
-        case .simulator?:
-            Color.clear.frame(height: height)
         }
     }
 }

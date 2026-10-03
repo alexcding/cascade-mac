@@ -35,23 +35,21 @@ struct SavedTabContent: Codable, Equatable, Sendable {
     }
 }
 
-/// What the toolbar's pane picker switches between: the tabs — web pages and open files together,
-/// in one strip — the changes and the Simulator, the last two one view each, with no tabs.
+/// What the toolbar's pane picker switches between: the tabs — web pages, open files and the
+/// Files and Simulator tools together, in one strip — and the changes, one view with no tabs.
 enum WorkspaceSection: String, CaseIterable {
-    case browser, diff, simulator
+    case browser, diff
     var title: String {
         switch self {
         case .browser: String(localized: "Tabs")
         case .diff: WorkspaceTool.changes.title
-        case .simulator: WorkspaceTool.simulator.title
         }
     }
-    /// Outlines with no circle round them, so the three read as one set.
+    /// Outlines with no circle round them, so the two read as one set.
     var symbol: String {
         switch self {
         case .browser: "rectangle.stack"
         case .diff: WorkspaceTool.changes.symbol
-        case .simulator: WorkspaceTool.simulator.symbol
         }
     }
 }
@@ -298,19 +296,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
-    /// The section the active tab belongs to: Diff and the Simulator their own; a page, a file, the
-    /// Files picker — or nothing selected — the tabs.
+    /// The section the active tab belongs to: Diff its own; a page, a file, the Files picker, the
+    /// Simulator — or nothing selected — the tabs.
     var section: WorkspaceSection { Self.section(of: activeID.flatMap(tab)) ?? .browser }
-    /// The tabs the strip shows and cycling walks: the pages, the open files and the Files explorer,
-    /// in their order, none for Diff or the Simulator, which are one view each. A blank page — the
+    /// The tabs the strip shows and cycling walks: the pages, the open files, the Files explorer and
+    /// the Simulator, in their order, none for Diff, which is one view. A blank page — the
     /// pane's own included — is a New Tab there, as the explorer is a Files tab, until what is
     /// typed or picked in it takes its place.
     var stripTabs: [WorkspaceTab] {
         switch section {
         case .browser: tabs.filter {
-            switch $0 { case .page, .file, .tool(.files): true; case .tool: false }
+            switch $0 { case .page, .file, .tool(.files), .tool(.simulator): true; case .tool: false }
         }
-        case .diff, .simulator: []
+        case .diff: []
         }
     }
     /// A strip tab nothing has filled yet: a blank page, or the explorer with no file picked. While
@@ -320,6 +318,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             switch $0 { case .page(let page): page.controls.isBlank; case .tool(.files): true; default: false }
         }
     }
+    /// The strip's tool last in the order — the explorer or the Simulator — which the tabs go back
+    /// to when they hold no page or file.
+    private var lastStripTool: WorkspaceTab? {
+        tabOrder.reversed().lazy.compactMap(tab).first { if case .tool = $0 { Self.section(of: $0) == .browser } else { false } }
+    }
     /// The page or file last shown, which the tabs go back to and a save on the Simulator keeps.
     /// Noted whenever the active tab changes, and on restore.
     private var lastShownID: String?
@@ -327,17 +330,17 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         guard let id = activeID else { return }
         if pages.contains(where: { $0.id == id }) || documents.contains(where: { $0.id == id }) { lastShownID = id }
     }
-    /// The picker's choice: the tabs' last page or file, or with none a blank page. Diff goes
-    /// through the workspace, which loads the changes first (`SessionWorkspaceViewModel`).
+    /// The picker's choice: the tabs' last page or file, else a tool of the strip, or with none a
+    /// blank page. Diff goes through the workspace, which loads the changes first
+    /// (`SessionWorkspaceViewModel`).
     func showSection(_ section: WorkspaceSection) {
         switch section {
         case .browser:
             let shown = lastShownID.flatMap(tab) ?? tabOrder.reversed().lazy.compactMap(tab).first {
                 switch $0 { case .page, .file: true; case .tool: false }
-            }
+            } ?? lastStripTool
             if let shown { select(shown) } else { openBlankPage() }
         case .diff: setPane(.diff)
-        case .simulator: setPane(.simulator)
         }
     }
     var visits: [WorkspaceVisit] { historyOrder.compactMap { id in
@@ -402,9 +405,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The pages and files, as asked for by leaving a tool or bringing the pane in. With only tools
     /// open there is no page to show: a new tab, its start page, rather than a tool's tab over
     /// nothing. Not for a caller about to open a page itself, as Cmd-T does.
+    /// Leaving Diff with no page or file, a tool of the strip is shown rather than a new tab beside it.
     func showPages() {
         setPane(.term)
-        if activeTool.map({ $0.pane != .term }) ?? false { openBlankPage() }
+        guard let tool = activeTool, tool.pane != .term else { return }
+        if tool == .changes, let strip = lastStripTool { select(strip) } else { openBlankPage() }
     }
     /// The pane last shown, unless this workspace can no longer show it (`presentable`).
     func present() {
@@ -423,7 +428,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     func cycle(_ direction: Int) {
         let order = stripTabs.map(\.id)
         guard !order.isEmpty else { return }
-        // From a tab the strip does not show — Diff or the Simulator — the first tab is next and the
+        // From a tab the strip does not show — Diff — the first tab is next and the
         // last previous, as from just before the strip.
         let index = order.firstIndex(of: activeID ?? "") ?? (direction > 0 ? -1 : order.count)
         if let tab = tab(order[(index + direction + order.count) % order.count]) { select(tab) }
@@ -468,16 +473,17 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             })
         case .tool(let tool):
             guard tools.contains(tool) else { return }
-            // The explorer is one of the tabs: closing it falls back to a page or file, never to Diff.
-            tools.removeAll { $0 == tool }; removeTab(tool.id, within: tool == .files ? .browser : nil)
+            // The explorer and the Simulator are among the tabs: closing one falls back to a tab of the
+            // strip, never to Diff.
+            tools.removeAll { $0 == tool }; removeTab(tool.id, within: tool == .changes ? nil : .browser)
         }
     }
     func remove(_ file: EditorDocumentViewModel) {
         guard documents.contains(where: { $0 === file }) else { return }
         noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id, within: .browser)
     }
-    /// A page, a file or the explorer closed while shown gives way to the nearest of the tabs, so
-    /// closing one never moves the pane to Diff or the Simulator. The last one gone leaves the tabs' pane, where
+    /// A page, a file or a strip tool closed while shown gives way to the nearest of the tabs, so
+    /// closing one never moves the pane to Diff. The last one gone leaves the tabs' pane, where
     /// the bar opens a blank page.
     private func removeTab(_ id: String, within section: WorkspaceSection? = nil) {
         fileTrails[id] = nil
@@ -497,9 +503,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     }
     private static func section(of tab: WorkspaceTab?) -> WorkspaceSection? {
         switch tab {
-        case .page?, .file?, .tool(.files)?: .browser
+        case .page?, .file?, .tool(.files)?, .tool(.simulator)?: .browser
         case .tool(.changes)?: .diff
-        case .tool(.simulator)?: .simulator
         case nil: nil
         }
     }

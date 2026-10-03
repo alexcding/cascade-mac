@@ -120,8 +120,13 @@ struct BrowserCompactTabBar: View {
                                iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
             } else if id == WorkspaceTool.files.id {
-                CompactExplorerTab(active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
-                                   select: { model.selectTab(.tool(.files)) }, close: { model.closeTab(.tool(.files)) })
+                CompactToolTab(title: String(localized: "Files"), symbol: "folder",
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(.files)) }, close: { model.closeTab(.tool(.files)) })
+            } else if id == WorkspaceTool.simulator.id {
+                CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(.simulator)) }, close: { model.closeTab(.tool(.simulator)) })
             }
         }
     }
@@ -412,21 +417,22 @@ private struct CompactFileTab: View {
     }
 }
 
-/// The Files explorer's tab: a New Tab that browses the worktree, until a file picked in it takes
-/// its place.
-private struct CompactExplorerTab: View {
+/// A tool's tab in the strip: the Files explorer — a New Tab that browses the worktree, until a
+/// file picked in it takes its place — or the Simulator.
+private struct CompactToolTab: View {
+    let title: String
+    let symbol: String
     let active: Bool
     let iconOnly: Bool
     @FocusState.Binding var editing: Bool
     let select: () -> Void
     let close: () -> Void
     var body: some View {
-        let title = String(localized: "Files")
         CompactTabShell(label: title, placeholder: "", closeTitle: String(localized: "Close \(title)"), help: title,
                         active: active,
                         closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
                         moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
-            Image(systemName: "folder").font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+            Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
         } accessories: { _ in EmptyView() }
     }
 }

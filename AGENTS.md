@@ -327,13 +327,14 @@ user collapses from the divider is told back to the workspace.
   middle; the pane section is the pane picker alone (`SessionWorkspaceToolbar.panePicker`), at the
   window's edge, which the pane's bar keeps clear of (`SessionWorkspacePane.pickerInset`): a native
   segmented control, never folded into a pop-up, with one symbol per section (`WorkspaceSection`) —
-  Tabs, Diff, the Simulator — which is also the pane's only toggle. Choosing a section opens the
+  Tabs and Diff — which is also the pane's only toggle. Choosing a section opens the
   pane on it; choosing the selected one hides the pane, and with the pane hidden none is selected
-  (a `toggles` picker, `WindowToolbarItem.picker`). Tabs is the web pages and the open files in one
-  strip (`WorkspaceContext.stripTabs`), and the address field searches the worktree's files beside
-  the web. Diff and the Simulator are one view each, with no strip: over Diff the pane's bar holds
+  (a `toggles` picker, `WindowToolbarItem.picker`). Tabs is the web pages, the open files, the Files
+  explorer and the Simulator in one strip (`WorkspaceContext.stripTabs`), and the address field
+  searches the worktree's files beside the web. A simulator run opens the Simulator's tab, and its
+  tab closes when the preview ends. Diff is one view, with no strip: over it the pane's bar holds
   its review controls at its leading edge (`ReviewBar`: Changes/History, Commit and Push, the
-  changed files' toggle), and over the Simulator nothing.
+  changed files' toggle).
   Underneath, Diff, the Simulator and the Files picker (which browses the worktree as a tree) are
   tool tabs (`WorkspaceTool`) in the one tab order, and the active tab decides the section;
   closing a tab selects its nearest neighbour in the same section. Over a web page the

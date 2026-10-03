@@ -282,24 +282,30 @@ extension WorkspaceServing {
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
-    /// What a session's blank tab offers to open in its place: its worktree's Files explorer. Diff
-    /// and the Simulator are the toolbar picker's; a web page is the blank tab itself.
+    /// What a session's blank tab offers to open in its place: its worktree's Files explorer, and
+    /// the Simulator while a build has one. Diff is the toolbar picker's; a web page is the blank
+    /// tab itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
-        return [.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
+        var tools: [StartPageTool] = [.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
             context?.openTool(.files, replacingBlank: true)
         }]
+        if simulatorPreview != nil {
+            tools.append(.init(id: "simulator", title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol) { [weak context] in
+                context?.openTool(.simulator, replacingBlank: true)
+            })
+        }
+        return tools
     }
     /// Whether there is a worktree for the Files picker to list. The scratch Terminal has none, but
     /// can still open files, from the terminal's links.
     var listsWorktree: Bool { session?.worktree.isEmpty == false }
-    /// The toolbar picker's sections: the tabs, Diff for a session, and the Simulator where a build
-    /// has one.
+    /// The toolbar picker's sections: the tabs, and Diff for a session. The Simulator is a tab.
     var paneSections: [WorkspaceSection] {
-        [.browser] + (session != nil ? [.diff] : []) + (simulatorPreview != nil ? [.simulator] : [])
+        [.browser] + (session != nil ? [.diff] : [])
     }
     func canShowSection(_ section: WorkspaceSection) -> Bool {
-        switch section { case .diff: canShowChanges; case .simulator: simulatorPreview != nil; case .browser: true }
+        switch section { case .diff: canShowChanges; case .browser: true }
     }
     /// The section shown: Diff by what the pane shows, which the app loads before the tab follows.
     var shownSection: WorkspaceSection? {

@@ -33,12 +33,15 @@ import Testing
         context.openTool(.changes)
         #expect(context.section == .diff && context.stripTabs.isEmpty)
         context.openTool(.simulator)
-        #expect(context.section == .simulator && context.stripTabs.isEmpty)
+        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, WorkspaceTool.simulator.id, other.id, file.id],
+                "the Simulator is a tab of the strip, opened beside the tab it was opened from")
         context.select(.page(page))
+        context.cycle(1)
+        #expect(context.activeTool == .simulator, "cycling walks the Simulator")
         context.cycle(1)
         #expect(context.activePage === other)
         context.cycle(1)
-        #expect(context.activeDocument === file, "cycling walks the pages and files")
+        #expect(context.activeDocument === file, "and the pages and files")
         context.cycle(1)
         #expect(context.activePage === page)
     }
@@ -57,8 +60,27 @@ import Testing
         context.openTool(.changes)
         context.showSection(.browser)
         #expect(context.activeDocument === file, "or the file")
-        context.showSection(.simulator)
-        #expect(context.section == .simulator && context.pane == .simulator)
+    }
+
+    @Test func leavingDiffWithOnlyTheSimulatorShowsItNotANewTab() {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        context.openTool(.simulator)
+        context.openTool(.changes)
+        context.showSection(.browser)
+        #expect(context.activeTool == .simulator && context.pages.isEmpty, "the picker's Tabs")
+        context.openTool(.changes)
+        context.showPages()
+        #expect(context.activeTool == .simulator && context.pages.isEmpty, "Diff's toggle")
+    }
+
+    @Test func closingTheSimulatorFallsBackToTheStripNotToDiff() throws {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        let page = try #require(context.open("https://example.com/home", title: "Home"))
+        context.openTool(.changes)
+        context.openTool(.simulator)
+        #expect(context.section == .browser && context.pane == .simulator)
+        context.close(.tool(.simulator))
+        #expect(context.activePage === page && context.section == .browser, "the nearest tab of the strip")
     }
 
     // The pane's own blank page is a New Tab in the strip, with no New Tab button while it is there;
