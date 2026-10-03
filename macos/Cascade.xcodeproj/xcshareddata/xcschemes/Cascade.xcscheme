@@ -76,24 +76,6 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
-      <PreActions>
-         <ExecutionAction
-            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
-            <ActionContent
-               title = "Copy the installed app&apos;s data into dev-data"
-               scriptText = "&quot;${PROJECT_DIR}/scripts/seed-dev-data.sh&quot; &quot;${PROJECT_DIR}/.build/dev-data&quot; &gt;/dev/null 2&gt;&amp;1 || true&#10;">
-               <EnvironmentBuildable>
-                  <BuildableReference
-                     BuildableIdentifier = "primary"
-                     BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-                     BuildableName = "Cascade.app"
-                     BlueprintName = "Cascade"
-                     ReferencedContainer = "container:Cascade.xcodeproj">
-                  </BuildableReference>
-               </EnvironmentBuildable>
-            </ActionContent>
-         </ExecutionAction>
-      </PreActions>
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
