@@ -52,7 +52,14 @@ public final class AppViewModel {
     public private(set) var error: String?
     public private(set) var lastUpdate: Date?
     public private(set) var backendAddress = ""
-    private(set) var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateWorkspaceReviewState() } } }
+    private(set) var sessions: [WorkspaceSession] = [] {
+        didSet {
+            guard oldValue != sessions else { return }
+            updateWorkspaceReviewState()
+            let byProject = Dictionary(grouping: sessions, by: \.projectId)
+            for (id, model) in projectModels { model.updateSessions(byProject[id] ?? []) }
+        }
+    }
     var selection: SidebarDestination { coordinator.selection }
     private(set) var terminals: [String: TerminalSession] = [:] {
         didSet { updateWorkspaceTerminalState() }
@@ -847,6 +854,7 @@ public final class AppViewModel {
                 let services = backendFactory.projectServices(api: api)
                 coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
                                            agent: shell.defaultAgent, pageActions: projectPageActions())
+                projectModels[id]?.updateSessions(sessions.filter { $0.projectId == id })
             }
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {

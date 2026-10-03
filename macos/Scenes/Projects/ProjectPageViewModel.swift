@@ -124,6 +124,10 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         editor.retire(); composer.retire(); terminal.retire()
         board?.retire(); board = nil
     }
+    func updateSessions(_ sessions: [WorkspaceSession]) {
+        guard !retired else { return }
+        composer.updateSessions(sessions)
+    }
     func update(_ project: Project) {
         guard !retired else { return }
         self.project = project; editor.update(project); composer.update(project); terminal.update(project)

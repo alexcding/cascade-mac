@@ -10,6 +10,7 @@ private actor StartOperations: SessionCreating {
     var failure: String?
     func fail(_ message: String?) { failure = message }
     func setUnknown() { pullRequestBranch = nil }
+    func setPullRequestBranch(_ branch: String) { pullRequestBranch = branch }
     func references(_ project: Project) -> GitReferences {
         GitReferences(branches: branches.map { .init(name: $0) }, defaultBranch: "main",
                       worktrees: worktrees.map { .init(branch: $0) })
@@ -84,6 +85,64 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     model.text = "bad..name"
     await model.submit()
     #expect(model.hint?.isError == true && created().count == 2)
+}
+
+@MainActor @Test func existingBranchWorksOnTheChosenBranchWithTheTaskAsItsPrompt() async throws {
+    let operations = StartOperations()
+    let (model, created) = await composer(operations)
+    model.branchMode = .existing
+    #expect(!model.canStart && model.hint?.text == "Choose the branch to work on",
+            "The base — usually the main checkout's branch — is never taken for the branch to work on")
+    model.choose("fix-login")
+    #expect(model.base == "develop", "Picking the branch to work on leaves the base alone")
+    #expect(model.canStart, "The chosen branch is enough to start on")
+    #expect(model.hint?.text == "Checks out fix-login in a new worktree")
+    model.text = "Finish the login fix"
+    await model.submit()
+    let draft = try #require(await operations.drafts.last)
+    #expect(draft.branch == "fix-login" && !draft.createBranch && draft.base.isEmpty)
+    #expect(draft.title == "Finish the login fix" && created().last?.1 == "Finish the login fix")
+    #expect(model.branchMode == .newBranch && model.workBranch.isEmpty, "The next session is a new branch again")
+    model.branchMode = .existing; model.choose("fix-login")
+    model.text = ""
+    await model.submit()
+    #expect(await operations.drafts.last.map { ($0.branch, $0.title) } ?? ("", "x") == ("fix-login", ""))
+    #expect(created().last.map { $0.1 == nil } == true, "Nothing typed, no prompt")
+    model.branchMode = .existing; model.choose("fix-login")
+    // A shell takes no prompt; the text still names the session.
+    model.select(.shell); model.text = "poke at it"
+    await model.submit()
+    #expect(await operations.drafts.last.map { ($0.branch, $0.title) } ?? ("", "") == ("fix-login", "poke at it"))
+    #expect(created().last.map { $0.1 == nil } == true)
+    model.branchMode = .existing; model.text = ""; model.choose("fix-login")
+    await operations.setPullRequestBranch("fix-login")
+    model.select(.claude)
+    #expect(model.placeholderText == "Describe what to do on this branch (optional)")
+    // A link names its own branch: Existing branch does not apply to it.
+    model.text = "https://github.com/o/r/pull/7"
+    #expect(!model.usesExistingBranch && model.chosenBranch == model.base, "With a link, the chooser picks the base")
+    await model.submit()
+    #expect(await operations.drafts.last.map { ($0.branch, $0.url) } ?? ("", "") == ("fix-login", "https://github.com/o/r/pull/7"))
+    #expect(model.branchMode == .existing && model.workBranch == "fix-login",
+            "A link on the picked branch is not working on it: the pick stays for the next session")
+}
+
+@MainActor @Test func existingBranchRefusesABranchASessionAlreadyWorksOn() async throws {
+    let operations = StartOperations()
+    let (model, _) = await composer(operations)
+    model.branchMode = .existing; model.choose("fix-login")
+    model.updateSessions([WorkspaceSession(id: "s9", projectId: homeProject.id, workspace: homeProject.workspace, worktree: "/tmp/w",
+                                           title: "Login fix", branch: "fix-login", url: "", createdAt: nil, pinned: false),
+                          WorkspaceSession(id: "o1", projectId: "other", workspace: "/tmp/o", worktree: "/tmp/o",
+                                           title: "Elsewhere", branch: "main", url: "", createdAt: nil, pinned: false)])
+    #expect(!model.canStart && model.hint?.isError == true, "A branch a session already works on can't be started on again")
+    await model.submit()
+    #expect(await operations.drafts.isEmpty)
+    model.choose("main")
+    #expect(model.workBranch == "main" && model.canStart, "Another project's session on the same name doesn't count")
+    #expect(!model.choose("fix-login") && model.workBranch == "main", "A taken branch can't be picked")
+    model.branchMode = .newBranch
+    #expect(model.choose("fix-login") && model.base == "fix-login", "Forking from it is fine")
 }
 
 @MainActor @Test func aLinkStartsOnItsPageAndAnUnknownBranchIsAskedForInPlace() async throws {

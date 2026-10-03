@@ -324,6 +324,19 @@
         }
       }
     },
+    "“%@” already works on %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” already works on %2$@"
+          }
+        }
+      }
+    },
+    "“%@” already works on this branch" : {
+
+    },
     "%@\n\nYour changes have not been discarded." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6019,6 +6032,9 @@
           }
         }
       }
+    },
+    "A link names its own branch. A new one forks from the branch you pick." : {
+
     },
     "A new pull request appears." : {
       "extractionState" : "manual",
@@ -18346,6 +18362,9 @@
         }
       }
     },
+    "Checked out in the project folder" : {
+
+    },
     "Checking %@ hooks…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18961,6 +18980,9 @@
           }
         }
       }
+    },
+    "Checks out %@ in a new worktree" : {
+
     },
     "Choose" : {
       "extractionState" : "manual",
@@ -19812,6 +19834,9 @@
         }
       }
     },
+    "Choose branch" : {
+
+    },
     "Choose files for %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20122,6 +20147,9 @@
           }
         }
       }
+    },
+    "Choose the branch to work on" : {
+
     },
     "Choose the project folder in Settings to start sessions." : {
       "extractionState" : "manual",
@@ -34749,6 +34777,9 @@
         }
       }
     },
+    "Describe what to do on this branch (optional)" : {
+
+    },
     "Destination" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -39212,6 +39243,9 @@
         }
       }
     },
+    "Existing branch" : {
+
+    },
     "Exit Full Screen" : {
       "localizations" : {
         "bn" : {
@@ -40516,6 +40550,9 @@
           }
         }
       }
+    },
+    "Filter branches" : {
+
     },
     "Filter files…" : {
 
@@ -42370,6 +42407,9 @@
           }
         }
       }
+    },
+    "From %@" : {
+
     },
     "Full Screen" : {
       "extractionState" : "manual",
@@ -46546,6 +46586,9 @@
           }
         }
       }
+    },
+    "In session" : {
+
     },
     "Include untracked files" : {
       "extractionState" : "manual",
@@ -53183,6 +53226,9 @@
         }
       }
     },
+    "main checkout" : {
+
+    },
     "Make terminal text thicker. Turn off for thinner strokes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -56112,6 +56158,9 @@
         }
       }
     },
+    "Moves the main checkout off %@ and opens it in a worktree of its own" : {
+
+    },
     "Multicolor" : {
 
     },
@@ -56808,6 +56857,9 @@
         }
       }
     },
+    "Name the session (optional)" : {
+
+    },
     "Nature" : {
 
     },
@@ -57275,6 +57327,9 @@
           }
         }
       }
+    },
+    "New branch" : {
+
     },
     "New Commit" : {
       "extractionState" : "manual",
@@ -59275,6 +59330,9 @@
           }
         }
       }
+    },
+    "No branch matches" : {
+
     },
     "No branch segment may start with “.”" : {
       "extractionState" : "manual",
@@ -65371,6 +65429,9 @@
         }
       }
     },
+    "On %@" : {
+
+    },
     "On merge → Jira" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -67987,6 +68048,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開啟 %@ — 分支 %@"
+          }
+        }
+      }
+    },
+    "Opens %@ in %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Opens %1$@ in %2$@"
           }
         }
       }
@@ -98324,6 +98395,9 @@
         }
       }
     },
+    "The branch this session works on" : {
+
+    },
     "The changes view stopped. Reload to restore it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -101998,6 +102072,12 @@
           }
         }
       }
+    },
+    "The session gets a new branch, forked from the one you pick." : {
+
+    },
+    "The session works on the branch you pick, in a worktree of its own." : {
+
     },
     "The sidebar's background behind the whole window. Terminals draw on it in place of their theme's background." : {
 
@@ -115685,6 +115765,9 @@
           }
         }
       }
+    },
+    "Work on %@" : {
+
     },
     "Worked" : {
       "localizations" : {

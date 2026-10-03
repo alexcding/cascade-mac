@@ -4,9 +4,12 @@ import Observation
 /// A project's Start page: where every session in the project begins. One field takes a task for
 /// the agent, a GitHub pull request, GitHub issue or Jira link to start on, or — with Shell only, or when it names
 /// a branch the repository has — a branch, read by shape, with a hint saying which reading won.
-/// A task gets a new branch named from its words, and becomes the agent's first prompt.
+/// A task gets a new branch named from its words, and becomes the agent's first prompt — or, with
+/// Existing branch chosen, works on the chosen branch itself.
 @MainActor @Observable final class ProjectComposerModel {
     enum Action: Equatable { case created(WorkspaceSession, prompt: String?) }
+    /// What the chosen branch is for: forking a new branch from it, or working on it.
+    enum BranchMode: Equatable { case newBranch, existing }
 
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     var text = "" { didSet { if oldValue != text { textChanged() } } }
@@ -14,6 +17,10 @@ import Observation
     var pullRequestBranch = ""
     /// "Branch from": what a new branch forks from.
     var base = ""
+    var branchMode: BranchMode = .newBranch
+    /// With `.existing`, the branch the session works on. Empty until one is picked: the base would
+    /// usually be the main checkout's branch, and starting on it moves that checkout.
+    var workBranch = ""
     private(set) var agent: SessionAgent
     /// The ticket a link put here references (a PR row's Jira key), kept with the text it came
     /// with: recorded on the session created from that same text when its lookup names none.
@@ -40,7 +47,13 @@ import Observation
     private var project: Project
     private var operations: (any SessionCreating)?
     /// Branches checked out in worktrees: a task never takes one of these names either.
-    private var worktreeBranches: [String] = []
+    private var worktreeBranches: some Sequence<String> { checkouts.keys }
+    /// Where each branch is checked out, and whether that is the main checkout.
+    private(set) var checkouts: [String: (path: String, main: Bool)] = [:] { didSet { updateOwners() } }
+    /// The project's sessions: a branch or worktree one already works on is not offered to another.
+    private var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateOwners() } } }
+    /// The session already working on each branch, by its branch or by the worktree that holds it.
+    private var owners: [String: WorkspaceSession] = [:]
     private var generation = UUID()
     private var inputGeneration = UUID()
     @ObservationIgnored private var referenceTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
@@ -57,16 +70,64 @@ import Observation
     /// Text that names a branch rather than a task: with Shell only, or one the repository has.
     private var namesBranch: Bool { page == nil && !urlish && (agent == .shell || branches.contains(typed)) }
     var showsPullRequestBranch: Bool { unresolvedPullRequest && page != nil }
+    /// A link is typed: it names its own branch, so the chooser picks only what a new branch forks from.
+    var linkTyped: Bool { urlish }
+    /// The session works on the chosen branch itself. A link names its own branch, so it never does.
+    var usesExistingBranch: Bool { branchMode == .existing && !urlish }
+    /// The branch the chooser shows as picked, for what it is choosing now.
+    var chosenBranch: String { usesExistingBranch ? workBranch : base }
     var canStart: Bool {
-        !retired && operations != nil && !busy && !project.workspace.isEmpty
-            && !typed.isEmpty && !(urlish && page == nil)
+        guard !retired, operations != nil, !busy, !project.workspace.isEmpty, !(urlish && page == nil) else { return false }
+        return usesExistingBranch ? !workBranch.isEmpty && owners[workBranch] == nil : !typed.isEmpty
     }
-    /// The same for every agent: what is typed is read by its shape, not by who runs it.
-    var placeholderText: String { String(localized: "Describe a task or branch, or paste a pull request, issue or Jira link") }
+    /// Picks `branch` for what the chooser is choosing now; false when it can't be picked.
+    @discardableResult func choose(_ branch: String) -> Bool {
+        guard !retired, owner(of: branch) == nil else { return false }
+        if usesExistingBranch { workBranch = branch } else { base = branch }
+        return true
+    }
+    /// The session that keeps `branch` from being picked: only working on a branch is exclusive.
+    func owner(of branch: String) -> WorkspaceSession? { usesExistingBranch ? owners[branch] : nil }
+    func updateSessions(_ sessions: [WorkspaceSession]) {
+        guard !retired else { return }
+        let mine = sessions.filter { $0.projectId == project.id }
+        if mine != self.sessions { self.sessions = mine }
+    }
+    private func updateOwners() {
+        func normal(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
+        let byWorktree = Dictionary(sessions.map { (normal($0.worktree), $0) }, uniquingKeysWith: { first, _ in first })
+        var owners: [String: WorkspaceSession] = [:]
+        for (branch, checkout) in checkouts where !checkout.path.isEmpty {
+            if let owner = byWorktree[normal(checkout.path)] { owners[branch] = owner }
+        }
+        for session in sessions where owners[session.branch] == nil { owners[session.branch] = session }
+        self.owners = owners
+    }
+    /// What is typed is read by its shape, not by who runs it — except on an existing branch, where it
+    /// can only be what the session is for.
+    var placeholderText: String {
+        guard usesExistingBranch else { return String(localized: "Describe a task or branch, or paste a pull request, issue or Jira link") }
+        return agent == .shell ? String(localized: "Name the session (optional)")
+                               : String(localized: "Describe what to do on this branch (optional)")
+    }
 
     /// The line under the field: what a pasted link resolved to, or why the text can't start a session.
     var hint: (text: String, isError: Bool)? {
         if let inputError { return (inputError, true) }
+        if usesExistingBranch {
+            if workBranch.isEmpty { return (String(localized: "Choose the branch to work on"), false) }
+            if let owner = owners[workBranch] {
+                return (String(localized: "“\(owner.title)” already works on \(workBranch)"), true)
+            }
+            switch checkouts[workBranch] {
+            case let (path, main)? where !main:
+                return (String(localized: "Opens \(workBranch) in \((path as NSString).lastPathComponent)"), false)
+            case _?:
+                return (String(localized: "Moves the main checkout off \(workBranch) and opens it in a worktree of its own"), false)
+            case nil:
+                return (String(localized: "Checks out \(workBranch) in a new worktree"), false)
+            }
+        }
         if typed.isEmpty { return nil }
         if urlish && page == nil { return (String(localized: "Not a GitHub pull request, GitHub issue or Jira issue link"), true) }
         if let page {
@@ -87,7 +148,7 @@ import Observation
         typed.replacingOccurrences(of: "\\s+", with: "-", options: .regularExpression)
     }
     private var taskBranch: String {
-        ProjectSessionStart.uniqueBranch(ProjectSessionStart.branchName(for: typed), taken: Set(branches + worktreeBranches))
+        ProjectSessionStart.uniqueBranch(ProjectSessionStart.branchName(for: typed), taken: Set(branches).union(worktreeBranches))
     }
 
     func connect(_ operations: (any SessionCreating)?) {
@@ -168,8 +229,11 @@ import Observation
             let sessionBase = refs.sessionBase
             if !names.contains(sessionBase) { names.insert(sessionBase, at: 0) }
             branches = names
-            worktreeBranches = (refs.worktrees ?? []).compactMap(\.branch)
+            checkouts = Dictionary((refs.worktrees ?? []).compactMap { tree in
+                tree.branch.map { ($0, (tree.path ?? "", tree.isMain == true)) }
+            }, uniquingKeysWith: { first, _ in first })
             if base.isEmpty || !names.contains(base) { base = sessionBase }
+            if !names.contains(workBranch) { workBranch = "" }
         } catch {
             if !retired && !Task.isCancelled && self.generation == generation { referenceError = error.localizedDescription }
         }
@@ -211,6 +275,7 @@ import Observation
         defer { creating = false }
         var creation = SessionDraft(); creation.agent = agent; creation.base = base
         var prompt: String?
+        var workedOnExisting = false
         if let page {
             // A finished lookup that failed must not be reused: Create tries again.
             if resolved == nil { lookup = nil }
@@ -228,6 +293,15 @@ import Observation
             } else {
                 if error == nil { error = String(localized: "Could not look up that page. Check the address and try again.") }
                 return
+            }
+        } else if usesExistingBranch {
+            // The chosen branch is the session's own. No base: the backend picks where the main
+            // checkout is parked, should it hold the branch, and nothing forks.
+            creation.branch = workBranch; creation.createBranch = false; creation.base = ""; workedOnExisting = true
+            // A shell takes no prompt; what is typed still names the session.
+            if !typed.isEmpty {
+                creation.title = ProjectSessionStart.title(for: typed)
+                if agent != .shell { prompt = typed }
             }
         } else if namesBranch {
             let branch = shellBranch
@@ -251,6 +325,8 @@ import Observation
             // The branch named for a pull request belongs to that one: it never carries over to a
             // link opened meanwhile, unless it was typed again since.
             if pullRequestBranch == usedBranch { pullRequestBranch = "" }
+            // New branch, new worktree is the default: working on an existing branch is chosen per session.
+            if workedOnExisting { branchMode = .newBranch; workBranch = "" }
             onAction(.created(session, prompt: prompt))
             // The new branch is the repository's now: the next task must not take its name.
             referenceTask = nil
