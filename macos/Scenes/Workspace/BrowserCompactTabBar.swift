@@ -36,8 +36,8 @@ struct BrowserCompactTabBar: View {
         CompactTabBar(newTabTitle: String(localized: "New Tab"),
                       newTabHelp: String(localized: "Open a new web tab"),
                       newTab: model.newTab,
-                      // Not while a tab is still New Tab or Files: that one is where to go next.
-                      showsNewTab: part != .address && context.section == .browser && !context.hasUnfilledTab,
+                      // Always on the strip: one rule, whatever the tabs hold.
+                      showsNewTab: part != .address,
                       placement: placement) {
             if part != .tabs { NavigationCluster(controls: active?.controls) }
         } pill: { available in

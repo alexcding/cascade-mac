@@ -312,13 +312,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         case .diff: []
         }
     }
-    /// A strip tab nothing has filled yet: a blank page, or the explorer with no file picked. While
-    /// one is there, there is no New Tab button: that tab is where to go next.
-    var hasUnfilledTab: Bool {
-        stripTabs.contains {
-            switch $0 { case .page(let page): page.controls.isBlank; case .tool(.files): true; default: false }
-        }
-    }
     /// The strip's tool last in the order — the explorer or the Simulator — which the tabs go back
     /// to when they hold no page or file.
     private var lastStripTool: WorkspaceTab? {

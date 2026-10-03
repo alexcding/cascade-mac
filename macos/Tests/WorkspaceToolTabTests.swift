@@ -83,20 +83,19 @@ import Testing
         #expect(context.activePage === page && context.section == .browser, "the nearest tab of the strip")
     }
 
-    // The pane's own blank page is a New Tab in the strip, with no New Tab button while it is there;
-    // what is typed or picked in it takes its place, and then the button is back. The Files explorer
-    // is such a tab too, until a file picked in it takes its place.
+    // The pane's own blank page is a New Tab in the strip; what is typed or picked in it takes its
+    // place. The Files explorer is such a tab too, until a file picked in it takes its place.
     @Test func aBlankTabOrTheExplorerIsTheNewTabUntilFilled() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let filler = context.openBlankPage()
         context.fillerPageID = filler.id
-        #expect(context.stripTabs.map(\.id) == [filler.id] && context.hasUnfilledTab, "a New Tab, and no button")
+        #expect(context.stripTabs.map(\.id) == [filler.id], "a New Tab")
         let page = context.openBlankPage()
         #expect(page === filler && context.pages.count == 1, "New Tab takes the blank page, not a second one")
         context.openTool(.files, replacingBlank: true)
-        #expect(context.stripTabs.map(\.id) == [WorkspaceTool.files.id] && context.hasUnfilledTab, "Files took its place")
+        #expect(context.stripTabs.map(\.id) == [WorkspaceTool.files.id], "Files took its place")
         context.openFromTree("/tmp/tools/picked.swift")
-        #expect(context.stripTabs.count == 1 && context.activeDocument != nil && !context.hasUnfilledTab, "filled: the button is back")
+        #expect(context.stripTabs.count == 1 && context.activeDocument != nil, "the file took the explorer's place")
     }
 
     @Test func cyclingFromATabTheStripHidesStartsAtTheEnds() throws {

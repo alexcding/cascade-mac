@@ -341,8 +341,8 @@ user collapses from the divider is told back to the workspace.
   pane's next row is its navigation and address (`.address`), whose suggestions hang under it.
   A blank page — the one the pane opens for itself when it has no page included — is a New Tab in
   the strip, and the Files explorer a Files tab, until what is typed or picked there takes its
-  place (`WorkspaceContext.hasUnfilledTab`); while one is there the strip has no New Tab button, and
-  New Tab takes the pane's own blank page rather than opening a second one. When a screen's items do change,
+  place. The strip always shows its New Tab button, and New Tab takes the pane's own blank page
+  rather than opening a second one. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the
   whole bar.
