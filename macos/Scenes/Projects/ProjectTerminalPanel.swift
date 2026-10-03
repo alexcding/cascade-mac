@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 /// The project's pages over its terminal, split by a divider that drags the terminal's height.
-/// With the panel hidden the pages have the whole screen.
+/// With the panel hidden the pages have the whole screen. Showing and hiding slide the panel in
+/// from the bottom edge and out again; a drag resizes it at once.
 struct ProjectTerminalSplit<Content: View>: View {
     let model: ProjectTerminalViewModel
     @ViewBuilder let content: Content
@@ -15,10 +16,13 @@ struct ProjectTerminalSplit<Content: View>: View {
                 content.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 if model.shown {
                     let limit = max(ProjectTerminalViewModel.minimumHeight, geometry.size.height - minimumContent)
-                    ProjectTerminalDivider(height: min(model.height, limit)) { model.resize(to: min($0, limit)) }
-                    ProjectTerminalPanel(model: model)
-                        .frame(height: min(model.height, limit))
-                        .clipped()
+                    VStack(spacing: 0) {
+                        ProjectTerminalDivider(height: min(model.height, limit)) { model.resize(to: min($0, limit)) }
+                        ProjectTerminalPanel(model: model)
+                            .frame(height: min(model.height, limit))
+                            .clipped()
+                    }
+                    .transition(.move(edge: .bottom))
                 }
             }
         }
@@ -91,7 +95,7 @@ struct ProjectTerminalPanel: View {
                     .accessibilityLabel(String(localized: "Dismiss"))
             }
             Spacer(minLength: 0)
-            Button { model.setShown(false) } label: { Image(systemName: "xmark") }
+            Button { withAnimation(.projectTerminalSlide) { model.setShown(false) } } label: { Image(systemName: "xmark") }
                 .buttonStyle(.borderless)
                 .help(String(localized: "Hide Terminal"))
                 .accessibilityLabel(String(localized: "Hide Terminal"))
@@ -128,4 +132,10 @@ struct ProjectTerminalPanel: View {
         .help(model.directory)
         .accessibilityIdentifier("project-terminal-location")
     }
+}
+
+extension Animation {
+    /// The terminal panel showing and hiding. The toggles that do either animate with it, so
+    /// nothing else that changes alongside, a drag least of all, is animated.
+    static var projectTerminalSlide: Animation { .easeInOut(duration: 0.22) }
 }

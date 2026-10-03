@@ -118,6 +118,9 @@ enum Theme {
 
     /// `--bg`: the surface a content pane sits on. Follows the window appearance.
     static var paneBackground: Color { Color(nsColor: .windowBackgroundColor) }
+    /// A toolbar toggle's symbol while it is on, where the toolbar's own selected tint washes it
+    /// out: the text colour. AppKit's, since the toolbar's controls are.
+    static var toolbarSymbolSelected: NSColor { .labelColor }
 
     /// Symbols a surface shares with another, so the two cannot drift apart. A glyph only one
     /// surface draws stays at its call site.

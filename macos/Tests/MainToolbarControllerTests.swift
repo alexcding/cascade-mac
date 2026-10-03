@@ -115,6 +115,38 @@ import Testing
         #expect(window.toolbar === toolbar && Self.view("pane-picker", in: window) === control, "changed in place")
     }
 
+    // A choice with a selected colour draws its symbol in it while selected, as a coloured image
+    // the control does not tint; deselected, and on choices with none, the toolbar's template.
+    @Test(.timeLimit(.minutes(1))) func aTogglingPickerColoursItsSelectedSymbolOnlyWhenAsked() async throws {
+        let fixture = PickerFixture()
+        fixture.choices = [.init(title: "Terminal", symbol: "terminal", selectedColor: .labelColor),
+                           .init(title: "Diff", symbol: "plus.forwardslash.minus")]
+        fixture.selected = -1
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let controller = MainToolbarController {
+            WindowToolbar(trailing: [.picker("pane-picker", label: fixture.label, choices: fixture.choices,
+                                             selected: fixture.selected, toggles: true) { _ in }])
+        }
+        controller.window = window
+        let control = try #require(Self.view("pane-picker", in: window) as? NSSegmentedControl)
+        func template(_ segment: Int) -> Bool? { control.image(forSegment: segment)?.isTemplate }
+        func drawn(_ segment: Int, _ symbol: String, color: NSColor? = nil) -> Bool {
+            var expected = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            if let color { expected = expected?.withSymbolConfiguration(.init(paletteColors: [color])) }
+            return control.image(forSegment: segment)?.tiffRepresentation == expected?.tiffRepresentation
+        }
+        #expect(template(0) == true && template(1) == true && drawn(0, "terminal"))
+
+        fixture.selected = 0
+        try await settle { template(0) == false }
+        #expect(template(0) == false && template(1) == true && drawn(0, "terminal", color: .labelColor))
+        fixture.selected = 1
+        try await settle { template(0) == true }
+        #expect(template(0) == true && template(1) == true && drawn(0, "terminal") && drawn(1, "plus.forwardslash.minus"))
+    }
+
     // The pane picker is the pane section alone, pane open or shut, so a toggle changes no item:
     // the same control, at the window's edge, with the column open, shut and collapsed.
     @Test(.timeLimit(.minutes(1))) func thePanePickerStaysAtTheWindowsEdge() async throws {

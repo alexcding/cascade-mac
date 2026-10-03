@@ -29,8 +29,9 @@ import SwiftUI
     private var segmentControls: [String: NSSegmentedControl] = [:]
     private var pickers: [String: (group: NSToolbarItemGroup, choices: [WindowToolbarItem.Choice])] = [:]
     /// Toggling pickers: a segmented control of this controller's, which can have no segment
-    /// selected and whose choices can change in place. `selected` is the one last described.
-    private var toggles: [String: (control: NSSegmentedControl, selected: Int)] = [:]
+    /// selected and whose choices can change in place. `selected` is the one last described, and
+    /// `colored` the segments drawn in their choice's `selectedColor`.
+    private var toggles: [String: (control: NSSegmentedControl, selected: Int, colored: Set<Int>)] = [:]
     private var segmentActions: [String: (Int) -> Void] = [:]
     /// The widths of the spacers either side of the middle items, which keep them centred in the
     /// screen's section however wide its leading and trailing items are.
@@ -199,9 +200,10 @@ import SwiftUI
             if let control = segmentControls[item.id], control.selectedSegment != selected { control.selectedSegment = selected }
         case .picker(let label, let choices, let selected, let toggling, let select):
             segmentActions[item.id] = select
-            if toggling, let control = toggles[item.id]?.control {
+            if toggling, let toggle = toggles[item.id] {
+                let control = toggle.control
                 toggles[item.id]?.selected = selected
-                Self.configure(control, choices: choices)
+                toggles[item.id]?.colored = Self.configure(control, choices: choices, selected: selected, colored: toggle.colored)
                 if control.selectedSegment != selected { control.selectedSegment = selected }
                 break
             }
@@ -264,12 +266,12 @@ import SwiftUI
             control.identifier = NSUserInterfaceItemIdentifier(spec.id)
             control.setAccessibilityIdentifier(spec.id)
             control.setAccessibilityLabel(label)
-            Self.configure(control, choices: choices)
+            let colored = Self.configure(control, choices: choices, selected: selected, colored: [])
             control.selectedSegment = selected
             item = NSToolbarItem(itemIdentifier: identifier)
             item.label = label
             item.view = control
-            toggles[spec.id] = (control, selected)
+            toggles[spec.id] = (control, selected, colored)
             control.postsFrameChangedNotifications = true
             NotificationCenter.default.addObserver(self, selector: #selector(paneItemResized(_:)),
                                                    name: NSView.frameDidChangeNotification, object: control)
@@ -504,17 +506,27 @@ import SwiftUI
         if clicked >= 0 { segmentActions[id]?(clicked) }
     }
 
-    /// A toggling picker's segments: one symbol per choice, named by its title, enabled as it says.
-    /// Only what differs is set, so a description that changed nothing redraws nothing.
-    private static func configure(_ control: NSSegmentedControl, choices: [WindowToolbarItem.Choice]) {
+    /// A toggling picker's segments: one symbol per choice, named by its title, enabled as it says,
+    /// and in its `selectedColor` while selected. `colored` is the segments drawn in that colour so
+    /// far; the answer is the ones drawn in it now. Only what differs is set, so a description
+    /// that changed nothing redraws nothing.
+    private static func configure(_ control: NSSegmentedControl, choices: [WindowToolbarItem.Choice], selected: Int,
+                                  colored: Set<Int>) -> Set<Int> {
         if control.segmentCount != choices.count { control.segmentCount = choices.count }
+        var drawn = colored.filter { $0 < choices.count }
         for (index, choice) in choices.enumerated() {
-            if control.toolTip(forSegment: index) != choice.title {
-                control.setImage(NSImage(systemSymbolName: choice.symbol, accessibilityDescription: choice.title), forSegment: index)
+            let color = index == selected ? choice.selectedColor : nil
+            if control.toolTip(forSegment: index) != choice.title || drawn.contains(index) != (color != nil) {
+                var image = NSImage(systemSymbolName: choice.symbol, accessibilityDescription: choice.title)
+                // A coloured symbol is no template: the control draws it as it is.
+                if let color { image = image?.withSymbolConfiguration(.init(paletteColors: [color])) }
+                control.setImage(image, forSegment: index)
                 control.setToolTip(choice.title, forSegment: index)
+                if color != nil { drawn.insert(index) } else { drawn.remove(index) }
             }
             if control.isEnabled(forSegment: index) != choice.enabled { control.setEnabled(choice.enabled, forSegment: index) }
         }
+        return drawn
     }
 
     @objc private func searchFieldChanged(_ field: NSSearchField) {

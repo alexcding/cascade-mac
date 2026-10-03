@@ -169,7 +169,7 @@ struct NewProjectSheet: View {
     }
 }
 
-/// A project's screen: the page its toolbar tabs pick (`ProjectTabBar`).
+/// A project's screen: the page its toolbar tabs pick (`Destination.windowToolbar`).
 struct ProjectPageView: View {
     let model: ProjectPageViewModel
     var body: some View {
@@ -185,25 +185,6 @@ struct ProjectPageView: View {
         case .orchestration:
             ContentUnavailableView(String(localized: "Orchestration"), systemImage: "point.3.connected.trianglepath.dotted")
         }
-    }
-}
-
-/// The project's pages as the toolbar's leading item, standing in for its title as the
-/// Dashboard's tabs do (`DashboardTabBar`).
-struct ProjectTabBar: View {
-    let sections: [ProjectSection]
-    let selection: ProjectSection
-    let select: (ProjectSection) -> Void
-
-    var body: some View {
-        Picker("Project section", selection: Binding(get: { selection }, set: select)) {
-            ForEach(sections) { Text($0.title).tag($0) }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .controlSize(.large)
-        .fixedSize()
-        .accessibilityIdentifier("project-tabs")
     }
 }
 

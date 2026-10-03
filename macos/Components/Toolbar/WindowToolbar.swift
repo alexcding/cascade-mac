@@ -47,6 +47,9 @@ struct WindowToolbarItem: Identifiable {
         let title: String
         let symbol: String
         var enabled = true
+        /// A toggling picker's symbol in this colour while selected, where the toolbar's own
+        /// selected tint washes it out; nil keeps the toolbar's.
+        var selectedColor: NSColor? = nil
     }
 
     let id: String

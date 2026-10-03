@@ -117,14 +117,21 @@ extension Destination {
             return WindowToolbar(leading: [.init("automation-new") { AutomationNewMenu(model: model) }],
                                  trailing: [.init("automation-switch") { AutomationMasterSwitch(model: model) }])
         case .projectCoordinator(let coordinator):
-            // The tabs stand in for the page title, as the Dashboard's do.
+            // The tabs stand in for the page title, as the Dashboard's do: the system's toolbar
+            // segmented control. Board comes and goes with the project's setting, and a different
+            // set of titles is a different item.
             let model = coordinator.model
             let terminal = model.terminal
-            return WindowToolbar(leading: [.init("project-tabs") {
-                ProjectTabBar(sections: model.sections, selection: model.section, select: model.selectSection).id(model.project.id)
+            let sections = model.sections
+            return WindowToolbar(leading: [.segments(sections.contains(.board) ? "project-tabs-board" : "project-tabs",
+                                                     titles: sections.map(\.title),
+                                                     selected: sections.firstIndex(of: model.section) ?? 0) {
+                if sections.indices.contains($0) { model.selectSection(sections[$0]) }
             }], trailing: [.picker("project-terminal", label: String(localized: "Terminal"),
-                                   choices: [.init(title: String(localized: "Terminal"), symbol: "terminal")],
-                                   selected: terminal.shown ? 0 : -1, toggles: true) { _ in terminal.toggle() }])
+                                   choices: [.init(title: String(localized: "Terminal"), symbol: "terminal", selectedColor: Theme.toolbarSymbolSelected)],
+                                   selected: terminal.shown ? 0 : -1, toggles: true) { _ in
+                withAnimation(.projectTerminalSlide) { terminal.toggle() }
+            }])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .terminal(let root), .session(_, let root):
