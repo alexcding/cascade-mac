@@ -20,7 +20,7 @@ struct TerminalPane: View {
             .id(session.surfaceGeneration)
             .allowsHitTesting(session.ready)
             .frame(maxWidth: .infinity, minHeight: 240, maxHeight: .infinity)
-            .background(.background)
+            .paneSurface()
             .overlay(alignment: .top) { if let notice { banner(notice) } }
             .onAppear(perform: model.appear)
             .onDisappear(perform: model.disappear)

@@ -77,7 +77,7 @@ struct ProjectTerminalPanel: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(.background)
+        .paneSurface()
         .accessibilityIdentifier("project-terminal")
     }
 

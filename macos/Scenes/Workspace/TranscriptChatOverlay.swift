@@ -46,6 +46,8 @@ struct TranscriptChatOverlay: View {
         }
         .font(.system(size: 14))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Opaque even in a translucent window (`WindowBackdrop`): the chat lies over the session's
+        // terminal, whose text would show through anything less.
         .background(Theme.paneBackground)
     }
 

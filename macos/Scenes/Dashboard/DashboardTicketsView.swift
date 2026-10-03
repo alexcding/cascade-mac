@@ -166,6 +166,7 @@ struct DashboardTicketTable: View {
             }.width(min: 60, ideal: 80, max: 160).customizationID("project")
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .backdropContentBackground()
         .environment(\.defaultMinListRowHeight, Self.rowHeight)
         .scrollDisabled(true)
         .frame(height: Self.headerHeight + Self.rowHeight * CGFloat(rows.count))

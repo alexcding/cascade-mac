@@ -158,6 +158,7 @@ public final class AppViewModel {
             self?.diffModels.values.contains { $0.coordinator.isPresenting } == true
         }
         coordinator.appearance = shell.appearance
+        coordinator.windowBackdrop = shell.windowBackdrop
         coordinator.presentSettingsWindow = { [weak self] in self?.presentSettings() }
         shell.documentStyleChanged = { [weak self] in
             guard let self else { return }
@@ -165,6 +166,10 @@ public final class AppViewModel {
             updateWorkspaceDocumentState()
         }
         shell.terminalStyleChanged = { [weak self] in self?.updateWorkspaceTerminalState() }
+        shell.windowBackgroundChanged = { [weak self] in
+            guard let self else { return }
+            coordinator.windowBackdrop = shell.windowBackdrop
+        }
         shell.memoryLimitsChanged = { [weak self] in
             guard let self else { return }
             sessionPool.limit = shell.sessionMemoryLimit

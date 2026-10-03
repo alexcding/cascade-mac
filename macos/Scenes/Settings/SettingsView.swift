@@ -74,6 +74,18 @@ struct SettingsView: View {
                         ForEach(AppAppearance.allCases) { Text($0.title).tag($0) }
                     }.labelsHidden().accessibilityIdentifier("settings-theme")
                 }
+                SettingsRow(title: String(localized: "Translucent window"),
+                            caption: String(localized: "The sidebar's background behind the whole window. Terminals draw on it in place of their theme's background.")) {
+                    Toggle("Translucent window", isOn: Binding(get: { shell.windowBackdrop.isTranslucent }, set: shell.setWindowTranslucent))
+                        .labelsHidden().toggleStyle(.switch).accessibilityIdentifier("settings-window-translucent")
+                }
+                SettingsRow(title: String(localized: "Background opacity")) {
+                    Slider(value: Binding(get: { shell.windowBackdrop.opacity }, set: shell.setWindowBackdropOpacity),
+                           in: WindowBackdrop.opacityRange) { Text("Background opacity") }
+                        .labelsHidden()
+                        .frame(maxWidth: 220)
+                        .accessibilityIdentifier("settings-window-backdrop-opacity")
+                }
             }
             LoginItemView(model: model.loginItem)
             MicrophoneAccessView(model: model.microphone)

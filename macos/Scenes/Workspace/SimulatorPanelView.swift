@@ -40,7 +40,7 @@ struct SimulatorPanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
+        .paneSurface()
         .accessibilityIdentifier("workspace-simulator-panel")
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             model.applicationBecameActive()

@@ -14796,6 +14796,9 @@
         }
       }
     },
+    "Background opacity" : {
+
+    },
     "Base branch" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -101996,6 +101999,9 @@
         }
       }
     },
+    "The sidebar's background behind the whole window. Terminals draw on it in place of their theme's background." : {
+
+    },
     "The simulator preview did not start" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -109358,6 +109364,9 @@
           }
         }
       }
+    },
+    "Translucent window" : {
+
     },
     "Transportation" : {
 

@@ -245,7 +245,11 @@ extension WorkspaceServing {
     func terminalStateChanged() {
         let state = state
         state.terminal?.presentation.style = state.terminalStyle
-        state.buildTerminal?.presentation.style = state.terminalStyle
+        // The build log hangs in a toolbar popover, off the window's backdrop: it keeps its theme's
+        // own background whether or not the window is translucent.
+        var buildStyle = state.terminalStyle
+        buildStyle.backgroundOpacity = 1
+        state.buildTerminal?.presentation.style = buildStyle
     }
     func documentStateChanged() {
         let state = state

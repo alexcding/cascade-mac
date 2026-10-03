@@ -50,7 +50,7 @@ struct ButtonGroup<Content: View>: View {
         HStack(spacing: 0) { content() }
             .padding(.horizontal, 2)
             .frame(height: Theme.Size.toolbarControl)
-            .background(Theme.paneBackground, in: Capsule())
+            .backdropFill(Theme.paneBackground, in: Capsule())
             .pixelOutline(Capsule())
     }
 }
@@ -62,7 +62,7 @@ private struct SegmentPill: ViewModifier {
         content
             .padding(CompactTabMetrics.pillInset)
             .frame(height: Theme.Size.toolbarControl)
-            .background(Theme.surfaceHover, in: Capsule())
+            .backdropFill(Theme.surfaceHover, in: Capsule())
             .pixelOutline(Capsule())
     }
 }

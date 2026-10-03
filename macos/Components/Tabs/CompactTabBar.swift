@@ -238,7 +238,7 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
             Color.clear.frame(height: CompactTabMetrics.pillHeight)
         } else if ids.isEmpty {
             // Momentarily empty while the blank tab is created; holds the row's shape.
-            Capsule().fill(Theme.surfaceHover)
+            BackdropFill(color: Theme.surfaceHover, shape: Capsule())
                 .pixelOutline(Capsule())
                 .frame(maxWidth: maxTabWidth).frame(height: CompactTabMetrics.pillHeight)
         } else {
@@ -755,10 +755,10 @@ private struct BarGlass: ViewModifier {
             let inset = (CompactTabMetrics.pillHeight - Theme.Size.largeControl) / 2
             base.padding(.horizontal, inset)
                 .frame(minWidth: CompactTabMetrics.pillHeight, minHeight: CompactTabMetrics.pillHeight)
-                .background(Theme.paneBackground, in: Capsule())
+                .backdropFill(Theme.paneBackground, in: Capsule())
                 .pixelOutline(Capsule())
         } else {
-            base.background(Theme.surfaceHover, in: Capsule())
+            base.backdropFill(Theme.surfaceHover, in: Capsule())
                 .pixelOutline(Capsule())
         }
     }
@@ -793,7 +793,7 @@ private struct PillSlideClip: Shape {
 struct FlatActiveTab: View {
     static let radius: CGFloat = 8
     var body: some View {
-        RoundedRectangle(cornerRadius: Self.radius).fill(Theme.paneBackground)
+        BackdropFill(color: Theme.paneBackground, shape: RoundedRectangle(cornerRadius: Self.radius))
             .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
     }
 }
@@ -808,7 +808,7 @@ private struct PillShape: ViewModifier {
             content
                 .padding(CompactTabMetrics.pillInset)
                 .frame(height: CompactTabMetrics.pillHeight)
-                .background(Theme.surfaceHover, in: Capsule())
+                .backdropFill(Theme.surfaceHover, in: Capsule())
                 // A tab sliding in starts a full width to the right: keep it inside the pill.
                 .clipShape(PillSlideClip())
                 .pixelOutline(Capsule())
@@ -823,7 +823,7 @@ struct ActiveTabCapsule: View {
         if #available(macOS 26.0, *), style == .capsule {
             Color.clear.glassEffect(.regular.interactive(), in: Capsule())
         } else {
-            Capsule().fill(Color(nsColor: .controlBackgroundColor))
+            BackdropFill(color: Color(nsColor: .controlBackgroundColor), shape: Capsule())
                 .shadow(color: .black.opacity(0.12), radius: 2, y: 1)
         }
     }

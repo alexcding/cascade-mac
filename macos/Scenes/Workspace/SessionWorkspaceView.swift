@@ -383,7 +383,7 @@ struct BlankPane: View {
         .frame(maxWidth: 260)
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
+        .paneSurface()
     }
 }
 

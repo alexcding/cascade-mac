@@ -87,6 +87,8 @@ import Observation
             projectModels.values.forEach { $0.appearance = appearance }
         }
     }
+    /// What the main window's columns stand on (`WindowBackdrop`); the shell's setting.
+    var windowBackdrop = WindowBackdrop()
     var dashboardCoordinator: DashboardCoordinator?
     var automationCoordinator: AutomationCoordinator?
     var logsCoordinator: LogsCoordinator?

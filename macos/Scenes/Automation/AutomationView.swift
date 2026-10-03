@@ -24,7 +24,7 @@ struct AutomationView: View {
             .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
+        .paneSurface()
         .accessibilityIdentifier("automation-screen")
         .onAppear { model.setVisible(true) }
         .onDisappear { model.setVisible(false) }

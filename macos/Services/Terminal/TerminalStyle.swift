@@ -19,6 +19,9 @@ struct TerminalStyle: Equatable, Sendable {
     /// Ghostty `keybind` values, one per entry, as they would be written in a config file
     /// (`shift+enter=text:\x1b\r`). Ghostty parses the `\x` escapes in `text:` itself.
     var keybinds = defaultKeybinds
+    /// Ghostty's `background-opacity`: 0 while the window is translucent (`WindowBackdrop`), so the
+    /// terminal stands on the window's backdrop as every other surface does.
+    var backgroundOpacity = 1.0
 
     struct Resolved {
         var configuration = TerminalConfiguration()
@@ -33,6 +36,7 @@ struct TerminalStyle: Equatable, Sendable {
         var configuration = TerminalConfiguration().fontSize(Float(font.size))
         if !font.family.isEmpty { configuration = configuration.fontFamily(font.family) }
         configuration = configuration.fontThicken(thicken)
+        if backgroundOpacity < 1 { configuration = configuration.backgroundOpacity(backgroundOpacity) }
         if thicken { configuration = configuration.fontThickenStrength(thickenStrength) }
         for binding in keybinds {
             guard Self.keybindProblem(binding) == nil else {

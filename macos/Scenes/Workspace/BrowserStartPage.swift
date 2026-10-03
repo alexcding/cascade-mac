@@ -67,7 +67,7 @@ struct BrowserStartPage: View {
                 startPage
             }
         }
-        .background(Theme.paneBackground)
+        .paneSurface()
     }
 
     /// The tools in two columns, then the bookmarks, this session's history and the worktree's

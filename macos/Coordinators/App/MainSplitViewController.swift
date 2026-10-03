@@ -12,6 +12,7 @@ import SwiftUI
 /// its workspace.
 @MainActor final class MainSplitViewController: NSSplitViewController {
     private let coordinator: AppCoordinator
+    private let sidebar: MainSidebarController
     private let sidebarItem: NSSplitViewItem
     private let contentItem: NSSplitViewItem
     private let paneItem: NSSplitViewItem
@@ -34,6 +35,7 @@ import SwiftUI
         // The columns' widths are the split view's to decide, not their content's.
         content.sizingOptions = []
         pane.sizingOptions = []
+        self.sidebar = sidebar
         sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebar)
         sidebarItem.minimumThickness = MainWindowMetrics.sidebarMin
         sidebarItem.maximumThickness = MainWindowMetrics.sidebarMax
@@ -51,6 +53,7 @@ import SwiftUI
         paneItem.holdingPriority = contentItem.holdingPriority
         paneItem.isCollapsed = true
         super.init(nibName: nil, bundle: nil)
+        splitView = MainSplitView()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -70,6 +73,7 @@ import SwiftUI
             }
         }
         observePane()
+        observeBackground()
     }
 
     override func viewWillAppear() {
@@ -109,6 +113,17 @@ import SwiftUI
             // the last one's width, which its chat visibly jumps from. Lay them out before it draws.
             if view.window?.isVisible == true { splitView.layoutSubtreeIfNeeded() }
         }
+    }
+
+    /// The sidebar's backdrop follows the setting, as the SwiftUI columns' does (`windowBackdrop`).
+    private func observeBackground() {
+        let backdrop = withObservationTracking {
+            coordinator.windowBackdrop
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.observeBackground() }
+        }
+        sidebar.washOpacity = backdrop.opacity
+        sidebar.showsRule = backdrop.isTranslucent
     }
 
     /// The toolbar over a terminal and its pane is the window's own backdrop in both sections. AppKit
@@ -155,6 +170,7 @@ private struct MainContentColumn: View {
                     .padding(.top, 6).padding(.trailing, 20)
             }
             .modifier(SettingsWindowOpener(model: model))
+            .windowBackdrop(model.coordinator.windowBackdrop)
     }
 }
 
@@ -169,18 +185,23 @@ private struct SettingsWindowOpener: ViewModifier {
     }
 }
 
-/// The sidebar's column: the list on its own backdrop, the title bar's material, which lets the
-/// desktop's own colour through where the sidebar's material greys it, and over it a wash
-/// (`SidebarPalette.backdrop`) that makes it solid: in light a near-white, so the desktop is a faint
-/// tint; in dark the page's own colour, where the material alone is too light a grey. The material
-/// blends with what is behind the window, so it covers AppKit's own sidebar material under it. It
-/// stays active in a window in the background: a material gone inactive flattens under the same
-/// wash, and the sidebar would change shade with the window's focus.
+/// The sidebar's column: the list on the window's backdrop (`WindowBackdropView`), always, where the
+/// other columns stand on it only while the window is translucent.
 ///
 /// The list keeps its own hosting controller, a child of this one, so it is told the toolbar's
 /// safe area as it was when it was the column itself.
 private final class MainSidebarController: NSViewController {
     private let list: NSHostingController<MainSidebarColumn>
+    private let backdrop = WindowBackdropView()
+    /// How much of the backdrop's wash is laid on (`WindowBackdrop.opacity`).
+    var washOpacity: Double {
+        get { backdrop.washOpacity }
+        set { backdrop.washOpacity = newValue }
+    }
+    private let rule = ColumnRuleView()
+    /// The sidebar's edge, drawn only while the window is translucent: the screen then stands on the
+    /// same backdrop and needs the line to part them; a solid screen parts them by its own colour.
+    var showsRule = false { didSet { rule.isHidden = !showsRule } }
 
     init(coordinator: AppCoordinator) {
         list = NSHostingController(rootView: MainSidebarColumn(coordinator: coordinator))
@@ -192,50 +213,50 @@ private final class MainSidebarController: NSViewController {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func loadView() {
-        let backdrop = NSVisualEffectView()
-        backdrop.material = .titlebar
-        backdrop.blendingMode = .behindWindow
-        backdrop.state = .active
         view = backdrop
         addChild(list)
-        for part in [MainSidebarWash(), list.view] {
-            part.translatesAutoresizingMaskIntoConstraints = false
-            backdrop.addSubview(part)
-            NSLayoutConstraint.activate([
-                part.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
-                part.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
-                part.topAnchor.constraint(equalTo: backdrop.topAnchor),
-                part.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
-            ])
-        }
+        list.view.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(list.view)
+        rule.isHidden = !showsRule
+        rule.translatesAutoresizingMaskIntoConstraints = false
+        backdrop.addSubview(rule)
+        NSLayoutConstraint.activate([
+            list.view.leadingAnchor.constraint(equalTo: backdrop.leadingAnchor),
+            list.view.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+            list.view.topAnchor.constraint(equalTo: backdrop.topAnchor),
+            list.view.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+            rule.trailingAnchor.constraint(equalTo: backdrop.trailingAnchor),
+            rule.topAnchor.constraint(equalTo: backdrop.topAnchor),
+            rule.bottomAnchor.constraint(equalTo: backdrop.bottomAnchor),
+        ])
     }
 }
 
-/// The sidebar backdrop's wash: colour only, so neither VoiceOver nor the pointer finds it. A layer
-/// takes a resolved colour, so it is resolved again when the appearance changes.
-private final class MainSidebarWash: NSView {
+/// The columns' split view, which draws no divider of its own. AppKit lays the columns edge to edge
+/// and draws a divider under them, so it shows only where the column over it is see-through: beside
+/// the sidebar's list, not beside a screen's content. Each edge is drawn on top instead, the same
+/// line on both sides of the screen: the sidebar's trailing one (`ColumnRuleView`) and the pane's
+/// leading one (`MainPaneColumn`).
+private final class MainSplitView: RuleSplitView {
+    override var dividerColor: NSColor { .clear }
+}
+
+/// A column's edge: a hairline in the rule colour. Colour only, so neither VoiceOver nor the pointer
+/// finds it.
+private final class ColumnRuleView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
-        wantsLayer = true
+        widthAnchor.constraint(equalToConstant: Theme.Size.hairline).isActive = true
         setAccessibilityElement(false)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func paint() {
-        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = SidebarPalette.backdrop.cgColor }
-    }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        paint()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        paint()
+    override func draw(_ dirtyRect: NSRect) {
+        Theme.palette.border.nsColor.setFill()
+        bounds.fill()
     }
 }
 
@@ -253,20 +274,22 @@ private struct MainSidebarColumn: View {
 /// screen's deck does for their terminals. The pane stays while the column shuts, so what closes is
 /// the pane that was open: not an empty one, nor the hidden pane of the session switched to. The
 /// column reaches the window's top, under the toolbar's pane section, which AppKit reports to each
-/// pane as the safe area; the pane draws its own bar there. It is opaque: AppKit
+/// pane as the safe area; the pane draws its own bar there. It is opaque unless the window is
+/// translucent, where it stands on the window's backdrop (`WindowBackdrop`): AppKit
 /// backs an inspector with glass, which would show through wherever the pane is not drawn —
-/// between one panel and the next, or while a page loads. It draws its own edge: beside a glass
-/// column the divider is zero-width and AppKit draws no line, though it can still be dragged.
+/// between one panel and the next, or while a page loads. It draws its own edge, on top, the same
+/// line as the sidebar's (`ColumnRuleView`): the split view draws none (`MainSplitView`).
 private struct MainPaneColumn: View {
     let coordinator: AppCoordinator
 
     var body: some View {
         SessionWorkspaceDeck(workspaces: coordinator.deckWorkspaces, shown: coordinator.inspectorWorkspace, part: .pane)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.paneBackground)
+        .paneSurface()
         .overlay(alignment: .leading) {
             Rectangle().fill(Theme.border).frame(width: Theme.Size.hairline).accessibilityHidden(true)
         }
         .ignoresSafeArea(.container, edges: .top)
+        .windowBackdrop(coordinator.windowBackdrop)
     }
 }

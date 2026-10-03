@@ -85,6 +85,7 @@ struct GitHistoryView: View {
             }
         }
         .listStyle(.inset)
+        .backdropContentBackground()
         .accessibilityIdentifier("git-history-list")
     }
 

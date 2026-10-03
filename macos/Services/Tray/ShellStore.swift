@@ -19,6 +19,15 @@ import Observation
     public private(set) var appearance: AppAppearance {
         didSet { if oldValue != appearance { documentStyleChanged(); applyAppearance() } }
     }
+    /// Settings → Appearance: the window's backdrop, under the sidebar alone or every column.
+    /// Terminals follow it.
+    private(set) var windowBackdrop: WindowBackdrop {
+        didSet {
+            guard oldValue != windowBackdrop else { return }
+            windowBackgroundChanged()
+            if oldValue.isTranslucent != windowBackdrop.isTranslucent { terminalStyleChanged() }
+        }
+    }
     private(set) var usageAgent: String
     private(set) var defaultAgent: SessionAgent
     private(set) var gitClient: String
@@ -66,6 +75,7 @@ import Observation
     }
     @ObservationIgnored var documentStyleChanged: () -> Void = {}
     @ObservationIgnored var terminalStyleChanged: () -> Void = {}
+    @ObservationIgnored var windowBackgroundChanged: () -> Void = {}
     @ObservationIgnored var memoryLimitsChanged: () -> Void = {}
     private(set) var settingsError: String?
     private(set) var acknowledging: Set<String> = []
@@ -87,6 +97,7 @@ import Observation
         preferences.removeObject(forKey: "native.editorMinimap")
         let saved = SavedPreferences(preferences)
         appearance = saved.appearance
+        windowBackdrop = saved.windowBackdrop
         usageAgent = saved.usageAgent
         defaultAgent = saved.defaultAgent
         activityNotify = saved.activityNotify
@@ -113,6 +124,7 @@ import Observation
         let saved = SavedPreferences(preferences)
         let draftClean = gitClientCommandDraft == gitClientCommand
         appearance = saved.appearance
+        windowBackdrop = saved.windowBackdrop
         usageAgent = saved.usageAgent
         defaultAgent = saved.defaultAgent
         activityNotify = saved.activityNotify
@@ -136,6 +148,7 @@ import Observation
     /// from and what a one-time import re-reads.
     private struct SavedPreferences {
         let appearance: AppAppearance
+        let windowBackdrop: WindowBackdrop
         let usageAgent: String
         let defaultAgent: SessionAgent
         let activityNotify: Bool
@@ -156,6 +169,9 @@ import Observation
 
         init(_ preferences: UserDefaults) {
             appearance = AppAppearance(rawValue: preferences.string(forKey: "native.theme") ?? "auto") ?? .system
+            windowBackdrop = WindowBackdrop(
+                isTranslucent: preferences.string(forKey: "native.windowTranslucent") == "on",
+                opacity: WindowBackdrop.clampOpacity(preferences.string(forKey: "native.windowBackdropOpacity")))
             usageAgent = AgentDrivers.driver(for: preferences.string(forKey: "native.usageAgent")).cli
             defaultAgent = preferences.string(forKey: "native.defaultCli").flatMap(SessionAgent.init(rawValue:)) ?? .primary
             activityNotify = preferences.string(forKey: "native.activityNotify") != "off"
@@ -346,6 +362,21 @@ import Observation
         settingsError = nil
     }
 
+    func setWindowTranslucent(_ enabled: Bool) {
+        guard enabled != windowBackdrop.isTranslucent else { return }
+        windowBackdrop.isTranslucent = enabled
+        preferences.set(enabled ? "on" : "off", forKey: "native.windowTranslucent")
+        settingsError = nil
+    }
+
+    func setWindowBackdropOpacity(_ value: Double) {
+        let next = WindowBackdrop.clampOpacity(value)
+        guard next != windowBackdrop.opacity else { return }
+        windowBackdrop.opacity = next
+        preferences.set(String(next), forKey: "native.windowBackdropOpacity")
+        settingsError = nil
+    }
+
     func setUsageAgent(_ value: String) {
         usageAgent = AgentDrivers.driver(for: value).cli
         preferences.set(usageAgent, forKey: "native.usageAgent")
@@ -403,7 +434,8 @@ import Observation
         TerminalStyle(font: terminalCodeFont, thicken: terminalFontThicken,
                       thickenStrength: terminalFontThickenStrength,
                       darkTheme: terminalDarkTheme, lightTheme: terminalLightTheme,
-                      keybinds: terminalKeybinds)
+                      keybinds: terminalKeybinds,
+                      backgroundOpacity: windowBackdrop.isTranslucent ? 0 : 1)
     }
     /// Replaces the whole list. A malformed entry is refused with the reason and nothing is
     /// stored; the caller keeps its drafts so the row can be fixed. Returns whether it applied.

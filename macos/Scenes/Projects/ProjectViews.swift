@@ -64,7 +64,7 @@ struct ProjectEditorView: View {
                     Text("Copy ignored files from the project folder before setup runs. Enter one pattern per line, such as .env or config/*.local. Leave blank to use Settings → Worktrees defaults.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-            }.formStyle(.grouped).disabled(model.busy)
+            }.formStyle(.grouped).backdropContentBackground().disabled(model.busy)
             // Under the form, level with its sections' edges: the grouped form insets them 10pt.
             if let error = model.error {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).textSelection(.enabled)
