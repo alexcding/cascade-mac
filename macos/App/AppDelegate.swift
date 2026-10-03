@@ -20,12 +20,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @ObservationIgnored private lazy var termination = AppTerminationCoordinator(prepare: { [weak self] reason in
         guard let self else { throw CancellationError() }
         switch reason {
-        case .quit: try await self.model.quit()
+        case .quit:
+            guard await self.confirmQuit() else { throw CancellationError() }
+            try await self.model.quit()
         case .update: try await self.model.prepareForUpdate()
         }
-    }, finished: { reason, approved in
-        if reason == .update { NSApp.reply(toApplicationShouldTerminate: approved) }
-        else if approved { NSApp.terminate(nil) }
+    }, finished: { _, approved in
+        // `applicationShouldTerminate` answered "later", so AppKit waits for this reply and
+        // ignores every Quit until it comes, a cancelled one included.
+        NSApp.reply(toApplicationShouldTerminate: approved)
     }, failed: { [weak self] error in
         self?.showTerminationError(error)
     })
@@ -249,6 +252,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .now: return .terminateNow
         case .later: return .terminateLater
         }
+    }
+
+    /// Quit is silent with nothing running; with a session at work it asks, as Terminal does
+    /// before closing a window with a process in it.
+    private func confirmQuit() async -> Bool {
+        guard model.hasRunningSessions else { return true }
+        showWindow()
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Quit Cascade?")
+        alert.informativeText = String(localized: "All terminal sessions will be terminated.")
+        alert.addButton(withTitle: String(localized: "Quit"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        // A sheet already up would hold this one back until it closed, and Quit would seem to do
+        // nothing; then it asks on its own.
+        guard let window, window.attachedSheet == nil else { return alert.runModal() == .alertFirstButtonReturn }
+        return await alert.beginSheetModal(for: window) == .alertFirstButtonReturn
     }
 
     private func showTerminationError(_ error: Error) {

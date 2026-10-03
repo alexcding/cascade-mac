@@ -10250,6 +10250,9 @@
         }
       }
     },
+    "All terminal sessions will be terminated." : {
+
+    },
     "All types" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -75283,6 +75286,9 @@
           }
         }
       }
+    },
+    "Quit Cascade?" : {
+
     },
     "Ran" : {
       "localizations" : {

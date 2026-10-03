@@ -155,10 +155,17 @@ private actor RefreshTransport: BackendTransport {
               case .session(let status, _) = entry.role else { return false }
         return status.busy && status.cli == "claude"
     }
+    #expect(!model.hasRunningSessions, "Quit is silent with nothing at work")
     terminal.agentTurns.receive(ServerEvent(type: "agent-turn-start", projectId: nil, id: nil, runId: "sidebar-test", cli: "claude", sessionId: "conversation"))
     try await refreshEventually { busy() }
+    #expect(model.hasRunningSessions, "Quit asks while a turn runs")
     terminal.agentTurns.receive(ServerEvent(type: "agent-turn-done", projectId: nil, id: nil, runId: "sidebar-test", cli: "claude", sessionId: "conversation"))
     try await refreshEventually { !busy() }
+    #expect(!model.hasRunningSessions)
+    terminal.agentTurns.receivePermission(ServerEvent(type: "agent-permission", projectId: nil, id: "ask", runId: "sidebar-test", outcome: nil))
+    #expect(model.hasRunningSessions, "Quit asks while the agent waits on a person")
+    terminal.agentTurns.receivePermission(ServerEvent(type: "agent-permission-done", projectId: nil, id: "ask", runId: "sidebar-test", outcome: "answered"))
+    #expect(!model.hasRunningSessions)
     await model.stop()
 }
 

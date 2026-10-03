@@ -1237,6 +1237,15 @@ public final class AppViewModel {
 
     public func quit() async throws { try await prepareToTerminate() }
 
+    /// Whether any session's agent is in the middle of a turn — the sidebar's working dot, or one
+    /// waiting on a person. Quit stops every shell, so it asks first only then.
+    public var hasRunningSessions: Bool {
+        sessions.contains { session in
+            guard let terminal = terminals["task:\(session.id)"] else { return false }
+            return terminal.agentBusy || terminal.agentTurns.needsInput
+        }
+    }
+
     public func prepareForUpdate() async throws { try await prepareToTerminate() }
 
     public func cancelBrowserPresentation() { coordinator.browserDialogCoordinator.cancel() }
