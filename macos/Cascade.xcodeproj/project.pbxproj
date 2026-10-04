@@ -10,10 +10,10 @@
 		4415510CF7AF502B0F5DD509 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */; };
 		4E7DF3CF4810B4EC38A55D12 /* GhosttyTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C55F686B0B0D671AF14E3A3D /* GhosttyTerminal */; };
 		5F5B00000000000000000011 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000021 /* SFSymbolsPicker */; };
-		5F5B00000000000000000031 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000041 /* SFSafeSymbols */; };
 		5F5B00000000000000000012 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000022 /* SFSymbolsPicker */; };
-		5F5B00000000000000000032 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000042 /* SFSafeSymbols */; };
 		5F5B00000000000000000013 /* SFSymbolsPicker in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000023 /* SFSymbolsPicker */; };
+		5F5B00000000000000000031 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000041 /* SFSafeSymbols */; };
+		5F5B00000000000000000032 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000042 /* SFSafeSymbols */; };
 		5F5B00000000000000000033 /* SFSafeSymbols in Frameworks */ = {isa = PBXBuildFile; productRef = 5F5B00000000000000000043 /* SFSafeSymbols */; };
 		62D68FC07EABB6B4C6958926 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 3847F04EE724731C9EFB5B91 /* Sparkle */; };
 		728A6AA42A2A9D55ABD412B4 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0A01EF5361B23C1FC613C721 /* Sparkle */; };
@@ -798,6 +798,14 @@
 				version = 1.1.0;
 			};
 		};
+		5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/SFSafeSymbols/SFSafeSymbols.git";
+			requirement = {
+				kind = exactVersion;
+				version = 7.0.0;
+			};
+		};
 		CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/CodeEditApp/CodeEditSourceEditor";
@@ -812,14 +820,6 @@
 			requirement = {
 				kind = exactVersion;
 				version = 2.9.6;
-			};
-		};
-		5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SFSafeSymbols/SFSafeSymbols.git";
-			requirement = {
-				kind = exactVersion;
-				version = 7.0.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -854,6 +854,21 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */;
 			productName = SFSymbolsPicker;
+		};
+		5F5B00000000000000000041 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
+		};
+		5F5B00000000000000000042 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
+		};
+		5F5B00000000000000000043 /* SFSafeSymbols */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
+			productName = SFSafeSymbols;
 		};
 		8C68B63441EC81D6CFAE1507 /* GhosttyTerminal */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -899,21 +914,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = CE5E00000000000000000001 /* XCRemoteSwiftPackageReference "CodeEditSourceEditor" */;
 			productName = CodeEditSourceEditor;
-		};
-		5F5B00000000000000000041 /* SFSafeSymbols */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
-			productName = SFSafeSymbols;
-		};
-		5F5B00000000000000000042 /* SFSafeSymbols */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
-			productName = SFSafeSymbols;
-		};
-		5F5B00000000000000000043 /* SFSafeSymbols */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 5F5B00000000000000000002 /* XCRemoteSwiftPackageReference "SFSafeSymbols" */;
-			productName = SFSafeSymbols;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
