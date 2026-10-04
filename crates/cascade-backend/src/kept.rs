@@ -108,8 +108,10 @@ where
 {
     let stored = app.db.jira_snapshot(&id).await?;
     let (Some(stored), false) = (stored, read == Read::Now) else {
-        app.kept.asked(&id);
         let fresh = search().await?;
+        // Only an answer counts as the last one asked: a refresh that failed stores nothing,
+        // and must not make a look's search, still running, throw away what it finds.
+        app.kept.asked(&id);
         let _ = app.db.set_jira_snapshot(&id, &for_store(&fresh)).await;
         return Ok(fresh);
     };
@@ -121,8 +123,10 @@ where
         let running = Running { kept: app.kept.clone(), id: id.clone() };
         tokio::spawn(async move {
             let again = async {
+                // Held to the end, past the write: a look that claimed the question while the
+                // answer was still being stored would be a second writer.
+                let _running = running;
                 let result = search().await;
-                drop(running);
                 // A refresh someone asked for while this ran searched later, and stored its
                 // answer: this one is the older, and is not written over it.
                 if !app.kept.latest(&id, claimed) {
@@ -351,5 +355,30 @@ mod tests {
         assert_eq!((refused["error"].as_str(), refused["items"][0]["key"].as_str()), (Some("The JQL query is invalid"), Some("A-1")));
 
         assert!(search.ask(&app, Read::Now, none).await.is_err());
+    }
+
+    /// A refresh that fails while a look's search is still running stores nothing, and the
+    /// look's answer, arriving after it, is kept.
+    #[tokio::test]
+    async fn a_failed_refresh_does_not_discard_the_looks_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let mut events = app.events.subscribe();
+        let none = Duration::ZERO;
+        let first = Search::new(json!([{"key":"A-1"}]));
+        first.ask(&app, Read::Look, none).await.unwrap();
+
+        let (release, held) = tokio::sync::oneshot::channel::<()>();
+        let slow = async move {
+            let _ = held.await;
+            Ok(json!({"items":[{"key":"A-2"}],"jql":"q","lastSynced":now(),"error":null,"warning":null}))
+        };
+        answer(&app, "kept:test".into(), Read::Look, none, Fault::read_error, move || slow).await.unwrap();
+        first.fails("acli timed out after 30s");
+        assert!(first.ask(&app, Read::Now, none).await.is_err());
+        release.send(()).unwrap();
+        assert_eq!(told(&mut events).await["scope"], "tickets");
+        let stored = first.ask(&app, Read::Echo, none).await.unwrap();
+        assert_eq!(stored["items"][0]["key"], "A-2");
     }
 }
