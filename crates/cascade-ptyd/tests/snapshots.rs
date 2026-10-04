@@ -483,3 +483,33 @@ while True:
     assert!(legacy["stateResponseOwner"].is_null());
     query(&legacy_root, 0, "");
 }
+
+// The fixture's daemon is told its socket through CASCADE_PTYD_SOCK, as the app tells its own. A
+// shell that inherited it would hand it to a copy of the app started inside, which would then
+// share this daemon and stop every shell here when it quit.
+#[test]
+fn a_shell_never_inherits_its_daemons_socket() {
+    let fixture = Fixture::start();
+    let script = fixture.root.join("shell.sh");
+    let seen = fixture.root.join("seen");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nprintf '[%s]' \"${{CASCADE_PTYD_SOCK-unset}}\" > '{0}.tmp' && mv '{0}.tmp' '{0}'\nIFS= read -r next\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut connection = Connection::connect(&fixture.socket);
+    connection.hello();
+    connection
+        .request(json!({"op":"create", "opts":{"cwd":fixture.root, "shell":script}}))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !seen.exists() {
+        assert!(Instant::now() < deadline, "the shell did not start");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(std::fs::read_to_string(&seen).unwrap(), "[unset]");
+}

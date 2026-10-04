@@ -784,6 +784,10 @@ impl Daemon {
     }
     cmd.env("COLORTERM", "truecolor");
     cmd.env("LANG", std::env::var("LANG").unwrap_or_else(|_| "en_US.UTF-8".into()));
+    // The socket is how the app tells this daemon where to listen, and it stops here. A shell that
+    // exported it would hand it to a copy of the app started inside it — a development build run
+    // from its terminal — which would take this daemon for its own and stop every shell on Quit.
+    cmd.env_remove("CASCADE_PTYD_SOCK");
     // CASCADE_RUN_ID lets an installed Claude/Codex hook ping back tagged with THIS terminal's id.
     cmd.env("CASCADE_RUN_ID", &id);
     // And CASCADE_PORT_FILE says which app to ping: this daemon's, whose backend writes its port

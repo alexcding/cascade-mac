@@ -7,19 +7,24 @@ struct PtydConfiguration: Sendable {
     let socketPath: String
 
     static func current() throws -> Self {
-        let env = ProcessInfo.processInfo.environment
-        let args = ProcessInfo.processInfo.arguments
+        try resolved(arguments: ProcessInfo.processInfo.arguments, environment: ProcessInfo.processInfo.environment,
+                     dataDirectory: DataDirectory.explicit)
+    }
+
+    /// Only `--pty-socket` names a socket. `CASCADE_PTYD_SOCK` is how the app tells the daemon it
+    /// starts where to listen, and is never read back: a daemon that predates this exports it to
+    /// its shells, so a development build run from one of the installed app's terminals joined
+    /// the installed app's daemon, and its Quit stopped every shell there.
+    static func resolved(arguments args: [String], environment env: [String: String], dataDirectory explicit: String?) throws -> Self {
         func argument(_ name: String) -> String? {
             guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
             return args[i + 1]
         }
-        let explicit = DataDirectory.explicit
         let data = explicit ?? DataDirectory.standard.path
         let executable = argument("--ptyd-path").map { URL(fileURLWithPath: $0) }
             ?? Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/cascade-ptyd")
-        let chosen = argument("--pty-socket") ?? env["CASCADE_PTYD_SOCK"]
         return Self(executable: executable, directory: URL(fileURLWithPath: data).appendingPathComponent("ptyd-native-spike"),
-                    socketPath: try chosen ?? defaultSocket(environment: env, dataDirectory: explicit))
+                    socketPath: try argument("--pty-socket") ?? defaultSocket(environment: env, dataDirectory: explicit))
     }
 
     /// A run given its own data folder gets its own daemon, named for that folder, so quitting it

@@ -95,7 +95,7 @@ For debugging, set launch arguments in the Xcode scheme:
 | `--backend-url http://127.0.0.1:43187` | Connects to an existing backend; Cascade never stops that external process. |
 | `--data-dir /absolute/path/to/data` | Selects the app's data directory; `CASCADE_DATA_DIR` is the environment equivalent. |
 | `--ptyd-path /absolute/path/to/cascade-ptyd` | Uses a particular terminal helper build. |
-| `--pty-socket /absolute/path/to/socket` | Selects a terminal daemon socket; `CASCADE_PTYD_SOCK` is the environment equivalent. |
+| `--pty-socket /absolute/path/to/socket` | Selects a terminal daemon socket. It has no environment equivalent: `CASCADE_PTYD_SOCK` is only how the app tells the daemon it starts where to listen. |
 
 A different data directory alone does **not** isolate terminal sessions. Use a
 separate private socket for manual tests: explicit Quit stops the connected

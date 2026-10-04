@@ -707,6 +707,20 @@ private final class EventLog: @unchecked Sendable {
     #expect(dev != (try PtydConfiguration.defaultSocket(environment: env, dataDirectory: "/work/other")))
 }
 
+/// A development build run from one of the installed app's terminals inherits that daemon's
+/// `CASCADE_PTYD_SOCK`. It still gets the daemon named for its own data folder.
+@Test func aSocketInheritedFromATerminalIsNeverUsed() throws {
+    let env = ["TMPDIR": "/tmp/", "CASCADE_PTYD_SOCK": "/tmp/installed/cascade-native-ptyd.sock"]
+    let folder = "/work/macos/.build/dev-data"
+    let dev = try PtydConfiguration.resolved(arguments: ["Cascade", "--data-dir", folder], environment: env, dataDirectory: folder)
+    #expect(dev.socketPath == (try PtydConfiguration.defaultSocket(environment: env, dataDirectory: folder)))
+    #expect(dev.directory.path == folder + "/ptyd-native-spike")
+    let installed = try PtydConfiguration.resolved(arguments: ["Cascade"], environment: env, dataDirectory: nil)
+    #expect(installed.socketPath == (try PtydConfiguration.defaultSocket(environment: env)))
+    let chosen = try PtydConfiguration.resolved(arguments: ["Cascade", "--pty-socket", "/tmp/chosen.sock"], environment: env, dataDirectory: folder)
+    #expect(chosen.socketPath == "/tmp/chosen.sock")
+}
+
 @Test func aLongTemporaryFolderNeverMakesAnOverlongSocketPath() throws {
     // The longest TMPDIR the installed app's socket name still uses: 69 bytes.
     let prefix = "/tmp/cascade-socket-test-"
