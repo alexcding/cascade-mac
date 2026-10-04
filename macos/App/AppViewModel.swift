@@ -1224,6 +1224,24 @@ public final class AppViewModel {
         }
     }
 
+    /// Sidebar right-click Reattach Session, on a row that has gone grey: its terminal failed, its
+    /// shell ended, or the memory pool stopped it. Unlike Restart it stops nothing: a shell the
+    /// daemon still runs is attached to as it is, and only one that is gone is started again, its
+    /// agent resuming as a stopped session's does when opened. The session is shown, since a
+    /// terminal attaches from its pane.
+    func reattachSession(_ id: String) {
+        let key = "task:\(id)"
+        guard terminals[key]?.isLive != true, sessions.contains(where: { $0.id == id }),
+              changingSessions.insert(id).inserted else { return }
+        Task {
+            defer { changingSessions.remove(id) }
+            await terminals[key]?.stopConnecting()
+            guard let record = sessions.first(where: { $0.id == id }) else { return }
+            terminals[key] = makeTerminal(record)
+            select(.session(id))
+        }
+    }
+
     /// A turn's hooks run as children of its agent, each in a group of its own, and are still
     /// exiting when their event lands: the pool looks once they have gone, as anything the agent
     /// still runs then is work in progress.

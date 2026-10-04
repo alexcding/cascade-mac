@@ -17,6 +17,7 @@ struct SidebarView: View {
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession, onForkSession: viewModel.forkSession,
+                         onReattachSession: viewModel.reattachSession,
                          onFocusSession: viewModel.focusSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient)
 

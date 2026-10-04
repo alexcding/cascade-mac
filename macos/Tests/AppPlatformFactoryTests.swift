@@ -70,6 +70,37 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     #expect(await platform.control.quits == 0) // Backend stop never owns detached shells.
 }
 
+/// Reattaching a stopped session swaps in a new terminal and stops no shell; a live one is left alone.
+@MainActor @Test func reattachingAStoppedSessionReplacesItsTerminalAndStopsNoShell() async throws {
+    _ = NSApplication.shared
+    let suite = "platform-reattach-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let platform = RecordingAppPlatform()
+    let model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                            shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil), platformFactory: platform,
+                            selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
+    let record = WorkspaceSession(id: "injected-session", projectId: "project", workspace: "/tmp",
+        worktree: "/tmp/cascade-injected-worktree", title: "Injected session", branch: "", url: "", createdAt: nil, pinned: false)
+    model.createdSession(record)
+    let original = try #require(model.terminal)
+    model.reattachSession(record.id)
+    #expect(model.changingSessions.isEmpty && model.terminal === original)
+    model.select(.overview)
+    original.disconnect()
+    model.reattachSession(record.id)
+    let deadline = ContinuousClock.now + .seconds(3)
+    while model.selection != .session(record.id) && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
+    #expect(model.selection == .session(record.id))
+    let replacement = try #require(model.terminal)
+    #expect(replacement !== original)
+    #expect(platform.requests.last == .init(key: record.id, directory: record.worktree, paired: true))
+    #expect(platform.requests.count == 2)
+    #expect(await platform.control.paired.isEmpty)
+    await model.stop()
+    #expect(await platform.control.quits == 0) // Backend stop never owns detached shells.
+}
+
 @MainActor @Test(arguments: [false, true]) func appPlatformControlStopsShellsWheneverTheAppTerminates(update: Bool) async throws {
     _ = NSApplication.shared
     let suite = "platform-quit-\(UUID().uuidString)"

@@ -547,6 +547,39 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(forked == ["agent"])
 }
 
+/// A stopped session offers Reattach Session, first among its session items; a live or busy one does not.
+@MainActor @Test func onlyAStoppedSessionOffersReattachSession() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let projects = [Project(id: "p1", name: "First", repo: "o/f", color: nil, workspace: "/tmp")]
+    let sessions = [workspaceSession("stopped", created: "2026-01"), workspaceSession("live", created: "2026-02"),
+                    workspaceSession("busy", created: "2026-03")]
+    let entries = SidebarEntry.make(projects: projects, sessions: sessions,
+                                    status: ["live": SidebarSessionStatus(live: true), "busy": SidebarSessionStatus(busy: true)])
+    var reattached: [String] = []
+    var value = CocoaSidebar(entries: entries, selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    value.onReattachSession = { reattached.append($0) }
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    func node(_ id: String) throws -> CocoaSidebar.Node {
+        try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
+    }
+    let titles = coordinator.menu(for: try node("session:stopped"))?.items.map(\.title) ?? []
+    #expect(Array(titles.suffix(4)) == ["Reattach Session", "Rename Session…", "Pin Session", "Remove Session…"], "\(titles)")
+    #expect(coordinator.menu(for: try node("session:live"))?.items.contains { $0.title == "Reattach Session" } == false)
+    #expect(coordinator.menu(for: try node("session:busy"))?.items.contains { $0.title == "Reattach Session" } == false)
+    let reattach = try #require(coordinator.menu(for: try node("session:stopped"))?.items.first { $0.title == "Reattach Session" })
+    _ = (reattach.target as? NSObject)?.perform(try #require(reattach.action), with: reattach)
+    #expect(reattached == ["stopped"])
+}
+
 /// A click that leaves a session selected hands it the keyboard; a click on a project does not.
 @MainActor @Test func clickingASessionRowFocusesItsSession() throws {
     _ = NSApplication.shared

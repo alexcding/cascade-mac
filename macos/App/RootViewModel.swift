@@ -27,6 +27,7 @@ import Observation
         case moveProject(String, before: String?), moveSession(String, before: String?), movePinned(String, before: String?)
         case reconnect, openTerminal, removeSession(String), openGitClient(String)
         case renameSession(String, name: String), forkSession(String), focusSession(String)
+        case reattachSession(String)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -80,6 +81,8 @@ import Observation
     func renameSession(_ id: String, to name: String) { onAction(.renameSession(id, name: name)) }
     /// A session row's right-click Fork Session.
     func forkSession(_ id: String) { onAction(.forkSession(id)) }
+    /// A stopped session row's right-click Reattach Session.
+    func reattachSession(_ id: String) { onAction(.reattachSession(id)) }
     /// A session row clicked: the keyboard goes to its terminal or chat.
     func focusSession(_ id: String) { onAction(.focusSession(id)) }
     /// "Open in Sourcetree" for a session row; nil until a git client is chosen in Settings.

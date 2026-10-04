@@ -24,6 +24,7 @@ struct CocoaSidebar: NSViewRepresentable {
     var onRemoveSession: (String) -> Void = { _ in }
     var onRenameSession: (String, String) -> Void = { _, _ in }
     var onForkSession: (String) -> Void = { _ in }
+    var onReattachSession: (String) -> Void = { _ in }
     /// A session clicked in the sidebar hands the keyboard to its agent; the arrow keys leave it here.
     var onFocusSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
@@ -411,6 +412,10 @@ struct CocoaSidebar: NSViewRepresentable {
             // stopped and removed, so the menu item only asks for it.
             if case .session(let id) = destination {
                 menu.addItem(.separator())
+                // Only on a stopped row, the grey one: its terminal is what there is to bring back.
+                if case .session(let status, _) = node.entry.role, !status.live, !status.busy {
+                    add("Reattach Session", action: #selector(reattachSession(_:)))
+                }
                 add("Rename Session…", action: #selector(renameSession(_:)))
                 add(parent.pinnedIDs.contains(id) ? "Unpin Session" : "Pin Session", action: #selector(togglePin(_:)))
                 add("Remove Session…", action: #selector(removeSession(_:)))
@@ -459,6 +464,10 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func forkSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             parent.onForkSession(id)
+        }
+        @objc private func reattachSession(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            parent.onReattachSession(id)
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
