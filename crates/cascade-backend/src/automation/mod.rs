@@ -36,6 +36,8 @@ pub const FORWARD_WEBHOOKS: &str = "automation_forward_webhooks";
 /// Once at startup, before the first sync: carry the old per-project merge settings over.
 pub async fn start(app: &AppState) {
     migrate::run(app).await;
+    // A scheduled run's launch waits in memory for the app; one the last session never settled won't be.
+    let _ = store::settle_stale_launches(&app.db).await;
 }
 
 pub async fn paused(app: &AppState) -> bool {

@@ -26,16 +26,43 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
             driver.launchCommand(sessionID: sessionID, fresh: fresh, selection: nil, effort: nil, statusLine: statusLine)
         }
         guard let prompt = Self.launchPrompt(prompt) else { return command }
-        return command + " " + Self.quote(prompt)
+        return command + " " + Self.quotePrompt(prompt)
     }
     static func quote(_ value: String) -> String { AgentDrivers.quote(value) }
 
-    /// A first prompt as a launch argument: on one line, as the shell types it, and never taken
-    /// for an option — one that starts with a dash gets a space before it.
+    /// A first prompt as a launch argument, its line breaks kept, and never taken for an option —
+    /// one that starts with a dash gets a space before it.
     static func launchPrompt(_ text: String?) -> String? {
+        let prompt = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return nil }
+        return prompt.hasPrefix("-") ? " " + prompt : prompt
+    }
+
+    /// A prompt as one line, for typing at an agent's own prompt, where Return sends it.
+    static func promptLine(_ text: String?) -> String? {
         let line = (text ?? "").split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
         guard !line.isEmpty else { return nil }
         return line.hasPrefix("-") ? " " + line : line
+    }
+
+    /// A prompt quoted for the shell as one argument. The command is typed into the terminal as a
+    /// single line, so a prompt with line breaks or other control characters is written in the
+    /// shell's `$'…'` quoting, which both zsh and bash turn back into the characters themselves.
+    static func quotePrompt(_ value: String) -> String {
+        guard value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7f }) else { return quote(value) }
+        var quoted = "$'"
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\\": quoted += "\\\\"
+            case "'": quoted += "\\'"
+            case "\n": quoted += "\\n"
+            case "\r": quoted += "\\r"
+            case "\t": quoted += "\\t"
+            case _ where scalar.value < 0x20 || scalar.value == 0x7f: quoted += String(format: "\\x%02x", scalar.value)
+            default: quoted.unicodeScalars.append(scalar)
+            }
+        }
+        return quoted + "'"
     }
 }
 

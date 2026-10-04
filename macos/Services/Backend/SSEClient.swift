@@ -41,6 +41,11 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var prompt: String? = nil
     public var fresh: Bool? = nil
     public var automation: String? = nil
+    /// Where the app says how the launch went (`POST /api/automations/{automationId}/launch`), and
+    /// old run sessions it may remove.
+    public var automationId: String? = nil
+    public var key: String? = nil
+    public var prune: [String]? = nil
 }
 
 /// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.

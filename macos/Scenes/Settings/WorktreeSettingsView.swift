@@ -36,9 +36,10 @@ struct WorktreeSettingsView<SaveRow: View>: View {
             Section("Copy ignored files") {
                 Text("Copy ignored files that match these patterns into new worktrees. Use one .gitignore pattern per line. Existing files are never overwritten. A project's patterns override this default; a repository's .worktreeinclude overrides both. Configure setup scripts in project settings.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)
-                TextEditor(text: $model.draft.worktreeInclude)
-                    .font(.system(.body, design: .monospaced))
+                PlainTextEditor(text: $model.draft.worktreeInclude)
                     .frame(minHeight: 72)
+                    .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
                     .accessibilityIdentifier("settings-worktree-include")
             }
             Section("Cleanup") {

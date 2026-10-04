@@ -40,12 +40,19 @@ pub enum Event {
     },
     /// A scheduled automation made or chose a session: the app starts its agent with the prompt,
     /// in a new conversation when `fresh`, else resuming the session's own.
+    /// The app answers through `POST /api/automations/{automationId}/launch` with the run's `key`.
     AutomationLaunch {
         #[serde(rename = "taskId")]
         task_id: String,
         prompt: String,
         fresh: bool,
         automation: String,
+        #[serde(rename = "automationId")]
+        automation_id: String,
+        key: String,
+        /// Older sessions this automation's New runs made, past the ones it keeps and with nothing
+        /// unsaved or unpushed in their worktrees: the app removes them as Remove Session would.
+        prune: Vec<String>,
     },
     /// A new worktree's setup command started, finished or failed.
     WorktreeSetup {

@@ -160,6 +160,20 @@ import Observation
     func receive(scope: String?) {
         guard !retired, visible else { return }
         refresh()
+        if scope == "runs", trace?.status == "launching" { followTrace() }
+    }
+
+    /// A Run Now still launching, followed to how it settled: the app's answer, or the backend
+    /// giving up on one, changes the run's record, and the bar beside Run Now shows the record.
+    private func followTrace() {
+        guard let service, let id = selectedID, let key = trace?.eventKey else { return }
+        let token = runGeneration
+        Task { [weak self] in
+            let items = (try? await service.runs(id: id)) ?? []
+            guard let self, !self.retired, self.runGeneration == token, self.trace?.eventKey == key,
+                  let settled = items.first(where: { $0.eventKey == key }) else { return }
+            self.trace = settled
+        }
     }
 
     private func reconcileDraft() {
@@ -525,8 +539,14 @@ import Observation
         runGeneration = token; dryRunning = true; dryRunError = nil; trace = nil
         defer { if runGeneration == token { dryRunning = false } }
         do {
-            let result = try await service.runScheduled(id: draft.id)
-            if !retired, runGeneration == token { trace = result; loadRuns() }
+            // The precheck's own limit, and two minutes for the worktree and the session.
+            let timeout = TimeInterval(draft.schedule.precheck.isEmpty ? 0 : draft.schedule.precheckTimeout) + 120
+            let result = try await service.runScheduled(id: draft.id, timeout: timeout)
+            if !retired, runGeneration == token {
+                trace = result; loadRuns()
+                // The run may have settled before this answer came back, its event already heard.
+                if result.status == "launching" { followTrace() }
+            }
         } catch {
             if !retired, runGeneration == token { dryRunError = error.localizedDescription }
         }

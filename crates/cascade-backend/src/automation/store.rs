@@ -149,6 +149,7 @@ pub async fn delete(db: &Database, id: &str) -> rusqlite::Result<bool> {
             let removed = conn.execute("DELETE FROM automations WHERE id=?1", [&durable_id])?;
             conn.execute("DELETE FROM automation_fired WHERE automation_id=?1", [&durable_id])?;
             conn.execute("DELETE FROM automation_sessions WHERE automation_id=?1", [&durable_id])?;
+            conn.execute("DELETE FROM automation_run_sessions WHERE automation_id=?1", [&durable_id])?;
             Ok(removed)
         })
         .await?;
@@ -179,6 +180,107 @@ pub async fn claim(db: &Database, automation: &str, key: &str) -> rusqlite::Resu
                 conn.execute("DELETE FROM automation_fired WHERE fired_at < ?1", [cutoff])?;
             }
             Ok(inserted > 0)
+        })
+        .await
+}
+
+/// Runs left `launching` by a backend that stopped before the app answered or the watchdog fired:
+/// they will not hear now, so each is an error. How many there were.
+pub async fn settle_stale_launches(db: &Database) -> rusqlite::Result<usize> {
+    db.logs
+        .call(move |conn| {
+            let rows: Vec<(i64, String)> = {
+                let mut statement = conn.prepare("SELECT seq,trace FROM automation_runs WHERE status='launching'")?;
+                let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+                rows
+            };
+            let finished = now();
+            for (seq, trace) in &rows {
+                let mut trace: Value = serde_json::from_str(trace).unwrap_or_else(|_| json!({}));
+                trace["status"] = json!("error");
+                trace["finishedAt"] = json!(finished);
+                if let Some(step) = trace["steps"].as_array_mut().and_then(|steps| steps.iter_mut().find(|s| s["stepId"] == "launch")) {
+                    step["status"] = json!("error");
+                    step["detail"] = json!("Cascade closed before it said whether the agent started.");
+                }
+                conn.execute(
+                    "UPDATE automation_runs SET status='error', trace=?1, finished_at=?2 WHERE seq=?3",
+                    params![serde_json::to_string(&trace).unwrap_or_else(|_| "{}".into()), finished, seq],
+                )?;
+            }
+            Ok(rows.len())
+        })
+        .await
+}
+
+/// Settle a scheduled run still `launching`: `completed` once the app has started its agent, else
+/// `error`, with what the app said on its launch step. The settled run, or none when there is no
+/// such run still waiting (settled already, by the app or by the watchdog).
+pub async fn settle_launch(db: &Database, automation: &str, key: &str, ok: bool, detail: &str) -> rusqlite::Result<Option<Value>> {
+    let (automation, key, detail) = (automation.to_owned(), key.to_owned(), detail.to_owned());
+    db.logs
+        .call(move |conn| {
+            let found: Option<(i64, String)> = conn
+                .query_row(
+                    "SELECT seq,trace FROM automation_runs WHERE automation_id=?1 AND event_key=?2 AND status='launching' ORDER BY seq DESC LIMIT 1",
+                    params![automation, key],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let Some((seq, trace)) = found else { return Ok(None) };
+            let mut trace: Value = serde_json::from_str(&trace).unwrap_or_else(|_| json!({}));
+            let status = if ok { "completed" } else { "error" };
+            let finished = now();
+            trace["status"] = json!(status);
+            trace["finishedAt"] = json!(finished);
+            if let Some(step) = trace["steps"].as_array_mut().and_then(|steps| steps.iter_mut().find(|s| s["stepId"] == "launch")) {
+                step["status"] = json!(if ok { "done" } else { "error" });
+                step["detail"] = json!(detail);
+            }
+            conn.execute(
+                "UPDATE automation_runs SET status=?1, trace=?2, finished_at=?3 WHERE seq=?4",
+                params![status, serde_json::to_string(&trace).unwrap_or_else(|_| "{}".into()), finished, seq],
+            )?;
+            Ok(Some(trace))
+        })
+        .await
+}
+
+/// Note a session a scheduled automation's New run made.
+pub async fn add_run_session(db: &Database, automation: &str, task: &str) -> rusqlite::Result<()> {
+    let (automation, task) = (automation.to_owned(), task.to_owned());
+    db.durable
+        .call(move |conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO automation_run_sessions(automation_id,task_id,created_at) VALUES (?1,?2,?3)",
+                params![automation, task, now()],
+            )?;
+            Ok(())
+        })
+        .await
+}
+
+/// The sessions an automation's New runs made, newest first.
+pub async fn run_sessions(db: &Database, automation: &str) -> rusqlite::Result<Vec<String>> {
+    let automation = automation.to_owned();
+    db.durable
+        .call(move |conn| {
+            let mut statement = conn.prepare(
+                "SELECT task_id FROM automation_run_sessions WHERE automation_id=?1 ORDER BY created_at DESC, rowid DESC",
+            )?;
+            let rows = statement.query_map([automation], |row| row.get(0))?.collect();
+            rows
+        })
+        .await
+}
+
+/// Forget a run's session that is gone.
+pub async fn forget_run_session(db: &Database, task: &str) -> rusqlite::Result<()> {
+    let task = task.to_owned();
+    db.durable
+        .call(move |conn| {
+            conn.execute("DELETE FROM automation_run_sessions WHERE task_id=?1", [task])?;
+            Ok(())
         })
         .await
 }
@@ -462,8 +564,14 @@ mod tests {
         set_last_session(&db, &saved.id, "t1").await.unwrap();
         set_last_session(&db, &saved.id, "t2").await.unwrap();
         assert_eq!(last_session(&db, &saved.id).await.unwrap().as_deref(), Some("t2"));
+        add_run_session(&db, &saved.id, "r1").await.unwrap();
+        add_run_session(&db, &saved.id, "r2").await.unwrap();
+        assert_eq!(run_sessions(&db, &saved.id).await.unwrap(), ["r2", "r1"], "newest first");
+        forget_run_session(&db, "r2").await.unwrap();
+        assert_eq!(run_sessions(&db, &saved.id).await.unwrap(), ["r1"]);
         delete(&db, &saved.id).await.unwrap();
         assert_eq!(last_session(&db, &saved.id).await.unwrap(), None);
+        assert!(run_sessions(&db, &saved.id).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -481,6 +589,33 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         let retimed = save(&db, retimed).await.unwrap();
         assert!(retimed.armed_at > first.armed_at, "new times count from now");
+    }
+
+    #[tokio::test]
+    async fn a_launching_run_is_settled_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let trace = Trace {
+            automation_id: "a".into(), automation_name: "A".into(), event_kind: "schedule".into(), event_key: "slot:1".into(),
+            subject: "p".into(), mode: "live".into(), trigger_matched: true, trigger_detail: String::new(),
+            status: "launching".into(),
+            steps: vec![crate::automation::model::StepResult {
+                step_id: "launch".into(), node: "schedule.launch".into(), label: "Start agent".into(),
+                status: "launching".into(), detail: "waiting".into(), commands: vec![],
+            }],
+            started_at: now(), finished_at: now(),
+        };
+        record_run(&db, &trace).await.unwrap();
+        let settled = settle_launch(&db, "a", "slot:1", false, "terminal busy").await.unwrap().unwrap();
+        assert_eq!(settled["status"], "error");
+        assert_eq!(settled["steps"][0]["status"], "error");
+        assert_eq!(settled["steps"][0]["detail"], "terminal busy");
+        assert!(settle_launch(&db, "a", "slot:1", true, "").await.unwrap().is_none(), "the watchdog finds it settled");
+        record_run(&db, &Trace { event_key: "slot:2".into(), ..trace.clone() }).await.unwrap();
+        assert_eq!(settle_stale_launches(&db).await.unwrap(), 1, "the one a closed app left launching");
+        assert_eq!(settle_stale_launches(&db).await.unwrap(), 0);
+        assert_eq!(last_runs(&db).await.unwrap()[0].1, "error");
+        assert_eq!(last_runs(&db).await.unwrap()[0].1, "error");
     }
 
     #[tokio::test]

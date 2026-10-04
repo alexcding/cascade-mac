@@ -40,6 +40,10 @@ CREATE TABLE IF NOT EXISTS automations (
 );
 -- The session a scheduled automation's last run started, which a Reuse run resumes.
 CREATE TABLE IF NOT EXISTS automation_sessions (automation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL);
+-- Every session a scheduled automation's New runs made, so the oldest can be cleaned up.
+CREATE TABLE IF NOT EXISTS automation_run_sessions (
+  automation_id TEXT NOT NULL, task_id TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (automation_id, task_id)
+);
 CREATE TABLE IF NOT EXISTS automation_fired (
   automation_id TEXT NOT NULL, event_key TEXT NOT NULL, fired_at TEXT NOT NULL,
   PRIMARY KEY (automation_id, event_key)

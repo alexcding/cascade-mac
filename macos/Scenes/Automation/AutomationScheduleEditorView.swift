@@ -59,11 +59,9 @@ struct AutomationScheduleEditorView: View {
     private var prompt: some View {
         VStack(alignment: .leading, spacing: 8) {
             AutomationSectionLabel(text: String(localized: "Prompt"))
-            TextEditor(text: Binding(get: { model.draft?.schedule.prompt ?? "" }, set: { model.draft?.schedule.prompt = $0 }))
-                .font(.system(size: 13, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            PlainTextEditor(text: Binding(get: { model.draft?.schedule.prompt ?? "" }, set: { model.draft?.schedule.prompt = $0 }),
+                            font: .monospacedSystemFont(ofSize: 13, weight: .regular), inset: NSSize(width: 10, height: 10))
+                .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
                     if model.draft?.schedule.prompt.isEmpty != false {
@@ -110,7 +108,7 @@ struct AutomationScheduleEditorView: View {
             Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 12.5)).foregroundStyle(Theme.warn).textSelection(.enabled).lineLimit(2)
         } else if let trace = model.trace {
-            Label(trace.status == "completed" ? String(localized: "Run started") : AutomationStatus.title(trace.status),
+            Label(trace.status == "completed" ? String(localized: "Agent started") : AutomationStatus.title(trace.status),
                   systemImage: AutomationStatus.symbol(trace.status))
                 .font(.system(size: 12.5)).foregroundStyle(AutomationStatus.tint(trace.status))
                 .help(trace.steps.map { "\($0.label): \($0.detail)" }.joined(separator: "\n"))
@@ -244,12 +242,9 @@ private struct AutomationScheduleSettings: View {
                 }
                 .labelsHidden().fixedSize()
             }
-            TextEditor(text: value(\.precheck))
-                .font(.system(size: 12, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(6)
+            PlainTextEditor(text: value(\.precheck), font: .monospacedSystemFont(ofSize: 12, weight: .regular))
                 .frame(height: 84)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
                 .overlay(alignment: .topLeading) {
                     if schedule.precheck.isEmpty {

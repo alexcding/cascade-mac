@@ -333,7 +333,7 @@ pub struct Trace {
     pub mode: String,
     pub trigger_matched: bool,
     pub trigger_detail: String,
-    /// `completed`, `filtered`, `error`, `limited`.
+    /// `completed`, `filtered`, `error`, `limited`; a scheduled run is `launching` until the app answers.
     pub status: String,
     pub steps: Vec<StepResult>,
     pub started_at: String,

@@ -202,8 +202,13 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
 
 @Test func theFirstPromptRidesOnTheLaunchAsOneQuotedArgument() {
     let plain = SessionAgent.claude.command(sessionID: "id", fresh: true)
-    let prompted = SessionAgent.claude.command(sessionID: "id", fresh: true, prompt: "Fix it's\nbroken")
-    #expect(prompted == (plain ?? "") + " 'Fix it'\"'\"'s broken'")
+    let oneLine = SessionAgent.claude.command(sessionID: "id", fresh: true, prompt: "Fix it's broken")
+    #expect(oneLine == (plain ?? "") + " 'Fix it'\"'\"'s broken'")
+    // Line breaks survive, in quoting that keeps the typed command on one line.
+    let lines = SessionAgent.claude.command(sessionID: "id", fresh: true, prompt: "Fix it's\n\tbroken \\ now\n")
+    #expect(lines == (plain ?? "") + #" $'Fix it\'s\n\tbroken \\ now'"#)
+    #expect(lines?.contains("\n") == false)
+    #expect(SessionAgent.promptLine("a\nb") == "a b")
     #expect(SessionAgent.codex.command(sessionID: nil, prompt: "--help me") == "codex ' --help me'")
     #expect(SessionAgent.codex.command(sessionID: nil, prompt: "  \n ") == "codex")
     #expect(SessionAgent.shell.command(sessionID: nil, prompt: "anything") == nil)

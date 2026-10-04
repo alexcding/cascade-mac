@@ -104,6 +104,10 @@ public enum Routes {
     public static func automation(_ value: String) -> String {
         "/api/automations/\(encodeComponent(value))"
     }
+    public static let AUTOMATION_LAUNCH = "/api/automations/:id/launch"
+    public static func automationLaunch(_ value: String) -> String {
+        "/api/automations/\(encodeComponent(value))/launch"
+    }
     public static let AUTOMATION_RUN = "/api/automations/:id/run"
     public static func automationRun(_ value: String) -> String {
         "/api/automations/\(encodeComponent(value))/run"

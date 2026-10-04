@@ -218,6 +218,7 @@ pub fn build_app(state: AppState) -> Router {
                 .delete(automation::routes::remove),
         )
         .route("/api/automations/{id}/run", post(automation::routes::run_now))
+        .route("/api/automations/{id}/launch", post(automation::routes::launch_report))
         .route("/api/cli-tools", get(integrations::cli_tools))
         .route("/api/agent-hooks", get(integrations::agent_hooks).post(integrations::update_hooks))
         .route(

@@ -1183,14 +1183,31 @@ public final class AppViewModel {
         }
     }
 
+    /// What a scheduled automation's `automation-launch` carries: the run's session and prompt, and
+    /// where to say how the launch went.
+    struct AutomationLaunch {
+        let taskID: String
+        let prompt: String
+        let fresh: Bool
+        let automation: String
+        let automationID: String
+        let key: String
+        /// Older sessions of this automation's runs that the backend found nothing to lose in.
+        var prune: [String] = []
+    }
+
     /// A scheduled automation's run made or chose a session: its agent starts with the prompt, in
     /// a new conversation when `fresh`, else resuming the session's own. The session is shown,
     /// since a terminal attaches from its pane. A terminal not connected yet is made again to
     /// carry the prompt; one that attaches to a shell the daemon still runs gets the prompt once
-    /// attached. The prompt is never left waiting for some later launch to send unasked.
-    func automationLaunch(taskID: String, prompt: String, fresh: Bool, automation: String) {
+    /// attached. The prompt is never left waiting for some later launch to send unasked. The
+    /// backend is told once whether the agent started; a terminal that never comes up says nothing,
+    /// and the backend gives up on it by itself.
+    func automationLaunch(_ launch: AutomationLaunch) {
         guard let api else { return }
+        let (taskID, prompt, fresh, automation) = (launch.taskID, launch.prompt, launch.fresh, launch.automation)
         Task {
+            defer { pruneRunSessions(launch.prune, keeping: taskID) }
             var record = sessions.first { $0.id == taskID }
             if record == nil, let listed: [WorkspaceSession] = try? await api.get(Routes.TASKS),
                let found = listed.first(where: { $0.id == taskID }) {
@@ -1198,13 +1215,16 @@ public final class AppViewModel {
                 record = found
             }
             guard let record, record.agent.driver != nil else {
-                self.error = String(localized: "\(automation) could not start its agent: the session is gone or runs no agent.")
+                let reason = String(localized: "the session is gone or runs no agent.")
+                self.error = String(localized: "\(automation) could not start its agent: \(reason)")
+                reportLaunch(launch, error: reason)
                 return
             }
             let key = "task:\(taskID)"
             do {
                 if let terminal = terminals[key], terminal.ready, terminal.isLive {
                     try await deliverAutomationPrompt(prompt, to: terminal, record: record, fresh: fresh, automation: automation)
+                    reportLaunch(launch, error: nil)
                 } else {
                     await terminals[key]?.stopConnecting()
                     launchPrompts[taskID] = prompt
@@ -1215,25 +1235,90 @@ public final class AppViewModel {
                     // back, so a later reconnect sends nothing.
                     let reattached = terminal.onReattached
                     let created = terminal.onCreated
+                    let started = terminal.startupCommandStarted
+                    let restore = { (terminal: TerminalSession) in
+                        terminal.onReattached = reattached; terminal.onCreated = created; terminal.startupCommandStarted = started
+                    }
+                    // A new shell runs the agent's launch as its startup command: once that has
+                    // started, so has the agent.
+                    terminal.startupCommandStarted = { [weak self, weak terminal] in
+                        if let terminal { terminal.startupCommandStarted = started }
+                        await started?()
+                        self?.reportLaunch(launch, error: nil)
+                    }
                     terminal.onCreated = { terminal in
-                        terminal.onReattached = reattached; terminal.onCreated = created
+                        restore(terminal)
                         try await created?(terminal)
                     }
                     terminal.onReattached = { [weak self] terminal in
-                        terminal.onReattached = reattached; terminal.onCreated = created
+                        restore(terminal)
                         await reattached?(terminal)
                         guard let self else { return }
                         if launchPrompts[taskID] == prompt { launchPrompts[taskID] = nil }
-                        do { try await deliverAutomationPrompt(prompt, to: terminal, record: record, fresh: fresh, automation: automation) }
-                        catch { self.error = String(localized: "\(automation) could not start its agent: \(error.localizedDescription)") }
+                        do {
+                            try await deliverAutomationPrompt(prompt, to: terminal, record: record, fresh: fresh, automation: automation)
+                            reportLaunch(launch, error: nil)
+                        } catch {
+                            self.error = String(localized: "\(automation) could not start its agent: \(error.localizedDescription)")
+                            reportLaunch(launch, error: error.localizedDescription)
+                        }
                     }
                     terminals[key] = terminal
                 }
                 select(.session(taskID))
             } catch {
                 self.error = String(localized: "\(automation) could not start its agent: \(error.localizedDescription)")
+                reportLaunch(launch, error: error.localizedDescription)
             }
         }
+    }
+
+    /// Tells the backend how a scheduled run's launch went: started, or why not. It settles the run
+    /// once, so a report after its own deadline changes nothing.
+    private func reportLaunch(_ launch: AutomationLaunch, error: String?) {
+        guard let api else { return }
+        struct Body: Encodable, Sendable { let key: String; let ok: Bool; let detail: String }
+        struct Reply: Decodable, Sendable { let ok: Bool? }
+        let body = Body(key: launch.key, ok: error == nil, detail: error ?? "")
+        Task {
+            let _: Reply? = try? await api.request(Routes.automationLaunch(launch.automationID), method: "POST", body: body)
+        }
+    }
+
+    /// Removes old sessions of a scheduled automation's runs, as Remove Session would but without
+    /// asking: the backend chose only ones with nothing uncommitted or unpushed. One that is open,
+    /// busy, mid-change, shared with another session, held open by another program, has a document
+    /// open, or whose shell still runs unattached is left, and everything is asked again once the
+    /// removal is prepared, since preparing it takes a while.
+    private func pruneRunSessions(_ ids: [String], keeping current: String) {
+        let ids = ids.filter { $0 != current }
+        guard !ids.isEmpty else { return }
+        Task {
+            // A shell the daemon still runs that no terminal here is attached to may have its agent
+            // at work: nothing here can tell, so it stays.
+            // A daemon that cannot be asked might be running anything: nothing is removed this time.
+            guard let running = try? await terminalControl.pairedShells() else { return }
+            for id in ids {
+                guard let record = sessions.first(where: { $0.id == id }), mayPrune(record, running: running),
+                      let model = removalModel(for: record) else { continue }
+                await model.load()
+                guard let plan = model.plan, plan.holders.isEmpty, plan.sessions.map(\.id) == [id],
+                      let latest = sessions.first(where: { $0.id == id }), mayPrune(latest, running: running) else {
+                    model.retire(); continue
+                }
+                await model.remove()
+            }
+        }
+    }
+
+    /// Whether nobody is using a run's session: not shown, not changing, its agent idle or its
+    /// terminal gone, no document open on it, and no shell of its own still running unattached.
+    private func mayPrune(_ record: WorkspaceSession, running: [String: Int32]) -> Bool {
+        let id = record.id
+        guard selection != .session(id), !changingSessions.contains(id), !isRemoving(id),
+              !viewer.hasDocuments(contextIDs: ["task:\(id)"], worktrees: [record.worktree]) else { return false }
+        guard let terminal = terminals["task:\(id)"] else { return running[id] == nil }
+        return !terminal.isLive || agentIdle(record)
     }
 
     /// The prompt to a connected terminal: the agent launched with it from the shell, or typed to
@@ -1247,7 +1332,7 @@ public final class AppViewModel {
             catch { if launchPrompts[record.id] == prompt { launchPrompts[record.id] = nil }; throw error }
             return
         }
-        guard !fresh, let line = SessionAgent.launchPrompt(prompt), let agent = terminal.launchedAgentForeground?.pgid,
+        guard !fresh, let line = SessionAgent.promptLine(prompt), let agent = terminal.launchedAgentForeground?.pgid,
               let foreground = try? await terminal.foregroundProcess(), !foreground.atShell, foreground.pgid == agent else {
             throw BackendError.operation(String(localized: "its session’s terminal is busy with another program or a conversation still under way"))
         }
@@ -1792,8 +1877,10 @@ public final class AppViewModel {
         }
         ideWarmup.receive(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
-        if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt {
-            automationLaunch(taskID: taskID, prompt: prompt, fresh: event.fresh ?? true, automation: event.automation ?? "")
+        if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt,
+           let automationID = event.automationId, let key = event.key {
+            automationLaunch(.init(taskID: taskID, prompt: prompt, fresh: event.fresh ?? true, automation: event.automation ?? "",
+                                   automationID: automationID, key: key, prune: event.prune ?? []))
         }
         if event.type == "config" { settings?.refresh(); loadRefreshInterval() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }

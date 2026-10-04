@@ -470,13 +470,14 @@ enum AutomationStatus {
         case "failed", "filtered": "line.3.horizontal.decrease.circle"
         case "skipped": "minus.circle"
         case "limited": "hourglass"
+        case "launching": "clock.arrow.circlepath"
         default: "exclamationmark.triangle.fill"
         }
     }
     static func tint(_ status: String) -> Color {
         switch status {
         case "passed", "completed", "done": Theme.success
-        case "planned": Theme.accent
+        case "planned", "launching": Theme.accent
         case "failed", "filtered", "skipped": DashboardPalette.ink3
         default: Theme.warn
         }
@@ -491,6 +492,7 @@ enum AutomationStatus {
         case "completed": String(localized: "Completed")
         case "filtered": String(localized: "Filtered out")
         case "limited": String(localized: "Rate limited")
+        case "launching": String(localized: "Starting the agent")
         default: String(localized: "Error")
         }
     }

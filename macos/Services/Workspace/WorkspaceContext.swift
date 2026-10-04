@@ -703,15 +703,28 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         guard active === context, !closeCoordinator.isPresenting else { return }
         fileOpen.begin(contextID: context.id, directory: directory)
     }
+    /// Whether any document is open in these contexts, or on a file under these worktrees: what
+    /// `closeDocuments` would have to close, and could ask about.
+    func hasDocuments(contextIDs: Set<String>, worktrees: [String]) -> Bool {
+        contexts.values.contains { context in
+            context.documents.contains { Self.affects($0, context: context, contextIDs: contextIDs, worktrees: worktrees) }
+        }
+    }
+
+    private static func affects(_ document: EditorDocumentViewModel, context: WorkspaceContext,
+                                contextIDs: Set<String>?, worktrees: [String]) -> Bool {
+        if contextIDs == nil || contextIDs!.contains(context.id) { return true }
+        let path = URL(fileURLWithPath: document.record.path).resolvingSymlinksInPath().path
+        return worktrees.contains { root in
+            let root = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
+            return path == root || path.hasPrefix(root + "/")
+        }
+    }
+
     func closeDocuments(contextIDs: Set<String>? = nil, worktrees: [String] = []) async -> Bool {
         fileOpen.cancel()
         func affected(_ document: EditorDocumentViewModel, context: WorkspaceContext) -> Bool {
-            if contextIDs == nil || contextIDs!.contains(context.id) { return true }
-            let path = URL(fileURLWithPath: document.record.path).resolvingSymlinksInPath().path
-            return worktrees.contains { root in
-                let root = URL(fileURLWithPath: root).resolvingSymlinksInPath().path
-                return path == root || path.hasPrefix(root + "/")
-            }
+            Self.affects(document, context: context, contextIDs: contextIDs, worktrees: worktrees)
         }
         while true {
             let targets = contexts.values.flatMap { context in

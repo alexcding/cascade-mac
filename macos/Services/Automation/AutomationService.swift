@@ -359,8 +359,9 @@ protocol AutomationService: Sendable {
     func samples(kind: String, projects: [String], jql: String) async throws -> [AutomationSample]
     func dryRun(_ automation: Automation, sample: AutomationSample, event: String?) async throws -> AutomationTrace
     func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace
-    /// Start a saved scheduled automation's run now, outside its schedule.
-    func runScheduled(id: String) async throws -> AutomationTrace
+    /// Start a saved scheduled automation's run now, outside its schedule. The run answers once its
+    /// precheck has finished and its session is made, so it is waited on for that long.
+    func runScheduled(id: String, timeout: TimeInterval) async throws -> AutomationTrace
     func runs(id: String?) async throws -> [AutomationTrace]
     func settings() async throws -> AutomationSettings
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings
@@ -406,9 +407,9 @@ struct APIAutomationService: AutomationService {
         struct Body: Encodable, Sendable { let sample: SampleBody }
         return try await api.request(Routes.automationRun(id), method: "POST", body: Body(sample: SampleBody(sample, event: event)))
     }
-    func runScheduled(id: String) async throws -> AutomationTrace {
+    func runScheduled(id: String, timeout: TimeInterval) async throws -> AutomationTrace {
         struct Body: Encodable, Sendable {}
-        return try await api.request(Routes.automationRun(id), method: "POST", body: Body(), timeout: 120)
+        return try await api.request(Routes.automationRun(id), method: "POST", body: Body(), timeout: timeout)
     }
     func runs(id: String?) async throws -> [AutomationTrace] {
         try await api.get(APIClient.query(Routes.AUTOMATIONS_RUNS, id.map { ["automation": $0] } ?? [:]))

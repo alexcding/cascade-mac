@@ -43,7 +43,7 @@ private actor AutomationFixture: AutomationService {
                                eventKey: sample.id, subject: sample.label, mode: "dry", triggerMatched: true,
                                triggerDetail: "matched", status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
     }
-    func runScheduled(id: String) async throws -> AutomationTrace {
+    func runScheduled(id: String, timeout: TimeInterval) async throws -> AutomationTrace {
         runCalls.append(id)
         return AutomationTrace(automationId: id, automationName: "", eventKind: "manual", eventKey: "manual:1",
                                subject: "", mode: "live", triggerMatched: true, triggerDetail: "run by hand",

@@ -19,6 +19,13 @@ use crate::{cli, AppState, Session};
 
 /// Scheduled runs closer together than this are refused at save: each one starts an agent.
 pub const MIN_GAP_MINUTES: i64 = 10;
+/// How many of its New runs' sessions an automation keeps; older ones with nothing to lose go.
+pub const KEEP_RUN_SESSIONS: usize = 5;
+/// How many sessions past the kept ones a run looks at: the ones that have just fallen out. One
+/// kept for its work then drifts older and is not asked about again on every run.
+const PRUNE_CHECKS: usize = 3;
+/// How long a run waits for the app to say it started the agent before it is marked failed.
+const LAUNCH_REPORT: StdDuration = StdDuration::from_secs(120);
 /// The longest a missed run may still start late.
 pub const MAX_GRACE_MINUTES: i64 = 7 * 24 * 60;
 /// What a precheck prints reaches the agent up to this many characters.
@@ -178,7 +185,9 @@ fn field(text: &str, low: u32, high: u32, names: &[&str], first: u32) -> Result<
         let (start, end) = if range == "*" {
             (low, high)
         } else if let Some((a, b)) = range.split_once('-') {
-            (value(a)?, value(b)?)
+            let (start, end) = (value(a)?, value(b)?);
+            // A weekday range may end on Sunday by its name, which reads as 0: `fri-sun` is `5-7`.
+            (start, if high == 7 && end == 0 && start > 0 { 7 } else { end })
         } else {
             let start = value(range)?;
             // `5/15` runs from 5 to the end, as cron reads it.
@@ -206,8 +215,9 @@ pub fn validate(schedule: &mut Schedule) -> Result<(), String> {
     if schedule.project.is_empty() {
         return Err("Choose a project".into());
     }
-    if !crate::agents::Agent::allowed_cli(&schedule.cli) {
-        return Err("Unsupported agent".into());
+    // Empty is a shell-only session elsewhere, which has no agent to give the prompt to.
+    if schedule.cli.is_empty() || !crate::agents::Agent::allowed_cli(&schedule.cli) {
+        return Err("Choose the agent the run starts".into());
     }
     if schedule.workspace == Workspace::Worktree && schedule.branch.is_empty() {
         return Err("Choose the worktree the agent works in".into());
@@ -285,8 +295,40 @@ pub async fn tick(app: &AppState) {
 /// Run a scheduled automation now, record the run, and tell Activity. `origin` is `schedule` for
 /// a tick and `manual` for Run Now.
 pub async fn run_and_record(app: &AppState, automation: &Automation, key: &str, origin: &str) -> Trace {
-    let trace = run(app, automation, key, origin).await;
-    runner::finish(app, automation, trace).await
+    let (trace, launch) = run(app, automation, key, origin).await;
+    let trace = runner::finish(app, automation, trace).await;
+    // Only now that the run is recorded is the app asked to start the agent: its answer settles that
+    // record, and one that came first would find nothing to settle.
+    if let Some(launch) = launch {
+        app.publish(launch);
+    }
+    // The app says how the launch went; one that never says — closed before it heard, or unable to
+    // start the terminal — is a failed run, not one left launching for ever.
+    if trace.status == "launching" {
+        let (app, automation, key) = (app.clone(), automation.clone(), key.to_owned());
+        tokio::spawn(async move {
+            tokio::time::sleep(LAUNCH_REPORT).await;
+            settle(&app, &automation, &key, false, "Cascade did not report starting the agent within two minutes.").await;
+        });
+    }
+    trace
+}
+
+/// Settle a run still launching with what the app reported, and tell Activity. False when there is
+/// no such run waiting: settled already, by the app or by the watchdog.
+pub async fn settle(app: &AppState, automation: &Automation, key: &str, ok: bool, detail: &str) -> bool {
+    let detail = if detail.trim().is_empty() { if ok { "the agent started" } else { "the agent did not start" } } else { detail };
+    let Ok(Some(trace)) = store::settle_launch(&app.db, &automation.id, key, ok, detail).await else { return false };
+    let kind = if ok { "automation_run" } else { "automation_failed" };
+    let status = trace["status"].as_str().unwrap_or("");
+    if let Ok(event) = app.db.add_event(
+        kind,
+        &serde_json::json!({"automation":automation.name,"subject":trace["subject"],"mode":"live","status":status}),
+    ).await {
+        app.publish(crate::Event::Activity { event });
+    }
+    app.publish(crate::Event::Automations { scope: Some("runs"), id: Some(automation.id.clone()) });
+    true
 }
 
 fn step(id: &str, label: &str, status: &str, detail: impl Into<String>, commands: Vec<String>) -> StepResult {
@@ -304,13 +346,15 @@ fn stamp() -> String {
     Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-async fn run(app: &AppState, automation: &Automation, key: &str, origin: &str) -> Trace {
+/// The run as far as the backend takes it, and the launch to send the app once it is recorded.
+async fn run(app: &AppState, automation: &Automation, key: &str, origin: &str) -> (Trace, Option<crate::Event>) {
     let started_at = stamp();
     let schedule = &automation.schedule;
     let mut steps = Vec::new();
-    let status = run_steps(app, automation, &mut steps).await;
+    let mut launch = None;
+    let status = run_steps(app, automation, key, &mut steps, &mut launch).await;
     let project = app.db.project(&schedule.project).await.ok().flatten();
-    Trace {
+    let trace = Trace {
         automation_id: automation.id.clone(),
         automation_name: automation.name.clone(),
         event_kind: origin.into(),
@@ -326,12 +370,19 @@ async fn run(app: &AppState, automation: &Automation, key: &str, origin: &str) -
         steps,
         started_at,
         finished_at: stamp(),
-    }
+    };
+    (trace, launch)
 }
 
-/// The run's steps — precheck, session, launch — and how it ended: `completed`, `filtered` when
-/// the precheck said no, or `error`.
-async fn run_steps(app: &AppState, automation: &Automation, steps: &mut Vec<StepResult>) -> &'static str {
+/// The run's steps — precheck, session, launch — and how it ended so far: `launching` until the app
+/// says it started the agent (`settle`), `filtered` when the precheck said no, or `error`.
+async fn run_steps(
+    app: &AppState,
+    automation: &Automation,
+    key: &str,
+    steps: &mut Vec<StepResult>,
+    launch: &mut Option<crate::Event>,
+) -> &'static str {
     let schedule = &automation.schedule;
     let Some(project) = app.db.project(&schedule.project).await.ok().flatten() else {
         steps.push(step("session", "Session", "error", "The project this automation runs in is gone.", vec![]));
@@ -358,10 +409,18 @@ async fn run_steps(app: &AppState, automation: &Automation, steps: &mut Vec<Step
                 }
                 steps.push(step("precheck", "Precheck", "passed", detail, command));
             }
-            Err(error) => {
-                steps.push(step("precheck", "Precheck", "failed", format!("skipped: {error}"), command));
-                return "filtered";
-            }
+            // Only the script saying no skips the run. A precheck that could not run, ran out of time,
+            // was killed, or was not found is broken, and its run is an error Activity hears about.
+            Err(error) => match cli::Failure::of(&error) {
+                Some(cli::Failure::Exited(Some(code))) if code != 126 && code != 127 => {
+                    steps.push(step("precheck", "Precheck", "failed", format!("skipped: exited {code}: {error}"), command));
+                    return "filtered";
+                }
+                _ => {
+                    steps.push(step("precheck", "Precheck", "error", format!("the precheck could not finish: {error}"), command));
+                    return "error";
+                }
+            },
         }
     }
     let (session, fresh) = match session_for(app, automation).await {
@@ -372,6 +431,20 @@ async fn run_steps(app: &AppState, automation: &Automation, steps: &mut Vec<Step
         }
     };
     let _ = store::set_last_session(&app.db, &automation.id, &session.id).await;
+    let prune = if schedule.workspace == Workspace::New {
+        let _ = store::add_run_session(&app.db, &automation.id, &session.id).await;
+        let (prune, kept) = prunable(app, automation, &session.id).await;
+        if !prune.is_empty() || !kept.is_empty() {
+            let mut detail = format!("{} older run session(s) to remove", prune.len());
+            if !kept.is_empty() {
+                detail.push_str(&format!("; kept {} with unsaved or unpushed work: {}", kept.len(), kept.join(", ")));
+            }
+            steps.push(step("cleanup", "Clean up", "done", detail, vec![]));
+        }
+        prune
+    } else {
+        Vec::new()
+    };
     steps.push(step(
         "session",
         "Session",
@@ -379,15 +452,18 @@ async fn run_steps(app: &AppState, automation: &Automation, steps: &mut Vec<Step
         format!("{} in {}", if fresh { "new conversation" } else { "resumed" }, session.branch),
         vec![],
     ));
-    app.publish(crate::Event::AutomationLaunch {
+    *launch = Some(crate::Event::AutomationLaunch {
         task_id: session.id.clone(),
         prompt,
         fresh,
         automation: automation.name.clone(),
+        automation_id: automation.id.clone(),
+        key: key.to_owned(),
+        prune,
     });
     let agent = if session.cli.is_empty() { "the agent".to_owned() } else { session.cli.clone() };
-    steps.push(step("launch", "Start agent", "done", format!("asked the app to start {agent}"), vec![]));
-    "completed"
+    steps.push(step("launch", "Start agent", "launching", format!("waiting for Cascade to start {agent}"), vec![]));
+    "launching"
 }
 
 /// The session a run's agent works in, and whether it starts a new conversation there.
@@ -410,13 +486,65 @@ async fn session_for(app: &AppState, automation: &Automation) -> Result<(Session
             let existing = tasks
                 .into_iter()
                 .find(|task| task.project_id == schedule.project && task.branch == schedule.branch);
-            match existing {
-                Some(session) => Ok((session, schedule.session == SessionMode::Fresh)),
-                None => Ok((create(schedule.branch.clone(), false).await?, true)),
+            if let Some(session) = existing {
+                return Ok((session, schedule.session == SessionMode::Fresh));
             }
+            // A session on the branch the project folder has checked out would park that checkout on
+            // another branch first; a run nobody is watching never moves someone's working copy.
+            let project = app.db.project(&schedule.project).await.ok().flatten().ok_or("The project is gone.")?;
+            let trees = crate::local::list_worktrees(&project.workspace).await;
+            if trees.iter().any(|tree| tree.main && tree.branch == schedule.branch) {
+                return Err(format!(
+                    "{} is checked out in the project folder, which a scheduled run never moves. Choose a branch with a worktree of its own, or New run.",
+                    schedule.branch
+                ));
+            }
+            Ok((create(schedule.branch.clone(), false).await?, true))
         }
         Workspace::New => Ok((create(run_branch(&automation.name, Local::now()), true).await?, true)),
     }
+}
+
+/// The sessions past the newest `KEEP_RUN_SESSIONS` this automation's New runs made, split into
+/// those safe to remove — a worktree with nothing uncommitted and no commit only it has — and the
+/// branches of those kept because removing them would lose work. Sessions already gone are forgotten.
+async fn prunable(app: &AppState, automation: &Automation, current: &str) -> (Vec<String>, Vec<String>) {
+    let (mut prune, mut kept) = (Vec::new(), Vec::new());
+    let ids = store::run_sessions(&app.db, &automation.id).await.unwrap_or_default();
+    for id in ids.into_iter().filter(|id| id != current).skip(KEEP_RUN_SESSIONS.saturating_sub(1)).take(PRUNE_CHECKS) {
+        let Some(session) = app.db.task(&id).await.ok().flatten() else {
+            let _ = store::forget_run_session(&app.db, &id).await;
+            continue;
+        };
+        if nothing_to_lose(&session).await { prune.push(id) } else { kept.push(session.branch) }
+    }
+    (prune, kept)
+}
+
+/// Whether a worktree holds nothing that removing it would lose: no uncommitted change, and no
+/// commit that no other branch or remote has. Anything git cannot answer counts as something.
+async fn nothing_to_lose(session: &Session) -> bool {
+    let path = Path::new(&session.worktree);
+    if !path.is_dir() {
+        return true;
+    }
+    let git = |args: Vec<String>| async move { cli::run_in("git", args, StdDuration::from_secs(10), Some(path)).await };
+    // Untracked files too, whatever `status.showUntrackedFiles` says: removal is forced and takes them.
+    let status = git(vec![
+        "status".into(), "--porcelain".into(), "--untracked-files=all".into(), "--ignore-submodules=none".into(),
+    ])
+    .await;
+    let Ok(status) = status else { return false };
+    if !status.is_empty() {
+        return false;
+    }
+    let own = git(vec![
+        "rev-list".into(), "--count".into(), "HEAD".into(), "--not".into(),
+        // Before `--branches` git matches the name without `refs/heads/`.
+        format!("--exclude={}", session.branch), "--branches".into(), "--remotes".into(),
+    ])
+    .await;
+    matches!(own.as_deref(), Ok("0"))
 }
 
 /// A new run's branch: `auto/<name>-<date>-<time>`.
@@ -445,7 +573,7 @@ mod tests {
     }
 
     fn schedule(repeat: Repeat) -> Schedule {
-        Schedule { repeat, prompt: "p".into(), project: "x".into(), ..Schedule::default() }
+        Schedule { repeat, prompt: "p".into(), project: "x".into(), cli: "claude".into(), ..Schedule::default() }
     }
 
     #[test]
@@ -499,6 +627,9 @@ mod tests {
         let stepped = parse_cron("0 9 */2 * 1").unwrap();
         assert_eq!(stepped.next(local("2026-10-04 00:00")), Some(local("2026-10-05 09:00")));
         assert_eq!(stepped.next(local("2026-10-05 09:00")), Some(local("2026-10-19 09:00")));
+        let weekend = parse_cron("0 9 * * fri-sun").unwrap();
+        assert_eq!(weekend.next(local("2026-10-04 09:00")), Some(local("2026-10-09 09:00")), "Sunday the 4th, then Friday");
+        assert_eq!(weekend.next(local("2026-10-03 09:00")), Some(local("2026-10-04 09:00")), "Saturday, then Sunday");
         assert!(parse_cron("0 0 * *").is_err());
         assert!(parse_cron("61 * * * *").is_err());
         assert!(parse_cron("0 0 30 feb *").unwrap().next(local("2026-01-01 00:00")).is_none());
@@ -513,6 +644,8 @@ mod tests {
         assert!(validate(&mut cron).is_err());
         cron.cron = "0 */2 * * *".into();
         assert!(validate(&mut cron).is_ok());
+        cron.cli.clear();
+        assert!(validate(&mut cron).unwrap_err().contains("agent"), "a run needs an agent to give its prompt to");
         let mut worktree = schedule(Repeat::Daily);
         worktree.workspace = Workspace::Worktree;
         assert!(validate(&mut worktree).is_err(), "a worktree run names its branch");
@@ -535,6 +668,34 @@ mod tests {
         automation.armed_at = Some("2026-01-01T00:00:00Z".into());
         automation.mode = Mode::Off;
         assert_eq!(due(&automation, now), None);
+    }
+
+    #[tokio::test]
+    async fn only_a_worktree_with_nothing_to_lose_is_pruned() {
+        let directory = tempfile::tempdir().unwrap();
+        let repo = directory.path().join("repo");
+        let tree = directory.path().join("tree");
+        let git = |dir: &std::path::Path, args: &[&str]| {
+            let out = std::process::Command::new("git").current_dir(dir).args(args)
+                .env("GIT_AUTHOR_NAME", "t").env("GIT_AUTHOR_EMAIL", "t@t").env("GIT_COMMITTER_NAME", "t").env("GIT_COMMITTER_EMAIL", "t@t")
+                .output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        };
+        std::fs::create_dir(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["commit", "-q", "--allow-empty", "-m", "base"]);
+        git(&repo, &["worktree", "add", "-q", "-b", "auto/run", tree.to_str().unwrap()]);
+        let session = Session { worktree: tree.to_str().unwrap().into(), branch: "auto/run".into(), ..Session::default() };
+        assert!(nothing_to_lose(&session).await, "a fresh run's worktree has nothing of its own");
+        std::fs::write(tree.join("notes.txt"), "draft").unwrap();
+        assert!(!nothing_to_lose(&session).await, "an uncommitted file is kept");
+        git(&repo, &["config", "status.showUntrackedFiles", "no"]);
+        assert!(!nothing_to_lose(&session).await, "untracked files count whatever git is set to show");
+        git(&tree, &["add", "notes.txt"]);
+        git(&tree, &["commit", "-q", "-m", "work"]);
+        assert!(!nothing_to_lose(&session).await, "a commit only this branch has is kept");
+        git(&repo, &["merge", "-q", "--ff-only", "auto/run"]);
+        assert!(nothing_to_lose(&session).await, "merged into main, it is on another branch too");
     }
 
     #[test]

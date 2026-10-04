@@ -198,7 +198,8 @@ pub async fn finish(app: &AppState, automation: &Automation, trace: Trace) -> Tr
     }
     // A filtered run is the common case (most PRs are not from the trusted author); only runs
     // that did or planned something reach Activity, and a held-back one once an hour.
-    if trace.status != "filtered" && (trace.status != "limited" || app.limits.warn_limited(&automation.id)) {
+    // A scheduled run still launching reaches Activity once the app says how its launch went.
+    if trace.status != "filtered" && trace.status != "launching" && (trace.status != "limited" || app.limits.warn_limited(&automation.id)) {
         let kind = match trace.status.as_str() {
             "error" => "automation_failed",
             "limited" => "automation_limited",

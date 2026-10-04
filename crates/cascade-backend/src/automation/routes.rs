@@ -278,6 +278,21 @@ pub async fn run_now(State(app): State<AppState>, Path(id): Path<String>, Json(b
 }
 
 #[derive(Deserialize)]
+pub struct LaunchBody {
+    key: String,
+    ok: bool,
+    #[serde(default)]
+    detail: String,
+}
+
+/// The app, on a scheduled run's `automation-launch`: whether it started the agent.
+pub async fn launch_report(State(app): State<AppState>, Path(id): Path<String>, Json(body): Json<LaunchBody>) -> ApiResult<Value> {
+    let automation = store::get(&app.db, &id).await?.ok_or_else(|| ApiError::not_found("automation not found"))?;
+    let settled = schedule::settle(&app, &automation, &body.key, body.ok, &body.detail).await;
+    Ok(Json(json!({"ok": settled})))
+}
+
+#[derive(Deserialize)]
 pub struct RunsQuery {
     automation: Option<String>,
     limit: Option<i64>,
@@ -401,10 +416,12 @@ mod tests {
     fn every_template_is_a_valid_pipeline() {
         for template in catalog::catalog()["templates"].as_array().unwrap() {
             let mut automation: Automation = serde_json::from_value(template["automation"].clone()).unwrap();
-            // A scheduled template leaves its project open; the app fills in the first one.
+            // A scheduled template leaves its project and agent open; the app fills in the first
+            // project and its default agent.
             if automation.kind == Kind::Schedule {
                 assert!(automation.schedule.project.is_empty(), "template {} names a project", template["id"]);
                 automation.schedule.project = "first-project".into();
+                automation.schedule.cli = "claude".into();
             }
             assert!(validate(automation).is_ok(), "template {} does not validate", template["id"]);
         }

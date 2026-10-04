@@ -118,6 +118,8 @@ enum Theme {
 
     /// `--bg`: the surface a content pane sits on. Follows the window appearance.
     static var paneBackground: Color { Color(nsColor: .windowBackgroundColor) }
+    /// Behind text typed into a multi-line field: the system's text background.
+    static var fieldBackground: Color { Color(nsColor: .textBackgroundColor) }
     /// A toolbar toggle's symbol while it is on, where the toolbar's own selected tint washes it
     /// out: the text colour. AppKit's, since the toolbar's controls are.
     static var toolbarSymbolSelected: NSColor { .labelColor }
