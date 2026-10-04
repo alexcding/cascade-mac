@@ -95,14 +95,14 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     }
 }
 
-/// The "+" on the Projects heading and a project row's accessory sit in the same place. A source list frames a heading's cell differently from an item's, so they only line up
+/// The "+" on the Projects heading and a session's pin sit in the same place. A source list frames a heading's cell differently from an item's, so they only line up
 /// on screen if the heading reads the item's edge rather than reusing its own offset.
-@MainActor @Test func projectsHeadingAddButtonLinesUpWithAProjectRows() throws {
+@MainActor @Test func projectsHeadingAddButtonLinesUpWithASessionsPin() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-align-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
     defer { preferences.removePersistentDomain(forName: suite) }
-    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [], canCreateProject: true),
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil)], canCreateProject: true),
                              selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
     let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
@@ -136,8 +136,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         throw BackendError.operation("no such row")
     }
     let heading = try accessoryEdge { if case .projectsHeader = $0 { true } else { false } }
-    let project = try accessoryEdge { if case .project = $0 { true } else { false } }
-    #expect(abs(heading - project) < 0.5, "heading + ends at \(heading), project + at \(project)")
+    let pin = try accessoryEdge { if case .session = $0 { true } else { false } }
+    #expect(abs(heading - pin) < 0.5, "heading + ends at \(heading), a session's pin at \(pin)")
     window.close()
 }
 
@@ -230,7 +230,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(nested > project, "further in, after its dot")
     let pinnedDot = try #require(dotX["pin:pinned"])
     #expect(abs(pinnedDot - (folderRight - SidebarCellView.statusSlot / 2)) <= 0.5, "the dot's slot ends where the folder's glyph does")
-    #expect(abs(try #require(dotX["session:nested"]) - (project + SidebarCellView.statusSlot / 2)) <= 0.5, "a nested dot's slot starts under the project's name")
+    #expect(abs(try #require(dotX["session:nested"]) - (folderRight + project) / 2) <= 0.5, "a nested dot sits between the folder's glyph and the project's name")
 }
 
 @MainActor @Test func sessionReorderStaysInsideItsProjectAndTheDraggedOrderIsTheApps() throws {
@@ -509,13 +509,14 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(cell.icon.isHidden, "a session has no icon")
     #expect(!dot.isHidden, "an idle session shows its dot")
     let slot = SidebarCellView.statusSlot
-    #expect(abs(dot.frame.midX - (folderTitle.minX + slot / 2)) <= 0.5, "the dot is centred in a slot starting under the project's name")
+    let folderIcon = folder.icon, folderImage = try #require(folderIcon.image)
+    let folderRight = folderIcon.frame.midX + folderImage.size.width / 2
+    #expect(abs(dot.frame.midX - (folderRight + folderTitle.minX) / 2) <= 0.5, "the dot sits between the folder's glyph and the project's name")
     let font = try #require(label(idle.title)?.font)
     let middle = title.minY + font.ascender - (font.capHeight + font.xHeight) / 4
     #expect(abs(dot.frame.midY - middle) <= 0.5, "the dot is on the letters' middle, not the label frame's")
-    let folderIcon = folder.icon, folderImage = try #require(folderIcon.image)
-    let folderToName = folderTitle.minX - (folderIcon.frame.midX + folderImage.size.width / 2)
-    #expect(abs((title.minX - (folderTitle.minX + slot)) - folderToName) <= 0.5, "as far from its name as the folder is from the project's")
+    let folderToName = folderTitle.minX - folderRight
+    #expect(abs((title.minX - (dot.frame.midX + slot / 2)) - folderToName) <= 0.5, "as far from its name as the folder is from the project's")
 
     cell.configure(working, nested: true)
     _ = label(working.title)
@@ -705,4 +706,22 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(read[0].symbols == nil)
     #expect(read[1].symbols == ["folder", "hammer"])
     #expect(read[1].title == "Objects & Tools")
+}
+
+/// Every row's icon covers about the same area, however its glyph is shaped: the folder, a quarter
+/// wider than the Dashboard's grid at one point size, is drawn smaller rather than reading bigger.
+@MainActor @Test func rowSymbolsCoverTheSameArea() throws {
+    func area(_ name: String) throws -> CGFloat {
+        let image = try #require(SidebarIcons.rowSymbol(name))
+        let glyph = try #require(SidebarIcons.glyphSize(image))
+        return glyph.width * glyph.height
+    }
+    let target = SidebarMetrics.glyphSide * SidebarMetrics.glyphSide
+    for name in ["dashboard", "folder", "automation", "hammer"] {
+        let covered = try area(name)
+        #expect(abs(covered - target) / target < 0.12, "\(name) covers \(covered)pt², not about \(target)")
+    }
+    let wide = try #require(SidebarIcons.symbol("folder")?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.symbolSize, weight: .regular)))
+    let folder = try #require(SidebarIcons.rowSymbol("folder"))
+    #expect(folder.size.width < wide.size.width, "the folder is drawn smaller than the rows' point size")
 }

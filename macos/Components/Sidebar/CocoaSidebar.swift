@@ -520,15 +520,24 @@ enum SidebarPalette {
 enum SidebarMetrics {
     static let rowHeight: CGFloat = 32       // what `.medium` rows measure
     static let labelHeight: CGFloat = 23     // a section header, at `headingFont`; the list adds the air above it
-    // A point above the rows, and on the system font's weight axis between regular (400) and
-    // medium (510). A `weight:` between two named weights snaps to one of them.
+    // A point above the rows, and on the system font's weight axis between light (300) and
+    // regular (400), in the "+"'s grey. A `weight:` between two named weights snaps to one of them.
     nonisolated(unsafe) static let headingFont: NSFont = {
         let size = NSFont.systemFontSize + 1
-        let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 450]])
-        return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .medium)
+        let weight = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: 350]])
+        return NSFont(descriptor: weight, size: size) ?? .systemFont(ofSize: size, weight: .regular)
     }()
+    /// A session's name: the rows' size, light (300) on the weight axis, so the many sessions under a
+    /// project read lighter than the project itself.
+    nonisolated(unsafe) static let sessionFont = rowFont(weight: 300)
+    private static func rowFont(weight: Int) -> NSFont {
+        let size = NSFont.systemFontSize
+        let descriptor = NSFont.systemFont(ofSize: size).fontDescriptor.addingAttributes([.variation: [0x7767_6874 /* 'wght' */: weight]])
+        return NSFont(descriptor: descriptor, size: size) ?? .systemFont(ofSize: size, weight: .light)
+    }
     static let iconSlot: CGFloat = 24        // a row's leading icon
     static let symbolSize: CGFloat = 17      // a row symbol's point size: a glyph a little under what the list drew at 14
+    static let glyphSide: CGFloat = 15.5     // a row glyph covers this square's area: the Dashboard grid's glyph at `symbolSize`
     static let brandSize: CGFloat = 20       // favicons, brand art and avatars, centred in the slot
     static let leading: CGFloat = 2          // cell edge to the icon slot
     static let gap: CGFloat = 6              // title to accessory
@@ -769,7 +778,9 @@ enum SidebarMetrics {
         // semibold, which makes the title jump as the selection moves, and would set a heading in its
         // small group font; a heading reads a point larger than the rows, a touch heavier.
         textField = nil
-        title.font = entry.isHeading ? SidebarMetrics.headingFont : .systemFont(ofSize: NSFont.systemFontSize)
+        title.font = if entry.isHeading { SidebarMetrics.headingFont }
+            else if case .session = entry.role { SidebarMetrics.sessionFont }
+            else { .systemFont(ofSize: NSFont.systemFontSize) }
         setAccessibilityLabel(entry.title)
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
@@ -871,13 +882,14 @@ enum SidebarMetrics {
         case .label, .projectsHeader:
             title.sizeToFit()
             let titleHeight = title.frame.height
-            // The heading's "+" sits in the same trailing slot as a project row's, centred on the title.
-            // Same slot on screen, not the same offset in the cell: a source list frames a heading's
-            // cell differently from an item's, so the item's edge is read off an item.
-            let right = itemTrailingEdge ?? right
+            // The heading's "+" sits in the same trailing slot as a session's pin, ending at the item
+            // cell's own edge, centred on the title. Same slot on screen, not the same offset in the
+            // cell: a source list frames a heading's cell differently from an item's, so the item's
+            // edge is read off an item.
+            let edge = itemTrailingEdge.map { $0 + SidebarMetrics.trailing } ?? bounds.width
             let titleY = ((height - titleHeight) / 2).rounded()
-            accessory.frame = NSRect(x: right - 18, y: (titleY + (titleHeight - 18) / 2).rounded(), width: 18, height: 18)
-            let titleRight = accessory.isHidden ? right : right - 18 - SidebarMetrics.gap
+            accessory.frame = NSRect(x: edge - 18, y: (titleY + (titleHeight - 18) / 2).rounded(), width: 18, height: 18)
+            let titleRight = accessory.isHidden ? right : edge - 18 - SidebarMetrics.gap
             title.frame = NSRect(x: 0, y: titleY, width: max(0, titleRight), height: titleHeight)
             return
         case .nav, .project, .session:
@@ -888,13 +900,14 @@ enum SidebarMetrics {
         var dotCenterX: CGFloat = 0
         if session {
             // The dot is centred in a box about a glyph wide, and the name is as far from that box as a
-            // project's name is from its folder. Under its project the box starts below the project's
-            // name; at the top level (Pinned, or a project that is gone) it ends where a folder does.
+            // project's name is from its folder. Under its project the dot sits on the edge between the
+            // folder's glyph and the project's name; at the top level (Pinned, or a project that is gone)
+            // its box ends where a folder does.
             let folder = SidebarIcons.rowSymbol("folder")?.size.width ?? slot
             let folderRight = left + ((slot + folder) / 2 * 2).rounded() / 2
             let toName = titleX - folderRight
             let width = Self.statusSlot
-            let x = nested ? titleX : folderRight - width
+            let x = nested ? (folderRight + titleX) / 2 - width / 2 : folderRight - width
             titleX = x + width + toName
             dotCenterX = x + width / 2
         } else {

@@ -36,12 +36,12 @@ import AppKit
     }
 
     /// The "+" on the Tabs heading and on a project row: the one accessory that is an action of its
-    /// own rather than a state of the row, so it is drawn a step larger and heavier than the pin
-    /// and close marks. It still fits the 18pt accessory slot.
+    /// own rather than a state of the row, so it is drawn a step larger than the pin, in light strokes
+    /// that read as the project folder's grey. It still fits the 18pt accessory slot.
     static var addSymbol: NSImage? {
         let key = "plus@add"
         if let hit = cache[key] { return hit }
-        let image = symbol("plus")?.withSymbolConfiguration(.init(pointSize: 15, weight: .medium))
+        let image = symbol("plus")?.withSymbolConfiguration(.init(pointSize: 15, weight: .light))
         cache[key] = image
         return image
     }
@@ -57,13 +57,51 @@ import AppKit
         return image
     }
 
-    /// A row's own icon, at `SidebarMetrics.symbolSize`, baked into the image.
+    /// A row's own icon, baked into the image, sized by how much it covers rather than by one point
+    /// size: at one size a folder is a quarter wider than the Dashboard's grid and reads as the bigger
+    /// icon, and a glyph of lines and dots reads as the smaller. Each is drawn at the size where its
+    /// glyph covers the area of a `SidebarMetrics.glyphSide` square, so every row's icon, a project's
+    /// own symbol included, reads as the same size.
     static func rowSymbol(_ name: String) -> NSImage? {
         let key = "\(name)@row"
         if let hit = cache[key] { return hit }
-        let image = symbol(name)?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.symbolSize, weight: .regular))
+        let size = SidebarMetrics.symbolSize
+        guard let measured = symbol(name)?.withSymbolConfiguration(.init(pointSize: size, weight: .regular)) else { return nil }
+        var image = measured
+        if let glyph = glyphSize(measured), glyph.width > 0, glyph.height > 0 {
+            let fitted = (size * SidebarMetrics.glyphSide / (glyph.width * glyph.height).squareRoot() * 2).rounded() / 2
+            if fitted != size, let resized = symbol(name)?.withSymbolConfiguration(.init(pointSize: fitted, weight: .regular)) {
+                image = resized
+            }
+        }
         cache[key] = image
         return image
+    }
+
+    /// How big a symbol's glyph is drawn, in points: the extent of its ink, read off a drawing at twice
+    /// the scale. Neither the image's size, which carries margins, nor its alignment rect, which follows
+    /// the text line, says it.
+    static func glyphSize(_ image: NSImage) -> CGSize? {
+        let scale: CGFloat = 2
+        let width = Int((image.size.width * scale).rounded(.up)), height = Int((image.size.height * scale).rounded(.up))
+        guard width > 0, height > 0,
+              let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        bitmap.size = image.size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        image.draw(in: NSRect(origin: .zero, size: image.size))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let pixels = bitmap.bitmapData else { return nil }
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where pixels[y * bitmap.bytesPerRow + x * 4 + 3] > 76 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return CGSize(width: CGFloat(maxX - minX + 1) / scale, height: CGFloat(maxY - minY + 1) / scale)
     }
 
     /// A drawn mark, as a template the row tints, in a box of `size` points.
