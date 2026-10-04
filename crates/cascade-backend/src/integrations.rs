@@ -26,8 +26,8 @@ use crate::{cli, error::ApiError, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
-/// The webhook forwarders' handle: one `gh webhook forward` child per repo an armed PR pipeline
-/// covers. Every method is a message to the one task (`Forwarders`) that owns the children and
+/// The webhook forwarders' handle: one `gh webhook forward` child per repo of a project that
+/// forwards. Every method is a message to the one task (`Forwarders`) that owns the children and
 /// their backoff. That task never awaits while it handles a message, so the list, the statuses
 /// and a retry are answered between reconciles, never behind one.
 #[derive(Clone)]
@@ -984,29 +984,35 @@ pub(crate) fn is_already_gone(error: &str) -> bool {
     error.contains("HTTP 404")
 }
 
+/// A pull request event GitHub forwarded. A merge is told at once, for the pipelines that act
+/// on one; and every event, a merge included, says its project's pull requests changed, which
+/// refreshes its snapshot without anybody looking at it (`Poller::changed`: gathered, paced and
+/// held to the rate budget, so a burst of events is one sync and not one each).
 pub async fn github_webhook(
     State(app): State<AppState>,
     headers: axum::http::HeaderMap,
     Json(body): Json<Value>,
 ) -> StatusCode {
-    if headers.get("x-github-event").and_then(|v| v.to_str().ok()) != Some("pull_request")
-        || body["action"] != "closed"
-        || body["pull_request"]["merged"] != true
-    {
+    if headers.get("x-github-event").and_then(|v| v.to_str().ok()) != Some("pull_request") {
         return StatusCode::OK;
     }
     let repo = body["repository"]["full_name"].as_str().unwrap_or("");
-    if let Ok(projects) = app.db.projects().await {
-        if let Some(project) = projects
-            .into_iter()
-            .find(|p| p.repo.eq_ignore_ascii_case(repo))
-        {
-            let mut pr = body["pull_request"].clone();
-            pr["url"] = pr["html_url"].clone();
-            pr["state"] = json!("MERGED");
-            app.poller.handle_merge(&app, &project, &pr).await;
-        }
+    let Some(project) = app
+        .db
+        .projects().await
+        .unwrap_or_default()
+        .into_iter()
+        .find(|p| !p.repo.is_empty() && p.repo.eq_ignore_ascii_case(repo))
+    else {
+        return StatusCode::OK;
+    };
+    if body["action"] == "closed" && body["pull_request"]["merged"] == true {
+        let mut pr = body["pull_request"].clone();
+        pr["url"] = pr["html_url"].clone();
+        pr["state"] = json!("MERGED");
+        app.poller.handle_merge(&app, &project, &pr).await;
     }
+    app.poller.changed(&app, project).await;
     StatusCode::OK
 }
 

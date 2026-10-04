@@ -260,7 +260,7 @@ struct AutomationSettings: Decodable, Equatable, Sendable {
     var forwardWebhooks: Bool
     /// Repos with a webhook forwarder running now.
     var forwarding: [String]
-    /// Repos an armed PR pipeline covers, which forwarding would serve.
+    /// Repos of the projects that forward, which forwarding serves.
     var forwardable: [String]
     /// Every project with a repo, with what its forwarder is doing.
     var projects: [ForwardingProject] = []
@@ -277,8 +277,6 @@ struct ForwardingProject: Decodable, Equatable, Identifiable, Sendable {
         case retrying
         /// Blocked by a `gh webhook forward` hook already on the repo, which only removing clears.
         case hookExists
-        /// No pull request automation that is on covers the project, so nothing needs forwarding.
-        case idle
         /// Forwarding is off for every project.
         case off
         /// Turned off in the project's own settings.

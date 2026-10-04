@@ -176,23 +176,19 @@ pub fn forwards(project: &Project) -> bool {
     project.forward_webhooks && !project.repo.is_empty()
 }
 
-/// Repos whose webhooks are worth forwarding: forwarding projects an armed PR pipeline covers.
+/// Repos whose webhooks are forwarded: every project that forwards. A forwarded pull request
+/// event is what refreshes the project's snapshot while nobody is looking at it
+/// (`Poller::changed`), whether or not a pipeline also waits for it.
 pub async fn forward_repos(app: &AppState) -> HashSet<String> {
     if !forwarding(app).await {
         return HashSet::new();
     }
-    let projects = app.db.projects().await.unwrap_or_default();
-    let covered = pr_covered(app, &projects).await;
-    forwarded(&projects, &covered)
+    forwarded(&app.db.projects().await.unwrap_or_default())
 }
 
-/// The repos of the forwarding projects among `covered`, for a caller that has both already.
-pub fn forwarded(projects: &[Project], covered: &HashSet<String>) -> HashSet<String> {
-    projects
-        .iter()
-        .filter(|p| forwards(p) && covered.contains(&p.id))
-        .map(|p| p.repo.clone())
-        .collect()
+/// The repos of the forwarding projects, for a caller that has the projects already.
+pub fn forwarded(projects: &[Project]) -> HashSet<String> {
+    projects.iter().filter(|p| forwards(p)).map(|p| p.repo.clone()).collect()
 }
 
 #[cfg(test)]

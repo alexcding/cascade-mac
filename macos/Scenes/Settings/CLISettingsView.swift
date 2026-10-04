@@ -30,9 +30,9 @@ struct WebhookForwardingSection: View {
     var body: some View {
         Section("GitHub webhooks") {
             ForEach(ManagedCLI.webhooks) { cli in CLIStatusRow(model: clis, cli: cli) }
-            SettingsRow(title: String(localized: "Forward webhooks to automations"),
-                        caption: String(localized: "Pull request events reach automations as they happen. When disabled or unavailable, Cascade checks for updates on its regular schedule.")) {
-                Toggle("Forward webhooks to automations", isOn: Binding(get: { model.enabled },
+            SettingsRow(title: String(localized: "Forward GitHub webhooks"),
+                        caption: String(localized: "Pull request events reach Cascade as they happen: pull requests refresh and automations run at once. When disabled or unavailable, pull requests refresh when you look at them.")) {
+                Toggle("Forward GitHub webhooks", isOn: Binding(get: { model.enabled },
                                                                         set: { value in Task { await model.setEnabled(value) } }))
                     .toggleStyle(.switch).labelsHidden()
                     .disabled(model.settings == nil || model.saving)

@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// Settings → Integrations' GitHub webhooks row: whether pull request events are forwarded to
-/// automations as they happen, and what the forwarders are doing now. It reads and writes the
+/// Cascade as they happen, to refresh pull requests and run automations at once, and what the
+/// forwarders are doing now. It reads and writes the
 /// automation settings; the Automation screen keeps only the switch that pauses everything.
 @MainActor @Observable final class WebhookForwardingViewModel {
     private(set) var settings: AutomationSettings?
@@ -14,7 +15,7 @@ import Observation
     @ObservationIgnored private var service: (any AutomationService)?
     @ObservationIgnored private var generation = UUID()
 
-    /// On unless turned off: forwarding only runs for repos a pull request automation that is on covers.
+    /// On unless turned off: forwarding runs for every project with a repository that has not turned it off.
     var enabled: Bool { settings?.forwardWebhooks ?? true }
 
     var status: String? { status(extensionInstalled: nil) }
@@ -23,18 +24,18 @@ import Observation
     func status(extensionInstalled: Bool?) -> String? {
         guard let settings else { return nil }
         if settings.forwardWebhooks, extensionInstalled == false {
-            return String(localized: "Install the gh webhook extension to forward events. Cascade will keep checking for updates on its regular schedule.")
+            return String(localized: "Install the gh webhook extension to forward events. Until then, pull requests refresh when you look at them.")
         }
-        if settings.paused { return String(localized: "Automations are paused. Forwarded events are ignored until you resume them.") }
-        guard settings.forwardWebhooks else { return String(localized: "Webhook forwarding is off. Automations check pull request changes on the regular refresh schedule.") }
+        if settings.paused { return String(localized: "Automations are paused. Forwarded events still refresh pull requests.") }
+        guard settings.forwardWebhooks else { return String(localized: "Webhook forwarding is off. Pull requests refresh when you look at them.") }
         if !settings.projects.isEmpty, settings.projects.allSatisfy({ $0.state == .disabled }) {
             return String(localized: "Every project has forwarding turned off in its settings.")
         }
-        if settings.forwardable.isEmpty { return String(localized: "No enabled pull request automation needs webhook forwarding.") }
+        if settings.forwardable.isEmpty { return String(localized: "No project has a repository to forward.") }
         let running = settings.forwardable.filter(settings.forwarding.contains)
         return running.count == settings.forwardable.count
             ? String(localized: "Repositories forwarding events: \(running.count).")
-            : String(localized: "Repositories forwarding events: \(running.count) of \(settings.forwardable.count). Cascade checks the rest on its regular schedule.")
+            : String(localized: "Repositories forwarding events: \(running.count) of \(settings.forwardable.count). The rest refresh when you look at them.")
     }
 
     func connect(_ service: (any AutomationService)?) {
@@ -85,9 +86,6 @@ import Observation
         case .retrying:
             (String(localized: "Retrying"), .warning,
              "\(project.repo) · \(project.error ?? String(localized: "The forwarder could not start."))")
-        case .idle:
-            (String(localized: "Idle"), .neutral,
-             "\(project.repo) · \(String(localized: "No enabled pull request automation covers this project."))")
         case .off: (String(localized: "Off"), .neutral, project.repo)
         case .disabled:
             (String(localized: "Off"), .neutral, "\(project.repo) · \(String(localized: "Turned off in the project's settings."))")

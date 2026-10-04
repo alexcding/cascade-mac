@@ -12,6 +12,12 @@
 //! Jira answered; after one that did not, nothing in the background asks that service again until
 //! a wait has passed, each failure in a row doubling it, and the app hears once that the service
 //! is unreachable and once that it is back, rather than an error for every project.
+//!
+//! And it keeps the projects GitHub said changed (`Poller::changed`, a forwarded webhook event)
+//! until their sync: events are gathered for a moment so a burst is one query, a project is not
+//! synced again within the poll interval of its last sync however many events arrive, with one
+//! sync at the end of that gap for whatever came during it, and nothing is synced on an event's
+//! word while GitHub is failing or the hour's rate allowance is nearly spent.
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -64,6 +70,10 @@ enum Ask {
     /// Nobody is waiting on it (an automation's loop, a read that found a board stale): it is
     /// turned away while its upstream is failing.
     Background,
+    /// GitHub said these projects changed (`Engine::flush`): as `Background`, and if GitHub
+    /// then cannot be reached, the projects go back to waiting for their sync, since the event
+    /// that asked for it is not coming again.
+    Event,
     /// Someone is looking at these projects' pull requests (a read marked `look`), and wants
     /// them no older than `pace`: as `Background`, and a project whose last sync started less
     /// than `pace` ago is left out. The pace is kept from the start of a sync, which the engine
@@ -147,6 +157,7 @@ enum Msg {
     /// How an upstream answered a sync; answers `Some(reachable)` when that changed whether it
     /// is reachable, which is the caller's to publish.
     Outcome {
+        app: AppState,
         upstream: Upstream,
         reached: bool,
         reply: oneshot::Sender<Option<bool>>,
@@ -155,6 +166,22 @@ enum Msg {
     Health {
         reply: oneshot::Sender<Vec<(Upstream, u64)>>,
     },
+    /// GitHub said a project's pull requests changed (a forwarded event): sync it once events
+    /// have had `gather` to collect, and no sooner than `pace` after its last sync started.
+    Changed {
+        app: AppState,
+        project: Project,
+        gather: Duration,
+        pace: Duration,
+        runner: Option<Arc<dyn cli::CommandRunner>>,
+    },
+    /// A wait `Changed` set is over: sync the changed projects that are due.
+    Flush(AppState),
+    /// A sync an event asked for could not reach GitHub for these projects: they wait again,
+    /// each unless it was edited since the sync started under the generation beside it.
+    Unanswered { app: AppState, projects: Vec<(Project, u64)> },
+    /// What a batched query said is left of the allowance.
+    Budget(github::Budget),
     /// What a sync saw of a repository's pull requests, as (key, state) pairs; answers what
     /// moved since the repository was last seen, by index.
     Observe {
@@ -344,6 +371,37 @@ impl Poller {
         self.run(app, Job::Board(project.clone()), Ask::Background).await;
     }
 
+    /// GitHub said a project's pull requests changed (a forwarded webhook event): its snapshot
+    /// is synced without anybody looking at it, gathered with the other events of the moment
+    /// and no more often than the poll interval (see the module's last paragraph).
+    pub async fn changed(&self, app: &AppState, project: Project) {
+        let pace = Duration::from_secs(poll_interval(app).await);
+        self.changed_within(app, project, GATHER, pace);
+    }
+
+    fn changed_within(&self, app: &AppState, project: Project, gather: Duration, pace: Duration) {
+        let message = Msg::Changed {
+            app: app.clone(),
+            project,
+            gather,
+            pace,
+            runner: cli::inherited(),
+        };
+        let _ = self.tx.send(message);
+    }
+
+    fn flush(&self, app: &AppState) {
+        let _ = self.tx.send(Msg::Flush(app.clone()));
+    }
+
+    fn unanswered(&self, app: &AppState, projects: Vec<(Project, u64)>) {
+        let _ = self.tx.send(Msg::Unanswered { app: app.clone(), projects });
+    }
+
+    fn budget(&self, budget: github::Budget) {
+        let _ = self.tx.send(Msg::Budget(budget));
+    }
+
     /// The upstreams that are failing, each with the seconds until it may be asked again.
     pub async fn unreachable(&self) -> Vec<(Upstream, u64)> {
         let (reply, health) = oneshot::channel();
@@ -354,9 +412,9 @@ impl Poller {
     }
 
     /// Tells the engine how an upstream answered; answers `Some(reachable)` when that changed.
-    async fn outcome(&self, upstream: Upstream, reached: bool) -> Option<bool> {
+    async fn outcome(&self, app: &AppState, upstream: Upstream, reached: bool) -> Option<bool> {
         let (reply, changed) = oneshot::channel();
-        let message = Msg::Outcome { upstream, reached, reply };
+        let message = Msg::Outcome { app: app.clone(), upstream, reached, reply };
         if self.tx.send(message).is_err() {
             return None;
         }
@@ -398,6 +456,31 @@ fn pr_key(repo: &str, number: i64) -> String {
     format!("{}#{number}", repo.to_ascii_lowercase())
 }
 
+/// How long an event waits for others before its sync. GitHub sends several for one action (a
+/// push to a pull request is a `synchronize`, often with a review request beside it), and
+/// projects that change together are one query.
+const GATHER: Duration = Duration::from_secs(2);
+
+/// How soon a project whose sync is still running is looked at again, for an event that came
+/// while it ran: the running sync may have read GitHub before the change.
+const RUNNING_RECHECK: Duration = Duration::from_secs(5);
+
+/// What is left of GitHub's hourly allowance, as of the last batched query.
+#[derive(Clone, Copy)]
+struct Budget {
+    remaining: u64,
+    limit: u64,
+    reset_at: Instant,
+}
+
+impl Budget {
+    /// Under a fifth left before the hour turns. What nobody is waiting on stops there, and
+    /// leaves the rest to what a person asks for, in the app and with `gh` outside it.
+    fn spent(&self, now: Instant) -> bool {
+        now < self.reset_at && self.remaining * 5 < self.limit
+    }
+}
+
 /// The engine's state, owned by its task. Nothing else sees it.
 #[derive(Default)]
 struct Engine {
@@ -417,6 +500,15 @@ struct Engine {
     /// When each project's pull requests were last asked for, by project id.
     tried: HashMap<String, Instant>,
     breakers: HashMap<Upstream, Breaker>,
+    /// The projects GitHub said changed, waiting for their sync, by id.
+    pending: HashMap<String, Project>,
+    /// The gap kept between an event's sync and its project's last one, and the runner the
+    /// sync runs under: the last event's.
+    pending_pace: Duration,
+    pending_runner: Option<Arc<dyn cli::CommandRunner>>,
+    /// When `pending` is looked at next: every wait that is set and not yet over.
+    flushes: Vec<Instant>,
+    budget: Option<Budget>,
 }
 
 /// A sync the engine has accepted and will spawn.
@@ -431,6 +523,9 @@ struct Spawn {
     /// synced, even one whose pull requests did not change, so what is shown takes the new
     /// stamp. The read the app makes on hearing it is not a look, and starts nothing.
     read: bool,
+    /// An event asked for it (`Ask::Event`): a project GitHub could not answer for is set to
+    /// wait again.
+    event: bool,
     done: oneshot::Sender<()>,
 }
 
@@ -467,6 +562,8 @@ impl Engine {
                 self.generation(&id).fetch_add(1, Ordering::SeqCst);
                 // An edited project is a new one to a stale read: its last try was of the old.
                 self.tried.remove(&id);
+                // And an event waiting for its sync named the project as it was.
+                self.pending.remove(&id);
                 let _ = ack.send(());
             }
             Msg::Run {
@@ -532,6 +629,7 @@ impl Engine {
                     generations,
                     keys,
                     read: matches!(ask, Ask::Stale { .. }),
+                    event: matches!(ask, Ask::Event),
                     done,
                 };
                 if spawn.job.github() && self.github_running >= GH_LANES {
@@ -543,7 +641,7 @@ impl Engine {
             Msg::Observe { repo, seen, reply } => {
                 let _ = reply.send(self.observe(&repo, &seen));
             }
-            Msg::Outcome { upstream, reached, reply } => {
+            Msg::Outcome { app, upstream, reached, reply } => {
                 let breaker = self.breakers.entry(upstream).or_default();
                 let changed = if reached {
                     breaker.reached().then_some(true)
@@ -551,6 +649,11 @@ impl Engine {
                     breaker.failed(Instant::now(), spread()).then_some(false)
                 };
                 let _ = reply.send(changed);
+                // GitHub is back sooner than the wait set for it: the projects events named
+                // meanwhile are synced now rather than when that wait would have ended.
+                if changed == Some(true) && upstream == Upstream::GitHub && !self.pending.is_empty() {
+                    self.flush_at(&app, Instant::now());
+                }
             }
             Msg::Health { reply } => {
                 let now = Instant::now();
@@ -567,7 +670,117 @@ impl Engine {
             Msg::Merged { key, reply } => {
                 let _ = reply.send(self.merged(&key));
             }
+            Msg::Changed { app, project, gather, pace, runner } => {
+                self.pending.insert(project.id.clone(), project);
+                self.pending_pace = pace;
+                self.pending_runner = runner;
+                let now = Instant::now();
+                self.flush_at(&app, self.held_until(now).unwrap_or(now + gather));
+            }
+            Msg::Unanswered { app, projects } => {
+                for (project, started) in projects {
+                    // Edited meanwhile: this is the project as it was, and the edit's own
+                    // reads sync it as it is.
+                    if self.generation(&project.id).load(Ordering::SeqCst) == started {
+                        self.pending.insert(project.id.clone(), project);
+                    }
+                }
+                if self.pending.is_empty() {
+                    return;
+                }
+                let now = Instant::now();
+                self.flush_at(&app, self.held_until(now).unwrap_or(now + RUNNING_RECHECK));
+            }
+            Msg::Flush(app) => self.flush(app, tasks),
+            Msg::Budget(left) => {
+                self.budget = Some(Budget {
+                    remaining: left.remaining,
+                    limit: left.limit,
+                    reset_at: Instant::now() + left.reset_in,
+                });
+            }
         }
+    }
+
+    /// Sets a look at `pending` for `at`, unless one is already set for no later. The wait is a
+    /// task of its own that tells the engine when it is over. Every wait set is remembered until
+    /// it is over, so a busy repository's events through a long hold are the one wait for the
+    /// hold's end, not one more each.
+    fn flush_at(&mut self, app: &AppState, at: Instant) {
+        let now = Instant::now();
+        self.flushes.retain(|set| *set > now);
+        if self.flushes.iter().any(|set| *set <= at) {
+            return;
+        }
+        self.flushes.push(at);
+        let app = app.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep_until(at.into()).await;
+            app.poller.flush(&app);
+        });
+    }
+
+    /// Syncs, together, the projects GitHub said changed that are due, and sets the next look
+    /// for the rest: none while GitHub is failing or its allowance is nearly spent, and each
+    /// project no sooner than the pace after its last sync started, so the events of a busy
+    /// repository are one sync an interval, with the last of them never left unsynced.
+    fn flush(&mut self, app: AppState, tasks: &mut JoinSet<oneshot::Sender<()>>) {
+        let now = Instant::now();
+        if self.pending.is_empty() {
+            return;
+        }
+        if let Some(until) = self.held_until(now) {
+            self.flush_at(&app, until);
+            return;
+        }
+        let mut due = Vec::new();
+        let mut later: Option<Instant> = None;
+        for (id, project) in &self.pending {
+            let paced = self.tried.get(id).map(|at| *at + self.pending_pace).filter(|at| now < *at);
+            let wait = if self.syncing(id) {
+                Some(paced.unwrap_or(now).max(now + RUNNING_RECHECK))
+            } else {
+                paced
+            };
+            match wait {
+                Some(at) => later = Some(later.map_or(at, |sooner| sooner.min(at))),
+                None => due.push(project.clone()),
+            }
+        }
+        for project in &due {
+            self.pending.remove(&project.id);
+        }
+        if let Some(at) = later {
+            self.flush_at(&app, at);
+        }
+        if due.is_empty() {
+            return;
+        }
+        // Nobody waits for it: `done` is dropped.
+        let (done, _) = oneshot::channel();
+        let run = Msg::Run {
+            app,
+            job: Job::Projects(due),
+            ask: Ask::Event,
+            runner: self.pending_runner.clone(),
+            done,
+        };
+        self.handle(run, tasks);
+    }
+
+    /// Until when nothing is synced on an event's word: while GitHub is failing, and while its
+    /// allowance is nearly spent. The allowance holds events only: what an automation waits
+    /// for, and what a person asks for, still runs.
+    fn held_until(&self, now: Instant) -> Option<Instant> {
+        let failing = self.breakers.get(&Upstream::GitHub).and_then(|b| b.retry_at).filter(|at| now < *at);
+        let spent = self.budget.filter(|budget| budget.spent(now)).map(|budget| budget.reset_at);
+        failing.into_iter().chain(spent).max()
+    }
+
+    /// Whether a sync of the project's pull requests is running or waiting for a lane.
+    fn syncing(&self, id: &str) -> bool {
+        let prefix = format!("pr:{id}:");
+        self.claimed.iter().any(|key| key.starts_with(&prefix))
     }
 
     fn generation(&mut self, id: &str) -> Arc<AtomicU64> {
@@ -582,6 +795,7 @@ impl Engine {
             generations,
             keys,
             read,
+            event,
             done,
         } = spawn;
         let github = job.github();
@@ -593,7 +807,8 @@ impl Engine {
                 let mut generations = generations.into_iter();
                 match job {
                     Job::Projects(projects) => {
-                        sync_projects(&app, projects.into_iter().zip(generations).collect(), read).await
+                        let told = Told { read, event };
+                        sync_projects(&app, projects.into_iter().zip(generations).collect(), told).await
                     }
                     Job::Scope(project, state) => {
                         let generation = generations.next().expect("a generation per project");
@@ -710,10 +925,19 @@ impl Engine {
     }
 }
 
+/// Who a sync of pull requests answers to, beyond the snapshot it writes.
+#[derive(Clone, Copy, Default)]
+struct Told {
+    /// Someone is looking and is shown the old stamps: told of every project synced, changed
+    /// or not.
+    read: bool,
+    /// An event asked for it: a project GitHub could not answer for waits for its sync again.
+    event: bool,
+}
+
 /// Projects' open pull requests, each with its recent closed window for merge detection: fetched
-/// together (`github::fetch_repos`), then written project by project. `read`: a read found them
-/// stale and is shown the old stamps, so it is told of every project synced, changed or not.
-async fn sync_projects(app: &AppState, projects: Vec<(Project, Generation)>, read: bool) {
+/// together (`github::fetch_repos`), then written project by project.
+async fn sync_projects(app: &AppState, projects: Vec<(Project, Generation)>, told: Told) {
     // A snapshot older than this was not being kept up: what its sync finds happened while
     // nobody was looking, and is caught up on rather than told as it happens. Someone looking
     // syncs it once an interval, twice that when a read just misses, so the line is drawn well
@@ -750,12 +974,27 @@ async fn sync_projects(app: &AppState, projects: Vec<(Project, Generation)>, rea
     if queries.is_empty() {
         return;
     }
-    let results = github::fetch_repos(&queries).await;
+    let (results, budget) = github::fetch_repos(&queries).await;
+    if let Some(budget) = budget {
+        app.poller.budget(budget);
+    }
     // A refusal is an answer too: GitHub is reachable unless a fetch could not get one.
     let reached = !results.iter().any(|result| is_transient(result.as_ref().err()));
     report(app, Upstream::GitHub, reached).await;
+    if told.event {
+        // After the report: the breaker is open by now, and holds them until GitHub is back.
+        let unanswered: Vec<(Project, u64)> = fetched
+            .iter()
+            .zip(&results)
+            .filter(|(_, result)| is_transient(result.as_ref().err()))
+            .map(|((project, generation, _), _)| (project.clone(), generation.started))
+            .collect();
+        if !unanswered.is_empty() {
+            app.poller.unanswered(app, unanswered);
+        }
+    }
     for ((project, generation, previous), result) in fetched.into_iter().zip(results) {
-        record_prs(app, &generation, project, previous, result, read, away_after).await;
+        record_prs(app, &generation, project, previous, result, told.read, away_after).await;
     }
 }
 
@@ -766,7 +1005,7 @@ fn is_transient(error: Option<&github::SyncError>) -> bool {
 /// Tells the engine how an upstream answered a sync, and the app when that changed whether it
 /// is reachable: once when it goes down, once when it is back.
 async fn report(app: &AppState, upstream: Upstream, reached: bool) {
-    if let Some(reachable) = app.poller.outcome(upstream, reached).await {
+    if let Some(reachable) = app.poller.outcome(app, upstream, reached).await {
         if !reachable {
             tracing::warn!(upstream = upstream.name(), "unreachable; background syncs wait");
         }
@@ -1706,6 +1945,192 @@ mod snapshot_tests {
         })
         .await;
         assert_eq!(graphql_calls(&runner).len(), 1);
+    }
+
+    /// A scripted `gh` that answers a batched query with an empty page for each repository it
+    /// names.
+    fn empty_pages() -> Arc<cli::ScriptedRunner> {
+        Arc::new(cli::ScriptedRunner::new().on("gh", |args| {
+            let text = args.iter().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>().join(" ");
+            text.contains("graphql").then(|| {
+                let page = json!({"open":{"nodes":[],"pageInfo":{"hasNextPage":false}},"closed":{"nodes":[],"pageInfo":{"hasNextPage":false}}});
+                let mut data = serde_json::Map::new();
+                for index in 0..5 {
+                    if text.contains(&format!("o{index}=")) {
+                        data.insert(format!("r{index}"), page.clone());
+                    }
+                }
+                Ok(json!({"data":data}).to_string().into_bytes())
+            })
+        }))
+    }
+
+    async fn until_async<F: std::future::Future<Output = bool>>(condition: impl Fn() -> F) {
+        for _ in 0..500 {
+            if condition().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    async fn until(condition: impl Fn() -> bool) {
+        for _ in 0..500 {
+            if condition() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    /// The events of a moment are one sync, of every project they named together; and a project
+    /// is not synced again within the pace of its last sync however many events arrive, with
+    /// one sync at the end of the gap for what came during it.
+    #[tokio::test]
+    async fn events_are_gathered_into_one_sync_and_paced_per_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let projects = add_projects(&app, &["owner/a", "owner/b"]).await;
+        let runner = empty_pages();
+        let (gather, pace) = (Duration::from_millis(50), Duration::from_millis(1500));
+        let event = |project: &Project| {
+            let project = project.clone();
+            cli::scoped(runner.clone(), async { app.poller.changed_within(&app, project, gather, pace) })
+        };
+        event(&projects[0]).await;
+        event(&projects[0]).await;
+        event(&projects[1]).await;
+        until(|| !graphql_calls(&runner).is_empty()).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let calls = graphql_calls(&runner);
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].contains("n0=") && calls[0].contains("n1="), "both projects, together: {}", calls[0]);
+
+        // More events for one of them, inside the pace: nothing yet, then one sync for all of them.
+        event(&projects[0]).await;
+        event(&projects[0]).await;
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        assert_eq!(graphql_calls(&runner).len(), 1, "inside the pace");
+        until(|| graphql_calls(&runner).len() > 1).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let calls = graphql_calls(&runner);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[1].contains("n0=a") && !calls[1].contains("n1="), "only the project that changed: {}", calls[1]);
+    }
+
+    /// A project edited while its event's sync was failing is not set to wait again as it was:
+    /// what would be synced is the project before the edit.
+    #[tokio::test]
+    async fn a_project_edited_during_its_events_sync_does_not_wait_again_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let projects = add_projects(&app, &["owner/kept", "owner/edited"]).await;
+        let mut engine = Engine::default();
+        let mut tasks = JoinSet::new();
+        let (ack, acked) = oneshot::channel();
+        engine.handle(Msg::Invalidate(projects[1].id.clone(), ack), &mut tasks);
+        acked.await.unwrap();
+        // Both syncs started under generation 0; the second project has moved on since.
+        let unanswered = projects.iter().cloned().map(|project| (project, 0)).collect();
+        engine.handle(Msg::Unanswered { app: app.clone(), projects: unanswered }, &mut tasks);
+        assert_eq!(engine.pending.keys().collect::<Vec<_>>(), vec![&projects[0].id]);
+    }
+
+    /// The sync an event asked for meets an outage: the event is not lost. Its project waits
+    /// out the breaker and is synced when GitHub is back, with nobody looking and no new event.
+    #[tokio::test]
+    async fn an_event_whose_sync_meets_an_outage_is_synced_when_github_is_back() {
+        use std::sync::atomic::AtomicBool;
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let projects = add_projects(&app, &["owner/a"]).await;
+        let down = Arc::new(AtomicBool::new(true));
+        let runner = Arc::new(cli::ScriptedRunner::new().on("gh", {
+            let down = down.clone();
+            move |args| {
+                args.iter().any(|arg| arg == "graphql").then(|| {
+                    if down.load(Ordering::SeqCst) {
+                        return Err(cli::Failed::timed_out("gh", Duration::from_secs(20)));
+                    }
+                    Ok(br#"{"data":{"r0":{"open":{"nodes":[],"pageInfo":{"hasNextPage":false}},"closed":{"nodes":[],"pageInfo":{"hasNextPage":false}}}}}"#.to_vec())
+                })
+            }
+        }));
+        let changed = projects[0].clone();
+        cli::scoped(runner.clone(), async {
+            app.poller.changed_within(&app, changed, Duration::from_millis(20), Duration::ZERO)
+        })
+        .await;
+        until(|| graphql_calls(&runner).len() == 1).await;
+        until_async(|| async { !app.poller.unreachable().await.is_empty() }).await;
+        assert_eq!(app.poller.unreachable().await[0].0, Upstream::GitHub);
+        // GitHub answers again, and the wait is cut short as a refresh someone asked for would
+        // cut it: a sync of another project reaches GitHub and closes the breaker.
+        down.store(false, Ordering::SeqCst);
+        let other = add_projects(&app, &["owner/other"]).await.remove(0);
+        cli::scoped(runner.clone(), app.poller.sync_project(&app, other)).await;
+        until(|| graphql_calls(&runner).iter().filter(|call| call.contains("n0=a")).count() == 2).await;
+        // The sync is written a moment after GitHub answers.
+        let synced = || async {
+            let snapshot = app.db.pr_snapshot(&projects[0].id, "open", None).await.unwrap();
+            snapshot.is_some_and(|snapshot| snapshot.last_synced.is_some())
+        };
+        until_async(synced).await;
+        assert!(synced().await, "the event's project was synced: {:?}", graphql_calls(&runner));
+    }
+
+    /// With GitHub's allowance nearly spent, an event's sync waits for the hour to turn, while
+    /// a sync someone is looking for still runs.
+    #[tokio::test]
+    async fn events_wait_while_the_rate_allowance_is_nearly_spent() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let projects = add_projects(&app, &["owner/a", "owner/b"]).await;
+        let runner = empty_pages();
+        app.poller.budget(github::Budget { remaining: 100, limit: 5000, reset_in: Duration::from_millis(1200) });
+        let changed = projects[0].clone();
+        cli::scoped(runner.clone(), async {
+            app.poller.changed_within(&app, changed, Duration::from_millis(20), Duration::ZERO)
+        })
+        .await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(graphql_calls(&runner).is_empty(), "nobody is waiting on it");
+        cli::scoped(runner.clone(), app.poller.sync_stale(&app, unsynced(&projects[1..]), Duration::from_secs(60))).await;
+        let calls = graphql_calls(&runner);
+        assert_eq!(calls.len(), 1, "someone is looking: {calls:?}");
+        assert!(calls[0].contains("n0=b"), "{}", calls[0]);
+        // The hour turns: the event's sync runs.
+        until(|| graphql_calls(&runner).len() > 1).await;
+        let calls = graphql_calls(&runner);
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[1].contains("n0=a"), "{}", calls[1]);
+    }
+
+    /// A forwarded pull request event of any kind refreshes its project's snapshot, whoever is
+    /// or is not looking; one for a repository no project tracks does nothing.
+    #[tokio::test]
+    async fn a_forwarded_pull_request_event_refreshes_its_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let projects = add_projects(&app, &["owner/repo"]).await;
+        let mut events = app.events.subscribe();
+        let runner = empty_pages();
+        let forwarded = |repo: &'static str| {
+            let mut headers = axum::http::HeaderMap::new();
+            headers.insert("x-github-event", "pull_request".parse().unwrap());
+            let body = json!({"action":"review_requested","repository":{"full_name":repo},"pull_request":{"number":7}});
+            crate::integrations::github_webhook(axum::extract::State(app.clone()), headers, axum::Json(body))
+        };
+        cli::scoped(runner.clone(), async {
+            forwarded("someone/else").await;
+            forwarded("Owner/Repo").await;
+        })
+        .await;
+        let event = tokio::time::timeout(GATHER + Duration::from_secs(5), events.recv()).await.unwrap().unwrap();
+        assert_eq!((&event["type"], &event["projectId"]), (&json!("sync"), &json!(projects[0].id)));
+        let calls = graphql_calls(&runner);
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].contains("n0=repo"), "{}", calls[0]);
     }
 
     /// Opening the tray is a read of the same snapshots, and syncs the stale ones behind it too:

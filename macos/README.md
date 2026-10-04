@@ -168,8 +168,9 @@ workflow fields of the project.
 
 Automation can forward GitHub events and apply Fix Versions and status transitions
 to linked Jira tickets after a PR merges. Version preview evaluates the draft
-without creating a Jira version. Polling still handles merges when webhook
-forwarding is unavailable.
+without creating a Jira version. Forwarded events also refresh the project's pull
+requests as they happen; when webhook forwarding is unavailable they refresh behind a
+look, and the automations' polling still handles merges.
 
 ## Diff and editor
 

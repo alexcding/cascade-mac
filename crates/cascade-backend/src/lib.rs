@@ -85,10 +85,9 @@ impl AppState {
 }
 
 /// Starts the background services once the loopback listener is bound: the sync engine, and
-/// the webhook forwarders for the repos the armed PR pipelines cover. The wiring lives here so
+/// the webhook forwarders for the repos of the projects that forward. The wiring lives here so
 /// `integrations` need not know which module decides what is forwarded. The old per-project
-/// merge settings become pipelines first, before the first sync can act on them and before the
-/// forwarders ask which repos those pipelines cover.
+/// merge settings become pipelines first, before the first sync can act on them.
 pub async fn start_background(state: &AppState, port: u16) {
     automation::start(state).await;
     state.poller.start(state.clone());

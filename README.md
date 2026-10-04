@@ -77,8 +77,10 @@ queue, and Jira tickets one click away. It's free and open source under the
   closed pull requests, and Jira transitions.
 - GitHub and Jira refresh while you look: when you open the dashboard, a board or the menu
   bar item, when you come back to the app, and every minute while it stays in front. Cached
-  data shows meanwhile, with how long ago it was updated. In the background nothing is
-  fetched, except for projects an automation watches. Change the interval in
+  data shows meanwhile, with how long ago it was updated. In the background a project is
+  fetched only when GitHub says one of its pull requests changed (**Forward GitHub
+  webhooks**, on by default, for repositories you administer) or an automation watches it,
+  and never more often than the interval. Change the interval in
   **Settings → Integrations**.
 
 ### Jira and GitHub issues without leaving the code
@@ -108,9 +110,9 @@ Build pipelines in the **Automation** screen that watch every project:
   the branch, rerun failed checks, and mark ready for review. On Jira: transition, set
   a Fix Version, comment, assign, and label.
 - **Try before it acts.** Dry-run a pipeline on a sample event before switching it on.
-- **React right away.** Pipelines run on Cascade's regular sync. Turn on **Forward
-  webhooks to automations** in **Settings → Integrations** to react as soon as GitHub
-  sends an event.
+- **React right away.** Pipelines run on Cascade's regular sync. With **Forward GitHub
+  webhooks** on in **Settings → Integrations**, they react as soon as GitHub sends an
+  event.
 - Per-project merge settings from earlier versions become a pipeline automatically.
 
 ### Multi-step workflows
@@ -149,7 +151,7 @@ Cascade works with the tools you already use. Connect only the ones you need:
 | Claude Code or Codex | Agent sessions using your installed CLI and its existing account. Choose **Shell only** to work without an agent. |
 | [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/guides/install-macos/) | Jira tickets and status transitions. Sign in with `acli jira auth login`. |
 | Jira API token | Sprint board columns and Fix Version automation. Add it in **Settings → Integrations**. |
-| [`gh-webhook`](https://github.com/cli/gh-webhook) | Sends GitHub events to automation pipelines as they happen. Optional; polling works without it. |
+| [`gh-webhook`](https://github.com/cli/gh-webhook) | Sends GitHub's pull request events to Cascade as they happen, so pull requests refresh and automations run at once. Optional; without it pull requests refresh when you look at them. |
 | Node.js 20 or later | The iOS Simulator preview. |
 | [`ccusage`](https://github.com/ryoppippi/ccusage) | The AI spend figures. Cascade runs it through `bunx` or `npx` if it isn't installed. |
 

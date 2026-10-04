@@ -308,6 +308,17 @@ pub struct RepoQuery {
 /// closed ones, as `fetch_recent_closed` returns them.
 pub type RepoPrs = Result<(Vec<Value>, Vec<Value>), SyncError>;
 
+/// What is left of the hour's GraphQL allowance, as a batched query's answer reports it for
+/// free. The allowance is the signed-in account's, shared with everything else that uses it,
+/// `gh` at the person's own hands included.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    pub remaining: u64,
+    pub limit: u64,
+    /// How long until the allowance is whole again.
+    pub reset_in: Duration,
+}
+
 /// Open and recently closed pull requests for several repositories, `REPOS_PER_QUERY` to one
 /// GraphQL query rather than two queries each, one query after another; answers in the order
 /// asked. A repository whose first page does not hold everything (over `BATCH_PAGE` open, or a
@@ -315,9 +326,10 @@ pub type RepoPrs = Result<(Vec<Value>, Vec<Value>), SyncError>;
 /// asked again repository by repository, so a renamed or inaccessible one fails alone; once
 /// GitHub could not be reached at all (`Fault::Transient`), nothing more is asked: asking again
 /// would only meet the same outage once more for each.
-pub async fn fetch_repos(repos: &[RepoQuery]) -> Vec<RepoPrs> {
+pub async fn fetch_repos(repos: &[RepoQuery]) -> (Vec<RepoPrs>, Option<Budget>) {
     let me = cached_login().await;
     let mut results: Vec<Option<RepoPrs>> = repos.iter().map(|_| None).collect();
+    let mut budget = None;
     // The first failure that was GitHub's own. Once there is one, nothing more is asked: every
     // repository not answered yet fails with it.
     let mut outage: Option<SyncError> = None;
@@ -328,7 +340,8 @@ pub async fn fetch_repos(repos: &[RepoQuery]) -> Vec<RepoPrs> {
         }
         let chunk: Vec<&RepoQuery> = indexes.iter().map(|index| &repos[*index]).collect();
         match fetch_chunk(&chunk).await {
-            Ok(pages) => {
+            Ok((pages, left)) => {
+                budget = left.or(budget);
                 for (index, page) in indexes.iter().zip(pages) {
                     let query = &repos[*index];
                     let result = match page.map(|page| whole(query, page, me.as_deref())) {
@@ -371,7 +384,8 @@ pub async fn fetch_repos(repos: &[RepoQuery]) -> Vec<RepoPrs> {
         outage = outage.or_else(|| outage_of(&result));
         results[index] = Some(result);
     }
-    results.into_iter().map(|result| result.expect("every repository is answered")).collect()
+    let results = results.into_iter().map(|result| result.expect("every repository is answered")).collect();
+    (results, budget)
 }
 
 /// The failure, when a repository's fetch failed because GitHub could not answer.
@@ -387,7 +401,7 @@ struct RepoPage {
     closed_more: bool,
 }
 
-async fn fetch_chunk(chunk: &[&RepoQuery]) -> Result<Vec<Result<RepoPage>>> {
+async fn fetch_chunk(chunk: &[&RepoQuery]) -> Result<(Vec<Result<RepoPage>>, Option<Budget>)> {
     let open_fields = format!("{CORE_FIELDS}\n{CLOSING_FIELDS}\n{CI_FIELDS}");
     let closed_fields = closed_fields();
     let order = "orderBy:{field:UPDATED_AT,direction:DESC}";
@@ -414,12 +428,25 @@ async fn fetch_chunk(chunk: &[&RepoQuery]) -> Result<Vec<Result<RepoPage>>> {
         "api".to_owned(),
         "graphql".into(),
         "-f".into(),
-        format!("query=query({}){{{}}}", declared.join(","), selections.join(" ")),
+        format!(
+            "query=query({}){{{} rateLimit{{remaining limit resetAt}}}}",
+            declared.join(","),
+            selections.join(" ")
+        ),
     ];
     args.extend(variables);
     let out = cli::run("gh", &args, SYNC_TIMEOUT).await?;
     let parsed: Value = serde_json::from_str(&out).context("parse gh GraphQL response")?;
-    Ok(chunk
+    let budget = parsed.pointer("/data/rateLimit").and_then(|left| {
+        let reset = chrono::DateTime::parse_from_rfc3339(left.get("resetAt")?.as_str()?).ok()?;
+        let reset_in = reset.with_timezone(&chrono::Utc).signed_duration_since(chrono::Utc::now());
+        Some(Budget {
+            remaining: left.get("remaining")?.as_u64()?,
+            limit: left.get("limit")?.as_u64()?,
+            reset_in: reset_in.to_std().unwrap_or_default(),
+        })
+    });
+    let pages = chunk
         .iter()
         .enumerate()
         .map(|(index, query)| {
@@ -452,7 +479,8 @@ async fn fetch_chunk(chunk: &[&RepoQuery]) -> Result<Vec<Result<RepoPage>>> {
             let (closed, closed_more) = list("closed")?;
             Ok(RepoPage { open, open_more, closed, closed_more })
         })
-        .collect())
+        .collect();
+    Ok((pages, budget))
 }
 
 /// A repository's lists, when its first page holds all of both; otherwise the page back, with

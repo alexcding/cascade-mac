@@ -220,8 +220,21 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   the new build is opened outside the terminal with `open -n`. A copy that cannot hear the ask is
   ended as any other app is.
 - **`acli` flags**: `workitem transition --key K --status S --yes`; use `--json` for reads.
-- **`gh webhook` extension may be missing.** Polling still catches merges. Install it with
+- **`gh webhook` extension may be missing.** Then nothing is pushed: pull requests refresh
+  behind a look, and the automations' loop still catches merges. Install it with
   `gh extension install cli/gh-webhook`.
+- **A forwarded pull request event refreshes its project.** Every project that forwards
+  (`automation::forward_repos`: forwarding on, the project's own switch on, a repo) runs a
+  `gh webhook forward`, pipeline or none, and every `pull_request` event it delivers
+  (`integrations.rs` `github_webhook`) tells the engine the project changed (`Poller::changed`).
+  That is how a snapshot is kept up with nobody looking at it, and it is held in: events are
+  gathered for two seconds so a burst is one batched query, a project is not synced again
+  within the poll interval of its last sync (one sync at the end of the gap covers what came
+  during it), and nothing is synced on an event's word while GitHub is failing or under a
+  fifth of the hour's rate allowance is left (`poller.rs` `Budget`, read from each batched
+  query's `rateLimit`; it holds events only, never a look or an automation's poll). An event
+  is not lost to an outage: a project its sync could not reach GitHub for waits again, and is
+  synced when GitHub answers. A merge is still told at once, for the pipelines that act on one.
 - **Build is arm64-only**, ad-hoc signed for local use.
 - Tray status icon: always **black/white** (the menu bar's own, a template glyph), with no review
   marker; pending reviews show in its tooltip and menu. `contentTintColor` on a status item comes

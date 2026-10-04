@@ -1,6 +1,622 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Automations are paused. Forwarded events still refresh pull requests." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "অটোমেশন বিরতিতে আছে। পাঠানো ইভেন্ট তবুও পুল রিকোয়েস্ট রিফ্রেশ করে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las automatizaciones están pausadas. Los eventos reenviados siguen actualizando las solicitudes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les automatisations sont en pause. Les événements transférés actualisent toujours les pull requests."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "स्वचालन रुके हुए हैं। भेजे गए इवेंट फिर भी पुल रिक्वेस्ट रीफ़्रेश करते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le automazioni sono in pausa. Gli eventi inoltrati aggiornano comunque le pull request."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化は一時停止中です。転送されたイベントによるプルリクエストの更新は続きます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "자동화가 일시 정지되었습니다. 전달된 이벤트는 계속 풀 리퀘스트를 새로 고칩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As automações estão pausadas. Eventos encaminhados continuam atualizando os pull requests."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизация приостановлена. Переданные события по-прежнему обновляют пул-реквесты."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatiseringarna är pausade. Vidarebefordrade händelser uppdaterar fortfarande pull requests."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动化已暂停。转发的事件仍会刷新拉取请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化已暫停。轉送的事件仍會重新整理提取要求。"
+          }
+        }
+      }
+    },
+    "Forward GitHub webhooks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub ওয়েবহুক পাঠান"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reenviar webhooks de GitHub"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transférer les webhooks GitHub"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub वेबहुक भेजें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inoltra i webhook di GitHub"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub の Webhook を転送"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 웹훅 전달"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encaminhar webhooks do GitHub"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передавать вебхуки GitHub"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vidarebefordra GitHub-webhookar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转发 GitHub Webhook"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轉送 GitHub Webhook"
+          }
+        }
+      }
+    },
+    "Install the gh webhook extension to forward events. Until then, pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ইভেন্ট পাঠাতে gh webhook এক্সটেনশন ইনস্টল করুন। ততক্ষণ পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instala la extensión gh webhook para reenviar eventos. Hasta entonces, las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installez l’extension gh webhook pour transférer les événements. En attendant, les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इवेंट भेजने के लिए gh webhook एक्सटेंशन इंस्टॉल करें। तब तक पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installa l’estensione gh webhook per inoltrare gli eventi. Fino ad allora, le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "イベントを転送するには gh webhook 拡張機能をインストールしてください。それまでは、プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이벤트를 전달하려면 gh webhook 확장을 설치하세요. 그때까지 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instale a extensão gh webhook para encaminhar eventos. Até lá, os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установите расширение gh webhook для передачи событий. До тех пор пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installera tillägget gh webhook för att vidarebefordra händelser. Tills dess uppdateras pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 gh webhook 扩展以转发事件。在此之前，拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安裝 gh webhook 擴充功能以轉送事件。在此之前，提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
+    "No project has a repository to forward." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো প্রকল্পে পাঠানোর মতো রিপোজিটরি নেই।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ningún proyecto tiene un repositorio que reenviar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet n’a de dépôt à transférer."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "किसी प्रोजेक्ट में भेजने के लिए रिपॉज़िटरी नहीं है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun progetto ha un repository da inoltrare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "転送するリポジトリを持つプロジェクトがありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "전달할 저장소가 있는 프로젝트가 없습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum projeto tem um repositório para encaminhar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ни у одного проекта нет репозитория для передачи."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inget projekt har något kodförråd att vidarebefordra."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有项目有可转发的仓库。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有專案有可轉送的儲存庫。"
+          }
+        }
+      }
+    },
+    "Pull request events reach Cascade as they happen: pull requests refresh and automations run at once. When disabled or unavailable, pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটলেই Cascade-এ পৌঁছায়: পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। বন্ধ বা অনুপলব্ধ থাকলে পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los eventos de solicitudes llegan a Cascade al producirse: las solicitudes se actualizan y las automatizaciones se ejecutan al instante. Si se desactiva o no está disponible, las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les événements de pull requests parviennent à Cascade immédiatement : les pull requests s’actualisent et les automatisations s’exécutent aussitôt. Si la fonction est désactivée ou indisponible, les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँचते हैं: पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह बंद या अनुपलब्ध हो तो पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli eventi delle pull request arrivano subito a Cascade: le pull request si aggiornano e le automazioni vengono eseguite all’istante. Se la funzione è disattivata o non disponibile, le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プルリクエストのイベントは発生時に Cascade へ届き、プルリクエストの更新と自動化の実行がすぐに行われます。無効または利用できない場合、プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "풀 리퀘스트 이벤트가 발생하면 Cascade에 즉시 전달되어 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 비활성화되거나 사용할 수 없으면 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eventos de pull requests chegam ao Cascade assim que ocorrem: os pull requests são atualizados e as automações são executadas na hora. Quando desativado ou indisponível, os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "События пул-реквестов сразу передаются в Cascade: пул-реквесты обновляются, а автоматизация запускается немедленно. Если функция отключена или недоступна, пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pull request-händelser når Cascade direkt: pull requests uppdateras och automatiseringar körs genast. Om funktionen är avstängd eller otillgänglig uppdateras pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拉取请求事件会即时发送至 Cascade：拉取请求随即刷新，自动化立即运行。禁用或不可用时，拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提取要求事件會即時傳送至 Cascade：提取要求隨即重新整理，自動化立即執行。停用或無法使用時，提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
+    "Pull request events reach Cascade as they happen: this project's pull requests refresh and automations run at once. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, this project's pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটার সঙ্গে সঙ্গেই Cascade-এ পৌঁছায়: এই প্রকল্পের পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। এই বিকল্প চালু থাকলে Cascade চলার সময় রিপোজিটরিতে একটি ওয়েবহুক যোগ করে। এর জন্য ওই রিপোজিটরিতে অ্যাডমিন অ্যাক্সেস প্রয়োজন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি ওয়েবহুকই অনুমোদন করে, তাই একসঙ্গে কেবল একজন ইভেন্ট পাঠাতে পারেন। বিকল্পটি বন্ধ থাকলে এই প্রকল্পের পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los eventos de las solicitudes de incorporación de cambios llegan a Cascade en cuanto se producen: las solicitudes de este proyecto se actualizan y las automatizaciones se ejecutan al instante. Al activar esta opción, Cascade añade un webhook al repositorio mientras está en ejecución. Para ello, se necesita acceso de administrador al repositorio. GitHub solo permite un webhook de este tipo por repositorio, por lo que solo una persona puede reenviar sus eventos a la vez. Si se desactiva esta opción, las solicitudes de este proyecto se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les événements de pull request parviennent à Cascade dès qu’ils se produisent : les pull requests de ce projet s’actualisent et les automatisations s’exécutent aussitôt. Lorsque cette option est activée, Cascade ajoute un webhook au dépôt pendant son exécution, ce qui nécessite des droits d’administration sur le dépôt. GitHub n’autorise qu’un seul webhook de ce type par dépôt : une seule personne peut donc en transférer les événements à la fois. Si l’option est désactivée, les pull requests de ce projet s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँच जाते हैं: इस प्रोजेक्ट के पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह विकल्प चालू होने पर Cascade चलने के दौरान रिपॉज़िटरी में एक वेबहुक जोड़ता है। इसके लिए उस रिपॉज़िटरी पर एडमिन अधिकार चाहिए। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक वेबहुक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इवेंट भेज सकता है। विकल्प बंद होने पर इस प्रोजेक्ट के पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli eventi delle pull request raggiungono Cascade non appena si verificano: le pull request di questo progetto si aggiornano e le automazioni vengono eseguite all’istante. Quando questa opzione è attiva, Cascade aggiunge un webhook al repository durante l’esecuzione. Per farlo, sono necessari i permessi di amministratore del repository. GitHub consente un solo webhook di questo tipo per repository, quindi solo una persona alla volta può inoltrarne gli eventi. Quando l’opzione è disattivata, le pull request di questo progetto si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プルリクエストのイベントは発生と同時に Cascade に届き、このプロジェクトのプルリクエストの更新と自動化の実行がすぐに行われます。この設定をオンにすると、Cascade の実行中にリポジトリに Webhook が追加されます。これにはリポジトリの管理者権限が必要です。GitHub で許可されるこの種類の Webhook はリポジトリごとに 1 つだけなので、同時にイベントを転送できるのは 1 人だけです。オフの場合、このプロジェクトのプルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "풀 리퀘스트 이벤트가 발생하는 즉시 Cascade에 전달되어 이 프로젝트의 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 이 옵션을 켜면 Cascade가 실행되는 동안 저장소에 웹훅이 추가됩니다. 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소당 이 유형의 웹훅을 하나만 허용하므로 한 번에 한 사람만 이벤트를 전달할 수 있습니다. 옵션을 끄면 이 프로젝트의 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os eventos de pull request chegam ao Cascade assim que ocorrem: os pull requests deste projeto são atualizados e as automações são executadas na hora. Com esta opção ativada, o Cascade adiciona um webhook ao repositório enquanto está em execução. Isso exige acesso de administrador ao repositório. O GitHub permite apenas um webhook desse tipo por repositório, portanto só uma pessoa pode encaminhar os eventos dele por vez. Com a opção desativada, os pull requests deste projeto são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "События пул-реквестов поступают в Cascade сразу: пул-реквесты этого проекта обновляются, а автоматизации запускаются немедленно. Если этот параметр включён, Cascade на время своей работы добавляет в репозиторий вебхук. Для этого нужны права администратора репозитория. GitHub разрешает только один такой вебхук на репозиторий, поэтому передавать его события может только один человек одновременно. Если параметр выключен, пул-реквесты этого проекта обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pull request-händelser når Cascade direkt när de inträffar: projektets pull requests uppdateras och automatiseringarna körs genast. När alternativet är på lägger Cascade till en webhook i kodförrådet medan appen körs. Det kräver administratörsbehörighet till kodförrådet. GitHub tillåter bara en sådan webhook per kodförråd, så bara en person i taget kan vidarebefordra händelserna. När alternativet är av uppdateras projektets pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拉取请求事件会即时送达 Cascade：此项目的拉取请求随即刷新，自动化立即运行。启用后，Cascade 会在运行期间向仓库添加一个 Webhook，这需要该仓库的管理员权限。GitHub 每个仓库只允许一个此类 Webhook，因此同一时间只能由一人转发事件。关闭后，此项目的拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提取要求事件會即時送達 Cascade：此專案的提取要求隨即重新整理，自動化立即執行。啟用後，Cascade 會在執行期間向儲存庫加入一個 Webhook，這需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個此類 Webhook，因此同一時間只能由一人轉送事件。關閉後，此專案的提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
+    "Repositories forwarding events: %lld of %lld. The rest refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ইভেন্ট পাঠাচ্ছে এমন রিপোজিটরি: %lld, মোট %lld। বাকিগুলো আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repositorios que reenvían eventos: %lld de %lld. El resto se actualiza cuando lo miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dépôts transférant des événements : %lld sur %lld. Les autres s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इवेंट भेज रही रिपॉज़िटरी: %lld, कुल %lld। बाकी तब रीफ़्रेश होती हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repository che inoltrano eventi: %lld su %lld. Gli altri si aggiornano quando li guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "イベントを転送中のリポジトリ：%lld／%lld。残りは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이벤트를 전달하는 저장소: %lld / %lld. 나머지는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repositórios encaminhando eventos: %lld de %lld. Os demais são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Репозитории, передающие события: %lld из %lld. Остальные обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodförråd som vidarebefordrar händelser: %lld av %lld. Resten uppdateras när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在转发事件的仓库数：%lld，共 %lld 个。其余仓库会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在轉送事件的儲存庫數：%lld，共 %lld 個。其餘儲存庫會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
+    "Webhook forwarding is off. Pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ওয়েবহুক পাঠানো বন্ধ। পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El reenvío de webhooks está desactivado. Las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le transfert des webhooks est désactivé. Les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "वेबहुक भेजना बंद है। पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’inoltro dei webhook è disattivato. Le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook の転送はオフです。プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "웹훅 전달이 꺼져 있습니다. 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O encaminhamento de webhooks está desativado. Os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передача вебхуков отключена. Пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vidarebefordran av webhookar är avstängd. Pull requests uppdateras när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook 转发已关闭。拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook 轉送已關閉。提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
     "Workflow" : {
 
     },
@@ -14146,83 +14762,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "自動化可回應各專案的 GitHub 和 Jira 事件。啟用管線前，請先試執行。Jira 看板欄位和修正版本功能也需要 Jira API 權杖。"
-          }
-        }
-      }
-    },
-    "Automations are paused. Forwarded events are ignored until you resume them." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "অটোমেশন বিরতিতে আছে। আবার চালু না করা পর্যন্ত পাঠানো ইভেন্ট উপেক্ষা করা হবে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las automatizaciones están pausadas. Se ignoran los eventos reenviados hasta que las reanudes."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les automatisations sont en pause. Les événements transférés sont ignorés jusqu’à leur reprise."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "स्वचालन रुके हुए हैं। फिर शुरू करने तक भेजे गए इवेंट अनदेखे रहेंगे।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le automazioni sono in pausa. Gli eventi inoltrati vengono ignorati finché non le riprendi."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動化は一時停止中です。再開するまで転送されたイベントは無視されます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "자동화가 일시 정지되었습니다. 재개할 때까지 전달된 이벤트는 무시됩니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "As automações estão pausadas. Eventos encaminhados são ignorados até que você as retome."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Автоматизация приостановлена. Переданные события игнорируются до её возобновления."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Automatiseringarna är pausade. Vidarebefordrade händelser ignoreras tills du återupptar dem."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动化已暂停。恢复前会忽略转发的事件。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自動化已暫停。恢復前會忽略轉送的事件。"
           }
         }
       }
@@ -42463,83 +43002,6 @@
         }
       }
     },
-    "Forward webhooks to automations" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ওয়েবহুক অটোমেশনে পাঠান"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reenviar webhooks a automatizaciones"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Transférer les webhooks aux automatisations"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "वेबहुक स्वचालन को भेजें"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Inoltra webhook alle automazioni"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Webhook を自動化に転送"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "웹훅을 자동화로 전달"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Encaminhar webhooks às automações"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Передавать вебхуки автоматизации"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vidarebefordra webhookar till automatiseringar"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "将 Webhook 转发至自动化"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "將 Webhook 轉送至自動化"
-          }
-        }
-      }
-    },
     "Forwarding" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -47802,83 +48264,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "安裝狀態列"
-          }
-        }
-      }
-    },
-    "Install the gh webhook extension to forward events. Cascade will keep checking for updates on its regular schedule." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ইভেন্ট পাঠাতে gh webhook এক্সটেনশন ইনস্টল করুন। Cascade নিয়মিত সময়সূচি অনুযায়ী আপডেট দেখতে থাকবে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instala la extensión gh webhook para reenviar eventos. Cascade seguirá comprobando actualizaciones con su frecuencia habitual."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installez l’extension gh webhook pour transférer les événements. Cascade continuera de vérifier les mises à jour à son intervalle habituel."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "इवेंट भेजने के लिए gh webhook एक्सटेंशन इंस्टॉल करें। Cascade नियमित अंतराल पर अपडेट जाँचता रहेगा।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installa l’estensione gh webhook per inoltrare gli eventi. Cascade continuerà a controllare gli aggiornamenti secondo l’intervallo abituale."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "イベントを転送するには gh webhook 拡張機能をインストールしてください。Cascade は通常の間隔で更新の確認を続けます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이벤트를 전달하려면 gh webhook 확장을 설치하세요. Cascade는 계속 정기적으로 업데이트를 확인합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instale a extensão gh webhook para encaminhar eventos. O Cascade continuará verificando atualizações no intervalo habitual."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установите расширение gh webhook для передачи событий. Cascade продолжит проверять обновления по обычному расписанию."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installera tillägget gh webhook för att vidarebefordra händelser. Cascade fortsätter att söka efter uppdateringar enligt det vanliga schemat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装 gh webhook 扩展以转发事件。Cascade 仍会按常规计划检查更新。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安裝 gh webhook 擴充功能以轉送事件。Cascade 仍會按一般排程檢查更新。"
           }
         }
       }
@@ -60476,160 +60861,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "沒有名為 %@ 的編輯器主題。"
-          }
-        }
-      }
-    },
-    "No enabled pull request automation covers this project." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "এই প্রকল্পের জন্য কোনো পুল রিকোয়েস্ট অটোমেশন চালু নেই।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ninguna automatización activa de solicitudes de incorporación de cambios se aplica a este proyecto."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune automatisation de pull requests activée ne couvre ce projet."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "इस प्रोजेक्ट के लिए कोई पुल रिक्वेस्ट स्वचालन चालू नहीं है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nessuna automazione attiva per le pull request copre questo progetto."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このプロジェクトを対象とする有効なプルリクエストの自動化はありません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이 프로젝트를 대상으로 하는 활성화된 풀 리퀘스트 자동화가 없습니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nenhuma automação de pull requests ativada cobre este projeto."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ни одна включённая автоматизация пул-реквестов не охватывает этот проект."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ingen aktiverad pull request-automatisering omfattar det här projektet."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "没有已启用的拉取请求自动化适用于此项目。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "沒有已啟用的提取要求自動化適用於此專案。"
-          }
-        }
-      }
-    },
-    "No enabled pull request automation needs webhook forwarding." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "চালু কোনো পুল রিকোয়েস্ট অটোমেশনে ওয়েবহুক পাঠানোর প্রয়োজন নেই।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ninguna automatización activa de solicitudes necesita reenvío de webhooks."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aucune automatisation de pull requests activée ne nécessite le transfert de webhooks."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "किसी चालू पुल रिक्वेस्ट स्वचालन को वेबहुक भेजने की ज़रूरत नहीं है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nessuna automazione attiva delle pull request richiede l’inoltro dei webhook."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Webhook の転送を必要とする有効なプルリクエスト自動化はありません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "활성화된 풀 리퀘스트 자동화 중 웹훅 전달이 필요한 항목이 없습니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nenhuma automação ativa de pull requests precisa de encaminhamento de webhooks."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ни одной включённой автоматизации пул-реквестов не нужна передача вебхуков."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ingen aktiverad pull request-automatisering behöver vidarebefordran av webhookar."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "没有已启用的拉取请求自动化需要 Webhook 转发。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "沒有已啟用的提取要求自動化需要 Webhook 轉送。"
           }
         }
       }
@@ -74916,160 +75147,6 @@
         }
       }
     },
-    "Pull request events reach automations as they happen. When disabled or unavailable, Cascade checks for updates on its regular schedule." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটলেই অটোমেশনে পৌঁছায়। বন্ধ বা অনুপলব্ধ থাকলে Cascade নিয়মিত সময়সূচি অনুযায়ী আপডেট দেখে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los eventos de solicitudes llegan a las automatizaciones al producirse. Si se desactiva o no está disponible, Cascade comprueba las actualizaciones con su frecuencia habitual."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les événements de pull requests parviennent aux automatisations immédiatement. Si la fonction est désactivée ou indisponible, Cascade vérifie les mises à jour selon son intervalle habituel."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "पुल रिक्वेस्ट इवेंट होते ही स्वचालन तक पहुँचते हैं। यह बंद या अनुपलब्ध हो तो Cascade नियमित अंतराल पर अपडेट जाँचता है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gli eventi delle pull request arrivano subito alle automazioni. Se la funzione è disattivata o non disponibile, Cascade controlla gli aggiornamenti secondo l’intervallo abituale."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プルリクエストのイベントを発生時に自動化へ転送します。無効または利用できない場合は、通常の間隔で更新を確認します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "풀 리퀘스트 이벤트가 발생하면 자동화에 즉시 전달됩니다. 비활성화되거나 사용할 수 없으면 Cascade가 정기적으로 업데이트를 확인합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eventos de pull requests chegam às automações assim que ocorrem. Quando desativado ou indisponível, o Cascade verifica atualizações no intervalo habitual."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "События пул-реквестов сразу передаются автоматизации. Если функция отключена или недоступна, Cascade проверяет обновления по обычному расписанию."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pull request-händelser når automatiseringar direkt. Om funktionen är avstängd eller otillgänglig söker Cascade efter uppdateringar enligt det vanliga schemat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拉取请求事件会即时发送至自动化。禁用或不可用时，Cascade 会按常规计划检查更新。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "提取要求事件會即時傳送至自動化。停用或無法使用時，Cascade 會按一般排程檢查更新。"
-          }
-        }
-      }
-    },
-    "Pull request events reach automations as they happen. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, automations check pull requests on the regular refresh schedule." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটার সঙ্গে সঙ্গেই অটোমেশনে পৌঁছায়। এই বিকল্প চালু থাকলে Cascade চলার সময় রিপোজিটরিতে একটি ওয়েবহুক যোগ করে। এর জন্য ওই রিপোজিটরিতে অ্যাডমিন অ্যাক্সেস প্রয়োজন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি ওয়েবহুকই অনুমোদন করে, তাই একসঙ্গে কেবল একজন ইভেন্ট পাঠাতে পারেন। বিকল্পটি বন্ধ থাকলে অটোমেশন নিয়মিত রিফ্রেশের সময়সূচি অনুযায়ী পুল রিকোয়েস্ট পরীক্ষা করে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Los eventos de las solicitudes de incorporación de cambios llegan a las automatizaciones en cuanto se producen. Al activar esta opción, Cascade añade un webhook al repositorio mientras está en ejecución. Para ello, se necesita acceso de administrador al repositorio. GitHub solo permite un webhook de este tipo por repositorio, por lo que solo una persona puede reenviar sus eventos a la vez. Si se desactiva esta opción, las automatizaciones comprueban las solicitudes con la frecuencia de actualización habitual."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les événements de pull request parviennent aux automatisations dès qu’ils se produisent. Lorsque cette option est activée, Cascade ajoute un webhook au dépôt pendant son exécution, ce qui nécessite des droits d’administration sur le dépôt. GitHub n’autorise qu’un seul webhook de ce type par dépôt : une seule personne peut donc en transférer les événements à la fois. Si l’option est désactivée, les automatisations vérifient les pull requests à la fréquence d’actualisation habituelle."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "पुल रिक्वेस्ट इवेंट होते ही स्वचालन तक पहुँच जाते हैं। यह विकल्प चालू होने पर Cascade चलने के दौरान रिपॉज़िटरी में एक वेबहुक जोड़ता है। इसके लिए उस रिपॉज़िटरी पर एडमिन अधिकार चाहिए। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक वेबहुक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इवेंट भेज सकता है। विकल्प बंद होने पर स्वचालन नियमित रीफ़्रेश अंतराल पर पुल रिक्वेस्ट की जाँच करते हैं।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gli eventi delle pull request raggiungono le automazioni non appena si verificano. Quando questa opzione è attiva, Cascade aggiunge un webhook al repository durante l’esecuzione. Per farlo, sono necessari i permessi di amministratore del repository. GitHub consente un solo webhook di questo tipo per repository, quindi solo una persona alla volta può inoltrarne gli eventi. Quando l’opzione è disattivata, le automazioni controllano le pull request con la consueta frequenza di aggiornamento."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プルリクエストのイベントは発生と同時に自動化に届きます。この設定をオンにすると、Cascade の実行中にリポジトリに Webhook が追加されます。これにはリポジトリの管理者権限が必要です。GitHub で許可されるこの種類の Webhook はリポジトリごとに 1 つだけなので、同時にイベントを転送できるのは 1 人だけです。オフの場合、自動化は通常の更新間隔でプルリクエストを確認します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "풀 리퀘스트 이벤트가 발생하는 즉시 자동화에 전달됩니다. 이 옵션을 켜면 Cascade가 실행되는 동안 저장소에 웹훅이 추가됩니다. 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소당 이 유형의 웹훅을 하나만 허용하므로 한 번에 한 사람만 이벤트를 전달할 수 있습니다. 옵션을 끄면 자동화가 일반적인 새로 고침 주기에 따라 풀 리퀘스트를 확인합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os eventos de pull request chegam às automações assim que ocorrem. Com esta opção ativada, o Cascade adiciona um webhook ao repositório enquanto está em execução. Isso exige acesso de administrador ao repositório. O GitHub permite apenas um webhook desse tipo por repositório, portanto só uma pessoa pode encaminhar os eventos dele por vez. Com a opção desativada, as automações verificam os pull requests no intervalo de atualização habitual."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "События пул-реквестов поступают в автоматизации сразу. Если этот параметр включён, Cascade на время своей работы добавляет в репозиторий вебхук. Для этого нужны права администратора репозитория. GitHub разрешает только один такой вебхук на репозиторий, поэтому передавать его события может только один человек одновременно. Если параметр выключен, автоматизации проверяют пул-реквесты по обычному расписанию обновления."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pull request-händelser når automatiseringarna direkt när de inträffar. När alternativet är på lägger Cascade till en webhook i kodförrådet medan appen körs. Det kräver administratörsbehörighet till kodförrådet. GitHub tillåter bara en sådan webhook per kodförråd, så bara en person i taget kan vidarebefordra händelserna. När alternativet är av kontrollerar automatiseringarna pull requests enligt det vanliga uppdateringsschemat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拉取请求事件会即时送达自动化。启用后，Cascade 会在运行期间向仓库添加一个 Webhook，这需要该仓库的管理员权限。GitHub 每个仓库只允许一个此类 Webhook，因此同一时间只能由一人转发事件。关闭后，自动化会按常规刷新间隔检查拉取请求。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "提取要求事件會即時送達自動化。啟用後，Cascade 會在執行期間向儲存庫加入一個 Webhook，這需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個此類 Webhook，因此同一時間只能由一人轉送事件。關閉後，自動化會依一般重新整理間隔檢查提取要求。"
-          }
-        }
-      }
-    },
     "Pull request merged in %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -80462,83 +80539,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "回報者"
-          }
-        }
-      }
-    },
-    "Repositories forwarding events: %lld of %lld. Cascade checks the rest on its regular schedule." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ইভেন্ট পাঠাচ্ছে এমন রিপোজিটরি: %lld, মোট %lld। Cascade বাকিগুলো নিয়মিত সময়সূচি অনুযায়ী পরীক্ষা করে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Repositorios que reenvían eventos: %lld de %lld. Cascade comprueba el resto con su frecuencia habitual."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dépôts transférant des événements : %lld sur %lld. Cascade vérifie les autres selon son intervalle habituel."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "इवेंट भेज रही रिपॉज़िटरी: %lld, कुल %lld। Cascade बाकी को नियमित अंतराल पर जाँचता है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Repository che inoltrano eventi: %lld su %lld. Cascade controlla gli altri secondo l’intervallo abituale."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "イベントを転送中のリポジトリ：%lld／%lld。残りは通常の間隔で確認します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이벤트를 전달하는 저장소: %lld / %lld. 나머지는 Cascade가 정기적으로 확인합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Repositórios encaminhando eventos: %lld de %lld. O Cascade verifica os demais no intervalo habitual."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Репозитории, передающие события: %lld из %lld. Остальные Cascade проверяет по обычному расписанию."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kodförråd som vidarebefordrar händelser: %lld av %lld. Cascade kontrollerar resten enligt det vanliga schemat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在转发事件的仓库数：%lld，共 %lld 个。Cascade 会按常规计划检查其余仓库。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在轉送事件的儲存庫數：%lld，共 %lld 個。Cascade 會按一般排程檢查其餘儲存庫。"
           }
         }
       }
@@ -115717,83 +115717,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Webhook 轉送失敗"
-          }
-        }
-      }
-    },
-    "Webhook forwarding is off. Automations check pull request changes on the regular refresh schedule." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ওয়েবহুক পাঠানো বন্ধ। অটোমেশন নিয়মিত রিফ্রেশের সময়সূচি অনুযায়ী পুল রিকোয়েস্টের পরিবর্তন দেখে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "El reenvío de webhooks está desactivado. Las automatizaciones comprueban los cambios de solicitudes con la frecuencia habitual."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le transfert des webhooks est désactivé. Les automatisations vérifient les changements de pull requests selon l’intervalle habituel."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "वेबहुक भेजना बंद है। स्वचालन नियमित रीफ़्रेश अंतराल पर पुल रिक्वेस्ट के बदलाव जाँचता है।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "L’inoltro dei webhook è disattivato. Le automazioni controllano le modifiche alle pull request secondo l’intervallo abituale."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Webhook の転送はオフです。自動化は通常の更新間隔でプルリクエストの変更を確認します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "웹훅 전달이 꺼져 있습니다. 자동화는 정기 새로 고침 일정에 따라 풀 리퀘스트 변경을 확인합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O encaminhamento de webhooks está desativado. As automações verificam mudanças nos pull requests no intervalo habitual."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Передача вебхуков отключена. Автоматизация проверяет изменения пул-реквестов по обычному расписанию обновления."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vidarebefordran av webhookar är avstängd. Automatiseringarna kontrollerar pull request-ändringar enligt det vanliga uppdateringsschemat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Webhook 转发已关闭。自动化会按常规刷新计划检查拉取请求的变更。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Webhook 轉送已關閉。自動化會按一般重新整理排程檢查提取要求的變更。"
           }
         }
       }

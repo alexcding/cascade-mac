@@ -207,7 +207,7 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     model.refresh()
     for _ in 0..<200 where model.settings == nil { try await Task.sleep(for: .milliseconds(5)) }
     #expect(model.settings != nil && !model.enabled)
-    #expect(model.status == "Webhook forwarding is off. Automations check pull request changes on the regular refresh schedule.")
+    #expect(model.status == "Webhook forwarding is off. Pull requests refresh when you look at them.")
     await model.setEnabled(true)
     #expect(model.enabled && !model.saving)
     // On, but the extension the forwarders run is missing: the card says to install it.
@@ -232,7 +232,7 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     #expect(model.projects.map(\.repo) == ["o/record", "o/cascade"])
     #expect(WebhookForwardingViewModel.detail(blocked).label == "Blocked")
     #expect(WebhookForwardingViewModel.detail(running).tone == .success)
-    #expect(model.status == "Repositories forwarding events: 1 of 2. Cascade checks the rest on its regular schedule.")
+    #expect(model.status == "Repositories forwarding events: 1 of 2. The rest refresh when you look at them.")
     let fixing = Task { await model.fix("o/record") }
     for _ in 0..<200 where await service.fixedForwarders.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
     #expect(await service.fixedForwarders == ["o/record"])

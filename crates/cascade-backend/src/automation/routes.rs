@@ -277,9 +277,8 @@ pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
     // offers a fix for one whose forwarder cannot start.
     let global = super::forwarding(&app).await;
     let all = app.db.projects().await?;
-    let covered = super::pr_covered(&app, &all).await;
     let mut wanted: Vec<String> =
-        if global { super::forwarded(&all, &covered).into_iter().collect() } else { Vec::new() };
+        if global { super::forwarded(&all).into_iter().collect() } else { Vec::new() };
     wanted.sort();
     let statuses = app.forwarders.statuses().await;
     let projects: Vec<Value> = all
@@ -292,8 +291,6 @@ pub async fn get_settings(State(app): State<AppState>) -> ApiResult<Value> {
                 ("off", None)
             } else if !super::forwards(project) {
                 ("disabled", None)
-            } else if !covered.contains(id) {
-                ("idle", None)
             } else {
                 statuses.get(repo).map_or(("starting", None), |status| (status.state, status.error.clone()))
             };
@@ -360,7 +357,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let db = crate::Database::open(directory.path()).unwrap();
         let covered = db.add_project(json!({"name":"Covered","repo":"a/covered"}).as_object().unwrap()).await.unwrap();
-        db.add_project(json!({"name":"Idle","repo":"a/idle"}).as_object().unwrap()).await.unwrap();
+        db.add_project(json!({"name":"Plain","repo":"a/plain"}).as_object().unwrap()).await.unwrap();
         db.add_project(json!({"name":"Off","repo":"a/off","forwardWebhooks":false}).as_object().unwrap()).await.unwrap();
         db.add_project(json!({"name":"No repo"}).as_object().unwrap()).await.unwrap();
         let legacy: crate::Project = serde_json::from_value(json!({"id":covered.id,"name":"p","mergeTransition":"Done"})).unwrap();
@@ -375,9 +372,9 @@ mod tests {
             .iter()
             .map(|p| (p["repo"].as_str().unwrap().to_owned(), p["state"].as_str().unwrap().to_owned()))
             .collect();
-        // Covered and wanted, but no forwarder has started in a test: it is about to.
+        // Wanted, pipeline or none, but no forwarder has started in a test: it is about to.
         assert!(states.contains(&("a/covered".into(), "starting".into())));
-        assert!(states.contains(&("a/idle".into(), "idle".into())));
+        assert!(states.contains(&("a/plain".into(), "starting".into())));
         assert!(states.contains(&("a/off".into(), "disabled".into())));
         assert_eq!(states.len(), 3);
     }
