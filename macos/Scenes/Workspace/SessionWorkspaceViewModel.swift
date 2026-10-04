@@ -400,6 +400,15 @@ extension WorkspaceServing {
     /// The Live tab on screen: this workspace shown, its pane open on the tab.
     private var showsLive: Bool { active && showsBrowser && context?.activeTool == .live }
 
+    /// The effort the agent runs at: its name, and how far up its model's efforts it is, 0 to 1,
+    /// from the catalog's own order — 0 for one the catalog does not list, as `auto` is not.
+    var agentEffort: (name: String, fraction: Double)? {
+        guard let effort = agentSelection?.effort, !effort.isEmpty else { return nil }
+        let efforts = agentCatalog.model(agentSelection?.model)?.efforts ?? []
+        guard let index = efforts.firstIndex(where: { $0.id == effort }) else { return (effort, 0) }
+        return (efforts[index].name, Double(index + 1) / Double(efforts.count))
+    }
+
     /// What the session's agent is doing, as its terminal's hooks report it.
     enum AgentRunState { case notRunning, working, waiting, idle }
     var agentRunState: AgentRunState {

@@ -42,16 +42,20 @@ struct LiveActivity: Equatable {
     }
 
     /// One tool call: what it touched or ran, whether it is still running, and whether it failed.
+    /// `time` is its turn's: the transcript dates turns, not calls. `kind` is the backend's.
     struct Call: Equatable, Identifiable {
         let id: String
         let lane: Lane?
         let label: String
         let running: Bool
         let failed: Bool
+        var kind: String? = nil
+        var path: String? = nil
+        var time: Date? = nil
     }
 
-    /// The log keeps this many of the latest calls.
-    static let logLength = 6
+    /// The log keeps this many of the latest calls, and the files box this many files.
+    static let logLength = 6, fileCount = 3
 
     var counts: [Lane: Int] = [:]
     var calls = 0
@@ -64,6 +68,9 @@ struct LiveActivity: Equatable {
     var log: [Call] = []
     /// The subagents the turn under way started, oldest first.
     var subagents: [Call] = []
+    /// The files edited or created last, newest first, each once; an edit that failed changed
+    /// nothing, and is left out.
+    var files: [Call] = []
 
     /// A call with no output yet is running only while the agent is at work: one left without
     /// output by an interrupted turn is not.
@@ -74,11 +81,13 @@ struct LiveActivity: Equatable {
         for turn in turns {
             if turn.role == .user { activity.prompts += 1; continue }
             if let model = turn.model { activity.model = model }
+            let date = turn.date
             for (index, block) in turn.blocks.enumerated() where block.type == .tool {
                 let lane = Lane(kind: block.kind)
                 let running = busy && turn.id == current && block.output == nil
                 let call = Call(id: block.id ?? "\(turn.id)#\(index)", lane: lane,
-                                label: label(of: block), running: running, failed: block.isError == true)
+                                label: label(of: block), running: running, failed: block.isError == true,
+                                kind: block.kind, path: block.path, time: date)
                 all.append(call)
                 activity.calls += 1
                 if call.failed { activity.failures += 1 }
@@ -87,6 +96,11 @@ struct LiveActivity: Equatable {
             }
         }
         activity.log = Array(all.suffix(logLength))
+        var seen = Set<String>()
+        activity.files = Array(all.reversed().filter { call in
+            guard call.lane == .edit, !call.failed, let path = call.path, !path.isEmpty else { return false }
+            return seen.insert(path).inserted
+        }.prefix(fileCount))
         return activity
     }
 

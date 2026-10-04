@@ -37,6 +37,24 @@ import Testing
         #expect(activity.log.first { $0.id == "t3" }?.label == "ls", "a label is its first line")
     }
 
+    @Test func theFilesBoxHoldsTheLastFilesChangedEachOnce() {
+        func failed(_ id: String, _ path: String) -> TranscriptBlock {
+            TranscriptBlock(type: .tool, text: nil, id: id, name: "Tool", summary: path, command: nil, path: path,
+                            old: nil, new: nil, output: "no match", isError: true, kind: "edit")
+        }
+        func change(_ id: String, _ kind: String, _ path: String) -> TranscriptBlock {
+            TranscriptBlock(type: .tool, text: nil, id: id, name: "Tool", summary: path, command: nil, path: path,
+                            old: nil, new: nil, output: "done", isError: false, kind: kind)
+        }
+        let turns = [user("u1"), agent("a1", [change("t1", "edit", "/w/a.swift"), change("t2", "create", "/w/b.swift"),
+                                              change("t3", "read", "/w/c.swift"), change("t4", "edit", "/w/a.swift"),
+                                              change("t5", "edit", "/w/d.swift"), change("t6", "edit", "/w/e.swift"),
+                                              failed("t7", "/w/f.swift")])]
+        let files = LiveActivity.of(turns, busy: false).files
+        #expect(files.map(\.path) == ["/w/e.swift", "/w/d.swift", "/w/a.swift"], "newest first, each once, reads and failed edits left out, three at most")
+        #expect(files.last?.kind == "edit" && files.map(\.kind).allSatisfy { $0 == "edit" })
+    }
+
     @Test func nothingRunsOnceTheAgentStopsOrAPromptFollows() {
         let open = agent("a1", [tool("t1", kind: "run", label: "make", output: nil)])
         #expect(LiveActivity.of([user("u1"), open], busy: false).running.isEmpty, "an interrupted call is not running")
