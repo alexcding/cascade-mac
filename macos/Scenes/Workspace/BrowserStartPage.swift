@@ -20,7 +20,7 @@ struct BrowserStartPage: View {
     @State private var showingAllBookmarks = false
 
     static let tileRows = 2, historyRows = 1
-    static let tileMinimum: CGFloat = 92, tileSpacing: CGFloat = 8
+    static let tileMinimum: CGFloat = 120, tileSpacing: CGFloat = 8
     static let pagePadding: CGFloat = 24
     /// The one column the field and the sections under it share, so every left edge lines up.
     static let columnWidth: CGFloat = 680
@@ -37,7 +37,6 @@ struct BrowserStartPage: View {
             .map { WebPageRecord(id: $0.url, url: $0.url, title: $0.title) }
     }
 
-    static let recentFileLimit = 8
     private var root: String? { worktree.flatMap { $0.isEmpty ? nil : $0.hasSuffix("/") ? $0 : $0 + "/" } }
     /// Only this session's worktree: a context outlives and is shared between sessions, and another
     /// worktree's files are not a way back to anything here. Until the session names its worktree,
@@ -49,11 +48,13 @@ struct BrowserStartPage: View {
             guard case .file(let file) = visit, file.path.hasPrefix(root), !open.contains(file.path) else { return nil }
             return file
         }
-        return Array(files.prefix(Self.recentFileLimit))
+        // One row, as the history's.
+        return Array(files.prefix(tileColumns * Self.historyRows))
     }
 
     private func tileGrid<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum, maximum: 112), spacing: Self.tileSpacing, alignment: .topLeading)], spacing: 12, content: content)
+        // Spread across the column, as many as fit, each as wide as the rest.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: Self.tileMinimum), spacing: Self.tileSpacing, alignment: .top)], spacing: 8, content: content)
             .onGeometryChange(for: Int.self) { proxy in
                 max(1, Int((proxy.size.width + Self.tileSpacing) / (Self.tileMinimum + Self.tileSpacing)))
             } action: { tileColumns = $0 }
@@ -78,7 +79,7 @@ struct BrowserStartPage: View {
             VStack(spacing: 0) {
                 if !tools.isEmpty {
                     VStack(alignment: .leading, spacing: 14) {
-                        Text(String(localized: "Tools")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                        StartPageHeading(title: String(localized: "Tools"))
                         // Two columns where the pane is wide enough for both, one where it is not.
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 10) {
                             ForEach(tools) { StartPageToolRow(tool: $0) }
@@ -109,7 +110,7 @@ struct BrowserStartPage: View {
                     if !bookmarks.isEmpty {
                         let folded = tileColumns * Self.tileRows
                         HStack {
-                            Text(String(localized: "Bookmarks")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                            StartPageHeading(title: String(localized: "Bookmarks"))
                             Spacer()
                             if bookmarks.count > folded {
                                 Button(showingAllBookmarks ? String(localized: "Show Less") : String(localized: "Show More")) { showingAllBookmarks.toggle() }
@@ -127,11 +128,10 @@ struct BrowserStartPage: View {
                     }
                     if context.globalHistory?.entries.isEmpty == false || !recent.isEmpty {
                         Button { showingAll = true } label: {
-                            HStack(spacing: 6) {
-                                Text(String(localized: "History")).font(.title3.weight(.semibold))
-                                Image(systemName: "chevron.right").font(.body.weight(.semibold))
+                            HStack(spacing: 4) {
+                                StartPageHeading(title: String(localized: "History"))
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.textTertiary)
                             }
-                            .foregroundStyle(Theme.textSecondary)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -150,11 +150,11 @@ struct BrowserStartPage: View {
                         }
                     }
                     if !files.isEmpty {
-                        Text(String(localized: "Recent Files")).font(.title3.weight(.semibold)).foregroundStyle(Theme.textSecondary)
+                        StartPageHeading(title: String(localized: "Recent Files"))
                             .padding(.top, bookmarks.isEmpty && recent.isEmpty ? 0 : 16)
-                        LazyVStack(alignment: .leading, spacing: 2) {
+                        tileGrid {
                             ForEach(files) { file in
-                                RecentFileRow(file: file, root: root) {
+                                RecentFileTile(file: file) {
                                     controls.setEditingAddress(false)
                                     reopenFile(file)
                                 }
@@ -353,70 +353,72 @@ private struct StartPageTile: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
         Button(action: open) {
-            VStack(spacing: 8) {
-                ZStack {
-                    shape.fill(Theme.surfaceHover)
-                    if let image = store.image(forURL: record.url), Self.isTileArtwork(image) {
-                        Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-                            .padding(Self.bleedsToEdges(image) ? 0 : 8)
-                    } else {
-                        FaviconImage(url: record.url, size: 32)
-                    }
+            StartPageTileLabel(title: record.title.isEmpty ? host : record.title, hovering: hovering) {
+                if let image = store.image(forURL: record.url), Self.isTileArtwork(image) {
+                    // Square artwork gets the app-icon corners; anything else is drawn as it is.
+                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: Self.bleedsToEdges(image) ? 8 : 0, style: .continuous))
+                } else {
+                    FaviconImage(url: record.url, size: startPageIconSize)
                 }
-                .frame(width: 64, height: 64)
-                .clipShape(shape)
-                .overlay(shape.strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
-                .scaleEffect(hovering ? 1.05 : 1)
-                Text(record.title.isEmpty ? host : record.title)
-                    .font(.callout).lineLimit(2).multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, alignment: .top)
             }
-            .padding(8)
-            .frame(maxWidth: .infinity)
-            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(record.url)
         .contextMenu { if let remove { Button(String(localized: "Remove Bookmark"), action: remove) } }
-        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
 
-/// A file the worktree had open: its name and the folder it sits in, newest first.
-private struct RecentFileRow: View {
+/// A file the worktree had open, as a tile beside the pages': its icon and name, its path on hover.
+private struct RecentFileTile: View {
     let file: FileDocumentRecord
-    let root: String?
     let open: () -> Void
     @State private var hovering = false
 
-    /// The folder inside the worktree; empty for a file at its top.
-    private var folder: String {
-        let relative = root.map { file.path.hasPrefix($0) ? String(file.path.dropFirst($0.count)) : file.path } ?? file.path
-        return (relative as NSString).deletingLastPathComponent
-    }
-
     var body: some View {
         Button(action: open) {
-            HStack(spacing: 12) {
-                FileIcon(name: file.path, size: 20) { Image(systemName: "doc.text").font(.system(size: 17)).foregroundStyle(Theme.textTertiary) }
-                    .frame(width: 24)
-                Text(file.title).font(.body).lineLimit(1)
-                Text(folder).font(.body).foregroundStyle(Theme.textTertiary).lineLimit(1).truncationMode(.head)
-                Spacer(minLength: 8)
+            StartPageTileLabel(title: file.title, hovering: hovering) {
+                FileIcon(name: file.path, size: startPageIconSize) {
+                    Image(systemName: "doc.text").font(.system(size: 28)).foregroundStyle(Theme.textTertiary)
+                }
             }
-            .padding(.horizontal, 12).frame(height: 44)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovering ? Theme.surfaceHover : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(file.path)
+    }
+}
+
+/// How big a tile's icon is, page or file.
+private let startPageIconSize: CGFloat = 36
+
+/// A tile's look, shared by pages and files: the icon bare, its title on one line under it, and
+/// a soft fill behind both while hovered.
+private struct StartPageTileLabel<Icon: View>: View {
+    let title: String
+    let hovering: Bool
+    @ViewBuilder let icon: () -> Icon
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        VStack(spacing: 12) {
+            icon().frame(width: startPageIconSize, height: startPageIconSize)
+            Text(title).font(.callout).lineLimit(1).truncationMode(.tail)
+        }
+        .padding(.vertical, 14).padding(.horizontal, 8)
+        .frame(maxWidth: .infinity)
+        .background(hovering ? Theme.surfaceHover : .clear, in: shape)
+        .contentShape(shape)
         .animation(.easeOut(duration: 0.12), value: hovering)
     }
+}
+
+/// A section's heading: plain text, as the tools' is.
+private struct StartPageHeading: View {
+    let title: String
+    var body: some View { Text(title).font(.body) }
 }
 
 /// Something a blank tab can open in its place.
