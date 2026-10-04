@@ -54,11 +54,11 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         case .changes: String(localized: "Diff")
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
-        case .live: String(localized: "Live")
+        case .live: String(localized: "Workflow")
         }
     }
     var symbol: String {
-        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "waveform.path.ecg" }
+        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart" }
     }
 }
 

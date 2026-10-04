@@ -333,8 +333,8 @@ user collapses from the divider is told back to the workspace.
   hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).
   Every tab is in the one strip and the one order (`WorkspaceContext.tabs`): web pages, open
   files, and the tools (`WorkspaceTool`) — Diff, the Simulator, Files (which browses the worktree
-  as a tree) and Live. The active tab decides what the pane shows; closing a tab selects its
-  nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
+  as a tree) and Workflow (the agent drawn live, `LivePanelView`). The active tab decides what
+  the pane shows; closing a tab selects its nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
   the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
   changed files' toggle); over a web page that row is its navigation and address (`.address`),
   whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
