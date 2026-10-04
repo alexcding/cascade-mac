@@ -15,6 +15,8 @@ import Foundation
     func forkSession(_ id: String)
     func reattachSession(_ id: String)
     func focusSession(_ id: String)
+    func newTask(in projectID: String)
+    func openProjectSettings(_ projectID: String)
 }
 
 extension RootCoordinating {
@@ -27,6 +29,8 @@ extension RootCoordinating {
     func forkSession(_ id: String) {}
     func reattachSession(_ id: String) {}
     func focusSession(_ id: String) {}
+    func newTask(in projectID: String) {}
+    func openProjectSettings(_ projectID: String) {}
 }
 
 extension AppCoordinator {
@@ -65,6 +69,8 @@ extension AppCoordinator {
         case .forkSession(let id): rootRuntime?.forkSession(id)
         case .reattachSession(let id): rootRuntime?.reattachSession(id)
         case .focusSession(let id): rootRuntime?.focusSession(id)
+        case .newTask(let id): rootRuntime?.newTask(in: id)
+        case .projectSettings(let id): rootRuntime?.openProjectSettings(id)
         }
     }
 }

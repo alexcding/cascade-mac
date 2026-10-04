@@ -360,46 +360,6 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     #expect(await fixture.ticketReads == 0)
 }
 
-// MARK: - DashboardUsageModel
-
-@MainActor @Test func updateWithNilProducesTheDefaultTile() {
-    let model = DashboardUsageModel()
-    model.update(nil)
-    #expect(model.tile == DashboardUsageModel.Tile())
-    #expect(model.tile.footnote == "No usage yet")
-    #expect(model.tile.month == 0)
-    #expect(model.tile.tokensLabel == nil)
-    #expect(model.tile.peak == 0.01)
-}
-
-@MainActor @Test func updateWithASnapshotComputesMonthFootnoteLinesAndPeak() throws {
-    let json = """
-    {"agents":{"claude":{"usage":{"tokens":100,"cost":13,"history":[
-      {"date":"2026-09-20","tokens":50,"cost":5},{"date":"2026-09-21","tokens":50,"cost":8}]}},
-     "codex":{"usage":{"tokens":110,"cost":9,"history":[
-      {"date":"2026-09-20","tokens":40,"cost":3},{"date":"2026-09-21","tokens":70,"cost":6}]}}}}
-    """
-    let usage = try JSONDecoder().decode(UsageSnapshot.self, from: Data(json.utf8))
-    let model = DashboardUsageModel()
-    model.update(usage)
-    #expect(model.tile.month == 22)
-    #expect(model.tile.tokensLabel == "210 tokens")
-    #expect(model.tile.footnote == "Claude $13 · Codex $9")
-    #expect(model.tile.lines.map(\.key) == ["claude", "codex"])
-    #expect(model.tile.lines[0].costs == [5, 8])
-    #expect(model.tile.lines[1].costs == [3, 6])
-    #expect(model.tile.peak == 8)
-}
-
-@MainActor @Test func retiredUsageModelIgnoresUpdate() throws {
-    let json = #"{"agents":{"claude":{"usage":{"tokens":10,"cost":1,"history":[{"date":"2026-09-20","tokens":10,"cost":1}]}}}}"#
-    let usage = try JSONDecoder().decode(UsageSnapshot.self, from: Data(json.utf8))
-    let model = DashboardUsageModel()
-    model.retire()
-    model.update(usage)
-    #expect(model.tile == DashboardUsageModel.Tile())
-}
-
 // MARK: - DashboardViewModel
 
 @MainActor @Test(.timeLimit(.minutes(1))) func searchCaptionIsSingularAndPlural() async throws {
@@ -506,7 +466,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     model.connect(ModelFixture())
     while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
     model.retire()
-    #expect(model.prs.retired && model.tickets.retired && model.usage.retired)
+    #expect(model.prs.retired && model.tickets.retired)
 }
 
 @MainActor @Test func deriveListsEveryoneElsesOpenPullRequestsAsOthers() async throws {

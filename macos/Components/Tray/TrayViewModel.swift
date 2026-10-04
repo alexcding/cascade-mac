@@ -14,7 +14,7 @@ import Observation
 }
 
 @MainActor @Observable public final class TrayViewModel {
-    enum Action: Equatable { case openReview(String), openUsage, quit }
+    enum Action: Equatable { case openReview(String), quit }
     let shell: ShellStore
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     @ObservationIgnored var canAct: () -> Bool = { true }
@@ -57,7 +57,6 @@ import Observation
     func openReview(_ review: TrayPR) { openReview(review.id) }
     /// By identity: the coordinator re-resolves and gates the row, so a click needs no lookup here.
     func openReview(_ id: String) { request(.openReview(id)) }
-    func openUsage() { request(.openUsage) }
     func quit() { request(.quit) }
     private func request(_ action: Action) { if available && active { onAction(action) } }
 

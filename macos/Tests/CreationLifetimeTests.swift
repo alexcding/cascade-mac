@@ -209,3 +209,19 @@ func creationLifetimeInputChangeDuringResolutionCannotCreateWorktree(failing: Bo
     #expect(await service.references == 2)
     model.retire()
 }
+
+/// New Session and the project's page show the same Start: a switch brings the next view on before
+/// the last goes, and Start stays shown until both have gone.
+@MainActor @Test func startShownOnTwoScreensStaysShownUntilBothLeave() {
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .claude, operations: nil)
+    model.setShown(true)
+    model.setShown(true)
+    model.setShown(false)
+    #expect(model.shown, "the screen switched to still shows it")
+    model.setShown(false)
+    #expect(!model.shown)
+    model.setShown(false)
+    model.setShown(true)
+    #expect(model.shown, "an extra disappear never leaves it owing an appear")
+    model.retire()
+}

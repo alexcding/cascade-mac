@@ -7,7 +7,7 @@ import Observation
 /// A task gets a new branch named from its words, and becomes the agent's first prompt — or, with
 /// Existing branch chosen, works on the chosen branch itself.
 @MainActor @Observable final class ProjectComposerModel {
-    enum Action: Equatable { case created(WorkspaceSession, prompt: String?) }
+    enum Action: Equatable { case created(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) }
     /// What the chosen branch is for: forking a new branch from it, or working on it.
     enum BranchMode: Equatable { case newBranch, existing }
 
@@ -22,6 +22,14 @@ import Observation
     /// usually be the main checkout's branch, and starting on it moves that checkout.
     var workBranch = ""
     private(set) var agent: SessionAgent
+    /// What each agent CLI offers, by CLI, once its catalog has been read.
+    private(set) var catalogs: [String: AgentCatalog] = [:]
+    /// The CLIs whose catalog is being read.
+    private(set) var loadingCatalogs: Set<String> = []
+    /// The model and effort picked for each CLI, by CLI: kept across sessions and projects.
+    private(set) var choices: [String: AgentSelection] = ProjectComposerModel.savedChoices()
+    /// Reads a CLI's catalog; set once the backend is there.
+    @ObservationIgnored var catalogSource: ((String) async -> AgentCatalog?)? { didSet { loadCatalog() } }
     /// The ticket a link put here references (a PR row's Jira key), kept with the text it came
     /// with: recorded on the session created from that same text when its lookup names none.
     private(set) var linkedKey: (text: String, key: String)?
@@ -43,6 +51,7 @@ import Observation
     /// Start is on screen. Only then is the branch list read: a project opened once and left
     /// does not reread it on every reconnect.
     private(set) var shown = false
+    private var viewers = 0
     private(set) var retired = false
     private var project: Project
     private var operations: (any SessionCreating)?
@@ -64,6 +73,15 @@ import Observation
     }
 
     var busy: Bool { loading || resolving || creating }
+    var catalog: AgentCatalog? { catalogs[agent.rawValue] }
+    /// The model the agent starts on, or nil for the CLI's own default.
+    var model: AgentCatalog.Model? { catalog?.model(choices[agent.rawValue]?.model) }
+    /// The effort the agent starts on: one the chosen model offers, or nil for its default.
+    var effort: String? {
+        guard let model, let effort = choices[agent.rawValue]?.effort, model.efforts.contains(where: { $0.id == effort }) else { return nil }
+        return effort
+    }
+    var launchChoice: AgentLaunchChoice? { agent == .shell || model == nil ? nil : AgentLaunchChoice(model: model, effort: effort) }
     private var typed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var urlish: Bool { typed.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil }
     var page: SessionPage? { urlish ? SessionPage.parse(typed) : nil }
@@ -76,8 +94,11 @@ import Observation
     var usesExistingBranch: Bool { branchMode == .existing && !urlish }
     /// The branch the chooser shows as picked, for what it is choosing now.
     var chosenBranch: String { usesExistingBranch ? workBranch : base }
+    /// A saved model waits for its catalog: started before it arrives, the session would run on the
+    /// CLI's default with nothing to say the choice was dropped.
+    private var awaitingChoice: Bool { choices[agent.rawValue]?.model != nil && loadingCatalogs.contains(agent.rawValue) }
     var canStart: Bool {
-        guard !retired, operations != nil, !busy, !project.workspace.isEmpty, !(urlish && page == nil) else { return false }
+        guard !retired, operations != nil, !busy, !awaitingChoice, !project.workspace.isEmpty, !(urlish && page == nil) else { return false }
         return usesExistingBranch ? !workBranch.isEmpty && owners[workBranch] == nil : !typed.isEmpty
     }
     /// Picks `branch` for what the chooser is choosing now; false when it can't be picked.
@@ -164,11 +185,16 @@ import Observation
         if moved { reloadReferencesIfShown() }
     }
 
-    /// Start came on screen or left it. Coming on reads the branch list afresh, since branches
-    /// change while it is away.
+    /// A view of Start came on screen or left it. Two can show it — its project's page and New
+    /// Session — and a switch between them brings the next on before the last goes, so it is shown
+    /// while any is. Coming on reads the branch list afresh, since branches change while it is away.
     func setShown(_ shown: Bool) {
-        guard !retired, shown != self.shown else { return }
-        self.shown = shown
+        guard !retired else { return }
+        viewers = max(0, viewers + (shown ? 1 : -1))
+        guard (viewers > 0) != self.shown else { return }
+        self.shown = viewers > 0
+        // Another project's Start may have picked since: the choice is the app's, not this page's.
+        if shown { choices = Self.savedChoices(); loadCatalog() }
         reloadReferencesIfShown()
     }
 
@@ -180,13 +206,53 @@ import Observation
     func select(_ agent: SessionAgent) {
         guard !retired else { return }
         self.agent = agent
+        loadCatalog()
+    }
+
+    /// Nil goes back to the CLI's default model. A model keeps the effort picked before only if it offers it.
+    func chooseModel(_ id: String?) {
+        guard !retired, agent != .shell else { return }
+        guard let id else { choices[agent.rawValue] = nil; saveChoices(); return }
+        choices[agent.rawValue] = AgentSelection(model: id, effort: choices[agent.rawValue]?.effort)
+        saveChoices()
+    }
+
+    /// Nil leaves the effort to the model's default. Only a chosen model has efforts to pick.
+    func chooseEffort(_ id: String?) {
+        guard !retired, let model else { return }
+        choices[agent.rawValue] = AgentSelection(model: model.id, effort: id)
+        saveChoices()
+    }
+
+    private static let choicesKey = "startAgentChoices"
+    private static func savedChoices() -> [String: AgentSelection] {
+        guard let data = UserDefaults.standard.data(forKey: choicesKey) else { return [:] }
+        return (try? JSONDecoder().decode([String: AgentSelection].self, from: data)) ?? [:]
+    }
+    private func saveChoices() {
+        if let data = try? JSONEncoder().encode(choices) { UserDefaults.standard.set(data, forKey: Self.choicesKey) }
+    }
+
+    /// Reads the agent's catalog once, while Start is on screen; a CLI that cannot be asked offers no
+    /// models, and starts on its default. A read that failed is tried again on the next call.
+    func loadCatalog() {
+        guard !retired, shown, agent != .shell, catalogs[agent.rawValue] == nil, let source = catalogSource,
+              !loadingCatalogs.contains(agent.rawValue) else { return }
+        let cli = agent.rawValue
+        loadingCatalogs.insert(cli)
+        Task { [weak self] in
+            let catalog = await source(cli)
+            guard let self else { return }
+            loadingCatalogs.remove(cli)
+            if let catalog, !catalog.models.isEmpty { catalogs[cli] = catalog }
+        }
     }
 
     /// Opens the page to start something, on a link when one is given, with the ticket that
     /// link's pull request references.
     func prepare(text: String?, jiraKey: String? = nil, agent: SessionAgent?) {
         guard !retired else { return }
-        if let agent { self.agent = agent }
+        if let agent { self.agent = agent; loadCatalog() }
         if let text {
             self.text = text
             let key = jiraKey?.trimmingCharacters(in: .whitespaces).uppercased() ?? ""
@@ -274,6 +340,7 @@ import Observation
         creating = true; error = nil; inputError = nil
         defer { creating = false }
         var creation = SessionDraft(); creation.agent = agent; creation.base = base
+        let launch = launchChoice
         var prompt: String?
         var workedOnExisting = false
         if let page {
@@ -327,7 +394,7 @@ import Observation
             if pullRequestBranch == usedBranch { pullRequestBranch = "" }
             // New branch, new worktree is the default: working on an existing branch is chosen per session.
             if workedOnExisting { branchMode = .newBranch; workBranch = "" }
-            onAction(.created(session, prompt: prompt))
+            onAction(.created(session, prompt: prompt, launch: launch))
             // The new branch is the repository's now: the next task must not take its name.
             referenceTask = nil
             await loadReferences()

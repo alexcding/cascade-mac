@@ -99,10 +99,10 @@ private actor RefreshTransport: BackendTransport {
             print("First sidebar layout: \(path.path)")
         }
     }
-    #expect(initial.map(\.id) == ["overview", "automation", "label:projects"])
+    #expect(initial.map(\.id) == ["new-session", "overview", "automation", "label:projects"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 3)
-    #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "overview")
+    #expect(list.numberOfRows == 4)
+    #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "new-session")
 }
 
 @MainActor @Test func snapshotEventsBatchWithoutReloadingInventoryAndLegacyEventsStillReload() async throws {
@@ -285,10 +285,11 @@ private actor RefreshTransport: BackendTransport {
         #expect(model.selection == .session("s"), "\(surface)")
 
         try await open(page("https://github.com/example/repo/pull/8", branch: "elsewhere"))
-        #expect(model.selection == .project("p"), "\(surface)")
-        let start = try #require(model.projectModels["p"])
-        #expect(start.section == .start && start.composer.text == "https://github.com/example/repo/pull/8", "\(surface)")
-        #expect(start.composer.linkedKey?.key == "REC-8", "\(surface)")
+        #expect(model.selection == .newSession, "\(surface)")
+        let newTask = try #require(model.coordinator.newSession)
+        let start = try #require(newTask.composer)
+        #expect(newTask.projectID == "p" && start.text == "https://github.com/example/repo/pull/8", "\(surface)")
+        #expect(start.linkedKey?.key == "REC-8", "\(surface)")
         let started = await creates()
         #expect(started == 0 && model.sessions.map(\.id) == ["s"], "\(surface)")
 

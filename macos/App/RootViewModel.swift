@@ -28,6 +28,8 @@ import Observation
         case reconnect, openTerminal, removeSession(String), openGitClient(String)
         case renameSession(String, name: String), forkSession(String), focusSession(String)
         case reattachSession(String)
+        /// A project row's hover buttons: New Task on it, and its Settings.
+        case newTask(String), projectSettings(String)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -65,6 +67,7 @@ import Observation
     var title: String {
         let state = self.state
         switch state.selection {
+        case .newSession: return String(localized: "New Task")
         case .overview: return String(localized: "Overview")
         case .automation: return String(localized: "Automation")
         case .terminal: return String(localized: "Terminal")
@@ -99,7 +102,10 @@ import Observation
     func openSettings() { onAction(.command(.settings)) }
     func newProject() { if canCreateProject { onAction(.command(.newProject)) } }
     func newSession() { if canCreateSession { onAction(.command(.newSession)) } }
-    /// A project folder's hover "+": New Session on that project, wherever the window is.
+    /// A project row's hover pencil: New Task on that project, wherever the window is.
+    func newTask(in projectID: String) { onAction(.newTask(projectID)) }
+    /// A project row's hover gear: the project's Settings.
+    func openProjectSettings(_ projectID: String) { onAction(.projectSettings(projectID)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     func openTerminal() { onAction(.openTerminal) }
 }

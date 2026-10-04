@@ -7,6 +7,13 @@ struct AgentSelection: Codable, Equatable, Sendable {
     var effort: String?
 }
 
+/// The model and effort a new session's agent starts on, as its Start page chose them. Either may be
+/// absent, which leaves it to the CLI.
+struct AgentLaunchChoice: Equatable, Sendable {
+    var model: AgentCatalog.Model?
+    var effort: String?
+}
+
 /// What an agent CLI offers to switch to, as the backend's probe for it reports.
 struct AgentCatalog: Decodable, Equatable, Sendable {
     struct Effort: Decodable, Equatable, Identifiable, Sendable {

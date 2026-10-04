@@ -13,7 +13,7 @@ import Testing
     }
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) { ids.remove(id); deletions.append(id) }
     var created: [(String, String?)] = []
-    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) { created.append((session.id, prompt)) }
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) { created.append((session.id, prompt)) }
     func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession { throw CancellationError() }
     func closeProjectTerminal(_ projectID: String) async {}
 }
@@ -42,7 +42,7 @@ import Testing
     let model = try #require(root.projectModels[project.id])
     root.navigate(to: .project(project.id))
     #expect(root.projectCoordinator?.model === model)
-    #expect(root.windowToolbar.leading.map(\.id) == ["project-tabs"] && root.windowToolbar.pane == nil)
+    #expect(root.windowToolbar.leading.map(\.id) == ["title"] && root.windowToolbar.pane == nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"
@@ -94,12 +94,12 @@ import Testing
         WorkspaceSession(id: id, projectId: projectID, workspace: "/tmp", worktree: "/tmp/\(id)", title: id, branch: id,
                          url: "", createdAt: nil, pinned: false)
     }
-    model.composer.onAction(.created(session("s1"), prompt: "Fix login"))
+    model.composer.onAction(.created(session("s1"), prompt: "Fix login", launch: nil))
     // A session filed under another project is not this one's to report.
-    model.composer.onAction(.created(session("s2", in: "other"), prompt: nil))
+    model.composer.onAction(.created(session("s2", in: "other"), prompt: nil, launch: nil))
     #expect(runtime.created.map(\.0) == ["s1"] && runtime.created.first?.1 == "Fix login")
     root.removeMissingProjects([])
-    model.composer.onAction(.created(session("s3"), prompt: nil))
+    model.composer.onAction(.created(session("s3"), prompt: nil, launch: nil))
     #expect(runtime.created.count == 1)
 }
 

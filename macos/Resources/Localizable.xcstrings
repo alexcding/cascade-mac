@@ -1,624 +1,698 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Automations are paused. Forwarded events still refresh pull requests." : {
+    "Choose the project folder to start sessions in this project." : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "অটোমেশন বিরতিতে আছে। পাঠানো ইভেন্ট তবুও পুল রিকোয়েস্ট রিফ্রেশ করে।"
+            "value" : "এই প্রকল্পে সেশন শুরু করতে প্রকল্প ফোল্ডার বেছে নিন।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Las automatizaciones están pausadas. Los eventos reenviados siguen actualizando las solicitudes."
+            "value" : "Elige la carpeta del proyecto para iniciar sesiones en él."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les automatisations sont en pause. Les événements transférés actualisent toujours les pull requests."
+            "value" : "Choisissez le dossier du projet pour y démarrer des sessions."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "स्वचालन रुके हुए हैं। भेजे गए इवेंट फिर भी पुल रिक्वेस्ट रीफ़्रेश करते हैं।"
+            "value" : "इस प्रोजेक्ट में सत्र शुरू करने के लिए प्रोजेक्ट फ़ोल्डर चुनें।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le automazioni sono in pausa. Gli eventi inoltrati aggiornano comunque le pull request."
+            "value" : "Scegli la cartella del progetto per avviarvi sessioni."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自動化は一時停止中です。転送されたイベントによるプルリクエストの更新は続きます。"
+            "value" : "このプロジェクトでセッションを開始するには、プロジェクトフォルダを選択してください。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "자동화가 일시 정지되었습니다. 전달된 이벤트는 계속 풀 리퀘스트를 새로 고칩니다."
+            "value" : "이 프로젝트에서 세션을 시작하려면 프로젝트 폴더를 선택하세요."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "As automações estão pausadas. Eventos encaminhados continuam atualizando os pull requests."
+            "value" : "Escolha a pasta do projeto para iniciar sessões nele."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Автоматизация приостановлена. Переданные события по-прежнему обновляют пул-реквесты."
+            "value" : "Выберите папку проекта, чтобы запускать в нём сессии."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Automatiseringarna är pausade. Vidarebefordrade händelser uppdaterar fortfarande pull requests."
+            "value" : "Välj projektmappen för att starta sessioner i projektet."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自动化已暂停。转发的事件仍会刷新拉取请求。"
+            "value" : "选择项目文件夹以在此项目中开始会话。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "自動化已暫停。轉送的事件仍會重新整理提取要求。"
+            "value" : "選擇專案資料夾以在此專案中開始工作階段。"
           }
         }
       }
     },
-    "Forward GitHub webhooks" : {
+    "Collapse" : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GitHub ওয়েবহুক পাঠান"
+            "value" : "সংকুচিত করুন"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reenviar webhooks de GitHub"
+            "value" : "Contraer"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Transférer les webhooks GitHub"
+            "value" : "Réduire"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GitHub वेबहुक भेजें"
+            "value" : "संक्षिप्त करें"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inoltra i webhook di GitHub"
+            "value" : "Comprimi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GitHub の Webhook を転送"
+            "value" : "折りたたむ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GitHub 웹훅 전달"
+            "value" : "접기"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Encaminhar webhooks do GitHub"
+            "value" : "Recolher"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передавать вебхуки GitHub"
+            "value" : "Свернуть"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vidarebefordra GitHub-webhookar"
+            "value" : "Fäll ihop"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "转发 GitHub Webhook"
+            "value" : "折叠"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "轉送 GitHub Webhook"
+            "value" : "收合"
           }
         }
       }
     },
-    "Install the gh webhook extension to forward events. Until then, pull requests refresh when you look at them." : {
+    "Expand" : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ইভেন্ট পাঠাতে gh webhook এক্সটেনশন ইনস্টল করুন। ততক্ষণ পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+            "value" : "প্রসারিত করুন"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instala la extensión gh webhook para reenviar eventos. Hasta entonces, las solicitudes se actualizan cuando las miras."
+            "value" : "Expandir"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installez l’extension gh webhook pour transférer les événements. En attendant, les pull requests s’actualisent quand vous les consultez."
+            "value" : "Développer"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "इवेंट भेजने के लिए gh webhook एक्सटेंशन इंस्टॉल करें। तब तक पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+            "value" : "विस्तृत करें"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installa l’estensione gh webhook per inoltrare gli eventi. Fino ad allora, le pull request si aggiornano quando le guardi."
+            "value" : "Espandi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "イベントを転送するには gh webhook 拡張機能をインストールしてください。それまでは、プルリクエストは表示したときに更新されます。"
+            "value" : "展開"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이벤트를 전달하려면 gh webhook 확장을 설치하세요. 그때까지 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+            "value" : "펼치기"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Instale a extensão gh webhook para encaminhar eventos. Até lá, os pull requests são atualizados quando você olha para eles."
+            "value" : "Expandir"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Установите расширение gh webhook для передачи событий. До тех пор пул-реквесты обновляются, когда вы на них смотрите."
+            "value" : "Развернуть"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installera tillägget gh webhook för att vidarebefordra händelser. Tills dess uppdateras pull requests när du tittar på dem."
+            "value" : "Fäll ut"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "安装 gh webhook 扩展以转发事件。在此之前，拉取请求会在你查看时刷新。"
+            "value" : "展开"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "安裝 gh webhook 擴充功能以轉送事件。在此之前，提取要求會在你檢視時重新整理。"
+            "value" : "展開"
           }
         }
       }
     },
-    "No project has a repository to forward." : {
+    "No models to choose from: the agent starts on its default." : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "কোনো প্রকল্পে পাঠানোর মতো রিপোজিটরি নেই।"
+            "value" : "বেছে নেওয়ার মতো কোনো মডেল নেই: এজেন্ট তার ডিফল্টে শুরু হবে।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ningún proyecto tiene un repositorio que reenviar."
+            "value" : "No hay modelos para elegir: el agente empieza con el suyo predeterminado."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun projet n’a de dépôt à transférer."
+            "value" : "Aucun modèle à choisir : l’agent démarre sur son modèle par défaut."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "किसी प्रोजेक्ट में भेजने के लिए रिपॉज़िटरी नहीं है।"
+            "value" : "चुनने के लिए कोई मॉडल नहीं: एजेंट अपने डिफ़ॉल्ट पर शुरू होगा।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nessun progetto ha un repository da inoltrare."
+            "value" : "Nessun modello da scegliere: l’agente parte con quello predefinito."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "転送するリポジトリを持つプロジェクトがありません。"
+            "value" : "選べるモデルがありません。エージェントはデフォルトで開始します。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "전달할 저장소가 있는 프로젝트가 없습니다."
+            "value" : "선택할 모델이 없습니다. 에이전트는 기본값으로 시작합니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nenhum projeto tem um repositório para encaminhar."
+            "value" : "Nenhum modelo para escolher: o agente começa no padrão."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ни у одного проекта нет репозитория для передачи."
+            "value" : "Нет моделей для выбора: агент запустится с моделью по умолчанию."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inget projekt har något kodförråd att vidarebefordra."
+            "value" : "Inga modeller att välja: agenten startar med sin standard."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有项目有可转发的仓库。"
+            "value" : "没有可选的模型：代理将使用其默认模型启动。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "沒有專案有可轉送的儲存庫。"
+            "value" : "沒有可選的模型：代理將使用其預設模型啟動。"
           }
         }
       }
     },
-    "Pull request events reach Cascade as they happen: pull requests refresh and automations run at once. When disabled or unavailable, pull requests refresh when you look at them." : {
+    "Loading models…" : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটলেই Cascade-এ পৌঁছায়: পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। বন্ধ বা অনুপলব্ধ থাকলে পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+            "value" : "মডেল লোড হচ্ছে…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los eventos de solicitudes llegan a Cascade al producirse: las solicitudes se actualizan y las automatizaciones se ejecutan al instante. Si se desactiva o no está disponible, las solicitudes se actualizan cuando las miras."
+            "value" : "Cargando modelos…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les événements de pull requests parviennent à Cascade immédiatement : les pull requests s’actualisent et les automatisations s’exécutent aussitôt. Si la fonction est désactivée ou indisponible, les pull requests s’actualisent quand vous les consultez."
+            "value" : "Chargement des modèles…"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँचते हैं: पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह बंद या अनुपलब्ध हो तो पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+            "value" : "मॉडल लोड हो रहे हैं…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli eventi delle pull request arrivano subito a Cascade: le pull request si aggiornano e le automazioni vengono eseguite all’istante. Se la funzione è disattivata o non disponibile, le pull request si aggiornano quando le guardi."
+            "value" : "Caricamento dei modelli…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "プルリクエストのイベントは発生時に Cascade へ届き、プルリクエストの更新と自動化の実行がすぐに行われます。無効または利用できない場合、プルリクエストは表示したときに更新されます。"
+            "value" : "モデルを読み込み中…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "풀 리퀘스트 이벤트가 발생하면 Cascade에 즉시 전달되어 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 비활성화되거나 사용할 수 없으면 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+            "value" : "모델을 불러오는 중…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eventos de pull requests chegam ao Cascade assim que ocorrem: os pull requests são atualizados e as automações são executadas na hora. Quando desativado ou indisponível, os pull requests são atualizados quando você olha para eles."
+            "value" : "Carregando modelos…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "События пул-реквестов сразу передаются в Cascade: пул-реквесты обновляются, а автоматизация запускается немедленно. Если функция отключена или недоступна, пул-реквесты обновляются, когда вы на них смотрите."
+            "value" : "Загрузка моделей…"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pull request-händelser når Cascade direkt: pull requests uppdateras och automatiseringar körs genast. Om funktionen är avstängd eller otillgänglig uppdateras pull requests när du tittar på dem."
+            "value" : "Läser in modeller…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "拉取请求事件会即时发送至 Cascade：拉取请求随即刷新，自动化立即运行。禁用或不可用时，拉取请求会在你查看时刷新。"
+            "value" : "正在加载模型…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "提取要求事件會即時傳送至 Cascade：提取要求隨即重新整理，自動化立即執行。停用或無法使用時，提取要求會在你檢視時重新整理。"
+            "value" : "正在載入模型…"
           }
         }
       }
     },
-    "Pull request events reach Cascade as they happen: this project's pull requests refresh and automations run at once. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, this project's pull requests refresh when you look at them." : {
+    "Project Settings" : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটার সঙ্গে সঙ্গেই Cascade-এ পৌঁছায়: এই প্রকল্পের পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। এই বিকল্প চালু থাকলে Cascade চলার সময় রিপোজিটরিতে একটি ওয়েবহুক যোগ করে। এর জন্য ওই রিপোজিটরিতে অ্যাডমিন অ্যাক্সেস প্রয়োজন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি ওয়েবহুকই অনুমোদন করে, তাই একসঙ্গে কেবল একজন ইভেন্ট পাঠাতে পারেন। বিকল্পটি বন্ধ থাকলে এই প্রকল্পের পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+            "value" : "প্রকল্প সেটিংস"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los eventos de las solicitudes de incorporación de cambios llegan a Cascade en cuanto se producen: las solicitudes de este proyecto se actualizan y las automatizaciones se ejecutan al instante. Al activar esta opción, Cascade añade un webhook al repositorio mientras está en ejecución. Para ello, se necesita acceso de administrador al repositorio. GitHub solo permite un webhook de este tipo por repositorio, por lo que solo una persona puede reenviar sus eventos a la vez. Si se desactiva esta opción, las solicitudes de este proyecto se actualizan cuando las miras."
+            "value" : "Ajustes del proyecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les événements de pull request parviennent à Cascade dès qu’ils se produisent : les pull requests de ce projet s’actualisent et les automatisations s’exécutent aussitôt. Lorsque cette option est activée, Cascade ajoute un webhook au dépôt pendant son exécution, ce qui nécessite des droits d’administration sur le dépôt. GitHub n’autorise qu’un seul webhook de ce type par dépôt : une seule personne peut donc en transférer les événements à la fois. Si l’option est désactivée, les pull requests de ce projet s’actualisent quand vous les consultez."
+            "value" : "Réglages du projet"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँच जाते हैं: इस प्रोजेक्ट के पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह विकल्प चालू होने पर Cascade चलने के दौरान रिपॉज़िटरी में एक वेबहुक जोड़ता है। इसके लिए उस रिपॉज़िटरी पर एडमिन अधिकार चाहिए। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक वेबहुक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इवेंट भेज सकता है। विकल्प बंद होने पर इस प्रोजेक्ट के पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+            "value" : "प्रोजेक्ट सेटिंग्स"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gli eventi delle pull request raggiungono Cascade non appena si verificano: le pull request di questo progetto si aggiornano e le automazioni vengono eseguite all’istante. Quando questa opzione è attiva, Cascade aggiunge un webhook al repository durante l’esecuzione. Per farlo, sono necessari i permessi di amministratore del repository. GitHub consente un solo webhook di questo tipo per repository, quindi solo una persona alla volta può inoltrarne gli eventi. Quando l’opzione è disattivata, le pull request di questo progetto si aggiornano quando le guardi."
+            "value" : "Impostazioni progetto"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "プルリクエストのイベントは発生と同時に Cascade に届き、このプロジェクトのプルリクエストの更新と自動化の実行がすぐに行われます。この設定をオンにすると、Cascade の実行中にリポジトリに Webhook が追加されます。これにはリポジトリの管理者権限が必要です。GitHub で許可されるこの種類の Webhook はリポジトリごとに 1 つだけなので、同時にイベントを転送できるのは 1 人だけです。オフの場合、このプロジェクトのプルリクエストは表示したときに更新されます。"
+            "value" : "プロジェクト設定"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "풀 리퀘스트 이벤트가 발생하는 즉시 Cascade에 전달되어 이 프로젝트의 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 이 옵션을 켜면 Cascade가 실행되는 동안 저장소에 웹훅이 추가됩니다. 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소당 이 유형의 웹훅을 하나만 허용하므로 한 번에 한 사람만 이벤트를 전달할 수 있습니다. 옵션을 끄면 이 프로젝트의 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+            "value" : "프로젝트 설정"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Os eventos de pull request chegam ao Cascade assim que ocorrem: os pull requests deste projeto são atualizados e as automações são executadas na hora. Com esta opção ativada, o Cascade adiciona um webhook ao repositório enquanto está em execução. Isso exige acesso de administrador ao repositório. O GitHub permite apenas um webhook desse tipo por repositório, portanto só uma pessoa pode encaminhar os eventos dele por vez. Com a opção desativada, os pull requests deste projeto são atualizados quando você olha para eles."
+            "value" : "Ajustes do projeto"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "События пул-реквестов поступают в Cascade сразу: пул-реквесты этого проекта обновляются, а автоматизации запускаются немедленно. Если этот параметр включён, Cascade на время своей работы добавляет в репозиторий вебхук. Для этого нужны права администратора репозитория. GitHub разрешает только один такой вебхук на репозиторий, поэтому передавать его события может только один человек одновременно. Если параметр выключен, пул-реквесты этого проекта обновляются, когда вы на них смотрите."
+            "value" : "Настройки проекта"
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pull request-händelser når Cascade direkt när de inträffar: projektets pull requests uppdateras och automatiseringarna körs genast. När alternativet är på lägger Cascade till en webhook i kodförrådet medan appen körs. Det kräver administratörsbehörighet till kodförrådet. GitHub tillåter bara en sådan webhook per kodförråd, så bara en person i taget kan vidarebefordra händelserna. När alternativet är av uppdateras projektets pull requests när du tittar på dem."
+            "value" : "Projektinställningar"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "拉取请求事件会即时送达 Cascade：此项目的拉取请求随即刷新，自动化立即运行。启用后，Cascade 会在运行期间向仓库添加一个 Webhook，这需要该仓库的管理员权限。GitHub 每个仓库只允许一个此类 Webhook，因此同一时间只能由一人转发事件。关闭后，此项目的拉取请求会在你查看时刷新。"
+            "value" : "项目设置"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "提取要求事件會即時送達 Cascade：此專案的提取要求隨即重新整理，自動化立即執行。啟用後，Cascade 會在執行期間向儲存庫加入一個 Webhook，這需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個此類 Webhook，因此同一時間只能由一人轉送事件。關閉後，此專案的提取要求會在你檢視時重新整理。"
+            "value" : "專案設定"
           }
         }
       }
     },
-    "Repositories forwarding events: %lld of %lld. The rest refresh when you look at them." : {
+    "This model has no effort levels." : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ইভেন্ট পাঠাচ্ছে এমন রিপোজিটরি: %lld, মোট %lld। বাকিগুলো আপনি দেখার সময় রিফ্রেশ হয়।"
+            "value" : "এই মডেলের কোনো প্রচেষ্টার স্তর নেই।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Repositorios que reenvían eventos: %lld de %lld. El resto se actualiza cuando lo miras."
+            "value" : "Este modelo no tiene niveles de esfuerzo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dépôts transférant des événements : %lld sur %lld. Les autres s’actualisent quand vous les consultez."
+            "value" : "Ce modèle n’a pas de niveaux d’effort."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "इवेंट भेज रही रिपॉज़िटरी: %lld, कुल %lld। बाकी तब रीफ़्रेश होती हैं जब आप उन्हें देखते हैं।"
+            "value" : "इस मॉडल के कोई प्रयास स्तर नहीं हैं।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Repository che inoltrano eventi: %lld su %lld. Gli altri si aggiornano quando li guardi."
+            "value" : "Questo modello non ha livelli di impegno."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "イベントを転送中のリポジトリ：%lld／%lld。残りは表示したときに更新されます。"
+            "value" : "このモデルには推論レベルがありません。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "이벤트를 전달하는 저장소: %lld / %lld. 나머지는 사용자가 볼 때 새로 고쳐집니다."
+            "value" : "이 모델에는 노력 수준이 없습니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Repositórios encaminhando eventos: %lld de %lld. Os demais são atualizados quando você olha para eles."
+            "value" : "Este modelo não tem níveis de esforço."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Репозитории, передающие события: %lld из %lld. Остальные обновляются, когда вы на них смотрите."
+            "value" : "У этой модели нет уровней усилий."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kodförråd som vidarebefordrar händelser: %lld av %lld. Resten uppdateras när du tittar på dem."
+            "value" : "Den här modellen har inga ansträngningsnivåer."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在转发事件的仓库数：%lld，共 %lld 个。其余仓库会在你查看时刷新。"
+            "value" : "此模型没有推理强度级别。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在轉送事件的儲存庫數：%lld，共 %lld 個。其餘儲存庫會在你檢視時重新整理。"
+            "value" : "此模型沒有推理強度等級。"
           }
         }
       }
     },
-    "Webhook forwarding is off. Pull requests refresh when you look at them." : {
+    "The default model picks its own effort." : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ওয়েবহুক পাঠানো বন্ধ। পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+            "value" : "ডিফল্ট মডেল নিজেই প্রচেষ্টা বেছে নেয়।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El reenvío de webhooks está desactivado. Las solicitudes se actualizan cuando las miras."
+            "value" : "El modelo predeterminado elige su propio esfuerzo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le transfert des webhooks est désactivé. Les pull requests s’actualisent quand vous les consultez."
+            "value" : "Le modèle par défaut choisit son propre effort."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "वेबहुक भेजना बंद है। पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+            "value" : "डिफ़ॉल्ट मॉडल अपना प्रयास खुद चुनता है।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’inoltro dei webhook è disattivato. Le pull request si aggiornano quando le guardi."
+            "value" : "Il modello predefinito sceglie il proprio impegno."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Webhook の転送はオフです。プルリクエストは表示したときに更新されます。"
+            "value" : "デフォルトのモデルは推論レベルを自分で選びます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "웹훅 전달이 꺼져 있습니다. 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+            "value" : "기본 모델은 노력 수준을 스스로 정합니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O encaminhamento de webhooks está desativado. Os pull requests são atualizados quando você olha para eles."
+            "value" : "O modelo padrão escolhe o próprio esforço."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Передача вебхуков отключена. Пул-реквесты обновляются, когда вы на них смотрите."
+            "value" : "Модель по умолчанию сама выбирает уровень усилий."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Vidarebefordran av webhookar är avstängd. Pull requests uppdateras när du tittar på dem."
+            "value" : "Standardmodellen väljer sin egen ansträngning."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Webhook 转发已关闭。拉取请求会在你查看时刷新。"
+            "value" : "默认模型会自行选择推理强度。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Webhook 轉送已關閉。提取要求會在你檢視時重新整理。"
+            "value" : "預設模型會自行選擇推理強度。"
           }
         }
       }
     },
-    "Workflow" : {
-
+    "A shell has no model to choose." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "শেলের কোনো মডেল বেছে নেওয়ার নেই।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una shell no tiene modelo que elegir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un shell n’a pas de modèle à choisir."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "शेल के लिए कोई मॉडल चुनना नहीं होता।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una shell non ha un modello da scegliere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シェルには選ぶモデルがありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "셸에는 선택할 모델이 없습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um shell não tem modelo para escolher."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У оболочки нет модели для выбора."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ett skal har ingen modell att välja."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shell 没有可选的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shell 沒有可選的模型。"
+          }
+        }
+      }
     },
     "" : {
       "comment" : "Literal symbol or number with no linguistic content.",
@@ -698,6 +772,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : " 或 "
+          }
+        }
+      }
+    },
+    "What should we build in %@?" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@-এ আমরা কী তৈরি করব?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Qué construimos en %@?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Que construisons-nous dans %@ ?"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ में हम क्या बनाएँ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa costruiamo in %@?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ で何を作りますか？"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에서 무엇을 만들까요?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O que vamos construir em %@?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что создаём в %@?"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vad ska vi bygga i %@?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要在 %@ 中构建什么？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要在 %@ 中建構什麼？"
           }
         }
       }
@@ -1980,6 +2131,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 無法繼續對話，啟動新對話也失敗了：%@"
+          }
+        }
+      }
+    },
+    "%@ could not start its agent: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ could not start its agent: %2$@"
           }
         }
       }
@@ -5248,6 +5409,9 @@
         }
       }
     },
+    "%lld minutes" : {
+
+    },
     "%lld open issues assigned to others or no one" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5556,6 +5720,9 @@
         }
       }
     },
+    "%lld projects" : {
+
+    },
     "%lld recorded, newest first" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5632,6 +5799,9 @@
           }
         }
       }
+    },
+    "%lld sec" : {
+
     },
     "%lld sessions use this folder, so all of them go: %@." : {
       "extractionState" : "manual",
@@ -6509,6 +6679,24 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "0 9 * * 1-5" : {
+
+    },
+    "1 day" : {
+
+    },
+    "1 hour" : {
+
+    },
+    "1 min" : {
+
+    },
+    "4 hours" : {
+
+    },
+    "5 min" : {
+
+    },
     "5-hour periods until reset: %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6585,6 +6773,21 @@
           }
         }
       }
+    },
+    "10 min" : {
+
+    },
+    "12 hours" : {
+
+    },
+    "15 minutes" : {
+
+    },
+    "15 sec" : {
+
+    },
+    "30 sec" : {
+
     },
     "30d cost" : {
       "extractionState" : "manual",
@@ -6909,7 +7112,81 @@
       }
     },
     "A link names its own branch. A new one forks from the branch you pick." : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "লিংকটি নিজের ব্রাঞ্চের নাম দেয়। নতুনটি আপনার বাছাই করা ব্রাঞ্চ থেকে তৈরি হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un enlace nombra su propia rama. Una nueva sale de la rama que elijas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un lien désigne sa propre branche. Une nouvelle part de la branche choisie."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "लिंक अपनी ब्रांच खुद बताता है। नई ब्रांच आपकी चुनी ब्रांच से बनती है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un link indica il proprio branch. Uno nuovo parte dal branch che scegli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リンクは自身のブランチを指定します。新しいブランチは選択したブランチから作成されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "링크는 자체 브랜치를 지정합니다. 새 브랜치는 선택한 브랜치에서 갈라집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um link indica a própria branch. Uma nova sai da branch que você escolher."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ссылка задаёт свою ветку. Новая ответвляется от выбранной вами."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En länk anger sin egen gren. En ny grenas från den gren du väljer."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "链接会指定自己的分支。新分支从你选择的分支创建。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連結會指定自己的分支。新分支會從你選擇的分支建立。"
+          }
+        }
+      }
     },
     "A new pull request appears." : {
       "extractionState" : "manual",
@@ -7525,6 +7802,12 @@
         }
       }
     },
+    "A run missed while the Mac slept or Cascade was closed still starts if it is no later than this. Only the latest missed run starts." : {
+
+    },
+    "A scheduled automation starts an agent with a prompt at the times you choose. An event automation waits for a GitHub or Jira event, checks its filters, then acts. Every template starts Off." : {
+
+    },
     "A session cannot be started right now." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7986,6 +8269,9 @@
           }
         }
       }
+    },
+    "A zsh script run in the project folder before each run. A non-zero exit skips the run; what it prints is added under the prompt." : {
+
     },
     "Accessibility" : {
 
@@ -8602,6 +8888,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "從側邊欄新增專案，開始第一個工作階段。"
+          }
+        }
+      }
+    },
+    "Add a project with a folder to start sessions in it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সেশন শুরু করতে ফোল্ডারসহ একটি প্রজেক্ট যোগ করুন।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Añade un proyecto con una carpeta para iniciar sesiones en él."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajoutez un projet avec un dossier pour y démarrer des sessions."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सेशन शुरू करने के लिए फ़ोल्डर वाला प्रोजेक्ट जोड़ें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiungi un progetto con una cartella per avviarvi delle sessioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションを開始するには、フォルダのあるプロジェクトを追加してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션을 시작하려면 폴더가 있는 프로젝트를 추가하세요."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adicione um projeto com uma pasta para iniciar sessões nele."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавьте проект с папкой, чтобы запускать в нём сеансы."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lägg till ett projekt med en mapp för att starta sessioner i det."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加一个带文件夹的项目以在其中开始会话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增一個帶資料夾的專案以在其中開始工作階段。"
           }
         }
       }
@@ -10069,6 +10432,9 @@
           }
         }
       }
+    },
+    "Agent started" : {
+
     },
     "Agent usage" : {
       "extractionState" : "manual",
@@ -14766,6 +15132,86 @@
         }
       }
     },
+    "Automations" : {
+
+    },
+    "Automations are paused. Forwarded events still refresh pull requests." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "অটোমেশন বিরতিতে আছে। পাঠানো ইভেন্ট তবুও পুল রিকোয়েস্ট রিফ্রেশ করে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las automatizaciones están pausadas. Los eventos reenviados siguen actualizando las solicitudes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les automatisations sont en pause. Les événements transférés actualisent toujours les pull requests."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "स्वचालन रुके हुए हैं। भेजे गए इवेंट फिर भी पुल रिक्वेस्ट रीफ़्रेश करते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le automazioni sono in pausa. Gli eventi inoltrati aggiornano comunque le pull request."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化は一時停止中です。転送されたイベントによるプルリクエストの更新は続きます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "자동화가 일시 정지되었습니다. 전달된 이벤트는 계속 풀 리퀘스트를 새로 고칩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As automações estão pausadas. Eventos encaminhados continuam atualizando os pull requests."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Автоматизация приостановлена. Переданные события по-прежнему обновляют пул-реквесты."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatiseringarna är pausade. Vidarebefordrade händelser uppdaterar fortfarande pull requests."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动化已暂停。转发的事件仍会刷新拉取请求。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動化已暫停。轉送的事件仍會重新整理提取要求。"
+          }
+        }
+      }
+    },
     "Automations on" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15076,6 +15522,9 @@
           }
         }
       }
+    },
+    "Back to all automations" : {
+
     },
     "Back to start page" : {
       "extractionState" : "manual",
@@ -19015,6 +19464,9 @@
         }
       }
     },
+    "Check dependencies, failing tests, and risky open changes each weekday." : {
+
+    },
     "Check for Updates…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20099,6 +20551,9 @@
         }
       }
     },
+    "Choose a project" : {
+
+    },
     "Choose a project workspace and branch." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20642,7 +21097,81 @@
       }
     },
     "Choose branch" : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ব্রাঞ্চ বেছে নিন"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elegir rama"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisir une branche"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ब्रांच चुनें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli branch"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブランチを選択"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "브랜치 선택"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escolher branch"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выбрать ветку"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Välj gren"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择分支"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選擇分支"
+          }
+        }
+      }
     },
     "Choose files for %@" : {
       "extractionState" : "manual",
@@ -23035,6 +23564,9 @@
           }
         }
       }
+    },
+    "Clear search" : {
+
     },
     "Clear Search" : {
       "extractionState" : "manual",
@@ -27348,6 +27880,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "請連線後搜尋 Jira。"
+          }
+        }
+      }
+    },
+    "Connect to start sessions." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সেশন শুরু করতে সংযোগ করুন।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conéctate para iniciar sesiones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-vous pour démarrer des sessions."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सेशन शुरू करने के लिए कनेक्ट करें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connettiti per avviare sessioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションを開始するには接続してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션을 시작하려면 연결하세요."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conecte-se para iniciar sessões."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключитесь, чтобы запускать сеансы."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anslut för att starta sessioner."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接后即可开始会话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連線後即可開始工作階段。"
           }
         }
       }
@@ -32818,6 +33427,15 @@
         }
       }
     },
+    "Cron" : {
+
+    },
+    "Cron %@" : {
+
+    },
+    "Cron, not set" : {
+
+    },
     "Custom" : {
       "localizations" : {
         "bn" : {
@@ -33202,6 +33820,15 @@
         }
       }
     },
+    "Daily" : {
+
+    },
+    "Daily at %@" : {
+
+    },
+    "Daily change review" : {
+
+    },
     "Daily cost, last %lld days, peak %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -33352,83 +33979,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "深色"
-          }
-        }
-      }
-    },
-    "Dashboard" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ড্যাশবোর্ড"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Panel"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tableau de bord"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "डैशबोर्ड"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Panoramica"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ダッシュボード"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "대시보드"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Painel"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Панель управления"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Översikt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "概览"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "總覽"
           }
         }
       }
@@ -36594,6 +37144,9 @@
         }
       }
     },
+    "Don’t catch up" : {
+
+    },
     "Done" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -39444,6 +39997,31 @@
         }
       }
     },
+    "Event Automation" : {
+
+    },
+    "Event Templates" : {
+
+    },
+    "Events" : {
+
+    },
+    "Every %lld hours" : {
+
+    },
+    "Every %lld hours from %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Every %1$lld hours from %2$@"
+          }
+        }
+      }
+    },
+    "Every few hours" : {
+
+    },
     "every file matches" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -39597,6 +40175,9 @@
           }
         }
       }
+    },
+    "Every hour" : {
+
     },
     "Every page visited in any panel is forgotten. Open tabs stay open." : {
       "extractionState" : "manual",
@@ -40059,7 +40640,7 @@
         }
       }
     },
-    "Existing branch" : {
+    "Existing Activity entries are kept. Sessions its runs started stay." : {
 
     },
     "Exit Full Screen" : {
@@ -43002,6 +43583,83 @@
         }
       }
     },
+    "Forward GitHub webhooks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub ওয়েবহুক পাঠান"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reenviar webhooks de GitHub"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Transférer les webhooks GitHub"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub वेबहुक भेजें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inoltra i webhook di GitHub"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub の Webhook を転送"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub 웹훅 전달"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encaminhar webhooks do GitHub"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передавать вебхуки GitHub"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vidarebefordra GitHub-webhookar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "转发 GitHub Webhook"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "轉送 GitHub Webhook"
+          }
+        }
+      }
+    },
     "Forwarding" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43079,6 +43737,12 @@
         }
       }
     },
+    "Fresh" : {
+
+    },
+    "Fresh: each run starts a new conversation. Reuse: each run continues the last run’s session and conversation." : {
+
+    },
     "From" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43155,9 +43819,6 @@
           }
         }
       }
-    },
-    "From %@" : {
-
     },
     "Full Screen" : {
       "extractionState" : "manual",
@@ -43469,6 +44130,9 @@
           }
         }
       }
+    },
+    "gh pr list --json number -q '.[0].number'" : {
+
     },
     "gh webhook extension" : {
       "extractionState" : "manual",
@@ -45315,6 +45979,9 @@
         }
       }
     },
+    "Grace" : {
+
+    },
     "Has a %@ session" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46869,6 +47536,12 @@
         }
       }
     },
+    "Hourly from %@" : {
+
+    },
+    "Hourly queue check" : {
+
+    },
     "Human" : {
 
     },
@@ -47416,7 +48089,81 @@
       }
     },
     "In session" : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সেশনে আছে"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En sesión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En session"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सत्र में"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In sessione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッション中"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션에서 사용 중"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Em sessão"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В сессии"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I session"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话中"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作階段中"
+          }
+        }
+      }
     },
     "Include untracked files" : {
       "extractionState" : "manual",
@@ -48264,6 +49011,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "安裝狀態列"
+          }
+        }
+      }
+    },
+    "Install the gh webhook extension to forward events. Until then, pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ইভেন্ট পাঠাতে gh webhook এক্সটেনশন ইনস্টল করুন। ততক্ষণ পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instala la extensión gh webhook para reenviar eventos. Hasta entonces, las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installez l’extension gh webhook pour transférer les événements. En attendant, les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इवेंट भेजने के लिए gh webhook एक्सटेंशन इंस्टॉल करें। तब तक पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installa l’estensione gh webhook per inoltrare gli eventi. Fino ad allora, le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "イベントを転送するには gh webhook 拡張機能をインストールしてください。それまでは、プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이벤트를 전달하려면 gh webhook 확장을 설치하세요. 그때까지 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instale a extensão gh webhook para encaminhar eventos. Até lá, os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установите расширение gh webhook для передачи событий. До тех пор пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installera tillägget gh webhook för att vidarebefordra händelser. Tills dess uppdateras pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装 gh webhook 扩展以转发事件。在此之前，拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安裝 gh webhook 擴充功能以轉送事件。在此之前，提取要求會在你檢視時重新整理。"
           }
         }
       }
@@ -50112,6 +50936,9 @@
         }
       }
     },
+    "its session’s terminal is busy with another program or a conversation still under way" : {
+
+    },
     "Jira" : {
       "comment" : "Product name; retained in every language.",
       "extractionState" : "manual",
@@ -51432,6 +52259,9 @@
           }
         }
       }
+    },
+    "Last Run" : {
+
     },
     "Last synced: %@" : {
       "extractionState" : "manual",
@@ -53364,6 +54194,9 @@
     "log" : {
 
     },
+    "Look for stuck work, stale generated files, and failed local validation." : {
+
+    },
     "Looking it up…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -53979,6 +54812,9 @@
           }
         }
       }
+    },
+    "main" : {
+
     },
     "main checkout" : {
 
@@ -55838,6 +56674,9 @@
         }
       }
     },
+    "Minute, hour, day, month, weekday, in local time." : {
+
+    },
     "Missing “=” between the key and its action." : {
       "localizations" : {
         "bn" : {
@@ -56218,6 +57057,9 @@
           }
         }
       }
+    },
+    "More" : {
+
     },
     "More files (diff truncated)" : {
       "extractionState" : "manual",
@@ -57777,6 +58619,9 @@
         }
       }
     },
+    "Never" : {
+
+    },
     "Never synced" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -58089,7 +58934,81 @@
       }
     },
     "New branch" : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "নতুন ব্রাঞ্চ"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nueva rama"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelle branche"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "नई ब्रांच"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuovo branch"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規ブランチ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 브랜치"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nova branch"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая ветка"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny gren"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建分支"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增分支"
+          }
+        }
+      }
     },
     "New Commit" : {
       "extractionState" : "manual",
@@ -58245,6 +59164,9 @@
         }
       }
     },
+    "New on an event" : {
+
+    },
     "New Project" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -58398,6 +59320,18 @@
           }
         }
       }
+    },
+    "New run" : {
+
+    },
+    "New run: a new branch and worktree for every run. Worktree: every run works in the worktree of the branch you name." : {
+
+    },
+    "New scheduled" : {
+
+    },
+    "New scheduled automation" : {
+
     },
     "New session" : {
       "extractionState" : "manual",
@@ -59015,6 +59949,83 @@
         }
       }
     },
+    "New Task" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "নতুন টাস্ক"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nueva tarea"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelle tâche"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "नया कार्य"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuova attività"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規タスク"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 작업"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nova tarefa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новая задача"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny uppgift"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新建任务"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新增任務"
+          }
+        }
+      }
+    },
     "New worktrees" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -59245,6 +60256,9 @@
           }
         }
       }
+    },
+    "Next Run" : {
+
     },
     "Next Session" : {
       "extractionState" : "manual",
@@ -59939,6 +60953,15 @@
           }
         }
       }
+    },
+    "No automations match “%@”." : {
+
+    },
+    "No automations of this kind." : {
+
+    },
+    "No automations yet" : {
+
     },
     "No automations yet. Use + to start one." : {
       "extractionState" : "manual",
@@ -61872,6 +62895,83 @@
         }
       }
     },
+    "No project has a repository to forward." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো প্রকল্পে পাঠানোর মতো রিপোজিটরি নেই।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ningún proyecto tiene un repositorio que reenviar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet n’a de dépôt à transférer."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "किसी प्रोजेक्ट में भेजने के लिए रिपॉज़िटरी नहीं है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun progetto ha un repository da inoltrare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "転送するリポジトリを持つプロジェクトがありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "전달할 저장소가 있는 프로젝트가 없습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum projeto tem um repositório para encaminhar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ни у одного проекта нет репозитория для передачи."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inget projekt har något kodförråd att vidarebefordra."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有项目有可转发的仓库。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有專案有可轉送的儲存庫。"
+          }
+        }
+      }
+    },
     "No project here owns this folder. The terminal stops and Cascade forgets the session — the folder itself stays." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -61949,6 +63049,83 @@
         }
       }
     },
+    "No project matches" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো প্রজেক্ট মেলেনি"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ningún proyecto coincide"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet ne correspond"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कोई प्रोजेक्ट मेल नहीं खाता"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun progetto corrisponde"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一致するプロジェクトはありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "일치하는 프로젝트 없음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum projeto corresponde"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет подходящих проектов"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inget projekt matchar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有匹配的项目"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有相符的專案"
+          }
+        }
+      }
+    },
     "No project with a workspace matches this page." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -62022,6 +63199,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "沒有包含工作區的專案符合此頁面。"
+          }
+        }
+      }
+    },
+    "No Projects" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো প্রজেক্ট নেই"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin proyectos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कोई प्रोजेक्ट नहीं"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun progetto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロジェクトがありません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "프로젝트 없음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhum projeto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нет проектов"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inga projekt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有项目"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有專案"
           }
         }
       }
@@ -66047,9 +67301,6 @@
         }
       }
     },
-    "On %@" : {
-
-    },
     "On merge → Jira" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -66203,6 +67454,12 @@
           }
         }
       }
+    },
+    "On: starts the agent at the scheduled times while Cascade is open." : {
+
+    },
+    "Once on, runs at its times while Cascade is open." : {
+
     },
     "One session per worktree" : {
       "extractionState" : "manual",
@@ -67591,79 +68848,79 @@
         }
       }
     },
-    "Open issues assigned to you appear beside your Jira tickets on the Dashboard." : {
+    "Open issues assigned to you appear beside your Jira tickets in Pull Requests." : {
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "আপনাকে অ্যাসাইন করা ওপেন issue ড্যাশবোর্ডে আপনার Jira টিকিটের পাশে দেখা যায়।"
+            "value" : "আপনাকে অ্যাসাইন করা ওপেন issue পুল রিকোয়েস্ট-এ আপনার Jira টিকিটের পাশে দেখা যায়।"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Los issues abiertos asignados a ti aparecen junto a tus incidencias de Jira en el Panel."
+            "value" : "Los issues abiertos asignados a ti aparecen junto a tus incidencias de Jira en Solicitudes de incorporación."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les issues ouvertes qui vous sont assignées apparaissent à côté de vos tickets Jira dans le tableau de bord."
+            "value" : "Les issues ouvertes qui vous sont assignées apparaissent à côté de vos tickets Jira dans Pull requests."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "आपको असाइन किए गए खुले issue डैशबोर्ड पर आपके Jira टिकटों के बगल में दिखते हैं।"
+            "value" : "आपको असाइन किए गए खुले issue पुल रिक्वेस्ट में आपके Jira टिकटों के बगल में दिखते हैं।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le issue aperte assegnate a te compaiono accanto ai tuoi ticket Jira nella Panoramica."
+            "value" : "Le issue aperte assegnate a te compaiono accanto ai tuoi ticket Jira in Pull request."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "あなたに割り当てられた未解決の issue は、ダッシュボードの Jira チケットの横に表示されます。"
+            "value" : "あなたに割り当てられた未解決の issue は、プルリクエストの Jira チケットの横に表示されます。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "나에게 할당된 열린 issue가 대시보드의 Jira 티켓 옆에 표시됩니다."
+            "value" : "나에게 할당된 열린 issue가 풀 리퀘스트의 Jira 티켓 옆에 표시됩니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "As issues abertas atribuídas a você aparecem ao lado dos seus tickets do Jira no Painel."
+            "value" : "As issues abertas atribuídas a você aparecem ao lado dos seus tickets do Jira em Pull requests."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Открытые issue, назначенные вам, отображаются рядом с вашими задачами Jira на панели управления."
+            "value" : "Открытые issue, назначенные вам, отображаются рядом с вашими задачами Jira в разделе «Пул-реквесты»."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Öppna issues som är tilldelade dig visas bredvid dina Jira-ärenden i Översikt."
+            "value" : "Öppna issues som är tilldelade dig visas bredvid dina Jira-ärenden i Pull requests."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "分配给你的未关闭 issue 会显示在概览中你的 Jira 工单旁边。"
+            "value" : "分配给你的未关闭 issue 会显示在拉取请求中你的 Jira 工单旁边。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "指派給你的未關閉 issue 會顯示在總覽中你的 Jira 議題旁邊。"
+            "value" : "指派給你的未關閉 issue 會顯示在提取要求中你的 Jira 工單旁邊。"
           }
         }
       }
@@ -69138,83 +70395,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "還有選用設定未完成"
-          }
-        }
-      }
-    },
-    "Orchestration" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "অর্কেস্ট্রেশন"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orquestación"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orchestration"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ऑर्केस्ट्रेशन"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orchestrazione"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "オーケストレーション"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "오케스트레이션"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orquestração"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Оркестрация"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Orkestrering"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编排"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "編排"
           }
         }
       }
@@ -72604,6 +73784,12 @@
         }
       }
     },
+    "Precheck" : {
+
+    },
+    "Prepare a weekly release risk summary from the current project state." : {
+
+    },
     "Preparing %@…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -74535,6 +75721,9 @@
         }
       }
     },
+    "Prompt" : {
+
+    },
     "PTY daemon did not become ready: %@. See %@." : {
       "localizations" : {
         "bn" : {
@@ -75143,6 +76332,160 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 中的提取要求已關閉"
+          }
+        }
+      }
+    },
+    "Pull request events reach Cascade as they happen: pull requests refresh and automations run at once. When disabled or unavailable, pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটলেই Cascade-এ পৌঁছায়: পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। বন্ধ বা অনুপলব্ধ থাকলে পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los eventos de solicitudes llegan a Cascade al producirse: las solicitudes se actualizan y las automatizaciones se ejecutan al instante. Si se desactiva o no está disponible, las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les événements de pull requests parviennent à Cascade immédiatement : les pull requests s’actualisent et les automatisations s’exécutent aussitôt. Si la fonction est désactivée ou indisponible, les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँचते हैं: पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह बंद या अनुपलब्ध हो तो पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli eventi delle pull request arrivano subito a Cascade: le pull request si aggiornano e le automazioni vengono eseguite all’istante. Se la funzione è disattivata o non disponibile, le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プルリクエストのイベントは発生時に Cascade へ届き、プルリクエストの更新と自動化の実行がすぐに行われます。無効または利用できない場合、プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "풀 리퀘스트 이벤트가 발생하면 Cascade에 즉시 전달되어 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 비활성화되거나 사용할 수 없으면 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eventos de pull requests chegam ao Cascade assim que ocorrem: os pull requests são atualizados e as automações são executadas na hora. Quando desativado ou indisponível, os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "События пул-реквестов сразу передаются в Cascade: пул-реквесты обновляются, а автоматизация запускается немедленно. Если функция отключена или недоступна, пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pull request-händelser når Cascade direkt: pull requests uppdateras och automatiseringar körs genast. Om funktionen är avstängd eller otillgänglig uppdateras pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拉取请求事件会即时发送至 Cascade：拉取请求随即刷新，自动化立即运行。禁用或不可用时，拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提取要求事件會即時傳送至 Cascade：提取要求隨即重新整理，自動化立即執行。停用或無法使用時，提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
+    "Pull request events reach Cascade as they happen: this project's pull requests refresh and automations run at once. While Cascade runs, this adds a webhook to the repository, which needs admin access to it. GitHub allows one per repository, so only one person can forward it at a time. When off, this project's pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "পুল রিকোয়েস্টের ইভেন্ট ঘটার সঙ্গে সঙ্গেই Cascade-এ পৌঁছায়: এই প্রকল্পের পুল রিকোয়েস্ট রিফ্রেশ হয় এবং অটোমেশন সঙ্গে সঙ্গে চলে। এই বিকল্প চালু থাকলে Cascade চলার সময় রিপোজিটরিতে একটি ওয়েবহুক যোগ করে। এর জন্য ওই রিপোজিটরিতে অ্যাডমিন অ্যাক্সেস প্রয়োজন। GitHub প্রতি রিপোজিটরিতে এই ধরনের একটি ওয়েবহুকই অনুমোদন করে, তাই একসঙ্গে কেবল একজন ইভেন্ট পাঠাতে পারেন। বিকল্পটি বন্ধ থাকলে এই প্রকল্পের পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los eventos de las solicitudes de incorporación de cambios llegan a Cascade en cuanto se producen: las solicitudes de este proyecto se actualizan y las automatizaciones se ejecutan al instante. Al activar esta opción, Cascade añade un webhook al repositorio mientras está en ejecución. Para ello, se necesita acceso de administrador al repositorio. GitHub solo permite un webhook de este tipo por repositorio, por lo que solo una persona puede reenviar sus eventos a la vez. Si se desactiva esta opción, las solicitudes de este proyecto se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les événements de pull request parviennent à Cascade dès qu’ils se produisent : les pull requests de ce projet s’actualisent et les automatisations s’exécutent aussitôt. Lorsque cette option est activée, Cascade ajoute un webhook au dépôt pendant son exécution, ce qui nécessite des droits d’administration sur le dépôt. GitHub n’autorise qu’un seul webhook de ce type par dépôt : une seule personne peut donc en transférer les événements à la fois. Si l’option est désactivée, les pull requests de ce projet s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "पुल रिक्वेस्ट इवेंट होते ही Cascade तक पहुँच जाते हैं: इस प्रोजेक्ट के पुल रिक्वेस्ट रीफ़्रेश होते हैं और स्वचालन तुरंत चलते हैं। यह विकल्प चालू होने पर Cascade चलने के दौरान रिपॉज़िटरी में एक वेबहुक जोड़ता है। इसके लिए उस रिपॉज़िटरी पर एडमिन अधिकार चाहिए। GitHub हर रिपॉज़िटरी में इस तरह के केवल एक वेबहुक की अनुमति देता है, इसलिए एक समय में केवल एक व्यक्ति इवेंट भेज सकता है। विकल्प बंद होने पर इस प्रोजेक्ट के पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli eventi delle pull request raggiungono Cascade non appena si verificano: le pull request di questo progetto si aggiornano e le automazioni vengono eseguite all’istante. Quando questa opzione è attiva, Cascade aggiunge un webhook al repository durante l’esecuzione. Per farlo, sono necessari i permessi di amministratore del repository. GitHub consente un solo webhook di questo tipo per repository, quindi solo una persona alla volta può inoltrarne gli eventi. Quando l’opzione è disattivata, le pull request di questo progetto si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プルリクエストのイベントは発生と同時に Cascade に届き、このプロジェクトのプルリクエストの更新と自動化の実行がすぐに行われます。この設定をオンにすると、Cascade の実行中にリポジトリに Webhook が追加されます。これにはリポジトリの管理者権限が必要です。GitHub で許可されるこの種類の Webhook はリポジトリごとに 1 つだけなので、同時にイベントを転送できるのは 1 人だけです。オフの場合、このプロジェクトのプルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "풀 리퀘스트 이벤트가 발생하는 즉시 Cascade에 전달되어 이 프로젝트의 풀 리퀘스트가 새로 고쳐지고 자동화가 바로 실행됩니다. 이 옵션을 켜면 Cascade가 실행되는 동안 저장소에 웹훅이 추가됩니다. 이를 위해 저장소 관리자 권한이 필요합니다. GitHub는 저장소당 이 유형의 웹훅을 하나만 허용하므로 한 번에 한 사람만 이벤트를 전달할 수 있습니다. 옵션을 끄면 이 프로젝트의 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os eventos de pull request chegam ao Cascade assim que ocorrem: os pull requests deste projeto são atualizados e as automações são executadas na hora. Com esta opção ativada, o Cascade adiciona um webhook ao repositório enquanto está em execução. Isso exige acesso de administrador ao repositório. O GitHub permite apenas um webhook desse tipo por repositório, portanto só uma pessoa pode encaminhar os eventos dele por vez. Com a opção desativada, os pull requests deste projeto são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "События пул-реквестов поступают в Cascade сразу: пул-реквесты этого проекта обновляются, а автоматизации запускаются немедленно. Если этот параметр включён, Cascade на время своей работы добавляет в репозиторий вебхук. Для этого нужны права администратора репозитория. GitHub разрешает только один такой вебхук на репозиторий, поэтому передавать его события может только один человек одновременно. Если параметр выключен, пул-реквесты этого проекта обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pull request-händelser når Cascade direkt när de inträffar: projektets pull requests uppdateras och automatiseringarna körs genast. När alternativet är på lägger Cascade till en webhook i kodförrådet medan appen körs. Det kräver administratörsbehörighet till kodförrådet. GitHub tillåter bara en sådan webhook per kodförråd, så bara en person i taget kan vidarebefordra händelserna. När alternativet är av uppdateras projektets pull requests när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拉取请求事件会即时送达 Cascade：此项目的拉取请求随即刷新，自动化立即运行。启用后，Cascade 会在运行期间向仓库添加一个 Webhook，这需要该仓库的管理员权限。GitHub 每个仓库只允许一个此类 Webhook，因此同一时间只能由一人转发事件。关闭后，此项目的拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "提取要求事件會即時送達 Cascade：此專案的提取要求隨即重新整理，自動化立即執行。啟用後，Cascade 會在執行期間向儲存庫加入一個 Webhook，這需要該儲存庫的管理員權限。GitHub 每個儲存庫只允許一個此類 Webhook，因此同一時間只能由一人轉送事件。關閉後，此專案的提取要求會在你檢視時重新整理。"
           }
         }
       }
@@ -78230,6 +79573,9 @@
         }
       }
     },
+    "Release readiness" : {
+
+    },
     "Reload Changes" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -80543,6 +81889,83 @@
         }
       }
     },
+    "Repositories forwarding events: %lld of %lld. The rest refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ইভেন্ট পাঠাচ্ছে এমন রিপোজিটরি: %lld, মোট %lld। বাকিগুলো আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repositorios que reenvían eventos: %lld de %lld. El resto se actualiza cuando lo miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dépôts transférant des événements : %lld sur %lld. Les autres s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इवेंट भेज रही रिपॉज़िटरी: %lld, कुल %lld। बाकी तब रीफ़्रेश होती हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repository che inoltrano eventi: %lld su %lld. Gli altri si aggiornano quando li guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "イベントを転送中のリポジトリ：%lld／%lld。残りは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이벤트를 전달하는 저장소: %lld / %lld. 나머지는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repositórios encaminhando eventos: %lld de %lld. Os demais são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Репозитории, передающие события: %lld из %lld. Остальные обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kodförråd som vidarebefordrar händelser: %lld av %lld. Resten uppdateras när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在转发事件的仓库数：%lld，共 %lld 个。其余仓库会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在轉送事件的儲存庫數：%lld，共 %lld 個。其餘儲存庫會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
     "Repositories forwarding events: %lld." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -82236,6 +83659,9 @@
         }
       }
     },
+    "Resume" : {
+
+    },
     "Retry" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -82466,6 +83892,9 @@
           }
         }
       }
+    },
+    "Reuse" : {
+
     },
     "Reveal" : {
       "extractionState" : "manual",
@@ -84545,6 +85974,9 @@
         }
       }
     },
+    "Run the weekly dependency audit and summarize risky changes." : {
+
+    },
     "Run this automation for real?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -85160,6 +86592,9 @@
         }
       }
     },
+    "Runs on an event" : {
+
+    },
     "Sample preparation: create or reuse %@, then launch %@." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -85621,6 +87056,9 @@
           }
         }
       }
+    },
+    "Save before running." : {
+
     },
     "Save Changes" : {
       "extractionState" : "manual",
@@ -86244,6 +87682,24 @@
         }
       }
     },
+    "Scan recent work and call out correctness, UX, and test coverage risks." : {
+
+    },
+    "Schedule" : {
+
+    },
+    "Scheduled" : {
+
+    },
+    "Scheduled · %@" : {
+
+    },
+    "Scheduled Automation" : {
+
+    },
+    "Scheduled Templates" : {
+
+    },
     "Scheme" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -86627,6 +88083,9 @@
           }
         }
       }
+    },
+    "Search automations" : {
+
     },
     "Search files in %@" : {
       "extractionState" : "manual",
@@ -87239,6 +88698,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "搜尋或輸入網站名稱"
+          }
+        }
+      }
+    },
+    "Search projects" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "প্রজেক্ট খুঁজুন"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar proyectos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher des projets"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "प्रोजेक्ट खोजें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cerca progetti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロジェクトを検索"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "프로젝트 검색"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buscar projetos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск проектов"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sök projekt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜索项目"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "搜尋專案"
           }
         }
       }
@@ -93182,82 +94718,8 @@
         }
       }
     },
-    "Start" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "শুরু করুন"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Iniciar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Démarrer"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "शुरू करें"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Avvia"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開始"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "시작"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Iniciar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Начать"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starta"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "开始"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開始"
-          }
-        }
-      }
+    "Start a run now, outside the schedule." : {
+
     },
     "Start from" : {
       "extractionState" : "manual",
@@ -93413,6 +94875,9 @@
         }
       }
     },
+    "Start from a template" : {
+
+    },
     "Starting" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -93489,6 +94954,12 @@
           }
         }
       }
+    },
+    "Starting at" : {
+
+    },
+    "Starting the agent" : {
+
     },
     "Starting the simulator preview…" : {
       "extractionState" : "manual",
@@ -97955,6 +99426,86 @@
         }
       }
     },
+    "The agent starts with this, as if typed at its prompt: skills, file paths and slash commands work." : {
+
+    },
+    "The agent, model and effort the session starts with" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "যে এজেন্ট, মডেল ও প্রচেষ্টা দিয়ে সেশন শুরু হয়"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El agente, el modelo y el esfuerzo con que empieza la sesión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’agent, le modèle et l’effort avec lesquels la session démarre"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "वह एजेंट, मॉडल और प्रयास जिनसे सेशन शुरू होता है"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’agente, il modello e l’impegno con cui inizia la sessione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッション開始時のエージェント、モデル、推論レベル"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션이 시작될 때의 에이전트, 모델, 노력 수준"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O agente, o modelo e o esforço com que a sessão começa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Агент, модель и уровень усилий, с которыми начинается сеанс"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Agenten, modellen och ansträngningen som sessionen startar med"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话开始时使用的代理、模型和推理强度"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作階段開始時使用的代理、模型和推理強度"
+          }
+        }
+      }
+    },
     "The backend address must be a loopback HTTP origin." : {
       "localizations" : {
         "bn" : {
@@ -101940,6 +103491,83 @@
         }
       }
     },
+    "The project the session starts in" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "যে প্রজেক্টে সেশন শুরু হয়"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El proyecto en el que empieza la sesión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le projet dans lequel la session démarre"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "वह प्रोजेक्ट जिसमें सेशन शुरू होता है"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il progetto in cui inizia la sessione"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションを開始するプロジェクト"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션이 시작되는 프로젝트"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O projeto em que a sessão começa"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проект, в котором начинается сеанс"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projektet som sessionen startar i"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话开始所在的项目"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作階段開始所在的專案"
+          }
+        }
+      }
+    },
     "The PTY helper did not preserve native color ownership. The created shell has been preserved." : {
       "localizations" : {
         "bn" : {
@@ -102630,10 +104258,161 @@
       }
     },
     "The session gets a new branch, forked from the one you pick." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সেশনটি আপনার বাছাই করা ব্রাঞ্চ থেকে একটি নতুন ব্রাঞ্চ পায়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sesión obtiene una rama nueva, creada a partir de la que elijas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La session reçoit une nouvelle branche, issue de celle que vous choisissez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सत्र को आपकी चुनी ब्रांच से बनी एक नई ब्रांच मिलती है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sessione riceve un nuovo branch, derivato da quello che scegli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションには、選択したブランチから作成された新しいブランチが使われます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션은 선택한 브랜치에서 갈라진 새 브랜치를 사용합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A sessão recebe uma nova branch, criada a partir da que você escolher."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сессия получает новую ветку, ответвлённую от выбранной."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessionen får en ny gren, grenad från den du väljer."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话将使用从你所选分支创建的新分支。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作階段會使用從你所選分支建立的新分支。"
+          }
+        }
+      }
+    },
+    "the session is gone or runs no agent." : {
 
     },
     "The session works on the branch you pick, in a worktree of its own." : {
-
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "সেশনটি আপনার বাছাই করা ব্রাঞ্চে, নিজস্ব ওয়ার্কট্রিতে কাজ করে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sesión trabaja en la rama que elijas, en su propio worktree."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La session travaille sur la branche choisie, dans son propre worktree."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "सत्र आपकी चुनी ब्रांच पर, अपने अलग वर्कट्री में काम करता है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La sessione lavora sul branch che scegli, in un worktree tutto suo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セッションは選択したブランチで、専用のワークツリー内で作業します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "세션은 선택한 브랜치에서 자체 작업 트리로 작업합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A sessão trabalha na branch que você escolher, em um worktree próprio."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сессия работает в выбранной ветке, в собственном рабочем дереве."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sessionen arbetar på den gren du väljer, i ett eget arbetsträd."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "会话在你选择的分支上工作，使用独立的工作树。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "工作階段會在你選擇的分支上工作，使用獨立的工作樹。"
+          }
+        }
+      }
     },
     "The sidebar's background behind the whole window. Terminals draw on it in place of their theme's background." : {
 
@@ -108926,6 +110705,9 @@
         }
       }
     },
+    "Timeout" : {
+
+    },
     "Title" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -110403,6 +112185,12 @@
           }
         }
       }
+    },
+    "Turn Off" : {
+
+    },
+    "Turn On" : {
+
     },
     "Turned off in the project's settings." : {
       "extractionState" : "manual",
@@ -115721,6 +117509,83 @@
         }
       }
     },
+    "Webhook forwarding is off. Pull requests refresh when you look at them." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ওয়েবহুক পাঠানো বন্ধ। পুল রিকোয়েস্ট আপনি দেখার সময় রিফ্রেশ হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El reenvío de webhooks está desactivado. Las solicitudes se actualizan cuando las miras."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le transfert des webhooks est désactivé. Les pull requests s’actualisent quand vous les consultez."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "वेबहुक भेजना बंद है। पुल रिक्वेस्ट तब रीफ़्रेश होते हैं जब आप उन्हें देखते हैं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’inoltro dei webhook è disattivato. Le pull request si aggiornano quando le guardi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook の転送はオフです。プルリクエストは表示したときに更新されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "웹훅 전달이 꺼져 있습니다. 풀 리퀘스트는 사용자가 볼 때 새로 고쳐집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O encaminhamento de webhooks está desativado. Os pull requests são atualizados quando você olha para eles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Передача вебхуков отключена. Пул-реквесты обновляются, когда вы на них смотрите."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vidarebefordran av webhookar är avstängd. Pull requests uppdateras när du tittar på dem."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook 转发已关闭。拉取请求会在你查看时刷新。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Webhook 轉送已關閉。提取要求會在你檢視時重新整理。"
+          }
+        }
+      }
+    },
     "Webhook forwarding started" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -115875,6 +117740,15 @@
         }
       }
     },
+    "Weekday repo audit" : {
+
+    },
+    "Weekdays" : {
+
+    },
+    "Weekdays at %@" : {
+
+    },
     "Weekly" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -115952,6 +117826,9 @@
         }
       }
     },
+    "Weekly, no days chosen" : {
+
+    },
     "Welcome to Cascade" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -116025,83 +117902,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "歡迎使用 Cascade"
-          }
-        }
-      }
-    },
-    "What are we working on in %@?" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@-এ আমরা কী নিয়ে কাজ করছি?"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "¿En qué trabajamos en %@?"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sur quoi travaillons-nous dans %@ ?"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "हम %@ में किस पर काम कर रहे हैं?"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Su cosa lavoriamo in %@?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ で何に取り組みますか？"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@에서 무엇을 작업할까요?"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No que vamos trabalhar em %@?"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Над чем работаем в %@?"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vad arbetar vi med i %@?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我们要在 %@ 中做什么？"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "我們要在 %@ 中做什麼？"
           }
         }
       }
@@ -116571,6 +118371,9 @@
           }
         }
       }
+    },
+    "Workflow" : {
+
     },
     "Workflow %lld" : {
       "extractionState" : "manual",

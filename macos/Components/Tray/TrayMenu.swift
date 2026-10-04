@@ -26,9 +26,7 @@ import SwiftUI
     }()
     private lazy var usageItem: NSMenuItem = {
         let item = NSMenuItem()
-        item.view = NSHostingView(rootView: TrayUsageRow(shell: model.shell, open: { [weak self] in
-            self?.menu.cancelTracking(); self?.model.openUsage()
-        }))
+        item.view = NSHostingView(rootView: TrayUsageRow(shell: model.shell))
         return item
     }()
 
@@ -145,7 +143,6 @@ import SwiftUI
     @objc private func rowClicked(_ sender: NSMenuItem) {
         guard let boxed = sender.representedObject as? TrayMenuAction else { return }
         switch boxed.action {
-        case .openUsage: model.openUsage()
         case .quit: model.quit()
         case .openReview(let id): model.openReview(id)
         }
@@ -198,8 +195,7 @@ private final class TrayMenuAction: NSObject {
     }
 }
 
-/// Whose plan the tray shows, as the menu's first row. The same setting the Dashboard
-/// toolbar's picker binds to, so the two never disagree. A custom control rather than the
+/// Whose plan the tray shows, as the menu's first row. A custom control rather than the
 /// system segmented one: a light, half-transparent track over the menu's own material, with
 /// a soft pill under the chosen agent.
 struct TrayAgentRow: View {
@@ -237,16 +233,12 @@ struct TrayAgentRow: View {
     }
 }
 
-/// The plan usage block as one menu row. A click goes to the Dashboard.
+/// The plan usage block as one menu row. The tray is the only place it is shown, so it opens nothing.
 struct TrayUsageRow: View {
     let shell: ShellStore
-    let open: () -> Void
     var body: some View {
         UsagePanel(shell: shell)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .frame(width: TrayMenuController.usageWidth, alignment: .leading)
-            .contentShape(Rectangle())
-            .onTapGesture(perform: open)
-            .accessibilityAddTraits(.isButton)
     }
 }

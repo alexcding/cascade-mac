@@ -4,28 +4,26 @@ import Observation
 /// The pages of a project, picked from the toolbar as the Dashboard's are. Board is offered only
 /// when the project turns it on (`ProjectPageViewModel.sections`).
 enum ProjectSection: String, CaseIterable, Identifiable {
-    case start, board, orchestration, settings
+    case board, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .start: String(localized: "Start")
         case .board: String(localized: "Board")
         case .settings: String(localized: "Settings")
-        case .orchestration: String(localized: "Orchestration")
         }
     }
 }
 
-/// A project's screen: Start, the composer that starts its sessions; Board, its Jira sprint board
-/// when switched on; Orchestration; and Settings. Under whichever is shown, the project's own
-/// terminal can be split open (`terminal`).
+/// A project's screen, opened from its sidebar row's gear: its Settings, and its Jira sprint board
+/// when switched on. Under either, the project's own terminal can be split open (`terminal`). Its
+/// composer is New Task's when New Task is on this project: sessions start there, not here.
 @MainActor @Observable final class ProjectPageViewModel {
     /// What the screen asks its coordinator to do.
     enum Action: Equatable {
         case saved(Project, ProjectSaveSource), deleted(String)
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
         /// Start made a session; `prompt` is its agent's first message, when it has one.
-        case sessionCreated(WorkspaceSession, prompt: String?)
+        case sessionCreated(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
         /// A board card asked to open; the coordinator gates it before the board opens it.
         case board(WebBoardViewModel.Action)
         /// The terminal panel needs a new shell in `directory`, in place of any running.
@@ -46,7 +44,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
             }
             composer.onAction = { [onAction] action in
                 switch action {
-                case .created(let session, let prompt): onAction(.sessionCreated(session, prompt: prompt))
+                case .created(let session, let prompt, let launch): onAction(.sessionCreated(session, prompt: prompt, launch: launch))
                 }
             }
             board?.onAction = { [onAction] in onAction(.board($0)) }
@@ -61,7 +59,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     let terminal: ProjectTerminalViewModel
     /// The sprint board, while the project shows one and a backend is connected.
     private(set) var board: WebBoardViewModel?
-    private(set) var section = ProjectSection.start {
+    private(set) var section = ProjectSection.settings {
         didSet { if oldValue != section { board?.cancelActions(); updateBoard() } }
     }
     /// Whether the project is the selected screen: the board loads and follows Jira only while it
@@ -91,7 +89,7 @@ enum ProjectSection: String, CaseIterable, Identifiable {
 
     func selectSection(_ section: ProjectSection) {
         guard !retired else { return }
-        self.section = sections.contains(section) ? section : .start
+        self.section = sections.contains(section) ? section : .settings
     }
     func connect(_ service: (any ProjectService)?, sessions: (any SessionCreating)?, boards: (any BoardService)? = nil) {
         guard !retired else { return }
@@ -105,13 +103,6 @@ enum ProjectSection: String, CaseIterable, Identifiable {
         if let boards { board?.connect(service: boards) } else { board?.pause() }
         updateBoardModel()
         updateBoard()
-    }
-    /// Opens Start to begin a session, on a link when one is given. `jiraKey` is the ticket the
-    /// link's pull request references, recorded on the session its lookup names no ticket for.
-    func start(text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) {
-        guard !retired else { return }
-        section = .start
-        composer.prepare(text: text, jiraKey: jiraKey, agent: agent)
     }
     /// A Jira sync for this project's board, or for every board.
     func refreshBoard(event id: String?) {
@@ -135,11 +126,11 @@ enum ProjectSection: String, CaseIterable, Identifiable {
     }
 
     /// Builds the board when the project turns it on, and retires it when it is turned off or
-    /// loses its Jira key; a page left on Board then falls back to Start.
+    /// loses its Jira key; a page left on Board then falls back to Settings.
     private func updateBoardModel() {
         if !project.showsBoard {
             board?.retire(); board = nil
-            if section == .board { section = .start }
+            if section == .board { section = .settings }
             return
         }
         guard board == nil, let boardService else { return }

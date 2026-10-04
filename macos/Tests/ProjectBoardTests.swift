@@ -109,14 +109,14 @@ private func boardProject(key: String? = "WEB", enabled: Bool? = true) -> Projec
 }
 
 @MainActor @Test func theBoardTabIsOfferedOnlyWhenTurnedOnForAJiraProject() {
-    #expect(boardPage(boardProject()).sections == [.start, .board, .orchestration, .settings])
+    #expect(boardPage(boardProject()).sections == [.board, .settings])
     #expect(!boardPage(boardProject(enabled: false)).sections.contains(.board))
     #expect(!boardPage(boardProject(enabled: nil)).sections.contains(.board), "An older backend reads as off")
     #expect(!boardPage(boardProject(key: nil)).sections.contains(.board), "A board needs a Jira key")
     let off = boardPage(boardProject(enabled: false))
     off.connectBoard(BoardFixture())
     off.selectSection(.board)
-    #expect(off.section == .start && off.board == nil)
+    #expect(off.section == .settings && off.board == nil)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func theBoardRunsOnlyWhileItsTabIsShownAndFollowsTheToggle() throws {
@@ -129,7 +129,7 @@ private func boardProject(key: String? = "WEB", enabled: Bool? = true) -> Projec
     let board = try #require(model.board)
     #expect(board.projectID == "web" && !board.active && board.appearance == .dark)
     root.navigate(to: .project("web"))
-    #expect(!board.active, "Start is showing, not the board")
+    #expect(!board.active, "Settings is showing, not the board")
     model.selectSection(.board)
     #expect(board.active)
     root.appearance = .light
@@ -142,9 +142,9 @@ private func boardProject(key: String? = "WEB", enabled: Bool? = true) -> Projec
     #expect(!board.active && model.board === board, "A stopped backend idles the board and keeps it")
     model.connectBoard(BoardFixture())
     #expect(board.active)
-    // Turning the board off retires it and leaves the page on Start; turning it on builds anew.
+    // Turning the board off retires it and leaves the page on Settings; turning it on builds anew.
     model.update(boardProject(enabled: false))
-    #expect(board.retired && model.board == nil && model.section == .start && !model.sections.contains(.board))
+    #expect(board.retired && model.board == nil && model.section == .settings && !model.sections.contains(.board))
     model.update(boardProject())
     let rebuilt = try #require(model.board)
     #expect(rebuilt !== board && !rebuilt.active)

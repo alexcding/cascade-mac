@@ -33,7 +33,7 @@ struct UsagePanel: View {
         }
     }
 
-    /// Each agent's own accent, the Dashboard's.
+    /// Each agent's own accent.
     private var accent: Color { AgentDrivers.driver(for: shell.usageAgent).tint }
 }
 
@@ -53,7 +53,7 @@ enum UsageWindowMath {
     }
 }
 
-/// Also drawn on the Dashboard, so both places read a quota the same way.
+/// One quota window: what is used, and when it resets.
 struct UsageBar: View {
     let title: String
     let window: UsageSnapshot.Window
@@ -172,7 +172,7 @@ struct UsageStats: View {
 }
 
 /// The quota bar itself, as the tray draws it: track, fill, gridmarks at the quarters, then the green
-/// pace notch on top. The Dashboard's usage row draws the same one, so the two always match.
+/// pace notch on top.
 struct UsageTrack: View {
     let left: Double
     let pace: Double?

@@ -19,8 +19,8 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### A worktree for every task
 
-- **Start from anything.** Press ⌘N and type a branch name, or paste a GitHub pull
-  request or Jira ticket link. Cascade creates a git worktree for it (a new branch from
+- **Start from anything.** Press ⌘N for New Task, pick a project, and type a task or a
+  branch name, or paste a GitHub pull request or Jira ticket link. Cascade creates a git worktree for it (a new branch from
   the base you pick, or the pull request's own branch) and opens the page next to its
   terminal.
 - **Run agents side by side.** Each session runs Claude Code, Codex, or a plain shell
@@ -85,9 +85,9 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### Jira and GitHub issues without leaving the code
 
-- **Tickets.** The Dashboard's Tickets tab lists your Jira tickets across the projects
+- **Tickets.** The Tickets tab in Pull Requests lists your Jira tickets across the projects
   whose Jira project key claims them, and the open GitHub issues assigned to you in their
-  repositories, with search and filters. Paste an issue link into Start to work on it.
+  repositories, with search and filters. Paste an issue link into New Task to work on it.
 - **Sprint board.** Drag cards between columns, move or reassign tickets, and filter
   by assignee.
 - **Automatic updates.** [Automation](#automation-across-projects) can move a merged

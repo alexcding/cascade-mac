@@ -15,6 +15,7 @@ enum Destination: Hashable {
     case dashboard(DashboardViewModel, ShellStore)
     case dashboardTickets(DashboardViewModel)
     case automation(AutomationViewModel)
+    case newSession(NewSessionViewModel)
     case logs(LogsViewModel)
     case project(ProjectPageViewModel)
     case sessionWorkspace(SessionWorkspaceViewModel, WorkspaceContext)
@@ -65,6 +66,8 @@ extension Destination {
             DashboardTicketsView(model: viewModel)
         case .automation(let viewModel):
             AutomationView(model: viewModel)
+        case .newSession(let viewModel):
+            NewSessionView(model: viewModel)
         case .logs(let viewModel):
             LogsView(model: viewModel)
         case .project(let viewModel):
@@ -121,17 +124,18 @@ extension Destination {
             }
             return WindowToolbar(leading: [.title(String(localized: "Automations"))], trailing: [new])
         case .projectCoordinator(let coordinator):
-            // The tabs stand in for the page title, as the Dashboard's do: the system's toolbar
-            // segmented control. Board comes and goes with the project's setting, and a different
-            // set of titles is a different item.
+            // The project's name, or, with its board on, the Board and Settings tabs standing in for
+            // the title, as the Dashboard's do: the system's toolbar segmented control.
             let model = coordinator.model
             let terminal = model.terminal
             let sections = model.sections
-            return WindowToolbar(leading: [.segments(sections.contains(.board) ? "project-tabs-board" : "project-tabs",
-                                                     titles: sections.map(\.title),
-                                                     selected: sections.firstIndex(of: model.section) ?? 0) {
-                if sections.indices.contains($0) { model.selectSection(sections[$0]) }
-            }], trailing: [.picker("project-terminal", label: String(localized: "Terminal"),
+            // With no board there is one page, so its title is the project's name rather than a lone tab.
+            let leading: [WindowToolbarItem] = sections.count < 2 ? [.title(model.project.name)]
+                : [.segments("project-tabs-board", titles: sections.map(\.title),
+                             selected: sections.firstIndex(of: model.section) ?? 0) {
+                    if sections.indices.contains($0) { model.selectSection(sections[$0]) }
+                }]
+            return WindowToolbar(leading: leading, trailing: [.picker("project-terminal", label: String(localized: "Terminal"),
                                    choices: [.init(title: String(localized: "Terminal"), symbol: "terminal", selectedColor: Theme.toolbarSymbolSelected)],
                                    selected: terminal.shown ? 0 : -1, toggles: true) { _ in
                 withAnimation(.projectTerminalSlide) { terminal.toggle() }
@@ -142,6 +146,8 @@ extension Destination {
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):
             return WindowToolbar(leading: [.title(title)])
+        case .newSession:
+            return WindowToolbar(leading: [.title(String(localized: "New Task"))])
         case .dashboard, .dashboardTickets, .logs, .project, .sessionWorkspace, .none:
             return .empty
         }
@@ -153,6 +159,7 @@ extension Destination {
 // Destinations compare their payloads by identity, never by state.
 extension DashboardViewModel: HashableObject {}
 extension AutomationViewModel: HashableObject {}
+extension NewSessionViewModel: HashableObject {}
 extension LogsViewModel: HashableObject {}
 extension ProjectPageViewModel: HashableObject {}
 extension SessionWorkspaceViewModel: HashableObject {}

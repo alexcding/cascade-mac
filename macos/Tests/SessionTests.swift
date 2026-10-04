@@ -47,7 +47,7 @@ private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     let operations = SessionOperations(api: api)
     var created: WorkspaceSession?
     let model = ProjectComposerModel(project: project, agent: .claude, operations: operations)
-    model.onAction = { if case .created(let session, _) = $0 { created = session } }
+    model.onAction = { if case .created(let session, _, _) = $0 { created = session } }
     await model.loadReferences()
     #expect(model.base == "main" && model.text.isEmpty && model.hint == nil)
     model.select(.shell)
@@ -148,7 +148,7 @@ private let scriptedProject = Project(id: "fixture", name: "Fixture", repo: "fix
     let unknown = ScriptedSessionService(resolutionError: PullRequestBranchUnknown())
     let model = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: unknown)
     var created: WorkspaceSession?, prompt: String??
-    model.onAction = { if case .created(let session, let first) = $0 { created = session; prompt = first } }
+    model.onAction = { if case .created(let session, let first, _) = $0 { created = session; prompt = first } }
     model.text = "https://github.com/fixture/repo/pull/42"
     _ = await model.resolve()
     #expect(model.showsPullRequestBranch && model.error == nil)

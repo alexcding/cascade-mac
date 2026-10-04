@@ -7,7 +7,6 @@ import Testing
     var refreshes = 0
     var acknowledged: [TrayPR] = []
     var opened: [OpenPageRequest] = []
-    var usageOpens = 0
     var failsOpen = false
     func trayState() -> TrayState { state }
     func refreshTray() { refreshes += 1 }
@@ -25,7 +24,6 @@ import Testing
         if failsOpen { throw BackendError.operation("offline") }
         opened.append(request)
     }
-    func openTrayUsage() { usageOpens += 1 }
 }
 
 @MainActor private final class TrayFactoryFixture: TrayFeatureFactory {
@@ -143,16 +141,14 @@ private func trayReview(_ number: Int, url: String? = nil, category: String = "r
     #expect(window.events.isEmpty)
 }
 
-@MainActor @Test func trayWindowUsageAndQuitGoThroughThePresentation() {
+@MainActor @Test func trayQuitGoesThroughThePresentation() {
     let runtime = TrayRuntimeFixture(), window = TrayWindowFixture()
     let model = TrayViewModel(service: runtime, shell: trayShell())
     let coordinator = TrayCoordinator(model: model, runtime: runtime, presentation: window.presentation)
-    model.openUsage()
-    #expect(runtime.usageOpens == 0, "Nothing opens while the menu is closed")
-    coordinator.setActive(true); model.openUsage()
-    #expect(runtime.usageOpens == 1 && window.events == ["dismiss", "window"] && !model.active)
+    model.quit()
+    #expect(window.events.isEmpty, "Nothing happens while the menu is closed")
     coordinator.setActive(true); model.quit()
-    #expect(window.events.last == "quit")
+    #expect(window.events == ["dismiss", "quit"] && !model.active)
     #expect(TrayMenuController.truncate("a very long pull request title that goes past the limit", limit: 12) == "a very long…")
     #expect(TrayMenuController.truncate("short", limit: 12) == "short")
 }

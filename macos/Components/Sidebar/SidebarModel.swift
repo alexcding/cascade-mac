@@ -34,13 +34,13 @@ struct WorkspaceSession: Codable, Identifiable, Equatable, Sendable {
 }
 
 enum SidebarDestination: Hashable, Codable {
-    case overview, automation, terminal, project(String), session(String)
+    case newSession, overview, automation, terminal, project(String), session(String)
 
     /// True for destinations that exist only while the sidebar lists them.
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session: true
-        case .overview, .automation, .terminal: false
+        case .newSession, .overview, .automation, .terminal: false
         }
     }
 }
@@ -112,7 +112,8 @@ struct SidebarEntry: Equatable {
         }
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
         var result: [Self] = [
-            .init(id: "overview", title: String(localized: "Dashboard"), symbol: "dashboard", destination: .overview),
+            .init(id: "new-session", title: String(localized: "New Task"), symbol: "newSession", destination: .newSession),
+            .init(id: "overview", title: String(localized: "Pull Requests"), symbol: "pullRequests", destination: .overview),
             .init(id: "automation", title: String(localized: "Automation"), symbol: "automation", destination: .automation)
         ]
         // Pinned lists across projects and has an order of its own: a drag inside one project

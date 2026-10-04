@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 /// The Dashboard screen. It owns the connection, the tabs, the global search and row opening, and
-/// hands each data source to its own model: `prs` for GitHub, `tickets` for Jira and `usage` for
-/// agent spend. Each child loads and derives its own data asynchronously; views read only what
+/// hands each data source to its own model: `prs` for GitHub and `tickets` for Jira and GitHub
+/// issues. Each child loads and derives its own data asynchronously; views read only what
 /// they publish.
 @MainActor @Observable final class DashboardViewModel {
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
@@ -11,7 +11,6 @@ import Observation
     let navigation: PageActionViewModel
     let prs = DashboardPullRequestsModel()
     let tickets = DashboardTicketsModel()
-    let usage = DashboardUsageModel()
     private(set) var retired = false
 
     var tab: Tab = .overview
@@ -63,7 +62,6 @@ import Observation
         cancelActions()
         prs.retire()
         tickets.retire()
-        usage.retire()
     }
 
     private func pullRequestsChanged() {

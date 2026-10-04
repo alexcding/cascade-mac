@@ -10,12 +10,10 @@ extension AppViewModel: TrayCoordinating {
         refresh()
     }
     func acknowledgeTrayReview(_ review: TrayPR) { shell.acknowledge(review) }
-    /// A tray click opens as a row's does (`openPage`): the PR's session, else its project's Start
-    /// with the link filled in. It never starts a session. A PR no project claims brings the window
+    /// A tray click opens as a row's does (`openPage`): the PR's session, else New Task on its
+    /// project with the link filled in. It never starts a session. A PR no project claims brings the window
     /// up with the reason.
     func openTrayReview(_ request: OpenPageRequest) async throws {
         do { try await openPage(request) } catch { reportOutsideOpenFailure(error); throw error }
     }
-    // The usage picker lives on the Dashboard toolbar.
-    func openTrayUsage() { select(.overview) }
 }

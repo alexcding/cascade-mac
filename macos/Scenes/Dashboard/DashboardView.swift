@@ -43,7 +43,6 @@ struct DashboardView: View {
             .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("native-dashboard")
-        .onChange(of: shell.usage, initial: true) { _, usage in model.usage.update(usage) }
         .onDisappear(perform: model.cancelActions)
     }
 
@@ -107,25 +106,21 @@ struct DashboardView: View {
             let tickets = model.tickets.rows
             let attention = model.tickets.attention
             // The side column only when it has something in it; otherwise the lists take the width.
-            if width >= Self.splitWidth && (!reviews.isEmpty || showsUsage) {
+            if width >= Self.splitWidth && !reviews.isEmpty {
                 HStack(alignment: .top, spacing: 48) {
                     VStack(alignment: .leading, spacing: 52) {
                         myPullRequests(mine)
                         ticketSummary(tickets, attention: attention)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 52) {
-                        if !reviews.isEmpty { reviewRequests(reviews) }
-                        usage
-                    }
-                    .frame(width: max(Self.sideWidth, tileWidth))
+                    reviewRequests(reviews)
+                        .frame(width: max(Self.sideWidth, tileWidth))
                 }
             } else {
                 VStack(alignment: .leading, spacing: 52) {
                     myPullRequests(mine)
                     if !reviews.isEmpty { reviewRequests(reviews) }
                     ticketSummary(tickets, attention: attention)
-                    usage
                 }
             }
         }
@@ -134,18 +129,17 @@ struct DashboardView: View {
     // MARK: Summary
 
     /// The headline tiles: the user's pull requests by check state, the reviews waiting on them,
-    /// their tickets by stage once Jira is connected, and the month's agent spend. Counts ignore the
+    /// and their tickets by stage once Jira is connected. Counts ignore the
     /// search; the sections under them leave their counts to these tiles. One row when wide, sized
     /// to the tiles shown so none leaves an empty slot; pairs when narrow.
     private var summary: some View {
-        let tiles = model.tickets.available ? 4 : 3
+        let tiles = model.tickets.available ? 3 : 2
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
                             count: width >= Self.splitWidth ? tiles : 2)
         return LazyVGrid(columns: columns, spacing: 12) {
             pullRequestTile
             reviewTile
             if model.tickets.available { ticketTile }
-            spendTile
         }
     }
 
@@ -170,6 +164,8 @@ struct DashboardView: View {
         } visual: {
             DashboardAvatarStack(logins: tile.authors, avatars: model.prs.avatars)
         }
+        // The review column under the tiles is at least a tile wide.
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tileWidth = $0 }
         .accessibilityIdentifier("dashboard-tile-reviews")
     }
 
@@ -191,18 +187,6 @@ struct DashboardView: View {
                 .frame(minWidth: 40, maxWidth: 110)
         }
         .accessibilityIdentifier("dashboard-tile-tickets")
-    }
-
-    private var spendTile: some View {
-        let tile = model.usage.tile
-        return DashboardStatTile(title: String(localized: "AI spend · 30 days"), value: tile.month, shown: shown("spend"), format: { UsageStats.money($0, whole: true) },
-                                 footnote: tile.footnote) {
-            if let label = tile.tokensLabel { DashboardBadge(label, tone: .outline) }
-        } visual: {
-            DashboardSpendLines(lines: tile.lines, peak: tile.peak)
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tileWidth = $0 }
-        .accessibilityIdentifier("dashboard-tile-spend")
     }
 
     // MARK: Pull requests
@@ -350,20 +334,6 @@ struct DashboardView: View {
         .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
         .contextMenu {
             PageRowMenu(hasSession: model.sessionMark(row) != nil, url: row.url, open: { model.open(row) })
-        }
-    }
-
-    // MARK: Usage
-
-    /// Each agent's quota as a ruled row with a ring; a row opens the tray's usage panel.
-    private var showsUsage: Bool { DashboardUsage.loading(shell) || !DashboardUsage.plans(shell.usage).isEmpty }
-
-    @ViewBuilder private var usage: some View {
-        if showsUsage {
-            VStack(alignment: .leading, spacing: 0) {
-                DashboardSectionHeader(title: String(localized: "Agent usage"), detail: "")
-                DashboardUsageRows(shell: shell)
-            }
         }
     }
 
@@ -609,8 +579,8 @@ private struct DashboardStatTile<Badge: View, Visual: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 }
 
-/// Makes a tile a VoiceOver button only when it has somewhere to go, so the spend tile offers no
-/// action that does nothing.
+/// Makes a tile a VoiceOver button only when it has somewhere to go, so a tile offers no action
+/// that does nothing.
 private struct DashboardTileAction: ViewModifier {
     let open: (() -> Void)?
 
@@ -707,29 +677,6 @@ private struct DashboardAvatarStack: View {
             }
         }
         .accessibilityLabel(logins.joined(separator: ", "))
-    }
-}
-
-/// The month's daily cost as one line per agent, each in its colour, on a shared scale.
-private struct DashboardSpendLines: View {
-    let lines: [DashboardUsageModel.Line]
-    let peak: Double
-    var body: some View {
-        ZStack {
-            ForEach(lines) { line in
-                Path { path in
-                    let points = line.costs
-                    guard points.count > 1 else { return }
-                    for (index, cost) in points.enumerated() {
-                        let point = CGPoint(x: 100 * CGFloat(index) / CGFloat(points.count - 1), y: 32 - 30 * CGFloat(cost / peak))
-                        index == 0 ? path.move(to: point) : path.addLine(to: point)
-                    }
-                }
-                .stroke(AgentDrivers.driver(for: line.key).tint, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-        }
-        .frame(minWidth: 40, maxWidth: 100, minHeight: 34, maxHeight: 34)
-        .accessibilityHidden(true)
     }
 }
 

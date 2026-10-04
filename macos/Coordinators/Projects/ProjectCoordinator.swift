@@ -14,7 +14,7 @@ import Observation
     /// Lifecycle events the parent needs: a save, a deletion, the end of a presentation, or a
     /// session Start made.
     enum Event {
-        case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?)
+        case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
         /// The terminal panel needs a new shell in `directory`, answered to `request`.
         case terminalRequested(directory: String, request: UUID)
         /// The terminal panel closed, and its shell is to stop.
@@ -48,7 +48,7 @@ import Observation
         guard !retired, isOwned() else { return }
         switch action {
         case .saved(let project, let source): onEvent(.saved(project, source))
-        case .sessionCreated(let session, let prompt): onEvent(.sessionCreated(session, prompt: prompt))
+        case .sessionCreated(let session, let prompt, let launch): onEvent(.sessionCreated(session, prompt: prompt, launch: launch))
         case .openTerminal(let directory, let request): onEvent(.terminalRequested(directory: directory, request: request))
         case .closeTerminal: onEvent(.terminalClosed)
         case .deleted(let id):

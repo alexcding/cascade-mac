@@ -115,11 +115,14 @@ the standard app bundle does not include a separate `cascade-backend` executable
 
 The sidebar is an AppKit `NSOutlineView` with projects, sessions, and pinned
 entries. It preserves selection and ordering and provides context actions
-for opening, pinning, removing, and revealing items.
+for opening, pinning, removing, and revealing items. A click on a project folder
+opens or closes it; under the pointer the folder shows its chevron, Settings and
+New Task, which its context menu also offers.
 
-**New Session** (**⌘N**) belongs to the selected project. Enter a branch name, PR
-URL, or Jira ticket URL, choose a base branch, and pick Claude, Codex, or Shell
-only. Creation resolves the context, creates or reuses a worktree, saves the
+**New Task** (**⌘N**) is the sidebar's first row. Pick the project, the branch, and
+whether the session forks a new branch from it or works on it; enter a task, branch
+name, PR URL, or Jira ticket URL; and pick Claude, Codex, or Shell only, with the
+agent's model and effort. Creation resolves the context, creates or reuses a worktree, saves the
 session, and opens its terminal. A session is a saved task record; a worktree
 without a session does not appear automatically.
 
@@ -139,17 +142,17 @@ restart check unsaved documents, stop workflows and terminals, stop the owned
 backend, and then exit. Cancelling a document close keeps the app open. An
 unexpected app exit can leave the detached shells alive for reattachment.
 
-## Dashboard, projects, and Jira
+## Pull Requests, projects, and Jira
 
-The dashboard groups your pull requests separately from the ones in your review
+Pull Requests (the `Dashboard` scene) groups your pull requests separately from the ones in your review
 queue, with search, project/status filters, and CI information. Review grouping
 uses `awaitingMyReview`, including PRs you have already reviewed; menu-bar alerts
 use the narrower active-review-request classification. Failed refreshes preserve
 the last successful snapshot and offer retry.
 
-A project's page has three tabs in the toolbar, as the Dashboard has: Start, a
-composer that starts a session in it; Orchestration, empty for now; and Settings.
-A Jira project key gives the project a sprint board on the Dashboard's Tickets tab.
+A project's page, opened from its folder's gear, is its Settings; a project with its
+Jira board turned on also has a Board tab beside them in the toolbar.
+A Jira project key gives the project a sprint board on Pull Requests' Tickets tab.
 My Tickets there also lists the open GitHub issues assigned to you in each project's
 repository, unless the project turns issues off in Settings; the backend maps them onto
 the Jira ticket shape (`issues.rs`), so both arrive as one `Ticket` with its `TicketSource`.

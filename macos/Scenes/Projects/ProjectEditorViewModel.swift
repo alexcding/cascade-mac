@@ -67,6 +67,11 @@ import Observation
         draft = ProjectDraft(project); baseline = draft
     }
     func revert() { guard active && !busy else { return }; draft = baseline; error = nil }
+    /// Opened in place of New Task, for a project with no folder to start a session in: says why.
+    func explainMissingFolder() {
+        guard active, draft.workspace.isEmpty else { return }
+        error = String(localized: "Choose the project folder to start sessions in this project.")
+    }
     func pickFolder() async {
         guard active, !Task.isCancelled, !busy else { return }
         let generation = generation

@@ -35,7 +35,7 @@ struct ProjectEditorView: View {
                     Toggle("Show the repository's issues in My Tickets", isOn: $model.draft.issuesEnabled)
                         .disabled(model.draft.repo.isEmpty)
                         .accessibilityIdentifier("project-issues-enabled")
-                    Text("Open issues assigned to you appear beside your Jira tickets on the Dashboard.")
+                    Text("Open issues assigned to you appear beside your Jira tickets in Pull Requests.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Editor") {
@@ -174,7 +174,6 @@ struct ProjectPageView: View {
     let model: ProjectPageViewModel
     var body: some View {
         switch model.section {
-        case .start: ProjectComposerView(project: model.project, model: model.composer)
         case .board:
             if let board = model.board { ProjectBoardView(project: model.project, board: board) }
         case .settings:
@@ -182,112 +181,204 @@ struct ProjectPageView: View {
                 .padding(.bottom, 16)
                 .frame(maxWidth: Theme.Size.readableColumn)
                 .frame(maxWidth: .infinity)
-        case .orchestration:
-            ContentUnavailableView(String(localized: "Orchestration"), systemImage: "point.3.connected.trianglepath.dotted")
         }
     }
 }
 
+/// Start: the question in the middle of the page, and at its foot what the session starts in — the
+/// project and the branch — over the field, whose own row picks the agent, its model and effort.
 struct ProjectComposerView: View {
     let project: Project
     @Bindable var model: ProjectComposerModel
+    /// The projects Start can switch to, with what to do on a pick; empty on a project's own page.
+    var projects: [Project] = []
+    var onChooseProject: ((String) -> Void)?
+    /// New Project, offered under the projects when Start can switch between them.
+    var onNewProject: (() -> Void)?
     @FocusState private var focused: Bool
     @State private var choosingBranch = false
+    @State private var choosingProject = false
+    @State private var choosingProjectFromTitle = false
+
+    /// Whether Start can switch projects here: New Session's, not a project's own page.
+    private var switchesProject: Bool { onChooseProject != nil && !projects.isEmpty }
+
+    /// The question, its project's name underlined. Where Start can switch, the name opens the
+    /// projects as the chip does: the sentence is split around it, so it is a button of its own.
+    @ViewBuilder private var title: some View {
+        let marker = "\u{FFFC}"
+        let sentence = String(localized: "What should we build in \(marker)?")
+        let parts = sentence.components(separatedBy: marker)
+        if switchesProject, let onChooseProject, parts.count == 2 {
+            HStack(spacing: 0) {
+                Text(parts[0])
+                Button { choosingProjectFromTitle.toggle() } label: {
+                    Text(project.name).underline(pattern: .dot).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $choosingProjectFromTitle, arrowEdge: .bottom) {
+                    ProjectPicker(projects: projects, current: project.id, choose: onChooseProject, newProject: onNewProject) {
+                        choosingProjectFromTitle = false
+                    }
+                }
+                .help(String(localized: "The project the session starts in"))
+                .accessibilityIdentifier("project-composer-title-project")
+                Text(parts[1])
+            }
+            .lineLimit(1).minimumScaleFactor(0.6)
+            .onChange(of: choosingProjectFromTitle) { _, open in if !open { focused = true } }
+        } else {
+            Text("What should we build in \(Text(project.name).underline(pattern: .dot))?")
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 18) {
-            Text("What are we working on in \(project.name)?")
-                .font(.system(size: 24, weight: .semibold)).multilineTextAlignment(.center)
-            VStack(alignment: .leading, spacing: 10) {
-                TextField(model.placeholderText, text: $model.text, axis: .vertical)
-                    .textFieldStyle(.plain).font(.system(size: 14)).lineLimit(3...10)
-                    .frame(minHeight: 64, alignment: .topLeading)
-                    .focused($focused).disabled(model.creating)
-                    .onSubmit { Task { await model.submit() } }
-                    // Return alone creates the session; with any modifier held — Shift, Option,
-                    // Control or Command — it is a new line: the field editor's own, at the cursor.
-                    .onKeyPress(.return, phases: .down) { press in
-                        guard !press.modifiers.subtracting([.capsLock, .numericPad]).isEmpty else { return .ignored }
-                        NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
-                        return .handled
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            title.font(.system(size: 32)).tracking(-0.6).multilineTextAlignment(.center)
+            Spacer(minLength: 24)
+            VStack(alignment: .leading, spacing: 6) {
+                // Where the session starts sits on a tray along the card's top, as the card's own header.
+                VStack(spacing: 0) {
+                    HStack(spacing: 2) {
+                        projectChip
+                        if !model.branches.isEmpty { baseMenu }
+                        Spacer(minLength: 0)
+                        if model.busy { ProgressView().controlSize(.small).padding(.trailing, 8) }
+                        if !model.branches.isEmpty { newBranchToggle }
                     }
-                    .accessibilityIdentifier("project-composer")
-                if model.showsPullRequestBranch {
-                    TextField(String(localized: "Branch for that pull request"), text: $model.pullRequestBranch)
-                        .textFieldStyle(.roundedBorder).font(.system(size: 13))
-                        .onSubmit { Task { await model.submit() } }
-                        .accessibilityIdentifier("project-composer-pr-branch")
+                    .padding(.horizontal, 8).padding(.vertical, 5)
+                    card
                 }
-                // The hint's line is always there, so the card never grows or shrinks as it comes and goes.
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surfaceHover))
+                // The message's line is always there, so the page never moves as one comes and goes.
                 ZStack(alignment: .leading) {
-                    if let hint = model.hint {
-                        Label(hint.text, systemImage: hint.isError ? "exclamationmark.triangle" : "arrow.turn.down.right")
-                            .foregroundStyle(hint.isError ? Theme.danger : Color.secondary)
-                            .accessibilityIdentifier("project-composer-hint")
+                    if let error = model.error ?? model.referenceError {
+                        Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
+                    } else if project.workspace.isEmpty {
+                        Text("Choose the project folder in Settings to start sessions.").foregroundStyle(.secondary)
                     }
                 }
-                .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
-                .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16, alignment: .leading)
-                HStack(spacing: 8) {
-                    SegmentedChoice(options: [("Claude", SessionAgent.claude), ("Codex", .codex), (String(localized: "Shell only"), .shell)],
-                                    selection: Binding(get: { model.agent }, set: model.select))
-                    Spacer()
-                    if !model.branches.isEmpty { baseMenu }
-                    if model.busy { ProgressView().controlSize(.small) }
-                    // Creates a session rather than sending a message, so it is not a send arrow.
-                    Button { Task { await model.submit() } } label: {
-                        Image(systemName: "plus.circle.fill").font(.system(size: 26))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor))
-                    .disabled(!model.canStart)
-                    .help(String(localized: "Create Session"))
-                    .accessibilityLabel(String(localized: "Create Session"))
-                    .accessibilityIdentifier("project-composer-create")
-                }
+                .font(.system(size: 12)).lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+                .padding(.horizontal, 10)
             }
-            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
-            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
-            .frame(maxWidth: 620)
-            if let error = model.error ?? model.referenceError {
-                Text(error).font(.system(size: 12)).foregroundStyle(Theme.danger).textSelection(.enabled)
-            } else if project.workspace.isEmpty {
-                Text("Choose the project folder in Settings to start sessions.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-            }
+            .frame(maxWidth: 766)
         }
-        .padding(24)
+        .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { focused = true; model.setShown(true) }
         .onDisappear { model.setShown(false) }
         .onChange(of: model.focusRequest) { _, _ in focused = true }
     }
 
-    /// The chosen branch and what it is for, drawn as the agent choice beside it is: plain text in an
-    /// outline, tinted while the session will work on the branch itself.
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(model.placeholderText, text: $model.text, axis: .vertical)
+                .textFieldStyle(.plain).font(.system(size: 15)).lineLimit(2...10)
+                .frame(minHeight: 44, alignment: .topLeading)
+                .focused($focused).disabled(model.creating)
+                .onSubmit { Task { await model.submit() } }
+                // Return alone creates the session; with any modifier held — Shift, Option,
+                // Control or Command — it is a new line: the field editor's own, at the cursor.
+                .onKeyPress(.return, phases: .down) { press in
+                    guard !press.modifiers.subtracting([.capsLock, .numericPad]).isEmpty else { return .ignored }
+                    NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                    return .handled
+                }
+                .accessibilityIdentifier("project-composer")
+            if model.showsPullRequestBranch {
+                TextField(String(localized: "Branch for that pull request"), text: $model.pullRequestBranch)
+                    .textFieldStyle(.roundedBorder).font(.system(size: 13))
+                    .onSubmit { Task { await model.submit() } }
+                    .accessibilityIdentifier("project-composer-pr-branch")
+            }
+            HStack(spacing: 12) {
+                // The hint shares the agent's row, so the card never grows or shrinks as it comes and goes.
+                if let hint = model.hint {
+                    Label(hint.text, systemImage: hint.isError ? "exclamationmark.triangle" : "arrow.turn.down.right")
+                        .font(.system(size: 12)).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(hint.isError ? Theme.danger : Color.secondary)
+                        .accessibilityIdentifier("project-composer-hint")
+                }
+                Spacer(minLength: 0)
+                ComposerAgentMenu(model: model)
+                createButton
+            }
+            .frame(minHeight: 32)
+        }
+        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 3)
+    }
+
+    /// Creates the session and sends the field as its first message.
+    private var createButton: some View {
+        Button { Task { await model.submit() } } label: {
+            // Start's own colour is the text's, not the accent: black on a light page, white on a dark one.
+            Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.canStart)
+        .help(String(localized: "Create Session"))
+        .accessibilityLabel(String(localized: "Create Session"))
+        .accessibilityIdentifier("project-composer-create")
+    }
+
+    /// The project the session starts in; where Start can switch, it opens the projects to pick from.
+    @ViewBuilder private var projectChip: some View {
+        if switchesProject, let onChooseProject {
+            Button { choosingProject.toggle() } label: {
+                ComposerChip(symbol: "folder", title: project.name, active: choosingProject)
+            }
+            .buttonStyle(.plain)
+            .onChange(of: choosingProject) { _, open in if !open { focused = true } }
+            .popover(isPresented: $choosingProject, arrowEdge: .top) {
+                ProjectPicker(projects: projects, current: project.id, choose: onChooseProject, newProject: onNewProject) {
+                    choosingProject = false
+                }
+            }
+            .help(String(localized: "The project the session starts in"))
+            .accessibilityIdentifier("project-composer-project")
+        } else {
+            ComposerChip(symbol: "folder", title: project.name, interactive: false)
+                .accessibilityIdentifier("project-composer-project")
+        }
+    }
+
+    /// Whether the session forks a new branch from the chip's, or works on the chip's branch itself.
+    /// Either way it gets a worktree of its own. A link names its own branch, so it has no say then.
+    private var newBranchToggle: some View {
+        Toggle(String(localized: "New branch"), isOn: Binding(get: { !model.usesExistingBranch },
+                                                              set: { model.branchMode = $0 ? .newBranch : .existing }))
+            .toggleStyle(.checkbox).font(.system(size: 14)).tint(.primary)
+            .foregroundStyle(Color.primary.opacity(0.85))
+            .disabled(model.linkTyped)
+            .padding(.trailing, 8)
+            .help(model.linkTyped ? String(localized: "A link names its own branch. A new one forks from the branch you pick.")
+                  : model.usesExistingBranch ? String(localized: "The session works on the branch you pick, in a worktree of its own.")
+                  : String(localized: "The session gets a new branch, forked from the one you pick."))
+            .accessibilityIdentifier("project-composer-branch-mode")
+    }
+
+    /// The chosen branch: the one a new branch forks from, or, with New branch off, the one the session works on.
     private var baseMenu: some View {
         Button { choosingBranch.toggle() } label: {
-            HStack(spacing: 5) {
-                Image(systemName: model.usesExistingBranch ? "checkmark.circle" : "arrow.triangle.branch")
-                Text(model.usesExistingBranch
-                     ? (model.workBranch.isEmpty ? String(localized: "Choose branch") : String(localized: "On \(model.workBranch)"))
-                     : String(localized: "From \(model.base)"))
-                    // No fixedSize after this: the frame must PROPOSE 220 for a long name to truncate.
-                    .lineLimit(1).truncationMode(.middle).frame(maxWidth: 220, alignment: .leading)
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
-            }
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(model.usesExistingBranch ? Theme.accent : Color.secondary)
-            .padding(.horizontal, 11).padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 8).fill(model.usesExistingBranch ? Theme.accentBackground : .clear))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(model.usesExistingBranch ? .clear : Color(nsColor: .separatorColor)))
-            .contentShape(Rectangle())
+            ComposerChip(symbol: "arrow.triangle.branch",
+                         title: model.usesExistingBranch
+                            ? (model.workBranch.isEmpty ? String(localized: "Choose branch") : model.workBranch)
+                            : model.base,
+                         chevron: true, active: choosingBranch)
         }
         .buttonStyle(.plain).layoutPriority(1)
         // Back to the field when the popover closes, so Return starts the session.
         .onChange(of: choosingBranch) { _, open in if !open { focused = true } }
-        .popover(isPresented: $choosingBranch, arrowEdge: .bottom) {
+        .popover(isPresented: $choosingBranch, arrowEdge: .top) {
             BranchChooser(model: model) { choosingBranch = false }
         }
         .help(model.usesExistingBranch ? String(localized: "The branch this session works on")
@@ -298,8 +389,317 @@ struct ProjectComposerView: View {
     }
 }
 
-/// Start's branch popover: whether the session forks a new branch or works on an existing one,
-/// and which branch, filtered by what is typed.
+/// One of the quiet controls over Start's field: a symbol and a name, on a soft fill under the
+/// pointer or while what it opens is open.
+private struct ComposerChip: View {
+    let symbol: String
+    let title: String
+    var chevron = false
+    var active = false
+    var interactive = true
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 13))
+            // Capped, not framed: a `.frame(maxWidth:)` takes the whole 220 whenever it is offered it.
+            WidthCap(limit: 220) { Text(title).lineLimit(1).truncationMode(.middle) }
+            if chevron { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary) }
+        }
+        .font(.system(size: 14))
+        .foregroundStyle(Color.primary.opacity(0.85))
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(interactive && (active || hovering) ? Theme.border : .clear))
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+/// Its one view at its own width, but never wider than `limit`: a longer one is offered `limit` and truncates.
+private struct WidthCap: Layout {
+    let limit: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(ProposedViewSize(width: min(proposal.width ?? .infinity, limit), height: proposal.height)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+}
+
+/// The project chip's popover: the projects, filtered by what is typed, and New Project under them.
+private struct ProjectPicker: View {
+    let projects: [Project]
+    let current: String
+    let choose: (String) -> Void
+    let newProject: (() -> Void)?
+    let done: () -> Void
+    @State private var query = ""
+    @FocusState private var searching: Bool
+
+    private var matches: [Project] {
+        let query = query.trimmingCharacters(in: .whitespaces)
+        return query.isEmpty ? projects : projects.filter { $0.name.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        let matches = matches
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
+                TextField(String(localized: "Search projects"), text: $query)
+                    .textFieldStyle(.plain).focused($searching)
+                    .onSubmit { if let first = matches.first { pick(first.id) } }
+            }
+            .font(.system(size: 14))
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            Divider()
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(matches) { project in
+                        PickerRow(symbol: "folder", title: project.name, selected: project.id == current) { pick(project.id) }
+                    }
+                }
+                .padding(8)
+            }
+            // As tall as its rows, up to a limit: filtering shrinks it rather than leave a gap.
+            .frame(height: min(CGFloat(max(matches.count, 1)) * 35 + 16, 340))
+            .overlay {
+                if matches.isEmpty { Text("No project matches").font(.system(size: 12)).foregroundStyle(.secondary) }
+            }
+            if let newProject {
+                Divider()
+                PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
+                    .padding(8)
+                    .accessibilityIdentifier("project-composer-new-project")
+            }
+        }
+        .frame(width: 300)
+        .onAppear { searching = true }
+    }
+
+    private func pick(_ id: String) {
+        choose(id); done()
+    }
+}
+
+/// A row of Start's pickers: an icon and a name, filled under the pointer and when it is the one picked.
+private struct PickerRow<Icon: View>: View {
+    let title: String
+    var selected = false
+    let icon: Icon
+    let action: () -> Void
+    @State private var hovering = false
+
+    init(title: String, selected: Bool = false, @ViewBuilder icon: () -> Icon, action: @escaping () -> Void) {
+        self.title = title; self.selected = selected; self.icon = icon(); self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                icon.frame(width: 18)
+                Text(title).font(.system(size: 14)).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected || hovering ? Theme.surfaceHover : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+extension PickerRow where Icon == AnyView {
+    init(symbol: String, title: String, selected: Bool = false, action: @escaping () -> Void) {
+        self.init(title: title, selected: selected, icon: {
+            AnyView(Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(.secondary))
+        }, action: action)
+    }
+}
+
+/// An agent's own mark, in its colour; a shell's is the terminal symbol.
+private struct StartAgentMark: View {
+    let agent: SessionAgent
+    var body: some View {
+        if agent == .shell {
+            Image(systemName: "terminal").font(.system(size: 13)).foregroundStyle(.secondary)
+        } else {
+            AgentMark(key: agent.rawValue, size: 16)
+        }
+    }
+}
+
+/// The agent the session starts, and — from its CLI's catalog — the model and effort it starts on.
+private struct ComposerAgentMenu: View {
+    let model: ProjectComposerModel
+    @State private var open = false
+    @State private var hovering = false
+
+    private var title: String {
+        guard let driver = model.agent.driver else { return SessionAgent.shell.label }
+        guard let name = model.model?.name else { return driver.shortName }
+        return name.localizedCaseInsensitiveContains(driver.shortName) ? name : "\(driver.shortName) \(name)"
+    }
+    private var effortName: String? {
+        guard let effort = model.effort else { return nil }
+        return model.model?.efforts.first { $0.id == effort }?.name
+    }
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            HStack(spacing: 6) {
+                StartAgentMark(agent: model.agent)
+                Text(title).foregroundStyle(.primary).lineLimit(1)
+                if let effortName { Text(effortName).foregroundStyle(.secondary).lineLimit(1) }
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+            }
+            .font(.system(size: 14))
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(open || hovering ? Theme.surfaceHover : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).fixedSize()
+        .onHover { hovering = $0 }
+        .popover(isPresented: $open, arrowEdge: .bottom) { AgentChooser(model: model) { open = false } }
+        .help(String(localized: "The agent, model and effort the session starts with"))
+        .accessibilityIdentifier("project-composer-agent")
+    }
+}
+
+/// The agent menu's popover: the agent as tabs along the top, and under them the chosen agent's
+/// models and that model's efforts side by side, so a model and its effort are picked together.
+/// Picks keep it open; a click outside closes it.
+private struct AgentChooser: View {
+    let model: ProjectComposerModel
+    let done: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 4) {
+                // Every agent the app has a driver for, then a plain shell.
+                ForEach(SessionAgent.allCases.filter { $0 != .shell } + [.shell]) { agent in
+                    AgentTab(agent: agent, selected: model.agent == agent) { model.select(agent) }
+                }
+            }
+            .padding(8)
+            Divider()
+            if model.agent == .shell {
+                note(String(localized: "A shell has no model to choose."))
+            } else if let catalog = model.catalog {
+                HStack(alignment: .top, spacing: 0) {
+                    column(String(localized: "Model")) {
+                        ChoiceRow(title: String(localized: "Default"), selected: model.model == nil) { model.chooseModel(nil) }
+                        ForEach(catalog.models) { option in
+                            ChoiceRow(title: option.name, selected: model.model?.id == option.id) { model.chooseModel(option.id) }
+                        }
+                    }
+                    .frame(width: 270)
+                    Divider()
+                    column(String(localized: "Effort")) {
+                        if let chosen = model.model, !chosen.efforts.isEmpty {
+                            ChoiceRow(title: String(localized: "Default"), selected: model.effort == nil) { model.chooseEffort(nil) }
+                            ForEach(chosen.efforts) { option in
+                                ChoiceRow(title: option.name, selected: model.effort == option.id) { model.chooseEffort(option.id) }
+                            }
+                        } else {
+                            Text(model.model == nil ? String(localized: "The default model picks its own effort.")
+                                                    : String(localized: "This model has no effort levels."))
+                                .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.horizontal, 10).padding(.vertical, 6)
+                        }
+                    }
+                    .frame(width: 190)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            } else if model.loadingCatalogs.contains(model.agent.rawValue) {
+                note(String(localized: "Loading models…"))
+            } else {
+                note(String(localized: "No models to choose from: the agent starts on its default."))
+            }
+        }
+        .frame(width: 461)
+        // A read that failed is tried again when the chooser opens.
+        .onAppear { model.loadCatalog() }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.system(size: 12.5)).foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16).padding(.vertical, 14)
+    }
+
+    private func column(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
+            content()
+        }
+        .padding(.horizontal, 6).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
+/// One of the chooser's agent tabs: its mark and name, filled while chosen or under the pointer.
+private struct AgentTab: View {
+    let agent: SessionAgent
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                StartAgentMark(agent: agent)
+                Text(agent == .shell ? SessionAgent.shell.label : agent.driver?.shortName ?? agent.label)
+                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular)).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity).frame(height: 34)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? Theme.surfaceHover : hovering ? Theme.surfaceHover.opacity(0.5) : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// A model or an effort: its full name, and a check on the one chosen.
+private struct ChoiceRow: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(title).font(.system(size: 14)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 4)
+                Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary).opacity(selected ? 1 : 0)
+            }
+            .padding(.horizontal, 10).frame(minHeight: 32)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(selected || hovering ? Theme.surfaceHover : .clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(title)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// Start's branch popover: which branch, filtered by what is typed. Whether the session forks it or
+/// works on it is the New branch checkbox beside it.
 private struct BranchChooser: View {
     @Bindable var model: ProjectComposerModel
     let done: () -> Void
@@ -314,27 +714,15 @@ private struct BranchChooser: View {
     var body: some View {
         let matches = matches
         VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: Binding(get: { model.usesExistingBranch ? .existing : .newBranch }, set: { model.branchMode = $0 })) {
-                Text("New branch").tag(ProjectComposerModel.BranchMode.newBranch)
-                Text("Existing branch").tag(ProjectComposerModel.BranchMode.existing)
-            }
-            .pickerStyle(.segmented).labelsHidden().disabled(model.linkTyped)
-            .accessibilityIdentifier("project-composer-branch-mode")
-            Text(model.linkTyped ? String(localized: "A link names its own branch. A new one forks from the branch you pick.")
-                 : model.usesExistingBranch ? String(localized: "The session works on the branch you pick, in a worktree of its own.")
-                 : String(localized: "The session gets a new branch, forked from the one you pick."))
-                .font(.system(size: 11.5)).foregroundStyle(.secondary)
-                // Both captions take the same two lines, so switching mode never resizes the popover.
-                .lineLimit(2, reservesSpace: true)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
                 TextField(String(localized: "Filter branches"), text: $query)
                     .textFieldStyle(.plain).focused($searching)
                     .onSubmit { if let first = matches.first(where: { model.owner(of: $0) == nil }) { pick(first) } }
             }
-            .font(.system(size: 13))
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color(nsColor: .controlBackgroundColor)))
+            .font(.system(size: 14))
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.border))
             ScrollView {
                 LazyVStack(spacing: 1) {
@@ -345,15 +733,15 @@ private struct BranchChooser: View {
                 }
             }
             // A fixed height: filtering never resizes the popover under the pointer.
-            .frame(height: 264)
+            .frame(height: 306)
             .overlay {
                 if matches.isEmpty {
                     Text("No branch matches").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(12)
-        .frame(width: 340)
+        .padding(14)
+        .frame(width: 380)
         .onAppear { searching = true }
     }
 
@@ -375,12 +763,12 @@ private struct BranchRow: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.triangle.branch").font(.system(size: 11)).foregroundStyle(.tertiary)
-                Text(name).font(.system(size: 13)).lineLimit(1).truncationMode(.middle)
+                Text(name).font(.system(size: 14)).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 6)
                 if let owner {
-                    Text("In session").font(.system(size: 10.5, weight: .medium)).foregroundStyle(Theme.accent).lineLimit(1)
+                    Text("In session").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(Theme.accentBackground))
+                        .background(Capsule().fill(Theme.surfaceHover))
                         .help(String(localized: "“\(owner.title)” already works on this branch"))
                 } else if let checkout {
                     Text(checkout.main ? String(localized: "main checkout") : (checkout.path as NSString).lastPathComponent)
@@ -390,9 +778,9 @@ private struct BranchRow: View {
                         .help(checkout.main ? String(localized: "Checked out in the project folder") : checkout.path)
                 }
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.accent).opacity(selected ? 1 : 0)
+                    .foregroundStyle(.primary).opacity(selected ? 1 : 0)
             }
-            .padding(.horizontal, 8).frame(height: 29)
+            .padding(.horizontal, 10).frame(height: 34)
             .background(RoundedRectangle(cornerRadius: 6).fill(hovering && owner == nil ? Theme.surfaceHover : .clear))
             .contentShape(Rectangle())
         }
@@ -400,29 +788,5 @@ private struct BranchRow: View {
         .disabled(owner != nil).opacity(owner == nil ? 1 : 0.55)
         .onHover { hovering = $0 }
         .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// .theme-toggle / .theme-opt: plain text options, the chosen one outlined.
-struct SegmentedChoice<Value: Hashable>: View {
-    let options: [(String, Value)]
-    @Binding var selection: Value
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ForEach(options, id: \.1) { label, value in
-                let on = value == selection
-                Button { selection = value } label: {
-                    Text(LocalizedStringKey(label)).font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(on ? Color.primary : Color(nsColor: .tertiaryLabelColor))
-                        .padding(.horizontal, 11).padding(.vertical, 5)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(on ? Color(nsColor: .separatorColor) : .clear))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .accessibilityElement(children: .contain)
     }
 }

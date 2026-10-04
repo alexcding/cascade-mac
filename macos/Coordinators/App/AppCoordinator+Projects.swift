@@ -4,8 +4,9 @@ import Foundation
     func ownsProject(_ id: String) -> Bool
     func applyProjectSave(_ project: Project, source: ProjectSaveSource)
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel)
-    /// A session the project's Start made, with its agent's first prompt when it has one.
-    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?)
+    /// A session the project's Start made, with its agent's first prompt and the model and effort
+    /// it starts on, when it has them.
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
     /// A new shell for the project's terminal panel in `directory`, in place of any running.
     func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession
     /// Stops the project's terminal panel's shell.
@@ -69,9 +70,9 @@ extension AppCoordinator {
         case .saved(let project, let source):
             guard project.id == id else { return }
             runtime.applyProjectSave(project, source: source)
-        case .sessionCreated(let session, let prompt):
+        case .sessionCreated(let session, let prompt, let launch):
             guard session.projectId == id else { return }
-            runtime.projectSessionCreated(session, prompt: prompt)
+            runtime.projectSessionCreated(session, prompt: prompt, launch: launch)
         case .terminalRequested(let directory, let request):
             let project = model.project
             Task { [weak runtime, weak model] in

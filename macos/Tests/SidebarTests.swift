@@ -15,7 +15,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
                     workspaceSession("pinned-orphan", created: "2026-03", pinned: true, project: "deleted")]
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions)
     // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans.
-    #expect(entries.map(\.id) == ["overview", "automation", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
+    #expect(entries.map(\.id) == ["new-session", "overview", "automation", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
                                    "session:orphan"])
     let project = entries.first { $0.id == "project:p1" }
     #expect(project?.children.map(\.id) == ["session:old"])
@@ -447,7 +447,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         return outline.canDragRows(with: [row], at: NSPoint(x: 40, y: outline.rect(ofRow: row).midY))
     }
 
-    for id in ["overview", "automation", "label:pinned", "label:projects", "session:orphan"] {
+    for id in ["new-session", "overview", "automation", "label:pinned", "label:projects", "session:orphan"] {
         #expect(try !canDrag(id), "\(id)")
     }
     for id in ["pin:pa", "project:p1", "session:a"] { #expect(try canDrag(id), "\(id)") }
@@ -524,7 +524,9 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(label("⌘1") == nil)
     let pin = try #require(cell.subviews.compactMap { $0 as? SidebarAccessoryButton }.first)
     cell.hovered = true
-    #expect(!dot.isHidden && !pin.isHidden && label(working.title)?.frame == title, "the pin shows trailing, the dot stays")
+    let hoveredTitle = try #require(label(working.title)).frame
+    #expect(!dot.isHidden && !pin.isHidden, "the pin shows trailing, the dot stays")
+    #expect(hoveredTitle.origin == title.origin && hoveredTitle.maxX < title.maxX, "the name keeps its place and gives way to the pin")
     cell.hovered = false
     cell.configure(working, nested: true, shortcut: "⌘1")
     let hint = try #require(label("⌘1"))
@@ -708,19 +710,24 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(read[1].title == "Objects & Tools")
 }
 
-/// Every row's icon covers about the same area, however its glyph is shaped: the folder, a quarter
-/// wider than the Dashboard's grid at one point size, is drawn smaller rather than reading bigger.
+/// Every row's icon covers about the same area, however its glyph is shaped, but none is wider than
+/// the cap: the folder, a quarter wider than the grid at one point size, is drawn smaller rather than
+/// reading bigger, and the Pull Requests list, flat, does not stretch past the others to make up its area.
 @MainActor @Test func rowSymbolsCoverTheSameArea() throws {
-    func area(_ name: String) throws -> CGFloat {
+    func glyph(_ name: String) throws -> CGSize {
         let image = try #require(SidebarIcons.rowSymbol(name))
-        let glyph = try #require(SidebarIcons.glyphSize(image))
-        return glyph.width * glyph.height
+        return try #require(SidebarIcons.glyphSize(image))
     }
     let target = SidebarMetrics.glyphSide * SidebarMetrics.glyphSide
-    for name in ["dashboard", "folder", "automation", "hammer"] {
-        let covered = try area(name)
-        #expect(abs(covered - target) / target < 0.12, "\(name) covers \(covered)pt², not about \(target)")
+    for name in ["automation", "hammer", "newSession"] {
+        let covered = try glyph(name)
+        #expect(abs(covered.width * covered.height - target) / target < 0.12, "\(name) covers \(covered), not about \(target)pt²")
     }
+    for name in ["pullRequests", "folder", "automation", "hammer", "newSession"] {
+        let width = try glyph(name).width
+        #expect(width <= SidebarMetrics.glyphMaxWidth, "\(name) is \(width)pt wide")
+    }
+    #expect(try glyph("pullRequests").width > SidebarMetrics.glyphMaxWidth - 1, "the list is held at the cap, not shrunk past it")
     let wide = try #require(SidebarIcons.symbol("folder")?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.symbolSize, weight: .regular)))
     let folder = try #require(SidebarIcons.rowSymbol("folder"))
     #expect(folder.size.width < wide.size.width, "the folder is drawn smaller than the rows' point size")

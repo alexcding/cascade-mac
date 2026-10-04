@@ -91,6 +91,9 @@ import Observation
     var windowBackdrop = WindowBackdrop()
     var dashboardCoordinator: DashboardCoordinator?
     var automationCoordinator: AutomationCoordinator?
+    /// New Task, at the top of the sidebar: a project's own Start, on the project picked there.
+    var newSessionCoordinator: NewSessionCoordinator? { didSet { refreshRoot() } }
+    var newSession: NewSessionViewModel? { newSessionCoordinator?.model }
     var logsCoordinator: LogsCoordinator?
     var settingsCoordinator: SettingsCoordinator?
     /// Whether the Settings window is on screen. Settings is its own window, not a selection,
@@ -191,6 +194,8 @@ import Observation
     func makeDestination(for route: Route) -> Destination {
         guard case .destination(let destination) = route else { return .none }
         switch destination {
+        case .newSession:
+            return newSession.map(Destination.newSession) ?? .unavailable(title: String(localized: "New Task"), message: String(localized: "Connect to start sessions."))
         case .overview:
             return dashboardCoordinator.map(Destination.dashboardCoordinator) ?? .unavailable(title: String(localized: "Overview"), message: String(localized: "Connect to load the dashboard."))
         case .automation:

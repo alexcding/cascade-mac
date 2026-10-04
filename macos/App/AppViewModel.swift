@@ -46,7 +46,14 @@ public final class AppViewModel {
     @ObservationIgnored private let terminalControl: any TerminalRuntimeControlling
     @ObservationIgnored private let processes: any ProcessSampling
     @ObservationIgnored private let sessionPool: SessionPool
-    public private(set) var projects: [Project] = [] { didSet { if oldValue != projects { automation?.updateProjects(projects) } } }
+    public private(set) var projects: [Project] = [] {
+        didSet {
+            guard oldValue != projects else { return }
+            automation?.updateProjects(projects)
+            // Only while it shows: arriving there builds the picked project's composer.
+            if selection == .newSession { coordinator.newSession?.update(projects: projects) }
+        }
+    }
     /// The sidebar's dragged order for projects and sessions; see `SidebarOrder`.
     private(set) var sidebarOrder: SidebarOrder { didSet { if oldValue != sidebarOrder { orderStore.save(sidebarOrder) } } }
     @ObservationIgnored private let orderStore: any SidebarOrderPersisting
@@ -57,6 +64,10 @@ public final class AppViewModel {
     private(set) var sessions: [WorkspaceSession] = [] {
         didSet {
             guard oldValue != sessions else { return }
+            // A session removed before its agent launched takes what it was to launch with.
+            for id in Set(oldValue.map(\.id)).subtracting(sessions.map(\.id)) {
+                launchPrompts[id] = nil; launchChoices[id] = nil
+            }
             updateWorkspaceReviewState()
             let byProject = Dictionary(grouping: sessions, by: \.projectId)
             for (id, model) in projectModels { model.updateSessions(byProject[id] ?? []) }
@@ -73,6 +84,8 @@ public final class AppViewModel {
     private var finishedUnseenStopped: Set<String> = []
     /// First prompts for sessions the project composer created, by session id, until their agent launches.
     @ObservationIgnored private var launchPrompts: [String: String] = [:]
+    /// The model and effort Start chose for a session's agent, by session id, until it launches.
+    @ObservationIgnored private var launchChoices: [String: AgentLaunchChoice] = [:]
     /// Sessions a fork is being made of, so a second request waits for the first.
     @ObservationIgnored private var forkingSessions: Set<String> = []
     /// The last open or close of each project's panel shell, which the next one waits for.
@@ -192,6 +205,7 @@ public final class AppViewModel {
             try await self.openPage(request)
         }, session: { [weak self] request in self?.pageSessionMark(request) }), shell: shell)
         _ = coordinator.makeAutomation(factory: NativeAutomationFeatureFactory())
+        _ = coordinator.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: self)
         // Activity lives in the Settings window: what a row opened is in the main window, so it comes up.
         _ = coordinator.makeLogs(factory: logsFactory, pageActions: platformFactory.pageActions(open: { [weak self] request in
             guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
@@ -468,9 +482,10 @@ public final class AppViewModel {
         }
     }
 
+    /// A new project: New Task on it, where its first session starts, or its Settings while it has no folder.
     private func savedProject(_ project: Project) {
         applyProjectSave(project, source: .configuration)
-        select(.project(project.id))
+        openStart(in: project.id)
     }
 
     func applyProjectSave(_ project: Project, source: ProjectSaveSource) {
@@ -516,19 +531,40 @@ public final class AppViewModel {
         connection == "Connected" && coordinator.canPresent
     }
 
-    /// New Session for the selection: its project's Start. `agent` picks Start's agent; nil keeps
-    /// the one it has.
+    /// New Session: the sidebar's own page, on the selection's project when it has one. `agent` picks
+    /// Start's agent; nil keeps the one it has.
     func newSession(agent: SessionAgent?) {
-        guard canPerform(.newSession), let project = sessionProject(for: selection) else { return }
-        openStart(in: project.id, agent: agent)
+        guard canPerform(.newSession) else { return }
+        let project = sessionProject(for: selection)?.id
+        select(.newSession)
+        coordinator.newSession?.start(in: project, agent: agent)
     }
 
-    /// Every session starts on its project's Start page: this opens it, filled in. `jiraKey` is
-    /// the ticket a pull request link references, for the session created from it.
+    /// Every session starts on New Task: this opens it on `projectID`, filled in. `jiraKey` is the
+    /// ticket a pull request link references, for the session created from it. A project with no
+    /// folder has nowhere to start one, so its Settings open instead.
     func openStart(in projectID: String, text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) {
+        guard coordinator.canPresent, let project = projects.first(where: { $0.id == projectID }) else { return }
+        guard !project.workspace.isEmpty else {
+            openProjectSettings(projectID)
+            projectModels[projectID]?.editor.explainMissingFolder()
+            return
+        }
+        select(.newSession)
+        coordinator.newSession?.start(in: projectID, text: text, jiraKey: jiraKey, agent: agent)
+    }
+
+    /// A project row's hover pencil: New Task on that project.
+    func newTask(in projectID: String) { openStart(in: projectID) }
+
+    func newSessionComposer(for projectID: String) -> ProjectComposerModel? { prepareProjectModel(projectID)?.composer }
+    func newSessionNewProject() { perform(.newProject) }
+
+    /// A project row's hover gear: the project's page, on its Settings.
+    func openProjectSettings(_ projectID: String) {
         guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
         select(.project(projectID))
-        projectModels[projectID]?.start(text: text, jiraKey: jiraKey, agent: agent)
+        projectModels[projectID]?.selectSection(.settings)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,
@@ -572,7 +608,7 @@ public final class AppViewModel {
         case .newProject: connection == "Connected" && coordinator.canPresent
         // ⌘T, as `newBrowserTab`: a blank tab in the workspace on screen.
         case .newTab: coordinator.canPresent && viewer.active != nil
-        case .newSession: canStartSession && sessionProject(for: selection) != nil
+        case .newSession: canStartSession && projects.contains { !$0.workspace.isEmpty }
         case .back: coordinator.canPresent && viewer.active?.activePage?.controls.canGoBack == true
         case .forward: coordinator.canPresent && viewer.active?.activePage?.controls.canGoForward == true
         case .openFile: viewer.active != nil && connection == "Connected" && coordinator.canPresent
@@ -852,12 +888,10 @@ public final class AppViewModel {
         switch selection {
         case .project(let id):
             viewer.deactivate()
-            if let project = projects.first(where: { $0.id == id }), let api {
-                let services = backendFactory.projectServices(api: api)
-                coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
-                                           agent: shell.defaultAgent, pageActions: projectPageActions())
-                projectModels[id]?.updateSessions(sessions.filter { $0.projectId == id })
-            }
+            prepareProjectModel(id)
+        case .newSession:
+            viewer.deactivate()
+            coordinator.newSession?.update(projects: projects)
         case .session(let id):
             if let session = sessions.first(where: { $0.id == id }) {
                 sessionPool.shown(id)
@@ -870,6 +904,20 @@ public final class AppViewModel {
             viewer.select(id: "scratch", url: "", title: String(localized: "Terminal"))
         default: viewer.deactivate()
         }
+    }
+
+    /// The project's page model, built the first time it is needed — for its page, or for New Session's Start.
+    @discardableResult private func prepareProjectModel(_ id: String) -> ProjectPageViewModel? {
+        guard let project = projects.first(where: { $0.id == id }), let api else { return nil }
+        let services = backendFactory.projectServices(api: api)
+        coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
+                                   agent: shell.defaultAgent, pageActions: projectPageActions())
+        guard let model = projectModels[id] else { return nil }
+        model.updateSessions(sessions.filter { $0.projectId == id })
+        if model.composer.catalogSource == nil {
+            model.composer.catalogSource = { [weak self] cli in await self?.agentCatalog(cli: cli) }
+        }
+        return model
     }
 
     func openTerminal() {
@@ -1007,6 +1055,7 @@ public final class AppViewModel {
         terminal.startupCommandStarted = { [weak self] in
             guard let self, let launch = prepared.launch else { return }
             if launch.prompted { launchPrompts[record.id] = nil }
+            launchChoices[record.id] = nil
             do { try await keepReservedID(launch, record: record) } catch { self.error = error.localizedDescription }
             await settleFork(launch, record: record)
         }
@@ -1032,6 +1081,7 @@ public final class AppViewModel {
         await settleFork(launch, record: record)
         try await enterAgent(terminal, command: launch.command, cli: launch.agent.rawValue)
         if launch.prompted { launchPrompts[record.id] = nil }
+        launchChoices[record.id] = nil
         watchLaunch(terminal, agent: launch.agent, resuming: launch.resuming, record: record)
     }
 
@@ -1073,7 +1123,10 @@ public final class AppViewModel {
             forking = nil
             await forgetFork(latest, operations: operations)
         }
-        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt, forking: forking).map {
+        // Start's model and effort hold for the conversation it opens, never one resumed or forked.
+        let choice = !resuming && forking == nil ? launchChoices[latest.id] : nil
+        return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt, forking: forking,
+                             launch: choice).map {
             AgentLaunch(command: $0, agent: agent, resuming: resuming, reservedID: reservedID, prompted: prompt != nil)
         }
     }
@@ -1340,8 +1393,9 @@ public final class AppViewModel {
     }
 
     /// A session a project's Start made: its prompt waits for the agent's first launch.
-    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?) {
+    func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) {
         if let prompt { launchPrompts[session.id] = prompt }
+        if let launch { launchChoices[session.id] = launch }
         createdSession(session)
     }
 
@@ -1591,6 +1645,7 @@ public final class AppViewModel {
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
             if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api), boards: backendFactory.projectServices(api: api).boards) } }
+            if api != nil, selection == .newSession { coordinator.newSession?.update(projects: projects) }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
             if let api { for model in historyModels.values { model.connect(baseURL: api.baseURL, service: backendFactory.history(api: api)) } }

@@ -66,7 +66,7 @@ struct CascadeRouter: DeepLinkRouting {
 }
 
 struct RootRouteHandler: DeepLinkRouteHandling {
-    private let routes: [String: SidebarDestination] = ["overview": .overview, "automation": .automation, "terminal": .terminal]
+    private let routes: [String: SidebarDestination] = ["new-session": .newSession, "overview": .overview, "automation": .automation, "terminal": .terminal]
     func parse(_ components: [String]) -> DeepLink? {
         guard components.count == 1, let destination = routes[components[0]] else { return nil }
         return DeepLink(.destination(destination))

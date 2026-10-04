@@ -36,7 +36,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
                                  project: Project = homeProject) async -> (ProjectComposerModel, () -> [(WorkspaceSession, String?)]) {
     let model = ProjectComposerModel(project: project, agent: agent, operations: operations)
     var created: [(WorkspaceSession, String?)] = []
-    model.onAction = { if case .created(let session, let prompt) = $0 { created.append((session, prompt)) } }
+    model.onAction = { if case .created(let session, let prompt, _) = $0 { created.append((session, prompt)) } }
     await model.loadReferences()
     return (model, { created })
 }
@@ -221,16 +221,11 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
                                 composer: ProjectComposerModel(project: homeProject, agent: .claude, operations: nil))
 }
 
-@MainActor @Test func aProjectOpensOnStartAndItsTabsPickThePageUntilRetired() {
+@MainActor @Test func aProjectOpensOnSettingsAndOffersTheBoardOnlyWhenTurnedOn() {
     let model = pageModel()
-    #expect(model.section == .start && model.sections == [.start, .orchestration, .settings], "Board is offered only when turned on")
-    model.selectSection(.settings)
-    #expect(model.section == .settings)
+    #expect(model.section == .settings && model.sections == [.settings], "Board is offered only when turned on")
+    model.selectSection(.board)
+    #expect(model.section == .settings, "No board to show")
     model.update(homeProject)
     #expect(model.section == .settings, "An update keeps the page the user is on")
-    model.start(text: "https://github.com/o/r/pull/7", agent: .shell)
-    #expect(model.section == .start && model.composer.text == "https://github.com/o/r/pull/7" && model.composer.agent == .shell)
-    model.retire()
-    model.selectSection(.orchestration)
-    #expect(model.section == .start)
 }
