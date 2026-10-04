@@ -33,7 +33,7 @@ import Testing
         #expect(activity.running == [.delegate, .web], "calls with no output in the turn under way")
         #expect(activity.subagents.map(\.id) == ["t6"])
         #expect(activity.model == "sonnet")
-        #expect(activity.log.map(\.id) == ["t2", "t3", "t4", "t5", "t6", "t7"], "the latest six, oldest first")
+        #expect(activity.log.map(\.id) == ["t1", "t2", "t3", "t4", "t5", "t6", "t7"], "the latest, oldest first")
         #expect(activity.log.first { $0.id == "t3" }?.label == "ls", "a label is its first line")
     }
 

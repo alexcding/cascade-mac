@@ -56,8 +56,9 @@ struct LiveActivity: Equatable {
         var agentType: String? = nil
     }
 
-    /// The log keeps this many of the latest calls, and the files box this many files.
-    static let logLength = 6, fileCount = 3
+    /// The log keeps this many of the latest calls — as many as a tall pane shows — and the files
+    /// box this many files.
+    static let logLength = 40, fileCount = 3
 
     var counts: [Lane: Int] = [:]
     var calls = 0

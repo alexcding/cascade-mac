@@ -52,7 +52,10 @@ struct LivePanelView: View {
                 if !activity.files.isEmpty {
                     LiveBox(color: palette.agent, palette: palette) { LiveFiles(files: activity.files, palette: palette) }
                 }
-                LiveLog(calls: activity.log, palette: palette, spinner: clock.spinner).padding(.top, 18)
+                // The log takes the height the diagram leaves, as the pane is resized.
+                LiveLog(calls: activity.log, palette: palette, spinner: clock.spinner)
+                    .frame(minHeight: 80, maxHeight: .infinity)
+                    .padding(.top, 18)
                 if let error = live.error {
                     Text(error).font(palette.font(11)).foregroundStyle(palette.danger.color).padding(.top, 8)
                 }
@@ -315,7 +318,8 @@ private struct LiveFiles: View {
 }
 
 /// The latest calls as a trace, its title set into its frame: when, which kind, what, how it
-/// ended; the newest in bold.
+/// ended; the newest in bold, at the foot. It fills the height it is given, with as many of the
+/// latest calls as fit.
 private struct LiveLog: View {
     let calls: [LiveActivity.Call]
     let palette: LivePalette
@@ -323,26 +327,19 @@ private struct LiveLog: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
-        VStack(alignment: .leading, spacing: 4) {
-            if calls.isEmpty {
-                Text(String(localized: "no tool calls yet")).foregroundStyle(palette.muted.color)
-            }
-            ForEach(Array(calls.enumerated()), id: \.element.id) { index, call in
-                let newest = index == calls.count - 1
-                HStack(spacing: 8) {
-                    // In the person's own clock, 12- or 24-hour.
-                    Text(verbatim: call.time?.formatted(date: .omitted, time: .standard) ?? "--:--:--").foregroundStyle(palette.muted.color)
-                    Text(call.lane?.title.lowercased() ?? call.kind ?? String(localized: "tool")).fontWeight(.bold)
-                        .foregroundStyle(call.lane == .delegate ? palette.subagents.color : palette.log.color)
-                        .frame(width: 50, alignment: .leading)
-                    Text(verbatim: call.label).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
-                    status(call)
+        GeometryReader { proxy in
+            let shown = Array(calls.suffix(max(1, Int(proxy.size.height / Self.rowHeight))))
+            VStack(alignment: .leading, spacing: 0) {
+                if calls.isEmpty {
+                    Text(String(localized: "no tool calls yet")).foregroundStyle(palette.muted.color)
                 }
-                .fontWeight(newest ? .bold : .regular)
-                .foregroundStyle(newest ? palette.text.color : palette.text.color.opacity(0.8))
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, call in
+                    row(call, newest: index == shown.count - 1).frame(height: Self.rowHeight)
+                }
             }
+            .animation(.easeOut(duration: 0.3), value: shown.map(\.id))
         }
-        .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 10)
+        .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(shape.strokeBorder(palette.line.color, lineWidth: 1))
         .overlay(alignment: .topLeading) {
@@ -350,7 +347,22 @@ private struct LiveLog: View {
                 .padding(.horizontal, 6).background(palette.ground.color)
                 .offset(x: 14, y: -8)
         }
-        .animation(.easeOut(duration: 0.3), value: calls.map(\.id))
+    }
+
+    private static let rowHeight: CGFloat = 20
+
+    private func row(_ call: LiveActivity.Call, newest: Bool) -> some View {
+        HStack(spacing: 8) {
+            // In the person's own clock, 12- or 24-hour.
+            Text(verbatim: call.time?.formatted(date: .omitted, time: .standard) ?? "--:--:--").foregroundStyle(palette.muted.color)
+            Text(call.lane?.title.lowercased() ?? call.kind ?? String(localized: "tool")).fontWeight(.bold)
+                .foregroundStyle(call.lane == .delegate ? palette.subagents.color : palette.log.color)
+                .frame(width: 50, alignment: .leading)
+            Text(verbatim: call.label).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+            status(call)
+        }
+        .fontWeight(newest ? .bold : .regular)
+        .foregroundStyle(newest ? palette.text.color : palette.text.color.opacity(0.8))
     }
 
     @ViewBuilder private func status(_ call: LiveActivity.Call) -> some View {
