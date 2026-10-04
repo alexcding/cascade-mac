@@ -180,9 +180,9 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     window.close()
 }
 
-/// A pinned session sits at the top level, with no project before it: its name starts where a
-/// folder's glyph does, not where a nested session's does.
-@MainActor @Test func aPinnedSessionsNameStartsWhereAFolderDoes() throws {
+/// A pinned session sits at the top level, with no project before it: its branch icon stands where a
+/// folder's does, so its name starts where a project's does, a slot short of a nested session's.
+@MainActor @Test func aPinnedSessionsNameStartsWhereAProjectsDoes() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-pinned-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -209,23 +209,18 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.expandItem(nil, expandChildren: true)
     window.layoutIfNeeded(); outline.displayIfNeeded()
     var titleX: [String: CGFloat] = [:]
-    var folderX: CGFloat?
     for row in 0..<outline.numberOfRows {
         guard let node = outline.item(atRow: row) as? CocoaSidebar.Node,
               let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCellView else { continue }
         cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
         let title = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == node.entry.title })
         titleX[node.entry.id] = cell.convert(title.frame, to: outline).minX
-        if node.entry.id == "project:p1", let icon = cell.imageView, let image = icon.image {
-            // The glyph is centred in its slot.
-            folderX = cell.convert(icon.frame, to: outline).minX + (icon.frame.width - image.size.width) / 2
-        }
     }
     window.close()
-    let pinned = try #require(titleX["pin:pinned"]), folder = try #require(folderX)
+    let pinned = try #require(titleX["pin:pinned"])
     let project = try #require(titleX["project:p1"]), nested = try #require(titleX["session:nested"])
-    #expect(abs(pinned - folder) <= 0.5, "where the folder's glyph starts")
-    #expect(nested == project, "under its project's name")
+    #expect(pinned == project, "a pinned session's name where a project's is")
+    #expect(nested > project, "further in, after its branch")
 }
 
 @MainActor @Test func sessionReorderStaysInsideItsProjectAndTheDraggedOrderIsTheApps() throws {
@@ -466,7 +461,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(inked)
 }
 
-/// A session's name starts where its project's does; its dot sits trailing, on the name's middle,
+/// A session's branch icon starts where its project's name does, its name after it; its dot sits trailing, on the name's middle,
 /// and gives way to the pin under the pointer. While ⌘ is held the key that selects it takes that
 /// same trailing slot, with no plate, from the dot and the pin alike, and the name does not move.
 @MainActor @Test func aSessionShowsItsShortcutAndItsDotTrailing() throws {
@@ -488,7 +483,12 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(cell.accessibilityLabel() == "\(session.title), Idle", "the row reads its status after its title")
     let titleField = try #require(label(session.title))
     let title = titleField.frame
-    #expect(title.minX == folderTitle.minX, "the name lines up under the project's")
+    let branch = try #require(cell.imageView)
+    #expect(!branch.isHidden && branch.image != nil, "a session has its branch")
+    #expect(abs(branch.frame.minX + SidebarCellView.branchInset - folderTitle.minX) <= 0.5, "the branch's line starts under the project's name")
+    let folderIcon = try #require(folder.imageView), folderImage = try #require(folderIcon.image)
+    let folderToName = folderTitle.minX - (folderIcon.frame.midX + folderImage.size.width / 2)
+    #expect(abs((title.minX - branch.frame.maxX) - folderToName) <= 0.5, "as far from its name as the folder is from the project's")
     let glyph = try #require(cell.subviews.compactMap { $0 as? SidebarStatusDot }.first)
     #expect(!glyph.isHidden && glyph.frame.minX >= title.maxX, "the dot trails the name")
     let font = try #require(titleField.font)
@@ -597,6 +597,10 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     let blinking = { dot.isBlinking }
     dot.set(SidebarSessionStatus(live: true, cli: "claude"))
     #expect(dot.state == .idle)
+    #expect(dot.color == SidebarPalette.text3, "an idle session keeps a grey dot")
+    #expect(dot.layer?.sublayers?.contains { !$0.isHidden && $0.backgroundColor != nil } == true, "drawn, not hidden")
+    dot.set(SidebarSessionStatus(live: true, busy: true, cli: "unknown-cli"))
+    #expect(dot.color != SidebarPalette.text3, "an agent with no colour of its own still differs from idle")
     dot.set(SidebarSessionStatus(live: true, done: true, cli: "claude"))
     #expect(dot.state == .done)
     dot.set(SidebarSessionStatus(live: true, busy: true, done: true, cli: "codex"))

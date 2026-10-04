@@ -526,12 +526,11 @@ enum SidebarMetrics {
 
 // MARK: - Views
 
-/// A session's status, a small solid dot at the row's trailing edge: in the agent's own colour while
-/// it works (Claude's orange, Codex's purple), yellow while it waits on a person, green when a turn
-/// finished that nobody has looked at. Idle, nothing: an empty slot reads as nothing happening, and
-/// leaves the coloured states to stand out. Working, the dot blinks softly, dimming and coming back;
-/// it never changes size, and it holds steady when the system asks for reduced motion. Every other
-/// state is steady.
+/// A session's status, a small solid dot at the row's trailing edge, always there: grey while nothing
+/// is happening, in the agent's own colour while it works (Claude's orange, Codex's purple), yellow
+/// while it waits on a person, green when a turn finished that nobody has looked at. Working, the dot
+/// blinks softly, dimming and coming back; it never changes size, and it holds steady when the
+/// system asks for reduced motion. Every other state is steady.
 @MainActor final class SidebarStatusDot: NSView {
     enum State: Equatable {
         case idle, done, needsInput
@@ -615,12 +614,14 @@ enum SidebarMetrics {
         }
     }
 
-    private var color: NSColor {
+    var color: NSColor {
         switch state {
-        case .idle: .clear
+        case .idle: SidebarPalette.text3
         case .done: SidebarPalette.success
         case .needsInput: SidebarPalette.waiting
-        case .working(let cli): AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text3
+        // An agent with no driver has no colour of its own: a darker grey than idle's, so it still
+        // reads as working when Reduce Motion holds the blink.
+        case .working(let cli): AgentDrivers.of(cli)?.sidebarTint ?? SidebarPalette.text2
         }
     }
 
@@ -630,7 +631,6 @@ enum SidebarMetrics {
         effectiveAppearance.performAsCurrentDrawingAppearance {
             dot.backgroundColor = color.cgColor
         }
-        dot.isHidden = state == .idle
         CATransaction.commit()
     }
 
@@ -714,9 +714,8 @@ enum SidebarMetrics {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     // The table builds a drag image from `imageView` and `textField`. This cell has no
-    // `textField` and a session has no icon, so the default image is
-    // empty — and the gap style hides the row itself, so a dragged row would simply vanish
-    // until it was dropped. Drag a picture of the whole cell instead, minus the hover button.
+    // `textField`, so the default image is its icon alone — and the gap style hides the row
+    // itself, so a dragged row would all but vanish until it was dropped. Drag a picture of the whole cell instead, minus the hover button.
     override var draggingImageComponents: [NSDraggingImageComponent] {
         guard bounds.width > 0, bounds.height > 0, let bitmap = bitmapImageRepForCachingDisplay(in: bounds) else {
             return super.draggingImageComponents
@@ -772,7 +771,7 @@ enum SidebarMetrics {
             // A project's sessions start from its page's composer, so its row has no "+".
             icon.image = SidebarIcons.rowSymbol(entry.symbol) ?? SidebarIcons.rowSymbol("folder")
         case .session(let status, let pinned):
-            icon.isHidden = true
+            icon.image = SidebarIcons.mark("branch", size: Self.branchMarkSize)
             dot.set(status)
             setAccessibilityLabel("\(entry.title), \(dot.statusLabel)")
             alphaValue = status.live || status.busy ? 1 : 0.82
@@ -784,12 +783,9 @@ enum SidebarMetrics {
     }
 
     private static let forkMarkSize: CGFloat = 12
-    /// Where a folder's glyph starts inside its icon slot: the glyph is centred in the slot, narrower
-    /// than it.
-    private static let folderInset: CGFloat = {
-        let width = SidebarIcons.rowSymbol("folder")?.size.width ?? SidebarMetrics.iconSlot
-        return ((SidebarMetrics.iconSlot - width) / 2 * 2).rounded() / 2
-    }()
+    private static let branchMarkSize: CGFloat = 16
+    /// Where the branch's line starts inside its mark, as a symbol's does inside its image.
+    static let branchInset: CGFloat = 2.5
 
     private var stopped: Bool {
         if case .session(let status, _) = entry.role { return !status.live && !status.busy }
@@ -858,15 +854,26 @@ enum SidebarMetrics {
             let titleRight = accessory.isHidden ? right : right - 18 - SidebarMetrics.gap
             title.frame = NSRect(x: 0, y: titleY, width: max(0, titleRight), height: titleHeight)
             return
-        case .nav, .project:
-            icon.frame = centered(left, slot)
-        case .session:
+        case .nav, .project, .session:
             break
         }
-        // A session has no icon. Under its project, its name starts where the project's does; at the top
-        // level (Pinned, or a project that is gone) it starts where a folder's icon does.
         let session = if case .session = entry.role { true } else { false }
-        let titleX = !session || nested ? left + slot + SidebarMetrics.gap : left + Self.folderInset
+        var titleX = left + slot + SidebarMetrics.gap
+        if session {
+            // A session's branch is narrower than a folder, so it is placed by its own edges, not
+            // centred in the slot: its name is as far from it as a project's name is from the folder.
+            // Under its project its line starts below the project's name; at the top level (Pinned,
+            // or a project that is gone) it ends where a folder does, and the name is a project's.
+            let folder = SidebarIcons.rowSymbol("folder")?.size.width ?? slot
+            let folderRight = left + ((slot + folder) / 2 * 2).rounded() / 2
+            let toName = titleX - folderRight
+            let width = Self.branchMarkSize
+            let x = nested ? titleX - Self.branchInset : folderRight - width
+            icon.frame = NSRect(x: x, y: ((height - slot) / 2).rounded(), width: width, height: slot)
+            titleX = x + width + toName
+        } else {
+            icon.frame = centered(left, slot)
+        }
         let accessorySlot: CGFloat = 18
         // A session's dot and pin sit nearer the edge than a heading's "+", as they are smaller: their
         // slot ends at the cell's own edge, where the pin can still be clicked.
