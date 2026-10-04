@@ -136,7 +136,7 @@ enum Theme {
         /// 32 — a large round toolbar button, and the fields that sit beside one.
         static let largeControl: CGFloat = 32
         /// 36 — the window toolbar's own controls (extra large, as AppKit sizes a segmented control
-        /// there: the pane picker), and the pills that line up with them under it.
+        /// there), and the pills that line up with them under it.
         static let toolbarControl: CGFloat = 36
         /// 760 — the Settings column cap, matching the web page.
         static let readableColumn: CGFloat = 760

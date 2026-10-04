@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or the run
 /// button and build title, flat at the leading edge; the agent's controls in the middle. Beside a
-/// terminal the pane's own section is the pane picker alone — Tabs, Diff, Simulator — at the
-/// window's edge, which also shows and hides the pane; the pane draws its tabs or Diff's controls
-/// itself, under the toolbar (`SessionWorkspacePane`).
+/// terminal the pane's own section is the system's inspector toggle alone, at the window's edge,
+/// which shows and hides the pane; the pane draws its tabs itself, under the toolbar
+/// (`SessionWorkspacePane`).
 @MainActor struct SessionWorkspaceToolbar {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
@@ -15,27 +15,12 @@ import SwiftUI
             toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
         }
         if model.showsTerminal {
-            // The picker alone, pane open or shut: the pane draws its tabs or Diff's controls in its
-            // own title-bar zone (`SessionWorkspacePane`), so showing or hiding it changes no item,
-            // and the toolbar's items keep pace with the divider as it slides.
-            toolbar.pane = [panePicker]
+            // The toggle alone, pane open or shut: the pane draws its tabs in its own title-bar zone
+            // (`SessionWorkspacePane`), so showing or hiding it changes no item, and the toolbar's
+            // items keep pace with the divider as it slides.
+            toolbar.pane = []
         }
         return toolbar
-    }
-
-    /// The pane's sections, always as segments of symbols, and kept when the toolbar is short of
-    /// room. The shown one is selected only while the pane is open; choosing it again hides the
-    /// pane. The toolbar measures its width for the pane's own bar to keep clear of (`ToolbarRoom`).
-    private var panePicker: WindowToolbarItem {
-        let sections = model.paneSections
-        let shown = model.showsPage ? model.shownSection.flatMap { sections.firstIndex(of: $0) } : nil
-        return .picker("pane-picker", label: String(localized: "Pane"),
-                       // The shown one stays clickable: it is how the pane is hidden.
-                       choices: sections.map { .init(title: $0.title, symbol: $0.symbol,
-                                                     enabled: model.canShowSection($0) || $0 == model.shownSection) },
-                       selected: shown ?? -1, toggles: true, priority: .high) { index in
-            if sections.indices.contains(index) { model.toggleSection(sections[index]) }
-        }
     }
 
     private var leading: [WindowToolbarItem] {

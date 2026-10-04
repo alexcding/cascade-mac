@@ -217,7 +217,12 @@ extension WorkspaceServing {
     }
 
     func setActive(_ value: Bool) { active = value }
-    func selectTab(_ tab: WorkspaceTab) { onAction(.selectTab(tab.id)) }
+    /// Diff's tab goes through the app, which loads the changes before showing them; with no
+    /// backend to load them from it is selected as any tab is, and shows why it is empty.
+    func selectTab(_ tab: WorkspaceTab) {
+        if case .tool(.changes) = tab, !showsChanges, canShowChanges { toggleChanges(); return }
+        onAction(.selectTab(tab.id))
+    }
     func closeTab(_ tab: WorkspaceTab) { onAction(.closeTab(tab.id)) }
     func moveTab(_ id: String, before target: String?) { onAction(.moveTab(id, before: target)) }
     /// Only the workspace on screen may open tabs.
@@ -227,7 +232,7 @@ extension WorkspaceServing {
     /// state: closing it would only make another.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return context.stripTabs.count > 1 || !page.controls.isBlank
+        return context.tabs.count > 1 || !page.controls.isBlank
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
@@ -282,20 +287,33 @@ extension WorkspaceServing {
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
-    /// What a session's blank tab offers to open in its place: its worktree's Files explorer, its
-    /// agent's Live diagram, and the Simulator while a build has one. Diff is the toolbar picker's;
-    /// a web page is the blank tab itself.
+    /// What a session's blank tab offers to open: its worktree's Files explorer, its changes, its
+    /// agent's Live diagram, and the Simulator while a build has one. A web page is the blank tab
+    /// itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
-        var tools: [StartPageTool] = [.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
-            context?.openTool(.files, replacingBlank: true)
-        }]
-        if canShowLive {
+        // One tab of each tool: one already open is in the strip, not offered again.
+        let open = Set(context.tools)
+        var tools: [StartPageTool] = []
+        if !open.contains(.files) {
+            tools.append(.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
+                context?.openTool(.files, replacingBlank: true)
+            })
+        }
+        if canShowChanges, !open.contains(.changes) {
+            tools.append(.init(id: "diff", title: WorkspaceTool.changes.title, symbol: WorkspaceTool.changes.symbol) { [weak self, weak context] in
+                // As the other tools do, Diff takes the blank tab's place once it opens.
+                let blank = context?.replaceableBlank
+                self?.toggleChanges()
+                if let blank, context?.activeTool == .changes { context?.close(.page(blank)) }
+            })
+        }
+        if canShowLive, !open.contains(.live) {
             tools.append(.init(id: "live", title: WorkspaceTool.live.title, symbol: WorkspaceTool.live.symbol) { [weak context] in
                 context?.openTool(.live, replacingBlank: true)
             })
         }
-        if simulatorPreview != nil {
+        if simulatorPreview != nil, !open.contains(.simulator) {
             tools.append(.init(id: "simulator", title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol) { [weak context] in
                 context?.openTool(.simulator, replacingBlank: true)
             })
@@ -305,32 +323,6 @@ extension WorkspaceServing {
     /// Whether there is a worktree for the Files picker to list. The scratch Terminal has none, but
     /// can still open files, from the terminal's links.
     var listsWorktree: Bool { session?.worktree.isEmpty == false }
-    /// The toolbar picker's sections: the tabs, and Diff for a session. The Simulator is a tab.
-    var paneSections: [WorkspaceSection] {
-        [.browser] + (session != nil ? [.diff] : [])
-    }
-    func canShowSection(_ section: WorkspaceSection) -> Bool {
-        switch section { case .diff: canShowChanges; case .browser: true }
-    }
-    /// The section shown: Diff by what the pane shows, which the app loads before the tab follows.
-    var shownSection: WorkspaceSection? {
-        guard let context else { return nil }
-        return showsChanges ? .diff : context.section
-    }
-    /// Shows a section. Diff goes through the app, which loads the changes before showing them.
-    func showSection(_ section: WorkspaceSection) {
-        guard let context, active, section != shownSection, canShowSection(section) else { return }
-        if section == .diff { toggleChanges() } else { context.showSection(section) }
-    }
-    /// The toolbar picker's choice, which is also the pane's toggle: the section shown hides the
-    /// pane; with the pane hidden, the section it was showing brings it back as it was, and any
-    /// other opens on that one.
-    /// The shown section toggles even when it could not be opened now — Diff with the backend gone
-    /// — so the pane can always be hidden from it.
-    func toggleSection(_ section: WorkspaceSection) {
-        guard active, canToggleContext else { return }
-        if section == shownSection { setContextPresented(!showsPage) } else if canShowSection(section) { showSection(section) }
-    }
     /// The Simulator's run is over: its tab has nothing left to show, so the pane goes back to the
     /// page or file shown before it rather than sitting blank with no tabs.
     func leaveEndedSimulator() {

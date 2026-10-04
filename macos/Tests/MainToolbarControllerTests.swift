@@ -147,68 +147,6 @@ import Testing
         #expect(template(0) == true && template(1) == true && drawn(0, "terminal") && drawn(1, "plus.forwardslash.minus"))
     }
 
-    // The pane picker is the pane section alone, pane open or shut, so a toggle changes no item:
-    // the same control, at the window's edge, with the column open, shut and collapsed.
-    @Test(.timeLimit(.minutes(1))) func thePanePickerStaysAtTheWindowsEdge() async throws {
-        // The pane at its narrowest, `MainWindowMetrics.paneMin`.
-        let window = Self.splitWindow(inspector: true, paneWidth: MainWindowMetrics.paneMin)
-        defer { window.close() }
-        let pane = PaneFixture()
-        let fixture = PickerFixture()
-        fixture.choices.append(.init(title: "Simulator", symbol: "iphone"))
-        let controller = MainToolbarController {
-            WindowToolbar(leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }],
-                          pane: [.picker("pane-picker", label: fixture.label, choices: fixture.choices,
-                                         selected: pane.open ? 0 : -1, toggles: true) { _ in }])
-        }
-        controller.window = window
-        // Measured before AppKit has placed the picker, it must not read as the whole window: the
-        // pane's bar would leave itself no width, and show no tabs.
-        try await Task.sleep(for: .milliseconds(50))
-        #expect(controller.room.paneTrailing < 200, "before layout: \(controller.room.paneTrailing)")
-        window.orderFront(nil)
-        let control = try #require(Self.view("pane-picker", in: window) as? NSSegmentedControl)
-        let items = window.toolbar?.items.map(\.itemIdentifier)
-        func edge() -> CGFloat {
-            window.layoutIfNeeded()
-            return window.frame.width - control.convert(control.bounds, to: nil).maxX
-        }
-        let shut = edge()
-        #expect(shut >= 0 && shut < 24, "at the window's edge: \(shut) pt from it")
-        // What the pane's own bar keeps clear of is the picker as laid out, edge gap included.
-        let taken = window.frame.width - control.convert(control.bounds, to: nil).minX
-        try await settle { abs(controller.room.paneTrailing - taken) < 1 }
-        #expect(abs(controller.room.paneTrailing - taken) < 1, "measured \(controller.room.paneTrailing) against \(taken)")
-
-        pane.open = true
-        try await settle { control.selectedSegment == 0 }
-        #expect(window.toolbar?.items.map(\.itemIdentifier) == items, "opening the pane changes no item")
-        #expect(abs(edge() - shut) < 0.5, "open: \(edge()) against \(shut)")
-        let split = try #require(window.contentViewController as? NSSplitViewController)
-        split.splitViewItems.last?.isCollapsed = true
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(abs(edge() - shut) < 0.5, "column collapsed: \(edge()) against \(shut)")
-        #expect(Self.view("pane-picker", in: window) === control)
-    }
-
-    // A pane item the toolbar cannot measure leaves the pane's width unmeasured, never short.
-    @Test(.timeLimit(.minutes(1))) func aPaneItemWithNoViewLeavesThePaneUnmeasured() async throws {
-        let window = Self.splitWindow(inspector: true, paneWidth: 600)
-        defer { window.close() }
-        let fixture = PickerFixture()
-        let controller = MainToolbarController {
-            WindowToolbar(pane: [.picker("pane-group", label: fixture.label, choices: fixture.choices, selected: 0) { _ in },
-                                 .picker("pane-picker", label: fixture.label, choices: fixture.choices, selected: 0, toggles: true) { _ in }])
-        }
-        controller.window = window
-        window.orderFront(nil)
-        let control = try #require(Self.view("pane-picker", in: window) as? NSSegmentedControl)
-        try await settle { control.frame.width > 0 }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(controller.room.paneTrailing == 0, "measured \(controller.room.paneTrailing) with a group picker it cannot see")
-    }
-
-    // A new label is not new choices: the group keeps its toolbar and takes the label.
     @Test(.timeLimit(.minutes(1))) func pickerTakesANewLabelInPlace() async throws {
         defer { window.close() }
         let group = try #require(group)
@@ -294,13 +232,14 @@ import Testing
 
         pane.open = true
         try await settle { ids().contains("pane-bar") }
-        #expect(ids().suffix(2) == ["pane-bar", "pane-toggle"])
+        #expect(ids().suffix(3) == ["pane-bar", "pane-toggle", NSToolbarItem.Identifier.toggleInspector.rawValue],
+                "the system's inspector toggle at the window's edge")
         #expect(window.toolbar === toolbar)
         #expect(Self.view("title", in: window) === title)
 
         pane.open = false
         try await settle { !ids().contains("pane-bar") }
-        #expect(ids().last == "pane-toggle")
+        #expect(ids().suffix(2) == ["pane-toggle", NSToolbarItem.Identifier.toggleInspector.rawValue])
         #expect(window.toolbar === toolbar)
         #expect(Self.view("title", in: window) === title)
     }

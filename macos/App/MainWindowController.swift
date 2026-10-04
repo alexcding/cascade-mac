@@ -20,7 +20,7 @@ import AppKit
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
-        window.contentViewController = MainSplitViewController(model: model, room: toolbarController.room)
+        window.contentViewController = MainSplitViewController(model: model)
         toolbarController.window = window
         window.contentMinSize = NSSize(width: 760, height: 480)
         super.init(window: window)

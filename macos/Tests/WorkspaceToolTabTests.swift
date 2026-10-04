@@ -27,17 +27,17 @@ import Testing
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         let other = try #require(context.open("https://example.com/other", title: "Other"))
         let file = try #require(context.openFile("/tmp/sections.swift"))
-        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, other.id, file.id], "a file among the pages")
+        #expect(context.tabs.map(\.id) == [page.id, other.id, file.id], "a file among the pages")
         context.select(.page(page))
-        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, other.id, file.id])
         context.openTool(.changes)
-        #expect(context.section == .diff && context.stripTabs.isEmpty)
         context.openTool(.simulator)
-        #expect(context.section == .browser && context.stripTabs.map(\.id) == [page.id, WorkspaceTool.simulator.id, other.id, file.id],
-                "the Simulator is a tab of the strip, opened beside the tab it was opened from")
+        #expect(context.tabs.map(\.id) == [page.id, WorkspaceTool.changes.id, WorkspaceTool.simulator.id, other.id, file.id],
+                "Diff and the Simulator are tabs of the strip, each opened beside the tab it was opened from")
         context.select(.page(page))
         context.cycle(1)
-        #expect(context.activeTool == .simulator, "cycling walks the Simulator")
+        #expect(context.activeTool == .changes && context.pane == .diff, "cycling walks Diff")
+        context.cycle(1)
+        #expect(context.activeTool == .simulator, "and the Simulator")
         context.cycle(1)
         #expect(context.activePage === other)
         context.cycle(1)
@@ -46,19 +46,19 @@ import Testing
         #expect(context.activePage === page)
     }
 
-    @Test func theTabsReturnToTheirLastTabOrOpenABlankPage() throws {
+    @Test func leavingDiffReturnsToTheLastPageOrFileOrOpensABlankPage() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
-        context.showSection(.browser)
-        #expect(context.activePage?.controls.isBlank == true, "no tab open: a blank page")
+        context.showPages()
+        #expect(context.activeID == nil && context.pane == .term, "no tab open: the pages, where the bar opens a blank page")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         _ = try #require(context.open("https://example.com/other", title: "Other"))
         context.select(.page(page))
         context.openTool(.changes)
-        context.showSection(.browser)
+        context.showPages()
         #expect(context.activePage === page, "the page last selected, not the last opened")
         let file = try #require(context.openFile("/tmp/sections.swift"))
         context.openTool(.changes)
-        context.showSection(.browser)
+        context.showPages()
         #expect(context.activeDocument === file, "or the file")
     }
 
@@ -66,21 +66,21 @@ import Testing
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         context.openTool(.simulator)
         context.openTool(.changes)
-        context.showSection(.browser)
-        #expect(context.activeTool == .simulator && context.pages.isEmpty, "the picker's Tabs")
-        context.openTool(.changes)
         context.showPages()
-        #expect(context.activeTool == .simulator && context.pages.isEmpty, "Diff's toggle")
+        #expect(context.activeTool == .simulator && context.pages.isEmpty)
     }
 
-    @Test func closingTheSimulatorFallsBackToTheStripNotToDiff() throws {
+    @Test func closingATabSelectsItsNearestNeighbour() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
-        context.openTool(.changes)
         context.openTool(.simulator)
-        #expect(context.section == .browser && context.pane == .simulator)
+        context.openTool(.changes)
+        context.select(.tool(.simulator))
+        #expect(context.pane == .simulator)
         context.close(.tool(.simulator))
-        #expect(context.activePage === page && context.section == .browser, "the nearest tab of the strip")
+        #expect(context.activeTool == .changes && context.pane == .diff, "the tab that took its place")
+        context.close(.tool(.changes))
+        #expect(context.activePage === page && context.pane == .term, "else the one before it")
     }
 
     // The pane's own blank page is a New Tab in the strip; what is typed or picked in it takes its
@@ -89,13 +89,13 @@ import Testing
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let filler = context.openBlankPage()
         context.fillerPageID = filler.id
-        #expect(context.stripTabs.map(\.id) == [filler.id], "a New Tab")
+        #expect(context.tabs.map(\.id) == [filler.id], "a New Tab")
         let page = context.openBlankPage()
         #expect(page === filler && context.pages.count == 1, "New Tab takes the blank page, not a second one")
         context.openTool(.files, replacingBlank: true)
-        #expect(context.stripTabs.map(\.id) == [WorkspaceTool.files.id], "Files took its place")
+        #expect(context.tabs.map(\.id) == [WorkspaceTool.files.id], "Files took its place")
         context.openFromTree("/tmp/tools/picked.swift")
-        #expect(context.stripTabs.count == 1 && context.activeDocument != nil, "the file took the explorer's place")
+        #expect(context.tabs.count == 1 && context.activeDocument != nil, "the file took the explorer's place")
     }
 
     @Test func cyclingFromATabTheStripHidesStartsAtTheEnds() throws {
@@ -158,18 +158,6 @@ import Testing
         context.openFromTree("/tmp/trail/b.swift")
         #expect(context.activeDocument === b && context.canGoBackInFiles, "B's own way back is kept")
         #expect(context.documents.contains { $0 === a }, "the tab left is not closed")
-    }
-
-    // Closing the explorer's tab falls back to the tabs, never to Diff beside it.
-    @Test func closingTheExplorerStaysInTheTabs() throws {
-        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
-        let blank = context.openBlankPage()
-        context.setPane(.diff)
-        context.select(.page(blank))
-        context.openTool(.files, replacingBlank: true)
-        #expect(context.tabs.map(\.id) == [WorkspaceTool.files.id, WorkspaceTool.changes.id])
-        context.close(.tool(.files))
-        #expect(context.activeTool != .changes && context.pane == .term, "not the Changes tab beside it")
     }
 
     @Test func closingATabSelectsTheNearestPageOrFile() throws {
@@ -261,7 +249,7 @@ import Testing
         context.select(.page(first))
         let restored = WorkspaceContext(id: context.id, sourceURL: "session:tools", title: "", snapshot: context.snapshot)
         restored.openTool(.changes)
-        restored.showSection(.browser)
+        restored.showPages()
         #expect(restored.activePage?.id == first.id, "the page that was shown, not the last in the order")
     }
 

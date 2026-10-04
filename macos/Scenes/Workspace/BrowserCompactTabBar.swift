@@ -44,7 +44,7 @@ struct BrowserCompactTabBar: View {
             tabPill(available)
         } trailing: {
             // Over the pages only: a file or a tool has no page for them to act on.
-            if part != .tabs, context.section == .browser, context.activeDocument == nil, context.activeTool == nil {
+            if part != .tabs, context.activeDocument == nil, context.activeTool == nil {
                 PageActionsCluster(page: active, bookmarks: context.bookmarks)
             }
         } suggestions: {
@@ -100,7 +100,7 @@ struct BrowserCompactTabBar: View {
 
     private func tabPill(_ available: CGFloat) -> some View {
         // The address alone is the selected page, as wide as the row.
-        let ids = part == .address ? (active.map { [$0.id] } ?? []) : context.stripTabs.map(\.id)
+        let ids = part == .address ? (active.map { [$0.id] } ?? []) : context.tabs.map(\.id)
         return CompactTabPill(ids: ids, activeID: context.activeID, available: available,
                        maxTabWidth: part == .address ? CompactTabMetrics.maxToolbarBarWidth
                            : part == .tabs ? CompactTabMetrics.maxStripTabWidth : CompactTabMetrics.maxWebTabWidth,
@@ -127,6 +127,10 @@ struct BrowserCompactTabBar: View {
                 CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.tool(.simulator)) }, close: { model.closeTab(.tool(.simulator)) })
+            } else if id == WorkspaceTool.changes.id {
+                CompactToolTab(title: WorkspaceTool.changes.title, symbol: WorkspaceTool.changes.symbol,
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(.changes)) }, close: { model.closeTab(.tool(.changes)) })
             } else if id == WorkspaceTool.live.id {
                 CompactToolTab(title: WorkspaceTool.live.title, symbol: WorkspaceTool.live.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
@@ -422,7 +426,7 @@ private struct CompactFileTab: View {
 }
 
 /// A tool's tab in the strip: the Files explorer — a New Tab that browses the worktree, until a
-/// file picked in it takes its place — the Simulator, or Live.
+/// file picked in it takes its place — Diff, the Simulator, or Live.
 private struct CompactToolTab: View {
     let title: String
     let symbol: String

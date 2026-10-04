@@ -25,13 +25,13 @@ import SwiftUI
     private var needsInitialWidths = false
     private static let autosaveName = "CascadeMainColumns"
 
-    init(model: AppViewModel, room: ToolbarRoom = ToolbarRoom()) {
+    init(model: AppViewModel) {
         let coordinator = model.coordinator
         self.coordinator = coordinator
         let sidebar = MainSidebarController(coordinator: coordinator)
         let content = NSHostingController(rootView: MainContentColumn(model: model))
-        // The pane draws its own bar under the toolbar, clear of what the toolbar's pane section takes.
-        let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator).environment(room))
+        // The pane draws its own tab strip under the toolbar, clear of the toolbar's pane toggle.
+        let pane = NSHostingController(rootView: MainPaneColumn(coordinator: coordinator))
         // The columns' widths are the split view's to decide, not their content's.
         content.sizingOptions = []
         pane.sizingOptions = []
@@ -46,7 +46,7 @@ import SwiftUI
         paneItem.maximumThickness = NSSplitViewItem.unspecifiedDimension
         paneItem.canCollapse = true
         // Full height, as Xcode's inspector is: the column reaches the window's top, under the
-        // toolbar's pane section, which holds the pane picker and tracks the divider
+        // toolbar's pane section, which holds the pane toggle and tracks the divider
         // (`SessionWorkspaceToolbar`); the pane draws its own bar in that zone (`SessionWorkspacePane`).
         // Equal holding priorities: a window resize is shared between the screen and the pane in
         // proportion, as it was between the terminal and the pane before.

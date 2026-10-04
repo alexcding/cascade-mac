@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A segmented switch with no glass: the options share one grey pill, and the chosen one is a
 /// `RaisedCapsule`, a shade lighter with an outline round it. As tall as the toolbar's own controls
-/// (`Theme.Size.toolbarControl`), so it lines up with the pane picker at the window's edge.
+/// (`Theme.Size.toolbarControl`), so it lines up with the toolbar's controls.
 struct SegmentedPicker<Option: Hashable & Identifiable>: View {
     let title: String
     let options: [Option]

@@ -577,7 +577,7 @@ public final class AppViewModel {
         case .saveFile: viewer.active?.activeDocument?.loaded == true && viewer.active?.activeDocument?.readOnly == false
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
-        case .nextPage, .previousPage: (viewer.active?.stripTabs.count ?? 0) > 1
+        case .nextPage, .previousPage: (viewer.active?.tabs.count ?? 0) > 1
         case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true

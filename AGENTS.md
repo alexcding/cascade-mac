@@ -318,31 +318,30 @@ user collapses from the divider is told back to the workspace.
   SwiftUI content, split by the sidebar and inspector tracking separators. It reads the
   description under observation, so what it reads redraws the toolbar.
 - **The pane draws its own bar, under the toolbar.** The pane column runs the window's full height,
-  as Xcode's inspector does, and draws its tabs (`BrowserCompactTabBar.Part.tabs`,
-  `CompactTabBarPlacement.titleBar`) or Diff's controls in its title-bar zone, which AppKit reports
-  as the safe area. The bar is part of the column, so it slides with it: showing or hiding the
-  pane changes no toolbar item, and the toolbar's items keep pace with the divider. Do not move
-  the bar into toolbar items — items added or removed on a toggle jump while the column slides.
+  as Xcode's inspector does, and draws its tab strip (`BrowserCompactTabBar.Part.tabs`,
+  `CompactTabBarPlacement.titleBar`) in its title-bar zone, which AppKit reports as the safe area.
+  The strip is part of the column, so it slides with it: showing or hiding the pane changes no
+  toolbar item, and the toolbar's items keep pace with the divider. Do not move the strip into
+  toolbar items — items added or removed on a toggle jump while the column slides. A pane body
+  must not reach into that zone: a background drawn into the top safe area, or a SwiftUI
+  `ScrollView` (which stretches itself up under the title bar), covers the strip and takes its
+  clicks — use `.paneSurface(ignoresSafeAreaEdges: [])`.
   The session toolbar is the run button and build title leading and the agent's controls in the
-  middle; the pane section is the pane picker alone (`SessionWorkspaceToolbar.panePicker`), at the
-  window's edge, which the pane's bar keeps clear of (`SessionWorkspacePane.pickerInset`): a native
-  segmented control, never folded into a pop-up, with one symbol per section (`WorkspaceSection`) —
-  Tabs and Diff — which is also the pane's only toggle. Choosing a section opens the
-  pane on it; choosing the selected one hides the pane, and with the pane hidden none is selected
-  (a `toggles` picker, `WindowToolbarItem.picker`). Tabs is the web pages, the open files, the Files
-  explorer and the Simulator in one strip (`WorkspaceContext.stripTabs`), and the address field
-  searches the worktree's files beside the web. A simulator run opens the Simulator's tab, and its
-  tab closes when the preview ends. Diff is one view, with no strip: over it the pane's bar holds
-  its review controls at its leading edge (`ReviewBar`: Changes/History, Commit and Push, the
-  changed files' toggle).
-  Underneath, Diff, the Simulator and the Files picker (which browses the worktree as a tree) are
-  tool tabs (`WorkspaceTool`) in the one tab order, and the active tab decides the section;
-  closing a tab selects its nearest neighbour in the same section. Over a web page the
-  pane's next row is its navigation and address (`.address`), whose suggestions hang under it.
-  A blank page — the one the pane opens for itself when it has no page included — is a New Tab in
-  the strip, and the Files explorer a Files tab, until what is typed or picked there takes its
-  place. The strip always shows its New Tab button, and New Tab takes the pane's own blank page
-  rather than opening a second one. When a screen's items do change,
+  middle; the pane section is the system's inspector toggle alone (`.toggleInspector`, the
+  `sidebar.right` symbol), at the window's edge, which the strip keeps clear of
+  (`SessionWorkspacePane.toggleInset`). It collapses the inspector column, and the workspace
+  hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).
+  Every tab is in the one strip and the one order (`WorkspaceContext.tabs`): web pages, open
+  files, and the tools (`WorkspaceTool`) — Diff, the Simulator, Files (which browses the worktree
+  as a tree) and Live. The active tab decides what the pane shows; closing a tab selects its
+  nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
+  the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
+  changed files' toggle); over a web page that row is its navigation and address (`.address`),
+  whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
+  the preview ends. A blank page — the one the pane opens for itself when it has no tab — is a New
+  Tab in the strip, and its start page offers the tools; the Files explorer is a Files tab until a
+  file picked there takes its place. The strip always shows its New Tab button, and New Tab takes
+  the pane's own blank page rather than opening a second one. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the
   whole bar.

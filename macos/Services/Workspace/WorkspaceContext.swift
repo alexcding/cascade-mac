@@ -35,25 +35,6 @@ struct SavedTabContent: Codable, Equatable, Sendable {
     }
 }
 
-/// What the toolbar's pane picker switches between: the tabs — web pages, open files and the
-/// Files and Simulator tools together, in one strip — and the changes, one view with no tabs.
-enum WorkspaceSection: String, CaseIterable {
-    case browser, diff
-    var title: String {
-        switch self {
-        case .browser: String(localized: "Tabs")
-        case .diff: WorkspaceTool.changes.title
-        }
-    }
-    /// Outlines with no circle round them, so the two read as one set.
-    var symbol: String {
-        switch self {
-        case .browser: "rectangle.stack"
-        case .diff: WorkspaceTool.changes.symbol
-        }
-    }
-}
-
 /// A tool the pane holds as a tab beside its pages and files, at most one of each: the worktree's
 /// changes, the Simulator, the worktree's files to pick one from, and the agent's live diagram.
 enum WorkspaceTool: String, Codable, CaseIterable {
@@ -296,26 +277,14 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private(set) var tabEdits = 0
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
+    /// The tabs the strip shows and cycling walks: every tab — pages, files and tools — in their
+    /// order. A blank page — the pane's own included — is a New Tab there, as the explorer is a
+    /// Files tab, until what is typed or picked in it takes its place.
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
-    /// The section the active tab belongs to: Diff its own; a page, a file, the Files picker, the
-    /// Simulator — or nothing selected — the tabs.
-    var section: WorkspaceSection { Self.section(of: activeID.flatMap(tab)) ?? .browser }
-    /// The tabs the strip shows and cycling walks: the pages, the open files, the Files explorer, the
-    /// Simulator and Live, in their order, none for Diff, which is one view. A blank page — the
-    /// pane's own included — is a New Tab there, as the explorer is a Files tab, until what is
-    /// typed or picked in it takes its place.
-    var stripTabs: [WorkspaceTab] {
-        switch section {
-        case .browser: tabs.filter {
-            switch $0 { case .page, .file, .tool(.files), .tool(.simulator), .tool(.live): true; case .tool: false }
-        }
-        case .diff: []
-        }
-    }
-    /// The strip's tool last in the order — the explorer or the Simulator — which the tabs go back
-    /// to when they hold no page or file.
-    private var lastStripTool: WorkspaceTab? {
-        tabOrder.reversed().lazy.compactMap(tab).first { if case .tool = $0 { Self.section(of: $0) == .browser } else { false } }
+    /// The tool last in the order other than Diff — the explorer, the Simulator or Live — which
+    /// leaving Diff goes back to when there is no page or file.
+    private var lastToolBesidesDiff: WorkspaceTab? {
+        tabOrder.reversed().lazy.compactMap(tab).first { if case .tool(let tool) = $0 { tool != .changes } else { false } }
     }
     /// The page or file last shown, which the tabs go back to and a save on the Simulator keeps.
     /// Noted whenever the active tab changes, and on restore.
@@ -323,19 +292,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private func remember() {
         guard let id = activeID else { return }
         if pages.contains(where: { $0.id == id }) || documents.contains(where: { $0.id == id }) { lastShownID = id }
-    }
-    /// The picker's choice: the tabs' last page or file, else a tool of the strip, or with none a
-    /// blank page. Diff goes through the workspace, which loads the changes first
-    /// (`SessionWorkspaceViewModel`).
-    func showSection(_ section: WorkspaceSection) {
-        switch section {
-        case .browser:
-            let shown = lastShownID.flatMap(tab) ?? tabOrder.reversed().lazy.compactMap(tab).first {
-                switch $0 { case .page, .file: true; case .tool: false }
-            } ?? lastStripTool
-            if let shown { select(shown) } else { openBlankPage() }
-        case .diff: setPane(.diff)
-        }
     }
     var visits: [WorkspaceVisit] { historyOrder.compactMap { id in
         if let page = history.first(where: { $0.id == id }) { return .page(page) }
@@ -403,7 +359,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     func showPages() {
         setPane(.term)
         guard let tool = activeTool, tool.pane != .term else { return }
-        if tool == .changes, let strip = lastStripTool { select(strip) } else { openBlankPage() }
+        if tool == .changes, let strip = lastToolBesidesDiff { select(strip) } else { openBlankPage() }
     }
     /// The pane last shown, unless this workspace can no longer show it (`presentable`).
     func present() {
@@ -420,10 +376,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         case .tool(let tool): activeID = tool.id; pane = tool.pane; changed() }
     }
     func cycle(_ direction: Int) {
-        let order = stripTabs.map(\.id)
+        let order = tabs.map(\.id)
         guard !order.isEmpty else { return }
-        // From a tab the strip does not show — Diff — the first tab is next and the
-        // last previous, as from just before the strip.
+        // From no tab at all, the first tab is next and the last previous, as from just before
+        // the strip.
         let index = order.firstIndex(of: activeID ?? "") ?? (direction > 0 ? -1 : order.count)
         if let tab = tab(order[(index + direction + order.count) % order.count]) { select(tab) }
     }
@@ -467,26 +423,21 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             })
         case .tool(let tool):
             guard tools.contains(tool) else { return }
-            // The explorer and the Simulator are among the tabs: closing one falls back to a tab of the
-            // strip, never to Diff.
-            tools.removeAll { $0 == tool }; removeTab(tool.id, within: tool == .changes ? nil : .browser)
+            tools.removeAll { $0 == tool }; removeTab(tool.id)
         }
     }
     func remove(_ file: EditorDocumentViewModel) {
         guard documents.contains(where: { $0 === file }) else { return }
-        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id, within: .browser)
+        noteHistory(file.record); file.dispose(); documents.removeAll { $0 === file }; removeTab(file.id)
     }
-    /// A page, a file or a strip tool closed while shown gives way to the nearest of the tabs, so
-    /// closing one never moves the pane to Diff. The last one gone leaves the tabs' pane, where
-    /// the bar opens a blank page.
-    private func removeTab(_ id: String, within section: WorkspaceSection? = nil) {
+    /// A tab closed while shown gives way to its nearest neighbour. The last one gone leaves the
+    /// tabs' pane, where the bar opens a blank page.
+    private func removeTab(_ id: String) {
         fileTrails[id] = nil
         let index = tabOrder.firstIndex(of: id) ?? 0
         tabOrder.removeAll { $0 == id }; tabEdits += 1
         if activeID == id {
-            let candidates = section.map { section in
-                tabOrder.enumerated().filter { WorkspaceContext.section(of: tab($0.element)) == section }
-            } ?? Array(tabOrder.enumerated())
+            let candidates = Array(tabOrder.enumerated())
             // The tab that took the closed one's place, else the one before it.
             let next = candidates.first { $0.offset >= index } ?? candidates.last
             activeID = next?.element
@@ -494,13 +445,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             else if pane != .off { pane = .term }
         }
         changed()
-    }
-    private static func section(of tab: WorkspaceTab?) -> WorkspaceSection? {
-        switch tab {
-        case .page?, .file?, .tool(.files)?, .tool(.simulator)?, .tool(.live)?: .browser
-        case .tool(.changes)?: .diff
-        case nil: nil
-        }
     }
     /// `allowDuplicate` opens another tab even when the address is already open, as a link that
     /// asked for a new window must; otherwise the open page is selected instead.
@@ -547,7 +491,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         noteHistory(page.record)
         page.evict()
         pages.remove(at: index)
-        removeTab(page.id, within: .browser)
+        removeTab(page.id)
     }
     func apply(_ snapshot: ContextSnapshot) {
         // Used only for the first backend load, before the user edits this context.

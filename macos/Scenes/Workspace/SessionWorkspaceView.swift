@@ -253,7 +253,7 @@ private struct SessionWorkspaceContextContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.shownPane == .term, !model.showsChanges {
+            if model.shownPane == .term {
                 // Safari's compact layout: the tab bar is the address bar, so the browser needs no second row.
                 BrowserCompactTabBar(context: context, model: model)
                 Divider()
@@ -263,39 +263,32 @@ private struct SessionWorkspaceContextContent: View {
     }
 }
 
-/// What the context pane shows under its bar, wherever the bar is: its own row above, or the
-/// inspector's section of the toolbar.
+/// What the context pane shows under its bars: the tab strip, and the address or review row.
 struct SessionWorkspaceContextBody: View {
     let context: WorkspaceContext
     let model: SessionWorkspaceViewModel
 
     @ViewBuilder var body: some View {
         if model.showsChanges {
-            // The review layout: one bar carries the Changes/History switch and the commit action —
-            // beside a terminal the toolbar's, otherwise a row on top — and the diff fills the pane.
-            VStack(spacing: 0) {
-                if !model.showsTerminal {
-                    ReviewBar(context: context, diff: model.diff)
-                    Divider()
-                }
-                Group {
-                    if context.reviewSection == .history, let history = model.history { GitHistoryView(model: history) }
-                    else if context.reviewSection == .changes, let diff = model.diff {
-                        // The changed files to the right of the diff, split as the editor's tree is
-                        // (`WorkspaceFileBrowser`); choosing one scrolls the diff to it.
-                        if diff.filesShown {
-                            ThinSplitView(leading: .init(min: 200), trailing: .init(min: 120, ideal: 240, max: 400)) {
-                                DiffView(model: diff, showsHeader: false)
-                            } trailingContent: {
-                                DiffChangedFiles(diff: diff)
-                            }
-                        } else {
+            // The review row above carries the Changes/History switch and the commit action; the diff
+            // fills the pane.
+            Group {
+                if context.reviewSection == .history, let history = model.history { GitHistoryView(model: history) }
+                else if context.reviewSection == .changes, let diff = model.diff {
+                    // The changed files to the right of the diff, split as the editor's tree is
+                    // (`WorkspaceFileBrowser`); choosing one scrolls the diff to it.
+                    if diff.filesShown {
+                        ThinSplitView(leading: .init(min: 200), trailing: .init(min: 120, ideal: 240, max: 400)) {
                             DiffView(model: diff, showsHeader: false)
+                        } trailingContent: {
+                            DiffChangedFiles(diff: diff)
                         }
+                    } else {
+                        DiffView(model: diff, showsHeader: false)
                     }
-                    else { Color.clear }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+                }
+                else { Color.clear }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if model.shownPane == .term, let document = context.activeDocument {
             WorkspaceFileBrowser(context: context, model: model, document: document)
         } else if model.shownPane == .term, let page = context.activePage {
@@ -321,20 +314,18 @@ struct SessionWorkspaceContextBody: View {
 }
 
 /// The review's controls, all leading: the Changes/History switch, Commit and the changed files'
-/// toggle. Beside a terminal the pane draws them in its title-bar zone (`SessionWorkspacePane`); a
-/// pane with no terminal beside it draws them as its own top row.
+/// toggle, in a row under the pane's tab strip while Diff's tab is shown (`SessionWorkspacePane`).
 struct ReviewBar: View {
     let context: WorkspaceContext
     let diff: DiffViewModel?
-    var inTitleBar = false
 
     var body: some View {
         HStack(spacing: 10) {
             SegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
                                  selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
-            // Everything leading, beside Changes/History, clear of the pane picker at the window's
-            // edge; the slack after it. The same buttons over History, so switching moves nothing:
-            // Commit still commits the working changes, and the changed files' toggle waits.
+            // Everything leading, beside Changes/History; the slack after it. The same buttons over
+            // History, so switching moves nothing: Commit still commits the working changes, and the
+            // changed files' toggle waits.
             if let diff {
                 let busy = diff.showsProgress
                 // Commit and the changed files' toggle in one capsule, as Run and Stop are.
@@ -362,8 +353,8 @@ struct ReviewBar: View {
             }
             Spacer(minLength: 4)
         }
-        .padding(.horizontal, inTitleBar ? 0 : 12)
-        .frame(height: inTitleBar ? CompactTabMetrics.pillHeight : 44)
+        .padding(.horizontal, 12)
+        .frame(height: 44)
         .accessibilityIdentifier("workspace-review-bar")
     }
 }
@@ -392,7 +383,8 @@ struct BlankPane: View {
         .frame(maxWidth: 260)
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .paneSurface()
+        // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
+        .paneSurface(ignoresSafeAreaEdges: [])
     }
 }
 

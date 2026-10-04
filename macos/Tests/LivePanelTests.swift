@@ -90,15 +90,13 @@ import Testing
         let context = WorkspaceContext(id: "task:live", sourceURL: "session:live", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         context.openTool(.live)
-        #expect(context.section == .browser && context.pane == .term)
-        #expect(context.stripTabs.map(\.id) == [page.id, WorkspaceTool.live.id])
+        #expect(context.pane == .term)
+        #expect(context.tabs.map(\.id) == [page.id, WorkspaceTool.live.id])
         context.select(.page(page))
         context.openTool(.live)
         #expect(context.activeTool == .live && context.tools == [.live], "opening it again selects the one tab")
-        context.openTool(.changes)
-        context.select(.tool(.live))
         context.close(.tool(.live))
-        #expect(context.activePage === page, "closing it falls back to the strip, not to Diff")
+        #expect(context.activePage === page, "closing it selects its neighbour")
     }
 
     @Test func liveIsSavedWithTheTabs() throws {

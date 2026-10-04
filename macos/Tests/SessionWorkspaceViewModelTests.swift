@@ -31,9 +31,9 @@ import Testing
     }
 }
 
-/// The toolbar's pane picker is the pane's toggle: a section opens the pane on it, the shown one
-/// hides it, and with the pane hidden the section it was on brings it back as it was.
-@MainActor @Test func thePanePickerShowsAndHidesThePane() throws {
+/// The toolbar's toggle shows and hides the pane as it was; Diff's tab opens through the app,
+/// which loads the changes first.
+@MainActor @Test func thePaneTogglesAndDiffOpensThroughTheApp() throws {
     let context = WorkspaceContext(id: "task:picker", sourceURL: "", title: "")
     let service = WorkspaceFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
     model.onAction = { [weak service, weak context] action in
@@ -42,24 +42,21 @@ import Testing
     service.state.session = WorkspaceSession(id: "picker", projectId: "p", workspace: "/tmp", worktree: "/tmp/picker", title: "Picker",
                                              branch: "picker", url: "", createdAt: nil, pinned: false)
     model.setActive(true)
-    #expect(model.paneSections == [.browser, .diff] && !model.showsPage)
     let page = try #require(context.open("https://example.test/picker"))
-    model.toggleSection(.browser)
-    #expect(!model.showsPage, "the shown section hides the pane")
-    model.toggleSection(.browser)
+    model.setContextPresented(false)
+    #expect(!model.showsPage, "the toggle hides the pane")
+    model.setContextPresented(true)
     #expect(model.showsPage && context.activePage === page, "and brings it back on the same page")
-    model.toggleSection(.browser)
     service.state.connected = true
-    model.toggleSection(.diff)
-    #expect(service.actions.last == .operation(.changes), "another section opens the pane on it, Diff through the app")
-    context.setPane(.diff)
-    service.state.connected = false
-    #expect(!model.canShowSection(.diff) && model.shownSection == .diff)
-    model.toggleSection(.diff)
-    #expect(!model.showsPage, "the shown section hides the pane even when it could not be opened now")
-    model.setActive(false)
-    model.toggleSection(.browser)
-    #expect(!model.showsPage, "a workspace off screen is not toggled")
+    context.openTool(.changes)
+    context.select(.page(page))
+    model.selectTab(.tool(.changes))
+    #expect(service.actions.last == .operation(.changes), "Diff's tab goes through the app")
+    #expect(model.startPageTools().map(\.id) == ["files"], "Diff is open: it is not offered again")
+    context.close(.tool(.changes))
+    #expect(model.startPageTools().map(\.id) == ["files", "diff"])
+    context.openTool(.files)
+    #expect(model.startPageTools().map(\.id) == ["diff"], "nor is Files once open")
 }
 
 @MainActor @Test func workspaceModelComputesPaneVisibilityAndGatesOperationsAgainstCurrentState() throws {
