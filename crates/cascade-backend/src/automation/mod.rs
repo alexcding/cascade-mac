@@ -13,6 +13,7 @@ mod migrate;
 pub mod model;
 pub mod routes;
 pub mod runner;
+pub mod schedule;
 pub mod store;
 pub mod triggers;
 mod version;
@@ -22,7 +23,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 
-use model::{Automation, Event, Mode, RunMode};
+use model::{Automation, Event, Kind, Mode, RunMode};
 pub use runner::Limits;
 pub use triggers::{observe_prs, poll_jira};
 
@@ -74,7 +75,7 @@ pub async fn merged(app: &AppState, project: &Project, pr: &Value) {
 
 /// Run `automation` for `event` if it matches and has not already fired for it.
 pub async fn fire(app: &AppState, automation: &Automation, event: Event) {
-    if automation.mode == Mode::Off || !trigger_check(automation, &event).0 || paused(app).await {
+    if automation.kind != Kind::Event || automation.mode == Mode::Off || !trigger_check(automation, &event).0 || paused(app).await {
         return;
     }
     if !armed_for(automation, &event) {

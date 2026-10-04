@@ -7,7 +7,7 @@ use rusqlite::{params, OptionalExtension, Row};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::model::{Automation, Mode, Step, Trace};
+use super::model::{Automation, Kind, Mode, Schedule, Step, Trace};
 use crate::Database;
 
 fn now() -> String {
@@ -18,6 +18,8 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Automation> {
     let trigger: String = row.get("trigger")?;
     let steps: String = row.get("steps")?;
     let mode: String = row.get("mode")?;
+    let kind: String = row.get("kind")?;
+    let schedule: String = row.get("schedule")?;
     let mut steps: Vec<Step> = serde_json::from_str(&steps).unwrap_or_default();
     for step in steps.iter_mut().filter(|s| s.node == "jira.fix_version" && !s.params.contains_key("source")) {
         let source = step.version_source().to_owned();
@@ -27,6 +29,8 @@ fn from_row(row: &Row<'_>) -> rusqlite::Result<Automation> {
         id: row.get("id")?,
         name: row.get("name")?,
         mode: Mode::parse(&mode),
+        kind: Kind::parse(&kind),
+        schedule: serde_json::from_str(&schedule).unwrap_or_default(),
         armed_at: row.get("armed_at")?,
         trigger: serde_json::from_str(&trigger).unwrap_or_default(),
         steps,
@@ -74,6 +78,12 @@ pub async fn save(db: &Database, mut automation: Automation) -> rusqlite::Result
         .unwrap_or_else(|| stamp.clone());
     automation.updated_at = stamp.clone();
     let was_off = existing.as_ref().is_none_or(|a| a.mode == Mode::Off);
+    // A schedule given new times, or a pipeline turned into one, starts counting from now: a time
+    // the old schedule never named, already passed today, is not a run it missed.
+    let timing = |s: &Schedule| (s.repeat, s.time.clone(), s.days.clone(), s.every_hours, s.cron.clone());
+    let retimed = existing.as_ref().is_some_and(|a| {
+        a.kind != automation.kind || (automation.kind == Kind::Schedule && timing(&a.schedule) != timing(&automation.schedule))
+    });
     // The JQL baseline only describes what the pipeline saw while armed with this query. A
     // pipeline switched back on, or pointed at another query, re-seeds instead of firing on
     // everything that changed meanwhile.
@@ -83,7 +93,7 @@ pub async fn save(db: &Database, mut automation: Automation) -> rusqlite::Result
         || existing.as_ref().is_some_and(|a| jql(a) != jql(&automation));
     automation.armed_at = if automation.mode == Mode::Off {
         None
-    } else if was_off {
+    } else if was_off || retimed {
         Some(stamp)
     } else {
         existing.and_then(|a| a.armed_at).or(Some(now()))
@@ -100,8 +110,8 @@ pub async fn save(db: &Database, mut automation: Automation) -> rusqlite::Result
                 automation.position = next;
             }
             conn.execute(
-                "INSERT INTO automations(id,name,mode,armed_at,trigger,steps,position,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
-                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,mode=excluded.mode,armed_at=excluded.armed_at,trigger=excluded.trigger,steps=excluded.steps,position=excluded.position,updated_at=excluded.updated_at",
+                "INSERT INTO automations(id,name,mode,armed_at,trigger,steps,position,created_at,updated_at,kind,schedule) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                 ON CONFLICT(id) DO UPDATE SET name=excluded.name,mode=excluded.mode,armed_at=excluded.armed_at,trigger=excluded.trigger,steps=excluded.steps,position=excluded.position,updated_at=excluded.updated_at,kind=excluded.kind,schedule=excluded.schedule",
                 params![
                     automation.id,
                     automation.name,
@@ -112,6 +122,8 @@ pub async fn save(db: &Database, mut automation: Automation) -> rusqlite::Result
                     automation.position,
                     automation.created_at,
                     automation.updated_at,
+                    automation.kind.as_str(),
+                    serde_json::to_string(&automation.schedule).unwrap_or_else(|_| "{}".into()),
                 ],
             )?;
             Ok(automation)
@@ -136,6 +148,7 @@ pub async fn delete(db: &Database, id: &str) -> rusqlite::Result<bool> {
         .call(move |conn| {
             let removed = conn.execute("DELETE FROM automations WHERE id=?1", [&durable_id])?;
             conn.execute("DELETE FROM automation_fired WHERE automation_id=?1", [&durable_id])?;
+            conn.execute("DELETE FROM automation_sessions WHERE automation_id=?1", [&durable_id])?;
             Ok(removed)
         })
         .await?;
@@ -166,6 +179,31 @@ pub async fn claim(db: &Database, automation: &str, key: &str) -> rusqlite::Resu
                 conn.execute("DELETE FROM automation_fired WHERE fired_at < ?1", [cutoff])?;
             }
             Ok(inserted > 0)
+        })
+        .await
+}
+
+/// The session a scheduled automation's last run started, if it recorded one.
+pub async fn last_session(db: &Database, automation: &str) -> rusqlite::Result<Option<String>> {
+    let automation = automation.to_owned();
+    db.durable
+        .call(move |conn| {
+            conn.query_row("SELECT task_id FROM automation_sessions WHERE automation_id=?1", [automation], |row| row.get(0))
+                .optional()
+        })
+        .await
+}
+
+pub async fn set_last_session(db: &Database, automation: &str, task: &str) -> rusqlite::Result<()> {
+    let (automation, task) = (automation.to_owned(), task.to_owned());
+    db.durable
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO automation_sessions(automation_id,task_id) VALUES (?1,?2)
+                 ON CONFLICT(automation_id) DO UPDATE SET task_id=excluded.task_id",
+                params![automation, task],
+            )?;
+            Ok(())
         })
         .await
 }
@@ -397,6 +435,52 @@ mod tests {
         set_jira_state(&db, "a", &seeded).await.unwrap();
         save(&db, jira_pipeline("project = B", Mode::Live)).await.unwrap();
         assert!(jira_state(&db, "a").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_scheduled_automation_keeps_its_kind_schedule_and_last_session() {
+        use crate::automation::model::{Kind, Repeat, Schedule, SessionMode, Workspace};
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let schedule = Schedule {
+            prompt: "Audit dependencies".into(),
+            project: "p1".into(),
+            workspace: Workspace::Worktree,
+            branch: "main".into(),
+            session: SessionMode::Reuse,
+            repeat: Repeat::Cron,
+            cron: "0 9 * * 1-5".into(),
+            precheck: "true".into(),
+            ..Schedule::default()
+        };
+        let saved = save(&db, Automation { name: "Audit".into(), kind: Kind::Schedule, schedule: schedule.clone(), ..Automation::default() })
+            .await
+            .unwrap();
+        let read = get(&db, &saved.id).await.unwrap().unwrap();
+        assert_eq!((read.kind, read.schedule), (Kind::Schedule, schedule));
+        assert_eq!(last_session(&db, &saved.id).await.unwrap(), None);
+        set_last_session(&db, &saved.id, "t1").await.unwrap();
+        set_last_session(&db, &saved.id, "t2").await.unwrap();
+        assert_eq!(last_session(&db, &saved.id).await.unwrap().as_deref(), Some("t2"));
+        delete(&db, &saved.id).await.unwrap();
+        assert_eq!(last_session(&db, &saved.id).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_schedule_given_new_times_is_armed_again() {
+        use crate::automation::model::{Kind, Schedule};
+        let directory = tempfile::tempdir().unwrap();
+        let db = Database::open(directory.path()).unwrap();
+        let schedule = Schedule { prompt: "p".into(), project: "x".into(), ..Schedule::default() };
+        let first = save(&db, Automation { kind: Kind::Schedule, mode: Mode::Live, schedule, ..Automation::default() }).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let renamed = save(&db, Automation { name: "Renamed".into(), ..first.clone() }).await.unwrap();
+        assert_eq!(renamed.armed_at, first.armed_at, "a change to anything but its times keeps when it was armed");
+        let mut retimed = renamed.clone();
+        retimed.schedule.time = "18:00".into();
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        let retimed = save(&db, retimed).await.unwrap();
+        assert!(retimed.armed_at > first.armed_at, "new times count from now");
     }
 
     #[tokio::test]

@@ -113,9 +113,13 @@ extension Destination {
         case .automationCoordinator(let coordinator):
             return coordinator.root.windowToolbar
         case .automation(let model):
-            // New sits where a page title would, over the list it adds to; the page carries its own title.
-            return WindowToolbar(leading: [.init("automation-new") { AutomationNewMenu(model: model) }],
-                                 trailing: [.init("automation-switch") { AutomationMasterSwitch(model: model) }])
+            // The page's name leads, or the way back to it from an open pipeline; New trails it. The
+            // search sits on the page, over the table it narrows.
+            let new = WindowToolbarItem("automation-new", style: .plain, priority: .high) { AutomationNewMenu(model: model) }
+            if model.draft != nil {
+                return WindowToolbar(leading: [.init("automation-back") { AutomationBackButton(model: model) }], trailing: [new])
+            }
+            return WindowToolbar(leading: [.title(String(localized: "Automations"))], trailing: [new])
         case .projectCoordinator(let coordinator):
             // The tabs stand in for the page title, as the Dashboard's do: the system's toolbar
             // segmented control. Board comes and goes with the project's setting, and a different

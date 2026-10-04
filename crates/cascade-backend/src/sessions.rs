@@ -46,10 +46,35 @@ fn default_kind() -> String {
     "session".into()
 }
 
+impl NewSession {
+    /// A session on `branch`, made from the backend rather than the New Session sheet: a
+    /// scheduled automation's run.
+    pub fn on_branch(project_id: &str, branch: &str, create_branch: bool, title: &str, cli: &str) -> Self {
+        NewSession {
+            project_id: project_id.into(),
+            branch: branch.into(),
+            create_branch,
+            base: String::new(),
+            reuse_worktree: None,
+            url: String::new(),
+            title: title.into(),
+            kind: default_kind(),
+            jira_key: String::new(),
+            cli: cli.into(),
+            session_id: String::new(),
+        }
+    }
+}
+
 pub async fn create_session(
     State(app): State<AppState>,
     Json(body): Json<NewSession>,
 ) -> Result<Json<Session>, ApiError> {
+    create(&app, body).await.map(Json)
+}
+
+/// Make or reuse the branch's worktree and record the session on it; the record as listed.
+pub async fn create(app: &AppState, body: NewSession) -> Result<Session, ApiError> {
     let project = app
         .db
         .project(&body.project_id).await?
@@ -101,7 +126,7 @@ pub async fn create_session(
             // checkout belongs on the base, so it is parked there first to make the room.
             Some(_) => {
                 let parked = free_main_checkout(&workspace, &branch, &base).await?;
-                make_worktree(&app, &workspace, &branch, body.create_branch, &base)
+                make_worktree(app, &workspace, &branch, body.create_branch, &base)
                     .await
                     .map_err(|error| {
                         // The checkout has moved and nothing undoes that, so the failure says so.
@@ -110,7 +135,7 @@ pub async fn create_session(
                         ))
                     })?
             }
-            None => make_worktree(&app, &workspace, &branch, body.create_branch, &base)
+            None => make_worktree(app, &workspace, &branch, body.create_branch, &base)
                 .await
                 .map_err(|error| ApiError::status(StatusCode::UNPROCESSABLE_ENTITY, error))?,
         },
@@ -152,7 +177,7 @@ pub async fn create_session(
     }
     app.publish(crate::Event::Tasks);
     let saved = app.db.task(&id).await?.unwrap_or(record);
-    Ok(Json(saved))
+    Ok(saved)
 }
 
 /// `POST /api/worktree`'s work, as a result: a refusal's message, or the worktree's path.

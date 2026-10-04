@@ -23,6 +23,55 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
             params = try values.decodeIfPresent([String: ParamValue].self, forKey: .params) ?? [:]
         }
     }
+    /// What starts it: an event its trigger names, or a time its schedule names.
+    enum Kind: String, Codable, CaseIterable, Sendable {
+        case event, schedule
+    }
+    /// A scheduled automation: the agent's prompt, where it works, and when. As the backend stores it.
+    struct Schedule: Codable, Equatable, Sendable {
+        enum Workspace: String, Codable, Sendable { case new, worktree }
+        enum Session: String, Codable, Sendable { case fresh, reuse }
+        enum Repeat: String, Codable, CaseIterable, Sendable { case daily, weekdays, weekly, hours, cron }
+
+        var prompt = ""
+        /// The agent CLI; empty is the app's default agent.
+        var cli = ""
+        var project = ""
+        var workspace = Workspace.new
+        /// The branch whose worktree a `worktree` run uses.
+        var branch = ""
+        var session = Session.fresh
+        var `repeat` = Repeat.weekdays
+        /// Local time of day, `HH:MM`.
+        var time = "09:00"
+        /// ISO weekdays for `weekly`: 1 is Monday, 7 Sunday.
+        var days: [Int] = [1]
+        var everyHours = 1
+        var cron = ""
+        var graceMinutes = 12 * 60
+        var precheck = ""
+        var precheckTimeout = 60
+
+        init() {}
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            let blank = Schedule()
+            prompt = try values.decodeIfPresent(String.self, forKey: .prompt) ?? blank.prompt
+            cli = try values.decodeIfPresent(String.self, forKey: .cli) ?? blank.cli
+            project = try values.decodeIfPresent(String.self, forKey: .project) ?? blank.project
+            workspace = (try? values.decodeIfPresent(Workspace.self, forKey: .workspace)) ?? blank.workspace
+            branch = try values.decodeIfPresent(String.self, forKey: .branch) ?? blank.branch
+            session = (try? values.decodeIfPresent(Session.self, forKey: .session)) ?? blank.session
+            `repeat` = (try? values.decodeIfPresent(Repeat.self, forKey: .repeat)) ?? blank.repeat
+            time = try values.decodeIfPresent(String.self, forKey: .time) ?? blank.time
+            days = try values.decodeIfPresent([Int].self, forKey: .days) ?? blank.days
+            everyHours = try values.decodeIfPresent(Int.self, forKey: .everyHours) ?? blank.everyHours
+            cron = try values.decodeIfPresent(String.self, forKey: .cron) ?? blank.cron
+            graceMinutes = try values.decodeIfPresent(Int.self, forKey: .graceMinutes) ?? blank.graceMinutes
+            precheck = try values.decodeIfPresent(String.self, forKey: .precheck) ?? blank.precheck
+            precheckTimeout = try values.decodeIfPresent(Int.self, forKey: .precheckTimeout) ?? blank.precheckTimeout
+        }
+    }
     struct RunSummary: Codable, Equatable, Sendable {
         let status: String
         let mode: String
@@ -32,11 +81,15 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
     var id: String = ""
     var name: String = ""
     var mode: Mode = .off
+    var kind: Kind = .event
+    var schedule = Schedule()
     var armedAt: String? = nil
     var trigger = Trigger()
     var steps: [AutomationStep] = []
     var position: Int = 0
     var lastRun: RunSummary? = nil
+    /// When a scheduled automation that is on runs next, as the backend works it out.
+    var nextRun: String? = nil
 
     init(name: String = "", mode: Mode = .off, trigger: Trigger = Trigger(), steps: [AutomationStep] = []) {
         self.name = name; self.mode = mode; self.trigger = trigger; self.steps = steps
@@ -48,17 +101,26 @@ struct Automation: Codable, Equatable, Identifiable, Sendable {
         name = try values.decodeIfPresent(String.self, forKey: .name) ?? ""
         // An unknown mode, such as the retired watch-only one, reads as off.
         mode = (try? values.decodeIfPresent(Mode.self, forKey: .mode)) ?? .off
+        kind = (try? values.decodeIfPresent(Kind.self, forKey: .kind)) ?? .event
+        schedule = try values.decodeIfPresent(Schedule.self, forKey: .schedule) ?? Schedule()
         armedAt = try values.decodeIfPresent(String.self, forKey: .armedAt)
         trigger = try values.decodeIfPresent(Trigger.self, forKey: .trigger) ?? Trigger()
         steps = try values.decodeIfPresent([AutomationStep].self, forKey: .steps) ?? []
         position = try values.decodeIfPresent(Int.self, forKey: .position) ?? 0
         lastRun = try values.decodeIfPresent(RunSummary.self, forKey: .lastRun)
+        nextRun = try values.decodeIfPresent(String.self, forKey: .nextRun)
     }
 
-    /// What the list shows under the name.
-    func summary(_ catalog: AutomationCatalog?) -> String {
+    /// What sets it off, as the catalogue names its triggers.
+    func triggerSummary(_ catalog: AutomationCatalog?) -> String {
         let triggers = trigger.types.map { catalog?.trigger($0)?.localizedLabel ?? $0 }
-        let when = triggers.isEmpty ? String(localized: "No trigger") : triggers.joined(separator: String(localized: " or "))
+        return triggers.isEmpty ? String(localized: "No trigger") : triggers.joined(separator: String(localized: " or "))
+    }
+
+    /// What sets it off and what it then does; for a scheduled one, when it runs.
+    func summary(_ catalog: AutomationCatalog?) -> String {
+        if kind == .schedule { return schedule.summary }
+        let when = triggerSummary(catalog)
         let actions = steps.filter { $0.kind == .action }.map { catalog?.action($0.type)?.localizedLabel ?? $0.type }
         return actions.isEmpty ? when : "\(when) → \(actions.joined(separator: ", "))"
     }
@@ -297,6 +359,8 @@ protocol AutomationService: Sendable {
     func samples(kind: String, projects: [String], jql: String) async throws -> [AutomationSample]
     func dryRun(_ automation: Automation, sample: AutomationSample, event: String?) async throws -> AutomationTrace
     func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace
+    /// Start a saved scheduled automation's run now, outside its schedule.
+    func runScheduled(id: String) async throws -> AutomationTrace
     func runs(id: String?) async throws -> [AutomationTrace]
     func settings() async throws -> AutomationSettings
     func updateSettings(paused: Bool?, forwardWebhooks: Bool?) async throws -> AutomationSettings
@@ -341,6 +405,10 @@ struct APIAutomationService: AutomationService {
     func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
         struct Body: Encodable, Sendable { let sample: SampleBody }
         return try await api.request(Routes.automationRun(id), method: "POST", body: Body(sample: SampleBody(sample, event: event)))
+    }
+    func runScheduled(id: String) async throws -> AutomationTrace {
+        struct Body: Encodable, Sendable {}
+        return try await api.request(Routes.automationRun(id), method: "POST", body: Body(), timeout: 120)
     }
     func runs(id: String?) async throws -> [AutomationTrace] {
         try await api.get(APIClient.query(Routes.AUTOMATIONS_RUNS, id.map { ["automation": $0] } ?? [:]))
@@ -547,6 +615,14 @@ enum AutomationCatalogText {
         case "is not one of": String(localized: "is not one of")
         case "is one of": String(localized: "is one of")
         case "no file matches": String(localized: "no file matches")
+        case "Weekday repo audit": String(localized: "Weekday repo audit")
+        case "Check dependencies, failing tests, and risky open changes each weekday.": String(localized: "Check dependencies, failing tests, and risky open changes each weekday.")
+        case "Release readiness": String(localized: "Release readiness")
+        case "Prepare a weekly release risk summary from the current project state.": String(localized: "Prepare a weekly release risk summary from the current project state.")
+        case "Daily change review": String(localized: "Daily change review")
+        case "Scan recent work and call out correctness, UX, and test coverage risks.": String(localized: "Scan recent work and call out correctness, UX, and test coverage risks.")
+        case "Hourly queue check": String(localized: "Hourly queue check")
+        case "Look for stuck work, stale generated files, and failed local validation.": String(localized: "Look for stuck work, stale generated files, and failed local validation.")
         default: source
         }
     }

@@ -988,7 +988,7 @@ public final class AppViewModel {
         try await terminalControl.stopPaired(keys: keys)
     }
 
-    private func makeTerminal(_ record: WorkspaceSession, fresh: Bool = false) -> TerminalSession {
+    private func makeTerminal(_ record: WorkspaceSession, fresh: Bool = false, afresh: Bool = false) -> TerminalSession {
         let terminal = platformFactory.terminal(.init(key: record.id, directory: record.worktree, paired: true))
         sessionPool.started(record.id)
         terminal.agentTurns.setStreamAvailable(connection == "Connected")
@@ -999,7 +999,7 @@ public final class AppViewModel {
         terminal.startupCommand = { [weak self] in
             prepared.launch = nil
             guard let self else { return nil }
-            prepared.launch = try await agentLaunch(record: record, fresh: fresh)
+            prepared.launch = try await agentLaunch(record: record, fresh: fresh, afresh: afresh)
             return prepared.launch?.command
         }
         // The agent runs from the moment its shell exists, so its new conversation id is kept then,
@@ -1042,6 +1042,8 @@ public final class AppViewModel {
         var firstLaunch = fresh
         var reservedID: String?
         let names = agent.driver?.namesConversationAtLaunch == true
+        // An agent that names its conversation later starts afresh by being given no id to resume.
+        if afresh && !names { id = nil; firstLaunch = true }
         if names && (afresh || id == nil || id == "") {
             guard self.sessionOperations != nil else { throw BackendError.operation(String(localized: "Connect before starting the agent.")) }
             id = UUID().uuidString.lowercased(); firstLaunch = true
@@ -1057,9 +1059,10 @@ public final class AppViewModel {
         let script = Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh")
             ?? Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
         let statusLine = script.map { AgentStatusLine(script: $0.path, taskID: latest.id) }
-        // The composer's prompt opens the conversation, so it goes with the first launch only. It is
-        // kept until that launch has started, so a launch that fails before it can try again with it.
-        let prompt = firstLaunch ? launchPrompts[latest.id] : nil
+        // The composer's prompt opens the conversation; a scheduled automation's run may also give
+        // one to a resumed conversation, which both CLIs take the same way. It is kept until that
+        // launch has started, so a launch that fails before it can try again with it.
+        let prompt = launchPrompts[latest.id]
         // A fork copies the source's conversation until it has one of its own: a launch that ended
         // before its first message, even across a restart, forks again.
         let resuming = !firstLaunch && !(id ?? "").isEmpty
@@ -1178,6 +1181,77 @@ public final class AppViewModel {
             case .file(let location): context.openFile(location.path, line: location.line, column: location.column)
             }
         }
+    }
+
+    /// A scheduled automation's run made or chose a session: its agent starts with the prompt, in
+    /// a new conversation when `fresh`, else resuming the session's own. The session is shown,
+    /// since a terminal attaches from its pane. A terminal not connected yet is made again to
+    /// carry the prompt; one that attaches to a shell the daemon still runs gets the prompt once
+    /// attached. The prompt is never left waiting for some later launch to send unasked.
+    func automationLaunch(taskID: String, prompt: String, fresh: Bool, automation: String) {
+        guard let api else { return }
+        Task {
+            var record = sessions.first { $0.id == taskID }
+            if record == nil, let listed: [WorkspaceSession] = try? await api.get(Routes.TASKS),
+               let found = listed.first(where: { $0.id == taskID }) {
+                if !sessions.contains(where: { $0.id == taskID }) { sessions.append(found) }
+                record = found
+            }
+            guard let record, record.agent.driver != nil else {
+                self.error = String(localized: "\(automation) could not start its agent: the session is gone or runs no agent.")
+                return
+            }
+            let key = "task:\(taskID)"
+            do {
+                if let terminal = terminals[key], terminal.ready, terminal.isLive {
+                    try await deliverAutomationPrompt(prompt, to: terminal, record: record, fresh: fresh, automation: automation)
+                } else {
+                    await terminals[key]?.stopConnecting()
+                    launchPrompts[taskID] = prompt
+                    let terminal = makeTerminal(record, fresh: fresh, afresh: fresh)
+                    // A shell the daemon kept is attached to, not started, so its startup command
+                    // and the prompt in it never run: the prompt goes to that shell instead. Only
+                    // at this first connect: either way it ends, the terminal gets its own callbacks
+                    // back, so a later reconnect sends nothing.
+                    let reattached = terminal.onReattached
+                    let created = terminal.onCreated
+                    terminal.onCreated = { terminal in
+                        terminal.onReattached = reattached; terminal.onCreated = created
+                        try await created?(terminal)
+                    }
+                    terminal.onReattached = { [weak self] terminal in
+                        terminal.onReattached = reattached; terminal.onCreated = created
+                        await reattached?(terminal)
+                        guard let self else { return }
+                        if launchPrompts[taskID] == prompt { launchPrompts[taskID] = nil }
+                        do { try await deliverAutomationPrompt(prompt, to: terminal, record: record, fresh: fresh, automation: automation) }
+                        catch { self.error = String(localized: "\(automation) could not start its agent: \(error.localizedDescription)") }
+                    }
+                    terminals[key] = terminal
+                }
+                select(.session(taskID))
+            } catch {
+                self.error = String(localized: "\(automation) could not start its agent: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// The prompt to a connected terminal: the agent launched with it from the shell, or typed to
+    /// the agent this app launched there when the run resumes. Anything else at the foreground —
+    /// a fresh run's agent still at work, or a program the user started — is left alone.
+    private func deliverAutomationPrompt(_ prompt: String, to terminal: TerminalSession, record: WorkspaceSession,
+                                         fresh: Bool, automation: String) async throws {
+        if try await terminal.atShell() {
+            launchPrompts[record.id] = prompt
+            do { try await launchAgent(terminal, record: record, fresh: fresh, afresh: fresh) }
+            catch { if launchPrompts[record.id] == prompt { launchPrompts[record.id] = nil }; throw error }
+            return
+        }
+        guard !fresh, let line = SessionAgent.launchPrompt(prompt), let agent = terminal.launchedAgentForeground?.pgid,
+              let foreground = try? await terminal.foregroundProcess(), !foreground.atShell, foreground.pgid == agent else {
+            throw BackendError.operation(String(localized: "its session’s terminal is busy with another program or a conversation still under way"))
+        }
+        try await terminal.submitToAgent([.line(line)])
     }
 
     /// A session a project's Start made: its prompt waits for the agent's first launch.
@@ -1718,6 +1792,9 @@ public final class AppViewModel {
         }
         ideWarmup.receive(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
+        if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt {
+            automationLaunch(taskID: taskID, prompt: prompt, fresh: event.fresh ?? true, automation: event.automation ?? "")
+        }
         if event.type == "config" { settings?.refresh(); loadRefreshInterval() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
         if ["sync", "jira-sync", "tasks", "reviews", "reload", "upstream"].contains(event.type) { queueRefresh(event) }

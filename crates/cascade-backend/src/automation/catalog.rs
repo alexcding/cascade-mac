@@ -244,7 +244,42 @@ fn templates() -> Value {
         json!({"id":id,"name":name,"summary":summary,
             "automation":{"name":name,"mode":"off","trigger":{"types":types,"projects":[],"params":params},"steps":steps}})
     };
+    // A scheduled template names no project or agent: the editor fills in the first of each.
+    let scheduled = |id: &str, name: &str, summary: &str, prompt: &str, schedule: Value| {
+        let mut schedule = schedule;
+        schedule["prompt"] = json!(prompt);
+        json!({"id":id,"name":name,"summary":summary,
+            "automation":{"name":name,"mode":"off","kind":"schedule","schedule":schedule}})
+    };
     json!([
+        scheduled(
+            "weekday-repo-audit",
+            "Weekday repo audit",
+            "Check dependencies, failing tests, and risky open changes each weekday.",
+            "Audit this repository: outdated or vulnerable dependencies, failing tests, and risky open changes. Summarize what needs attention, most urgent first.",
+            json!({"repeat":"weekdays","time":"09:00"}),
+        ),
+        scheduled(
+            "release-readiness",
+            "Release readiness",
+            "Prepare a weekly release risk summary from the current project state.",
+            "Prepare a release readiness summary: what merged since the last release, open blockers, and the riskiest changes. Say whether you would ship today.",
+            json!({"repeat":"weekly","days":[4],"time":"15:00"}),
+        ),
+        scheduled(
+            "daily-change-review",
+            "Daily change review",
+            "Scan recent work and call out correctness, UX, and test coverage risks.",
+            "Review the changes merged in the last day. Call out correctness bugs, UX problems, and missing test coverage, each with the file and line.",
+            json!({"repeat":"daily","time":"17:30"}),
+        ),
+        scheduled(
+            "hourly-queue-check",
+            "Hourly queue check",
+            "Look for stuck work, stale generated files, and failed local validation.",
+            "Look for stuck work: pull requests waiting on CI or review, stale generated files, and local validation that fails. Report only what needs action.",
+            json!({"repeat":"hours","everyHours":1,"time":"09:00","session":"reuse","workspace":"new"}),
+        ),
         template(
             "approve-trusted",
             "Auto-approve trusted authors",

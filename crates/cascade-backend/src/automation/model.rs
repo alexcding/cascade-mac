@@ -14,6 +14,12 @@ pub struct Automation {
     pub name: String,
     #[serde(default)]
     pub mode: Mode,
+    /// What starts it: an event its trigger names, or a time its schedule names.
+    #[serde(default)]
+    pub kind: Kind,
+    /// A scheduled automation's prompt, agent, place and times; unused by an event pipeline.
+    #[serde(default)]
+    pub schedule: Schedule,
     /// When the pipeline last left `off`. Events that happened before it never fire, so turning
     /// a pipeline on does not act on every PR that already matched.
     #[serde(default)]
@@ -52,6 +58,115 @@ impl Mode {
         match value {
             "live" => Mode::Live,
             _ => Mode::Off,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// A pipeline: a GitHub or Jira event, filters, then actions.
+    #[default]
+    Event,
+    /// An agent started with a prompt at the times a schedule names.
+    Schedule,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Kind::Event => "event",
+            Kind::Schedule => "schedule",
+        }
+    }
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "schedule" => Kind::Schedule,
+            _ => Kind::Event,
+        }
+    }
+}
+
+/// Where a scheduled run's agent works.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Workspace {
+    /// A new branch and worktree for every run.
+    #[default]
+    New,
+    /// The worktree of one chosen branch, every run.
+    Worktree,
+}
+
+/// Whether a run continues the last run's conversation.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SessionMode {
+    #[default]
+    Fresh,
+    /// The session the last run started, its conversation resumed with the prompt.
+    Reuse,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Repeat {
+    Daily,
+    #[default]
+    Weekdays,
+    /// On `days`, at `time`.
+    Weekly,
+    /// Every `every_hours` hours, counted from `time`.
+    Hours,
+    /// A five-field cron expression, in local time.
+    Cron,
+}
+
+/// A scheduled automation: what the agent is told, where it runs, and when.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Schedule {
+    pub prompt: String,
+    /// The agent CLI; empty is the app's default agent.
+    pub cli: String,
+    /// The project ID the run belongs to.
+    pub project: String,
+    pub workspace: Workspace,
+    /// The branch whose worktree a `Worktree` run uses.
+    pub branch: String,
+    pub session: SessionMode,
+    pub repeat: Repeat,
+    /// Local time of day, `HH:MM`.
+    pub time: String,
+    /// ISO weekdays for `Weekly`: 1 is Monday, 7 Sunday.
+    pub days: Vec<u8>,
+    pub every_hours: u32,
+    pub cron: String,
+    /// How late a run missed while the Mac slept or the app was closed may still start.
+    pub grace_minutes: i64,
+    /// A zsh script run in the project folder first: a non-zero exit skips the run, and what it
+    /// prints is given to the agent under the prompt.
+    pub precheck: String,
+    pub precheck_timeout: u64,
+}
+
+impl Default for Schedule {
+    fn default() -> Self {
+        Schedule {
+            prompt: String::new(),
+            cli: String::new(),
+            project: String::new(),
+            workspace: Workspace::New,
+            branch: String::new(),
+            session: SessionMode::Fresh,
+            repeat: Repeat::Weekdays,
+            time: "09:00".into(),
+            days: vec![1],
+            every_hours: 1,
+            cron: String::new(),
+            grace_minutes: 12 * 60,
+            precheck: String::new(),
+            precheck_timeout: 60,
         }
     }
 }

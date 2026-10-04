@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 use super::{
     actions, catalog, filters,
-    model::{Automation, Event, RunMode, StepKind},
-    runner, store, FORWARD_WEBHOOKS, PAUSED,
+    model::{Automation, Event, Kind, RunMode, StepKind},
+    runner, schedule, store, FORWARD_WEBHOOKS, PAUSED,
 };
 use crate::{db::project_identity, error::ApiError, AppState};
 use crate::Project;
@@ -24,6 +24,13 @@ fn validate(mut automation: Automation) -> Result<Automation, ApiError> {
     automation.name = automation.name.trim().to_owned();
     if automation.name.is_empty() {
         automation.name = "Untitled automation".into();
+    }
+    if automation.kind == Kind::Schedule {
+        schedule::validate(&mut automation.schedule).map_err(ApiError::bad_request)?;
+        // A scheduled automation has no trigger or steps; nothing stale is kept for it.
+        automation.trigger = Default::default();
+        automation.steps.clear();
+        return Ok(automation);
     }
     automation.trigger.types.retain(|t| !t.trim().is_empty());
     automation.trigger.types.dedup();
@@ -71,6 +78,9 @@ pub async fn list(State(app): State<AppState>) -> ApiResult<Value> {
             let mut value = serde_json::to_value(&automation).unwrap_or(Value::Null);
             if let Some((_, status, mode, at)) = last.iter().find(|(id, ..)| *id == automation.id) {
                 value["lastRun"] = json!({"status":status,"mode":mode,"finishedAt":at});
+            }
+            if let Some(next) = schedule::next_run(&automation) {
+                value["nextRun"] = json!(next);
             }
             value
         })
@@ -240,6 +250,9 @@ pub struct DryRunBody {
 /// Plan an unsaved draft against a sample. Reads, never writes, never records.
 pub async fn dry_run(State(app): State<AppState>, Json(body): Json<DryRunBody>) -> ApiResult<Value> {
     let automation = validate(body.automation)?;
+    if automation.kind == Kind::Schedule {
+        return Err(ApiError::bad_request("A scheduled automation has no dry run; use Run Now"));
+    }
     let event = sample_event(&app, &automation, &body.sample).await?;
     let trace = runner::run(&app, &automation, &event, RunMode::Dry).await;
     Ok(Json(serde_json::to_value(trace).unwrap_or(Value::Null)))
@@ -254,6 +267,11 @@ pub struct RunBody {
 /// Run a saved pipeline for real against a sample, from the Run button.
 pub async fn run_now(State(app): State<AppState>, Path(id): Path<String>, Json(body): Json<RunBody>) -> ApiResult<Value> {
     let automation = store::get(&app.db, &id).await?.ok_or_else(|| ApiError::not_found("automation not found"))?;
+    if automation.kind == Kind::Schedule {
+        let key = format!("manual:{}", Uuid::new_v4());
+        let trace = schedule::run_and_record(&app, &automation, &key, "manual").await;
+        return Ok(Json(serde_json::to_value(trace).unwrap_or(Value::Null)));
+    }
     let event = sample_event(&app, &automation, &body.sample).await?;
     let trace = runner::run_and_record(&app, &automation, &event, RunMode::Live).await;
     Ok(Json(serde_json::to_value(trace).unwrap_or(Value::Null)))
@@ -382,7 +400,12 @@ mod tests {
     #[test]
     fn every_template_is_a_valid_pipeline() {
         for template in catalog::catalog()["templates"].as_array().unwrap() {
-            let automation: Automation = serde_json::from_value(template["automation"].clone()).unwrap();
+            let mut automation: Automation = serde_json::from_value(template["automation"].clone()).unwrap();
+            // A scheduled template leaves its project open; the app fills in the first one.
+            if automation.kind == Kind::Schedule {
+                assert!(automation.schedule.project.is_empty(), "template {} names a project", template["id"]);
+                automation.schedule.project = "first-project".into();
+            }
             assert!(validate(automation).is_ok(), "template {} does not validate", template["id"]);
         }
     }

@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS automations (
   trigger TEXT NOT NULL DEFAULT '{}', steps TEXT NOT NULL DEFAULT '[]', position INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+-- The session a scheduled automation's last run started, which a Reuse run resumes.
+CREATE TABLE IF NOT EXISTS automation_sessions (automation_id TEXT PRIMARY KEY, task_id TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS automation_fired (
   automation_id TEXT NOT NULL, event_key TEXT NOT NULL, fired_at TEXT NOT NULL,
   PRIMARY KEY (automation_id, event_key)

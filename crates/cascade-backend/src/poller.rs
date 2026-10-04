@@ -882,6 +882,15 @@ impl Engine {
                 tokio::time::sleep(Duration::from_secs(poll_interval(&pr_app).await)).await;
             }
         });
+        // Scheduled automations, on the minute: the times they name are minutes of the clock.
+        let schedule_app = app.clone();
+        tokio::spawn(async move {
+            loop {
+                let into = chrono::Utc::now().timestamp() % 60;
+                tokio::time::sleep(Duration::from_secs((60 - into) as u64)).await;
+                crate::automation::schedule::tick(&schedule_app).await;
+            }
+        });
         tokio::spawn(async move {
             loop {
                 crate::automation::poll_jira(&app).await;

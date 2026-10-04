@@ -38,6 +38,15 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// A scheduled automation made or chose a session: the app starts its agent with the prompt,
+    /// in a new conversation when `fresh`, else resuming the session's own.
+    AutomationLaunch {
+        #[serde(rename = "taskId")]
+        task_id: String,
+        prompt: String,
+        fresh: bool,
+        automation: String,
+    },
     /// A new worktree's setup command started, finished or failed.
     WorktreeSetup {
         worktree: String,

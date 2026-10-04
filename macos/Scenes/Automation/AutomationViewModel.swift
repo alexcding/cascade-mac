@@ -40,6 +40,10 @@ import Observation
     private(set) var saving = false
     private(set) var saved = false
     private(set) var error: String?
+    /// The toolbar's search: narrows the list by name and summary, never the open draft.
+    var query = ""
+    /// The table's kind filter: every automation when nil.
+    var kindFilter: Automation.Kind?
     var panel = Panel.editor { didSet { if panel == .runs, oldValue != .runs { loadRuns() } } }
 
     private(set) var samples: [AutomationSample] = []
@@ -74,6 +78,22 @@ import Observation
     /// The new, unsaved pipelines as the list shows them, the open one as it is being typed.
     var newDrafts: [(key: String, draft: Automation)] {
         newKeys.compactMap { key in (key == openKey ? draft : unsaved[key]).map { (key, $0) } }
+    }
+    /// The saved pipelines the list shows: all of them, or those the search matches.
+    var shownAutomations: [Automation] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return automations.filter { automation in
+            (kindFilter == nil || automation.kind == kindFilter)
+                && (needle.isEmpty || automation.name.localizedCaseInsensitiveContains(needle)
+                    || automation.summary(catalog).localizedCaseInsensitiveContains(needle))
+        }
+    }
+    /// A template's kicker: when a scheduled one runs, or what sets an event one off, as the
+    /// catalogue names its first trigger.
+    func category(of template: AutomationCatalog.Template) -> String {
+        if template.automation.kind == .schedule { return String(localized: "Scheduled · \(template.automation.schedule.repeatLabel)") }
+        guard let type = template.automation.trigger.types.first else { return "" }
+        return catalog?.trigger(type)?.localizedLabel ?? ""
     }
     /// Whether a saved pipeline has edits that are not saved yet, open or set aside.
     func hasUnsavedEdits(_ id: String) -> Bool { unsaved[id] != nil || (openKey == id && dirty) }
@@ -149,10 +169,7 @@ import Observation
             var orphan = value; orphan.id = ""
             let newKey = Self.newKey(); unsaved[newKey] = orphan; newKeys.append(newKey)
         }
-        guard let draft, !draft.id.isEmpty else {
-            if draft == nil, let first = automations.first { select(first.id) }
-            return
-        }
+        guard let draft, !draft.id.isEmpty else { return }
         guard let stored = automations.first(where: { $0.id == draft.id }) else {
             // Deleted elsewhere: an untouched draft goes with it, an edited one stays as new.
             if dirty {
@@ -160,7 +177,6 @@ import Observation
                 let key = Self.newKey(); openKey = key; newKeys.append(key)
             } else {
                 self.draft = nil; baseline = nil; openKey = nil
-                if let first = automations.first { select(first.id) }
             }
             return
         }
@@ -189,11 +205,34 @@ import Observation
         if panel == .runs { loadRuns() }
     }
 
+    /// A new automation of one kind: an event pipeline on PR opened, or a scheduled agent run on
+    /// weekdays in the first project.
+    func create(_ kind: Automation.Kind) {
+        guard !retired else { return }
+        switch kind {
+        case .event: create(from: nil)
+        case .schedule:
+            var automation = Automation(name: String(localized: "New scheduled automation"))
+            automation.kind = .schedule
+            start(automation)
+        }
+    }
+
     func create(from template: AutomationCatalog.Template? = nil) {
         guard !retired else { return }
         var automation = template?.automation ?? Automation(name: String(localized: "New automation"), trigger: .init(types: ["pr.opened"]))
         if let template { automation.name = template.localizedName }
+        start(automation)
+    }
+
+    private func start(_ value: Automation) {
+        var automation = value
         automation.id = ""; automation.mode = .off
+        // A scheduled one starts in the first project with the default agent, which a template leaves open.
+        if automation.kind == .schedule {
+            if automation.schedule.project.isEmpty { automation.schedule.project = projects.first?.id ?? "" }
+            if automation.schedule.cli.isEmpty { automation.schedule.cli = SessionAgent.primary.rawValue }
+        }
         setAside()
         let key = Self.newKey()
         newKeys.append(key)
@@ -201,7 +240,23 @@ import Observation
         panel = .editor
     }
 
-    /// Back to the saved copy; a new pipeline is discarded, and the next row opens.
+    /// Back to the list. The open row's unsaved work is set aside, as opening another row would.
+    func close() {
+        guard !retired, draft != nil else { return }
+        setAside()
+        draft = nil; baseline = nil; openKey = nil
+        error = nil; trace = nil; dryRunError = nil; saved = false; runs = []
+        runGeneration = UUID(); dryRunning = false
+        panel = .editor
+    }
+
+    /// Drop a new pipeline that is not open, from its row in the list.
+    func discard(_ key: String) {
+        guard !retired, key.hasPrefix("new:"), key != openKey else { return }
+        newKeys.removeAll { $0 == key }; unsaved[key] = nil
+    }
+
+    /// Back to the saved copy; a new pipeline is discarded, and the list shows again.
     func revert() {
         guard !retired, !saving else { return }
         error = nil
@@ -212,6 +267,8 @@ import Observation
     private func open(_ value: Automation, baseline: Automation?, key: String) {
         draft = value; self.baseline = baseline; openKey = key
         error = nil; trace = nil; dryRunError = nil; saved = false; runs = []
+        // A run or dry run still out answers for the row it was started on, not this one.
+        runGeneration = UUID(); dryRunning = false
     }
 
     /// Keep the open row's unsaved work: a new pipeline always, a saved one only if edited.
@@ -220,12 +277,10 @@ import Observation
         if baseline == nil || draft != baseline { unsaved[key] = draft } else { unsaved[key] = nil }
     }
 
-    /// Drop the open new pipeline and open whichever row is left: another new one, else the first saved.
+    /// Drop the open new pipeline and go back to the list.
     private func discardOpenDraft() {
         if let key = openKey { newKeys.removeAll { $0 == key }; unsaved[key] = nil }
         draft = nil; baseline = nil; openKey = nil
-        if let first = automations.first { select(first.id) }
-        else if let key = newKeys.last { select(key) }
     }
 
     private static func newKey() -> String { "new:\(UUID().uuidString)" }
@@ -358,17 +413,39 @@ import Observation
     }
 
     func delete() async {
-        guard !retired, let service, let draft else { return }
+        guard !retired, let draft else { return }
         if draft.id.isEmpty { discardOpenDraft(); return }
+        await delete(id: draft.id)
+    }
+
+    /// Delete a saved pipeline, open or from its row; the list shows once it is gone.
+    func delete(id: String) async {
+        guard !retired, let service else { return }
         let token = generation
         do {
-            try await service.delete(id: draft.id)
+            try await service.delete(id: id)
             guard !retired, generation == token else { return }
-            automations.removeAll { $0.id == draft.id }
-            unsaved[draft.id] = nil
-            self.draft = nil; baseline = nil; openKey = nil
-            if let first = automations.first { select(first.id) } else if let key = newKeys.last { select(key) }
-            onAction(.deleted(draft.id))
+            automations.removeAll { $0.id == id }
+            unsaved[id] = nil
+            if openKey == id { draft = nil; baseline = nil; openKey = nil }
+            onAction(.deleted(id))
+        } catch {
+            if !retired, generation == token { self.error = error.localizedDescription }
+        }
+    }
+
+    /// Switch a saved pipeline on or off from its row, saving only the mode: edits set aside on
+    /// it stay unsaved, and take the new mode so saving them later keeps it.
+    func setMode(_ mode: Automation.Mode, of id: String) async {
+        guard !retired, let service, var value = automations.first(where: { $0.id == id }), value.mode != mode else { return }
+        let token = generation
+        value.mode = mode
+        do {
+            let stored = try await service.save(value)
+            guard !retired, generation == token else { return }
+            if let index = automations.firstIndex(where: { $0.id == stored.id }) { automations[index] = stored }
+            unsaved[id]?.mode = stored.mode
+            onAction(.saved(stored))
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
         }
@@ -435,6 +512,20 @@ import Observation
         defer { if runGeneration == token { dryRunning = false } }
         do {
             let result = try await service.run(id: draft.id, sample: sample, event: sampleEvent ?? draft.trigger.types.first)
+            if !retired, runGeneration == token { trace = result; loadRuns() }
+        } catch {
+            if !retired, runGeneration == token { dryRunError = error.localizedDescription }
+        }
+    }
+
+    /// Start the saved scheduled automation's run now, outside its schedule.
+    func runScheduled() async {
+        guard !retired, let service, let draft, draft.kind == .schedule, !draft.id.isEmpty, !dirty else { return }
+        let token = UUID()
+        runGeneration = token; dryRunning = true; dryRunError = nil; trace = nil
+        defer { if runGeneration == token { dryRunning = false } }
+        do {
+            let result = try await service.runScheduled(id: draft.id)
             if !retired, runGeneration == token { trace = result; loadRuns() }
         } catch {
             if !retired, runGeneration == token { dryRunError = error.localizedDescription }

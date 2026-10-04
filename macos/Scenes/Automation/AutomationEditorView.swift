@@ -115,16 +115,18 @@ struct AutomationEditorView: View {
     }
 }
 
-/// Pipeline and Runs as the Dashboard's filter tags: outlined, the chosen one filled.
-private struct AutomationPanelTabs: View {
+/// Pipeline and Runs as the Dashboard's filter tags: outlined, the chosen one filled. A scheduled
+/// automation names its editor tab after what it edits there.
+struct AutomationPanelTabs: View {
     @Binding var selection: AutomationViewModel.Panel
+    var editorLabel: String?
 
     var body: some View {
         HStack(spacing: 8) {
             ForEach(AutomationViewModel.Panel.allCases) { panel in
                 let active = panel == selection
                 Button { selection = panel } label: {
-                    Text(panel.label).font(.system(size: 12.5, weight: .semibold))
+                    Text(panel == .editor ? editorLabel ?? panel.label : panel.label).font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(active ? Color(nsColor: .windowBackgroundColor) : Color.primary)
                         .padding(.horizontal, 12).frame(height: 30)
                         .background(active ? Color.primary : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

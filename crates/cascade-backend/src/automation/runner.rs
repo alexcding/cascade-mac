@@ -186,6 +186,11 @@ pub async fn run(app: &AppState, automation: &Automation, event: &Event, mode: R
 /// Run and record: the path for automatic and manual runs (dry runs are never recorded).
 pub async fn run_and_record(app: &AppState, automation: &Automation, event: &Event, mode: RunMode) -> Trace {
     let trace = run(app, automation, event, mode).await;
+    finish(app, automation, trace).await
+}
+
+/// Store a finished run, tell Activity what it did, and let the app know the runs changed.
+pub async fn finish(app: &AppState, automation: &Automation, trace: Trace) -> Trace {
     let _ = store::record_run(&app.db, &trace).await;
     // Held back, the event has not had its run: its claim is let go so a later offer can fire it.
     if trace.status == "limited" {

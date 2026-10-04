@@ -43,6 +43,12 @@ private actor AutomationFixture: AutomationService {
                                eventKey: sample.id, subject: sample.label, mode: "dry", triggerMatched: true,
                                triggerDetail: "matched", status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
     }
+    func runScheduled(id: String) async throws -> AutomationTrace {
+        runCalls.append(id)
+        return AutomationTrace(automationId: id, automationName: "", eventKind: "manual", eventKey: "manual:1",
+                               subject: "", mode: "live", triggerMatched: true, triggerDetail: "run by hand",
+                               status: "completed", steps: [], startedAt: "t0", finishedAt: "t1")
+    }
     func run(id: String, sample: AutomationSample, event: String?) async throws -> AutomationTrace {
         runCalls.append(id)
         return AutomationTrace(automationId: id, automationName: "", eventKind: "pr", eventKey: sample.id,
@@ -96,20 +102,58 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     return model
 }
 
-@MainActor @Test func automationConnectLoadsListCatalogAndSettingsThenSelectsTheFirstAutomation() async throws {
+@MainActor @Test func automationConnectLoadsListCatalogAndSettingsAndOpensNothing() async throws {
     let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First"),
                                                   fixtureAutomation(id: "a2", name: "Second")],
                                     catalog: fixtureCatalog())
     let model = await connectedAutomation(service)
     #expect(model.automations.map(\.id) == ["a1", "a2"])
     #expect(model.catalog != nil && model.settings != nil)
+    #expect(model.draft == nil, "the table shows until a row is opened")
+    model.select("a1")
     #expect(model.draft?.id == "a1" && model.baseline?.id == "a1")
+    await model.stop()
+}
+
+@MainActor @Test func automationCloseGoesBackToTheTableAndKeepsUnsavedWork() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.select("a1")
+    model.draft?.name = "First, edited"
+    model.close()
+    #expect(model.draft == nil && model.openKey == nil && model.hasUnsavedEdits("a1"))
+    model.create(from: nil)
+    let newKey = try #require(model.openKey)
+    model.close()
+    #expect(model.newDrafts.map(\.key) == [newKey])
+    model.discard(newKey)
+    #expect(model.newDrafts.isEmpty)
+    model.select("a1")
+    #expect(model.draft?.name == "First, edited" && model.dirty)
+    await model.stop()
+}
+
+@MainActor @Test func automationRowSwitchesModeAndDeletesWithoutOpening() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First"), fixtureAutomation(id: "a2", name: "Second")],
+                                    catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    // Edits set aside on a1 stay unsaved, and take the mode the row switched to.
+    model.select("a1"); model.draft?.name = "First, edited"; model.close()
+    await model.setMode(.off, of: "a1")
+    #expect(await service.saveCalls.map(\.name) == ["First"])
+    #expect(model.automations.first { $0.id == "a1" }?.mode == .off && model.draft == nil)
+    model.select("a1")
+    #expect(model.draft?.mode == .off && model.draft?.name == "First, edited")
+    model.close()
+    await model.delete(id: "a2")
+    #expect(await service.deleteCalls == ["a2"] && model.automations.map(\.id) == ["a1"] && model.draft == nil)
     await model.stop()
 }
 
 @MainActor @Test func automationEditingTheDraftNameMarksDirtyAndRevertRestoresBaseline() async throws {
     let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "First")], catalog: fixtureCatalog())
     let model = await connectedAutomation(service)
+    model.select("a1")
     let baseline = try #require(model.baseline)
     var edited = try #require(model.draft)
     edited.name = "Renamed"
@@ -282,7 +326,7 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     #expect(model.newDrafts.isEmpty && model.openKey == model.draft?.id && model.automations.count == 3)
     model.create(from: nil)
     model.revert()
-    #expect(model.newDrafts.isEmpty && model.draft?.id == "a1")
+    #expect(model.newDrafts.isEmpty && model.draft == nil)
     #expect(await service.saveCalls.count == 1)
     await model.stop()
 }
@@ -315,9 +359,51 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
 @MainActor @Test func automationSaveKeepsWhatWasTypedWhileItWasOut() async throws {
     let service = AutomationFixture(automations: [fixtureAutomation(id: "a", name: "First")], catalog: fixtureCatalog())
     let model = await connectedAutomation(service)
+    model.select("a")
     model.draft?.name = "Second"
     try await whileSaving(model, service) { model.draft?.name = "Third" }
     #expect(model.draft?.name == "Third" && model.baseline?.name == "Second")
     #expect(model.dirty && !model.saved, "the later typing is still to be saved")
     await model.stop()
+}
+
+@MainActor @Test func automationScheduledCreateFillsProjectAndAgentAndRunsNow() async throws {
+    let service = AutomationFixture(automations: [fixtureAutomation(id: "a1", name: "Event")], catalog: fixtureCatalog())
+    let model = await connectedAutomation(service)
+    model.updateProjects([Project(id: "p1", name: "Apollo", repo: "o/apollo", color: nil, workspace: "/tmp/apollo")])
+    model.create(.schedule)
+    let draft = try #require(model.draft)
+    #expect(draft.kind == .schedule && draft.schedule.project == "p1" && draft.schedule.cli == SessionAgent.primary.rawValue)
+    #expect(draft.summary(nil) == draft.schedule.summary)
+    // Run Now needs a saved automation with nothing unsaved.
+    model.draft?.schedule.prompt = "Audit"
+    await model.runScheduled()
+    #expect(await service.runCalls.isEmpty)
+    await model.save()
+    await model.runScheduled()
+    #expect(await service.runCalls.count == 1 && model.trace?.status == "completed")
+    // The kind filter narrows the table to one kind.
+    model.close()
+    model.kindFilter = .schedule
+    #expect(model.shownAutomations.map(\.kind) == [.schedule])
+    model.kindFilter = .event
+    #expect(model.shownAutomations.map(\.id) == ["a1"])
+    await model.stop()
+}
+
+@Test func automationScheduleDecodesWithDefaultsAndReadsAsItRuns() throws {
+    let decoded = try JSONDecoder().decode(Automation.self, from: Data(#"{"id":"s","kind":"schedule","schedule":{"prompt":"p","repeat":"hours","everyHours":4,"time":"09:15"}}"#.utf8))
+    #expect(decoded.kind == .schedule && decoded.schedule.everyHours == 4 && decoded.schedule.graceMinutes == 720)
+    #expect(decoded.schedule.workspace == .new && decoded.schedule.session == .fresh)
+    let legacy = try JSONDecoder().decode(Automation.self, from: Data(#"{"id":"e","name":"Old"}"#.utf8))
+    #expect(legacy.kind == .event, "a pipeline saved before kinds existed is an event one")
+    var weekly = Automation.Schedule()
+    weekly.repeat = .weekly; weekly.days = [1, 3]; weekly.time = "18:30"
+    let names = Calendar.current.shortWeekdaySymbols
+    #expect(weekly.summary.hasPrefix("\(names[1]), \(names[3]) at "))
+    weekly.timeOfDay = Calendar.current.date(bySettingHour: 7, minute: 5, second: 0, of: Date())!
+    #expect(weekly.time == "07:05")
+    var cron = Automation.Schedule()
+    cron.repeat = .cron; cron.cron = "0 9 * * 1-5"
+    #expect(cron.summary.contains("0 9 * * 1-5"))
 }

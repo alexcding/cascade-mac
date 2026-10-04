@@ -35,6 +35,12 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var kind: String? = nil
     public var agentId: String? = nil
     public var agentType: String? = nil
+    /// `automation-launch` only: the session a scheduled automation's run made or chose, the
+    /// prompt its agent starts with, whether that is a new conversation, and the automation's name.
+    public var taskId: String? = nil
+    public var prompt: String? = nil
+    public var fresh: Bool? = nil
+    public var automation: String? = nil
 }
 
 /// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.

@@ -979,6 +979,9 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE projects ADD COLUMN board_enabled INTEGER NOT NULL DEFAULT 0",
         // The SF Symbol the sidebar draws the project with; empty is the folder.
         "ALTER TABLE projects ADD COLUMN icon TEXT NOT NULL DEFAULT ''",
+        // What starts an automation, an event or a schedule, and a scheduled one's settings.
+        "ALTER TABLE automations ADD COLUMN kind TEXT NOT NULL DEFAULT 'event'",
+        "ALTER TABLE automations ADD COLUMN schedule TEXT NOT NULL DEFAULT '{}'",
     ] {
         let _ = conn.execute(migration, []);
     }
