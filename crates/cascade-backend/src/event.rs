@@ -70,9 +70,11 @@ pub enum Event {
         run_id: String,
         outcome: &'static str,
     },
-    /// A running agent's tool call started or ended, as its hooks report it: `phase` is `start`,
-    /// `done` or `failed`. `kind` is the CLI's tool in the kinds every CLI shares; `agentId` names
-    /// the subagent that made the call, if one did.
+    /// A running agent's tool call or subagent started or ended, as its hooks report it: `phase`
+    /// is `start`, `done` or `failed` for a call, `subagent-start` or `subagent-done` for a
+    /// subagent. `kind` is the CLI's tool in the kinds every CLI shares; `agentId` names the
+    /// subagent — the one starting or stopping, or the one that made the call — and `agentType`
+    /// what kind of subagent it is.
     AgentTool {
         #[serde(rename = "runId")]
         run_id: String,

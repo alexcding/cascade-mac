@@ -85,35 +85,38 @@ private struct LiveClock {
 
 // MARK: The bar at the top
 
-/// The looks to choose from, one swatch each: its ground with its agent colour in the middle.
+/// The look, as a menu at the panel's top right: a palette and the look's name, the six looks under
+/// it with the one in use ticked.
 private struct LiveThemeRow: View {
     let live: LivePanelModel
     let palette: LivePalette
 
     var body: some View {
-        HStack(spacing: 8) {
-            Text(String(localized: "Theme")).font(.system(size: 11)).foregroundStyle(palette.muted.color)
-            ForEach(LiveTheme.allCases) { theme in
-                let selected = theme == live.theme
-                Button { live.setTheme(theme) } label: {
-                    ZStack {
-                        Circle().fill(theme.palette.ground.color)
-                        Circle().fill(theme.palette.agent.color).frame(width: 7, height: 7)
-                    }
-                    .frame(width: 18, height: 18)
-                    .overlay(Circle().strokeBorder(selected ? palette.agent.color : palette.line.color, lineWidth: selected ? 2 : 1))
-                    .padding(3)
-                    .contentShape(Circle())
+        HStack {
+            Spacer()
+            Menu {
+                Picker(String(localized: "Theme"), selection: Binding(get: { live.theme }, set: live.setTheme)) {
+                    ForEach(LiveTheme.allCases) { Text($0.title).tag($0) }
                 }
-                .buttonStyle(.plain)
-                .help(theme.title)
-                .accessibilityLabel(theme.title)
-                .accessibilityAddTraits(selected ? .isSelected : [])
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "paintpalette")
+                    Text(live.theme.title)
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(palette.muted.color)
             }
-            Spacer(minLength: 4)
-            Text(live.theme.title).font(.system(size: 11)).foregroundStyle(palette.muted.color)
+            // A plain button keeps the label in the look's own colours.
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.visible)
+            .fixedSize()
+            .help(String(localized: "Theme"))
+            .accessibilityLabel(String(localized: "Theme"))
         }
-        .padding(.bottom, 10)
+        .padding(.bottom, 8)
     }
 }
 
@@ -281,7 +284,7 @@ private struct LiveSubagent: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(String(localized: "subagent")).font(palette.font(12, weight: .bold))
+            Text(call.agentType ?? String(localized: "subagent")).font(palette.font(12, weight: .bold)).lineLimit(1)
             Text(verbatim: call.label).foregroundStyle(palette.subagents.color).lineLimit(2).multilineTextAlignment(.center)
             Group {
                 if call.running { Text(String(localized: "\(spinner) running")).foregroundStyle(palette.subagents.color) }

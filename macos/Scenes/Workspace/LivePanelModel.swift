@@ -52,6 +52,8 @@ struct LiveActivity: Equatable {
         var kind: String? = nil
         var path: String? = nil
         var time: Date? = nil
+        /// A subagent's kind, as its hooks name it.
+        var agentType: String? = nil
     }
 
     /// The log keeps this many of the latest calls, and the files box this many files.
@@ -66,8 +68,11 @@ struct LiveActivity: Equatable {
     var running: Set<Lane> = []
     /// The latest calls, oldest first.
     var log: [Call] = []
-    /// The subagents the turn under way started, oldest first.
+    /// The subagents of the last turn that started any, oldest first; or, as the hooks report
+    /// them, the latest subagents from their start to their stop.
     var subagents: [Call] = []
+    /// The most subagents kept to draw.
+    static let subagentCount = 12
     /// The files edited or created last, newest first, each once; an edit that failed changed
     /// nothing, and is left out.
     var files: [Call] = []
@@ -84,6 +89,8 @@ struct LiveActivity: Equatable {
         let current = turns.last?.role == .assistant ? turns.last?.id : nil
         for turn in turns {
             if turn.role == .user { activity.prompts += 1; continue }
+            var delegates: [Call] = []
+            defer { if !delegates.isEmpty { activity.subagents = delegates } }
             if let model = turn.model { activity.model = model }
             let date = turn.date
             for (index, block) in turn.blocks.enumerated() where block.type == .tool {
@@ -101,7 +108,7 @@ struct LiveActivity: Equatable {
                     activity.latest[lane] = call
                     if running { activity.running.insert(lane) }
                 }
-                if turn.id == current, lane == .delegate { activity.subagents.append(call) }
+                if lane == .delegate { delegates.append(call) }
             }
         }
         activity.log = Array(all.suffix(logLength))
@@ -115,13 +122,15 @@ struct LiveActivity: Equatable {
 
     /// This, with what the tool hooks have said since (`AgentToolFeed`): a call the transcript
     /// holds takes the time it really started at, and stops running the moment it ends; one it does
-    /// not hold yet is drawn already, counted and logged.
-    func merging(_ feed: [AgentToolFeed.Call], busy: Bool) -> LiveActivity {
-        guard !feed.isEmpty else { return self }
+    /// not hold yet is drawn already, counted and logged. Subagents heard of are drawn from their
+    /// start to their stop, each told by the call that started it.
+    func merging(_ heard: AgentToolFeed.Heard, busy: Bool) -> LiveActivity {
+        let feed = heard.calls
+        guard !feed.isEmpty || !heard.subagents.isEmpty else { return self }
         var merged = self
-        let heard = Dictionary(feed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let byID = Dictionary(feed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         func update(_ call: Call) -> Call {
-            guard let hook = heard[call.id] else { return call }
+            guard let hook = byID[call.id] else { return call }
             var call = call
             call.time = hook.started
             if hook.ended != nil { call.running = false; call.failed = call.failed || hook.failed }
@@ -152,6 +161,24 @@ struct LiveActivity: Equatable {
             merged.log.append(call)
         }
         merged.log = Array(merged.log.suffix(Self.logLength))
+        if !heard.subagents.isEmpty {
+            // Newest first, each subagent takes the latest call that started by then, asked for its
+            // kind, and was not already taken: parallel calls go to their subagents in order, and a
+            // call that never started one (denied, failed) is passed over. All of them are paired
+            // before the latest few are kept, in the order they started.
+            var calls = feed.filter { Lane(kind: $0.kind) == .delegate && !$0.failed }
+            let paired = heard.subagents.sorted { $0.started > $1.started }.map { subagent -> Call in
+                let index = calls.indices.filter { index in
+                    calls[index].started <= subagent.started.addingTimeInterval(1)
+                        && (calls[index].agentType == nil || subagent.type == nil || calls[index].agentType == subagent.type)
+                }.max { calls[$0].started < calls[$1].started }
+                let label = index.map { calls.remove(at: $0).label } ?? subagent.type ?? ""
+                return Call(id: subagent.id, lane: .delegate, label: label, running: subagent.ended == nil, failed: false,
+                            kind: "delegate", time: subagent.started, agentType: subagent.type)
+            }
+            merged.subagents = Array(paired.reversed().suffix(Self.subagentCount))
+            if merged.subagents.contains(where: \.running) { merged.running.insert(.delegate) }
+        }
         return merged
     }
 
@@ -181,7 +208,7 @@ struct LiveActivity: Equatable {
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
     @ObservationIgnored private let busy: () -> Bool
     @ObservationIgnored private let visible: () -> Bool
-    @ObservationIgnored private let feed: () -> [AgentToolFeed.Call]
+    @ObservationIgnored private let feed: () -> AgentToolFeed.Heard
     @ObservationIgnored private var turns: [TranscriptTurn] = []
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private let defaults: UserDefaults
@@ -189,7 +216,7 @@ struct LiveActivity: Equatable {
     @ObservationIgnored private var polling: Task<Void, Never>?
 
     init(load: @escaping (_ since: String?) async throws -> AgentTranscript, busy: @escaping () -> Bool,
-         visible: @escaping () -> Bool = { true }, feed: @escaping () -> [AgentToolFeed.Call] = { [] },
+         visible: @escaping () -> Bool = { true }, feed: @escaping () -> AgentToolFeed.Heard = { .init() },
          defaults: UserDefaults = .standard) {
         self.load = load
         self.busy = busy

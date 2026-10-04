@@ -26,9 +26,9 @@ impl AgentProbe for Claude {
         foreground_only: true,
         matches_tools: true,
         // Checked against Claude Code 2.1.288: a failed call ends in `PostToolUseFailure`, not
-        // `PostToolUse`, a subagent's own calls carry its `agent_id`, and an `async` hook runs in
-        // the background.
-        tool_events: &["PreToolUse", "PostToolUse", "PostToolUseFailure"],
+        // `PostToolUse`; a subagent's start and stop carry its `agent_id` and `agent_type`, as do
+        // its own calls; and an `async` hook runs in the background.
+        tool_events: &["PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop"],
     };
     const NAMES_CONVERSATION_FILES: bool = true;
 

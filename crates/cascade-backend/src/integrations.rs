@@ -530,7 +530,7 @@ const SESSION: (&str, &str) = ("SessionStart", "/api/hooks/session-start");
 /// 2.1.282 and Codex 0.156.1), so the chat view can answer it. Outside `EVENTS` for the same
 /// reason as `SESSION`: an install without it still reports turns.
 const PERMISSION: (&str, &str) = ("PermissionRequest", "/api/hooks/permission");
-/// Where every tool hook (`Hooks::tool_events`) reports. They fire on every call, so
+/// Where every tool and subagent hook (`Hooks::tool_events`) reports. They fire on every call, so
 /// they run in the background (`async`): the CLI never waits on one, and an app that is not there
 /// costs nothing. Outside `EVENTS` too: an install without them still reports turns.
 const TOOL: &str = "/api/hooks/tool";
@@ -810,7 +810,7 @@ async fn relay(app: AppState, query: HookQuery, body: Value, kind: &str) -> Stat
     StatusCode::NO_CONTENT
 }
 
-/// A tool hook (`TOOL`), told to the app as an `AgentTool` event; kept nowhere, unlike
+/// A tool or subagent hook (`TOOL`), told to the app as an `AgentTool` event; kept nowhere, unlike
 /// the turn hooks, which say where the agent stands. Answered at once: the hook runs in the
 /// background, and the app needs it now or not at all.
 pub async fn tool_event(
@@ -836,22 +836,33 @@ fn tool_event_of(query: HookQuery, body: &Value) -> Option<crate::event::Event> 
         "PreToolUse" => "start",
         "PostToolUse" => "done",
         "PostToolUseFailure" => "failed",
+        "SubagentStart" => "subagent-start",
+        "SubagentStop" => "subagent-done",
         _ => return None,
     };
     let text = |key: &str| body[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
     let tool = text("tool_name");
-    let label = if body["tool_input"].is_null() { None } else { Some(crate::agents::permission::tool_detail(&body["tool_input"]).0) };
+    let kind = tool.as_deref().map(|tool| agent.tool_kind(tool));
+    // A subagent's call is told by what it was asked to do; any other by what it runs or touches.
+    let input = &body["tool_input"];
+    let label = match input["description"].as_str() {
+        Some(description) if kind == Some("delegate") => Some(description.to_owned()),
+        _ if input.is_null() => None,
+        _ => Some(crate::agents::permission::tool_detail(input).0),
+    };
     Some(crate::event::Event::AgentTool {
         run_id: query.run_id.unwrap_or_default(),
         cli: agent.profile().id.to_owned(),
         session_id: text("session_id").unwrap_or_default(),
         phase,
         tool_use_id: text("tool_use_id"),
-        kind: tool.as_deref().map(|tool| agent.tool_kind(tool)),
+        kind,
         tool,
         label,
         agent_id: text("agent_id"),
-        agent_type: text("agent_type"),
+        // A subagent call names the kind of subagent it asks for, which its SubagentStart names
+        // again: how the app tells which call started which.
+        agent_type: text("agent_type").or_else(|| input["subagent_type"].as_str().filter(|kind| !kind.is_empty()).map(str::to_owned)),
     })
 }
 
@@ -1096,7 +1107,13 @@ mod forwarder_tests {
                             "tool_input":{"file_path":"/w/a.swift"},"agent_id":"a1","agent_type":"Explore"});
         let event = Value::from(tool_event_of(query("claude"), &nested).unwrap());
         assert_eq!((event["phase"].as_str(), event["kind"].as_str(), event["agentId"].as_str()), (Some("failed"), Some("read"), Some("a1")));
-        assert!(tool_event_of(query("claude"), &json!({"hook_event_name":"SubagentStart","agent_id":"a1"})).is_none(), "not installed");
+        let subagent = json!({"hook_event_name":"SubagentStart","agent_id":"a1","agent_type":"Explore"});
+        let event = Value::from(tool_event_of(query("claude"), &subagent).unwrap());
+        assert_eq!((event["phase"].as_str(), event["agentId"].as_str(), event["label"].clone()), (Some("subagent-start"), Some("a1"), Value::Null));
+        let delegate = json!({"hook_event_name":"PreToolUse","tool_name":"Agent","tool_use_id":"toolu_3",
+                              "tool_input":{"description":"Survey the hooks","prompt":"Read …","subagent_type":"Explore"}});
+        let event = Value::from(tool_event_of(query("claude"), &delegate).unwrap());
+        assert_eq!((event["label"].as_str(), event["agentType"].as_str()), (Some("Survey the hooks"), Some("Explore")), "its description, and the kind it asks for");
         assert!(tool_event_of(query("codex"), &start).is_none(), "Codex installs none");
         assert!(tool_event_of(query("other"), &start).is_none() && tool_event_of(query("claude"), &json!({"hook_event_name":"Stop"})).is_none());
     }

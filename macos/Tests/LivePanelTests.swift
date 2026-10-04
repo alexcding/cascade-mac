@@ -91,7 +91,7 @@ import Testing
         #expect(feed.calls.count == 1, "an end with no start is nothing to draw")
         feed.receive(ServerEvent(type: "agent-tool", projectId: nil, id: nil, runId: "pty9", cli: "claude", sessionId: "c2",
                                  phase: "start", toolUseId: "t2", kind: "read"), at: end)
-        #expect(feed.calls(in: "c2").map(\.id) == ["t1", "t2"] && feed.calls(in: "c1").map(\.id) == ["t1"],
+        #expect(feed.heard(in: "c2").calls.map(\.id) == ["t1", "t2"] && feed.heard(in: "c1").calls.map(\.id) == ["t1"],
                 "a call names its conversation; one that named none is every conversation's")
         feed.reset()
         #expect(feed.calls.isEmpty)
@@ -103,19 +103,55 @@ import Testing
         var early = AgentToolFeed.Call(id: "t1", kind: "read", label: "a.swift", started: started)
         early.ended = started
         let fresh = AgentToolFeed.Call(id: "t2", kind: "run", label: "make", started: started)
-        let activity = LiveActivity.of(turns, busy: true).merging([early, fresh], busy: true)
+        let activity = LiveActivity.of(turns, busy: true).merging(.init(calls: [early, fresh]), busy: true)
         #expect(activity.calls == 2 && activity.counts[.run] == 1 && activity.latest[.run]?.label == "make")
         #expect(activity.log.map(\.id) == ["t1", "t2"] && activity.log.allSatisfy { $0.time == started }, "the time each really started")
         #expect(activity.log[0].running == false && activity.log[1].running, "t1's hook says it ended; t2 runs")
         #expect(activity.running == [.run], "read's call ended by its hook: its lane runs no more")
         var failed = early; failed.failed = true
-        #expect(LiveActivity.of(turns, busy: true).merging([failed], busy: true).failures == 1, "failed by its hook before the transcript says so")
-        #expect(LiveActivity.of(turns, busy: true).merging([], busy: true) == LiveActivity.of(turns, busy: true))
+        #expect(LiveActivity.of(turns, busy: true).merging(.init(calls: [failed]), busy: true).failures == 1, "failed by its hook before the transcript says so")
+        #expect(LiveActivity.of(turns, busy: true).merging(.init(), busy: true) == LiveActivity.of(turns, busy: true))
+    }
+
+    @Test func subagentsAreDrawnFromTheirStartToTheirStopEachToldByItsCall() {
+        let feed = AgentToolFeed()
+        let t0 = Date(timeIntervalSince1970: 300)
+        feed.receive(hook("start", "c1", kind: "delegate", label: "Survey the hooks"), at: t0)
+        feed.receive(hook("done", "c1"), at: t0.addingTimeInterval(0.1))
+        var start = hook("subagent-start", "", agent: "a1"); start.agentType = "Explore"
+        feed.receive(start, at: t0.addingTimeInterval(0.2))
+        #expect(feed.subagents.map(\.id) == ["a1"] && feed.calls.map(\.id) == ["c1"], "a subagent's start is not one of its calls")
+        let turns = [user("u1"), agent("a1", [tool("c1", kind: "delegate", label: "Survey the hooks", output: "launched")]), user("u2")]
+        let running = LiveActivity.of(turns, busy: false).merging(feed.heard(in: nil), busy: false)
+        #expect(running.subagents.map(\.label) == ["Survey the hooks"] && running.subagents[0].agentType == "Explore")
+        #expect(running.subagents[0].running && running.running.contains(.delegate), "launched in the background, still at work")
+        feed.receive(hook("subagent-done", "", agent: "a1"), at: t0.addingTimeInterval(5))
+        #expect(!LiveActivity.of(turns, busy: false).merging(feed.heard(in: nil), busy: false).subagents[0].running)
+        #expect(LiveActivity.of(turns, busy: false).subagents.map(\.id) == ["c1"], "with no hooks, the last turn that started any")
+        feed.receive(hook("start", "c0", kind: "delegate", label: "Denied"), at: t0.addingTimeInterval(6))
+        feed.receive(hook("failed", "c0"), at: t0.addingTimeInterval(6.1))
+        feed.receive(hook("start", "c2", kind: "delegate", label: "Review the tab"), at: t0.addingTimeInterval(7))
+        var second = hook("subagent-start", "", agent: "a2"); second.agentType = "Explore"
+        feed.receive(second, at: t0.addingTimeInterval(7.2))
+        #expect(LiveActivity.of(turns, busy: false).merging(feed.heard(in: nil), busy: false).subagents.map(\.label)
+                == ["Survey the hooks", "Review the tab"], "a call that started none is passed over")
+        let parallel = AgentToolFeed()
+        for (id, label, at) in [("p1", "First", 20.0), ("p2", "Second", 20.01)] {
+            parallel.receive(hook("start", id, kind: "delegate", label: label), at: t0.addingTimeInterval(at))
+        }
+        for (id, at) in [("s1", 20.05), ("s2", 20.06)] {
+            var started = hook("subagent-start", "", agent: id); started.agentType = "Explore"
+            parallel.receive(started, at: t0.addingTimeInterval(at))
+        }
+        #expect(LiveActivity.of([], busy: true).merging(parallel.heard(in: nil), busy: true).subagents.map(\.label) == ["First", "Second"],
+                "parallel calls go to their subagents in order")
+        feed.closeSubagents()
+        #expect(feed.subagents.allSatisfy { $0.ended != nil }, "the agent started again: none still runs")
     }
 
     @Test func theModelDrawsTheFeedAsItArrives() async {
         var calls: [AgentToolFeed.Call] = []
-        let model = LivePanelModel(load: { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }, busy: { true }, feed: { calls })
+        let model = LivePanelModel(load: { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }, busy: { true }, feed: { .init(calls: calls) })
         await model.refresh()
         calls = [AgentToolFeed.Call(id: "t1", kind: "search", label: "grep", started: Date())]
         #expect(model.activity.latest[.search]?.label == "grep", "no read of the transcript needed")

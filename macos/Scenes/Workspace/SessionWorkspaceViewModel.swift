@@ -430,7 +430,7 @@ extension WorkspaceServing {
             },
             busy: { [weak self] in self?.terminal?.agentBusy == true },
             visible: { [weak self] in self?.showsLive == true },
-            feed: { [weak self] in self?.terminal?.agentTurns.tools.calls(in: self?.agentConversation) ?? [] })
+            feed: { [weak self] in self?.terminal?.agentTurns.tools.heard(in: self?.agentConversation) ?? .init() })
     }
 
     // MARK: Chat overlay (prototype)

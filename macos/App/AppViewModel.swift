@@ -1667,6 +1667,8 @@ public final class AppViewModel {
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli {
             // A resume keeps its conversation, but still says the agent is up at its prompt.
             terminal.agentTurns.adopt(sessionID: id, midTurn: event.source == "compact")
+            // A compaction happens with subagents still at work; any other start leaves none.
+            if event.source != "compact" { terminal.agentTurns.tools.closeSubagents() }
             if id != session.sessionId { saveConversation(id, for: session) }
         }
         if event.type == "activity", let activity = event.event {

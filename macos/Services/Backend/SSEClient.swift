@@ -25,9 +25,10 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     /// `agent-permission-done` only: `answered`, `terminal` (the CLI shows its own prompt), or
     /// `cancelled` (nothing waits on it any more).
     public var outcome: String? = nil
-    /// `agent-tool` only: a tool call's `start`, `done` or `failed`; the call's id, its tool, the
-    /// tool's kind in the kinds every CLI shares, and the subagent that made it, if one did. Its
-    /// `label` is what the call runs or touches.
+    /// `agent-tool` only: a tool call's `start`, `done` or `failed`, or a subagent's
+    /// `subagent-start` or `subagent-done`; the call's id, its tool, the tool's kind in the kinds
+    /// every CLI shares, and the subagent — starting, stopping, or making the call — with its
+    /// type. A call's `label` is what it runs or touches, a subagent call's what it was asked.
     public var phase: String? = nil
     public var toolUseId: String? = nil
     public var tool: String? = nil
