@@ -88,7 +88,7 @@ private struct LiveClock {
 
 // MARK: The bar at the top
 
-/// The look, as a menu at the panel's top right: a palette and the look's name, the six looks under
+/// The look, as a menu at the panel's top right: a palette and the look's name, the looks under
 /// it with the one in use ticked.
 private struct LiveThemeRow: View {
     let live: LivePanelModel
@@ -173,7 +173,7 @@ private struct LiveHeading: View {
 
 // MARK: Boxes
 
-/// A section's box: outlined in its colour, washed in it where the look tints boxes.
+/// A section's box: outlined in its colour.
 private struct LiveBox<Content: View>: View {
     let color: ThemeColor
     let palette: LivePalette
@@ -184,7 +184,7 @@ private struct LiveBox<Content: View>: View {
         content()
             .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity)
-            .background(palette.tintsBoxes ? color.color.opacity(0.1) : palette.surface.color, in: shape)
+            .background(palette.surface.color, in: shape)
             .overlay(shape.strokeBorder(color.color, lineWidth: 1.25))
     }
 }

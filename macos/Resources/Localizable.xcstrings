@@ -44545,9 +44545,6 @@
         }
       }
     },
-    "Graphite" : {
-
-    },
     "Has a %@ session" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -69988,9 +69985,6 @@
           }
         }
       }
-    },
-    "Pastel" : {
-
     },
     "Path" : {
 

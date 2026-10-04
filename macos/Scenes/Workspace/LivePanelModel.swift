@@ -224,7 +224,7 @@ struct LiveActivity: Equatable {
         self.visible = visible
         self.feed = feed
         self.defaults = defaults
-        theme = defaults.string(forKey: Self.themeKey).flatMap(LiveTheme.init(rawValue:)) ?? .terminal
+        theme = defaults.string(forKey: Self.themeKey).flatMap(LiveTheme.init(rawValue:)) ?? .native
     }
 
     func setTheme(_ value: LiveTheme) {

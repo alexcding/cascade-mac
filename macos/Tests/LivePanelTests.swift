@@ -161,11 +161,11 @@ import Testing
         let defaults = try #require(UserDefaults(suiteName: "live-theme-\(UUID().uuidString)"))
         let load: (String?) async throws -> AgentTranscript = { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }
         let first = LivePanelModel(load: load, busy: { false }, defaults: defaults)
-        #expect(first.theme == .terminal, "the reference's look until one is picked")
+        #expect(first.theme == .native, "the system's own look until one is picked")
         first.setTheme(.blueprint)
         #expect(LivePanelModel(load: load, busy: { false }, defaults: defaults).theme == .blueprint)
         first.retire()
-        first.setTheme(.pastel)
+        first.setTheme(.swiss)
         #expect(first.theme == .blueprint, "a retired model changes nothing")
     }
 
