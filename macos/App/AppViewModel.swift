@@ -1642,6 +1642,14 @@ public final class AppViewModel {
             // Whether or not a chat shows it, the agent's own prompt is up in that terminal.
             terminals.values.first { $0.termID == event.runId }?.agentTurns.receivePermission(event)
         }
+        // A tool call of a terminal's agent, as it happens: the Live tab's feed. Only its session's
+        // own CLI, as for the turn hooks: another run nested in one of its tools inherits the
+        // terminal's run id.
+        if event.type == "agent-tool", let runID = event.runId,
+           let terminal = terminals.values.first(where: { $0.termID == runID }),
+           let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli {
+            terminal.agentTurns.tools.receive(event)
+        }
         if ["agent-turn-start", "agent-turn-done"].contains(event.type), let runID = event.runId,
            let terminal = terminals.values.first(where: { $0.termID == runID }),
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,

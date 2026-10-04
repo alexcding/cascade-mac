@@ -102,6 +102,10 @@ pub struct Hooks {
     pub foreground_only: bool,
     /// Each entry names the tools it applies to.
     pub matches_tools: bool,
+    /// The hooks it fires as a tool call starts and ends, by its own event names: what the Live
+    /// tab draws as it happens (`integrations::tool_event`). Installed in the background, so only
+    /// for a CLI that really runs an `async` hook without waiting on it.
+    pub tool_events: &'static [&'static str],
 }
 
 /// A CLI Cascade runs agents in: the one place that tells them apart by name. Callers take

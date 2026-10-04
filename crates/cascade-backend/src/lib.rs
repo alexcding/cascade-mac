@@ -224,6 +224,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/hooks/turn-start", post(integrations::turn_start))
         .route("/api/hooks/turn-done", post(integrations::turn_done))
         .route("/api/hooks/session-start", post(integrations::session_start))
+        .route("/api/hooks/tool", post(integrations::tool_event))
         .route("/api/hooks/open-url", post(integrations::open_url))
         .route("/api/hooks/relaunch", post(integrations::relaunch))
         .route("/webhook/github", post(integrations::github_webhook))

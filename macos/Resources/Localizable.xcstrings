@@ -1,66 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "%@ running" : {
-
-    },
-    "%@ · lead" : {
-
-    },
-    "Blueprint" : {
-
-    },
-    "Graphite" : {
-
-    },
-    "Native" : {
-
-    },
-    "Pastel" : {
-
-    },
-    "Swiss" : {
-
-    },
-    "agent" : {
-
-    },
-    "context" : {
-
-    },
-    "edited" : {
-
-    },
-    "failed %lld" : {
-
-    },
-    "log" : {
-
-    },
-    "new" : {
-
-    },
-    "subagents" : {
-
-    },
-    "subagents · %lld running" : {
-
-    },
-    "subagents · %lld running · %lld more" : {
-
-    },
-    "tools · %lld calls" : {
-
-    },
-    "× failed" : {
-
-    },
-    "√ done" : {
-
-    },
-    "◂ now" : {
-
-    },
     "" : {
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
@@ -717,6 +657,9 @@
           }
         }
       }
+    },
+    "%@ · lead" : {
+
     },
     "%@ · resets in %@" : {
       "extractionState" : "manual",
@@ -3129,6 +3072,9 @@
           }
         }
       }
+    },
+    "%@ running" : {
+
     },
     "%@ says" : {
       "extractionState" : "manual",
@@ -5617,6 +5563,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "× failed" : {
+
+    },
     "<project>/.worktrees/<branch>; ignored by Git through .git/info/exclude." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5698,6 +5647,12 @@
       "comment" : "Literal path or configuration syntax example; do not translate.",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "√ done" : {
+
+    },
+    "◂ now" : {
+
     },
     "$" : {
       "comment" : "Literal symbol or number with no linguistic content.",
@@ -8954,6 +8909,9 @@
           }
         }
       }
+    },
+    "agent" : {
+
     },
     "Agent" : {
       "extractionState" : "manual",
@@ -15500,6 +15458,9 @@
           }
         }
       }
+    },
+    "Blueprint" : {
+
     },
     "Board" : {
       "localizations" : {
@@ -27083,6 +27044,9 @@
     "Connectivity" : {
 
     },
+    "context" : {
+
+    },
     "Context" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -37163,6 +37127,9 @@
         }
       }
     },
+    "edited" : {
+
+    },
     "Edited" : {
       "localizations" : {
         "bn" : {
@@ -39630,6 +39597,9 @@
           }
         }
       }
+    },
+    "failed %lld" : {
+
     },
     "Failed to set Fix Version" : {
       "extractionState" : "manual",
@@ -44571,6 +44541,9 @@
           }
         }
       }
+    },
+    "Graphite" : {
+
     },
     "Has a %@ session" : {
       "extractionState" : "manual",
@@ -52698,6 +52671,9 @@
         }
       }
     },
+    "log" : {
+
+    },
     "Looking it up…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -56948,6 +56924,9 @@
     "Name the session (optional)" : {
 
     },
+    "Native" : {
+
+    },
     "Nature" : {
 
     },
@@ -57184,6 +57163,9 @@
           }
         }
       }
+    },
+    "new" : {
+
     },
     "New automation" : {
       "extractionState" : "manual",
@@ -70006,6 +69988,9 @@
           }
         }
       }
+    },
+    "Pastel" : {
+
     },
     "Path" : {
 
@@ -84334,9 +84319,6 @@
         }
       }
     },
-    "running" : {
-
-    },
     "Running" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94213,6 +94195,15 @@
     "subagent" : {
 
     },
+    "subagents" : {
+
+    },
+    "subagents · %lld running" : {
+
+    },
+    "subagents · %lld running · %lld more" : {
+
+    },
     "Submit a changes-requested review." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94366,6 +94357,9 @@
           }
         }
       }
+    },
+    "Swiss" : {
+
     },
     "Switch Terminal / Chat" : {
       "localizations" : {
@@ -109327,6 +109321,9 @@
 
     },
     "Tools" : {
+
+    },
+    "tools · %lld calls" : {
 
     },
     "Top model: %@" : {

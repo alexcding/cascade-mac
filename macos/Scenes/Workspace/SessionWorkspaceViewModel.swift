@@ -429,7 +429,8 @@ extension WorkspaceServing {
                                                          conversation: self?.agentConversation)
             },
             busy: { [weak self] in self?.terminal?.agentBusy == true },
-            visible: { [weak self] in self?.showsLive == true })
+            visible: { [weak self] in self?.showsLive == true },
+            feed: { [weak self] in self?.terminal?.agentTurns.tools.calls(in: self?.agentConversation) ?? [] })
     }
 
     // MARK: Chat overlay (prototype)

@@ -70,6 +70,26 @@ pub enum Event {
         run_id: String,
         outcome: &'static str,
     },
+    /// A running agent's tool call started or ended, as its hooks report it: `phase` is `start`,
+    /// `done` or `failed`. `kind` is the CLI's tool in the kinds every CLI shares; `agentId` names
+    /// the subagent that made the call, if one did.
+    AgentTool {
+        #[serde(rename = "runId")]
+        run_id: String,
+        cli: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        phase: &'static str,
+        #[serde(rename = "toolUseId")]
+        tool_use_id: Option<String>,
+        tool: Option<String>,
+        kind: Option<&'static str>,
+        label: Option<String>,
+        #[serde(rename = "agentId")]
+        agent_id: Option<String>,
+        #[serde(rename = "agentType")]
+        agent_type: Option<String>,
+    },
 }
 
 impl Event {
@@ -168,6 +188,22 @@ mod tests {
                 cli: "claude".into()
             }),
             json!({"type":"agent-permission","id":"i","runId":"r","request":{"tool":"Bash"},"cli":"claude"})
+        );
+        assert_eq!(
+            Value::from(Event::AgentTool {
+                run_id: "r".into(),
+                cli: "claude".into(),
+                session_id: "s".into(),
+                phase: "start",
+                tool_use_id: Some("t".into()),
+                tool: Some("Bash".into()),
+                kind: Some("run"),
+                label: Some("ls".into()),
+                agent_id: None,
+                agent_type: None
+            }),
+            json!({"type":"agent-tool","runId":"r","cli":"claude","sessionId":"s","phase":"start","toolUseId":"t",
+                   "tool":"Bash","kind":"run","label":"ls","agentId":null,"agentType":null})
         );
     }
 }

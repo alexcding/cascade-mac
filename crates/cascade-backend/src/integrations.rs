@@ -530,6 +530,10 @@ const SESSION: (&str, &str) = ("SessionStart", "/api/hooks/session-start");
 /// 2.1.282 and Codex 0.156.1), so the chat view can answer it. Outside `EVENTS` for the same
 /// reason as `SESSION`: an install without it still reports turns.
 const PERMISSION: (&str, &str) = ("PermissionRequest", "/api/hooks/permission");
+/// Where every tool hook (`Hooks::tool_events`) reports. They fire on every call, so
+/// they run in the background (`async`): the CLI never waits on one, and an app that is not there
+/// costs nothing. Outside `EVENTS` too: an install without them still reports turns.
+const TOOL: &str = "/api/hooks/tool";
 /// Whatever the agent runs inherits this terminal's `CASCADE_RUN_ID`, so a nested `claude -p`
 /// would report as the session's own conversation and take it over. The hook's parent is the
 /// CLI that fired it, and only the session's own is the terminal's foreground job: a nested one
@@ -571,6 +575,7 @@ fn events(agent: Agent) -> Vec<(&'static str, &'static str)> {
         events.push(SESSION)
     }
     events.push(PERMISSION);
+    events.extend(agent.hooks().tool_events.iter().map(|event| (*event, TOOL)));
     events
 }
 fn hook_file(agent: Agent) -> Result<(PathBuf, Value), ApiError> {
@@ -651,6 +656,9 @@ fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
     let mut hook = json!({"type":"command","command":format!("sh -c {}",shell_quote(&script))});
     if asks {
         hook["timeout"] = json!(crate::agents::permission::HOOK_TIMEOUT)
+    }
+    if endpoint == TOOL {
+        hook["async"] = json!(true)
     }
     let mut entry = json!({"hooks":[hook]});
     if hooks.matches_tools {
@@ -800,6 +808,51 @@ async fn relay(app: AppState, query: HookQuery, body: Value, kind: &str) -> Stat
         app.broadcast(event);
     });
     StatusCode::NO_CONTENT
+}
+
+/// A tool hook (`TOOL`), told to the app as an `AgentTool` event; kept nowhere, unlike
+/// the turn hooks, which say where the agent stands. Answered at once: the hook runs in the
+/// background, and the app needs it now or not at all.
+pub async fn tool_event(
+    State(app): State<AppState>,
+    Query(query): Query<HookQuery>,
+    Json(body): Json<Value>,
+) -> StatusCode {
+    if let Some(event) = tool_event_of(query, &body) {
+        app.publish(event);
+    }
+    StatusCode::NO_CONTENT
+}
+
+/// The event a tool hook's payload is, by its CLI's adapter: None for a CLI or an event it does
+/// not know.
+fn tool_event_of(query: HookQuery, body: &Value) -> Option<crate::event::Event> {
+    let agent = query.cli.as_deref().and_then(Agent::of)?;
+    let event = body["hook_event_name"].as_str()?;
+    if !agent.hooks().tool_events.contains(&event) {
+        return None;
+    }
+    let phase = match event {
+        "PreToolUse" => "start",
+        "PostToolUse" => "done",
+        "PostToolUseFailure" => "failed",
+        _ => return None,
+    };
+    let text = |key: &str| body[key].as_str().filter(|value| !value.is_empty()).map(str::to_owned);
+    let tool = text("tool_name");
+    let label = if body["tool_input"].is_null() { None } else { Some(crate::agents::permission::tool_detail(&body["tool_input"]).0) };
+    Some(crate::event::Event::AgentTool {
+        run_id: query.run_id.unwrap_or_default(),
+        cli: agent.profile().id.to_owned(),
+        session_id: text("session_id").unwrap_or_default(),
+        phase,
+        tool_use_id: text("tool_use_id"),
+        kind: tool.as_deref().map(|tool| agent.tool_kind(tool)),
+        tool,
+        label,
+        agent_id: text("agent_id"),
+        agent_type: text("agent_type"),
+    })
 }
 
 /// A terminal id as cascade-ptyd makes them. Anything else posting here keeps nothing.
@@ -1018,6 +1071,34 @@ mod forwarder_tests {
         }
         let quiet = hook_entry(Agent::Codex, "/api/hooks/turn-start", &port);
         assert!(quiet["hooks"][0].get("timeout").is_none());
+    }
+
+    #[test]
+    fn tool_hooks_run_in_the_background_for_both_clis() {
+        let port = PathBuf::from("/tmp/.server-port");
+        assert!(events(Agent::Claude).contains(&("PreToolUse", TOOL)) && events(Agent::Claude).contains(&("PostToolUseFailure", TOOL)));
+        let entry = hook_entry(Agent::Claude, TOOL, &port);
+        assert_eq!(entry["hooks"][0]["async"], true, "the CLI never waits on one");
+        assert!(entry["hooks"][0].get("timeout").is_none() && is_current_for(&entry, Agent::Claude, "PreToolUse"));
+        assert!(!events(Agent::Codex).iter().any(|(_, endpoint)| *endpoint == TOOL), "Codex would wait on them");
+        assert!(hook_entry(Agent::Claude, "/api/hooks/turn-start", &port)["hooks"][0].get("async").is_none());
+    }
+
+    #[test]
+    fn a_tool_hook_becomes_one_event_in_the_kinds_every_cli_shares() {
+        let query = |cli: &str| HookQuery { cli: Some(cli.into()), run_id: Some("pty9".into()) };
+        let start = json!({"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"Bash","tool_use_id":"toolu_1",
+                           "tool_input":{"command":"cargo test"}});
+        let event = Value::from(tool_event_of(query("claude"), &start).unwrap());
+        assert_eq!(event, json!({"type":"agent-tool","runId":"pty9","cli":"claude","sessionId":"s1","phase":"start",
+            "toolUseId":"toolu_1","tool":"Bash","kind":"run","label":"cargo test","agentId":null,"agentType":null}));
+        let nested = json!({"hook_event_name":"PostToolUseFailure","tool_name":"Read","tool_use_id":"toolu_2",
+                            "tool_input":{"file_path":"/w/a.swift"},"agent_id":"a1","agent_type":"Explore"});
+        let event = Value::from(tool_event_of(query("claude"), &nested).unwrap());
+        assert_eq!((event["phase"].as_str(), event["kind"].as_str(), event["agentId"].as_str()), (Some("failed"), Some("read"), Some("a1")));
+        assert!(tool_event_of(query("claude"), &json!({"hook_event_name":"SubagentStart","agent_id":"a1"})).is_none(), "not installed");
+        assert!(tool_event_of(query("codex"), &start).is_none(), "Codex installs none");
+        assert!(tool_event_of(query("other"), &start).is_none() && tool_event_of(query("claude"), &json!({"hook_event_name":"Stop"})).is_none());
     }
 
     #[test]

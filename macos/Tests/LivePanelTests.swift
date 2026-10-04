@@ -73,6 +73,54 @@ import Testing
         #expect(since == [nil, "r1"])
     }
 
+    private func hook(_ phase: String, _ id: String, kind: String? = nil, label: String? = nil, agent: String? = nil) -> ServerEvent {
+        ServerEvent(type: "agent-tool", projectId: nil, id: nil, runId: "pty9", cli: "claude", label: label,
+                    phase: phase, toolUseId: id, tool: "Tool", kind: kind, agentId: agent)
+    }
+
+    @Test func theFeedKeepsTheAgentsOwnCallsAsTheyStartAndEnd() {
+        let feed = AgentToolFeed()
+        let start = Date(timeIntervalSince1970: 100), end = Date(timeIntervalSince1970: 103)
+        feed.receive(hook("start", "t1", kind: "run", label: "cargo test"), at: start)
+        feed.receive(hook("start", "t1", kind: "run", label: "again"), at: end)
+        feed.receive(hook("start", "s1", kind: "read", agent: "a1"), at: start)
+        #expect(feed.calls.map(\.id) == ["t1"] && feed.calls[0].label == "cargo test", "once each, a subagent's own calls left out")
+        feed.receive(hook("failed", "t1"), at: end)
+        #expect(feed.calls[0].ended == end && feed.calls[0].failed)
+        feed.receive(hook("done", "unknown"), at: end)
+        #expect(feed.calls.count == 1, "an end with no start is nothing to draw")
+        feed.receive(ServerEvent(type: "agent-tool", projectId: nil, id: nil, runId: "pty9", cli: "claude", sessionId: "c2",
+                                 phase: "start", toolUseId: "t2", kind: "read"), at: end)
+        #expect(feed.calls(in: "c2").map(\.id) == ["t1", "t2"] && feed.calls(in: "c1").map(\.id) == ["t1"],
+                "a call names its conversation; one that named none is every conversation's")
+        feed.reset()
+        #expect(feed.calls.isEmpty)
+    }
+
+    @Test func theHooksDrawACallBeforeTheTranscriptHasIt() {
+        let turns = [user("u1"), agent("a1", [tool("t1", kind: "read", label: "a.swift", output: nil)])]
+        let started = Date(timeIntervalSince1970: 200)
+        var early = AgentToolFeed.Call(id: "t1", kind: "read", label: "a.swift", started: started)
+        early.ended = started
+        let fresh = AgentToolFeed.Call(id: "t2", kind: "run", label: "make", started: started)
+        let activity = LiveActivity.of(turns, busy: true).merging([early, fresh], busy: true)
+        #expect(activity.calls == 2 && activity.counts[.run] == 1 && activity.latest[.run]?.label == "make")
+        #expect(activity.log.map(\.id) == ["t1", "t2"] && activity.log.allSatisfy { $0.time == started }, "the time each really started")
+        #expect(activity.log[0].running == false && activity.log[1].running, "t1's hook says it ended; t2 runs")
+        #expect(activity.running == [.run], "read's call ended by its hook: its lane runs no more")
+        var failed = early; failed.failed = true
+        #expect(LiveActivity.of(turns, busy: true).merging([failed], busy: true).failures == 1, "failed by its hook before the transcript says so")
+        #expect(LiveActivity.of(turns, busy: true).merging([], busy: true) == LiveActivity.of(turns, busy: true))
+    }
+
+    @Test func theModelDrawsTheFeedAsItArrives() async {
+        var calls: [AgentToolFeed.Call] = []
+        let model = LivePanelModel(load: { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }, busy: { true }, feed: { calls })
+        await model.refresh()
+        calls = [AgentToolFeed.Call(id: "t1", kind: "search", label: "grep", started: Date())]
+        #expect(model.activity.latest[.search]?.label == "grep", "no read of the transcript needed")
+    }
+
     @Test func theThemeIsAPreferenceKeptAcrossModels() throws {
         let defaults = try #require(UserDefaults(suiteName: "live-theme-\(UUID().uuidString)"))
         let load: (String?) async throws -> AgentTranscript = { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }

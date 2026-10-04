@@ -12,7 +12,7 @@ struct LiveActivity: Equatable {
             switch kind {
             case "read": self = .read
             case "search": self = .search
-            case "edit", "create": self = .edit
+            case "edit", "create", "patch": self = .edit
             case "run": self = .run
             case "fetch", "web": self = .web
             case "delegate": self = .delegate
@@ -47,8 +47,8 @@ struct LiveActivity: Equatable {
         let id: String
         let lane: Lane?
         let label: String
-        let running: Bool
-        let failed: Bool
+        var running: Bool
+        var failed: Bool
         var kind: String? = nil
         var path: String? = nil
         var time: Date? = nil
@@ -73,6 +73,8 @@ struct LiveActivity: Equatable {
     var files: [Call] = []
     /// Each lane's latest call.
     var latest: [Lane: Call] = [:]
+    /// Every call the transcript holds, by id.
+    var ids: Set<String> = []
 
     /// A call with no output yet is running only while the agent is at work: one left without
     /// output by an interrupted turn is not.
@@ -91,6 +93,7 @@ struct LiveActivity: Equatable {
                                 label: label(of: block), running: running, failed: block.isError == true,
                                 kind: block.kind, path: block.path, time: date)
                 all.append(call)
+                activity.ids.insert(call.id)
                 activity.calls += 1
                 if call.failed { activity.failures += 1 }
                 if let lane {
@@ -110,6 +113,48 @@ struct LiveActivity: Equatable {
         return activity
     }
 
+    /// This, with what the tool hooks have said since (`AgentToolFeed`): a call the transcript
+    /// holds takes the time it really started at, and stops running the moment it ends; one it does
+    /// not hold yet is drawn already, counted and logged.
+    func merging(_ feed: [AgentToolFeed.Call], busy: Bool) -> LiveActivity {
+        guard !feed.isEmpty else { return self }
+        var merged = self
+        let heard = Dictionary(feed.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        func update(_ call: Call) -> Call {
+            guard let hook = heard[call.id] else { return call }
+            var call = call
+            call.time = hook.started
+            if hook.ended != nil { call.running = false; call.failed = call.failed || hook.failed }
+            return call
+        }
+        merged.log = log.map(update)
+        merged.subagents = subagents.map(update)
+        merged.latest = latest.mapValues(update)
+        // A call the hook says ended runs no more, nor does its lane unless another of its calls
+        // still runs; one that failed by its hook counts as failed before the transcript says so.
+        let known = Dictionary((log + subagents + Array(latest.values)).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let endedLanes = Set(feed.filter { $0.ended != nil }.compactMap { known[$0.id]?.lane })
+        let stillRunning = Set((merged.log + merged.subagents + Array(merged.latest.values)).filter(\.running).compactMap(\.lane))
+        merged.running = running.subtracting(endedLanes).union(stillRunning)
+        merged.failures += feed.filter { hook in hook.failed && known[hook.id].map { !$0.failed } == true }.count
+        for hook in feed where !ids.contains(hook.id) {
+            let lane = Lane(kind: hook.kind), running = busy && hook.ended == nil
+            let call = Call(id: hook.id, lane: lane, label: hook.label, running: running, failed: hook.failed,
+                            kind: hook.kind, time: hook.started)
+            merged.calls += 1
+            if call.failed { merged.failures += 1 }
+            if let lane {
+                merged.counts[lane, default: 0] += 1
+                merged.latest[lane] = call
+                if running { merged.running.insert(lane) }
+            }
+            if lane == .delegate { merged.subagents.append(call) }
+            merged.log.append(call)
+        }
+        merged.log = Array(merged.log.suffix(Self.logLength))
+        return merged
+    }
+
     private static func label(of block: TranscriptBlock) -> String {
         let text = [block.summary, block.command, block.path, block.name].compactMap { $0 }.first { !$0.isEmpty } ?? ""
         return text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
@@ -123,7 +168,10 @@ struct LiveActivity: Equatable {
 /// It reads apart from the chat's model; with both shown that is two light requests a second, the
 /// revision answering for an unchanged transcript.
 @MainActor @Observable final class LivePanelModel {
-    private(set) var activity = LiveActivity()
+    /// What the transcript shows, as last read.
+    private(set) var transcript = LiveActivity()
+    /// What the panel draws: the transcript, and what the tool hooks have said since.
+    var activity: LiveActivity { transcript.merging(feed(), busy: busy()) }
     /// The look every Live tab is drawn in: a preference, kept across launches.
     private(set) var theme: LiveTheme
     private(set) var loaded = false
@@ -133,6 +181,7 @@ struct LiveActivity: Equatable {
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
     @ObservationIgnored private let busy: () -> Bool
     @ObservationIgnored private let visible: () -> Bool
+    @ObservationIgnored private let feed: () -> [AgentToolFeed.Call]
     @ObservationIgnored private var turns: [TranscriptTurn] = []
     @ObservationIgnored private var revision: String?
     @ObservationIgnored private let defaults: UserDefaults
@@ -140,10 +189,12 @@ struct LiveActivity: Equatable {
     @ObservationIgnored private var polling: Task<Void, Never>?
 
     init(load: @escaping (_ since: String?) async throws -> AgentTranscript, busy: @escaping () -> Bool,
-         visible: @escaping () -> Bool = { true }, defaults: UserDefaults = .standard) {
+         visible: @escaping () -> Bool = { true }, feed: @escaping () -> [AgentToolFeed.Call] = { [] },
+         defaults: UserDefaults = .standard) {
         self.load = load
         self.busy = busy
         self.visible = visible
+        self.feed = feed
         self.defaults = defaults
         theme = defaults.string(forKey: Self.themeKey).flatMap(LiveTheme.init(rawValue:)) ?? .terminal
     }
@@ -198,7 +249,7 @@ struct LiveActivity: Equatable {
         }
         // Read on every pass, changed transcript or not: the agent stopping ends what was running.
         let next = LiveActivity.of(turns, busy: busy())
-        if next != activity { activity = next }
+        if next != transcript { transcript = next }
         loaded = true
     }
 }

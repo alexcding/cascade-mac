@@ -22,6 +22,10 @@ impl AgentProbe for Codex {
         reports_sessions: false,
         foreground_only: false,
         matches_tools: false,
+        // None: Codex 0.156.1 takes `async` but runs the hook in the foreground anyway ("running
+        // async … hook synchronously"), so two per call would hold up every one. Its Live tab
+        // reads the transcript alone.
+        tool_events: &[],
     };
 
     async fn usage() -> Option<Value> {
@@ -32,10 +36,11 @@ impl AgentProbe for Codex {
         super::usage::codex_limits().await
     }
 
-    /// `apply_patch` has a kind of its own: a patch may touch several files, and asks as one.
+    /// `apply_patch` has a kind of its own: a patch may touch several files, and asks as one. Its
+    /// hooks name the shell `Bash` (`hook_names.rs` in Codex 0.156.1), its transcript `shell`.
     fn tool_kind(name: &str) -> &'static str {
         match name {
-            "shell" | "exec" | "exec_command" | "local_shell" => "run",
+            "shell" | "exec" | "exec_command" | "local_shell" | "Bash" => "run",
             "apply_patch" => "patch",
             "web_search" => "web",
             "spawn_agent" => "delegate",

@@ -120,15 +120,9 @@ fn bounded(text: &str) -> (String, bool) {
     }
 }
 
-/// What a person needs to decide: the tool and what it does, what it would touch, the agent's own
-/// reason, and for a file change both sides of it, as the terminal's own prompt shows them. The
-/// CLI's adapter reads its own tools; one the app does not know has its tool shown by name.
-fn describe(payload: &Value, agent: Option<Agent>) -> Value {
-    let tool = payload["tool_name"].as_str().unwrap_or("Tool");
-    let input = &payload["tool_input"];
-    let text = |key: &str| input[key].as_str();
-    let kind = agent.map_or("other", |agent| agent.tool_kind(tool));
-    let change = agent.and_then(|agent| agent.tool_change(tool, input));
+/// What a tool call runs or touches, from its input: the command, the file, the address or what it
+/// searches for, else the input as it is; cut to `MAX_DETAIL`, and whether anything was cut.
+pub(crate) fn tool_detail(input: &Value) -> (String, bool) {
     let detail = ["command", "file_path", "notebook_path", "path", "url", "pattern", "query"]
         .iter()
         .find_map(|key| match &input[*key] {
@@ -138,7 +132,19 @@ fn describe(payload: &Value, agent: Option<Agent>) -> Value {
         })
         .or_else(|| (!input.is_null()).then(|| input.to_string()))
         .unwrap_or_default();
-    let (detail, mut truncated) = bounded(&detail);
+    bounded(&detail)
+}
+
+/// What a person needs to decide: the tool and what it does, what it would touch, the agent's own
+/// reason, and for a file change both sides of it, as the terminal's own prompt shows them. The
+/// CLI's adapter reads its own tools; one the app does not know has its tool shown by name.
+fn describe(payload: &Value, agent: Option<Agent>) -> Value {
+    let tool = payload["tool_name"].as_str().unwrap_or("Tool");
+    let input = &payload["tool_input"];
+    let text = |key: &str| input[key].as_str();
+    let kind = agent.map_or("other", |agent| agent.tool_kind(tool));
+    let change = agent.and_then(|agent| agent.tool_change(tool, input));
+    let (detail, mut truncated) = tool_detail(input);
     let reason = text("description").or_else(|| text("justification")).unwrap_or("");
     let mut request = json!({"tool": tool, "kind": kind, "detail": detail, "reason": reason});
     if let Some((_, old, new)) = change {

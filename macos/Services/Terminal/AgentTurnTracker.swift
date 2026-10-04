@@ -26,10 +26,13 @@ import Observation
     /// A turn ended and nobody has looked at the session since (`acknowledge`).
     private(set) var finishedUnseen = false
     @ObservationIgnored private var terminalID: String?
+    /// The agent's calls as its tool hooks report them (`AgentToolFeed`).
+    let tools = AgentToolFeed()
 
     func bind(terminalID: String) {
         guard self.terminalID != terminalID else { return }
         invalidate()
+        tools.reset()
         self.terminalID = terminalID; cli = nil; sessionID = nil; busy = false; betweenTurns = false
         finishedUnseen = false
         closePrompts()
