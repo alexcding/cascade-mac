@@ -1982,6 +1982,16 @@
         }
       }
     },
+    "%@ in use, %@ of the context" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ in use, %2$@ of the context"
+          }
+        }
+      }
+    },
     "%@ is already assigned to %@." : {
       "extractionState" : "manual",
       "localizations" : {
