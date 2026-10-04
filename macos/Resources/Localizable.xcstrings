@@ -1,6 +1,66 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ running" : {
+
+    },
+    "%@ · lead" : {
+
+    },
+    "Blueprint" : {
+
+    },
+    "Graphite" : {
+
+    },
+    "Native" : {
+
+    },
+    "Pastel" : {
+
+    },
+    "Swiss" : {
+
+    },
+    "agent" : {
+
+    },
+    "context" : {
+
+    },
+    "edited" : {
+
+    },
+    "failed %lld" : {
+
+    },
+    "log" : {
+
+    },
+    "new" : {
+
+    },
+    "subagents" : {
+
+    },
+    "subagents · %lld running" : {
+
+    },
+    "subagents · %lld running · %lld more" : {
+
+    },
+    "tools · %lld calls" : {
+
+    },
+    "× failed" : {
+
+    },
+    "√ done" : {
+
+    },
+    "◂ now" : {
+
+    },
     "" : {
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
@@ -4314,9 +4374,6 @@
           }
         }
       }
-    },
-    "%lld calls" : {
-
     },
     "%lld failing" : {
       "extractionState" : "manual",
@@ -16829,7 +16886,7 @@
         }
       }
     },
-    "Calls" : {
+    "calls" : {
 
     },
     "Calls: %lld · Errors: %lld" : {
@@ -27103,9 +27160,6 @@
         }
       }
     },
-    "Context %lld%%" : {
-
-    },
     "Context status line" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31257,9 +31311,6 @@
 
     },
     "Couldn't load folder contents" : {
-
-    },
-    "Counted over the conversation's recent turns" : {
 
     },
     "CPU" : {
@@ -37419,7 +37470,7 @@
         }
       }
     },
-    "Edits" : {
+    "effort" : {
 
     },
     "Effort" : {
@@ -39501,6 +39552,9 @@
         }
       }
     },
+    "failed" : {
+
+    },
     "Failed" : {
       "localizations" : {
         "bn" : {
@@ -40498,6 +40552,9 @@
           }
         }
       }
+    },
+    "files · last changed" : {
+
     },
     "Files, changes, and commits" : {
       "extractionState" : "manual",
@@ -46229,6 +46286,9 @@
         }
       }
     },
+    "idle" : {
+
+    },
     "Idle" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -50783,9 +50843,6 @@
           }
         }
       }
-    },
-    "Latest" : {
-
     },
     "Latest 200 entries for the selected category and level." : {
       "extractionState" : "manual",
@@ -62608,7 +62665,7 @@
         }
       }
     },
-    "No tool calls yet." : {
+    "no tool calls yet" : {
 
     },
     "No tracked changes" : {
@@ -64077,7 +64134,7 @@
         }
       }
     },
-    "Not running" : {
+    "not running" : {
 
     },
     "Not saved yet" : {
@@ -65160,6 +65217,9 @@
           }
         }
       }
+    },
+    "ok" : {
+
     },
     "OK" : {
       "extractionState" : "manual",
@@ -73956,9 +74016,6 @@
           }
         }
       }
-    },
-    "Prompts" : {
-
     },
     "PTY daemon did not become ready: %@. See %@." : {
       "localizations" : {
@@ -84277,6 +84334,9 @@
         }
       }
     },
+    "running" : {
+
+    },
     "Running" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -88514,6 +88574,9 @@
           }
         }
       }
+    },
+    "session log" : {
+
     },
     "Session memory" : {
       "extractionState" : "manual",
@@ -94147,7 +94210,7 @@
         }
       }
     },
-    "Subagents" : {
+    "subagent" : {
 
     },
     "Submit a changes-requested review." : {
@@ -109181,6 +109244,9 @@
         }
       }
     },
+    "tool" : {
+
+    },
     "Tool" : {
       "localizations" : {
         "bn" : {
@@ -109256,6 +109322,9 @@
           }
         }
       }
+    },
+    "tools" : {
+
     },
     "Tools" : {
 
@@ -114575,6 +114644,9 @@
         }
       }
     },
+    "waiting on you" : {
+
+    },
     "Waiting on you" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -116200,6 +116272,9 @@
           }
         }
       }
+    },
+    "working" : {
+
     },
     "Working" : {
       "localizations" : {

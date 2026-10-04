@@ -61,18 +61,28 @@ import Testing
         #expect(LiveActivity.of([user("u1"), open, user("u2")], busy: true).running.isEmpty, "only the turn under way runs")
     }
 
-    @Test func aCallSeenAfterTheFirstReadSendsAPacket() async {
+    @Test func eachReadAsksFromTheRevisionLastSeen() async {
         var transcript = AgentTranscript(revision: "r1", turns: [user("u1"), agent("a1", [tool("t1", kind: "read", label: "a")])], hooks: nil)
         var since: [String?] = []
         let model = LivePanelModel(load: { revision in since.append(revision); return transcript }, busy: { true })
         await model.refresh()
-        #expect(model.loaded && model.pulses.isEmpty, "what was there at the first read is history")
         transcript = AgentTranscript(revision: "r2", turns: [user("u1"), agent("a1", [tool("t1", kind: "read", label: "a"),
                                                                                    tool("t2", kind: "search", label: "b", output: nil)])], hooks: nil)
         await model.refresh()
-        #expect(model.pulses.map(\.id) == ["t2"] && model.pulses.first?.lane == .search)
-        #expect(model.activity.running == [.search])
-        #expect(since == [nil, "r1"], "each read asks from the revision last seen")
+        #expect(model.activity.running == [.search] && model.activity.latest[.search]?.id == "t2")
+        #expect(since == [nil, "r1"])
+    }
+
+    @Test func theThemeIsAPreferenceKeptAcrossModels() throws {
+        let defaults = try #require(UserDefaults(suiteName: "live-theme-\(UUID().uuidString)"))
+        let load: (String?) async throws -> AgentTranscript = { _ in AgentTranscript(revision: "r", turns: [], hooks: nil) }
+        let first = LivePanelModel(load: load, busy: { false }, defaults: defaults)
+        #expect(first.theme == .terminal, "the reference's look until one is picked")
+        first.setTheme(.blueprint)
+        #expect(LivePanelModel(load: load, busy: { false }, defaults: defaults).theme == .blueprint)
+        first.retire()
+        first.setTheme(.pastel)
+        #expect(first.theme == .blueprint, "a retired model changes nothing")
     }
 
     @Test func aTabOutOfSightReadsNothingAndAFailedReadStillStopsWhatRan() async {

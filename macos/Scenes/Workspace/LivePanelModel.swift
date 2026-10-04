@@ -71,6 +71,8 @@ struct LiveActivity: Equatable {
     /// The files edited or created last, newest first, each once; an edit that failed changed
     /// nothing, and is left out.
     var files: [Call] = []
+    /// Each lane's latest call.
+    var latest: [Lane: Call] = [:]
 
     /// A call with no output yet is running only while the agent is at work: one left without
     /// output by an interrupted turn is not.
@@ -91,7 +93,11 @@ struct LiveActivity: Equatable {
                 all.append(call)
                 activity.calls += 1
                 if call.failed { activity.failures += 1 }
-                if let lane { activity.counts[lane, default: 0] += 1; if running { activity.running.insert(lane) } }
+                if let lane {
+                    activity.counts[lane, default: 0] += 1
+                    activity.latest[lane] = call
+                    if running { activity.running.insert(lane) }
+                }
                 if turn.id == current, lane == .delegate { activity.subagents.append(call) }
             }
         }
@@ -110,24 +116,16 @@ struct LiveActivity: Equatable {
     }
 }
 
-/// A call seen start: a packet the panel sends from the agent to its lane.
-struct LivePulse: Equatable, Identifiable {
-    let id: String
-    let lane: LiveActivity.Lane
-    let start: Date
-    /// How long a packet takes down its wire.
-    static let duration: TimeInterval = 0.9
-}
-
 /// The Live tab's model: the session's transcript, read once a second while the tab is on screen,
-/// and what the panel draws of it. A call that appears between two reads sends a packet down its
-/// lane. A hidden session's view stays mounted, so the view's appearing is not enough: each pass
-/// asks `visible` first, and reads nothing while the tab is out of sight.
+/// and what the panel draws of it, in the theme the person picked. A hidden session's view stays
+/// mounted, so the view's appearing is not enough: each pass asks `visible` first, and reads
+/// nothing while the tab is out of sight.
 /// It reads apart from the chat's model; with both shown that is two light requests a second, the
 /// revision answering for an unchanged transcript.
 @MainActor @Observable final class LivePanelModel {
     private(set) var activity = LiveActivity()
-    private(set) var pulses: [LivePulse] = []
+    /// The look every Live tab is drawn in: a preference, kept across launches.
+    private(set) var theme: LiveTheme
     private(set) var loaded = false
     private(set) var error: String?
     private(set) var retired = false
@@ -135,20 +133,25 @@ struct LivePulse: Equatable, Identifiable {
     @ObservationIgnored private let load: (_ since: String?) async throws -> AgentTranscript
     @ObservationIgnored private let busy: () -> Bool
     @ObservationIgnored private let visible: () -> Bool
-    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var turns: [TranscriptTurn] = []
     @ObservationIgnored private var revision: String?
-    @ObservationIgnored private var seen: Set<String> = []
-    /// Out of sight since the last read: what happened meanwhile is history, not news.
-    @ObservationIgnored private var away = false
+    @ObservationIgnored private let defaults: UserDefaults
+    static let themeKey = "live.theme"
     @ObservationIgnored private var polling: Task<Void, Never>?
 
     init(load: @escaping (_ since: String?) async throws -> AgentTranscript, busy: @escaping () -> Bool,
-         visible: @escaping () -> Bool = { true }, now: @escaping () -> Date = Date.init) {
+         visible: @escaping () -> Bool = { true }, defaults: UserDefaults = .standard) {
         self.load = load
         self.busy = busy
         self.visible = visible
-        self.now = now
+        self.defaults = defaults
+        theme = defaults.string(forKey: Self.themeKey).flatMap(LiveTheme.init(rawValue:)) ?? .terminal
+    }
+
+    func setTheme(_ value: LiveTheme) {
+        guard !retired, value != theme else { return }
+        theme = value
+        defaults.set(value.rawValue, forKey: Self.themeKey)
     }
 
     /// Whether the panel should be moving: the tab on screen.
@@ -166,7 +169,7 @@ struct LivePulse: Equatable, Identifiable {
     }
     private func poll() async -> Bool {
         guard !retired else { return false }
-        if visible() { await refresh() } else { away = true }
+        if visible() { await refresh() }
         return true
     }
     func disappear() {
@@ -188,30 +191,13 @@ struct LivePulse: Equatable, Identifiable {
             error = nil
         } catch {
             guard !retired else { return }
-            // The last turns stay drawn; what was running stops with the agent, and packets expire.
-            // Before any read there is nothing to draw, and the first read must still count as one.
+            // The last turns stay drawn, and what was running stops with the agent. Before any read
+            // there is nothing to draw.
             self.error = error.localizedDescription
             guard loaded else { return }
         }
         // Read on every pass, changed transcript or not: the agent stopping ends what was running.
         let next = LiveActivity.of(turns, busy: busy())
-        let at = now()
-        let ids = Set(turns.flatMap { turn in
-            turn.blocks.enumerated().compactMap { index, block in block.type == .tool ? block.id ?? "\(turn.id)#\(index)" : nil }
-        })
-        // What was there at the first read, or came while the tab was away, is history: no packets.
-        let started = loaded && !away ? ids.subtracting(seen) : []
-        if error == nil { away = false }
-        let fresh = turns.flatMap { turn in
-            turn.blocks.enumerated().compactMap { index, block -> LivePulse? in
-                let id = block.id ?? "\(turn.id)#\(index)"
-                guard block.type == .tool, started.contains(id), let lane = LiveActivity.Lane(kind: block.kind) else { return nil }
-                return LivePulse(id: id, lane: lane, start: at)
-            }
-        }
-        seen = ids
-        let kept = pulses.filter { at.timeIntervalSince($0.start) < LivePulse.duration } + fresh
-        if kept != pulses { pulses = kept }
         if next != activity { activity = next }
         loaded = true
     }

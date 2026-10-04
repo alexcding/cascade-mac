@@ -1,343 +1,432 @@
 import SwiftUI
 
-/// The Live tab: the session's agent drawn as a running diagram, top down. The agent leads; its
-/// calls run down a wire to the tools, each kind a bar; the subagents it started sit side by side
-/// under them, and the files it last changed under those; the session log runs along the bottom.
-/// Dashed monospaced boxes, as a terminal draws them, in the theme's colours. A call starting sends
-/// a packet down the wires; a running one keeps its bar lit.
+/// The Live tab: the session's agent drawn as an architecture diagram that runs. A heading and a
+/// legend; the agent's box; its tools as a table, the kind at work banded; the subagents it started
+/// fanned out under them and gathered back into the files it last changed; the session log at the
+/// foot. While the agent works one dot runs down each connector. The look is the person's pick of
+/// `LiveTheme`, from the row at the top.
 struct LivePanelView: View {
     let live: LivePanelModel
     let workspace: SessionWorkspaceViewModel
 
     var body: some View {
+        let palette = live.theme.palette
         let activity = live.activity
-        let tint = workspace.agentDriver?.tint ?? Theme.accent
-        // Moving while something does: a packet on its way, a call running, a spinner turning.
-        let moving = live.isVisible && (!live.pulses.isEmpty || !activity.running.isEmpty)
+        let flowing = live.isVisible && workspace.agentRunState == .working
         // No scroll view: SwiftUI stretches one up under the title bar, over the pane's tabs, where
         // it takes their clicks. The panel is fixed; a pane shorter than it cuts the log.
-        // Smooth while a packet moves; a spinner turning needs no more than its own eight frames.
-        TimelineView(.animation(minimumInterval: live.pulses.isEmpty ? 1.0 / 8 : 1.0 / 30, paused: !moving)) { timeline in
-            let now = timeline.date
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !flowing)) { timeline in
+            let clock = LiveClock(time: timeline.date.timeIntervalSinceReferenceDate, flowing: flowing)
             VStack(spacing: 0) {
-                LiveAgentBox(workspace: workspace, model: activity.model, calls: activity.calls, tint: tint)
-                LiveWire(packets: live.pulses.map { progress(of: $0, at: now) }, tint: tint)
-                LiveToolsBox(activity: activity, tint: Theme.success, now: now)
+                LiveThemeRow(live: live, palette: palette)
+                LiveHeading(workspace: workspace, model: activity.model, palette: palette)
+                LiveBox(color: palette.agent, palette: palette) {
+                    LiveAgentDetails(workspace: workspace, calls: activity.calls, palette: palette)
+                }
+                LiveConnector(shape: .straight, palette: palette, clock: clock).frame(height: 26)
+                LiveBox(color: palette.tools, palette: palette) {
+                    LiveToolsTable(activity: activity, palette: palette)
+                }
                 if !activity.subagents.isEmpty {
-                    LiveWire(packets: live.pulses.filter { $0.lane == .delegate }.map { progress(of: $0, at: now) }, tint: Theme.accent)
-                    LiveSubagentsRow(calls: activity.subagents, now: now)
+                    // Three boxes at most: the running ones first, then the latest; the caption
+                    // counts the rest.
+                    let shown = Array((activity.subagents.filter(\.running) + activity.subagents.reversed().filter { !$0.running }).prefix(3))
+                    let running = activity.subagents.filter(\.running).count, hidden = activity.subagents.count - shown.count
+                    Text(hidden > 0 ? String(localized: "subagents · \(running) running · \(hidden) more")
+                                    : String(localized: "subagents · \(running) running"))
+                        .font(palette.font(12, weight: .bold)).padding(.top, 10)
+                    LiveConnector(shape: .fanOut(shown.count), palette: palette, clock: clock).frame(height: 30)
+                    HStack(alignment: .top, spacing: LiveConnector.columnGap) {
+                        ForEach(shown) { call in
+                            LiveBox(color: palette.subagents, palette: palette) {
+                                LiveSubagent(call: call, palette: palette, spinner: clock.spinner)
+                            }
+                        }
+                    }
+                    if !activity.files.isEmpty {
+                        LiveConnector(shape: .fanIn(shown.count), palette: palette, clock: clock).frame(height: 30)
+                    }
+                } else if !activity.files.isEmpty {
+                    LiveConnector(shape: .straight, palette: palette, clock: clock).frame(height: 26)
                 }
                 if !activity.files.isEmpty {
-                    LiveWire(packets: [], tint: Theme.success)
-                    LiveFilesBox(files: activity.files, now: now)
+                    LiveBox(color: palette.agent, palette: palette) { LiveFiles(files: activity.files, palette: palette) }
                 }
-                LiveLog(calls: activity.log, now: now)
-                    .padding(.top, 16)
+                LiveLog(calls: activity.log, palette: palette, spinner: clock.spinner).padding(.top, 18)
                 if let error = live.error {
-                    Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(Theme.warn)
-                        .padding(.top, 8)
+                    Text(error).font(palette.font(11)).foregroundStyle(palette.danger.color).padding(.top, 8)
                 }
             }
         }
-        .font(.system(size: 11.5, design: .monospaced))
-        .padding(16)
+        .font(palette.font(11.5))
+        .foregroundStyle(palette.text.color)
+        .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipped()
         // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
-        .paneSurface(ignoresSafeAreaEdges: [])
+        .background(palette.ground.color, ignoresSafeAreaEdges: [])
         .onAppear { live.appear() }
         .onDisappear { live.disappear() }
         .accessibilityIdentifier("workspace-live-panel")
     }
+}
 
-    private func progress(of pulse: LivePulse, at now: Date) -> Double {
-        now.timeIntervalSince(pulse.start) / LivePulse.duration
+/// The moment a frame is drawn at, and whether anything moves in it.
+private struct LiveClock {
+    let time: TimeInterval
+    let flowing: Bool
+    /// How far along its connector a dot is, 0 to 1, a connector's dots set apart by `offset`.
+    func progress(offset: Double = 0) -> Double {
+        (time / 1.8 + offset).truncatingRemainder(dividingBy: 1)
+    }
+    /// A quarter-moon spinner, turning while the agent works.
+    var spinner: String { flowing ? ["◐", "◓", "◑", "◒"][Int(time * 4) % 4] : "◐" }
+}
+
+// MARK: The bar at the top
+
+/// The looks to choose from, one swatch each: its ground with its agent colour in the middle.
+private struct LiveThemeRow: View {
+    let live: LivePanelModel
+    let palette: LivePalette
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "Theme")).font(.system(size: 11)).foregroundStyle(palette.muted.color)
+            ForEach(LiveTheme.allCases) { theme in
+                let selected = theme == live.theme
+                Button { live.setTheme(theme) } label: {
+                    ZStack {
+                        Circle().fill(theme.palette.ground.color)
+                        Circle().fill(theme.palette.agent.color).frame(width: 7, height: 7)
+                    }
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().strokeBorder(selected ? palette.agent.color : palette.line.color, lineWidth: selected ? 2 : 1))
+                    .padding(3)
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(theme.title)
+                .accessibilityLabel(theme.title)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            Spacer(minLength: 4)
+            Text(live.theme.title).font(.system(size: 11)).foregroundStyle(palette.muted.color)
+        }
+        .padding(.bottom, 10)
     }
 }
 
-// MARK: Boxes
-
-/// The agent at the head: its name, model and state, how hard it thinks, and how full its context is.
-private struct LiveAgentBox: View {
+/// The diagram's title and legend: the agent, its model and state, then a key to the sections.
+private struct LiveHeading: View {
     let workspace: SessionWorkspaceViewModel
     let model: String?
-    let calls: Int
-    let tint: Color
+    let palette: LivePalette
 
-    private var state: (String, Color) {
+    private var state: (String, ThemeColor) {
         switch workspace.agentRunState {
-        case .notRunning: (String(localized: "not running"), Theme.textTertiary)
-        case .waiting: (String(localized: "waiting on you"), Theme.warn)
-        case .working: (String(localized: "working"), Theme.success)
-        case .idle: (String(localized: "idle"), Theme.textTertiary)
+        case .notRunning: (String(localized: "not running"), palette.muted)
+        case .waiting: (String(localized: "waiting on you"), palette.log)
+        case .working: (String(localized: "working"), palette.tools)
+        case .idle: (String(localized: "idle"), palette.muted)
         }
     }
 
     var body: some View {
         let (label, color) = state
-        VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                Circle().fill(color).frame(width: 7, height: 7)
-                Text(verbatim: "\(workspace.agentDriver?.name ?? String(localized: "Agent")) · \(label)")
-                    .font(.system(size: 13, weight: .bold, design: .monospaced)).foregroundStyle(tint)
-            }
-            if let name = workspace.agentStatus?.model ?? model {
-                Text(name).foregroundStyle(.primary).lineLimit(1)
-            }
-            HStack(spacing: 14) {
-                if let effort = workspace.agentEffort { LiveEffort(name: effort.name, fraction: effort.fraction, tint: tint) }
-                if let fraction = workspace.agentStatus?.fraction {
-                    Text(String(localized: "context \(Int((fraction * 100).rounded()))%"))
-                        .foregroundStyle(fraction > 0.8 ? Theme.warn : Theme.textSecondary)
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Text(verbatim: (workspace.agentDriver?.name ?? String(localized: "Agent")).uppercased()).fontWeight(.bold)
+                Text(verbatim: "·").foregroundStyle(palette.muted.color)
+                if let model = workspace.agentStatus?.model ?? model {
+                    Text(verbatim: model).foregroundStyle(palette.agent.color).lineLimit(1)
+                    Text(verbatim: "·").foregroundStyle(palette.muted.color)
                 }
+                Text(label.uppercased()).fontWeight(.bold).foregroundStyle(color.color)
             }
-            HStack(spacing: 6) {
-                Text(String(localized: "calls")).foregroundStyle(Theme.textTertiary)
-                Text(verbatim: "\(calls)").monospacedDigit()
+            .font(palette.font(12))
+            Rectangle().fill(palette.line.color).frame(height: 1)
+            HStack(spacing: 12) {
+                legend(String(localized: "agent"), palette.agent)
+                legend(String(localized: "tools"), palette.tools)
+                legend(String(localized: "subagents"), palette.subagents)
+                legend(String(localized: "log"), palette.log)
             }
+            .font(palette.font(11))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12).padding(.horizontal, 10)
-        .liveFrame(tint)
+        .padding(.bottom, 12)
     }
-}
 
-/// The effort the agent runs at, as four blocks lit to how far up its model's efforts it is. One
-/// with no place among them (`auto`) is named alone.
-private struct LiveEffort: View {
-    let name: String
-    let fraction: Double
-    let tint: Color
-    var body: some View {
-        let level = Int((fraction * 4).rounded(.up))
-        HStack(spacing: 6) {
-            Text(String(localized: "effort")).foregroundStyle(Theme.textSecondary)
-            if fraction > 0 {
-                HStack(spacing: 3) {
-                    ForEach(0..<4, id: \.self) { index in
-                        Rectangle().fill(index < level ? tint : Theme.border).frame(width: 7, height: 12)
-                    }
-                }
-            }
-            Text(verbatim: name).foregroundStyle(tint)
+    private func legend(_ title: String, _ color: ThemeColor) -> some View {
+        HStack(spacing: 5) {
+            Rectangle().fill(color.color).frame(width: 9, height: 9)
+            Text(title).foregroundStyle(palette.muted.color)
         }
     }
 }
 
-/// The tools, one row a kind: its bar as long as its share of the calls, lit while one runs.
-private struct LiveToolsBox: View {
-    let activity: LiveActivity
-    let tint: Color
-    let now: Date
+// MARK: Boxes
+
+/// A section's box: outlined in its colour, washed in it where the look tints boxes.
+private struct LiveBox<Content: View>: View {
+    let color: ThemeColor
+    let palette: LivePalette
+    @ViewBuilder let content: () -> Content
 
     var body: some View {
-        let most = max(1, activity.counts.values.max() ?? 0)
+        let shape = RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+        content()
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background(palette.tintsBoxes ? color.color.opacity(0.1) : palette.surface.color, in: shape)
+            .overlay(shape.strokeBorder(color.color, lineWidth: 1.25))
+    }
+}
+
+/// The agent: its name and state, then how hard it thinks, how full its context is and how many
+/// calls it has made, as the reference's bars.
+private struct LiveAgentDetails: View {
+    let workspace: SessionWorkspaceViewModel
+    let calls: Int
+    let palette: LivePalette
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(String(localized: "tools")).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(tint)
-                Spacer()
-                Text(String(localized: "calls")).foregroundStyle(Theme.textTertiary)
-                Text(verbatim: "\(activity.calls)").fontWeight(.bold).monospacedDigit()
+            Text(String(localized: "\(workspace.agentDriver?.name ?? String(localized: "Agent")) · lead"))
+                .font(palette.font(13, weight: .bold)).foregroundStyle(palette.agent.color)
+                .frame(maxWidth: .infinity)
+            if let effort = workspace.agentEffort {
+                row(String(localized: "effort"), fraction: effort.fraction, value: effort.name)
             }
-            ForEach(LiveActivity.Lane.allCases, id: \.self) { lane in
-                let count = activity.counts[lane] ?? 0, running = activity.running.contains(lane)
-                HStack(spacing: 8) {
-                    Text(lane.title.lowercased()).frame(width: 52, alignment: .leading).lineLimit(1)
-                    LiveBar(fraction: Double(count) / Double(most), lit: running, tint: running ? tint : Theme.textTertiary, now: now)
-                    Text(verbatim: "\(count)").monospacedDigit().frame(width: 34, alignment: .trailing)
-                    Text(running ? LiveSpinner.frame(at: now) : " ").foregroundStyle(tint).frame(width: 10)
-                }
-                .foregroundStyle(running ? Color.primary : Theme.textSecondary)
+            if let fraction = workspace.agentStatus?.fraction {
+                row(String(localized: "context"), fraction: fraction, value: "\(Int((fraction * 100).rounded()))%")
             }
-            if activity.failures > 0 {
-                HStack(spacing: 6) {
-                    Text(String(localized: "failed"))
-                    Text(verbatim: "\(activity.failures)").monospacedDigit()
-                }
-                .foregroundStyle(Theme.danger)
+            HStack(spacing: 8) {
+                Text(String(localized: "calls")).frame(width: 64, alignment: .leading)
+                Text(verbatim: "\(calls)").fontWeight(.bold).foregroundStyle(palette.agent.color)
             }
         }
-        .padding(12)
-        .liveFrame(tint)
+    }
+
+    private func row(_ title: String, fraction: Double, value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(title).frame(width: 64, alignment: .leading)
+            LiveBar(fraction: fraction, color: palette.agent, palette: palette)
+            Text(verbatim: value).fontWeight(.bold).foregroundStyle(palette.agent.color).frame(width: 64, alignment: .leading).lineLimit(1)
+        }
     }
 }
 
-/// A bar of a row: filled to its share over a faint track; a lit one shimmers.
+/// A bar as the reference draws one: solid to its share, dotted for the rest.
 private struct LiveBar: View {
     let fraction: Double
-    let lit: Bool
-    let tint: Color
-    let now: Date
+    let color: ThemeColor
+    let palette: LivePalette
 
     var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width * min(1, max(0, fraction))
-            ZStack(alignment: .leading) {
-                Rectangle().fill(Theme.border.opacity(0.5))
-                Rectangle().fill(tint.opacity(lit ? 0.55 + 0.35 * shimmer : 0.45)).frame(width: max(fraction > 0 ? 2 : 0, width))
-            }
-        }
-        .frame(height: 10)
-    }
-    private var shimmer: Double { (sin(now.timeIntervalSinceReferenceDate * 6) + 1) / 2 }
-}
-
-/// The subagents of the turn under way, side by side as they fit.
-private struct LiveSubagentsRow: View {
-    let calls: [LiveActivity.Call]
-    let now: Date
-
-    var body: some View {
-        // Up to three abreast, sharing the width; more wrap under them.
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: min(3, calls.count)), spacing: 8) {
-            ForEach(calls) { call in
-                VStack(spacing: 6) {
-                    Text(String(localized: "subagent")).font(.system(size: 12, weight: .bold, design: .monospaced))
-                    Text(call.label).foregroundStyle(Theme.textSecondary).lineLimit(2).multilineTextAlignment(.center)
-                    LiveStatus(call: call, now: now)
+        Canvas { context, size in
+            let filled = size.width * min(1, max(0, fraction))
+            context.fill(Path(CGRect(x: 0, y: 0, width: filled, height: size.height)), with: .color(color.color))
+            var x = filled + 2
+            while x < size.width {
+                for y in stride(from: 1.5, to: size.height, by: 3) {
+                    context.fill(Path(CGRect(x: x, y: y, width: 1, height: 1)), with: .color(palette.muted.color.opacity(0.7)))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(10)
-                .liveFrame(Theme.accent)
+                x += 3
+            }
+        }
+        .frame(height: 12)
+    }
+}
+
+/// The tools: one row a kind, its count and what it last did; the kind at work banded and marked.
+private struct LiveToolsTable: View {
+    let activity: LiveActivity
+    let palette: LivePalette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(String(localized: "tools · \(activity.calls) calls"))
+                    .font(palette.font(12, weight: .bold)).foregroundStyle(palette.tools.color)
+                Spacer()
+                if activity.failures > 0 {
+                    Text(String(localized: "failed \(activity.failures)")).foregroundStyle(palette.danger.color)
+                }
+            }
+            .padding(.bottom, 3)
+            ForEach(LiveActivity.Lane.allCases, id: \.self) { lane in
+                let running = activity.running.contains(lane)
+                let latest = activity.latest[lane]
+                HStack(spacing: 8) {
+                    Text(lane.title.lowercased()).fontWeight(.bold).frame(width: 50, alignment: .leading)
+                    Text(verbatim: "\(activity.counts[lane] ?? 0)").foregroundStyle(palette.muted.color).frame(width: 30, alignment: .trailing)
+                    Text(verbatim: latest.map { "→ \($0.label)" } ?? "").foregroundStyle(latest?.failed == true ? palette.danger.color : palette.tools.color)
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+                    if running { Text(String(localized: "◂ now")).fontWeight(.bold).foregroundStyle(palette.tools.color) }
+                }
+                .padding(.horizontal, 4).padding(.vertical, 2)
+                .background(running ? palette.band.color : .clear)
+                .foregroundStyle(latest == nil ? palette.muted.color : palette.text.color)
             }
         }
     }
 }
 
-/// The files the agent last changed, side by side, with what it did to each.
-private struct LiveFilesBox: View {
+/// A subagent the turn started: what it was asked, and where it is.
+private struct LiveSubagent: View {
+    let call: LiveActivity.Call
+    let palette: LivePalette
+    let spinner: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(String(localized: "subagent")).font(palette.font(12, weight: .bold))
+            Text(verbatim: call.label).foregroundStyle(palette.subagents.color).lineLimit(2).multilineTextAlignment(.center)
+            Group {
+                if call.running { Text(String(localized: "\(spinner) running")).foregroundStyle(palette.subagents.color) }
+                else if call.failed { Text(String(localized: "× failed")).foregroundStyle(palette.danger.color) }
+                else { Text(String(localized: "√ done")).foregroundStyle(palette.muted.color) }
+            }
+        }
+    }
+}
+
+/// The files the agent last changed, each with what it did.
+private struct LiveFiles: View {
     let files: [LiveActivity.Call]
-    let now: Date
+    let palette: LivePalette
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "files · last changed")).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundStyle(Theme.success)
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
-                    if index > 0 { Divider().padding(.horizontal, 6) }
-                    VStack(spacing: 3) {
-                        Text(((file.path ?? file.label) as NSString).lastPathComponent).lineLimit(1).truncationMode(.middle)
-                        Text(verbatim: file.running ? "[\(LiveSpinner.frame(at: now)) \(verb(file))]" : "[\(verb(file))]")
-                            .foregroundStyle(file.failed ? Theme.danger : Theme.textTertiary)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .help(file.path ?? file.label)
+        VStack(spacing: 4) {
+            Text(String(localized: "files · last changed")).font(palette.font(12, weight: .bold)).foregroundStyle(palette.agent.color)
+            ForEach(files) { file in
+                HStack(spacing: 6) {
+                    Text(verbatim: ((file.path ?? file.label) as NSString).lastPathComponent).lineLimit(1).truncationMode(.middle)
+                    Text(file.kind == "create" ? String(localized: "new") : String(localized: "edited")).foregroundStyle(palette.muted.color)
                 }
+                .help(file.path ?? file.label)
             }
-            // As tall as the names, not as tall as the dividers would grow.
-            .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
-        .liveFrame(Theme.success)
-    }
-    private func verb(_ file: LiveActivity.Call) -> String {
-        file.kind == "create" ? String(localized: "+ new") : String(localized: "✎ edit")
     }
 }
 
-/// The latest calls as a trace: when, which kind, what, and how it ended; the newest marked.
+/// The latest calls as a trace, its title set into its frame: when, which kind, what, how it
+/// ended; the newest in bold.
 private struct LiveLog: View {
     let calls: [LiveActivity.Call]
-    let now: Date
+    let palette: LivePalette
+    let spinner: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Rectangle().fill(Theme.border).frame(width: 10, height: 1)
-                Text(String(localized: "session log")).foregroundStyle(Theme.textSecondary)
-                Rectangle().fill(Theme.border).frame(height: 1)
-            }
+        let shape = RoundedRectangle(cornerRadius: palette.radius, style: .continuous)
+        VStack(alignment: .leading, spacing: 4) {
             if calls.isEmpty {
-                Text(String(localized: "no tool calls yet")).foregroundStyle(Theme.textTertiary)
+                Text(String(localized: "no tool calls yet")).foregroundStyle(palette.muted.color)
             }
             ForEach(Array(calls.enumerated()), id: \.element.id) { index, call in
                 let newest = index == calls.count - 1
                 HStack(spacing: 8) {
-                    Text(newest ? "›" : " ").foregroundStyle(Theme.accent).frame(width: 8)
                     // In the person's own clock, 12- or 24-hour.
-                    Text(verbatim: call.time?.formatted(date: .omitted, time: .standard) ?? "--:--:--").foregroundStyle(Theme.textTertiary)
-                    Text(call.lane?.title.lowercased() ?? call.kind ?? String(localized: "tool")).foregroundStyle(Theme.success).frame(width: 48, alignment: .leading)
-                    Text(call.label).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
-                    LiveStatus(call: call, now: now)
+                    Text(verbatim: call.time?.formatted(date: .omitted, time: .standard) ?? "--:--:--").foregroundStyle(palette.muted.color)
+                    Text(call.lane?.title.lowercased() ?? call.kind ?? String(localized: "tool")).fontWeight(.bold)
+                        .foregroundStyle(call.lane == .delegate ? palette.subagents.color : palette.log.color)
+                        .frame(width: 50, alignment: .leading)
+                    Text(verbatim: call.label).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+                    status(call)
                 }
-                .fontWeight(newest ? .semibold : .regular)
-                .opacity(newest ? 1 : 0.75)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .fontWeight(newest ? .bold : .regular)
+                .foregroundStyle(newest ? palette.text.color : palette.text.color.opacity(0.8))
             }
+        }
+        .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(shape.strokeBorder(palette.line.color, lineWidth: 1))
+        .overlay(alignment: .topLeading) {
+            Text(String(localized: "session log")).foregroundStyle(palette.muted.color)
+                .padding(.horizontal, 6).background(palette.ground.color)
+                .offset(x: 14, y: -8)
         }
         .animation(.easeOut(duration: 0.3), value: calls.map(\.id))
     }
-}
 
-/// `[\ running]` while a call runs, then how it ended.
-private struct LiveStatus: View {
-    let call: LiveActivity.Call
-    let now: Date
-    var body: some View {
-        if call.running { Text(verbatim: "[\(LiveSpinner.frame(at: now)) \(String(localized: "running"))]").foregroundStyle(Theme.accent) }
-        else if call.failed { Text(verbatim: "[\(String(localized: "failed"))]").foregroundStyle(Theme.danger) }
-        else { Text(verbatim: "[\(String(localized: "ok"))]").foregroundStyle(Theme.success) }
+    @ViewBuilder private func status(_ call: LiveActivity.Call) -> some View {
+        if call.running { Text(String(localized: "\(spinner) running")).foregroundStyle(palette.tools.color) }
+        else if call.failed { Text(String(localized: "failed")).foregroundStyle(palette.danger.color) }
+        else { Text(String(localized: "ok")).foregroundStyle(palette.muted.color) }
     }
 }
 
-/// A terminal's spinner: the frame for a moment in time.
-private enum LiveSpinner {
-    static func frame(at date: Date) -> String {
-        ["|", "/", "-", "\\"][Int(date.timeIntervalSinceReferenceDate * 8) % 4]
-    }
-}
+// MARK: Connectors
 
-// MARK: Wires and frames
+/// The lines between boxes: straight down, fanned out from the middle to a row of boxes, or gathered
+/// from that row back to the middle; each ends in an arrowhead. While the agent works one dot runs
+/// along each path.
+private struct LiveConnector: View {
+    enum Shape { case straight, fanOut(Int), fanIn(Int) }
+    static let columnGap: CGFloat = 8
 
-/// The wire from one box down to the next: a dashed line ending in an arrowhead, packets running
-/// down it.
-private struct LiveWire: View {
-    /// How far along each packet is, 0 at the top to 1 at the arrow.
-    let packets: [Double]
-    let tint: Color
+    let shape: Shape
+    let palette: LivePalette
+    let clock: LiveClock
 
     var body: some View {
         Canvas { context, size in
-            let x = size.width / 2
-            var line = Path()
-            line.move(to: CGPoint(x: x, y: 0)); line.addLine(to: CGPoint(x: x, y: size.height - 6))
-            context.stroke(line, with: .color(tint.opacity(0.6)), style: .init(lineWidth: 1, dash: [3, 3]))
-            var head = Path()
-            head.move(to: CGPoint(x: x - 5, y: size.height - 7)); head.addLine(to: CGPoint(x: x + 5, y: size.height - 7))
-            head.addLine(to: CGPoint(x: x, y: size.height - 1)); head.closeSubpath()
-            context.fill(head, with: .color(tint))
-            for progress in packets where (0...1).contains(progress) {
-                let y = (size.height - 8) * progress
-                let glow = CGRect(x: x - 6, y: y - 6, width: 12, height: 12)
-                context.fill(Path(ellipseIn: glow), with: .color(tint.opacity(0.3)))
-                context.fill(Path(ellipseIn: glow.insetBy(dx: 3, dy: 3)), with: .color(tint))
+            let paths = Self.paths(shape, size: size)
+            let color = palette.line.color
+            for points in paths {
+                var path = Path()
+                path.addLines(points)
+                context.stroke(path, with: .color(color), lineWidth: 1)
+            }
+            // One arrowhead where each path ends; paths gathered into one end share it.
+            for end in Set(paths.compactMap { $0.last.map { [$0.x, $0.y] } }) {
+                var head = Path()
+                head.move(to: CGPoint(x: end[0] - 4, y: end[1] - 6)); head.addLine(to: CGPoint(x: end[0] + 4, y: end[1] - 6))
+                head.addLine(to: CGPoint(x: end[0], y: end[1])); head.closeSubpath()
+                context.fill(head, with: .color(palette.agent.color))
+            }
+            guard clock.flowing else { return }
+            for (index, points) in paths.enumerated() {
+                let at = Self.point(along: points, fraction: clock.progress(offset: Double(index) / Double(max(1, paths.count))))
+                context.fill(Path(ellipseIn: CGRect(x: at.x - 3.5, y: at.y - 3.5, width: 7, height: 7)), with: .color(palette.agent.color))
             }
         }
-        .frame(height: 24)
     }
-}
 
-/// A dashed frame with a tick at each corner, as a terminal diagram draws a box.
-private struct LiveFrame: ViewModifier {
-    let tint: Color
-    func body(content: Content) -> some View {
-        content.overlay {
-            Canvas { context, size in
-                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5)
-                context.stroke(Path(rect), with: .color(tint.opacity(0.7)), style: .init(lineWidth: 1, dash: [4, 3]))
-                for corner in [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
-                               CGPoint(x: rect.minX, y: rect.maxY), CGPoint(x: rect.maxX, y: rect.maxY)] {
-                    var tick = Path()
-                    tick.move(to: CGPoint(x: corner.x - 3, y: corner.y)); tick.addLine(to: CGPoint(x: corner.x + 3, y: corner.y))
-                    tick.move(to: CGPoint(x: corner.x, y: corner.y - 3)); tick.addLine(to: CGPoint(x: corner.x, y: corner.y + 3))
-                    context.stroke(tick, with: .color(tint), lineWidth: 1.5)
-                }
+    /// The column centres of `count` boxes side by side across `width`, as the row lays them out.
+    private static func centres(_ count: Int, width: CGFloat) -> [CGFloat] {
+        let box = (width - columnGap * CGFloat(count - 1)) / CGFloat(count)
+        return (0..<count).map { CGFloat($0) * (box + columnGap) + box / 2 }
+    }
+
+    private static func paths(_ shape: Shape, size: CGSize) -> [[CGPoint]] {
+        let mid = size.width / 2, bus = size.height / 2
+        switch shape {
+        case .straight:
+            return [[CGPoint(x: mid, y: 0), CGPoint(x: mid, y: size.height)]]
+        case .fanOut(let count):
+            return centres(count, width: size.width).map { x in
+                [CGPoint(x: mid, y: 0), CGPoint(x: mid, y: bus), CGPoint(x: x, y: bus), CGPoint(x: x, y: size.height)]
             }
-            .allowsHitTesting(false)
+        case .fanIn(let count):
+            return centres(count, width: size.width).map { x in
+                [CGPoint(x: x, y: 0), CGPoint(x: x, y: bus), CGPoint(x: mid, y: bus), CGPoint(x: mid, y: size.height)]
+            }
         }
     }
-}
 
-private extension View {
-    func liveFrame(_ tint: Color) -> some View { modifier(LiveFrame(tint: tint)) }
+    /// The point a fraction of the way along a polyline, by length.
+    private static func point(along points: [CGPoint], fraction: Double) -> CGPoint {
+        let segments = zip(points, points.dropFirst()).map { ($0, $1, hypot($1.x - $0.x, $1.y - $0.y)) }
+        var remaining = segments.reduce(0) { $0 + $1.2 } * min(1, max(0, fraction))
+        for (from, to, length) in segments {
+            if remaining <= length, length > 0 {
+                let t = remaining / length
+                return CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            }
+            remaining -= length
+        }
+        return points.last ?? .zero
+    }
 }
