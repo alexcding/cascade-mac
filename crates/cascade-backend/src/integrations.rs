@@ -562,12 +562,15 @@ fn is_current(entry: &Value, agent: Agent) -> bool {
 }
 /// The permission hook's reply is the CLI's decision; one installed before it failed on errors
 /// and stopped at a missing port file must be installed again.
+/// A tool hook carries what a call runs and returns, so it goes to Cascade or nowhere; one installed
+/// with the old default port must be installed again.
 fn is_current_for(entry: &Value, agent: Agent, event: &str) -> bool {
+    let command = |test: &dyn Fn(&str) -> bool| {
+        entry["hooks"].as_array().is_some_and(|hooks| hooks.iter().any(|hook| hook["command"].as_str().is_some_and(test)))
+    };
     is_current(entry, agent)
-        && (event != PERMISSION.0
-            || entry["hooks"].as_array().is_some_and(|hooks| {
-                hooks.iter().any(|hook| hook["command"].as_str().is_some_and(|command| command.contains("curl -sf")))
-            }))
+        && (event != PERMISSION.0 || command(&|command| command.contains("curl -sf")))
+        && (!agent.hooks().tool_events.contains(&event) || command(&|command| !command.contains("echo 3000")))
 }
 fn events(agent: Agent) -> Vec<(&'static str, &'static str)> {
     let mut events = EVENTS.to_vec();
@@ -647,8 +650,11 @@ fn hook_entry(agent: Agent, endpoint: &str, port_file: &PathBuf) -> Value {
     // The terminal's own app first; the one that installed the hook when the terminal names none.
     // Assigned, so a path with a space in it is one word.
     let find = format!("F=${{{PORT_FILE_VAR}:-{port}}};");
+    // A tool hook carries what each call runs and returns: with no Cascade to tell, it tells nobody.
     let (read_port, flags) = if asks {
         (format!("{find} P=$(cat \"$F\" 2>/dev/null) || exit 0;"), "-sf")
+    } else if endpoint == TOOL {
+        (format!("{find} P=$(cat \"$F\" 2>/dev/null) || exit 0;"), "-s")
     } else {
         (format!("{find} P=$(cat \"$F\" 2>/dev/null || echo 3000);"), "-s")
     };
@@ -824,10 +830,15 @@ pub async fn tool_event(
     StatusCode::NO_CONTENT
 }
 
+/// The most of a call's label told to the app: one line of its log.
+const LABEL_LIMIT: usize = 200;
+
 /// The event a tool hook's payload is, by its CLI's adapter: None for a CLI or an event it does
 /// not know.
 fn tool_event_of(query: HookQuery, body: &Value) -> Option<crate::event::Event> {
     let agent = query.cli.as_deref().and_then(Agent::of)?;
+    // Only from a terminal Cascade started: the app routes by its id, and nothing else has one.
+    let run_id = query.run_id.filter(|run| is_run_id(run))?;
     let event = body["hook_event_name"].as_str()?;
     if !agent.hooks().tool_events.contains(&event) {
         return None;
@@ -849,9 +860,12 @@ fn tool_event_of(query: HookQuery, body: &Value) -> Option<crate::event::Event> 
         Some(description) if kind == Some("delegate") => Some(description.to_owned()),
         _ if input.is_null() => None,
         _ => Some(crate::agents::permission::tool_detail(input).0),
-    };
+    }
+    // One line of a log, not the call's whole input: its first line with anything on it, cut short;
+    // none at all leaves the app to name the call by its tool.
+    .and_then(|label| label.lines().map(str::trim).find(|line| !line.is_empty()).map(|line| line.chars().take(LABEL_LIMIT).collect::<String>()));
     Some(crate::event::Event::AgentTool {
-        run_id: query.run_id.unwrap_or_default(),
+        run_id,
         cli: agent.profile().id.to_owned(),
         session_id: text("session_id").unwrap_or_default(),
         phase,
@@ -861,8 +875,12 @@ fn tool_event_of(query: HookQuery, body: &Value) -> Option<crate::event::Event> 
         label,
         agent_id: text("agent_id"),
         // A subagent call names the kind of subagent it asks for, which its SubagentStart names
-        // again: how the app tells which call started which.
-        agent_type: text("agent_type").or_else(|| input["subagent_type"].as_str().filter(|kind| !kind.is_empty()).map(str::to_owned)),
+        // again: how the app tells which call started which. Its own ask wins over whoever made it.
+        agent_type: input["subagent_type"]
+            .as_str()
+            .filter(|asked| !asked.is_empty() && kind == Some("delegate"))
+            .map(str::to_owned)
+            .or_else(|| text("agent_type")),
     })
 }
 
@@ -1090,6 +1108,10 @@ mod forwarder_tests {
         assert!(events(Agent::Claude).contains(&("PreToolUse", TOOL)) && events(Agent::Claude).contains(&("PostToolUseFailure", TOOL)));
         let entry = hook_entry(Agent::Claude, TOOL, &port);
         assert_eq!(entry["hooks"][0]["async"], true, "the CLI never waits on one");
+        let command = entry["hooks"][0]["command"].as_str().unwrap();
+        assert!(command.contains("|| exit 0;") && !command.contains("echo 3000"), "no Cascade, no one told what a call ran");
+        let older = json!({"hooks":[{"type":"command","command":command.replace("|| exit 0;", "|| echo 3000);").replace("2>/dev/null)", "2>/dev/null")}]});
+        assert!(is_current(&older, Agent::Claude) && !is_current_for(&older, Agent::Claude, "PreToolUse"), "one with the old default is installed again");
         assert!(entry["hooks"][0].get("timeout").is_none() && is_current_for(&entry, Agent::Claude, "PreToolUse"));
         assert!(!events(Agent::Codex).iter().any(|(_, endpoint)| *endpoint == TOOL), "Codex would wait on them");
         assert!(hook_entry(Agent::Claude, "/api/hooks/turn-start", &port)["hooks"][0].get("async").is_none());
@@ -1098,6 +1120,14 @@ mod forwarder_tests {
     #[test]
     fn a_tool_hook_becomes_one_event_in_the_kinds_every_cli_shares() {
         let query = |cli: &str| HookQuery { cli: Some(cli.into()), run_id: Some("pty9".into()) };
+        assert!(tool_event_of(HookQuery { cli: Some("claude".into()), run_id: None }, &json!({"hook_event_name":"PreToolUse"})).is_none(),
+                "no terminal: nobody to tell");
+        let long = json!({"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":format!("{}\nsecond line", "x".repeat(500))}});
+        assert_eq!(Value::from(tool_event_of(query("claude"), &long).unwrap())["label"].as_str().unwrap().len(), LABEL_LIMIT, "one line, cut short");
+        let blank = json!({"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"\n  cargo test"}});
+        assert_eq!(Value::from(tool_event_of(query("claude"), &blank).unwrap())["label"], "cargo test", "the first line with anything on it");
+        let made = json!({"hook_event_name":"PreToolUse","tool_name":"Agent","agent_type":"lead","tool_input":{"description":"d","subagent_type":"Explore"}});
+        assert_eq!(Value::from(tool_event_of(query("claude"), &made).unwrap())["agentType"], "Explore", "its own ask wins");
         let start = json!({"hook_event_name":"PreToolUse","session_id":"s1","tool_name":"Bash","tool_use_id":"toolu_1",
                            "tool_input":{"command":"cargo test"}});
         let event = Value::from(tool_event_of(query("claude"), &start).unwrap());

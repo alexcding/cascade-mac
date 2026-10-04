@@ -89,9 +89,15 @@ import Testing
         #expect(feed.calls[0].ended == end && feed.calls[0].failed)
         feed.receive(hook("done", "unknown"), at: end)
         #expect(feed.calls.count == 1, "an end with no start is nothing to draw")
+        feed.receive(hook("failed", "quick"), at: end)
+        feed.receive(hook("start", "quick", kind: "read"), at: start)
+        #expect(feed.calls.last?.ended == end && feed.calls.last?.failed == true, "an end that beat its start is taken up by it")
+        feed.receive(hook("subagent-done", "", agent: "early"), at: end)
+        feed.receive(hook("subagent-start", "", agent: "early"), at: start)
+        #expect(feed.subagents.first { $0.id == "early" }?.ended == end, "a subagent's too")
         feed.receive(ServerEvent(type: "agent-tool", projectId: nil, id: nil, runId: "pty9", cli: "claude", sessionId: "c2",
                                  phase: "start", toolUseId: "t2", kind: "read"), at: end)
-        #expect(feed.heard(in: "c2").calls.map(\.id) == ["t1", "t2"] && feed.heard(in: "c1").calls.map(\.id) == ["t1"],
+        #expect(feed.heard(in: "c2").calls.map(\.id) == ["t1", "quick", "t2"] && feed.heard(in: "c1").calls.map(\.id) == ["t1", "quick"],
                 "a call names its conversation; one that named none is every conversation's")
         feed.reset()
         #expect(feed.calls.isEmpty)

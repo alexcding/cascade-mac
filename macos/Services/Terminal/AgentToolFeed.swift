@@ -43,6 +43,9 @@ import Observation
     private(set) var calls: [Call] = []
     private(set) var subagents: [Subagent] = []
     static let limit = 40
+    /// Ends heard before their starts, by id: each hook is its own process, so a quick call's end
+    /// can arrive first. Taken up when the start arrives.
+    @ObservationIgnored private var early: [String: (at: Date, failed: Bool)] = [:]
 
     func receive(_ event: ServerEvent, at now: Date = Date()) {
         guard event.type == "agent-tool", let phase = event.phase else { return }
@@ -50,12 +53,16 @@ import Observation
         switch phase {
         case "subagent-start":
             guard let id = event.agentId, !subagents.contains(where: { $0.id == id }) else { return }
-            subagents.append(Subagent(id: id, type: event.agentType, started: now, conversation: conversation))
+            var subagent = Subagent(id: id, type: event.agentType, started: now, conversation: conversation)
+            subagent.ended = early.removeValue(forKey: "agent:" + id)?.at
+            subagents.append(subagent)
             if subagents.count > Self.limit { subagents.removeFirst(subagents.count - Self.limit) }
             return
         case "subagent-done":
-            guard let id = event.agentId, let index = subagents.firstIndex(where: { $0.id == id }) else { return }
-            subagents[index].ended = now
+            guard let id = event.agentId else { return }
+            guard let index = subagents.firstIndex(where: { $0.id == id }) else { remember("agent:" + id, at: now, failed: false); return }
+            // Closed already, when its turn ended: that stays when it stopped.
+            if subagents[index].ended == nil { subagents[index].ended = now }
             return
         default:
             // A subagent's own call.
@@ -65,16 +72,25 @@ import Observation
         case "start":
             let id = event.toolUseId ?? UUID().uuidString
             guard !calls.contains(where: { $0.id == id }) else { return }
-            calls.append(Call(id: id, kind: event.kind, label: event.label ?? event.tool ?? "", started: now,
-                              agentType: event.agentType, conversation: conversation))
+            var call = Call(id: id, kind: event.kind, label: event.label ?? event.tool ?? "", started: now,
+                            agentType: event.agentType, conversation: conversation)
+            if let end = early.removeValue(forKey: id) { call.ended = end.at; call.failed = end.failed }
+            calls.append(call)
             if calls.count > Self.limit { calls.removeFirst(calls.count - Self.limit) }
         case "done", "failed":
-            guard let id = event.toolUseId, let index = calls.firstIndex(where: { $0.id == id }) else { return }
+            guard let id = event.toolUseId else { return }
+            guard let index = calls.firstIndex(where: { $0.id == id }) else { remember(id, at: now, failed: phase == "failed"); return }
             calls[index].ended = now
             calls[index].failed = phase == "failed"
         default:
             break
         }
+    }
+
+    private func remember(_ id: String, at: Date, failed: Bool) {
+        // A start that never comes leaves its end here: a few at most are kept.
+        if early.count >= Self.limit { early.removeAll() }
+        early[id] = (at, failed)
     }
 
     /// The calls and subagents of a conversation; all of them when it is not known.
@@ -83,8 +99,9 @@ import Observation
         return Heard(calls: calls.filter { belongs($0.conversation) }, subagents: subagents.filter { belongs($0.conversation) })
     }
 
-    /// The agent started again or took up another conversation: a subagent it never heard stop —
-    /// the agent quit or crashed under it — runs no more.
+    /// The agent started again, took up another conversation, or ended a turn with nothing left
+    /// working: a subagent it never heard stop — interrupted, killed, or the agent quit under it —
+    /// runs no more.
     func closeSubagents(at now: Date = Date()) {
         for index in subagents.indices where subagents[index].ended == nil { subagents[index].ended = now }
     }
@@ -93,5 +110,6 @@ import Observation
     func reset() {
         if !calls.isEmpty { calls = [] }
         if !subagents.isEmpty { subagents = [] }
+        early = [:]
     }
 }

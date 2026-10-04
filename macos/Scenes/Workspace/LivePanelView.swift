@@ -15,7 +15,8 @@ struct LivePanelView: View {
         let flowing = live.isVisible && workspace.agentRunState == .working
         // No scroll view: SwiftUI stretches one up under the title bar, over the pane's tabs, where
         // it takes their clicks. The panel is fixed; a pane shorter than it cuts the log.
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !flowing)) { timeline in
+        // The panel moves only as its spinners turn; the connectors' dots run on their own clock.
+        TimelineView(.animation(minimumInterval: 0.25, paused: !flowing)) { timeline in
             let clock = LiveClock(time: timeline.date.timeIntervalSinceReferenceDate, flowing: flowing)
             VStack(spacing: 0) {
                 LiveThemeRow(live: live, palette: palette)
@@ -23,7 +24,7 @@ struct LivePanelView: View {
                 LiveBox(color: palette.agent, palette: palette) {
                     LiveAgentDetails(workspace: workspace, calls: activity.calls, palette: palette)
                 }
-                LiveConnector(shape: .straight, palette: palette, clock: clock).frame(height: 26)
+                LiveConnector(shape: .straight, palette: palette, flowing: flowing).frame(height: 26)
                 LiveBox(color: palette.tools, palette: palette) {
                     LiveToolsTable(activity: activity, palette: palette)
                 }
@@ -35,7 +36,7 @@ struct LivePanelView: View {
                     Text(hidden > 0 ? String(localized: "subagents · \(running) running · \(hidden) more")
                                     : String(localized: "subagents · \(running) running"))
                         .font(palette.font(12, weight: .bold)).padding(.top, 10)
-                    LiveConnector(shape: .fanOut(shown.count), palette: palette, clock: clock).frame(height: 30)
+                    LiveConnector(shape: .fanOut(shown.count), palette: palette, flowing: flowing).frame(height: 30)
                     HStack(alignment: .top, spacing: LiveConnector.columnGap) {
                         ForEach(shown) { call in
                             LiveBox(color: palette.subagents, palette: palette) {
@@ -44,10 +45,10 @@ struct LivePanelView: View {
                         }
                     }
                     if !activity.files.isEmpty {
-                        LiveConnector(shape: .fanIn(shown.count), palette: palette, clock: clock).frame(height: 30)
+                        LiveConnector(shape: .fanIn(shown.count), palette: palette, flowing: flowing).frame(height: 30)
                     }
                 } else if !activity.files.isEmpty {
-                    LiveConnector(shape: .straight, palette: palette, clock: clock).frame(height: 26)
+                    LiveConnector(shape: .straight, palette: palette, flowing: flowing).frame(height: 26)
                 }
                 if !activity.files.isEmpty {
                     LiveBox(color: palette.agent, palette: palette) { LiveFiles(files: activity.files, palette: palette) }
@@ -383,9 +384,16 @@ private struct LiveConnector: View {
 
     let shape: Shape
     let palette: LivePalette
-    let clock: LiveClock
+    let flowing: Bool
 
     var body: some View {
+        // Its own clock, at the frame rate a dot needs: nothing else in the panel redraws with it.
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !flowing)) { timeline in
+            canvas(LiveClock(time: timeline.date.timeIntervalSinceReferenceDate, flowing: flowing))
+        }
+    }
+
+    private func canvas(_ clock: LiveClock) -> some View {
         Canvas { context, size in
             let paths = Self.paths(shape, size: size)
             let color = palette.line.color

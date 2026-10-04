@@ -1655,8 +1655,9 @@ public final class AppViewModel {
            let session = sessions.first(where: { $0.id == terminal.pairKey }), event.cli == session.cli,
            terminal.agentTurns.receive(event) {
             if let id = event.sessionId, !id.isEmpty, id != session.sessionId { saveConversation(id, for: session) }
-            // An agent that finished its turn may be the one the pool has been waiting to stop.
-            if event.type == "agent-turn-done" { trimAfterTurnHooks() }
+            // An agent that finished its turn may be the one the pool has been waiting to stop. A turn
+            // ends only once nothing of it works in the background, so no subagent of it still runs.
+            if event.type == "agent-turn-done" { terminal.agentTurns.tools.closeSubagents(); trimAfterTurnHooks() }
         }
         // Claude's SessionStart: the conversation changed under a running agent (`/resume`,
         // `/clear`, a compaction), or the user started one by hand, so the next resume must follow
