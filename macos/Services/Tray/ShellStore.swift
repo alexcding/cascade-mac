@@ -83,6 +83,8 @@ import Observation
     @ObservationIgnored private var trayTask: Task<Void, Never>?
     @ObservationIgnored private var usageTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
+    /// Whether a read waiting its turn is a look, which the backend may sync behind.
+    @ObservationIgnored private var lookPending = false
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let preferences: UserDefaults
     /// Where the chosen icon theme is loaded for the app's views; nil where nothing draws files.
@@ -256,26 +258,32 @@ import Observation
         let opened = pendingReviewOpens.values
         pendingReviewOpens.removeAll()
         for review in opened { acknowledgeReview(repo: review.repo, number: review.number) }
-        refresh()
+        refresh(look: true)
     }
 
-    func refresh() {
+    /// Reads the tray's pull requests again. `look`: someone is looking (the app connected,
+    /// the tray opened, a refresh was asked for), so the backend may sync behind the read; a
+    /// read made because the backend said something changed is not one, and starts nothing.
+    func refresh(look: Bool = false) {
         refreshPending = true
+        if look { lookPending = true }
         guard trayTask == nil, let service else { return }
         trayLoading = true
         trayTask = Task {
             defer { trayTask = nil; trayLoading = false }
             while refreshPending && !Task.isCancelled {
                 refreshPending = false
+                let look = lookPending
+                lookPending = false
                 do {
-                    try await loadReviews(from: service)
+                    try await loadReviews(from: service, look: look)
                 } catch { if !Task.isCancelled { trayError = error.localizedDescription } }
             }
         }
     }
 
-    private func loadReviews(from service: any ShellDataServing) async throws {
-        let result = try await service.reviews()
+    private func loadReviews(from service: any ShellDataServing, look: Bool) async throws {
+        let result = try await (look ? service.lookAtReviews() : service.reviews())
         try Task.checkCancellation()
         var seen: Set<String> = []
         let prs = result.filter { seen.insert($0.id).inserted }

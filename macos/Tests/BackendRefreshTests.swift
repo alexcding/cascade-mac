@@ -11,6 +11,13 @@ private actor RefreshTransport: BackendTransport {
     func removeProject() { includesProject = false }
     func reset() { requests.removeAll() }
     var paths: [String] { requests.compactMap { $0.url?.path } }
+    /// The bodies of the ticket searches asked for, as text.
+    var searches: [String] {
+        requests.filter { [Routes.JIRA_SEARCH, Routes.ISSUES_SEARCH].contains($0.url?.path ?? "") }
+            .map { String(decoding: $0.httpBody ?? Data(), as: UTF8.self) }
+    }
+    /// The reads marked as someone looking (`?look=1`), which the backend may sync behind.
+    var looks: [String] { requests.compactMap { $0.url }.filter { $0.query == "look=1" }.map(\.path) }
 
     func perform(_ request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
@@ -114,6 +121,9 @@ private actor RefreshTransport: BackendTransport {
     }
     try await refreshEventually { await transport.paths.count >= 2 }
     #expect(await transport.paths.sorted() == [Routes.DASHBOARD, Routes.PRS_TRAY].sorted())
+    // Reads that answer the backend's own report are never looks: one that could start a sync
+    // would have each sync's report start the next.
+    #expect(await transport.looks.isEmpty)
     await transport.reset()
 
     runtime.emit("tasks")
@@ -124,6 +134,35 @@ private actor RefreshTransport: BackendTransport {
     runtime.emit("sync", scope: "usage")
     try await refreshEventually { await transport.paths.count == 1 }
     #expect(await transport.paths == [Routes.USAGE])
+    await transport.reset()
+
+    // A service that stopped answering, or answers again, costs one read: which ones are down.
+    runtime.emit("upstream")
+    try await refreshEventually { await transport.paths.count == 1 }
+    #expect(await transport.paths == [Routes.UPSTREAMS])
+    await transport.reset()
+
+    // The backend searched My Tickets again behind a look and the answer changed: the tickets
+    // are read again, as an echo that starts no search, and nothing else is.
+    runtime.emit("sync", scope: "tickets")
+    try await refreshEventually { await transport.paths.contains(Routes.ISSUES_SEARCH) && model.dashboard?.tickets.loading == false }
+    #expect(await transport.paths.allSatisfy { [Routes.JIRA_SITE, Routes.JIRA_SEARCH, Routes.ISSUES_SEARCH].contains($0) })
+    #expect(await transport.searches.allSatisfy { $0.contains(#""kept":true"#) && $0.contains(#""look":false"#) && $0.contains(#""fresh":false"#) })
+    await transport.reset()
+
+    // Someone looking at the dashboard reads its snapshot again, and nothing else: the backend
+    // syncs behind that read what has gone stale.
+    model.attend()
+    try await refreshEventually { await transport.paths.count == 1 }
+    #expect(await transport.paths == [Routes.DASHBOARD])
+    #expect(await transport.looks == [Routes.DASHBOARD])
+    await transport.reset()
+
+    // A refresh someone asked for (the tray opened, a reload) looks at both.
+    model.refresh()
+    try await refreshEventually { await transport.looks.count >= 2 }
+    #expect(Set(await transport.looks) == [Routes.DASHBOARD, Routes.PRS_TRAY])
+    try await refreshEventually { model.dashboard?.prs.loading == false && !model.shell.trayLoading && !model.shell.usageLoading }
     await transport.reset()
 
     // A project mutation (or older backend) still refreshes inventory and removes retired screens.

@@ -12,6 +12,7 @@ mod http_client;
 mod integrations;
 mod issues;
 mod jira;
+mod kept;
 mod local;
 mod poller;
 pub mod recovery;
@@ -34,7 +35,7 @@ use axum::{
     Router,
 };
 pub use db::Database;
-pub use domain::{PrSnapshot, Project, Session};
+pub use domain::{Fault, PrSnapshot, Project, Session};
 pub use event::Event;
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -51,6 +52,7 @@ pub struct AppState {
     pub limits: Arc<automation::Limits>,
     pub usage: Arc<usage::Usage>,
     pub warmup: Arc<warmup::Warmup>,
+    pub kept: Arc<kept::Kept>,
 }
 
 impl AppState {
@@ -66,6 +68,7 @@ impl AppState {
             limits: Arc::new(automation::Limits::default()),
             usage: Arc::new(usage::Usage::default()),
             warmup: Arc::new(warmup::Warmup::default()),
+            kept: Arc::new(kept::Kept::default()),
         }
     }
 
@@ -178,6 +181,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/db", get(routes::inspect_db))
         .route("/api/whoami", get(routes::whoami))
         .route("/api/poll", post(routes::poll))
+        .route("/api/upstreams", get(routes::upstreams))
         .route("/api/jira/search", post(routes::jira_search))
         .route("/api/jira/site", get(integrations::jira_site))
         .route("/api/jira/{key}/transition", post(routes::jira_transition))

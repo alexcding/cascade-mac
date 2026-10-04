@@ -75,8 +75,11 @@ queue, and Jira tickets one click away. It's free and open source under the
 - **Menu bar.** Review requests with their CI status and your agent usage (⇧⌘U).
 - **Notifications** for new review requests (with an optional sound), merged and
   closed pull requests, and Jira transitions.
-- GitHub refreshes in the background every minute and Jira every two minutes; change
-  both in **Settings → Integrations**.
+- GitHub and Jira refresh while you look: when you open the dashboard, a board or the menu
+  bar item, when you come back to the app, and every minute while it stays in front. Cached
+  data shows meanwhile, with how long ago it was updated. In the background nothing is
+  fetched, except for projects an automation watches. Change the interval in
+  **Settings → Integrations**.
 
 ### Jira and GitHub issues without leaving the code
 

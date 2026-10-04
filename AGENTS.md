@@ -29,18 +29,39 @@ Python, and C.
 
 **Stale-while-revalidate over a DB snapshot.**
 
-- `crates/cascade-backend/src/poller.rs` **owns background GitHub synchronization**. Every
-  poll interval it fetches each project's PRs by status — every open PR (paginated, with
-  CI) plus a recent merged/closed window for merge detection — and writes a **lean
-  snapshot** (`github.rs:324 lean()`) to `data.db`. The engine runs the same sync once at a
-  time, so a stale read racing the poll loop cannot double-spawn `gh`.
-- Snapshot API endpoints **read the snapshot** (instant). A stale read triggers a background
-  sync. Never add a `gh` call to a request handler.
+- `crates/cascade-backend/src/poller.rs` **owns GitHub synchronization**. A sync fetches
+  projects' PRs — every open PR (with CI) plus a recent merged/closed window for merge
+  detection — for up to five repos in one GraphQL query (`github.rs` `fetch_repos`), and
+  writes a **lean snapshot** (`github.rs` `lean()`) to `data.db`. The engine runs the same
+  sync once at a time, so two stale reads cannot double-spawn `gh`.
+- **Syncs are lazy.** Snapshot API endpoints **read the snapshot** (instant), and a read
+  older than the poll interval, made for someone looking, triggers a background sync of what it
+  showed: `/api/dashboard`
+  and `/api/prs/tray` sync the stale projects, the board its own. The poll loop syncs only
+  what an armed automation waits for: projects a PR pipeline covers, and Jira pipelines' JQL.
+  A project nobody looks at and no automation watches costs no `gh` call. Never add a `gh`
+  call to a request handler.
+- **A read follows a look.** The backend keeps no timer for what is on screen; the app reads
+  again what the main window shows while someone is looking at it
+  (`Services/App/AttentionMonitor.swift` → `AppViewModel.attend`): when the app comes to the
+  front, when the window comes back on screen, when the Mac wakes, and every poll interval for
+  as long as the app stays frontmost with the window visible. The tray reads when it opens. An
+  app in the background, a hidden window and a sleeping display read nothing. A new screen that
+  shows a snapshot gets a branch in `attend`, not a timer of its own.
+- **Only a look syncs, and the app says which reads are looks** (`?look=1`: `DashboardService.look`,
+  `ShellDataServing.lookAtReviews`). The app reads the same snapshots for two reasons: someone
+  looks at them, or the backend just reported a sync (`sync` event). The second is the echo of
+  a sync, and must never start one: told apart by timing, a slow enough sync closes the loop
+  and the app syncs for ever with nobody looking. So a read made in `refreshSnapshots` is plain,
+  and a read made for a person (`attend`, `reload`, the tray, Retry) is a look. Looks are paced
+  by the engine from when the last sync started (`poller.rs` `Ask::Stale`). My Tickets goes by
+  the same rule with one more case (`TicketRead` → `kept::Read`): an echo reads what is stored,
+  a look also lets the backend search again behind it, and Refresh searches now.
 - Snapshot changes broadcast a `sync` event. In the default embedded mode the backend
   hands events straight to the app; against a separate backend process the app subscribes
   over SSE (`macos/Services/Backend/BackendRuntime.swift`).
 
-If the UI needs fresher data, fix the sync loop. Do not make endpoints call `gh`.
+If the UI needs fresher data, sync on its read or fix the sync. Do not make endpoints call `gh`.
 
 ## Run / iterate
 
@@ -83,7 +104,9 @@ xcodebuild test -project macos/Cascade.xcodeproj -scheme Cascade \
 - `ffi.rs` - the C ABI the app links: start/stop/request plus the event callback.
 - `routes.rs` - thin handlers; `local/` - files, IDE, worktrees, git and patches, one module each;
   `github.rs` - `gh` wrapper, `lean()`, PR classification; `issues.rs` - GitHub issues as
-  tickets (`gh issue`), searched live for My Tickets and never snapshotted; `jira.rs` - `acli` and
+  tickets (`gh issue`), searched live except for My Tickets' own searches; `kept.rs` - the
+  answers the backend keeps for My Tickets: given at once from the last one stored, searched
+  again behind a look, searched now for a refresh someone asked for; `jira.rs` - `acli` and
   Jira REST: search, the active sprint, transitions, assignment, versions; `poller.rs` - the sync
   engine and merge automation; `warmup.rs` - IDE warm-up; `integrations.rs` - webhook forwarders
   and agent hooks; `settings_file.rs` - the CLIs' JSON settings files, read and written whole;
@@ -135,15 +158,32 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   `AppState` field is its handle. State with no loop and no children of its own (`Usage`,
   `Warmup`, `automation::Limits`) is a value on `AppState` behind a short lock, never held across
   an await. Nothing that depends on an `AppState` lives in a static.
+- **A sync that fails says whose fault it is** (`domain::Fault`). A command's failure carries how
+  it ended (`cli::Failure`: never started, timed out, exited), and each adapter reads the rest
+  from what its CLI printed (`github::fault`, `jira::fault`). `Transient` is the service's: a
+  timeout, the network, a 5xx, a rate limit. The snapshot stands, nothing goes to Activity, and
+  the engine's breaker for that upstream (`poller.rs` `Breaker`) turns background syncs away for
+  a wait that doubles with each failure in a row, 30 seconds up to 15 minutes; a refresh someone
+  asked for still runs. The app hears one `upstream` event when GitHub or Jira stops answering
+  and one when it is back, and `GET /api/upstreams` lists the ones failing. `Permanent` is the
+  request's (a repository that is gone, a sign-in that lapsed): it is the project's error, told
+  once, and that project is then fetched by itself so it does not fail the others' query. What
+  is not recognised is permanent, so an unknown error is shown rather than waited out.
+- **What happened while nobody looked is caught up on, not replayed.** A sync that follows a gap
+  (three poll intervals and a minute, four minutes at least) logs the changes it finds as `quiet` activity
+  and tells them once, in a `prs_caught_up` line that counts them (`poller.rs`
+  `record_lifecycle`); a single change is told as itself. The app keeps a quiet line in Activity
+  and raises no notice for it (`NotificationStore.receiveActivity`). Automations hear every merge
+  either way.
 - **Two PR classifications, different surfaces — don't conflate them** (`github.rs`):
   - **`category`** (`mine`/`review`/`other`) — strictly "I am an *actively requested*
     reviewer". Drives the **tray and its sound**. Keep it narrow: broadening it re-fires
     review sounds. GitHub drops you from `reviewRequests` the moment you submit any
     review, so `category` flips to `other` then.
-  - **`awaitingMyReview`** (`github.rs:313`) — broader "still in my review orbit":
+  - **`awaitingMyReview`** (`github.rs` `enrich`) — broader "still in my review orbit":
     requested **or** I have left any review, non-draft, not mine. Drives the dashboard's
     Review section. Mirror it in any Mine-vs-Review split; never group on raw `category`.
-- **The snapshot is lean** (`github.rs:324`): the app only ever sees fields `lean()` copies
+- **The snapshot is lean** (`github.rs` `lean()`): the app only ever sees fields `lean()` copies
   through. A new `gh` field must be added to both the PR query and `lean()`, or it is
   silently absent client-side.
 - **A new worktree is warmed up, not built cold.** `warmup.rs` prepares the checkout the IDE

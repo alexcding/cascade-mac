@@ -291,13 +291,23 @@ struct APIBoardService: BoardService {
     }
     /// Overlapping requests collapse into one follow-up, and a refresh waits out a drag so the
     /// card being dragged never moves under the pointer.
-    func refresh(force: Bool = false) {
+    func refresh(force: Bool = false) { refresh(force: force, quiet: false) }
+
+    /// A read for someone merely looking (`AppViewModel.attend`), every interval: it shows no
+    /// busy state, leaves alone the error an action just reported, and says nothing if it fails.
+    /// One that meets a load in flight or a drag is dropped: the next look is soon enough.
+    func attend() {
+        guard task == nil, draggingKey == nil else { return }
+        refresh(force: false, quiet: true)
+    }
+
+    private func refresh(force: Bool, quiet: Bool) {
         guard !retired, active else { return }
         // A filter adopted from an earlier version may have landed after this model was made.
         if assigneeFilter.isEmpty, let saved = preferences?.string(forKey: filterKey), !saved.isEmpty { assigneeFilter = saved }
         guard task == nil, draggingKey == nil else { queuedRefresh = (queuedRefresh ?? false) || force; return }
         let generation = generation, service = service
-        loading = true; error = nil
+        if !quiet { loading = true; error = nil }
         task = Task {
             defer {
                 if self.generation == generation {
@@ -307,7 +317,7 @@ struct APIBoardService: BoardService {
             }
             do {
                 try await load(from: service, force: force, generation: generation)
-            } catch { if !Task.isCancelled, self.generation == generation { self.error = error.localizedDescription } }
+            } catch { if !quiet, !Task.isCancelled, self.generation == generation { self.error = error.localizedDescription } }
         }
     }
     private func load(from service: any BoardService, force: Bool, generation: UUID) async throws {

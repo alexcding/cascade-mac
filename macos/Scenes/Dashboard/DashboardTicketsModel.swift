@@ -63,6 +63,9 @@ import Observation
         didSet { if available != (service != nil) { available = service != nil } }
     }
     @ObservationIgnored private var task: Task<Void, Never>?
+    /// A read asked for while one was in flight, as the most that was asked of it: run when
+    /// that one ends, so the answer the backend just reported is not missed.
+    @ObservationIgnored private var queued: TicketRead?
     @ObservationIgnored private var generation = UUID()
 
     func connect(_ service: (any DashboardTicketService)?) {
@@ -72,14 +75,23 @@ import Observation
         refresh()
     }
 
-    func refresh() {
-        guard !retired, let service, task == nil else { return }
+    /// Reads My Tickets again, saying why (`TicketRead`): for someone looking unless told
+    /// otherwise, which shows what the backend stored and lets it search again behind that.
+    func refresh(_ read: TicketRead = .look) {
+        guard !retired, let service else { return }
+        guard task == nil else { queued = max(queued ?? .echo, read); return }
         let generation = generation
-        loading = true
+        // An echo is nobody's refresh: the buttons stay as they are.
+        if read != .echo { loading = true }
         task = Task {
-            defer { if self.generation == generation { task = nil; loading = false } }
+            defer {
+                if self.generation == generation {
+                    task = nil; loading = false
+                    if let read = queued { queued = nil; refresh(read) }
+                }
+            }
             do {
-                let (loaded, warning) = try await service.myTicketsReport()
+                let (loaded, warning) = try await service.myTicketsReport(read)
                 try Task.checkCancellation()
                 guard isCurrent(generation) else { return }
                 self.loaded = loaded
@@ -118,7 +130,7 @@ import Observation
 
     private func cancel() {
         generation = UUID()
-        task?.cancel(); task = nil; loading = false
+        task?.cancel(); task = nil; queued = nil; loading = false
     }
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }

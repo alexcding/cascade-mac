@@ -82,8 +82,8 @@ normal app requests do not use a separate server process. The embedded backend
 also opens an ephemeral loopback port for agent hooks and webhook forwarders,
 recorded in the data directory's `.server-port` file.
 
-GitHub and Jira lists read SQLite snapshots while background polling refreshes
-them. Embedded mode delivers events directly to the app; separate-backend modes
+GitHub and Jira lists read SQLite snapshots, and a read of a stale snapshot syncs
+it in the background. Embedded mode delivers events directly to the app; separate-backend modes
 use server-sent events. Preserve this snapshot model when adding data to a screen.
 
 For debugging, set launch arguments in the Xcode scheme:

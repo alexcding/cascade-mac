@@ -81,6 +81,24 @@ private func activity(_ stamp: String, type: String = "pr_merged", url: String =
     return try JSONDecoder().decode(ActivityEvent.self, from: data)
 }
 
+/// One of several changes caught up on after a gap is history: it joins the recent list and
+/// raises no toast and no notification, focused or not.
+@MainActor @Test func aQuietActivityLineIsRecordedWithoutANotice() async throws {
+    let recorder = RecordingNotifications()
+    let store = NotificationStore()
+    store.configure(recorder)
+    let data = try JSONSerialization.data(withJSONObject: ["type": "pr_opened", "created_at": "quiet",
+        "payload": ["repo": "owner/repo", "pr": ["number": 1, "title": "A change"], "quiet": true]])
+    let quiet = try JSONDecoder().decode(ActivityEvent.self, from: data)
+    for focused in [true, false] {
+        store.isMainWindowFocused = { focused }
+        store.receiveActivity(quiet, enabled: true)
+        await store.waitForDelivery()
+    }
+    #expect(store.toast == nil && recorder.notices.isEmpty && store.recent.count == 1)
+    await store.stop()
+}
+
 @MainActor @Test func activityHasOneSurfaceDeduplicatesAndKeepsBoundedRecentHistory() async throws {
     let recorder = RecordingNotifications()
     let store = NotificationStore()

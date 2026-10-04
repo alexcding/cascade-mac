@@ -63,9 +63,16 @@ async fn project_task_and_dashboard_contracts_round_trip() {
     assert_eq!(tasks[0]["id"], "session-1");
     assert_eq!(tasks[0]["pinned"], false);
 
-    let (_, dashboard) = json_request(&app, "GET", "/api/dashboard", Value::Null).await;
+    // The read syncs the stale project behind it: under a scripted `gh` that answers nothing,
+    // never the real one.
+    let runner = std::sync::Arc::new(cascade_backend::cli::ScriptedRunner::new());
+    let (_, dashboard) = cascade_backend::cli::scoped(runner, json_request(&app, "GET", "/api/dashboard", Value::Null)).await;
     assert_eq!(dashboard[0]["id"], id);
     assert_eq!(dashboard[0]["prs"], json!([]));
+
+    // No service is failing: the list of unreachable ones is empty.
+    let (status, upstreams) = json_request(&app, "GET", "/api/upstreams", Value::Null).await;
+    assert_eq!((status, upstreams), (StatusCode::OK, json!({})));
 }
 
 #[tokio::test]

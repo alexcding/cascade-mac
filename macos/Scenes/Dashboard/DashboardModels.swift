@@ -272,12 +272,34 @@ enum TicketPriority: String, CaseIterable, Identifiable, Sendable {
 }
 
 protocol DashboardService: Sendable {
+    /// The stored snapshot, and nothing more: what a read made because the backend said a sync
+    /// changed something asks for. It never starts a sync.
     func snapshot() async throws -> [DashboardProject]
+    /// The stored snapshot for someone looking at it: the backend answers the same, and syncs
+    /// behind the answer what has gone stale.
+    func look() async throws -> [DashboardProject]
     func syncPRs() async throws
+    /// The services the backend's syncs cannot reach right now, by name (`github`, `jira`).
+    func unreachable() async throws -> Set<String>
 }
 
 extension DashboardService {
+    func look() async throws -> [DashboardProject] { try await snapshot() }
     func syncPRs() async throws {}
+    func unreachable() async throws -> Set<String> { [] }
+}
+
+/// Why My Tickets is read, which decides what the backend does for it. The backend answers each
+/// search from what it stored last time; the order is how much more it does.
+enum TicketRead: Int, Comparable, Sendable {
+    /// The backend said the answers changed (a `sync` of scope `tickets`): what is stored, and
+    /// no search. This read must never start one, or each change's report would start the next.
+    case echo
+    /// Someone is looking: what is stored, and a search behind it when one is due.
+    case look
+    /// Someone pressed Refresh: a search now, waited for.
+    case now
+    static func < (a: TicketRead, b: TicketRead) -> Bool { a.rawValue < b.rawValue }
 }
 
 /// The dashboard's Tickets section: the Jira tickets and GitHub issues assigned to the user across
@@ -287,18 +309,27 @@ protocol DashboardTicketService: Sendable {
     /// The tickets, and what one source could not load while another did. Throws only when
     /// every source failed.
     func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?)
+    /// The same, saying why it is read (`TicketRead`).
+    func myTicketsReport(_ read: TicketRead) async throws -> (rows: [DashboardTicketRow], warning: String?)
 }
 
 extension DashboardTicketService {
     func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) { (try await myTickets(), nil) }
+    func myTicketsReport(_ read: TicketRead) async throws -> (rows: [DashboardTicketRow], warning: String?) { try await myTicketsReport() }
 }
 
 struct APIDashboardService: DashboardService, DashboardTicketService {
     static let myTicketsJQL = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
     let api: APIClient
     func snapshot() async throws -> [DashboardProject] { try await api.get(Routes.DASHBOARD) }
+    func look() async throws -> [DashboardProject] { try await api.get(APIClient.query(Routes.DASHBOARD, ["look": "1"])) }
     func syncPRs() async throws {
         let _: OperationOK = try await api.request(APIClient.query(Routes.POLL, ["scope": "prs"]), method: "POST", body: [String: String]())
+    }
+    func unreachable() async throws -> Set<String> {
+        struct Failing: Decodable { let retryIn: Int }
+        let failing: [String: Failing] = try await api.get(Routes.UPSTREAMS)
+        return Set(failing.keys)
     }
     /// My Tickets' issues in two searches, so the user's own are never crowded out: every open
     /// issue assigned to them, and the most recently touched of everyone else's, capped.
@@ -313,10 +344,11 @@ struct APIDashboardService: DashboardService, DashboardTicketService {
     }
     /// Jira, the user's issues and everyone else's, at once and apart: any one failing leaves the
     /// others' rows, with its error in the warning, so the user's own never vanish with the rest.
-    func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) {
-        async let jira = Self.attempt { Found(rows: try await myJiraTickets()) }
-        async let mine = Self.attempt { try await issues(Self.myIssuesQuery, limit: 200) }
-        async let others = Self.attempt { try await issues(Self.othersIssuesQuery, limit: Self.othersIssuesLimit) }
+    func myTicketsReport() async throws -> (rows: [DashboardTicketRow], warning: String?) { try await myTicketsReport(.now) }
+    func myTicketsReport(_ read: TicketRead) async throws -> (rows: [DashboardTicketRow], warning: String?) {
+        async let jira = Self.attempt { Found(rows: try await myJiraTickets(read)) }
+        async let mine = Self.attempt { try await issues(Self.myIssuesQuery, limit: 200, read: read) }
+        async let others = Self.attempt { try await issues(Self.othersIssuesQuery, limit: Self.othersIssuesLimit, read: read) }
         let results = [(TicketSource.jira.label, await jira),
                        (String(localized: "Your GitHub issues"), await mine),
                        (String(localized: "Other GitHub issues"), await others)]
@@ -340,18 +372,21 @@ struct APIDashboardService: DashboardService, DashboardTicketService {
     private static func attempt(_ body: @Sendable () async throws -> Found) async -> Result<Found, any Error> {
         do { return .success(try await body()) } catch { return .failure(error) }
     }
-    private func myJiraTickets() async throws -> [DashboardTicketRow] {
+    private func myJiraTickets(_ read: TicketRead) async throws -> [DashboardTicketRow] {
         let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
         guard let base = URL(string: site.baseUrl) else { return [] }
-        let result: TicketSnapshot = try await api.request(Routes.JIRA_SEARCH, method: "POST", body: ["jql": Self.myTicketsJQL])
+        struct Body: Encodable, Sendable { let jql: String; let kept = true; let look: Bool; let fresh: Bool }
+        let body = Body(jql: Self.myTicketsJQL, look: read == .look, fresh: read == .now)
+        let result: TicketSnapshot = try await api.request(Routes.JIRA_SEARCH, method: "POST", body: body)
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         return result.items.map { DashboardTicketRow(ticket: $0, url: base.appending(path: "browse").appending(path: $0.key)) }
     }
     /// Open issues in the project repos that list their issues, each marked `mine` by the backend,
     /// with the backend's warning when it could not tell whose they are.
-    private func issues(_ query: String, limit: Int) async throws -> Found {
-        struct Body: Encodable, Sendable { let query: String; let allProjects = true; let limit: Int }
-        let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: Body(query: query, limit: limit), timeout: 60)
+    private func issues(_ query: String, limit: Int, read: TicketRead) async throws -> Found {
+        struct Body: Encodable, Sendable { let query: String; let allProjects = true; let limit: Int; let kept = true; let look: Bool; let fresh: Bool }
+        let body = Body(query: query, limit: limit, look: read == .look, fresh: read == .now)
+        let result: TicketSnapshot = try await api.request(Routes.ISSUES_SEARCH, method: "POST", body: body, timeout: 60)
         if let error = result.error, !error.isEmpty { throw DashboardTicketError.search(error) }
         let rows = result.items.compactMap { ticket in
             ticket.url.flatMap(safeWebURL).map { DashboardTicketRow(ticket: ticket, url: $0) }

@@ -161,7 +161,10 @@ import Observation
             switch destination { case .session, .terminal: WorkspaceSwitchSignpost.begin(); default: break }
         }
         routingError = nil
+        // The backend syncs snapshots when they are read stale, so arriving is what refreshes them.
+        let arriving = destination == .overview && selection != destination
         selection = destination
+        if arriving { dashboardCoordinator?.model.reload() }
         for (id, child) in projectCoordinators { child.model.active = destination == .project(id) }
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()

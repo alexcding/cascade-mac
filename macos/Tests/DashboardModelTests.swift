@@ -16,6 +16,11 @@ private actor ModelFixture: DashboardService, DashboardTicketService {
     }
     func snapshot() async throws -> [DashboardProject] { reads += 1; return projects }
     func myTickets() async throws -> [DashboardTicketRow] { ticketReads += 1; return tickets }
+    var ticketWhys: [TicketRead] = []
+    func myTicketsReport(_ read: TicketRead) async throws -> (rows: [DashboardTicketRow], warning: String?) {
+        ticketWhys.append(read)
+        return (try await myTickets(), nil)
+    }
 }
 
 /// A snapshot source whose first call blocks until released, so a test can start it, start a
@@ -550,4 +555,35 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     let request = row.openPageRequest
     #expect(request.projectID == "p" && request.branch == "REC-1-fix" && request.jiraKeys == ["REC-1"])
     await model.stop()
+}
+
+/// My Tickets says why it reads: connecting and opening the dashboard are looks, the Refresh
+/// button asks for a search now, and the read that answers the backend's report of a change is
+/// an echo, which must start no search.
+@MainActor @Test func myTicketsSaysWhyItReads() async throws {
+    let fixture = ModelFixture()
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    // Waits for the read just asked for to have been made and finished: an echo shows no busy
+    // state to wait on, so the count of reads is what says it ran.
+    func settled(_ reads: Int) async throws {
+        for _ in 0..<300 {
+            if await fixture.ticketWhys.count == reads, !model.tickets.loading { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    model.connect(fixture)
+    try await settled(1)
+    model.tickets.refresh(.now)
+    try await settled(2)
+    model.tickets.refresh(.echo)
+    #expect(!model.tickets.loading, "an echo is nobody's refresh")
+    try await settled(3)
+    model.reload()
+    try await settled(4)
+    model.reload(look: false)
+    try await settled(5)
+    #expect(await fixture.ticketWhys == [.look, .now, .echo, .look, .echo])
+    await model.stop()
+    model.retire()
 }

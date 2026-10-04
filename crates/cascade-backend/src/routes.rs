@@ -321,6 +321,16 @@ fn poll_targets(scope: Option<&str>) -> (bool, bool) {
     (scope != "jira", scope != "prs")
 }
 
+/// The services that are failing, by name, each with the seconds until a background sync may
+/// ask it again; one that answers is not listed. What the `upstream` event says changed.
+pub async fn upstreams(State(app): State<AppState>) -> ApiResult<Value> {
+    let mut failing = serde_json::Map::new();
+    for (upstream, retry_in) in app.poller.unreachable().await {
+        failing.insert(upstream.name().into(), json!({ "retryIn": retry_in }));
+    }
+    Ok(Json(Value::Object(failing)))
+}
+
 pub async fn project_board(
     State(app): State<AppState>,
     Path(id): Path<String>,
@@ -344,15 +354,18 @@ pub async fn project_board(
         let copy = app.clone();
         tokio::spawn(async move {
             let poller = copy.poller.clone();
-            poller.sync_board(&copy, &project).await;
+            poller.sync_stale_board(&copy, &project).await;
         });
     }
     Ok(Json(app.db.jira_snapshot(&key).await?.unwrap_or_else(||json!({"items":[],"jql":"","lastSynced":null,"error":null,"sprint":null,"query":"","columns":null}))))
 }
 
-/// A live issue search (never snapshotted) over `repos`, or with `allProjects` over every project
-/// repo that lists its issues: `#123` or `123` looks one issue up in each repo, anything else is a
-/// GitHub search. With `allProjects` and no such repo, the result is empty rather than an error.
+/// An issue search over `repos`, or with `allProjects` over every project repo that lists its
+/// issues: `#123` or `123` looks one issue up in each repo, anything else is a GitHub search.
+/// With `allProjects` and no such repo, the result is empty rather than an error. It is live,
+/// unless the body says `kept`: My Tickets' searches are answered from the last answer stored,
+/// searched again behind it for someone looking (`look`), and searched now for a refresh
+/// someone asked for (`fresh`; `kept::answer`).
 pub async fn issues_search(
     State(app): State<AppState>,
     Json(body): Json<Value>,
@@ -393,18 +406,44 @@ pub async fn issues_search(
         .and_then(Value::as_u64)
         .unwrap_or(50)
         .clamp(1, 200) as usize;
-    let mut items = crate::issues::search_repos(&repos, query, limit)
-        .await
-        .map_err(ApiError::internal)?;
+    if !kept(&body) {
+        return Ok(Json(search_issues(repos, query.to_owned(), limit).await.map_err(ApiError::internal)?));
+    }
+    let id = format!("kept:issues:{limit}:{}:{query}", repos.join(","));
+    let pace = Duration::from_secs(crate::poller::jira_poll_interval(&app).await);
+    let query = query.to_owned();
+    let search = move || search_issues(repos, query, limit);
+    let answer = crate::kept::answer(&app, id, read(&body), pace, crate::github::fault, search).await;
+    Ok(Json(answer.map_err(ApiError::internal)?))
+}
+
+/// Whether a search is one the backend keeps the answer to.
+fn kept(body: &Value) -> bool {
+    body.get("kept").and_then(Value::as_bool).unwrap_or(false)
+}
+
+/// Why a kept search is read: `fresh` for a refresh someone asked for, `look` for someone
+/// looking, and neither for the app's echo of a change the backend reported.
+fn read(body: &Value) -> crate::kept::Read {
+    let says = |key: &str| body.get(key).and_then(Value::as_bool).unwrap_or(false);
+    if says("fresh") {
+        crate::kept::Read::Now
+    } else if says("look") {
+        crate::kept::Read::Look
+    } else {
+        crate::kept::Read::Echo
+    }
+}
+
+async fn search_issues(repos: Vec<String>, query: String, limit: usize) -> anyhow::Result<Value> {
+    let mut items = crate::issues::search_repos(&repos, &query, limit).await?;
     let login = crate::github::cached_login().await;
     crate::issues::mark_mine(&mut items, login.as_deref());
     // Without a login nothing can be marked the user's: say so rather than show all as others'.
     let warning = login
         .is_none()
         .then_some("GitHub didn’t say who is signed in, so no issue could be marked yours. Run gh auth login.");
-    Ok(Json(
-        json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null,"warning":warning}),
-    ))
+    Ok(json!({"items":items,"jql":query,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null,"warning":warning}))
 }
 
 pub async fn issue_lookup(Query(query): Query<PathQuery>) -> ApiResult<Value> {
@@ -414,8 +453,12 @@ pub async fn issue_lookup(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     }))
 }
 
-pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
-    let jql = body.get("jql").and_then(Value::as_str).unwrap_or("").trim();
+/// A Jira search: live, unless the body says `kept`, as `issues_search`.
+pub async fn jira_search(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
+    let jql = body.get("jql").and_then(Value::as_str).unwrap_or("").trim().to_owned();
     if jql.is_empty() {
         return Err(ApiError::bad_request("jql is required"));
     }
@@ -424,12 +467,19 @@ pub async fn jira_search(Json(body): Json<Value>) -> ApiResult<Value> {
         .and_then(Value::as_u64)
         .unwrap_or(50)
         .clamp(1, 200) as usize;
-    let items = crate::jira::search_jira(jql, limit)
-        .await
-        .map_err(ApiError::internal)?;
-    Ok(Json(
-        json!({"items":items,"jql":jql,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null}),
-    ))
+    if !kept(&body) {
+        return Ok(Json(search_jira(jql, limit).await.map_err(ApiError::internal)?));
+    }
+    let id = format!("kept:jira:{limit}:{jql}");
+    let pace = Duration::from_secs(crate::poller::jira_poll_interval(&app).await);
+    let search = move || search_jira(jql, limit);
+    let answer = crate::kept::answer(&app, id, read(&body), pace, crate::jira::fault, search).await;
+    Ok(Json(answer.map_err(ApiError::internal)?))
+}
+
+async fn search_jira(jql: String, limit: usize) -> anyhow::Result<Value> {
+    let items = crate::jira::search_jira(&jql, limit).await?;
+    Ok(json!({"items":items,"jql":jql,"lastSynced":chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis,true),"error":null}))
 }
 pub async fn jira_transition(
     State(app): State<AppState>,
@@ -466,13 +516,62 @@ pub async fn jira_assign(
     Ok(Json(json!({"ok":true})))
 }
 
-pub async fn prs_tray(State(state): State<AppState>) -> ApiResult<Value> {
+/// How old a snapshot as a read saw it is, for `sync_behind`; none for one never synced, and
+/// for one stamped in the future (the clock was set back), which is no stamp to go by.
+fn age(snapshot: &crate::PrSnapshot) -> Option<Duration> {
+    chrono::Utc::now().signed_duration_since(snapshot.synced_at()?).to_std().ok()
+}
+
+/// A read of pull request snapshots says whether someone is looking (`?look=1`). The app reads
+/// the same snapshots for two reasons: because someone looks at them (a screen opened, the app
+/// came to the front, the tray opened, a screen kept in view for another interval), and because
+/// the backend just said a sync changed them. Only the first may start a sync. The second is
+/// the echo of one, and an echo that could start a sync is a loop waiting for syncs slow enough
+/// to close it; told apart by the app, which knows why it reads, no timing has to guess.
+#[derive(Default, Deserialize)]
+pub struct LookQuery {
+    look: Option<String>,
+}
+
+/// Syncs behind a look the pull requests it showed, each project with its snapshot's age: the
+/// read has answered from the snapshots already, and the app hears a `sync` for each project
+/// synced. The engine keeps the pace (`Poller::sync_stale`), a second short of the poll
+/// interval so that a look an interval after the last one finds a sync due; most looks start
+/// nothing.
+fn sync_behind(state: &AppState, look: &LookQuery, shown: Vec<(Project, Option<Duration>)>) {
+    if look.look.is_none() || shown.is_empty() {
+        return;
+    }
+    let app = state.clone();
+    let runner = crate::cli::inherited();
+    tokio::spawn(async move {
+        let poller = app.poller.clone();
+        let sync = async {
+            let pace = Duration::from_secs(crate::poller::poll_interval(&app).await - 1);
+            poller.sync_stale(&app, shown, pace).await
+        };
+        match runner {
+            Some(runner) => crate::cli::scoped(runner, sync).await,
+            None => sync.await,
+        }
+    });
+}
+
+/// Every project's open pull requests in one list, as stored, with what the tray needs of a
+/// review beside each; a look syncs behind itself the snapshots due one, as the dashboard's
+/// does, so opening the tray is enough to refresh it.
+pub async fn prs_tray(
+    State(state): State<AppState>,
+    Query(look): Query<LookQuery>,
+) -> ApiResult<Value> {
     let mut items = Vec::new();
+    let mut shown = Vec::new();
     for project in state.db.projects().await? {
         let snapshot = state
             .db
             .pr_snapshot(&project.id, "open", None).await?
             .unwrap_or_default();
+        shown.push((project.clone(), age(&snapshot)));
         for mut pr in snapshot.prs {
             let Some(object) = pr.as_object_mut() else {
                 continue;
@@ -506,6 +605,7 @@ pub async fn prs_tray(State(state): State<AppState>) -> ApiResult<Value> {
             items.push(pr);
         }
     }
+    sync_behind(&state, &look, shown);
     Ok(Json(Value::Array(items)))
 }
 
@@ -524,13 +624,20 @@ pub async fn pr_viewed(State(state): State<AppState>, Json(body): Json<Value>) -
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn dashboard(State(state): State<AppState>) -> ApiResult<Value> {
+/// Every project's pull request snapshot, as stored; behind a look, the ones due a sync are
+/// synced in the background, together (`sync_behind`), and the app hears a `sync` for each.
+pub async fn dashboard(
+    State(state): State<AppState>,
+    Query(look): Query<LookQuery>,
+) -> ApiResult<Value> {
     let mut result = Vec::new();
+    let mut shown = Vec::new();
     for project in state.db.projects().await? {
         let snapshot = state
             .db
             .pr_snapshot(&project.id, "open", None).await?
             .unwrap_or_default();
+        shown.push((project.clone(), age(&snapshot)));
         // The project's own fields, with its snapshot beside them: one row of the dashboard.
         let mut row = project.to_value();
         let object = row.as_object_mut().expect("a project serializes to an object");
@@ -539,6 +646,7 @@ pub async fn dashboard(State(state): State<AppState>) -> ApiResult<Value> {
         object.insert("syncError".into(), json!(snapshot.error));
         result.push(row);
     }
+    sync_behind(&state, &look, shown);
     Ok(Json(Value::Array(result)))
 }
 

@@ -39,10 +39,13 @@ import Observation
     }
 
     /// Everything the dashboard shows, side by side: the PR snapshot and Jira load independently.
-    func reload() {
+    /// `look`: someone is looking at the dashboard (the default), so the backend may sync
+    /// behind the read.
+    func reload(look: Bool = true) {
         guard !retired else { return }
-        prs.refresh()
-        tickets.refresh()
+        prs.refresh(look: look)
+        prs.refreshUnreachable()
+        tickets.refresh(look ? .look : .echo)
     }
 
     /// Both children cancel before the first suspension, so no load queued behind this call can

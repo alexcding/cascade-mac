@@ -97,7 +97,9 @@ import Observation
         let notice = event.message
         recent.insert(notice, at: 0)
         if recent.count > 20 { recent.removeLast(recent.count - 20) }
-        guard enabled else { return }
+        // A quiet line is history, one of several caught up on at once: the line that counts
+        // them is the notice.
+        guard enabled, event.payload?.quiet != true else { return }
         if isMainWindowFocused() { showToast(notice) }
         else { deliver([notice]) }
     }

@@ -31,6 +31,15 @@ import Observation
     /// them; a login with none yet shows its initials.
     private(set) var avatars: [String: NSImage] = [:]
     private(set) var warnings: [String] = []
+    /// When the pull requests shown were last synced with GitHub: the oldest sync among the
+    /// projects that have one, so the age said is never younger than any of what is shown. A
+    /// project whose sync is failing says so itself and is left out, or its last success, weeks
+    /// back, would be the age of everything.
+    private(set) var synced: Date?
+    /// GitHub is not answering the backend's syncs: what is shown is what was saved. Said once
+    /// here, where each project would otherwise say it for itself. Read apart from the snapshot
+    /// (`refreshUnreachable`), so a snapshot event still costs one read.
+    private(set) var unreachable = false
     private(set) var loading = false
     /// A forced GitHub sync, apart from `loading`: a snapshot read finishing mid-sync must not
     /// re-enable the refresh button while the sync still runs.
@@ -46,7 +55,10 @@ import Observation
     @ObservationIgnored private var service: (any DashboardService)?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var syncTask: Task<Void, Never>?
+    @ObservationIgnored private var unreachableTask: Task<Void, Never>?
     @ObservationIgnored private var refreshPending = false
+    /// Whether a read waiting its turn is a look, which the backend may sync behind.
+    @ObservationIgnored private var lookPending = false
     @ObservationIgnored private var generation = UUID()
     /// Orders snapshot reads: a read deriving off the main actor can finish after a later one, and
     /// must not overwrite what the later one published.
@@ -66,21 +78,43 @@ import Observation
         guard !retired else { return }
         cancel()
         self.service = service
-        refresh()
+        refresh(look: true)
+        refreshUnreachable()
     }
 
-    func refresh() {
+    /// Asks which services the backend cannot reach: on connecting, on a full reload, and
+    /// whenever the backend says that changed (an `upstream` event). The latest ask wins.
+    func refreshUnreachable() {
+        guard !retired, let service else { return }
+        let generation = generation
+        unreachableTask?.cancel()
+        unreachableTask = Task {
+            let down = ((try? await service.unreachable()) ?? []).contains("github")
+            guard !Task.isCancelled, isCurrent(generation) else { return }
+            if unreachable != down { unreachable = down }
+        }
+    }
+
+    /// Reads the snapshot again. `quiet`: without the busy state, for a read nobody asked for
+    /// by hand (a look every interval, a sync the backend reported), so the refresh buttons do
+    /// not blink each time. `look`: someone is looking at the dashboard, so the backend may sync
+    /// behind the read; a read made because the backend said a sync changed something is not a
+    /// look, and must not be one, or each sync's report would start the next sync.
+    func refresh(quiet: Bool = false, look: Bool = false) {
         guard !retired, let service else { return }
         refreshPending = true
+        if look { lookPending = true }
+        if !quiet { loading = true }
         guard refreshTask == nil else { return }
         let generation = generation
-        loading = true
         refreshTask = Task {
             defer { if self.generation == generation { refreshTask = nil; loading = false } }
             while refreshPending && !Task.isCancelled && self.generation == generation {
                 refreshPending = false
+                let look = lookPending
+                lookPending = false
                 do {
-                    try await load(from: service, generation: generation)
+                    try await load(from: service, look: look, generation: generation)
                 } catch {
                     if !Task.isCancelled && self.generation == generation { self.error = error.localizedDescription }
                 }
@@ -98,7 +132,7 @@ import Observation
                 try await service.syncPRs()
                 try Task.checkCancellation()
                 guard isCurrent(generation) else { return }
-                try await load(from: service, generation: generation)
+                try await load(from: service, look: false, generation: generation)
             } catch {
                 if !Task.isCancelled && self.generation == generation { self.error = error.localizedDescription }
             }
@@ -111,7 +145,7 @@ import Observation
 
     /// Cancels at once, before any suspension, and hands back the loads still winding down.
     func halt() -> [Task<Void, Never>] {
-        let pending = [refreshTask, syncTask].compactMap { $0 }
+        let pending = [refreshTask, syncTask, unreachableTask].compactMap { $0 }
         cancel()
         service = nil
         return pending
@@ -128,18 +162,19 @@ import Observation
 
     private func cancel() {
         generation = UUID()
-        refreshTask?.cancel(); refreshTask = nil; refreshPending = false; loading = false
+        refreshTask?.cancel(); refreshTask = nil; refreshPending = false; lookPending = false; loading = false
         syncTask?.cancel(); syncTask = nil; syncing = false
+        unreachableTask?.cancel(); unreachableTask = nil
     }
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }
 
     /// Read the snapshot, build its display lists off the main actor, then publish them together
     /// before telling the owner.
-    private func load(from service: any DashboardService, generation: UUID) async throws {
+    private func load(from service: any DashboardService, look: Bool, generation: UUID) async throws {
         loadSequence &+= 1
         let sequence = loadSequence
-        let projects = try await service.snapshot()
+        let projects = try await (look ? service.look() : service.snapshot())
         try Task.checkCancellation()
         guard isCurrent(generation), sequence > publishedSequence else { return }
         guard self.projects != projects else { publishedSequence = sequence; updated = Date(); error = nil; return }
@@ -160,6 +195,7 @@ import Observation
         // Every snapshot, not only a changed tile: a fetch that failed may retry after a minute.
         updateAvatars()
         if warnings != snapshot.warnings { warnings = snapshot.warnings }
+        if synced != snapshot.synced { synced = snapshot.synced }
         updateGroups()
         onChange()
     }
@@ -210,6 +246,7 @@ extension DashboardPullRequestsModel {
         var tile = Tile()
         var reviewTile = ReviewTile()
         var warnings: [String] = []
+        var synced: Date?
     }
 
     /// Everything the views read from a snapshot, worked out once per snapshot and away from the
@@ -245,6 +282,13 @@ extension DashboardPullRequestsModel {
             if project.lastSynced == nil, project.syncError == nil { messages.append(String(localized: "\(project.name): waiting for the first sync.")) }
             return messages
         }
+        // The backend stamps to the millisecond; a stamp without them reads too.
+        let precise = ISO8601DateFormatter(), plain = ISO8601DateFormatter()
+        precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        snapshot.synced = projects.compactMap { project -> Date? in
+            guard !project.repo.isEmpty, project.syncError == nil, let stamp = project.lastSynced else { return nil }
+            return precise.date(from: stamp) ?? plain.date(from: stamp)
+        }.min()
         return snapshot
     }
 

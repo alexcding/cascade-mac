@@ -21,7 +21,7 @@ struct DashboardTicketsView: View {
                     HStack(spacing: 8) {
                         authors
                         projectMenu
-                        DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: model.tickets.refresh)
+                        DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: { model.tickets.refresh(.now) })
                     }
                     .padding(.bottom, 6)
                 }

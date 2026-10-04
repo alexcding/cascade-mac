@@ -24,6 +24,64 @@ pub struct Invocation {
     pub duration: Duration,
 }
 
+/// How a command gave no answer. A caller that treats a service it could not reach differently
+/// from a request the service refused reads it with `Failure::of`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Failure {
+    /// The program could not be started.
+    Start,
+    /// It ran past its time and its group was killed.
+    TimedOut,
+    /// It exited with a status nobody accepted; the code is none when a signal ended it.
+    Exited(Option<i32>),
+}
+
+impl Failure {
+    /// How the command behind `error` failed, when a command is what failed: an error from
+    /// anything else (a reply that did not parse, say) has none.
+    pub fn of(error: &anyhow::Error) -> Option<Failure> {
+        error.downcast_ref::<Failed>().map(|failed| failed.failure)
+    }
+}
+
+/// A command's failure as an error: its text is what the command said, or what became of it.
+/// A test scripts one from the text alone (`"…".into()`), which reads as an exit with status 1,
+/// or as a timeout with `Failed::timed_out`.
+#[derive(Debug, Clone)]
+pub struct Failed {
+    failure: Failure,
+    message: String,
+}
+
+impl Failed {
+    pub fn timed_out(program: &str, duration: Duration) -> Self {
+        Self {
+            failure: Failure::TimedOut,
+            message: format!("{program} timed out after {}s", duration.as_secs()),
+        }
+    }
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Failed {}
+
+impl From<String> for Failed {
+    fn from(message: String) -> Self {
+        Self { failure: Failure::Exited(Some(1)), message }
+    }
+}
+
+impl From<&str> for Failed {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
 /// The one seam over processes. Production spawns them (`ProcessRunner`); a test scripts them
 /// (`ScriptedRunner`, installed with `scoped`).
 pub trait CommandRunner: Send + Sync {
@@ -63,7 +121,7 @@ impl CommandRunner for ProcessRunner {
     }
 }
 
-type Script = Box<dyn Fn(&[OsString]) -> Option<Result<Vec<u8>, String>> + Send + Sync>;
+type Script = Box<dyn Fn(&[OsString]) -> Option<Result<Vec<u8>, Failed>> + Send + Sync>;
 
 /// A runner for tests: each program is answered by the first script that has something for its
 /// arguments, and everything asked is kept for the test to check.
@@ -82,7 +140,7 @@ impl ScriptedRunner {
     pub fn on(
         mut self,
         program: &str,
-        answer: impl Fn(&[OsString]) -> Option<Result<Vec<u8>, String>> + Send + Sync + 'static,
+        answer: impl Fn(&[OsString]) -> Option<Result<Vec<u8>, Failed>> + Send + Sync + 'static,
     ) -> Self {
         self.scripts.push((program.to_owned(), Box::new(answer)));
         self
@@ -99,7 +157,7 @@ impl CommandRunner for ScriptedRunner {
             for (program, answer) in &self.scripts {
                 if *program == invocation.program {
                     if let Some(result) = answer(&invocation.args) {
-                        return result.map_err(|message| anyhow!(message));
+                        return result.map_err(anyhow::Error::new);
                     }
                 }
             }
@@ -226,7 +284,7 @@ async fn wait_or_kill(program: &str, child: Child, duration: Duration) -> Result
             result.with_context(|| format!("wait for {program}"))
         }
         _ = tokio::time::sleep(duration) => {
-            Err(anyhow!("{program} timed out after {}s", duration.as_secs()))
+            Err(Failed::timed_out(program, duration).into())
         }
     }
 }
@@ -723,7 +781,7 @@ where
     };
     tokio::time::timeout(duration, read)
         .await
-        .map_err(|_| anyhow!("{program} timed out after {}s", duration.as_secs()))?
+        .map_err(|_| Failed::timed_out(program, duration))?
 }
 
 /// Stdout of a command that must exit 0 (or with a code in `accept`). Input is written from its
@@ -780,9 +838,10 @@ async fn spawn_output(invocation: Invocation) -> Result<Vec<u8>> {
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let mut child = command
-        .spawn()
-        .with_context(|| format!("start {program}"))?;
+    let mut child = command.spawn().map_err(|error| Failed {
+        failure: Failure::Start,
+        message: format!("start {program}: {error}"),
+    })?;
     if let (Some(mut stdin), Some(input)) = (child.stdin.take(), input) {
         // A child that exits without reading it all breaks the pipe; its exit status says more.
         tokio::spawn(async move {
@@ -793,11 +852,15 @@ async fn spawn_output(invocation: Invocation) -> Result<Vec<u8>> {
     let accepted = output.status.code().is_some_and(|code| accept.contains(&code));
     if !output.status.success() && !accepted {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Err(anyhow!(if stderr.is_empty() {
-            format!("{program} exited {}", output.status)
-        } else {
-            stderr
-        }));
+        return Err(Failed {
+            failure: Failure::Exited(output.status.code()),
+            message: if stderr.is_empty() {
+                format!("{program} exited {}", output.status)
+            } else {
+                stderr
+            },
+        }
+        .into());
     }
     Ok(output.stdout)
 }
@@ -805,6 +868,30 @@ async fn spawn_output(invocation: Invocation) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed command says how it failed, apart from its text: a caller tells a service that
+    /// did not answer from a request that was refused without reading the message.
+    #[tokio::test]
+    async fn a_failed_command_says_whether_it_timed_out_exited_or_never_started() {
+        let slow = run("sh", ["-c", "sleep 5"], Duration::from_millis(100)).await.unwrap_err();
+        assert_eq!(Failure::of(&slow), Some(Failure::TimedOut));
+        assert_eq!(slow.to_string(), "sh timed out after 0s");
+        let refused = run("sh", ["-c", "echo no >&2; exit 3"], Duration::from_secs(5)).await.unwrap_err();
+        assert_eq!(Failure::of(&refused), Some(Failure::Exited(Some(3))));
+        assert_eq!(refused.to_string(), "no");
+        let missing = run("/nonexistent/cascade-test-program", [""; 0], Duration::from_secs(5)).await.unwrap_err();
+        assert_eq!(Failure::of(&missing), Some(Failure::Start));
+        assert_eq!(Failure::of(&anyhow!("a reply that did not parse")), None);
+        // A scripted failure is an exit unless the script says it timed out.
+        let runner = Arc::new(ScriptedRunner::new().on("gh", |args| {
+            Some(if args.is_empty() { Err("refused".into()) } else { Err(Failed::timed_out("gh", Duration::from_secs(20))) })
+        }));
+        let exited = scoped(runner.clone(), run("gh", [""; 0], Duration::from_secs(1))).await.unwrap_err();
+        assert_eq!(Failure::of(&exited), Some(Failure::Exited(Some(1))));
+        let timed_out = scoped(runner, run("gh", ["api"], Duration::from_secs(1))).await.unwrap_err();
+        assert_eq!(Failure::of(&timed_out), Some(Failure::TimedOut));
+        assert_eq!(timed_out.to_string(), "gh timed out after 20s");
+    }
 
     #[tokio::test]
     async fn a_scripted_runner_answers_in_place_of_a_process_and_keeps_what_was_asked() {

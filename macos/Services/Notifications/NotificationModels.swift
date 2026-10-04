@@ -37,6 +37,13 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         var mode: String? = nil
         /// `hooks_updated` and `hooks_update_failed`: the agent CLI whose hooks the app updated.
         var cli: String? = nil
+        /// One of several changes the backend found after a gap: it belongs in Activity, and
+        /// the `prs_caught_up` line that counts them is the one notice.
+        var quiet: Bool? = nil
+        /// `prs_caught_up`: how many pull requests were opened, closed and merged meanwhile.
+        var opened: Int? = nil
+        var closed: Int? = nil
+        var merged: Int? = nil
     }
     let type: String
     let payload: Payload?
@@ -72,6 +79,12 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case "jira_fixversion_set": title = String(localized: "Fix Version \(p?.version ?? "?") set"); body = p?.key ?? ""
         case "jira_transition_failed": title = String(localized: "Failed to transition \(p?.key ?? String(localized: "Ticket"))"); body = p?.error ?? ""
         case "jira_fixversion_failed": title = String(localized: "Failed to set Fix Version"); body = p?.error ?? ""
+        case "prs_caught_up":
+            title = String(localized: "Pull requests changed in \(repo)")
+            let opened = p?.opened ?? 0, merged = p?.merged ?? 0, closed = p?.closed ?? 0
+            body = [opened > 0 ? String(localized: "\(opened) opened") : nil,
+                    merged > 0 ? String(localized: "\(merged) merged") : nil,
+                    closed > 0 ? String(localized: "\(closed) closed") : nil].compactMap { $0 }.joined(separator: " · ")
         case "sync_failed": title = String(localized: "Sync failed for \(repo)"); body = p?.error ?? ""
         case "automation_notify":
             title = p?.title.flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "Automation"); body = p?.body ?? ""; url = p?.url

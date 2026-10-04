@@ -38,6 +38,8 @@ public final class AppViewModel {
     /// that action only exists in a view's environment.
     @ObservationIgnored var openSettingsWindow: (() -> Void)?
     @ObservationIgnored var showMainWindow: (() -> Void)?
+    /// Seconds between reads of a screen someone keeps looking at: the backend's poll interval.
+    @ObservationIgnored public private(set) var refreshInterval: TimeInterval = 60
     /// The sidebar bell's "Today" popover.
     let todayActivity = TodayActivityViewModel()
     @ObservationIgnored private let platformFactory: any AppPlatformFactory
@@ -1426,6 +1428,7 @@ public final class AppViewModel {
             if let api {
                 shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api))
                 usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
+                loadRefreshInterval()
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
             if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api), boards: backendFactory.projectServices(api: api).boards) } }
@@ -1453,11 +1456,36 @@ public final class AppViewModel {
         }
     }
 
-    public func refresh() {
+    /// Someone is looking at the main window (`AttentionMonitor`): what the shown screen reads is
+    /// read again, and the backend syncs behind that read whatever of it has gone stale. Only
+    /// snapshots: My Tickets is a live search, and is not run again for a glance.
+    public func attend() {
+        guard started, api != nil else { return }
+        switch selection {
+        case .overview: dashboard?.prs.refresh(quiet: true, look: true)
+        case .project(let id): projectModels[id]?.board?.attend()
+        default: break
+        }
+    }
+
+    /// Takes up the poll interval the backend goes by: how old a snapshot may be before a read
+    /// syncs it, and so how often a screen someone keeps looking at is worth reading again.
+    private func loadRefreshInterval() {
+        guard let api else { return }
+        Task { [weak self] in
+            guard let values: [String: String] = try? await api.get(Routes.CONFIG), let self, self.api === api else { return }
+            self.refreshInterval = TimeInterval(min(max(Int(values["poll_interval"] ?? "") ?? 60, 15), 86_400))
+        }
+    }
+
+    /// Reads everything again. `look`: someone asked (the tray opened, a project was edited, the
+    /// app connected), so the backend may sync behind the reads; catching up on missed events
+    /// is not a look, and only reads what the backend has stored.
+    public func refresh(look: Bool = true) {
         pendingRefreshEvents.removeAll()
-        shell.refresh()
+        shell.refresh(look: look)
         shell.refreshUsage()
-        dashboard?.reload()
+        dashboard?.reload(look: look)
         if case .project(let id) = selection { projectModels[id]?.board?.refresh() }
         if coordinator.activityVisible { logs?.refresh() }
         refreshInventory([.projects, .sessions])
@@ -1548,17 +1576,28 @@ public final class AppViewModel {
 
     private func refreshSnapshots(for events: [ServerEvent]) async {
         // Project edits and legacy backends do not distinguish snapshot and inventory changes.
-        if events.contains(where: { $0.type == "reload" || ($0.type == "sync" && !["prs", "usage"].contains($0.scope ?? "")) }) {
-            refresh()
+        let edited = events.contains { $0.type == "sync" && !["prs", "usage", "tickets"].contains($0.scope ?? "") }
+        if edited || events.contains(where: { $0.type == "reload" }) {
+            // A project edit is someone's doing, and its snapshots want syncing again. A
+            // `reload` alone only says events were missed: nobody is looking.
+            refresh(look: edited)
             return
         }
         var inventory: Set<Inventory> = []
         if events.contains(where: { $0.type == "tasks" }) { inventory.insert(.sessions) }
         if !inventory.isEmpty { refreshInventory(inventory) }
         let prs = events.filter { $0.type == "sync" && $0.scope == "prs" }
-        if !prs.isEmpty { dashboard?.prs.refresh() }
+        // Quiet: a sync the backend ran behind a look says so even when nothing changed, and
+        // the refresh buttons are busy only for a refresh someone asked for. And not a look:
+        // these reads answer the backend's own report, and one that could start a sync would
+        // have each sync's report start the next.
+        if !prs.isEmpty { dashboard?.prs.refresh(quiet: true) }
+        // GitHub or Jira stopped answering the backend's syncs, or answers again.
+        if events.contains(where: { $0.type == "upstream" }) { dashboard?.prs.refreshUnreachable() }
         if !prs.isEmpty || events.contains(where: { $0.type == "reviews" }) { shell.refresh() }
         if events.contains(where: { $0.type == "sync" && $0.scope == "usage" }) { shell.refreshUsage() }
+        // The backend searched My Tickets again behind a look, and the answer changed.
+        if events.contains(where: { $0.type == "sync" && $0.scope == "tickets" }) { dashboard?.tickets.refresh(.echo) }
         let jira = events.filter { $0.type == "jira-sync" }
         for event in jira { for model in projectModels.values { model.refreshBoard(event: event.id) } }
     }
@@ -1679,9 +1718,9 @@ public final class AppViewModel {
         }
         ideWarmup.receive(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
-        if event.type == "config" { settings?.refresh() }
+        if event.type == "config" { settings?.refresh(); loadRefreshInterval() }
         if ["sync", "jira-sync", "activity", "config", "reload"].contains(event.type) { settings?.diagnostics.invalidate() }
-        if ["sync", "jira-sync", "tasks", "reviews", "reload"].contains(event.type) { queueRefresh(event) }
+        if ["sync", "jira-sync", "tasks", "reviews", "reload", "upstream"].contains(event.type) { queueRefresh(event) }
     }
 
     /// Marked shown when it goes up, not when it is finished: a welcome that was seen and

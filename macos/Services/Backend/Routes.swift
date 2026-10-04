@@ -62,6 +62,7 @@ public enum Routes {
     public static let PRS_VIEWED = "/api/prs/viewed"
     public static let DASHBOARD = "/api/dashboard"
     public static let POLL = "/api/poll"
+    public static let UPSTREAMS = "/api/upstreams"
     public static let JIRA_SITE = "/api/jira/site"
     public static let JIRA_SEARCH = "/api/jira/search"
     public static let JIRA_KEY_TRANSITION = "/api/jira/:key/transition"

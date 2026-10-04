@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor enum ActivityGlyph {
     static func style(type: String, level: String?) -> (icon: Image, tint: Color) {
         switch type {
-        case "pr_opened", "review_requested":
+        case "pr_opened", "review_requested", "prs_caught_up":
             (Image(nsImage: SidebarIcons.brand("github", size: 15) ?? NSImage()).renderingMode(.template), .accentColor)
         case "pr_merged": (Image(systemName: "arrow.triangle.merge"), .purple)
         case "pr_closed": (Image(systemName: "xmark"), .secondary)

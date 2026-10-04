@@ -8,14 +8,17 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Event {
-    /// A snapshot changed. `scope` says which (`prs`, `usage`); none is a project edit, which
-    /// the app answers with a full refresh.
+    /// A snapshot changed. `scope` says which (`prs`, `usage`, `tickets` for My Tickets' kept
+    /// searches); none is a project edit, which the app answers with a full refresh.
     Sync {
         #[serde(skip_serializing_if = "Option::is_none")]
         scope: Option<&'static str>,
         #[serde(rename = "projectId", skip_serializing_if = "Option::is_none")]
         project_id: Option<String>,
     },
+    /// A service the syncs ask stopped answering, or answers again; `name` is `github` or
+    /// `jira`. Told once each way, in place of an error for every project it serves.
+    Upstream { name: &'static str, reachable: bool },
     /// A board's Jira snapshot changed; `id` is `board:<project>`.
     JiraSync { id: String },
     /// The session records changed.

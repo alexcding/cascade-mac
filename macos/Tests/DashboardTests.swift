@@ -27,6 +27,31 @@ private actor DashboardFixture: DashboardService {
     }
 }
 
+private actor UnreachableDashboardFixture: DashboardService {
+    var down: Set<String> = ["github"]
+    func recover() { down = [] }
+    func snapshot() async throws -> [DashboardProject] { [] }
+    func unreachable() async throws -> Set<String> { down }
+}
+
+/// One failing service is said once: the model asks which services the backend cannot reach
+/// when it connects, and again whenever the backend says that changed.
+@MainActor @Test func dashboardSaysOnceThatGitHubIsUnreachableAndStopsWhenItAnswers() async throws {
+    let service = UnreachableDashboardFixture()
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    model.connect(service)
+    while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
+    for _ in 0..<200 where !model.prs.unreachable { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(model.prs.unreachable && model.prs.warnings.isEmpty)
+    // The backend says GitHub answers again (an `upstream` event): the model asks, and stops.
+    await service.recover()
+    model.prs.refreshUnreachable()
+    for _ in 0..<200 where model.prs.unreachable { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!model.prs.unreachable)
+    await model.stop()
+    model.retire()
+}
+
 @MainActor @Test func dashboardGroupsReviewOrbitFiltersAndRetainsSnapshotOnFailure() async throws {
     let service = DashboardFixture()
     let actions = ProjectPageActions()
@@ -38,6 +63,16 @@ private actor DashboardFixture: DashboardService {
     #expect(model.prs.mine[0].ciLabel == "CI running")
     #expect(model.prs.reviews[0].reviewLabel == "Approved")
     #expect(model.prs.warnings == ["Native: Sync unavailable"])
+    #expect(model.prs.synced == ISO8601DateFormatter().date(from: "2026-09-12T12:00:00Z"))
+    // The age shown is the oldest sync among projects that are syncing: one whose sync is
+    // failing says so itself, and its last success is not the age of everything.
+    let decoded = try JSONDecoder().decode([DashboardProject].self, from: Data(#"""
+    [{"id":"a","name":"A","repo":"o/a","prs":[],"lastSynced":"2026-09-12T12:00:00.500Z","syncError":null},
+     {"id":"b","name":"B","repo":"o/b","prs":[],"lastSynced":"2026-09-12T11:00:00.000Z","syncError":null},
+     {"id":"c","name":"C","repo":"o/c","prs":[],"lastSynced":"2026-08-01T00:00:00.000Z","syncError":"gone"},
+     {"id":"d","name":"D","repo":"","prs":[],"lastSynced":"2026-07-01T00:00:00.000Z","syncError":null}]
+    """#.utf8))
+    #expect(await DashboardPullRequestsModel.derive(decoded).synced == ISO8601DateFormatter().date(from: "2026-09-12T11:00:00Z"))
     let row = try #require(model.prs.reviews.first { $0.pr.number == 2 })
     model.open(row); await model.navigation.waitForOpen()
     let opened = actions.opened.last

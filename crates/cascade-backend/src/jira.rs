@@ -22,6 +22,17 @@ pub async fn auth() -> Result<(String, String)> {
     Ok((site.trim_end_matches('/').into(), email))
 }
 
+/// Whose a failed Jira call is: Jira's for now, or the request's until someone changes it. A
+/// timeout is known from how the command ended; the rest is read from what `acli` or `curl`
+/// said (`Fault::read`), a refused REST call included, which names its HTTP status.
+pub fn fault(error: &anyhow::Error) -> crate::Fault {
+    match cli::Failure::of(error) {
+        Some(cli::Failure::TimedOut) => crate::Fault::Transient,
+        Some(cli::Failure::Start) => crate::Fault::Permanent,
+        Some(cli::Failure::Exited(_)) | None => crate::Fault::read(&error.to_string()),
+    }
+}
+
 pub async fn rest(app: &AppState, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
     let token = app
         .db

@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppViewModel()
     /// The main window, made once the launch has not yielded to another copy.
     @ObservationIgnored private var mainWindow: MainWindowController?
+    @ObservationIgnored private var attention: AttentionMonitor?
     private var window: NSWindow? { mainWindow?.window }
     @ObservationIgnored private var helpWindow: NSWindow?
     @ObservationIgnored private var statusItem: NSStatusItem?
@@ -103,6 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.trayMenu = trayMenu
         observeStatus()
         updater = AppUpdater()
+        let attention = AttentionMonitor(
+            isLooking: { [weak self] in NSApp.isActive && self?.window?.occlusionState.contains(.visible) == true },
+            interval: { [weak self] in self?.model.refreshInterval ?? 60 })
+        attention.onAttend = { [weak self] in self?.model.attend() }
+        self.attention = attention
         Task { await model.start() }
     }
 

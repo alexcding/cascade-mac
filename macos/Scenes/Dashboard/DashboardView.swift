@@ -27,6 +27,7 @@ struct DashboardView: View {
                 header.padding(.top, 12).padding(.bottom, 24)
                 if let error = model.prs.error { warning(error, retry: true) }
                 if let error = model.navigation.error { warning(error) }
+                if model.prs.unreachable { warning(String(localized: "GitHub is not answering. Showing saved pull requests.")) }
                 ForEach(Array(model.prs.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
                 if model.prs.updated == nil {
                     Text(model.prs.loading ? String(localized: "Loading pull requests…") : String(localized: "Connect to load pull requests.")).foregroundStyle(.secondary)
@@ -54,13 +55,17 @@ struct DashboardView: View {
         case .pullRequests:
             // Whose, which project and refresh sit by the title, as on My Tickets: the tag row
             // below keeps its width for the check and review filters.
-            DashboardPageHeader(caption: pullRequestsCaption, title: String(localized: "Pull requests")) {
-                HStack(spacing: 8) {
-                    pullRequestScope
-                    DashboardRefreshButton(name: String(localized: "Pull requests"), id: "prs",
-                                           busy: model.prs.loading || model.prs.syncing, action: { model.prs.sync() })
+            // The age is drawn again each minute: nothing else redraws it while nobody is
+            // looking, and what it says grows older all the same.
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                DashboardPageHeader(caption: [pullRequestsCaption, updatedLabel].filter { !$0.isEmpty }.joined(separator: " · "), title: String(localized: "Pull requests")) {
+                    HStack(spacing: 8) {
+                        pullRequestScope
+                        DashboardRefreshButton(name: String(localized: "Pull requests"), id: "prs",
+                                               busy: model.prs.loading || model.prs.syncing, action: { model.prs.sync() })
+                    }
+                    .padding(.bottom, 6)
                 }
-                .padding(.bottom, 6)
             }
         case .overview, .tickets:
             DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
@@ -73,6 +78,17 @@ struct DashboardView: View {
         case .review: String(localized: "Waiting on you, newest first")
         case .others: String(localized: "Everyone else’s, newest first")
         }
+    }
+
+    /// How old the pull requests shown are, read again whenever the model reads: the dashboard
+    /// refreshes behind a look, so what it shows says how long ago that was.
+    private var updatedLabel: String {
+        guard let synced = model.prs.synced else { return "" }
+        let now = Date()
+        guard now.timeIntervalSince(synced) >= 60 else { return String(localized: "Updated just now") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return String(localized: "Updated \(formatter.localizedString(for: synced, relativeTo: now))")
     }
 
     private var greeting: String {
@@ -194,8 +210,10 @@ struct DashboardView: View {
     /// Yours newest first. The refresh here syncs every pull request, review requests included.
     private func myPullRequests(_ rows: [DashboardRow]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: String(localized: "My pull requests"), detail: "",
-                                   refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "prs")
+            TimelineView(.periodic(from: .now, by: 60)) { _ in
+                DashboardSectionHeader(title: String(localized: "My pull requests"), detail: updatedLabel,
+                                       refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "prs")
+            }
             if model.prs.projects.isEmpty {
                 noProjects
             } else {
@@ -293,7 +311,7 @@ struct DashboardView: View {
         if model.tickets.available {
             VStack(alignment: .leading, spacing: 0) {
                 DashboardSectionHeader(title: String(localized: "Tickets"), detail: "",
-                                       refresh: { model.tickets.refresh() }, busy: model.tickets.loading, id: "tickets")
+                                       refresh: { model.tickets.refresh(.now) }, busy: model.tickets.loading, id: "tickets")
                 if rows.isEmpty && model.tickets.loading {
                     placeholder(String(localized: "Loading tickets…"))
                 } else if rows.isEmpty {
@@ -358,7 +376,7 @@ struct DashboardView: View {
     private func warning(_ text: String, retry: Bool = false) -> some View {
         HStack(spacing: 8) {
             Label(text, systemImage: "exclamationmark.triangle.fill"); Spacer()
-            if retry { Button("Retry", action: model.prs.refresh) }
+            if retry { Button("Retry") { model.prs.refresh(look: true) } }
         }.font(.callout).foregroundStyle(.orange).padding(10)
             .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).padding(.bottom, 12)
     }
