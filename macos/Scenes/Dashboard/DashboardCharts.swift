@@ -7,29 +7,28 @@ enum DashboardPalette {
     static let ink3 = ThemeColor(light: 0x6E6D68, dark: 0x9B9A90).color
     static let hairline = ThemeColor(light: 0xE6E5E0, dark: 0x2C2C2A).color
     static let link = ThemeColor(light: 0x1C5CAB, dark: 0x86B6EF).color
-    static let critical = ThemeColor(light: 0xD03B3B, dark: 0xD03B3B).color
     static let criticalText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
     static let buttonBorder = ThemeColor(light: 0xDDDCD6, dark: 0x383835).color
+    /// What waits on the user: Needs you's amber, washed for a box behind it, and its outline.
+    static let attention = ThemeColor(light: 0xFDF8EC, dark: 0x2A2310).color
+    static let attentionRule = ThemeColor(light: 0xEAD7A6, dark: 0x4A3A14).color
+    /// Needs you's words on the page or its box, clearing 4.5:1 in both appearances.
+    static let attentionText = ThemeColor(light: 0x8A5A00, dark: 0xF5C45C).color
 
-    /// A session's state: its dot, and its words, which clear 4.5:1 on the page in both appearances.
-    static func sessionStage(_ stage: DashboardSessionStage) -> (dot: Color, text: Color) {
+    /// A stage's chip: its words on a soft fill of its colour, clearing 4.5:1 in both appearances,
+    /// in the ticket status pills' fills.
+    static func stageChip(_ stage: DashboardSessionStage) -> (text: Color, fill: Color) {
         switch stage {
-        case .needsYou: (ThemeColor(light: 0xC98A0A, dark: 0xE0AE35).color, ThemeColor(light: 0x8A5A00, dark: 0xF5C45C).color)
-        case .working: (ThemeColor(light: 0x2F9E57, dark: 0x3FAE6A).color, ThemeColor(light: 0x1E6B3E, dark: 0x6FD49C).color)
-        case .inReview: (ThemeColor(light: 0x3B6FD8, dark: 0x5A92DE).color, ThemeColor(light: 0x1C4F8F, dark: 0x9EC5F4).color)
-        case .idle: (ThemeColor(light: 0x9B9A90, dark: 0x6E6D68).color, ink2)
+        case .needsYou: (ThemeColor(light: 0x6A4200, dark: 0xF5C45C).color, ThemeColor(light: 0xFCF0D6, dark: 0x382C14).color)
+        case .working: (ThemeColor(light: 0x135E3C, dark: 0x6FD49C).color, ThemeColor(light: 0xDEF3E8, dark: 0x15302A).color)
+        case .inReview: (ThemeColor(light: 0x1C4F8F, dark: 0x9EC5F4).color, ThemeColor(light: 0xE6F0FC, dark: 0x1B2B42).color)
+        case .idle: (ink2, ThemeColor(light: 0xEEEDE8, dark: 0x2A2A28).color)
         }
     }
 
-    /// A pull request's checks: their square, and their words.
-    static func checks(_ checks: DashboardRow.Checks) -> (dot: Color, text: Color) {
-        switch checks {
-        case .passing: (sessionStage(.working).dot, sessionStage(.working).text)
-        case .running: (sessionStage(.needsYou).dot, sessionStage(.needsYou).text)
-        case .failing: (critical, criticalText)
-        case .unknown: (ThemeColor(light: 0xC9C8C2, dark: 0x4A4A46).color, ink3)
-        }
-    }
+    /// A failure's tag: red words on a soft red fill, as a failing check's.
+    static let criticalChip = (text: ThemeColor(light: 0x9E2626, dark: 0xF08A8A).color,
+                               fill: ThemeColor(light: 0xFBE5E5, dark: 0x3A1A1A).color)
 
     /// Priority runs warm to cool: red, orange, amber, then a calm blue for Low, so urgency reads
     /// at a glance; the level's arrow glyph carries it without the colour.
@@ -107,11 +106,26 @@ struct DashboardRefreshButton: View {
 struct AgentMark: View {
     let key: String
     var size: CGFloat = 14
+    /// A colour in place of the agent's own, where the mark must not outshine what it sits by.
+    var tint: Color?
     var body: some View {
         if let asset = PageSessionMark(cli: key).asset {
             Image(asset).renderingMode(.template).resizable().scaledToFit()
-                .frame(width: size, height: size).foregroundStyle(AgentDrivers.driver(for: key).tint).accessibilityHidden(true)
+                .frame(width: size, height: size).foregroundStyle(tint ?? AgentDrivers.driver(for: key).tint).accessibilityHidden(true)
         }
+    }
+}
+
+/// A short word on a soft fill of its colour: a stage on the board and in the tables, and what a
+/// total or a warning needs.
+struct DashboardTag: View {
+    let text: String
+    let tint: (text: Color, fill: Color)
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11.5, weight: .medium)).foregroundStyle(tint.text).lineLimit(1)
+            .padding(.horizontal, 7).frame(height: 20)
+            .background(tint.fill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 

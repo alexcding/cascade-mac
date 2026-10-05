@@ -160,34 +160,46 @@ struct DashboardView: View {
     }
 
     /// The headline numbers, each the size of the list it opens: the user's own pull requests, the
-    /// ones waiting on them, their own failing, and their tickets once a tracker answers.
+    /// ones waiting on them, their own failing, and their tickets once a tracker answers. One ruled
+    /// strip, a cell each; a narrow page puts them two to a row.
     private func totals(_ projects: [DashboardProjectSummary]) -> some View {
-        let tickets = model.tickets.available
         let mine = model.prs.mine.filter { model.project == nil || $0.projectID == model.project }
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-                            count: width >= Self.splitWidth ? (tickets ? 4 : 3) : 2)
-        return LazyVGrid(columns: columns, spacing: 12) {
-            total(String(localized: "Your open pull requests"), mine.count, id: "open") {
-                model.showPullRequests(.mine)
-            }
-            total(String(localized: "Waiting on you"), model.prs.count(.review), id: "waiting") {
-                model.showPullRequests(.review)
-            }
-            total(String(localized: "Your failing checks"), mine.filter { $0.checks == .failing }.count, critical: true, id: "failing") {
-                model.showPullRequests(.mine, filter: .failing)
-            }
-            if tickets {
-                total(String(localized: "Tickets assigned"),
-                      model.project == nil ? model.tickets.rows.count : projects.reduce(0) { $0 + $1.tickets }, id: "tickets") {
-                    model.showTickets()
+        var cells = [
+            DashboardTotal(title: String(localized: "Your open pull requests"), value: mine.count, critical: false,
+                           id: "dashboard-total-open") { model.showPullRequests(.mine) },
+            DashboardTotal(title: String(localized: "Waiting on you"), value: model.prs.count(.review), critical: false, waiting: true,
+                           id: "dashboard-total-waiting") { model.showPullRequests(.review) },
+            DashboardTotal(title: String(localized: "Your failing checks"), value: mine.filter { $0.checks == .failing }.count,
+                           critical: true, id: "dashboard-total-failing") { model.showPullRequests(.mine, filter: .failing) },
+        ]
+        if model.tickets.available {
+            cells.append(DashboardTotal(title: String(localized: "Tickets assigned"),
+                                        value: model.project == nil ? model.tickets.rows.count : projects.reduce(0) { $0 + $1.tickets },
+                                        critical: false, id: "dashboard-total-tickets") { model.showTickets() })
+        }
+        let perRow = width >= Self.splitWidth ? cells.count : 2
+        let rows = stride(from: 0, to: cells.count, by: perRow).map { Array(cells[$0 ..< min($0 + perRow, cells.count)]) }
+        return VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                if index > 0 { DashboardPalette.hairline.frame(height: 1) }
+                HStack(spacing: 0) {
+                    ForEach(Array(row.enumerated()), id: \.element.id) { index, cell in
+                        if index > 0 { DashboardPalette.hairline.frame(width: 1) }
+                        cell
+                    }
+                    // A short last row keeps its cells the width of the ones above.
+                    ForEach(row.count ..< perRow, id: \.self) { _ in
+                        DashboardPalette.hairline.frame(width: 1)
+                        Color.clear.frame(maxWidth: .infinity)
+                    }
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    /// One headline number, a button to the list it counts.
-    private func total(_ title: String, _ value: Int, critical: Bool = false, id: String, open: @escaping () -> Void) -> some View {
-        DashboardTotal(title: title, value: value, critical: critical, id: "dashboard-total-\(id)", open: open)
+        // Automation's table: a lightly filled box with a hairline edge.
+        .background(Color.primary.opacity(0.015), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
     }
 
     // MARK: Pull requests
@@ -255,11 +267,13 @@ struct DashboardView: View {
     }
 
     private func warning(_ text: String, retry: Bool = false) -> some View {
-        HStack(spacing: 8) {
+        // Needs you's amber, as the tags draw it, rather than the system's orange.
+        let tint = DashboardPalette.stageChip(.needsYou)
+        return HStack(spacing: 8) {
             Label(text, systemImage: "exclamationmark.triangle.fill"); Spacer()
             if retry { Button("Retry") { model.prs.refresh(look: true) } }
-        }.font(.callout).foregroundStyle(.orange).padding(10)
-            .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8)).padding(.bottom, 12)
+        }.font(.system(size: 12.5)).foregroundStyle(tint.text).padding(.horizontal, 14).padding(.vertical, 10)
+            .background(tint.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous)).padding(.bottom, 12)
     }
 }
 
@@ -300,34 +314,42 @@ struct DashboardChipDivider: View {
     }
 }
 
-/// An Overview total: what it counts and how many, in a ruled box that opens that list, washed
-/// under the pointer.
-struct DashboardTotal: View {
+/// An Overview total: what it counts and how many, a cell of the totals strip that opens that list,
+/// washed under the pointer. A critical count above zero says it needs a look.
+struct DashboardTotal: View, Identifiable {
     let title: String
     let value: Int
     let critical: Bool
+    /// Whether a count above zero waits on the user, tagged as Needs you is.
+    var waiting = false
     let id: String
     let open: () -> Void
     @State private var hovering = false
 
+    /// What a count above zero is tagged with: a failure in red, a wait on the user in amber.
+    private var tag: (text: String, tint: (text: Color, fill: Color))? {
+        if critical { return (String(localized: "Failing"), DashboardPalette.criticalChip) }
+        if waiting { return (String(localized: "Needs you"), DashboardPalette.stageChip(.needsYou)) }
+        return nil
+    }
+
     var body: some View {
         Button(action: open) {
-            // The earlier tiles' look: a roomy outlined card, its name over a large rounded figure.
-            VStack(alignment: .leading, spacing: 12) {
-                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
-                    // Two lines, kept in every card: a long translation wraps rather than
-                    // truncating, and the cards of a row stay one height.
-                    .lineLimit(2, reservesSpace: true)
-                Text(value, format: .number).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit()
-                    .tracking(-0.6).lineLimit(1)
-                    .foregroundStyle(critical && value > 0 ? DashboardPalette.criticalText : Color.primary)
+            // Its name over a rounded figure; the strip draws the rules between cells.
+            VStack(alignment: .leading, spacing: 6) {
+                // A long translation wraps rather than truncating; the strip keeps a row one height.
+                HStack(alignment: .top, spacing: 8) {
+                    Text(title).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).lineLimit(2)
+                    Spacer(minLength: 0)
+                    if value > 0, let tag { DashboardTag(text: tag.text, tint: tag.tint).fixedSize() }
+                }
+                Text(value, format: .number).font(.system(size: 26, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .tracking(-0.5).lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-            .background(hovering ? Theme.surfaceHover.opacity(0.6) : .clear,
-                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 20).padding(.vertical, 16)
+            .background(hovering ? Theme.surfaceHover.opacity(0.6) : .clear)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

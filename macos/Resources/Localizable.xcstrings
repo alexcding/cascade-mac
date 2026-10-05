@@ -4179,6 +4179,16 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%lld active · ^[%lld session](inflect: true)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld active · ^[%2$lld session](inflect: true)"
+          }
+        }
+      }
+    },
     "%lld closed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5578,6 +5588,9 @@
           }
         }
       }
+    },
+    "^[%lld session](inflect: true)" : {
+
     },
     "+%lld" : {
       "comment" : "Literal symbol or number with no linguistic content.",
@@ -52324,7 +52337,6 @@
       }
     },
     "List" : {
-      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -89430,9 +89442,6 @@
           }
         }
       }
-    },
-    "Session board" : {
-
     },
     "Session is not available." : {
       "localizations" : {
