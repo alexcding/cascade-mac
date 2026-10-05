@@ -7,10 +7,6 @@ import Foundation
     /// A session the project's Start made, with its agent's first prompt and the model and effort
     /// it starts on, when it has them.
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
-    /// A new shell for the project's terminal panel in `directory`, in place of any running.
-    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession
-    /// Stops the project's terminal panel's shell.
-    func closeProjectTerminal(_ projectID: String) async
 }
 
 extension AppCoordinator {
@@ -28,10 +24,9 @@ extension AppCoordinator {
     }
 
     func prepareProject(_ project: Project, services: ProjectFeatureServices, factory: any ProjectFeatureFactory,
-                        runtime: any ProjectCoordinating, agent: SessionAgent,
-                        pageActions: any PageActionServing = NativePageActionService(open: { _ in })) {
+                        runtime: any ProjectCoordinating, agent: SessionAgent) {
         if let existing = projectCoordinators[project.id] { existing.model.update(project); return }
-        let model = factory.project(project, services: services, agent: agent, pageActions: pageActions)
+        let model = factory.project(project, services: services, agent: agent)
         installProject(model, runtime: runtime)
     }
 
@@ -55,8 +50,6 @@ extension AppCoordinator {
         }
         projectRuntimes[id] = runtime.map { WeakProjectRuntime(runtime: $0) }
         projectCoordinators[id] = child
-        model.appearance = appearance
-        model.active = selection == .project(id)
         refreshRoot()
         schedulePendingDeepLink()
         return child
@@ -65,6 +58,10 @@ extension AppCoordinator {
     func handleProjectEvent(_ event: ProjectCoordinator.Event, projectID id: String) {
         guard let model = projectCoordinators[id]?.model else { return }
         if case .presentationEnded = event { schedulePendingDeepLink(); return }
+        if case .back = event {
+            if selection == .project(id) { navigate(to: .overview) }
+            return
+        }
         guard let runtime = projectRuntimes[id]?.runtime, runtime.ownsProject(id) else { return }
         switch event {
         case .saved(let project, let source):
@@ -73,19 +70,6 @@ extension AppCoordinator {
         case .sessionCreated(let session, let prompt, let launch):
             guard session.projectId == id else { return }
             runtime.projectSessionCreated(session, prompt: prompt, launch: launch)
-        case .terminalRequested(let directory, let request):
-            let project = model.project
-            Task { [weak runtime, weak model] in
-                guard let runtime else { return }
-                do {
-                    let terminal = try await runtime.projectTerminal(for: project, directory: directory)
-                    model?.terminal.attach(terminal, request: request)
-                } catch {
-                    model?.terminal.requestFailed(error.localizedDescription, request: request)
-                }
-            }
-        case .terminalClosed:
-            Task { [weak runtime] in await runtime?.closeProjectTerminal(id) }
         case .deleted(let deletedID):
             guard deletedID == id else { return }
             projectCoordinators.removeValue(forKey: id)?.retire()
@@ -94,7 +78,7 @@ extension AppCoordinator {
             if selection == .project(id) { navigate(to: .overview) }
             refreshRoot()
             schedulePendingDeepLink()
-        case .presentationEnded: break
+        case .presentationEnded, .back: break
         }
     }
 }

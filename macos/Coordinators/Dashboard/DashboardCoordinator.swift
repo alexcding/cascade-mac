@@ -19,6 +19,11 @@ import Observation
     private(set) var retired = false
     @ObservationIgnored var isOwned: () -> Bool = { true }
     @ObservationIgnored var canPresent: () -> Bool = { true }
+    /// The toolbar's New Project, handed to the app, and whether the app can make one now.
+    @ObservationIgnored var requestNewProject: () -> Void = {}
+    /// A project's page, from its name on Projects, handed to the app.
+    @ObservationIgnored var requestProject: (String) -> Void = { _ in }
+    @ObservationIgnored var canCreateProject: () -> Bool = { false }
 
     init(model: DashboardViewModel, shell: ShellStore = ShellStore()) {
         self.model = model
@@ -26,10 +31,7 @@ import Observation
         root = .dashboard(model, shell)
         model.onAction = { [weak self] in self?.handle($0) }
     }
-    func makeDestination(for route: Route) -> Destination {
-        if case .dashboardTickets = route { return .dashboardTickets(model) }
-        return .none
-    }
+    func makeDestination(for route: Route) -> Destination { .none }
     func handle(_ action: Action) {
         if case .dashboard(let action) = action { handle(action) } else { self.action?(action) }
     }
@@ -39,18 +41,22 @@ import Observation
         // Only after the gate above, so a hidden or blocked dashboard stays silent rather than warn.
         case .open(let request):
             if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Cascade.") }
-        case .showTickets: if path.isEmpty { navigate(to: .dashboardTickets) }
-        case .closeTickets: leaveTickets()
+        case .openProject(let id): requestProject(id)
+        case .board(.open(let request)):
+            guard model.tab == .board else { return }
+            model.board?.navigation.open(request)
         }
     }
-    /// Back to the home screen, ending any search: going back is navigation, and a search left
-    /// running would keep its results over the page the user asked for.
-    func leaveTickets() {
-        guard !path.isEmpty else { return }
-        popToRoot()
-        model.clearFilter()
+    /// New Project, from the page's toolbar, while the page is the one on screen.
+    func newProject() {
+        guard !retired, isOwned(), canPresent(), canCreateProject() else { return }
+        requestNewProject()
     }
-    func retire() { retired = true; isOwned = { false }; canPresent = { false }; model.retire() }
+    func retire() {
+        retired = true; isOwned = { false }; canPresent = { false }; requestNewProject = {}; canCreateProject = { false }
+        requestProject = { _ in }
+        model.retire()
+    }
 }
 
 extension AppCoordinator {
@@ -65,7 +71,12 @@ extension AppCoordinator {
         child.canPresent = { [weak self] in
             self?.selection == .overview && self?.canPresent == true && self?.canOpenExternalRoute() == true
         }
+        child.requestNewProject = { [weak self] in self?.rootRuntime?.performRootCommand(.newProject) }
+        child.canCreateProject = { [weak self] in self?.rootRuntime?.canPerform(.newProject) ?? false }
+        child.requestProject = { [weak self] id in self?.rootRuntime?.openProjectSettings(id) }
         dashboardCoordinator = child
+        model.onScreen = selection == .overview
+        model.appearance = appearance
         refreshRoot()
         return child
     }

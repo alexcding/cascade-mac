@@ -129,7 +129,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     // #11 arrives before the #12 duplicate that shares its url, so #11 wins and #12 is dropped.
     #expect(snapshot.mine.map(\.pr.number) == [10, 11])
     #expect(snapshot.reviews.map(\.pr.number) == [20, 21])
-    #expect(snapshot.counts[.all] == 2)
+    #expect(DashboardPullRequestsModel.counts(snapshot.mine)[.all] == 2)
 }
 
 @MainActor @Test func deriveCountsPerFilterAcrossCheckStatesAndReviewDecisions() async throws {
@@ -142,12 +142,13 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
         makePR(6, isDraft: true),
     ])
     let snapshot = await DashboardPullRequestsModel.derive([project])
-    #expect(snapshot.counts[.all] == 6)
-    #expect(snapshot.counts[.failing] == 1)
-    #expect(snapshot.counts[.running] == 1)
-    #expect(snapshot.counts[.changesRequested] == 1)
-    #expect(snapshot.counts[.approved] == 1)
-    #expect(snapshot.counts[.drafts] == 1)
+    let counts = DashboardPullRequestsModel.counts(snapshot.mine)
+    #expect(counts[.all] == 6)
+    #expect(counts[.failing] == 1)
+    #expect(counts[.running] == 1)
+    #expect(counts[.changesRequested] == 1)
+    #expect(counts[.approved] == 1)
+    #expect(counts[.drafts] == 1)
 }
 
 @MainActor @Test func deriveLinkedPRsPicksTheLowestPRNumber() async throws {
@@ -158,50 +159,6 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     ])
     let snapshot = await DashboardPullRequestsModel.derive([project])
     #expect(snapshot.linkedPRs == ["REC-1": "#2"])
-}
-
-@MainActor @Test func tileFootnoteIsSingularAndPluralForDraftsAndApproved() {
-    let project = makeProject("p", prs: [makePR(1)])
-    let one = rows(project)
-    let singular = DashboardPullRequestsModel.Tile(mine: one, counts: [.drafts: 1, .approved: 0])
-    #expect(singular.footnote == "Drafts: 1 · Approved: 0")
-    #expect(singular.count == 1)
-
-    let five = makeProject("p", prs: (1...5).map { makePR($0) })
-    let plural = DashboardPullRequestsModel.Tile(mine: rows(five), counts: [.drafts: 2, .approved: 3])
-    #expect(plural.footnote == "Drafts: 2 · Approved: 3")
-    #expect(plural.count == 5)
-}
-
-@MainActor @Test func tileDotsPutFailingFirstAndNeverCutAFailingOne() {
-    // Ten of each state, so the 20-dot cap drops twenty, and the dropped ones must be the calmer states.
-    var prs: [DashboardPR] = []
-    for i in 0..<10 { prs.append(makePR(i, ci: "completed", conclusion: "success")) }
-    for i in 10..<20 { prs.append(makePR(i)) }
-    for i in 20..<30 { prs.append(makePR(i, ci: "in_progress")) }
-    for i in 30..<40 { prs.append(makePR(i, ci: "completed", conclusion: "failure")) }
-    let mine = rows(makeProject("p", prs: prs))
-    let tile = DashboardPullRequestsModel.Tile(mine: mine, counts: [:])
-    #expect(DashboardPullRequestsModel.Tile.dotLimit == 20 && tile.dots.count == 20)
-    #expect(tile.dots[0..<10].allSatisfy { $0.checks == .failing })
-    #expect(tile.dots[10..<20].allSatisfy { $0.checks == .running })
-    #expect(!tile.dots.contains { $0.checks == .unknown || $0.checks == .passing })
-}
-
-@MainActor @Test func reviewTileReportsTheLastRowsAgeRepoCountAndDedupedAuthors() {
-    // `reviews` arrives newest first; the longest-waiting review is last.
-    let reviews: [DashboardRow] = [
-        rows(makeProject("p", prs: [makePR(1, createdAt: "2026-09-20T00:00:00Z", repo: "o/a", author: "alice")]))[0],
-        rows(makeProject("p", prs: [makePR(2, createdAt: "2026-09-19T00:00:00Z", repo: "o/b", author: "bob")]))[0],
-        rows(makeProject("p", prs: [makePR(3, createdAt: "2026-09-18T00:00:00Z", repo: "o/a", author: "alice")]))[0],
-        rows(makeProject("p", prs: [makePR(4, createdAt: "2026-09-17T00:00:00Z", repo: "o/a", author: "carol")]))[0],
-        rows(makeProject("p", prs: [makePR(5, createdAt: "2020-01-01T00:00:00Z", repo: "o/c", author: "dave")]))[0],
-    ]
-    let tile = DashboardPullRequestsModel.ReviewTile(reviews: reviews)
-    #expect(tile.count == 5)
-    #expect(tile.oldestAge?.hasSuffix("d") == true)
-    #expect(tile.footnote == "Repositories: 3")
-    #expect(tile.authors == ["alice", "bob", "carol"])
 }
 
 @MainActor @Test func deriveWarningsOrderSyncErrorFirstThenPRErrorsThenWaitingMessage() async throws {
@@ -280,33 +237,6 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     #expect(counts[.urgent] == 1)
 }
 
-@MainActor @Test func summarizeBuildsFootnoteAllStagesInOrderAndTotal() async {
-    let rows = [
-        makeTicketRow(makeTicket("A", status: "Open", category: "new", priority: "Medium")),
-        makeTicketRow(makeTicket("B", status: "Open", category: "new", priority: "Medium")),
-        makeTicketRow(makeTicket("C", status: "In PR Review", category: "indeterminate", priority: "Medium")),
-    ]
-    let summary = await DashboardTicketsModel.summarize(rows)
-    #expect(summary.stages.all.map(\.stage) == TicketStage.allCases)
-    #expect(summary.stages.all.map(\.count) == [2, 1, 0, 0])
-    #expect(summary.stages.live.map(\.stage) == [.toDo, .inProgress])
-    #expect(summary.stages.total == 3)
-    #expect(summary.tile.footnote == "To do: 2 · In progress: 1 · Pending release: 0 · Blocked: 0")
-}
-
-@MainActor @Test func rankAttentionExcludesLinkedInProgressAndRespectsLimit() {
-    let blocked = makeTicketRow(makeTicket("BLK", status: "Blocked", category: "indeterminate", priority: "Low"))
-    let reopened = makeTicketRow(makeTicket("REO", status: "Reopened", category: "new", priority: "Medium"))
-    let inProgress = makeTicketRow(makeTicket("INP", status: "In PR Review", category: "indeterminate", priority: "Medium"))
-    let urgentToDo = makeTicketRow(makeTicket("URG", status: "Open", category: "new", priority: "Urgent"))
-    let rows = [blocked, reopened, inProgress, urgentToDo]
-
-    #expect(DashboardTicketsModel.rankAttention(rows, linked: [:], limit: 10).map(\.id) == ["BLK", "REO", "INP", "URG"])
-    // A linked in-progress ticket is already represented by its pull request, so it drops out.
-    #expect(DashboardTicketsModel.rankAttention(rows, linked: ["INP": "#5"], limit: 10).map(\.id) == ["BLK", "REO", "URG"])
-    #expect(DashboardTicketsModel.rankAttention(rows, linked: [:], limit: 2).map(\.id) == ["BLK", "REO"])
-}
-
 @MainActor @Test(.timeLimit(.minutes(1))) func filterDidSetKeepsScreenRowsUrgentFirstWithinTheNarrowedTag() async throws {
     let rows = [
         makeTicketRow(makeTicket("N1", status: "Open", category: "new", priority: "Medium")),
@@ -323,7 +253,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     await model.stop()
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func linkedPRsRestampsScreenRowsAndRecomputesAttention() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func linkedPRsRestampsScreenRows() async throws {
     let inProgress = makeTicket("K2", status: "In PR Review", category: "indeterminate", priority: "Medium")
     let rows = [makeTicketRow(makeTicket("K1", status: "Open", category: "new", priority: "Medium")), makeTicketRow(inProgress)]
     let model = DashboardTicketsModel()
@@ -331,10 +261,8 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     model.connect(ModelFixture(tickets: rows))
     while model.loading { try await Task.sleep(for: .milliseconds(10)) }
     #expect(model.screenRows.first { $0.id == "K1" }?.pullRequest == "")
-    #expect(model.attention.map(\.id) == ["K2"])
     model.linkedPRs = ["K1": "#7", "K2": "#9"]
     #expect(model.screenRows.first { $0.id == "K1" }?.pullRequest == "#7")
-    #expect(model.attention.isEmpty)
     await model.stop()
 }
 
@@ -362,69 +290,16 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
 
 // MARK: - DashboardViewModel
 
-@MainActor @Test(.timeLimit(.minutes(1))) func searchCaptionIsSingularAndPlural() async throws {
-    let project = makeProject("p", prs: [makePR(1, jiraKeys: ["REC-1"], title: "Alpha One")], jiraKey: "REC")
-    let fixture = ModelFixture(projects: [project], tickets: [makeTicketRow(makeTicket("REC-2", status: "Open", summary: "Alpha Two"))])
+@MainActor @Test func showTicketsAndSelectTabChangeTheTab() {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
-    model.connect(fixture)
-    while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
-
-    model.query = "Alpha One"
-    #expect(model.search.count == 1)
-    #expect(model.search.caption == "Results for \u{201C}Alpha One\u{201D}: 1")
-
-    model.query = "Alpha"
-    #expect(model.search.count == 2)
-    #expect(model.search.caption == "Results for \u{201C}Alpha\u{201D}: 2")
-
-    model.clearFilter()
-    await model.stop()
-    model.retire()
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func searchMatchesTicketReporterCaseInsensitively() async throws {
-    let fixture = ModelFixture(projects: [tracking("OPS")], tickets: [makeTicketRow(makeTicket("OPS-9", status: "Open", reporter: "Chen Ding"))])
-    let model = DashboardViewModel(pageActions: ProjectPageActions())
-    model.connect(fixture)
-    while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
-
-    model.query = "chen ding"
-    #expect(model.search.tickets.map(\.id) == ["OPS-9"])
-    model.clearFilter()
-    await model.stop()
-    model.retire()
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func searchTicketsCarryTheirLinkedPullRequestNumber() async throws {
-    let project = makeProject("p", prs: [makePR(3, category: "mine", jiraKeys: ["OPS-9"])], jiraKey: "OPS")
-    let fixture = ModelFixture(projects: [project], tickets: [makeTicketRow(makeTicket("OPS-9", status: "Open"))])
-    let model = DashboardViewModel(pageActions: ProjectPageActions())
-    model.connect(fixture)
-    while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
-
-    model.query = "OPS-9"
-    #expect(model.search.tickets.first?.pullRequest == "#3")
-    model.clearFilter()
-    await model.stop()
-    model.retire()
-}
-
-@MainActor @Test func showTicketsAndSelectTabClearTheQuery() {
-    let model = DashboardViewModel(pageActions: ProjectPageActions())
-    model.query = "x"
     model.showTickets()
-    #expect(model.query.isEmpty)
-    model.query = "y"
+    #expect(model.tab == .tickets)
     model.selectTab(.pullRequests)
-    #expect(model.query.isEmpty)
-}
-
-@MainActor @Test func tileValuesSurviveShowAndCloseTickets() {
-    let model = DashboardViewModel(pageActions: ProjectPageActions())
-    model.tileValues = ["mine": 5]
-    model.showTickets()
-    model.closeTickets()
-    #expect(model.tileValues == ["mine": 5])
+    #expect(model.tab == .pullRequests)
+    // A retired page keeps the tab it had.
+    model.retire()
+    model.selectTab(.overview)
+    #expect(model.tab == .pullRequests)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func disconnectedOpenWarnsOnlyWhenTheDashboardCanPresent() async throws {
@@ -477,7 +352,7 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     let snapshot = await DashboardPullRequestsModel.derive([project])
     // #2 waits on the user's review, so it is To review's, not Others'.
     #expect(snapshot.others.compactMap(\.pr.number) == [3])
-    #expect(snapshot.counts[.all] == 1)
+    #expect(DashboardPullRequestsModel.counts(snapshot.mine)[.all] == 1)
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func authorAndProjectNarrowGroupsAndCounts() async throws {
@@ -546,4 +421,35 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     #expect(await fixture.ticketWhys == [.look, .now, .echo, .look, .echo])
     await model.stop()
     model.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func overviewSummarisesEachProjectAndItsNameOpensIt() async throws {
+    let project = makeProject("p", name: "App", prs: [
+        makePR(1, ci: "completed", conclusion: "failure", jiraKeys: ["OPS-1"]),
+        makePR(2, category: "review", ci: "in_progress", awaitingMyReview: true),
+        makePR(3, category: "other", ci: "completed", conclusion: "success", awaitingMyReview: false),
+        makePR(4, state: "MERGED"),
+    ], jiraKey: "OPS")
+    let quiet = makeProject("q", name: "Docs", repo: "o/d", prs: [], lastSynced: nil, syncError: "gone")
+    let fixture = ModelFixture(projects: [project, quiet], tickets: [makeTicketRow(makeTicket("OPS-1", status: "Open"))])
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    var opened: [String] = []
+    model.onAction = { if case .openProject(let id) = $0 { opened.append(id) } }
+    model.sessionCounts = ["p": 2]
+    model.connect(fixture)
+    while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
+
+    let summaries = model.projectSummaries
+    #expect(summaries.map(\.id) == ["p", "q"])
+    let app = try #require(summaries.first)
+    #expect(app.open == 3 && app.waiting == 1, "Merged pull requests are not open; only the review counts as waiting")
+    #expect(app.failing == 1 && app.running == 1 && app.passing == 1 && app.checks == "1 failing")
+    #expect(app.tickets == 1 && app.sessions == 2 && app.tracker == "Jira OPS" && app.synced != nil)
+    #expect(summaries[1].syncError == "gone" && summaries[1].tracker == "GitHub issues" && summaries[1].checks == "No checks")
+    model.openProject("p"); model.openProject("missing")
+    #expect(opened == ["p"], "Only a project the page shows opens")
+    await model.stop()
+    model.retire()
+    model.openProject("p")
+    #expect(opened == ["p"], "A retired page opens nothing")
 }

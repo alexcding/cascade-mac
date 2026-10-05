@@ -29,17 +29,6 @@ struct ThemeColor: Sendable {
     }
 }
 
-extension Theme {
-    /// A GitHub label colour as `gh` gives it — six hex digits, no hash — as a drawable colour.
-    /// Anything unparseable falls back to the secondary text tone rather than to a wrong colour.
-    /// Label colours run to very pale values, so draw this as a mark, never behind or as text.
-    static func tagTint(_ hex: String?) -> Color {
-        let digits = (hex ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "# "))
-        guard digits.count == 6, let rgb = UInt32(digits, radix: 16) else { return Theme.textSecondary }
-        return Color(nsColor: NSColor(themeRGB: rgb, alpha: 1))
-    }
-}
-
 extension NSColor {
     fileprivate convenience init(themeRGB rgb: UInt32, alpha: Double) {
         self.init(srgbRed: Double((rgb >> 16) & 0xFF) / 255,
@@ -116,13 +105,16 @@ enum Theme {
         static let emptyHint = Font.system(size: 12)
     }
 
+    /// The colour of Start's send button: black on a light
+    /// window, white on a dark one. The text colour, so it follows the appearance by itself.
+    static var prominent: Color { Color(nsColor: .labelColor) }
+    /// What sits on `prominent`: the window's own colour, white in light and dark in dark.
+    static var onProminent: Color { Color(nsColor: .windowBackgroundColor) }
+
     /// `--bg`: the surface a content pane sits on. Follows the window appearance.
     static var paneBackground: Color { Color(nsColor: .windowBackgroundColor) }
     /// Behind text typed into a multi-line field: the system's text background.
     static var fieldBackground: Color { Color(nsColor: .textBackgroundColor) }
-    /// A toolbar toggle's symbol while it is on, where the toolbar's own selected tint washes it
-    /// out: the text colour. AppKit's, since the toolbar's controls are.
-    static var toolbarSymbolSelected: NSColor { .labelColor }
 
     /// Symbols a surface shares with another, so the two cannot drift apart. A glyph only one
     /// surface draws stays at its call site.

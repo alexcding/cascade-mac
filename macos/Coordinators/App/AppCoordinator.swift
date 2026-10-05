@@ -84,7 +84,7 @@ import Observation
     var appearance = AppAppearance.system {
         didSet {
             guard oldValue != appearance else { return }
-            projectModels.values.forEach { $0.appearance = appearance }
+            dashboardCoordinator?.model.appearance = appearance
         }
     }
     /// What the main window's columns stand on (`WindowBackdrop`); the shell's setting.
@@ -157,8 +157,6 @@ import Observation
     }
 
     func navigate(to destination: SidebarDestination) {
-        // Picking Overview always lands on the Dashboard's home, never on a My Tickets left pushed.
-        if destination == .overview { dashboardCoordinator?.leaveTickets() }
         if selection != destination {
             projectCoordinator?.endPresentation(); dashboardCoordinator?.model.cancelActions()
             switch destination { case .session, .terminal: WorkspaceSwitchSignpost.begin(); default: break }
@@ -168,7 +166,7 @@ import Observation
         let arriving = destination == .overview && selection != destination
         selection = destination
         if arriving { dashboardCoordinator?.model.reload() }
-        for (id, child) in projectCoordinators { child.model.active = destination == .project(id) }
+        dashboardCoordinator?.model.onScreen = destination == .overview
         selectionStore.save(destination)
         rootRuntime?.activateRootDestination()
         refreshRoot()
@@ -179,14 +177,11 @@ import Observation
     func navigate(to route: Route) {
         switch route {
         case .destination(let destination): navigate(to: destination)
-        case .dashboardTickets:
-            navigate(to: SidebarDestination.overview)
-            // Through the model, like View All, so the list opens on every ticket, not a stale tag.
-            dashboardCoordinator?.model.showTickets()
         case .projectBoard(let id):
-            navigate(to: SidebarDestination.project(id))
-            // A project that has its board turned off opens on Start.
-            projectCoordinators[id]?.model.selectSection(.board)
+            // A project's board is Projects' Board tab, narrowed to that project.
+            navigate(to: SidebarDestination.overview)
+            dashboardCoordinator?.model.selectProject(id)
+            dashboardCoordinator?.model.selectTab(.board)
         }
     }
 
@@ -197,7 +192,7 @@ import Observation
         case .newSession:
             return newSession.map(Destination.newSession) ?? .unavailable(title: String(localized: "New Task"), message: String(localized: "Connect to start sessions."))
         case .overview:
-            return dashboardCoordinator.map(Destination.dashboardCoordinator) ?? .unavailable(title: String(localized: "Overview"), message: String(localized: "Connect to load the dashboard."))
+            return dashboardCoordinator.map(Destination.dashboardCoordinator) ?? .unavailable(title: String(localized: "Projects"), message: String(localized: "Connect to load the dashboard."))
         case .automation:
             return automationCoordinator.map(Destination.automationCoordinator) ?? .unavailable(title: String(localized: "Automation"), message: String(localized: "Connect to load automations."))
         case .project(let id):

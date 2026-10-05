@@ -3,6 +3,8 @@ import Foundation
 @MainActor protocol RootCoordinating: RootServing {
     func activateRootDestination()
     func performRootCommand(_ command: ShellCommand)
+    /// Whether `command` can run now, without building the whole `RootState`.
+    func canPerform(_ command: ShellCommand) -> Bool
     func reconnect() async
     func togglePin(_ id: String)
     func openTerminal()
@@ -31,6 +33,7 @@ extension RootCoordinating {
     func focusSession(_ id: String) {}
     func newTask(in projectID: String) {}
     func openProjectSettings(_ projectID: String) {}
+    func canPerform(_ command: ShellCommand) -> Bool { command == .newProject && rootState().canCreateProject }
 }
 
 extension AppCoordinator {
@@ -70,7 +73,6 @@ extension AppCoordinator {
         case .reattachSession(let id): rootRuntime?.reattachSession(id)
         case .focusSession(let id): rootRuntime?.focusSession(id)
         case .newTask(let id): rootRuntime?.newTask(in: id)
-        case .projectSettings(let id): rootRuntime?.openProjectSettings(id)
         }
     }
 }

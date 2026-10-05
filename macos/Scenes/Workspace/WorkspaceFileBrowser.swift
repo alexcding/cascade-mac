@@ -87,14 +87,11 @@ struct WorkspaceFileBrowser: View {
         .paneSurface(ignoresSafeAreaEdges: [])
     }
 
-    /// The browser's address row, drawn the same way (`BrowserCompactTabBar`, part `address`): Back
-    /// and Forward through this tab's files, the path in the address's pill, and the file's buttons
-    /// after it in a capsule of their own, as Reload and the bookmark are — one height and one look
-    /// for both.
+    /// The browser's address row, drawn the same way (`BrowserCompactTabBar`, part `address`): the
+    /// path in the address's pill, and the file's buttons after it in a capsule of their own, as
+    /// Reload and the bookmark are — one height and one look for both.
     private var header: some View {
         HStack(spacing: 8) {
-            NavigationCluster(canGoBack: context.canGoBackInFiles, canGoForward: context.canGoForwardInFiles,
-                              back: context.goBackInFiles, forward: context.goForwardInFiles)
             FileBreadcrumb(crumbs: crumbs) { index, entry, x in
                 menu = menu?.index == index ? nil : CrumbMenu(index: index, entry: entry, x: x)
             }

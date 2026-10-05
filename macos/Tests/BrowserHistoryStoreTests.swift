@@ -107,7 +107,7 @@ import Testing
     #expect(!live.history.isEmpty && !viewer.browserHistory.entries.isEmpty)
 
     viewer.clearBrowsingHistory()
-    #expect(live.history.isEmpty && live.pageVisits.isEmpty)
+    #expect(live.history.isEmpty && !live.visits.contains { if case .page = $0 { true } else { false } })
     #expect(viewer.browserHistory.entries.isEmpty)
     // The dormant context's snapshot lost its visits too, so a relaunch cannot seed them back.
     let written = try JSONDecoder().decode(Cache.self, from: Data(contentsOf: cache))

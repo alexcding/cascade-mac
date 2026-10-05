@@ -14,7 +14,7 @@ import SwiftUI
 /// pane's section adds or drops its tabs. A new toolbar is made only when the window holds another
 /// or a picker is offered other choices. Items whose set stays the same are updated in place,
 /// never rebuilt, so the state inside them (a focused field, an open menu) survives.
-@MainActor final class MainToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldDelegate {
+@MainActor final class MainToolbarController: NSObject, NSToolbarDelegate {
     /// The window the toolbar is installed in; each new toolbar replaces the last in it.
     weak var window: NSWindow? {
         didSet { window?.toolbar = toolbar }
@@ -24,9 +24,6 @@ import SwiftUI
     private var current = WindowToolbar.empty
     private var identifiers: [NSToolbarItem.Identifier] = []
     private var hosts: [String: NSHostingView<AnyView>] = [:]
-    private var searchTexts: [String: Binding<String>] = [:]
-    private var searchItems: [String: NSSearchToolbarItem] = [:]
-    private var segmentControls: [String: NSSegmentedControl] = [:]
     private var pickers: [String: (group: NSToolbarItemGroup, choices: [WindowToolbarItem.Choice])] = [:]
     /// Toggling pickers: a segmented control of this controller's, which can have no segment
     /// selected and whose choices can change in place. `selected` is the one last described, and
@@ -106,9 +103,6 @@ import SwiftUI
             NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: view)
             roomSpacer = nil
         }
-        searchTexts[id] = nil
-        searchItems[id] = nil
-        segmentControls[id] = nil
         pickers[id] = nil
         toggles[id] = nil
         segmentActions[id] = nil
@@ -122,9 +116,6 @@ import SwiftUI
         }
         hosts = [:]
         roomSpacer = nil
-        searchTexts = [:]
-        searchItems = [:]
-        segmentControls = [:]
         pickers = [:]
         toggles = [:]
         segmentActions = [:]
@@ -186,14 +177,6 @@ import SwiftUI
 
     private func refresh(_ item: WindowToolbarItem) {
         switch item.style {
-        case .search(_, let value, let text):
-            searchTexts[item.id] = text
-            if let field = searchItems[item.id]?.searchField, field.stringValue != value {
-                field.stringValue = value
-            }
-        case .segments(_, let selected, let select):
-            segmentActions[item.id] = select
-            if let control = segmentControls[item.id], control.selectedSegment != selected { control.selectedSegment = selected }
         case .picker(let label, let choices, let selected, let toggling, let select):
             segmentActions[item.id] = select
             if toggling, let toggle = toggles[item.id] {
@@ -227,29 +210,6 @@ import SwiftUI
         guard let spec = allItems(current).first(where: { $0.id == identifier.rawValue }) else { return nil }
         let item: NSToolbarItem
         switch spec.style {
-        case .search(let prompt, let value, let text):
-            let search = NSSearchToolbarItem(itemIdentifier: identifier)
-            search.searchField.placeholderString = prompt
-            search.searchField.stringValue = value
-            search.searchField.delegate = self
-            // Typing arrives as text changes; the clear button and Escape arrive as the action.
-            search.searchField.target = self
-            search.searchField.action = #selector(searchFieldChanged(_:))
-            search.searchField.identifier = NSUserInterfaceItemIdentifier(spec.id)
-            searchItems[spec.id] = search
-            searchTexts[spec.id] = text
-            item = search
-        case .segments(let titles, let selected, let select):
-            // The system control, made here rather than by NSToolbarItemGroup, which builds its own
-            // privately: this one carries the item's id for accessibility, and AppKit still sizes it.
-            let control = NSSegmentedControl(labels: titles, trackingMode: .selectOne, target: self, action: #selector(segmentChanged(_:)))
-            control.selectedSegment = selected
-            control.identifier = NSUserInterfaceItemIdentifier(spec.id)
-            control.setAccessibilityIdentifier(spec.id)
-            item = NSToolbarItem(itemIdentifier: identifier)
-            item.view = control
-            segmentControls[spec.id] = control
-            segmentActions[spec.id] = select
         case .picker(let label, let choices, let selected, true, let select):
             // The system's segmented control, of this controller's: in one-of mode it draws the
             // toolbar's own selection, and unlike a group it can have none selected and take new
@@ -453,16 +413,7 @@ import SwiftUI
             .first { $0.behavior == .default }?.viewController.view
     }
 
-    // MARK: NSSearchFieldDelegate
-
-    func controlTextDidChange(_ notification: Notification) {
-        if let field = notification.object as? NSSearchField { searchFieldChanged(field) }
-    }
-
-    @objc private func segmentChanged(_ control: NSSegmentedControl) {
-        guard let id = control.identifier?.rawValue else { return }
-        segmentActions[id]?(control.selectedSegment)
-    }
+    // MARK: Actions
 
     @objc private func pickerChanged(_ group: NSToolbarItemGroup) {
         segmentActions[group.itemIdentifier.rawValue]?(group.selectedIndex)
@@ -498,11 +449,6 @@ import SwiftUI
             if control.isEnabled(forSegment: index) != choice.enabled { control.setEnabled(choice.enabled, forSegment: index) }
         }
         return drawn
-    }
-
-    @objc private func searchFieldChanged(_ field: NSSearchField) {
-        guard let id = field.identifier?.rawValue, let text = searchTexts[id], text.wrappedValue != field.stringValue else { return }
-        text.wrappedValue = field.stringValue
     }
 }
 

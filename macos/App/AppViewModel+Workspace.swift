@@ -10,7 +10,6 @@ extension AppViewModel: WorkspaceCoordinating {
     }
     func updateWorkspaceTerminalState() {
         for context in viewer.contexts.values { context.workspaceViewModel?.terminalStateChanged() }
-        for project in projects { terminals[Self.projectTerminalKey(project.id)]?.presentation.style = shell.terminalStyle }
     }
 
     /// Starts the session worktree's IDE preparation, for the session being opened and no other.

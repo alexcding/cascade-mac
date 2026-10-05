@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The Dashboard screen. It owns the connection, the tabs, the global search and row opening, and
+/// The Projects screen. It owns the connection, the tabs and row opening, and
 /// hands each data source to its own model: `prs` for GitHub and `tickets` for Jira and GitHub
 /// issues. Each child loads and derives its own data asynchronously; views read only what
 /// they publish.
@@ -13,19 +13,36 @@ import Observation
     let tickets = DashboardTicketsModel()
     private(set) var retired = false
 
-    var tab: Tab = .overview
-    /// The number each overview tile last showed, so a tile only rolls from one value to the next
-    /// and never from zero again when the overview comes back from My Tickets.
-    var tileValues: [String: Double] = [:]
-    /// The toolbar's search. It is global: while it holds text the dashboard shows every matching
-    /// pull request and ticket in place of whichever page is up, and clearing it returns there.
-    var query = "" { didSet { if query != oldValue { updateSearch() } } }
-    private(set) var search = SearchResults()
+    /// The page the tab bar shows, changed through `selectTab`, or back to Overview when the last
+    /// board goes; a retired model keeps it.
+    private(set) var tab: Tab = .overview { didSet { if oldValue != tab { updateBoard() } } }
+    /// The projects with their Jira board turned on, from the app: the Board tab's.
+    var boardProjectIDs: Set<String> = [] {
+        didSet {
+            guard boardProjectIDs != oldValue, !retired else { return }
+            if tab == .board, boardProjectIDs.isEmpty { tab = .overview }
+            updateBoardModel()
+        }
+    }
+    /// The picked project's sprint board, while it has one and a backend is connected.
+    private(set) var board: WebBoardViewModel?
+    /// Whether Projects is the screen on show: the board loads and follows Jira only then.
+    var onScreen = false { didSet { if oldValue != onScreen { updateBoard() } } }
+    var appearance = AppAppearance.system { didSet { if oldValue != appearance { updateBoard() } } }
+    @ObservationIgnored private let pageActions: any PageActionServing
+    @ObservationIgnored private var boardService: (any BoardService)?
+    /// Each project's sessions, by project id: the app's to tell, since sessions are not the backend's
+    /// pull request or ticket data.
+    var sessionCounts: [String: Int] = [:] { didSet { if sessionCounts != oldValue { updateSummaries() } } }
+    /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
+    /// counts change rather than on every redraw.
+    private(set) var projectSummaries: [DashboardProjectSummary] = []
 
     init(pageActions: any PageActionServing) {
+        self.pageActions = pageActions
         navigation = PageActionViewModel(service: pageActions, failureDescription: String(localized: "Could not open pull request"))
         prs.onChange = { [weak self] in self?.pullRequestsChanged() }
-        tickets.onChange = { [weak self] in self?.updateSearch() }
+        tickets.onChange = { [weak self] in self?.updateSummaries() }
     }
 
     // MARK: Loading
@@ -62,14 +79,23 @@ import Observation
         cancelActions()
         prs.retire()
         tickets.retire()
+        board?.retire(); board = nil
+    }
+
+    private func updateSummaries() {
+        guard !retired else { return }
+        let value = makeProjectSummaries()
+        if projectSummaries != value { projectSummaries = value }
     }
 
     private func pullRequestsChanged() {
         tickets.linkedPRs = prs.linkedPRs
         tickets.projects = prs.projects
-        // Projects come with the PR snapshot; a renamed or removed one updates both scopes.
-        tickets.project = tickets.project.flatMap { current in prs.projects.first { $0.id == current.id && $0.claimsTickets } }
-        updateSearch()
+        // Projects come with the PR snapshot, which already drops a removed project from the pick;
+        // the tickets and the board follow whichever project is left picked.
+        tickets.project = prs.project.flatMap { id in prs.projects.first { $0.id == id && $0.claimsTickets } }
+        updateBoardModel()
+        updateSummaries()
         snapshotChanged()
         if let url = navigation.opening, !(prs.visibleRows + prs.others).contains(where: { $0.url.absoluteString == url }) { cancelActions() }
     }
@@ -83,107 +109,119 @@ extension DashboardViewModel {
     enum Action: Equatable {
         /// A pull request or ticket page, already resolved to what to open and how.
         case open(OpenPageRequest)
-        case showTickets
-        case closeTickets
-    }
-}
-
-// MARK: - Search
-
-extension DashboardViewModel {
-    /// Everything on the dashboard that matches the toolbar's search, whatever page is up.
-    struct SearchResults: Equatable {
-        var needle = ""
-        var mine: [DashboardRow] = []
-        var reviews: [DashboardRow] = []
-        var tickets: [DashboardTicketRow] = []
-        var count: Int { mine.count + reviews.count + tickets.count }
-        var isEmpty: Bool { count == 0 }
-        /// "3 results for “login”".
-        var caption: String { String(localized: "Results for “\(needle)”: \(count)") }
-    }
-
-    var searching: Bool { !search.needle.isEmpty }
-
-    func clearFilter() {
-        guard !retired else { return }
-        query = ""
-    }
-
-    private func updateSearch() {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        var value = SearchResults(needle: needle)
-        if !needle.isEmpty {
-            func matches(_ text: String) -> Bool { text.localizedCaseInsensitiveContains(needle) }
-            value.mine = prs.mine.filter { matches($0.searchText) }
-            value.reviews = prs.reviews.filter { matches($0.searchText) }
-            value.tickets = DashboardTicketsModel.stamp(tickets.rows.filter { matches($0.searchText) }, linked: prs.linkedPRs)
-        }
-        if search != value { search = value }
+        /// A project's own page, from its name on Projects.
+        case openProject(String)
+        /// A card on the Board tab.
+        case board(WebBoardViewModel.Action)
     }
 }
 
 // MARK: - Tabs
 
 extension DashboardViewModel {
-    /// The Dashboard's tabs. Overview and Pull Requests swap the home screen's body; Tickets is
-    /// My Tickets, pushed over it; any other tab, or Command-[, pops back.
+    /// Projects' pages, picked from the tab bar at the top of the page: every project at a glance,
+    /// every pull request, every ticket.
     enum Tab: String, CaseIterable, Identifiable {
-        case overview, pullRequests, tickets
+        case overview, pullRequests, tickets, board
         var id: String { rawValue }
         var title: String {
             switch self {
             case .overview: return String(localized: "Overview")
             case .pullRequests: return String(localized: "Pull Requests")
             case .tickets: return String(localized: "Tickets")
+            case .board: return String(localized: "Board")
             }
         }
     }
 
-    /// A tab pick is navigation, so it ends any search in progress.
+    /// The tabs the bar offers: Board only while some project has its Jira board turned on.
+    var tabs: [Tab] { Tab.allCases.filter { $0 != .board || !boardProjectIDs.isEmpty } }
+
     func selectTab(_ value: Tab) {
         guard !retired else { return }
-        clearFilter()
-        if value == .tickets { clearFilter(); onAction(.showTickets); return }
-        tab = value
-        closeTickets()
-        // Back on the overview with no tickets yet (Jira was slow or failed at connect): try again.
-        if value == .overview, tickets.available, tickets.fetchedNothing, !tickets.loading { tickets.refresh() }
+        tab = tabs.contains(value) ? value : .overview
+        // Back on a page with tickets and none yet (Jira was slow or failed at connect): try again.
+        if value == .overview || value == .tickets, tickets.available, tickets.fetchedNothing, !tickets.loading { tickets.refresh() }
     }
 
-    /// The Pull Requests tab on one author's pull requests across every project, as the overview's
-    /// tiles count them.
-    func showPullRequests(_ author: DashboardPullRequestsModel.Author) {
+    /// The Pull Requests tab on one author's pull requests under `filter`, in the project picked:
+    /// what an Overview total opens.
+    func showPullRequests(_ author: DashboardPullRequestsModel.Author, filter: DashboardPullRequestsModel.Filter = .all) {
         guard !retired else { return }
         prs.author = author
-        prs.project = nil
-        prs.filter = .all
+        prs.filter = filter
         selectTab(.pullRequests)
     }
 
-    /// My Tickets as the list of every tracked project's tickets under `filter`: what the overview's
-    /// tile, badges and stage strip count, and what a tickets link means. The Tickets tab instead
-    /// returns to My Tickets as it was left.
+    /// The Tickets tab on the user's tickets under `filter`, in the project picked: what an
+    /// Overview total opens. Picking the tab instead returns to it as it was left.
     func showTickets(_ filter: DashboardTicketsModel.Filter = .all) {
         guard !retired else { return }
-        clearFilter()
+        tickets.author = .mine
         tickets.filter = filter
-        tickets.project = nil
-        onAction(.showTickets)
+        selectTab(.tickets)
     }
 
-    func closeTickets() {
-        guard !retired else { return }
-        onAction(.closeTickets)
+    func openProject(_ id: String) {
+        guard !retired, prs.projects.contains(where: { $0.id == id }) else { return }
+        onAction(.openProject(id))
     }
 
-    /// Projects My Tickets can narrow to: those whose tickets it matches by Jira key or issue repo.
-    var ticketProjects: [DashboardProject] { prs.projects.filter(\.claimsTickets) }
+    /// The project every tab is narrowed to, from the menu at the tab bar's end; nil is every project.
+    var project: String? { prs.project }
 
-    /// One project, or nil for every project.
-    func selectTicketProject(_ id: String?) {
+    /// Whether the narrowed-to project tracks tickets; with none, the Tickets tab has nothing to list.
+    var projectTracksTickets: Bool {
+        guard let id = prs.project else { return true }
+        return prs.projects.contains { $0.id == id && $0.claimsTickets }
+    }
+
+    /// One project, or nil for every project, for every tab at once.
+    func selectProject(_ id: String?) {
         guard !retired else { return }
+        // A project with a board is known before the PR snapshot names it, so a board link at
+        // launch keeps its project rather than landing on every project.
+        let id = id.flatMap { id in prs.projects.contains { $0.id == id } || boardProjectIDs.contains(id) ? id : nil }
+        prs.project = id
         tickets.project = id.flatMap { id in prs.projects.first { $0.id == id && $0.claimsTickets } }
+        updateBoardModel()
+    }
+
+    /// Whether the picked project shows a board; with every project picked there is none to show.
+    var projectShowsBoard: Bool { prs.project.map(boardProjectIDs.contains) ?? false }
+
+    /// The board's backend; nil pauses a board already built, which keeps its filters.
+    func connectBoards(_ service: (any BoardService)?) {
+        guard !retired else { return }
+        boardService = service
+        if let service { board?.connect(service: service) } else { board?.pause() }
+        updateBoardModel()
+        updateBoard()
+    }
+
+    /// A Jira sync for one project's board, or for every board.
+    func refreshBoard(event id: String?) {
+        guard !retired, let board, id == nil || id == "board:\(board.projectID)" else { return }
+        board.refresh()
+    }
+
+    /// Builds the board of the picked project when it shows one, and retires one no longer picked.
+    private func updateBoardModel() {
+        guard !retired else { return }
+        let wanted = projectShowsBoard ? prs.project : nil
+        if board?.projectID != wanted { board?.retire(); board = nil }
+        guard board == nil, let wanted, let boardService else { return }
+        let board = WebBoardViewModel(projectID: wanted, service: boardService, pageActions: pageActions, preferences: .standard)
+        board.onAction = { [weak self] in self?.onAction(.board($0)) }
+        self.board = board
+        updateBoard()
+    }
+
+    private func updateBoard() {
+        guard !retired, let board else { return }
+        board.appearance = appearance
+        // With no backend the board stays idle, so neither Refresh nor a refresh reaches the old one.
+        board.active = onScreen && tab == .board && boardService != nil
     }
 }
 
@@ -208,7 +246,7 @@ extension DashboardViewModel {
     private func currentRow(_ row: DashboardRow) -> DashboardRow? {
         prs.visibleRows.first { $0.id == row.id } ?? prs.others.first { $0.id == row.id }
     }
-    /// A ticket still shown: the user's own, or one under My Tickets' Others.
+    /// A ticket still shown: the user's own, or one under the Tickets tab's Others.
     private func currentTicket(_ row: DashboardTicketRow) -> DashboardTicketRow? {
         tickets.rows.first { $0.id == row.id } ?? tickets.others.first { $0.id == row.id }
     }

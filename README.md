@@ -64,12 +64,9 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### A dashboard for what needs you
 
-- **At a glance.** Open pull requests and failing CI, reviews waiting on you and how
-  long the oldest has waited, assigned tickets by stage, and 30 days of AI spend.
-  Click a pull request, review, or ticket tile to drill in.
-- **Your PRs apart from your review queue.** Overview, Pull Requests, Reviews, and
-  Tickets tabs, with one search across all of them. Right-click
-  a pull request or ticket to open it in a tab or start a session on it.
+- **Your PRs apart from your review queue.** Projects has Overview, Pull Requests,
+  Tickets and Board tabs along the top of the page. Right-click a pull request or ticket to open it
+  in a tab or start a session on it.
 - **Agent usage.** Claude Code and Codex rate limits for the current session and
   week, next to your AI spend.
 - **Menu bar.** Review requests with their CI status and your agent usage (⇧⌘U).
@@ -85,9 +82,9 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### Jira and GitHub issues without leaving the code
 
-- **Tickets.** The Tickets tab in Pull Requests lists your Jira tickets across the projects
+- **Tickets.** The Tickets tab in Projects lists your Jira tickets across the projects
   whose Jira project key claims them, and the open GitHub issues assigned to you in their
-  repositories, with search and filters. Paste an issue link into New Task to work on it.
+  repositories, with filters. Paste an issue link into New Task to work on it.
 - **Sprint board.** Drag cards between columns, move or reassign tickets, and filter
   by assignee.
 - **Automatic updates.** [Automation](#automation-across-projects) can move a merged

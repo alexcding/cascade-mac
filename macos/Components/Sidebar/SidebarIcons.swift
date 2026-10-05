@@ -37,15 +37,6 @@ import AppKit
         return image
     }
 
-    /// The "+" on the Projects heading, at the heading's own size and weight so the two read as one.
-    static var addSymbol: NSImage? {
-        let key = "plus@add"
-        if let hit = cache[key] { return hit }
-        let image = symbol("plus")?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.headingSize, weight: .semibold))
-        cache[key] = image
-        return image
-    }
-
     /// A session's pin, a step smaller than a button would draw it, so it sits no larger than the
     /// status dot it stands in for under the pointer.
     static let pinSize: CGFloat = 11

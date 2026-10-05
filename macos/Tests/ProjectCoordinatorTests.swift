@@ -14,17 +14,14 @@ import Testing
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) { ids.remove(id); deletions.append(id) }
     var created: [(String, String?)] = []
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) { created.append((session.id, prompt)) }
-    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession { throw CancellationError() }
-    func closeProjectTerminal(_ projectID: String) async {}
 }
 
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {
     let native = NativeProjectFeatureFactory(creation: NativeCreationFlowFactory(chooseFolder: { "/tmp/injected-project" }))
     var creations = 0
-    func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent,
-                 pageActions: any PageActionServing) -> ProjectPageViewModel {
+    func project(_ project: Project, services: ProjectFeatureServices, agent: SessionAgent) -> ProjectPageViewModel {
         creations += 1
-        return native.project(project, services: services, agent: agent, pageActions: pageActions)
+        return native.project(project, services: services, agent: agent)
     }
 }
 
@@ -42,7 +39,7 @@ import Testing
     let model = try #require(root.projectModels[project.id])
     root.navigate(to: .project(project.id))
     #expect(root.projectCoordinator?.model === model)
-    #expect(root.windowToolbar.leading.map(\.id) == ["title"] && root.windowToolbar.pane == nil)
+    #expect(root.windowToolbar.leading.map(\.id) == ["project-back", "title"] && root.windowToolbar.pane == nil)
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"
@@ -55,6 +52,8 @@ import Testing
     model.editor.onAction(.saved(project))
     #expect(runtime.saves.map(\.1) == [.configuration])
     #expect(model.editor.draft.name == "Keep this draft")
+    model.goBack()
+    #expect(root.selection == .overview, "Back returns to Projects, where the page was opened from")
 }
 
 @MainActor @Test func projectCoordinatorRejectsObsoleteCompletionAndPreservesUnrelatedNavigationOnDelete() throws {
@@ -64,7 +63,7 @@ import Testing
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
     root.prepareProject(project, services: services, factory: factory, runtime: runtime, agent: .claude)
     let obsolete = try #require(root.projectCoordinators[project.id])
-    let replacement = factory.project(project, services: services, agent: .claude, pageActions: ProjectPageActions())
+    let replacement = factory.project(project, services: services, agent: .claude)
     let current = root.installProject(replacement, runtime: runtime)
     obsolete.model.editor.onAction(.saved(project))
     obsolete.model.editor.onAction(.deleted(project.id))
@@ -106,7 +105,7 @@ import Testing
 @MainActor @Test func projectActionRebindingForwardsCurrentCallbackWithoutRetainingParent() throws {
     let factory = CountingProjectFeatureFactory(), services = try projectCoordinatorServices()
     let project = Project(id: "p", name: "Project", repo: "", color: nil, workspace: "/tmp")
-    var model: ProjectPageViewModel? = factory.project(project, services: services, agent: .claude, pageActions: ProjectPageActions())
+    var model: ProjectPageViewModel? = factory.project(project, services: services, agent: .claude)
     weak var released = model
     let editor = try #require(model?.editor)
     var first = 0, actions: [ProjectPageViewModel.Action] = []

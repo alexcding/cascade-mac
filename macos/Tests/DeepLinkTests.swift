@@ -162,7 +162,7 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     #expect(coordinator.handle(url: URL(string: "cascade://app/projects/p/settings")!))
     #expect(runtime.selections.isEmpty && coordinator.pendingDeepLink != nil)
     // The project page is one screen, so a link to one of its old sections opens the project.
-    let project = Project(id: "p", name: "Fixture", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP")
+    let project = Project(id: "p", name: "Fixture", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "APP", boardEnabled: true)
     runtime.state.projects = [project]
     coordinator.setRoutingReady(true)
     #expect(coordinator.selection == .project("p") && coordinator.pendingDeepLink == nil && factory.creations == 0)
@@ -171,9 +171,9 @@ func deepLinksWaitForDocumentCloseAndResumeAfterSaveOrCancel(save: Bool) async t
     coordinator.handle(url: URL(string: "cascade://app/terminal")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == nil && runtime.terminals == 0)
     #expect(coordinator.projectCoordinator == nil)
-    // A project's board link opens the project, and only for a project that still exists.
+    // A project's board link opens Projects' Board tab, and only for a project that still exists.
     coordinator.handle(url: URL(string: "cascade://app/projects/p/board")!)
-    #expect(coordinator.selection == .project("p") && coordinator.routingError == nil)
+    #expect(coordinator.selection == .overview && coordinator.routingError == nil)
     coordinator.navigate(to: SidebarDestination.terminal)
     coordinator.handle(url: URL(string: "cascade://app/projects/gone/board")!)
     #expect(coordinator.selection == .terminal && coordinator.routingError == "The linked project is no longer available.")

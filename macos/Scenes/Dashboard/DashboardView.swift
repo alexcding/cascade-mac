@@ -1,85 +1,138 @@
 import Foundation
 import SwiftUI
 
-/// The Dashboard's home: the day's headline numbers as four tiles, then ruled lists: the user's
-/// pull requests and a summary of their Jira tickets, with review requests and each agent's quota
-/// beside them. Tabs swap the body for every pull request or every review request; Tickets opens
-/// My Tickets.
+/// Projects' home. An underline tab bar at the top of the page picks what the page lists: Overview,
+/// the totals across every project and a table with one row per project, whose name opens that
+/// project's page; Pull Requests, every pull request a section per project; Tickets, every ticket;
+/// Board, the picked project's Jira sprint board.
 struct DashboardView: View {
     @Bindable var model: DashboardViewModel
     let shell: ShellStore
-    /// Below this width the side column drops under the main one and the tiles pair up.
+    /// Below this width the totals pair up.
     private static let splitWidth: CGFloat = 900
-    /// The side column's width, unless the tile above it is wider.
-    private static let sideWidth: CGFloat = 340
     @State private var width: CGFloat = 1200
-    /// The tiles share their row equally; the side column lines up with them once they outgrow it.
-    @State private var tileWidth: CGFloat = 0
-    /// What each tile last showed lives on the model, not in this view: My Tickets replaces this
-    /// view while it is pushed, and view state would come back at zero and roll up again.
-    private func shown(_ key: String) -> Binding<Double> {
-        Binding { model.tileValues[key, default: 0] } set: { model.tileValues[key] = $0 }
-    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header.padding(.top, 12).padding(.bottom, 24)
-                if let error = model.prs.error { warning(error, retry: true) }
-                if let error = model.navigation.error { warning(error) }
-                if model.prs.unreachable { warning(String(localized: "GitHub is not answering. Showing saved pull requests.")) }
-                ForEach(Array(model.prs.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
-                if model.prs.updated == nil {
-                    Text(model.prs.loading ? String(localized: "Loading pull requests…") : String(localized: "Connect to load pull requests.")).foregroundStyle(.secondary)
-                } else {
-                    switch model.tab {
-                    case .pullRequests: pullRequestsPage
-                    case .overview, .tickets: overview
+        Group {
+            if model.tab == .board {
+                // The board fills the page rather than scrolling with it: each column scrolls on its own.
+                VStack(alignment: .leading, spacing: 0) {
+                    tabBar
+                    boardPage
+                }
+                .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 20)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        tabBar
+                        if let error = model.navigation.error { warning(error) }
+                        if model.tab == .tickets {
+                            DashboardTicketsPage(model: model)
+                        } else {
+                            if model.tab == .pullRequests { header.padding(.bottom, 24) }
+                            if let error = model.prs.error { warning(error, retry: true) }
+                            if model.prs.unreachable { warning(String(localized: "GitHub is not answering. Showing saved pull requests.")) }
+                            ForEach(Array(model.prs.warnings.enumerated()), id: \.offset) { _, value in warning(value) }
+                            if model.prs.updated == nil {
+                                Text(model.prs.loading ? String(localized: "Loading pull requests…") : String(localized: "Connect to load pull requests.")).foregroundStyle(.secondary)
+                            } else if model.tab == .pullRequests {
+                                pullRequestsPage
+                            } else {
+                                overview
+                            }
+                        }
                     }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+                    // The page inset lives inside the scroll view, so its scroller runs down the window's edge.
+                    .padding(.horizontal, 28).padding(.top, 12).padding(.bottom, 40)
                 }
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-            // The page inset lives inside the scroll view, so its scroller runs down the window's edge.
-            .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
         }
         .accessibilityIdentifier("native-dashboard")
         .onDisappear(perform: model.cancelActions)
     }
 
-    // MARK: Header
+    /// The tabs, and at their end the project every tab narrows to.
+    private var tabBar: some View {
+        DashboardUnderlineTabs(values: model.tabs, selection: model.tab,
+                               title: \.title, id: "dashboard-tabs") { model.selectTab($0) } trailing: {
+            DashboardProjectTag(projects: model.prs.projects, selection: model.project,
+                                id: "dashboard-project") { model.selectProject($0) }
+                .disabled(model.prs.projects.isEmpty)
+        }
+        .padding(.bottom, 20)
+    }
 
-    /// Each tab's title in the one page-header style; the tabs themselves live in the toolbar.
-    @ViewBuilder private var header: some View {
-        switch model.tab {
-        case .pullRequests:
-            // Whose, which project and refresh sit by the title, as on My Tickets: the tag row
-            // below keeps its width for the check and review filters.
-            // The age is drawn again each minute: nothing else redraws it while nobody is
-            // looking, and what it says grows older all the same.
-            TimelineView(.periodic(from: .now, by: 60)) { _ in
-                DashboardPageHeader(caption: [pullRequestsCaption, updatedLabel].filter { !$0.isEmpty }.joined(separator: " · "), title: String(localized: "Pull requests")) {
-                    HStack(spacing: 8) {
-                        pullRequestScope
-                        DashboardRefreshButton(name: String(localized: "Pull requests"), id: "prs",
-                                               busy: model.prs.loading || model.prs.syncing, action: { model.prs.sync() })
+    // MARK: Board
+
+    /// The picked project's sprint board, the whole team's, to move and assign; with no project
+    /// picked, or one without a board, the projects that have one.
+    @ViewBuilder private var boardPage: some View {
+        if let board = model.board {
+            HStack(alignment: .center, spacing: 12) {
+                BoardFilters(board: board)
+                Spacer(minLength: 12)
+                if let sprint = board.sprintTitle {
+                    Text(sprint).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).lineLimit(1)
+                }
+                DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board", busy: board.loading, action: board.reload)
+            }
+            .padding(.bottom, 20)
+            WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .accessibilityIdentifier("dashboard-board")
+                .onDisappear(perform: board.cancelActions)
+        } else {
+            let projects = model.prs.projects.filter { model.boardProjectIDs.contains($0.id) }
+            VStack(alignment: .leading, spacing: 12) {
+                Text(model.projectShowsBoard ? String(localized: "Connect to load the board.")
+                     : model.project != nil ? String(localized: "This project has no sprint board. Turn on Show board in its Settings.")
+                     : String(localized: "Pick a project to see its sprint board."))
+                    .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3)
+                if !model.projectShowsBoard {
+                    FlowRow(spacing: 4, lineSpacing: 6) {
+                        ForEach(projects) { project in
+                            DashboardChip(title: project.name, count: nil, active: false,
+                                          id: "dashboard-board-project-\(project.id)") { model.selectProject(project.id) }
+                        }
                     }
-                    .padding(.bottom, 6)
                 }
             }
-        case .overview, .tickets:
-            DashboardPageHeader(caption: Date.now.formatted(.dateTime.weekday(.wide).day().month(.wide)), title: greeting)
+            .padding(.top, 4)
         }
     }
 
-    private var pullRequestsCaption: String {
-        switch model.prs.author {
-        case .mine: String(localized: "Yours, newest first")
-        case .review: String(localized: "Waiting on you, newest first")
-        case .others: String(localized: "Everyone else’s, newest first")
+    // MARK: Header
+
+    /// The Pull Requests tab's one row of controls: whose, then the filters that matter, then how
+    /// old the list is and Refresh. The age is drawn again each minute: nothing else redraws it
+    /// while nobody is looking, and what it says grows older all the same.
+    private var header: some View {
+        let prs = model.prs
+        return HStack(alignment: .top, spacing: 12) {
+            FlowRow(spacing: 4, lineSpacing: 6) {
+                ForEach(DashboardPullRequestsModel.Author.allCases) { author in
+                    DashboardChip(title: author.title, count: prs.count(author), active: prs.author == author,
+                                  id: "dashboard-pr-author-\(author.id)") { prs.author = author }
+                }
+                DashboardChipDivider()
+                ForEach(DashboardPullRequestsModel.Filter.shown(with: prs.filter)) { filter in
+                    DashboardChip(title: filter.title, count: prs.counts[filter] ?? 0, active: prs.filter == filter,
+                                  id: "dashboard-pr-filter-\(filter.id)") { prs.filter = filter }
+                }
+            }
+            HStack(spacing: 10) {
+                TimelineView(.periodic(from: .now, by: 60)) { _ in
+                    Text(updatedLabel).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                }
+                DashboardRefreshButton(name: String(localized: "Pull requests"), id: "prs",
+                                       busy: prs.loading || prs.syncing, action: { prs.sync() })
+            }
+            .fixedSize()
         }
     }
 
-    /// How old the pull requests shown are, read again whenever the model reads: the dashboard
+    /// How old the pull requests shown are, read again whenever the model reads: the page
     /// refreshes behind a look, so what it shows says how long ago that was.
     private var updatedLabel: String {
         guard let synced = model.prs.synced else { return "" }
@@ -90,142 +143,135 @@ struct DashboardView: View {
         return String(localized: "Updated \(formatter.localizedString(for: synced, relativeTo: now))")
     }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: .now)
-        let value = hour < 5 ? String(localized: "Up late") : hour < 12 ? String(localized: "Good morning") : hour < 18 ? String(localized: "Good afternoon") : String(localized: "Good evening")
-        return NSFullUserName().split(separator: " ").first.map { String(localized: "\(value), \($0)") } ?? value
-    }
-
     // MARK: Overview
 
-    private var overview: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            summary.padding(.bottom, 44)
-            let mine = model.prs.mine
-            let reviews = model.prs.reviews
-            let tickets = model.tickets.rows
-            let attention = model.tickets.attention
-            // The side column only when it has something in it; otherwise the lists take the width.
-            if width >= Self.splitWidth && !reviews.isEmpty {
-                HStack(alignment: .top, spacing: 48) {
-                    VStack(alignment: .leading, spacing: 52) {
-                        myPullRequests(mine)
-                        ticketSummary(tickets, attention: attention)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    reviewRequests(reviews)
-                        .frame(width: max(Self.sideWidth, tileWidth))
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 52) {
-                    myPullRequests(mine)
-                    if !reviews.isEmpty { reviewRequests(reviews) }
-                    ticketSummary(tickets, attention: attention)
-                }
+    /// Every project at a glance: the totals across them, then one row each.
+    @ViewBuilder private var overview: some View {
+        let all = model.projectSummaries
+        let projects = model.project.map { id in all.filter { $0.id == id } } ?? all
+        if all.isEmpty {
+            noProjects
+        } else {
+            VStack(alignment: .leading, spacing: 24) {
+                totals(projects)
+                projectTable(projects)
             }
         }
     }
 
-    // MARK: Summary
-
-    /// The headline tiles: the user's pull requests by check state, the reviews waiting on them,
-    /// and their tickets by stage once Jira is connected. Counts ignore the
-    /// search; the sections under them leave their counts to these tiles. One row when wide, sized
-    /// to the tiles shown so none leaves an empty slot; pairs when narrow.
-    private var summary: some View {
-        let tiles = model.tickets.available ? 3 : 2
+    /// The headline numbers, each the size of the list it opens: the user's own pull requests, the
+    /// ones waiting on them, their own failing, and their tickets once a tracker answers.
+    private func totals(_ projects: [DashboardProjectSummary]) -> some View {
+        let tickets = model.tickets.available
+        let mine = model.prs.mine.filter { model.project == nil || $0.projectID == model.project }
         let columns = Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top),
-                            count: width >= Self.splitWidth ? tiles : 2)
+                            count: width >= Self.splitWidth ? (tickets ? 4 : 3) : 2)
         return LazyVGrid(columns: columns, spacing: 12) {
-            pullRequestTile
-            reviewTile
-            if model.tickets.available { ticketTile }
-        }
-    }
-
-    private var pullRequestTile: some View {
-        let tile = model.prs.tile
-        return DashboardStatTile(title: String(localized: "Open pull requests"), value: Double(tile.count), shown: shown("prs"),
-                                 footnote: tile.footnote,
-                                 open: { model.showPullRequests(.mine) }) {
-            if tile.failing > 0 { DashboardBadge(String(localized: "\(tile.failing) failing"), tone: .danger) }
-        } visual: {
-            DashboardChecksMatrix(rows: tile.dots)
-        }
-        .accessibilityIdentifier("dashboard-tile-prs")
-    }
-
-    private var reviewTile: some View {
-        let tile = model.prs.reviewTile
-        return DashboardStatTile(title: String(localized: "Waiting on you"), value: Double(tile.count), shown: shown("reviews"),
-                                 footnote: tile.footnote,
-                                 open: { model.showPullRequests(.review) }) {
-            if let age = tile.oldestAge { DashboardBadge(String(localized: "oldest \(age)"), tone: .warn) }
-        } visual: {
-            DashboardAvatarStack(logins: tile.authors, avatars: model.prs.avatars)
-        }
-        // The review column under the tiles is at least a tile wide.
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tileWidth = $0 }
-        .accessibilityIdentifier("dashboard-tile-reviews")
-    }
-
-    /// Urgent opens My Tickets on its tag; a segment of the strip opens it on that stage.
-    private var ticketTile: some View {
-        let tile = model.tickets.tile
-        let loading = model.tickets.loading && tile.count == 0
-        return DashboardStatTile(title: String(localized: "Tickets assigned"), value: loading ? 0 : Double(tile.count), shown: shown("tickets"),
-                                 footnote: tile.footnote,
-                                 open: { model.showTickets() }) {
-            if tile.urgent > 0 {
-                Button { model.showTickets(.urgent) } label: { DashboardBadge(String(localized: "\(tile.urgent) urgent"), tone: .danger) }
-                    .buttonStyle(.plain)
-                    .help("Show urgent tickets")
-                    .accessibilityIdentifier("dashboard-urgent-tickets")
+            total(String(localized: "Your open pull requests"), mine.count, id: "open") {
+                model.showPullRequests(.mine)
             }
-        } visual: {
-            DashboardStageStrip(stages: model.tickets.stages) { model.showTickets(.stage($0)) }
-                .frame(minWidth: 40, maxWidth: 110)
+            total(String(localized: "Waiting on you"), model.prs.count(.review), id: "waiting") {
+                model.showPullRequests(.review)
+            }
+            total(String(localized: "Your failing checks"), mine.filter { $0.checks == .failing }.count, critical: true, id: "failing") {
+                model.showPullRequests(.mine, filter: .failing)
+            }
+            if tickets {
+                total(String(localized: "Tickets assigned"),
+                      model.project == nil ? model.tickets.rows.count : projects.reduce(0) { $0 + $1.tickets }, id: "tickets") {
+                    model.showTickets()
+                }
+            }
         }
-        .accessibilityIdentifier("dashboard-tile-tickets")
+    }
+
+    /// One headline number, a button to the list it counts.
+    private func total(_ title: String, _ value: Int, critical: Bool = false, id: String, open: @escaping () -> Void) -> some View {
+        DashboardTotal(title: title, value: value, critical: critical, id: "dashboard-total-\(id)", open: open)
+    }
+
+    /// One row per project, its name a button to the project's page. Ages are drawn again each
+    /// minute, as nothing else redraws them while nobody is looking.
+    private func projectTable(_ projects: [DashboardProjectSummary]) -> some View {
+        let tickets = model.tickets.available
+        return TimelineView(.periodic(from: .now, by: 60)) { _ in
+            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 0) {
+                GridRow {
+                    Text("Project")
+                    Text("Open PRs")
+                    Text("Waiting on you")
+                    Text("Checks")
+                    if tickets { Text("Tickets") }
+                    Text("Sessions")
+                    // The last column takes the rest of the width, so the grid and its dividers fill the card.
+                    Text("Updated").frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(DashboardPalette.ink3)
+                .padding(.vertical, 10)
+                ForEach(projects) { project in
+                    Divider().gridCellUnsizedAxes(.horizontal)
+                    GridRow {
+                        Button { model.openProject(project.id) } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(project.name).font(.system(size: 13, weight: .semibold))
+                                Text(project.tracker).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(String(localized: "Open \(project.name)"))
+                        .accessibilityIdentifier("dashboard-project-\(project.id)")
+                        Text(project.open, format: .number)
+                        Text(project.waiting, format: .number)
+                        HStack(spacing: 6) {
+                            Circle().fill(checksColor(project)).frame(width: 8, height: 8).accessibilityHidden(true)
+                            Text(project.checks)
+                        }
+                        if tickets { Text(project.tickets, format: .number) }
+                        Text(project.sessions, format: .number)
+                        updated(project).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.system(size: 13)).monospacedDigit()
+                    .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline))
+        }
+    }
+
+    private func checksColor(_ project: DashboardProjectSummary) -> Color {
+        if project.failing > 0 { return DashboardPalette.critical }
+        if project.running > 0 { return Theme.warn }
+        return project.passing > 0 ? Theme.success : DashboardPalette.hairline
+    }
+
+    /// How long ago the project synced, or that its sync failed, with the reason on hover.
+    @ViewBuilder private func updated(_ project: DashboardProjectSummary) -> some View {
+        if let error = project.syncError {
+            Text("Sync failed").foregroundStyle(DashboardPalette.criticalText).help(error)
+        } else if let synced = project.synced {
+            Text(synced.timeIntervalSinceNow > -60 ? String(localized: "Just now")
+                 : synced.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))
+                .foregroundStyle(DashboardPalette.ink3)
+        } else {
+            Text("Waiting for first sync").foregroundStyle(DashboardPalette.ink3)
+        }
     }
 
     // MARK: Pull requests
 
-    /// Yours newest first. The refresh here syncs every pull request, review requests included.
-    private func myPullRequests(_ rows: [DashboardRow]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            TimelineView(.periodic(from: .now, by: 60)) { _ in
-                DashboardSectionHeader(title: String(localized: "My pull requests"), detail: updatedLabel,
-                                       refresh: { model.prs.sync() }, busy: model.prs.loading || model.prs.syncing, id: "prs")
-            }
-            if model.prs.projects.isEmpty {
-                noProjects
-            } else {
-                if rows.isEmpty { placeholder(String(localized: "No open pull requests you authored.")) }
-                prRows(rows)
-            }
-        }
-    }
-
-    /// Other people's pull requests waiting on the user, as their own section; left out when none are.
-    private func reviewRequests(_ rows: [DashboardRow]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DashboardSectionHeader(title: String(localized: "Review requested"), detail: "")
-            // Compact only in the side column; full width has room for the agent and Draft state.
-            prRows(rows, compact: width >= Self.splitWidth)
-        }
-    }
-
-    private func prRows(_ rows: [DashboardRow], compact: Bool = false, author: Bool = false) -> some View {
+    private func prRows(_ rows: [DashboardRow], author: Bool = false) -> some View {
         ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-            prRow(row, first: index == 0, compact: compact, author: author)
+            prRow(row, first: index == 0, author: author)
         }
     }
 
-    private func prRow(_ row: DashboardRow, first: Bool, compact: Bool, author: Bool) -> some View {
+    private func prRow(_ row: DashboardRow, first: Bool, author: Bool) -> some View {
         let mark = model.sessionMark(row)
         return DashboardPRRow(row: row, mark: mark, opening: model.navigation.opening == row.url.absoluteString,
-                              first: first, compact: compact, showsAuthor: author, open: { model.open(row) })
+                              first: first, showsAuthor: author, open: { model.open(row) })
             .contextMenu {
                 PageRowMenu(hasSession: mark != nil, url: row.url, open: { model.open(row) })
             }
@@ -239,7 +285,7 @@ struct DashboardView: View {
                 .padding(.bottom, 9)
                 .accessibilityHidden(true)
             Text("No projects yet").font(.system(size: 13, weight: .semibold)).foregroundStyle(DashboardPalette.ink2)
-            Text("Add one with New Project in the sidebar to track its pull requests.")
+            Text("Add one with New Project to track its pull requests and tickets.")
                 .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).multilineTextAlignment(.center)
         }
         .frame(maxWidth: 260)
@@ -254,11 +300,6 @@ struct DashboardView: View {
     private var pullRequestsPage: some View {
         let groups = model.prs.groups
         return VStack(alignment: .leading, spacing: 0) {
-            DashboardFilterTags(values: DashboardPullRequestsModel.Filter.allCases, selection: model.prs.filter,
-                                title: \.title, count: { model.prs.counts[$0] ?? 0 },
-                                id: { "dashboard-pr-filter-\($0.id)" }) { model.prs.filter = $0 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 24)
             if model.prs.projects.isEmpty {
                 noProjects
             } else if groups.isEmpty {
@@ -277,66 +318,6 @@ struct DashboardView: View {
         }
     }
 
-    /// Whose pull requests and from which project, as outlined tags in the page header.
-    private var pullRequestScope: some View {
-        let prs = model.prs
-        return HStack(spacing: 8) {
-            DashboardScopeTags(values: DashboardPullRequestsModel.Author.allCases, selection: prs.author,
-                               title: \.title, count: prs.count, id: "dashboard-pr-author") { prs.author = $0 }
-            DashboardProjectTag(projects: prs.projects, selection: prs.project, id: "dashboard-pr-project") { prs.project = $0 }
-        }
-    }
-
-    // MARK: Tickets
-
-    /// The few tickets that need attention; the tile above already splits them by stage, and the
-    /// full list lives on My Tickets, one click away.
-    @ViewBuilder private func ticketSummary(_ rows: [DashboardTicketRow], attention: [DashboardTicketRow]) -> some View {
-        if model.tickets.available {
-            VStack(alignment: .leading, spacing: 0) {
-                DashboardSectionHeader(title: String(localized: "Tickets"), detail: "",
-                                       refresh: { model.tickets.refresh(.now) }, busy: model.tickets.loading, id: "tickets")
-                if rows.isEmpty && model.tickets.loading {
-                    placeholder(String(localized: "Loading tickets…"))
-                } else if rows.isEmpty {
-                    placeholder(model.tickets.error ?? String(localized: "No tickets assigned to you."))
-                } else {
-                    if attention.isEmpty { placeholder(String(localized: "Nothing in progress or urgent.")) }
-                    ForEach(Array(attention.enumerated()), id: \.element.id) { index, row in
-                        ticketRow(row, first: index == 0)
-                    }
-                    Button { model.showTickets() } label: {
-                        Text("View all tickets").font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(DashboardPalette.link)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 14).padding(.leading, 8)
-                    .accessibilityIdentifier("dashboard-view-all-tickets")
-                }
-            }
-        }
-    }
-
-    private func ticketRow(_ row: DashboardTicketRow, first: Bool) -> some View {
-        Button { model.open(row) } label: {
-            HStack(spacing: 10) {
-                TicketPriorityMark(level: row.level)
-                Text(row.ticket.key).font(.system(size: 13.5)).foregroundStyle(DashboardPalette.link)
-                    .frame(width: 104, alignment: .leading)
-                Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                TicketStatusPill(row: row)
-            }
-            .modifier(DashboardHoverRow(first: first))
-        }
-        .buttonStyle(.plain)
-        .disabled(model.navigation.opening == row.url.absoluteString)
-        .accessibilityIdentifier("dashboard-ticket-\(row.ticket.key)")
-        .contextMenu {
-            PageRowMenu(hasSession: model.sessionMark(row) != nil, url: row.url, open: { model.open(row) })
-        }
-    }
-
     // MARK: States
 
     private func placeholder(_ text: String) -> some View {
@@ -352,87 +333,122 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - Building blocks
-
-/// Every Dashboard tab's title: one quiet caption over the page's name, and any trailing control
-/// level with the name. Overview, Pull Requests, Reviews and My Tickets all open with it.
-struct DashboardPageHeader<Trailing: View>: View {
-    let caption: String
+/// One choice in a tab's row of controls: its name and how many it leaves, a soft grey fill and
+/// full ink when chosen, quiet grey otherwise.
+/// Whose and which filter share this one face, so the row reads as one set of controls.
+struct DashboardChip: View {
     let title: String
-    @ViewBuilder let trailing: Trailing
+    let count: Int?
+    let active: Bool
+    let id: String
+    let select: () -> Void
+    @State private var hovering = false
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(caption).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink3)
-                    .monospacedDigit()
-                Text(title).font(.system(size: 28, weight: .bold)).tracking(-0.6)
+        Button(action: select) {
+            HStack(spacing: 5) {
+                Text(title).foregroundStyle(active ? Color.primary : DashboardPalette.ink3)
+                if let count { Text(count, format: .number).monospacedDigit().foregroundStyle(DashboardPalette.ink3) }
             }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 12)
-            trailing
+            .font(.system(size: 13))
+            .padding(.horizontal, 12).frame(height: 28)
+            .background(active ? Theme.surfaceHover : hovering ? Theme.surfaceHover.opacity(0.5) : .clear,
+                        in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityIdentifier(id)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 }
 
-extension DashboardPageHeader where Trailing == EmptyView {
-    init(caption: String, title: String) { self.init(caption: caption, title: title) { EmptyView() } }
+/// The gap between a row's whose and its filters.
+struct DashboardChipDivider: View {
+    var body: some View {
+        Color.clear.frame(width: 12, height: 28).accessibilityHidden(true)
+    }
 }
 
-/// One choice of several as a segmented control drawn like the Dashboard's tags: an outlined group
-/// the height of a tag, the selected segment filled as a selected tag is, and that fill sliding to
-/// the next choice. The page header's control for whose items. `count`, when
-/// given, follows each title; `id` prefixes each segment's accessibility id.
-struct DashboardScopeTags<Value: Hashable & Identifiable>: View {
+/// An Overview total: what it counts and how many, in a ruled box that opens that list, washed
+/// under the pointer.
+struct DashboardTotal: View {
+    let title: String
+    let value: Int
+    let critical: Bool
+    let id: String
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                Text(value, format: .number).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(critical && value > 0 ? DashboardPalette.criticalText : Color.primary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(hovering ? Theme.surfaceHover.opacity(0.6) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(id)
+    }
+}
+
+/// The page's tabs as a row of titles over a hairline, the chosen one in full ink with a bar under
+/// it that slides to the next choice, and `trailing` at the far end. `id` prefixes each tab's
+/// accessibility id.
+struct DashboardUnderlineTabs<Value: Hashable & Identifiable, Trailing: View>: View {
     let values: [Value]
     let selection: Value
     let title: (Value) -> String
-    var count: ((Value) -> Int)? = nil
-    /// Whether a segment can be picked; one that can't stays in place, dimmed, so nothing moves.
-    var enabled: (Value) -> Bool = { _ in true }
     let id: String
     let select: (Value) -> Void
+    /// What sits at the bar's far end, over the hairline: controls that apply to every tab.
+    @ViewBuilder var trailing: Trailing
     @Namespace private var slide
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The segment the fill sits on. Its own state, animated alone: the page's list, which the
-    /// same click changes, redraws at once instead of animating with it.
-    @State private var shown: Value?
 
     var body: some View {
-        let current = shown ?? selection
-        HStack(spacing: 0) {
+        HStack(spacing: 22) {
             ForEach(values) { value in
-                let active = current == value
+                let active = value == selection
                 Button {
-                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { shown = value }
-                    select(value)
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { select(value) }
                 } label: {
-                    // A tag's 30pt, less the group's 2pt inset on each side.
-                    DashboardTagText(title: title(value), count: count?(value), filled: active)
-                        .padding(.horizontal, 12).frame(height: 26)
-                    .background {
-                        if active {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary)
-                                .matchedGeometryEffect(id: "selection", in: slide)
+                    Text(title(value))
+                        .font(.system(size: 13, weight: active ? .semibold : .regular))
+                        .foregroundStyle(active ? Color.primary : DashboardPalette.ink3)
+                        .padding(.vertical, 8)
+                        .overlay(alignment: .bottom) {
+                            if active {
+                                Rectangle().fill(Color.primary).frame(height: 2)
+                                    .matchedGeometryEffect(id: "underline", in: slide)
+                            }
                         }
-                    }
-                    .contentShape(Rectangle())
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .disabled(!enabled(value))
-                .opacity(enabled(value) || active ? 1 : 0.4)
                 .accessibilityIdentifier("\(id)-\(value.id)")
-                .accessibilityAddTraits(active ? .isSelected : [])
+                .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
             }
+            Spacer(minLength: 12)
+            trailing
         }
-        .padding(2)
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(DashboardPalette.buttonBorder, lineWidth: 1))
-        .fixedSize()
-        // A selection made elsewhere (a deep link, a tile's click) moves the fill without a slide.
-        .onChange(of: selection) { _, value in shown = value }
+        .overlay(alignment: .bottom) { Rectangle().fill(DashboardPalette.hairline).frame(height: 1) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(id)
     }
 }
+
+// MARK: - Building blocks
 
 /// The project a page narrows to, as an outlined tag that opens a menu, All Projects first.
 struct DashboardProjectTag: View {
@@ -451,15 +467,23 @@ struct DashboardProjectTag: View {
             }
             .pickerStyle(.inline).labelsHidden()
         } label: {
-            DashboardTagLabel(title: selected?.name ?? String(localized: "All Projects"), symbol: "chevron.down",
-                              active: selected != nil, outlined: true)
+            // Drawn as the tab bar's titles are, in plain text, rather than as an outlined tag.
+            HStack(spacing: 4) {
+                Text(selected?.name ?? String(localized: "All Projects"))
+                    .font(.system(size: 13, weight: selected != nil ? .semibold : .regular))
+                    .foregroundStyle(selected != nil ? Color.primary : DashboardPalette.ink2)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(DashboardPalette.ink3)
+            }
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .accessibilityIdentifier(id)
     }
 }
 
-/// A row of tags that narrow a list, each with its count; the selected one filled, as on My Tickets.
+/// A row of tags that narrow a list, each with its count; the selected one filled.
 struct DashboardFilterTags<Value: Hashable>: View {
     let values: [Value]
     let selection: Value
@@ -485,7 +509,6 @@ struct DashboardFilterTags<Value: Hashable>: View {
 
 /// One tag's face: its name, then a count or a symbol; filled when selected.
 /// A tag's words in the tag face: its title, then its count and symbol, light on a filled tag.
-/// Shared by the tags and the segments of `DashboardScopeTags`, so both read the same.
 struct DashboardTagText: View {
     let title: String
     var count: Int?
@@ -523,189 +546,7 @@ struct DashboardTagLabel: View {
     }
 }
 
-/// One headline number in an outlined tile: its name and badge on top, the figure in the rounded
-/// face with a small visual beside it, then one quiet line.
-private struct DashboardStatTile<Badge: View, Visual: View>: View {
-    let title: String
-    /// The count or amount; the tile starts at zero and rolls up to it once the data is in.
-    let value: Double
-    /// The number on screen, which follows `value` with a roll.
-    @Binding var shown: Double
-    var format: (Double) -> String = { "\(Int($0))" }
-    let footnote: String
-    /// Where a click on the tile goes: the tab that lists what it counts. Controls inside the tile,
-    /// such as the urgent badge, keep their own clicks.
-    var open: (() -> Void)? = nil
-    @ViewBuilder let badge: Badge
-    @ViewBuilder let visual: Visual
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Baseline-aligned, so the title and the badge's text sit on one line.
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink2).lineLimit(1)
-                Spacer(minLength: 0)
-                badge
-            }
-            .frame(minHeight: 22)
-            HStack(alignment: .center, spacing: 8) {
-                Text(format(shown)).font(.system(size: 30, weight: .semibold).monospacedDigit())
-                    // No scaling, so every tile's number is the same size; the visual gives way instead.
-                    .tracking(-0.6).lineLimit(1).fixedSize().layoutPriority(1)
-                    .contentTransition(.numericText(value: shown))
-                    .onChange(of: value, initial: true) {
-                        guard shown != value else { return }
-                        withAnimation(reduceMotion ? nil : .snappy) { shown = value }
-                    }
-                Spacer(minLength: 0)
-                visual
-            }
-            // A fixed row height keeps every tile the same height whatever its visual.
-            .frame(height: 42)
-            Text(footnote).font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
-                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        // A visual drawn wider than the room a narrow tile leaves it stops at the card's edge.
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        // A tap rather than a Button, so the tile's own buttons stay separate controls.
-        .onTapGesture { open?() }
-        .accessibilityElement(children: .contain)
-        .modifier(DashboardTileAction(open: open))
-    }
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-}
-
-/// Makes a tile a VoiceOver button only when it has somewhere to go, so a tile offers no action
-/// that does nothing.
-private struct DashboardTileAction: ViewModifier {
-    let open: (() -> Void)?
-
-    func body(content: Content) -> some View {
-        if let open {
-            content.accessibilityAddTraits(.isButton).accessibilityAction { open() }
-        } else {
-            content
-        }
-    }
-}
-
-/// An outlined capsule label; only its text is tinted by what it says, so every tile's badge
-/// shares one quiet style.
-private struct DashboardBadge: View {
-    enum Tone { case danger, warn, outline }
-    let text: String
-    let tone: Tone
-    init(_ text: String, tone: Tone) { self.text = text; self.tone = tone }
-
-    var body: some View {
-        Text(text).font(.system(size: 11.5, weight: .semibold)).lineLimit(1).fixedSize()
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 9).frame(height: 22)
-            .overlay(Capsule().strokeBorder(DashboardPalette.hairline, lineWidth: 1))
-    }
-    private var foreground: Color {
-        switch tone {
-        case .danger: DashboardPalette.criticalText
-        case .warn: DashboardPalette.pill(.inProgress).text
-        case .outline: DashboardPalette.ink2
-        }
-    }
-}
-
-/// One rounded square per open pull request, coloured by its check state, in a GitHub-style
-/// matrix two high that fills column by column. In a narrow tile it drops whole columns from the
-/// end rather than push past the tile's edge; failing ones come first, so they are never dropped.
-private struct DashboardChecksMatrix: View {
-    let rows: [DashboardRow]
-    private static let cell: CGFloat = 8
-    private static let gap: CGFloat = 3
-    private static let columns = [10, 8, 6, 4, 2]
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            ForEach(Self.columns, id: \.self) { count in grid(Array(rows.prefix(count * 2))) }
-        }
-        .frame(height: 34)
-        .accessibilityHidden(true)
-    }
-    private func grid(_ rows: [DashboardRow]) -> some View {
-        LazyHGrid(rows: Array(repeating: GridItem(.fixed(Self.cell), spacing: Self.gap), count: 2), spacing: Self.gap) {
-            ForEach(rows) { row in
-                RoundedRectangle(cornerRadius: 2, style: .continuous).fill(tint(row.checks))
-                    .frame(width: Self.cell, height: Self.cell)
-            }
-        }
-        .fixedSize()
-    }
-    private func tint(_ checks: DashboardRow.Checks) -> Color {
-        switch checks {
-        case .passing: Theme.success
-        case .failing: Theme.danger
-        case .running: Theme.warn
-        case .unknown: DashboardPalette.buttonBorder
-        }
-    }
-}
-
-/// Up to three authors as overlapping initials.
-private struct DashboardAvatarStack: View {
-    let logins: [String]
-    /// GitHub faces by login; a login missing here shows its initials.
-    var avatars: [String: NSImage] = [:]
-    private static let tints: [ThemeTone] = [.accent, .merged, .success]
-    var body: some View {
-        HStack(spacing: -8) {
-            ForEach(Array(logins.enumerated()), id: \.offset) { index, login in
-                let tone = Self.tints[index % Self.tints.count]
-                Group {
-                    if let avatar = avatars[login] {
-                        Image(nsImage: avatar).resizable().scaledToFill()
-                    } else {
-                        Text(String(login.prefix(2)).uppercased()).font(.system(size: 10.5, weight: .bold))
-                            .foregroundStyle(tone.foreground)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(tone.background)
-                    }
-                }
-                .frame(width: 30, height: 30)
-                .clipShape(Circle())
-                .overlay(Circle().strokeBorder(Color(nsColor: .windowBackgroundColor), lineWidth: 2))
-                .help(login)
-            }
-        }
-        .accessibilityLabel(logins.joined(separator: ", "))
-    }
-}
-
-/// The tickets by stage as one short strip.
-private struct DashboardStageStrip: View {
-    let stages: DashboardTicketsModel.StageSummary
-    let select: (TicketStage) -> Void
-    var body: some View {
-        let total = CGFloat(max(1, stages.total))
-        GeometryReader { geometry in
-            let gaps = CGFloat(max(0, stages.live.count - 1)) * 3
-            HStack(spacing: 3) {
-                ForEach(stages.live) { entry in
-                    Button { select(entry.stage) } label: {
-                        Capsule().fill(DashboardPalette.stage(entry.stage))
-                            .frame(width: max(6, (geometry.size.width - gaps) * CGFloat(entry.count) / total), height: 8)
-                            .contentShape(Rectangle().inset(by: -6))
-                    }
-                    .buttonStyle(.plain)
-                    .help("\(entry.stage.title): \(entry.count)")
-                    .accessibilityLabel("\(entry.stage.title): \(entry.count)")
-                }
-            }
-        }
-        .frame(height: 8)
-    }
-}
-
-/// A list row's resting and hover state, as tall as My Tickets' rows: full-width hairlines above
+/// A list row's resting and hover state, as tall as the Tickets tab's rows: full-width hairlines above
 /// a group's first row and under every row, so each group reads as one ruled list; a square wash
 /// under the pointer that fills the band between the rules.
 struct DashboardHoverRow: ViewModifier {
@@ -727,14 +568,13 @@ struct DashboardHoverRow: ViewModifier {
 }
 
 /// One pull request: checks, number, title, then the ticket it names, its review state, the agent
-/// working on it and its age. The side column's compact form keeps checks, number, title and age.
+/// working on it and its age.
 struct DashboardPRRow: View {
     let row: DashboardRow
     let mark: PageSessionMark?
     let opening: Bool
     let first: Bool
-    var compact = false
-    /// The Reviews tab names who asked.
+    /// Others' and review requests name who opened them.
     var showsAuthor = false
     let open: () -> Void
     var body: some View {
@@ -745,17 +585,15 @@ struct DashboardPRRow: View {
                     .foregroundStyle(DashboardPalette.ink3).frame(width: 40, alignment: .leading)
                 Text(row.title).font(.system(size: 13.5)).lineLimit(1).truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                if !compact {
-                    if let key = row.pr.ticketLabels.first {
-                        Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(DashboardPalette.link)
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Theme.accentBackground, in: Capsule())
-                    }
-                    reviewState
-                    if let mark { AgentChip(mark: mark) }
-                    if showsAuthor, !row.author.isEmpty {
-                        Text(row.author).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).lineLimit(1)
-                    }
+                if let key = row.pr.ticketLabels.first {
+                    Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(DashboardPalette.link)
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Theme.accentBackground, in: Capsule())
+                }
+                reviewState
+                if let mark { AgentChip(mark: mark) }
+                if showsAuthor, !row.author.isEmpty {
+                    Text(row.author).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).lineLimit(1)
                 }
                 Text(row.ageLabel)
                     .font(.system(size: 12).monospacedDigit()).foregroundStyle(DashboardPalette.ink3)
@@ -803,56 +641,6 @@ private struct ChecksIcon: View {
         case .running: return Theme.warn
         case .unknown: return Theme.textTertiary
         }
-    }
-}
-
-struct DashboardCard: View {
-    let row: DashboardRow; let opening: Bool; let open: () -> Void
-    var sessionMark: PageSessionMark? = nil
-    private var hasSession: Bool { sessionMark != nil }
-    @State private var hovering = false
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 10) {
-                Circle().fill(ciColor).frame(width: 9, height: 9).help(row.ciLabel).accessibilityLabel(row.ciLabel)
-                Text(row.number).font(.system(size: 12, weight: .semibold).monospacedDigit()).foregroundStyle(.tertiary).frame(minWidth: 38, alignment: .leading)
-                Text(row.title).font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
-                if let status = row.reviewLabel { reviewState(status) }
-                HStack(spacing: 6) {
-                    // The PR's own labels are not shown; the session's agent takes their place.
-                    if let mark = sessionMark { AgentChip(mark: mark) }
-                    ForEach(row.pr.ticketLabels.prefix(2), id: \.self) { key in
-                        Text(key).font(.system(size: 11, weight: .semibold)).foregroundStyle(.blue)
-                            .padding(.horizontal, 8).padding(.vertical, 2).background(Color.blue.opacity(0.08), in: Capsule())
-                    }
-                }
-                HStack(spacing: 5) {
-                    Text((row.pr.repo ?? row.projectName).split(separator: "/").last.map(String.init) ?? row.projectName)
-                    if let branch = row.pr.headRefName, !branch.isEmpty { Text("·").foregroundStyle(.quaternary); Text(branch).lineLimit(1).truncationMode(.middle) }
-                }.font(.system(size: 11.5, design: .monospaced)).foregroundStyle(.tertiary).frame(maxWidth: 230, alignment: .trailing)
-                if let login = row.pr.author?.login, !login.isEmpty {
-                    Text(String(login.prefix(1)).uppercased()).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20).background(.quaternary.opacity(0.65), in: Circle()).help(login)
-                }
-                if let date = row.dateLabel { Text(date).font(.system(size: 12).monospacedDigit()).foregroundStyle(.tertiary).frame(minWidth: 54, alignment: .trailing) }
-            }.padding(.horizontal, 10).frame(minHeight: 44)
-                .background(hovering ? Color.primary.opacity(0.055) : .clear, in: RoundedRectangle(cornerRadius: 8)).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(opening).onHover { hovering = $0 }
-            .accessibilityIdentifier("dashboard-pr-\(row.pr.number ?? 0)")
-            .contextMenu { PageRowMenu(hasSession: hasSession, url: row.url, open: open) }
-    }
-    @ViewBuilder private func reviewState(_ status: String) -> some View {
-        if row.pr.isDraft == true {
-            Text(status.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(0.3).foregroundStyle(.tertiary)
-                .padding(.horizontal, 5).padding(.vertical, 2).overlay(RoundedRectangle(cornerRadius: 4).stroke(.quaternary))
-        } else {
-            Label(status, systemImage: row.pr.reviewDecision == "APPROVED" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 11, weight: .semibold)).foregroundStyle(row.pr.reviewDecision == "APPROVED" ? .green : .orange).lineLimit(1)
-        }
-    }
-    private var ciColor: Color {
-        if row.ciRunning { return .orange }
-        switch row.pr.ci?.conclusion { case "success": return .green; case "failure": return .red; default: return .secondary.opacity(0.5) }
     }
 }
 

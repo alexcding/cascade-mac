@@ -64,7 +64,6 @@ struct AutomationNewMenu: View {
             Label("New Automation", systemImage: "plus").labelStyle(.titleAndIcon)
         }
         .menuStyle(.button)
-        .buttonStyle(.borderedProminent)
         .menuIndicator(.hidden)
         .fixedSize()
         .help(String(localized: "New automation"))

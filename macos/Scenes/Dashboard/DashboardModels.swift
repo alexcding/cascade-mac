@@ -46,13 +46,13 @@ struct DashboardProject: Decodable, Equatable, Identifiable, Sendable {
     var jiraProjectKey: String? = nil
     var issuesEnabled: Bool? = nil
 
-    /// A Jira project key, which is what My Tickets matches Jira tickets by.
+    /// A Jira project key, which is what the Tickets tab matches Jira tickets by.
     var hasJira: Bool { !jiraKeys.isEmpty }
     /// The Jira project keys this project's tickets carry (`JiraKeys`).
     var jiraKeys: [String] { JiraKeys.parse(jiraProjectKey) }
-    /// A repo whose GitHub issues appear in My Tickets.
+    /// A repo whose GitHub issues appear in the Tickets tab.
     var hasIssues: Bool { !repo.isEmpty && issuesEnabled != false }
-    /// Whether My Tickets can narrow to this project: its Jira keys or its repo claim tickets.
+    /// Whether the Tickets tab can narrow to this project: its Jira keys or its repo claim tickets.
     var claimsTickets: Bool { hasJira || hasIssues }
 
     /// Whether `ticket` is this project's: a Jira key under one of its keys, or an issue in its repo.
@@ -85,12 +85,11 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
     let projectName: String
     let pr: DashboardPR
     let url: URL
-    /// Worked out once, when the row is built: the views and the search read these on every render
-    /// and every keystroke, and each would otherwise re-parse the date or re-join the strings.
+    /// Worked out once, when the row is built: the views read these on every render, and each
+    /// would otherwise re-parse the date or re-join the strings.
     let created: Date?
     let detail: String
     let dateLabel: String?
-    let searchText: String
 
     init(projectID: String, projectName: String, pr: DashboardPR, url: URL) {
         self.projectID = projectID
@@ -100,8 +99,6 @@ struct DashboardRow: Identifiable, Equatable, Sendable {
         created = pr.createdAt.flatMap(backendTimestamp)
         detail = [pr.repo ?? projectName, pr.headRefName, pr.author?.login].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         dateLabel = created?.formatted(date: .abbreviated, time: .omitted)
-        searchText = ([pr.title ?? String(localized: "Pull request"), pr.number.map { "#\($0)" } ?? "PR", projectName, detail]
-            + (pr.labels ?? []).map(\.name) + (pr.jiraKeys ?? [])).joined(separator: " ")
     }
     var id: String { "\(projectID):\(url.absoluteString)" }
     var title: String { pr.title ?? String(localized: "Pull request") }
@@ -172,11 +169,11 @@ struct OpenPageRequest: Equatable, Sendable {
     var jiraKeys: [String] = []
 }
 
-/// A Jira ticket or GitHub issue assigned to the user, as the home screen's Tickets section and My Tickets show it.
+/// A Jira ticket or GitHub issue assigned to the user, as the Tickets tab shows it.
 struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     let ticket: Ticket
     let url: URL
-    /// My Tickets' Session column sort key. A row cannot know its own session — the lookup lives on
+    /// The Tickets tab's Session column sort key. A row cannot know its own session — the lookup lives on
     /// the view model — and `Table` orders only by key path, so the table fills this in before sorting.
     var sessionName = ""
     /// The number of the pull request that references this ticket, `#123`, or empty for none.
@@ -195,8 +192,6 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
     let level: TicketPriority
     /// The labels as one string, the table's sort key for that column.
     let sortLabels: String
-    /// What the dashboard's search reads: the key, words and people a ticket is known by.
-    let searchText: String
 
     init(ticket: Ticket, url: URL) {
         self.ticket = ticket
@@ -205,21 +200,9 @@ struct DashboardTicketRow: Identifiable, Equatable, Sendable {
         level = ticket.level.flatMap(TicketPriority.init(rawValue:)) ?? .medium
         let labels = ticket.labels ?? []
         sortLabels = labels.joined(separator: " ")
-        searchText = ([ticket.key, ticket.summary ?? ticket.key, ticket.status, ticket.type, ticket.priority, ticket.reporter]
-            .compactMap { $0 } + labels).joined(separator: " ")
     }
     /// One list of Jira's priority names decides both the Urgent tag and the row's urgent glyph.
     var urgent: Bool { level == .urgent }
-    /// Where the ticket falls in the home screen's short list, or nil to leave it to My Tickets:
-    /// blocked, then reopened, then being worked on, then urgent work not yet started. Stage and
-    /// reopened come from the backend, so no workflow's status names are listed here.
-    var attentionRank: Int? {
-        if stage == .blocked { return 0 }
-        if ticket.reopened == true { return 1 }
-        if stage == .inProgress { return 2 }
-        if stage == .toDo && urgent { return 3 }
-        return nil
-    }
     /// The key's project prefix, or an issue's repository — the Project column, which earns its
     /// place only once the dashboard tracks more than one project, so it opens hidden.
     var project: String { ticket.projectKey }

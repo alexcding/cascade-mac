@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Dashboard's own colours: the text steps, the stage ramp and the status pills the app palette
+/// The Dashboard's own colours: the text steps, the priority ramp and the status pills the app palette
 /// does not carry. Bars and usage take the menu bar tray's colours, so the two read alike.
 enum DashboardPalette {
     static let ink2 = ThemeColor(light: 0x52514E, dark: 0xC3C2B7).color
@@ -10,17 +10,6 @@ enum DashboardPalette {
     static let critical = ThemeColor(light: 0xD03B3B, dark: 0xD03B3B).color
     static let criticalText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
     static let buttonBorder = ThemeColor(light: 0xDDDCD6, dark: 0x383835).color
-
-    /// Ordered stages read light to dark on one hue; Blocked leaves the ramp for the critical hue
-    /// and always carries its icon, so it never depends on colour alone.
-    static func stage(_ stage: TicketStage) -> Color {
-        switch stage {
-        case .toDo: return ThemeColor(light: 0x6A9FE4, dark: 0x3F74BF).color
-        case .inProgress: return ThemeColor(light: 0x3987E5, dark: 0x2A78D6).color
-        case .pendingRelease: return ThemeColor(light: 0x1C5CAB, dark: 0x6DA7EC).color
-        case .blocked: return critical
-        }
-    }
 
     /// Priority runs warm to cool: red, orange, amber, then a calm blue for Low, so urgency reads
     /// at a glance; the level's arrow glyph carries it without the colour.
@@ -107,53 +96,6 @@ struct AgentMark: View {
 }
 
 // MARK: - Tickets
-
-/// The tickets split by workflow stage as one bar, 2pt gaps between segments, with a legend that
-/// names and counts each stage. A legend entry opens My Tickets on that stage.
-struct TicketStageBar: View {
-    let stages: DashboardTicketsModel.StageSummary
-    var select: ((TicketStage) -> Void)? = nil
-
-    var body: some View {
-        let total = max(1, stages.total)
-        VStack(alignment: .leading, spacing: 10) {
-            GeometryReader { geometry in
-                let gaps = CGFloat(max(0, stages.live.count - 1)) * 2
-                HStack(spacing: 2) {
-                    ForEach(stages.live) { entry in
-                        Rectangle().fill(DashboardPalette.stage(entry.stage))
-                            .frame(width: max(2, (geometry.size.width - gaps) * CGFloat(entry.count) / CGFloat(total)))
-                            .help("\(entry.stage.title): \(entry.count)")
-                    }
-                }
-                .clipShape(Capsule())
-            }
-            .frame(height: 6)
-            .accessibilityHidden(true)
-            FlowRow(spacing: 18, lineSpacing: 8) {
-                ForEach(stages.all) { entry in
-                    Button { select?(entry.stage) } label: {
-                        HStack(spacing: 6) {
-                            if entry.stage == .blocked {
-                                Image(systemName: "nosign").font(.system(size: 10.5, weight: .bold)).foregroundStyle(DashboardPalette.critical)
-                            } else {
-                                RoundedRectangle(cornerRadius: 2).fill(DashboardPalette.stage(entry.stage)).frame(width: 10, height: 10)
-                            }
-                            Text(entry.stage.title).foregroundStyle(DashboardPalette.ink2)
-                            Text("\(entry.count)").fontWeight(.semibold).monospacedDigit()
-                        }
-                        .font(.system(size: 12))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(select == nil)
-                    .accessibilityLabel("\(entry.stage.title): \(entry.count)")
-                    .accessibilityIdentifier("dashboard-stage-\(entry.stage.rawValue)")
-                }
-            }
-        }
-    }
-}
 
 /// A ticket's priority as Jira draws it: an arrow shape per level in the level's colour, named in
 /// the tooltip and to VoiceOver.

@@ -54,7 +54,7 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         case .changes: String(localized: "Diff")
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
-        case .live: String(localized: "Workflow")
+        case .live: String(localized: "Live Monitor")
         }
     }
     var symbol: String {
@@ -155,65 +155,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private var filesModel: WorktreeFilesViewModel?
     /// The worktree's tree and search go with the context: a listing still running must not land.
     func retireWorktreeFiles() { filesModel?.retire(); searchModel?.retire() }
-    /// A file picked from the tree goes on in the explorer's or the shown file's place, as a link
-    /// does in a browser tab, which can then go back to it. The file there gives way unless it has
-    /// unsaved edits, when the picked one opens beside it instead.
-    func openFromTree(_ path: String) {
-        guard let id = activeID, let here = fileLocation, here != .file(path) else { openFile(path); return }
-        var trail = fileTrails[id] ?? FileTrail()
-        trail.back.append(here); trail.forward = []
-        go(to: .file(path), trail: trail)
-    }
+    /// A file picked from the tree opens in a tab of its own beside the one it was picked from, or
+    /// selects the tab it already has; the explorer stays open for the next pick.
+    func openFromTree(_ path: String) { openFile(path) }
 
-    /// Where a file tab has been: the Files explorer, or a file. Each tab keeps its own way back and
-    /// forward, as a browser tab does; it lasts as long as the tab, and is not saved.
-    enum FileLocation: Equatable { case explorer, file(String) }
-    struct FileTrail { var back: [FileLocation] = [], forward: [FileLocation] = [] }
-    private var fileTrails: [String: FileTrail] = [:]
-    private var fileLocation: FileLocation? {
-        if activeTool == .files { return .explorer }
-        return activeDocument.map { .file($0.record.path) }
-    }
-    var canGoBackInFiles: Bool { activeID.flatMap { fileTrails[$0] }?.back.isEmpty == false }
-    var canGoForwardInFiles: Bool { activeID.flatMap { fileTrails[$0] }?.forward.isEmpty == false }
-    func goBackInFiles() { stepInFiles(back: true) }
-    func goForwardInFiles() { stepInFiles(back: false) }
-    private func stepInFiles(back: Bool) {
-        guard let id = activeID, var trail = fileTrails[id], let here = fileLocation,
-              let target = back ? trail.back.popLast() : trail.forward.popLast() else { return }
-        if back { trail.forward.append(here) } else { trail.back.append(here) }
-        go(to: target, trail: trail)
-    }
-    /// Opens `location` in the active tab's place, the tab carrying `trail` on. The explorer is one
-    /// tab, so one open elsewhere moves here. A file with unsaved changes is not closed: it stays a
-    /// tab of its own beside the one that went on. A file already open in another tab is that tab,
-    /// selected with its own trail, and this tab stays as it was.
-    private func go(to location: FileLocation, trail: FileTrail) {
-        guard let id = activeID, let current = tab(id) else { return }
-        if case .file(let path) = location,
-           let open = documents.first(where: { $0.record.path == (path as NSString).standardizingPath }), open.id != id {
-            select(.file(open))
-            return
-        }
-        let previous = activeDocument
-        let leavingExplorer = activeTool == .files
-        let next: String
-        switch location {
-        case .explorer:
-            if tools.contains(.files), !leavingExplorer { close(.tool(.files)); select(current) }
-            openTool(.files)
-            next = WorkspaceTool.files.id
-        case .file(let path):
-            guard let file = openFile(path) else { return }
-            next = file.id
-        }
-        guard next != id else { fileTrails[id] = trail; return }
-        fileTrails[id] = nil
-        // Closed as any tab is, which saves again: `select` saved with the explorer still open.
-        if leavingExplorer { close(.tool(.files)); worktreeFiles.query = "" }
-        else if let previous, !previous.dirty { remove(previous) }
-        fileTrails[next] = trail
-    }
     private(set) var workspaceViewModel: SessionWorkspaceViewModel?
 
     func configureWorkspace(factory: any WorkspaceFeatureFactory, service: any WorkspaceServing) {
@@ -278,8 +223,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
     /// The tabs the strip shows and cycling walks: every tab — pages, files and tools — in their
-    /// order. A blank page — the pane's own included — is a New Tab there, as the explorer is a
-    /// Files tab, until what is typed or picked in it takes its place.
+    /// order. A blank page — the pane's own included — is a New Tab there until what is typed or
+    /// picked in it takes its place.
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
     /// The tool last in the order other than Diff — the explorer, the Simulator or Live — which
     /// leaving Diff goes back to when there is no page or file.
@@ -297,7 +242,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         if let page = history.first(where: { $0.id == id }) { return .page(page) }
         return fileHistory.first(where: { $0.id == id }).map(WorkspaceVisit.file)
     } }
-    var pageVisits: [WorkspaceVisit] { visits.filter { if case .page = $0 { true } else { false } } }
     var fileVisits: [WorkspaceVisit] { visits.filter { if case .file = $0 { true } else { false } } }
     func tab(_ id: String) -> WorkspaceTab? {
         if let page = pages.first(where: { $0.id == id }) { return .page(page) }
@@ -433,7 +377,6 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// A tab closed while shown gives way to its nearest neighbour. The last one gone leaves the
     /// tabs' pane, where the bar opens a blank page.
     private func removeTab(_ id: String) {
-        fileTrails[id] = nil
         let index = tabOrder.firstIndex(of: id) ?? 0
         tabOrder.removeAll { $0 == id }; tabEdits += 1
         if activeID == id {

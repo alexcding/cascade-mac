@@ -15,10 +15,8 @@ import Observation
     /// session Start made.
     enum Event {
         case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
-        /// The terminal panel needs a new shell in `directory`, answered to `request`.
-        case terminalRequested(directory: String, request: UUID)
-        /// The terminal panel closed, and its shell is to stop.
-        case terminalClosed
+        /// Back to Projects.
+        case back
     }
     var root: Destination = .none
     var path: [Destination] = []
@@ -49,8 +47,7 @@ import Observation
         switch action {
         case .saved(let project, let source): onEvent(.saved(project, source))
         case .sessionCreated(let session, let prompt, let launch): onEvent(.sessionCreated(session, prompt: prompt, launch: launch))
-        case .openTerminal(let directory, let request): onEvent(.terminalRequested(directory: directory, request: request))
-        case .closeTerminal: onEvent(.terminalClosed)
+        case .back: onEvent(.back)
         case .deleted(let id):
             guard id == model.project.id else { return }
             deletionConfirmation = nil
@@ -58,9 +55,6 @@ import Observation
         case .requestDeletion(let request):
             guard !isPresenting, canPresent(), model.editor.canDelete(request) else { return }
             deletionConfirmation = request
-        case .board(.open(let request)):
-            guard !isPresenting, canPresent(), model.section == .board else { return }
-            model.board?.navigation.open(request)
         }
     }
 

@@ -13,7 +13,6 @@ enum Destination: Hashable {
     // MARK: Screen destinations (view models)
 
     case dashboard(DashboardViewModel, ShellStore)
-    case dashboardTickets(DashboardViewModel)
     case automation(AutomationViewModel)
     case newSession(NewSessionViewModel)
     case logs(LogsViewModel)
@@ -62,8 +61,6 @@ extension Destination {
         // Screens
         case .dashboard(let viewModel, let shell):
             DashboardView(model: viewModel, shell: shell)
-        case .dashboardTickets(let viewModel):
-            DashboardTicketsView(model: viewModel)
         case .automation(let viewModel):
             AutomationView(model: viewModel)
         case .newSession(let viewModel):
@@ -101,45 +98,36 @@ extension Destination {
     var windowToolbar: WindowToolbar {
         switch self {
         case .dashboardCoordinator(let coordinator):
-            let model = coordinator.model
-            // The tabs stand in for the page title, as the system's toolbar segmented control. Tickets
-            // is always one of them, so the control never changes width. Tickets is My Tickets,
-            // pushed over the home screen, so choosing any other tab from there pops back to it.
-            let tabs = DashboardViewModel.Tab.allCases
-            let selected = coordinator.path.isEmpty ? model.tab : .tickets
+            // The page's name leads: its lists and their filters are all on the page itself.
             return WindowToolbar(
-                leading: [.segments("dashboard-tabs", titles: tabs.map(\.title), selected: tabs.firstIndex(of: selected) ?? 0) {
-                    model.selectTab(tabs[$0])
-                }],
-                trailing: [.search("dashboard-search", prompt: String(localized: "Search pull requests and tickets"),
-                                   text: Bindable(model).query)])
+                leading: [.title(String(localized: "Projects"))],
+                // In the toolbar's own glass, as Run is: a plain button, in regular text.
+                trailing: [.init("dashboard-new-project", priority: .high) {
+                    Button { coordinator.newProject() } label: {
+                        Label(String(localized: "New Project"), systemImage: "plus").labelStyle(.titleAndIcon)
+                    }
+                    // A toolbar sets a button's title heavier than a menu's; regular matches New Automation.
+                    .fontWeight(.regular)
+                    .fixedSize()
+                    // Offline, or while another sheet is up, it would do nothing, so it says so.
+                    .disabled(!coordinator.canCreateProject())
+                    .accessibilityIdentifier("dashboard-new-project")
+                }])
         case .automationCoordinator(let coordinator):
             return coordinator.root.windowToolbar
         case .automation(let model):
             // The page's name leads, or the way back to it from an open pipeline; New trails it. The
             // search sits on the page, over the table it narrows.
-            let new = WindowToolbarItem("automation-new", style: .plain, priority: .high) { AutomationNewMenu(model: model) }
+            let new = WindowToolbarItem("automation-new", priority: .high) { AutomationNewMenu(model: model) }
             if model.draft != nil {
                 return WindowToolbar(leading: [.init("automation-back") { AutomationBackButton(model: model) }], trailing: [new])
             }
             return WindowToolbar(leading: [.title(String(localized: "Automations"))], trailing: [new])
         case .projectCoordinator(let coordinator):
-            // The project's name, or, with its board on, the Board and Settings tabs standing in for
-            // the title, as the Dashboard's do: the system's toolbar segmented control.
+            // Back to Projects, where the page was opened from, then the project's name.
             let model = coordinator.model
-            let terminal = model.terminal
-            let sections = model.sections
-            // With no board there is one page, so its title is the project's name rather than a lone tab.
-            let leading: [WindowToolbarItem] = sections.count < 2 ? [.title(model.project.name)]
-                : [.segments("project-tabs-board", titles: sections.map(\.title),
-                             selected: sections.firstIndex(of: model.section) ?? 0) {
-                    if sections.indices.contains($0) { model.selectSection(sections[$0]) }
-                }]
-            return WindowToolbar(leading: leading, trailing: [.picker("project-terminal", label: String(localized: "Terminal"),
-                                   choices: [.init(title: String(localized: "Terminal"), symbol: "terminal", selectedColor: Theme.toolbarSymbolSelected)],
-                                   selected: terminal.shown ? 0 : -1, toggles: true) { _ in
-                withAnimation(.projectTerminalSlide) { terminal.toggle() }
-            }])
+            let back = WindowToolbarItem("project-back") { ProjectBackButton(model: model) }
+            return WindowToolbar(leading: [back, .title(model.project.name)])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .terminal(let root), .session(_, let root):
@@ -148,7 +136,7 @@ extension Destination {
             return WindowToolbar(leading: [.title(title)])
         case .newSession:
             return WindowToolbar(leading: [.title(String(localized: "New Task"))])
-        case .dashboard, .dashboardTickets, .logs, .project, .sessionWorkspace, .none:
+        case .dashboard, .logs, .project, .sessionWorkspace, .none:
             return .empty
         }
     }

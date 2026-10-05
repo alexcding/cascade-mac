@@ -32,18 +32,15 @@ private struct ListingFixture: FileSearchService {
         #expect(opened == ["/tmp/tree/a/One.swift"])
     }
 
-    @Test func aFileChosenInTheFilesTabTakesItsPlace() throws {
+    @Test func aFileChosenInTheFilesTabOpensBesideIt() throws {
         let context = WorkspaceContext(id: "task:files", sourceURL: "session:files", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         context.openTool(.files)
         context.worktreeFiles.query = "x"
         context.openFromTree("/tmp/picked.swift")
         let file = try #require(context.activeDocument)
-        #expect(context.tabs.map(\.id) == [page.id, file.id])
-        #expect(context.activeDocument === file && context.tools.isEmpty && context.pane == .term)
-        #expect(context.worktreeFiles.query.isEmpty)
-        let restored = WorkspaceContext(id: context.id, sourceURL: "session:files", title: "", snapshot: context.snapshot)
-        #expect(restored.tools.isEmpty, "the picker is not saved once a file took its place")
+        #expect(context.tabs.map(\.id) == [page.id, WorkspaceTool.files.id, file.id])
+        #expect(context.tools == [.files] && context.worktreeFiles.query == "x", "the explorer stays as it was")
     }
 
     @Test func aFileOpenedAnotherWayLeavesTheFilesTabOpen() throws {
@@ -51,17 +48,16 @@ private struct ListingFixture: FileSearchService {
         context.openTool(.files)
         context.worktreeFiles.query = "x"
         _ = try #require(context.openFile("/tmp/linked.swift"))
-        #expect(context.tools == [.files] && context.worktreeFiles.query == "x", "only a pick in the tree takes its place")
+        #expect(context.tools == [.files] && context.worktreeFiles.query == "x")
     }
 
-    @Test func aFileChosenInTheTreeBesideAFileTakesItsTab() throws {
+    @Test func aFileChosenInTheTreeBesideAFileOpensAnotherTab() throws {
         let context = WorkspaceContext(id: "task:files", sourceURL: "session:files", title: "")
         let page = try #require(context.open("https://example.com/home", title: "Home"))
         let first = try #require(context.openFile("/tmp/first.swift"))
         context.openFromTree("/tmp/second.swift")
         let second = try #require(context.activeDocument)
-        #expect(second.record.path == "/tmp/second.swift" && context.tabs.map(\.id) == [page.id, second.id])
-        #expect(!context.documents.contains { $0 === first }, "the file shown before gives way")
+        #expect(context.tabs.map(\.id) == [page.id, first.id, second.id], "the file shown before stays open")
     }
 
     @Test func aQueryKeepsAPlusInAPath() {

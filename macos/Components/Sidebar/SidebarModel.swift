@@ -58,19 +58,13 @@ struct SidebarSessionStatus: Equatable {
 
 struct SidebarEntry: Equatable {
     var isHeading: Bool {
-        switch role { case .label, .projectsHeader: true; default: false }
+        switch role { case .label: true; default: false }
     }
-    /// A row with a destination, or a heading whose "+" shows on hover.
-    var hoverable: Bool {
-        switch role {
-        case .projectsHeader(canCreate: true): true
-        default: destination != nil
-        }
-    }
+    /// A row with a destination: headings don't react to the pointer.
+    var hoverable: Bool { destination != nil }
     enum Role: Equatable {
         case nav                                  // Dashboard
-        case label                                // "Pinned" heading
-        case projectsHeader(canCreate: Bool)      // "Projects" heading with a hover "+" for a new project
+        case label                                // "Pinned" and "Projects" headings
         case project
         case session(SidebarSessionStatus, pinned: Bool)
     }
@@ -86,7 +80,6 @@ struct SidebarEntry: Equatable {
     /// A session made by forking another, marked after its name.
     var forked = false
 
-    var isGroup: Bool { destination == nil }
     /// Every destination this entry can take the selection to: a row is its own destination.
     var destinations: [SidebarDestination] { destination.map { [$0] } ?? [] }
     var sessionID: String? { if case .session(let id) = destination { id } else { nil } }
@@ -96,8 +89,7 @@ struct SidebarEntry: Equatable {
     /// nested under it, then unpinned sessions whose project is gone (unlabeled). Headings are
     /// flat rows, not collapsible groups — only a project folder collapses.
     static func make(projects: [Project], sessions: [WorkspaceSession],
-                     status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init(),
-                     canCreateProject: Bool = false) -> [Self] {
+                     status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init()) -> [Self] {
         let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
         let projects = displayOrder(projects, dragged: order.projects)
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
@@ -113,7 +105,7 @@ struct SidebarEntry: Equatable {
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
         var result: [Self] = [
             .init(id: "new-session", title: String(localized: "New Task"), symbol: "newSession", destination: .newSession),
-            .init(id: "overview", title: String(localized: "Pull Requests"), symbol: "pullRequests", destination: .overview),
+            .init(id: "overview", title: String(localized: "Projects"), symbol: "pullRequests", destination: .overview),
             .init(id: "automation", title: String(localized: "Automation"), symbol: "automation", destination: .automation)
         ]
         // Pinned lists across projects and has an order of its own: a drag inside one project
@@ -123,8 +115,7 @@ struct SidebarEntry: Equatable {
             result.append(label("label:pinned", String(localized: "Pinned")))
             result += pinned.map { row($0, pinned: true) }
         }
-        result.append(Self(id: "label:projects", title: String(localized: "Projects"), symbol: "",
-                           role: .projectsHeader(canCreate: canCreateProject)))
+        result.append(label("label:projects", String(localized: "Projects")))
         result += projects.map { project in
             .init(id: "project:\(project.id)", title: project.name, symbol: project.symbol,
                   detail: project.workspace,

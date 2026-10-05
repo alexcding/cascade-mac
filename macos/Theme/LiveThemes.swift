@@ -13,7 +13,7 @@ enum LiveTheme: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .terminal: String(localized: "Terminal")
-        case .native: String(localized: "Native")
+        case .native: String(localized: "Default")
         case .swiss: String(localized: "Swiss")
         case .blueprint: String(localized: "Blueprint")
         }

@@ -1,80 +1,49 @@
 import SwiftUI
 
-/// My Tickets, pushed over the Dashboard's home: every ticket assigned to the user, as the stage
-/// bar, a tag per stage and one for urgent, then the sortable table. It narrows to one project
-/// from the menu by its refresh. A project's sprint board is its own Board tab.
-struct DashboardTicketsView: View {
+/// Projects' Tickets tab: every ticket assigned to the user, under one row of whose and the
+/// filters that matter, then the sortable table. It narrows to the project picked at the tab bar's
+/// end. A project's sprint board is the Board tab beside it. The page around it scrolls.
+struct DashboardTicketsPage: View {
     @Bindable var model: DashboardViewModel
 
     var body: some View {
         listPage
             .accessibilityIdentifier("dashboard-tickets")
-            .onDisappear(perform: model.cancelActions)
     }
 
     private var listPage: some View {
-        let rows = model.tickets.screenRows
-        let counts = model.tickets.pageCounts
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                DashboardPageHeader(caption: listCaption, title: String(localized: "My tickets")) {
-                    HStack(spacing: 8) {
-                        authors
-                        projectMenu
-                        DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: model.tickets.loading, action: { model.tickets.refresh(.now) })
-                    }
-                    .padding(.bottom, 6)
-                }
-                .padding(.top, 12).padding(.bottom, 24)
-                if let error = model.navigation.error { warning(error) }
-                if let error = model.tickets.error { warning(error) }
-                if model.tickets.pageStages.total > 0 {
-                    TicketStageBar(stages: model.tickets.pageStages) { model.tickets.filter = .stage($0) }
-                        .padding(.bottom, 24)
-                }
-                DashboardFilterTags(values: DashboardTicketsModel.Filter.allCases, selection: model.tickets.filter,
-                                    title: \.title, count: { counts[$0] ?? 0 },
-                                    id: { "dashboard-ticket-filter-\($0.id)" }) { model.tickets.filter = $0 }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 24)
-                if rows.isEmpty {
-                    Text(!model.tickets.available ? String(localized: "Not connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
-                        .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
-                } else {
-                    DashboardTicketTable(rows: rows, opening: model.navigation.opening,
-                        open: { model.open($0) }, sessionMark: model.sessionMark)
-                }
-            }
-            .padding(.horizontal, 28).padding(.top, 16).padding(.bottom, 40)
-        }
-    }
-
-    private var listCaption: String {
-        let count = model.tickets.pageCounts[.all] ?? 0
-        switch (model.tickets.author, model.tickets.project) {
-        case (.mine, nil): return String(localized: "\(count) assigned to you, urgent first")
-        case (.mine, let project?): return String(localized: "\(count) assigned to you in \(project.name), urgent first")
-        case (.others, nil): return String(localized: "\(count) open issues assigned to others or no one")
-        case (.others, let project?): return String(localized: "\(count) open issues in \(project.name) assigned to others or no one")
-        }
-    }
-
-    // MARK: Scope
-
-    /// Whose tickets the list shows, as the Pull Requests page has it: in the header, by its refresh.
-    private var authors: some View {
         let tickets = model.tickets
-        return DashboardScopeTags(values: DashboardTicketsModel.Author.allCases, selection: tickets.author,
-                                  title: \.title, count: tickets.count, id: "dashboard-tickets-author") { tickets.author = $0 }
-    }
-
-    /// The project the page narrows to, in the header by its refresh. Always drawn, so the header
-    /// keeps its shape: with no project to narrow to, the tag stays, disabled.
-    private var projectMenu: some View {
-        DashboardProjectTag(projects: model.ticketProjects, selection: model.tickets.project?.id,
-                            id: "dashboard-tickets-project") { model.selectTicketProject($0) }
-            .disabled(model.ticketProjects.isEmpty)
-            .opacity(model.ticketProjects.isEmpty ? 0.4 : 1)
+        let rows = tickets.screenRows
+        let counts = tickets.pageCounts
+        let tracked = model.projectTracksTickets
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                FlowRow(spacing: 4, lineSpacing: 6) {
+                    ForEach(DashboardTicketsModel.Author.allCases) { author in
+                        DashboardChip(title: author.title, count: tracked ? tickets.count(author) : 0, active: tickets.author == author,
+                                      id: "dashboard-tickets-author-\(author.id)") { tickets.author = author }
+                    }
+                    DashboardChipDivider()
+                    ForEach(DashboardTicketsModel.Filter.shown(with: tickets.filter)) { filter in
+                        DashboardChip(title: filter.title, count: tracked ? counts[filter] ?? 0 : 0, active: tickets.filter == filter,
+                                      id: "dashboard-ticket-filter-\(filter.id)") { tickets.filter = filter }
+                    }
+                }
+                DashboardRefreshButton(name: String(localized: "Tickets"), id: "tickets", busy: tickets.loading, action: { tickets.refresh(.now) })
+            }
+            .padding(.bottom, 24)
+            if let error = tickets.error { warning(error) }
+            if !model.projectTracksTickets {
+                Text("This project doesn’t track tickets. Add a Jira key or turn on GitHub issues in its Settings.")
+                    .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
+            } else if rows.isEmpty {
+                Text(!model.tickets.available ? String(localized: "Not connected, so there are no tickets to show.") : model.tickets.loading ? String(localized: "Loading tickets…") : String(localized: "No tickets match."))
+                    .font(.system(size: 13)).foregroundStyle(DashboardPalette.ink3).padding(.top, 12)
+            } else {
+                DashboardTicketTable(rows: rows, opening: model.navigation.opening,
+                    open: { model.open($0) }, sessionMark: model.sessionMark)
+            }
+        }
     }
 
     private func warning(_ text: String) -> some View {
@@ -84,7 +53,7 @@ struct DashboardTicketsView: View {
     }
 }
 
-/// My Tickets' table: key and summary open the ticket; the row menu offers its session.
+/// The Tickets tab's table: key and summary open the ticket; the row menu offers its session.
 struct DashboardTicketTable: View {
     let rows: [DashboardTicketRow]
     let opening: String?

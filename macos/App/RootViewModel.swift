@@ -28,8 +28,8 @@ import Observation
         case reconnect, openTerminal, removeSession(String), openGitClient(String)
         case renameSession(String, name: String), forkSession(String), focusSession(String)
         case reattachSession(String)
-        /// A project row's hover buttons: New Task on it, and its Settings.
-        case newTask(String), projectSettings(String)
+        /// A project row's hover New Task.
+        case newTask(String)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -60,7 +60,6 @@ import Observation
         default: return nil
         }
     }
-    var canCreateProject: Bool { state.canCreateProject }
     var todayActivity: TodayActivityViewModel? { state.todayActivity }
     var canCreateSession: Bool { state.canCreateSession }
     var canRefresh: Bool { state.canRefresh }
@@ -68,7 +67,7 @@ import Observation
         let state = self.state
         switch state.selection {
         case .newSession: return String(localized: "New Task")
-        case .overview: return String(localized: "Overview")
+        case .overview: return String(localized: "Projects")
         case .automation: return String(localized: "Automation")
         case .terminal: return String(localized: "Terminal")
         case .project(let id): return state.projects.first { $0.id == id }?.name ?? String(localized: "Project")
@@ -100,12 +99,9 @@ import Observation
     func reconnect() { onAction(.reconnect) }
     func openActivity() { onAction(.command(.activity)) }
     func openSettings() { onAction(.command(.settings)) }
-    func newProject() { if canCreateProject { onAction(.command(.newProject)) } }
     func newSession() { if canCreateSession { onAction(.command(.newSession)) } }
     /// A project row's hover pencil: New Task on that project, wherever the window is.
     func newTask(in projectID: String) { onAction(.newTask(projectID)) }
-    /// A project row's hover gear: the project's Settings.
-    func openProjectSettings(_ projectID: String) { onAction(.projectSettings(projectID)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     func openTerminal() { onAction(.openTerminal) }
 }

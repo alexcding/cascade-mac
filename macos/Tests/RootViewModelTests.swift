@@ -63,11 +63,11 @@ private struct InertRemovalService: SessionRemoving {
     let runtime = RootRuntimeFixture(); runtime.coordinator = coordinator
     let model = coordinator.makeRoot(factory: factory, runtime: runtime, shell: shell, viewer: viewer)
     #expect(coordinator.selection == .terminal && factory.creations == 1)
-    model.newProject(); model.newSession(); model.refresh()
+    model.newSession(); model.refresh()
     #expect(runtime.commands.isEmpty)
     runtime.state.canCreateProject = true; runtime.state.canCreateSession = true; runtime.state.canRefresh = true
-    model.newProject(); model.newSession(); model.refresh()
-    #expect(runtime.commands == [.newProject, .newSession, .refresh])
+    model.newSession(); model.refresh()
+    #expect(runtime.commands == [.newSession, .refresh])
     model.select(.session("session"))
     #expect(coordinator.selection == .session("session") && store.load() == .session("session"))
     #expect(runtime.selections == [.session("session")])
@@ -109,7 +109,7 @@ private struct InertRemovalService: SessionRemoving {
     #expect(workspace(second) && viewer.contexts.count == 2)
     // Away from every workspace: the selection's own destination, and nothing is dropped.
     model.select(.overview)
-    #expect(coordinator.root == .unavailable(title: "Overview", message: "Connect to load the dashboard."))
+    #expect(coordinator.root == .unavailable(title: "Projects", message: "Connect to load the dashboard."))
     #expect(viewer.contexts["task:first"] === first && first.activeDocument === document && viewer.contexts["task:second"] === second)
     // Back: the same coordinator, not a new one.
     let retained = coordinator.workspaceCoordinator(for: first)
@@ -166,7 +166,7 @@ private struct InertRemovalService: SessionRemoving {
     #expect(request.phase == .preparing && !coordinator.canPresent)
     for _ in 0..<500 where coordinator.removal?.phase == .preparing { await Task.yield() }
     #expect(coordinator.removal?.phase == .confirming && coordinator.removal?.id == request.id)
-    #expect(coordinator.removal?.model.promptTitle == "Forget this session?")
+    #expect(coordinator.removal?.model.promptTitle == "Forget this task?")
     // Modal: a second request while the dialog is up is refused.
     model.removeSession("s")
     #expect(coordinator.removal?.id == request.id && runtime.removalRequests == ["missing", "s"])

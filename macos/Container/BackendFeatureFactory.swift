@@ -15,6 +15,8 @@ import Foundation
     func changes(api: APIClient) -> any GitChangesService
     func workspaceTargets(api: APIClient) -> any WorkspaceTargetService
     func sessions(api: APIClient) -> any SessionServing
+    /// Projects' Board tab's backend.
+    func boards(api: APIClient) -> any BoardService
     func ideWarmup(api: APIClient) -> any IDEWarmupServing
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving
 }
@@ -33,12 +35,13 @@ extension BackendFeatureFactory {
     func diff(api: APIClient) -> any DiffService { APIDiffService(api: api) }
     func changes(api: APIClient) -> any GitChangesService { APIGitChangesService(api: api) }
     func workspaceTargets(api: APIClient) -> any WorkspaceTargetService { APIWorkspaceTargetService(api: api) }
+    func boards(api: APIClient) -> any BoardService { APIBoardService(api: api) }
     func sessions(api: APIClient) -> any SessionServing { SessionOperations(api: api) }
     func ideWarmup(api: APIClient) -> any IDEWarmupServing { APIIDEWarmupService(api: api) }
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }
     func projectServices(api: APIClient) -> ProjectFeatureServices {
-        ProjectFeatureServices(projects: projects(api: api), sessions: sessions(api: api), boards: APIBoardService(api: api))
+        ProjectFeatureServices(projects: projects(api: api), sessions: sessions(api: api))
     }
 }

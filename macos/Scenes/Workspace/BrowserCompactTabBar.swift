@@ -425,8 +425,8 @@ private struct CompactFileTab: View {
     }
 }
 
-/// A tool's tab in the strip: the Files explorer — a New Tab that browses the worktree, until a
-/// file picked in it takes its place — Diff, the Simulator, or Live.
+/// A tool's tab in the strip: the Files explorer, which browses the worktree and opens each file
+/// picked in it in a tab of its own, Diff, the Simulator, or Live Monitor.
 private struct CompactToolTab: View {
     let title: String
     let symbol: String

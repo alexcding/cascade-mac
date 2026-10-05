@@ -186,9 +186,6 @@ private actor HeldDashboardSnapshot: DashboardService {
     await service.removeRows(); model.reload(); while model.prs.loading { await Task.yield() }
     #expect(model.navigation.opening == nil && model.prs.projects.isEmpty)
     #expect(model.prs.visibleRows.isEmpty && model.prs.mine.isEmpty && model.prs.reviews.isEmpty && model.prs.warnings.isEmpty)
-    // An emptied snapshot is not a search: the view shows the search's own empty state only
-    // while `searching`, so an emptied snapshot must leave it false.
-    #expect(!model.searching && model.search.isEmpty)
     await gate.finish(); await Task.yield()
     #expect(actions.navigated.isEmpty)
     child.retire()
@@ -238,28 +235,12 @@ private actor HeldDashboardSnapshot: DashboardService {
     #expect(actions.opened.isEmpty)
 }
 
-@MainActor @Test func dashboardSearchNarrowsRowsAndClears() async throws {
+@MainActor @Test func dashboardRowsCarryChecksDatesAndLabelColours() async throws {
     let service = DashboardFixture()
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(service)
     while model.prs.loading { try await Task.sleep(for: .milliseconds(10)) }
 
-    #expect(!model.searching)
-    #expect(model.prs.mine.map(\.pr.number) == [1])
-    #expect(model.prs.reviews.map(\.pr.number) == [2, 4])
-
-    // The search runs over the row's own text; it stands in for the page rather than narrowing it.
-    model.query = "legacy"
-    #expect(model.searching)
-    #expect(model.search.mine.isEmpty)
-    #expect(model.search.reviews.map(\.pr.number) == [4])
-    #expect(model.search.tickets.isEmpty)
-    // The pages themselves are untouched while a search is up.
-    #expect(model.prs.mine.map(\.pr.number) == [1])
-    #expect(model.prs.reviews.map(\.pr.number) == [2, 4])
-
-    model.clearFilter()
-    #expect(!model.searching)
     #expect(model.prs.mine.map(\.pr.number) == [1])
     #expect(model.prs.reviews.map(\.pr.number) == [2, 4])
 
@@ -268,22 +249,6 @@ private actor HeldDashboardSnapshot: DashboardService {
     #expect(model.prs.reviews[0].checks == .failing && model.prs.reviews[1].checks == .unknown)
     // Neither fixture PR carries a date, so both count as oldest.
     #expect(model.prs.mine[0].sortDate == .distantPast)
-    // A pale label keeps its own colour; a missing or malformed one falls back instead of going wrong.
-    // Theme colours are dynamic NSColors built fresh per access, so compare resolved components.
-    func rgb(_ color: Color) -> [Int] {
-        guard let resolved = NSColor(color).usingColorSpace(.sRGB) else { return [] }
-        return [resolved.redComponent, resolved.greenComponent, resolved.blueComponent]
-            .map { Int(($0 * 255).rounded()) }
-    }
-    #expect(rgb(Theme.tagTint("ededed")) == [0xED, 0xED, 0xED])
-    #expect(rgb(Theme.tagTint("#d73a4a")) == [0xD7, 0x3A, 0x4A])
-    #expect(rgb(Theme.tagTint(nil)) == rgb(Theme.textSecondary))
-    #expect(rgb(Theme.tagTint("nothex")) == rgb(Theme.textSecondary))
-
-    // The filter field reaches label names, so a tag is searchable whether or not its column is shown.
-    model.query = "needs-qa"
-    #expect(model.search.mine.map(\.pr.number) == [1] && model.search.reviews.isEmpty)
-    model.clearFilter()
 
     await model.stop()
     model.retire()
@@ -336,11 +301,8 @@ private actor HeldDashboardSnapshot: DashboardService {
     #expect(row("Y", "mystery", "whatever").stage == .inProgress && row("Y", "mystery", "whatever").level == .medium)
     #expect(row("G", "toDo", "urgent").urgent && !row("I", "toDo", "high").urgent)
 
-    // Blocked, then reopened, then in progress, then urgent to-dos; the rest wait on My Tickets.
     let rows = [row("A", "toDo", "medium"), row("G", "toDo", "urgent"),
                 row("D", "inProgress", "medium", reopened: true), row("F", "blocked", "low")]
-    #expect(rows.map(\.attentionRank) == [nil, 3, 1, 0])
-    #expect(row("C", "inProgress", "low").attentionRank == 2)
     #expect(DashboardTicketsModel.Filter.urgent.matches(rows[1]) && !DashboardTicketsModel.Filter.urgent.matches(rows[0]))
     #expect(DashboardTicketsModel.Filter.stage(.blocked).matches(rows[3]))
     #expect(DashboardTicketsModel.Filter.allCases.map(\.id) == ["all", "toDo", "inProgress", "pendingRelease", "blocked", "urgent"])
@@ -350,21 +312,19 @@ private actor HeldDashboardSnapshot: DashboardService {
     #expect(row("L", "toDo", "low").level == .low && row("M", "toDo", "medium").level == .medium)
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardViewAllPushesMyTicketsAndBackPops() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func dashboardShowTicketsPicksTheTicketsTab() async throws {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     let coordinator = DashboardCoordinator(model: model)
     model.showTickets(.urgent)
-    #expect(model.tickets.filter == .urgent)
-    #expect(coordinator.path == [.dashboardTickets(model)])
-    // A second View All while the list is up does not stack another copy.
-    model.showTickets()
-    #expect(coordinator.path.count == 1 && model.tickets.filter == .all)
-    model.closeTickets()
+    #expect(model.tickets.filter == .urgent && model.tab == .tickets)
+    // Tickets is a tab of the page: nothing is pushed over it.
     #expect(coordinator.path.isEmpty)
+    model.showTickets()
+    #expect(coordinator.path.isEmpty && model.tickets.filter == .all)
     coordinator.retire()
 }
 
-/// The PR fixture's snapshot plus a fixed set of tickets, for the home screen's short list.
+/// The PR fixture's snapshot plus a fixed set of tickets.
 private actor TicketFixture: DashboardService, DashboardTicketService {
     let prs = DashboardFixture()
     var syncs = 0
@@ -388,38 +348,29 @@ private actor TicketFixture: DashboardService, DashboardTicketService {
     }
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardShortListSkipsWorkItsPullRequestAlreadyShows() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func dashboardTicketsTabListsUrgentFirstAndCountsInOnePass() async throws {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(TicketFixture())
     while model.prs.loading || model.tickets.loading || model.tickets.rows.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
-    // REC-1 is in review, but PR #1 names it and is already listed; the medium to-do waits on My Tickets.
-    #expect(model.tickets.attention.map(\.id) == ["REC-8", "REC-5", "REC-6"])
-    #expect(DashboardTicketsModel.rankAttention(model.tickets.rows, linked: model.prs.linkedPRs, limit: 2).map(\.id) == ["REC-8", "REC-5"])
 
-    // My Tickets: urgent first, the rest in Jira's order; the tag narrows, the counts take one pass.
+    // The Tickets tab: urgent first, the rest in Jira's order; the tag narrows, the counts take one pass.
     #expect(model.tickets.screenRows.map(\.id) == ["REC-6", "REC-7", "REC-1", "REC-5", "REC-8"])
+    let counts = model.tickets.pageCounts
     model.tickets.filter = .stage(.toDo)
     #expect(model.tickets.screenRows.map(\.id) == ["REC-6", "REC-7"])
-    let counts = model.tickets.counts
     #expect(counts[.all] == 5 && counts[.stage(.toDo)] == 2 && counts[.stage(.inProgress)] == 2)
     #expect(counts[.stage(.blocked)] == 1 && counts[.stage(.pendingRelease)] == 0 && counts[.urgent] == 1)
     await model.stop()
     model.retire()
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardSearchIsGlobalAndTabPickEndsIt() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func dashboardShowPullRequestsPicksTheTabAndAuthor() async throws {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     model.connect(TicketFixture())
     while model.prs.loading || model.tickets.loading || model.tickets.rows.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
 
-    model.query = "REC-6"
-    #expect(model.search.tickets.map(\.id) == ["REC-6"] && model.searching)
-
-    model.query = "legacy"
-    #expect(model.search.reviews.map(\.pr.number) == [4])
-
     model.showPullRequests(.review)
-    #expect(!model.searching && model.query.isEmpty && model.tab == .pullRequests && model.prs.author == .review)
+    #expect(model.tab == .pullRequests && model.prs.author == .review)
 
     await model.stop()
     model.retire()
@@ -444,26 +395,4 @@ private actor TicketFixture: DashboardService, DashboardTicketService {
     #expect(model.prs.error == "Sync failed" && !model.prs.mine.isEmpty)
     await model.stop()
     model.retire()
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardBackClearsTheSharedSearch() async throws {
-    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let model = root.makeDashboard(factory: NativeDashboardFeatureFactory(), pageActions: ProjectPageActions())
-    model.showTickets(); model.query = "REC-12"
-    model.closeTickets()
-    #expect(model.query.isEmpty && root.dashboardCoordinator?.path.isEmpty == true)
-    // Picking Overview while My Tickets is up does the same.
-    model.showTickets(); model.query = "REC-12"
-    root.navigate(to: SidebarDestination.overview)
-    #expect(model.query.isEmpty && root.dashboardCoordinator?.path.isEmpty == true)
-    root.dashboardCoordinator?.retire()
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func dashboardTicketsRouteOpensOnAllTickets() async throws {
-    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    let model = root.makeDashboard(factory: NativeDashboardFeatureFactory(), pageActions: ProjectPageActions())
-    model.showTickets(.urgent); model.closeTickets()
-    root.navigate(to: Route.dashboardTickets)
-    #expect(model.tickets.filter == .all && root.dashboardCoordinator?.path == [.dashboardTickets(model)])
-    root.dashboardCoordinator?.retire()
 }

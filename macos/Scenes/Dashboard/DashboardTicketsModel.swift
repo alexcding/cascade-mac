@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// The dashboard's Jira tickets: the load, and every list, count and tile built from it. Tickets
+/// The dashboard's Jira tickets: the load, and every list and count built from it. Tickets
 /// load apart from the PR snapshot, so a GitHub sync never re-queries Jira and a slow or
 /// unconfigured Jira never holds the pull requests back.
 @MainActor @Observable final class DashboardTicketsModel {
@@ -9,55 +9,40 @@ import Observation
     @ObservationIgnored var onChange: () -> Void = {}
     private(set) var retired = false
 
-    /// The user's tickets in the tracked projects: one no project claims is left out. These are
-    /// what the tile, stage bar and short list count.
+    /// The user's tickets in the tracked projects: one no project claims is left out.
     private(set) var rows: [DashboardTicketRow] = []
-    /// Open issues in the tracked repos that are someone else's or no one's: My Tickets' Others.
+    /// Open issues in the tracked repos that are someone else's or no one's: the Tickets tab's Others.
     private(set) var others: [DashboardTicketRow] = []
-    /// Whose tickets My Tickets lists.
+    /// Whose tickets the Tickets tab lists.
     var author: Author = .mine { didSet { if author != oldValue { updateScreenRows() } } }
     /// Tracked projects, from the dashboard snapshot; `rows` follows them.
     var projects: [DashboardProject] = [] {
-        didSet { if projects != oldValue { publish(Self.split(Self.tracked(loaded, in: projects)), summary: nil) } }
+        didSet { if projects != oldValue { publish(Self.split(Self.tracked(loaded, in: projects))) } }
     }
     /// Everything Jira returned, before `projects` narrows it.
     @ObservationIgnored private var loaded: [DashboardTicketRow] = []
     /// Whether Jira has returned no tickets at all, as opposed to none the tracked projects claim.
     var fetchedNothing: Bool { loaded.isEmpty }
-    /// Each My Tickets tag's count over `rows`.
-    private(set) var counts = DashboardTicketsModel.makeSummary([]).counts
-    /// The home screen's short list; see `rankAttention`.
-    private(set) var attention: [DashboardTicketRow] = []
-    /// My Tickets' rows under `filter`, urgent first, each stamped with its linked pull request.
+    /// The Tickets tab's rows under `filter`, urgent first, each stamped with its linked pull request.
     private(set) var screenRows: [DashboardTicketRow] = []
-    /// Start from an empty list's summary, so the tile reads "0 to do · …" before and without tickets.
-    private(set) var tile = DashboardTicketsModel.makeSummary([]).tile
-    private(set) var stages = DashboardTicketsModel.makeSummary([]).stages
     private(set) var error: String?
     private(set) var loading = false
-    /// Mirrors the service, which is not observed, so the toolbar's Tickets tab appears the moment a
+    /// Mirrors the service, which is not observed, so the Tickets tab's content appears the moment a
     /// Jira-capable service connects and goes when it is dropped.
     private(set) var available = false
     var filter: Filter = .all { didSet { if filter != oldValue { updateScreenRows() } } }
-    /// The one project My Tickets lists, or nil for every project. A ticket belongs to the project
+    /// The one project the Tickets tab lists, or nil for every project. A ticket belongs to the project
     /// whose Jira key starts its own key.
     var project: DashboardProject? { didSet { if project != oldValue { updateScreenRows() } } }
-    /// My Tickets' tag counts and stage bar over the rows `project` leaves; the overview's tile
-    /// keeps counting every ticket.
-    private(set) var pageCounts = DashboardTicketsModel.makeSummary([]).counts
-    private(set) var pageStages = DashboardTicketsModel.makeSummary([]).stages
-    /// The pull request each Jira key is linked to, from the PR snapshot. The short list skips work
-    /// a listed pull request already stands for, and My Tickets shows the number.
+    /// The Tickets tab's tag counts over the rows `project` leaves.
+    private(set) var pageCounts = DashboardTicketsModel.count([])
+    /// The pull request each Jira key is linked to, from the PR snapshot; the Tickets tab shows the number.
     var linkedPRs: [String: String] = [:] {
         didSet {
             guard linkedPRs != oldValue else { return }
-            updateAttention()
             updateScreenRows()
         }
     }
-
-    /// How many tickets the home screen's short list shows.
-    static let attentionLimit = 5
 
     @ObservationIgnored private var service: (any DashboardTicketService)? {
         didSet { if available != (service != nil) { available = service != nil } }
@@ -97,12 +82,7 @@ import Observation
                 self.loaded = loaded
                 let tracked = Self.tracked(loaded, in: projects)
                 let split = Self.split(tracked)
-                if self.rows != split.mine || self.others != split.others {
-                    let summary = await Self.summarize(split.mine)
-                    // A project change while summarizing has already published its own narrowing.
-                    guard isCurrent(generation), tracked == Self.tracked(self.loaded, in: projects) else { return }
-                    publish(split, summary: summary)
-                }
+                publish(split)
                 // One source failing while the other loaded still says so beside the rows.
                 error = warning
             } catch {
@@ -135,31 +115,20 @@ import Observation
 
     private func isCurrent(_ generation: UUID) -> Bool { !retired && self.generation == generation }
 
-    /// Publishes the tracked tickets, split into the user's and the others, with the summary of the
-    /// user's, worked out here when the caller has none.
-    private func publish(_ split: (mine: [DashboardTicketRow], others: [DashboardTicketRow]), summary: Summary?) {
+    /// Publishes the tracked tickets, split into the user's and the others.
+    private func publish(_ split: (mine: [DashboardTicketRow], others: [DashboardTicketRow])) {
         let (rows, others) = split
         guard !retired, self.rows != rows || self.others != others else { return }
-        let summary = summary ?? Self.makeSummary(rows)
         self.rows = rows
         self.others = others
-        if counts != summary.counts { counts = summary.counts }
-        if tile != summary.tile { tile = summary.tile }
-        if stages != summary.stages { stages = summary.stages }
-        updateAttention()
         updateScreenRows()
         onChange()
     }
 
-    private func updateAttention() {
-        let value = Self.rankAttention(rows, linked: linkedPRs, limit: Self.attentionLimit)
-        if attention != value { attention = value }
-    }
-
-    /// How many tickets `author` has in the project My Tickets is narrowed to.
+    /// How many tickets `author` has in the project the Tickets tab is narrowed to.
     func count(_ author: Author) -> Int { scoped(author).count }
 
-    /// `author`'s tickets in the project My Tickets is narrowed to.
+    /// `author`'s tickets in the project the Tickets tab is narrowed to.
     private func scoped(_ author: Author) -> [DashboardTicketRow] {
         let rows = author == .mine ? rows : others
         return project.map { project in rows.filter { project.owns($0.ticket) } } ?? rows
@@ -167,9 +136,8 @@ import Observation
 
     private func updateScreenRows() {
         let scoped = scoped(author)
-        let summary = Self.makeSummary(scoped)
-        if pageCounts != summary.counts { pageCounts = summary.counts }
-        if pageStages != summary.stages { pageStages = summary.stages }
+        let counts = Self.count(scoped)
+        if pageCounts != counts { pageCounts = counts }
         let tagged = Self.stamp(scoped.filter(filter.matches), linked: linkedPRs)
         let value = tagged.filter(\.urgent) + tagged.filter { !$0.urgent }
         if screenRows != value { screenRows = value }
@@ -179,26 +147,7 @@ import Observation
 // MARK: - Derivation
 
 extension DashboardTicketsModel {
-    struct Summary: Sendable {
-        var counts: [Filter: Int]
-        var tile: Tile
-        var stages: StageSummary
-    }
-
-    /// Everything the views read from the ticket list, worked out once per load off the main actor.
-    nonisolated static func summarize(_ rows: [DashboardTicketRow]) async -> Summary { makeSummary(rows) }
-
-    nonisolated static func makeSummary(_ rows: [DashboardTicketRow]) -> Summary {
-        let counts = count(rows)
-        let stages = TicketStage.allCases.map { StageCount(stage: $0, count: counts[.stage($0)] ?? 0) }
-        return Summary(
-            counts: counts,
-            tile: Tile(count: rows.count, urgent: counts[.urgent] ?? 0,
-                       footnote: stages.map { "\($0.stage.title): \($0.count)" }.joined(separator: " · ")),
-            stages: StageSummary(all: stages, live: stages.filter { $0.count > 0 }, total: rows.count))
-    }
-
-    /// Each My Tickets tag's count, in one pass.
+    /// Each Tickets tab tag's count, in one pass.
     nonisolated static func count(_ rows: [DashboardTicketRow]) -> [Filter: Int] {
         var counts = Dictionary(uniqueKeysWithValues: Filter.allCases.map { ($0, 0) })
         for row in rows {
@@ -207,17 +156,6 @@ extension DashboardTicketsModel {
             if row.urgent { counts[.urgent, default: 0] += 1 }
         }
         return counts
-    }
-
-    /// The home screen's short list, in `attentionRank` order and each group in Jira's own order.
-    /// A ticket being worked on is left out once one of the listed pull requests names it: the
-    /// pull request's row already stands for that work. Nothing else is padded in.
-    nonisolated static func rankAttention(_ rows: [DashboardTicketRow], linked: [String: String], limit: Int) -> [DashboardTicketRow] {
-        let ranked = rows.enumerated().compactMap { offset, row -> (rank: Int, offset: Int, row: DashboardTicketRow)? in
-            guard let rank = row.attentionRank, !(rank == 2 && linked[row.linkKey] != nil) else { return nil }
-            return (rank, offset, row)
-        }
-        return Array(ranked.sorted { ($0.rank, $0.offset) < ($1.rank, $1.offset) }.prefix(limit).map(\.row))
     }
 
     /// The user's tickets and everyone else's, in their order.
@@ -243,7 +181,7 @@ extension DashboardTicketsModel {
 // MARK: - Types
 
 extension DashboardTicketsModel {
-    /// Whose tickets My Tickets lists, as the Pull Requests tab has it: the user's own — every
+    /// Whose tickets the Tickets tab lists, as the Pull Requests tab has it: the user's own — every
     /// Jira ticket assigned to them and the issues they are an assignee of — or everyone else's
     /// open issues, unassigned ones included.
     enum Author: String, CaseIterable, Identifiable, Sendable {
@@ -257,10 +195,14 @@ extension DashboardTicketsModel {
         }
     }
 
-    /// The My Tickets screen's tags: every ticket, one workflow stage, or the urgent ones.
+    /// The Tickets tab's tags: every ticket, one workflow stage, or the urgent ones.
     enum Filter: Hashable, Identifiable, Sendable {
         case all, stage(TicketStage), urgent
         static let allCases: [Filter] = [.all] + TicketStage.allCases.map(Filter.stage) + [.urgent]
+        /// The filters the page offers: what needs someone. Another one, picked by a link, shows
+        /// beside them while it is the current one, so it can be seen and left.
+        static let critical: [Filter] = [.all, .stage(.blocked), .urgent]
+        static func shown(with current: Filter) -> [Filter] { critical.contains(current) ? critical : critical + [current] }
         var id: String {
             switch self {
             case .all: return "all"
@@ -282,25 +224,5 @@ extension DashboardTicketsModel {
             case .urgent: return row.urgent
             }
         }
-    }
-
-    /// The Tickets assigned tile.
-    struct Tile: Equatable, Sendable {
-        var count = 0
-        var urgent = 0
-        var footnote = ""
-    }
-
-    struct StageCount: Equatable, Identifiable, Sendable {
-        let stage: TicketStage
-        let count: Int
-        var id: TicketStage { stage }
-    }
-
-    /// The tickets per stage: every stage for a legend, the non-empty ones for a bar.
-    struct StageSummary: Equatable, Sendable {
-        var all: [StageCount] = []
-        var live: [StageCount] = []
-        var total = 0
     }
 }

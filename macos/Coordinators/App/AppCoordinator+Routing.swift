@@ -40,13 +40,13 @@ extension AppCoordinator {
                 routingError = String(localized: "The linked project is no longer available.")
                 return
             }
-            guard project.hasJira else {
+            guard project.showsBoard else {
                 routingError = String(localized: "The linked project has no Jira board.")
                 return
             }
         }
-        navigate(to: destination)
-        if let route = link.droppingFirst().first, case .projectBoard = route { navigate(to: route) }
+        // A board link opens Projects' Board tab rather than the project's own page.
+        if let route = link.droppingFirst().first, case .projectBoard = route { navigate(to: route) } else { navigate(to: destination) }
     }
 
     /// Finish the originating operation's callbacks before applying a queued link.

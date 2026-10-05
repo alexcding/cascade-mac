@@ -45,10 +45,12 @@ private func ticketRow(_ key: String) -> DashboardTicketRow {
         projects: [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")],
         tickets: [ticketRow("WEB-1"), ticketRow("OPS-7"), ticketRow("WEB-2")])
     #expect(model.tickets.screenRows.count == 3 && model.tickets.pageCounts[.all] == 3)
-    model.selectTicketProject("web")
+    model.selectProject("web")
     #expect(Set(model.tickets.screenRows.map(\.id)) == ["WEB-1", "WEB-2"])
-    #expect(model.tickets.pageCounts[.all] == 2 && model.tickets.counts[.all] == 3, "The overview tile still counts every ticket")
-    model.selectTicketProject(nil)
+    // One menu narrows every tab: the pull requests follow the same project.
+    #expect(model.project == "web" && model.prs.project == "web" && model.projectTracksTickets)
+    #expect(model.tickets.pageCounts[.all] == 2)
+    model.selectProject(nil)
     #expect(model.tickets.screenRows.count == 3)
 }
 
@@ -59,10 +61,10 @@ private func ticketRow(_ key: String) -> DashboardTicketRow {
         tickets: [ticketRow("WEB-1"), ticketRow("OTHER-3"), ticketRow("WWW-2")])
     while model.tickets.rows.isEmpty { await Task.yield() }
     #expect(Set(model.tickets.rows.map(\.id)) == ["WEB-1", "WWW-2"])
-    #expect(model.tickets.counts[.all] == 2 && model.tickets.screenRows.count == 2)
+    #expect(model.tickets.pageCounts[.all] == 2 && model.tickets.screenRows.count == 2)
     // Removing the project's key drops its tickets everywhere, the overview's count included.
     model.tickets.projects = [jiraProject("web"), jiraProject("plain")]
-    #expect(model.tickets.rows.isEmpty && model.tickets.counts[.all] == 0)
+    #expect(model.tickets.rows.isEmpty && model.tickets.pageCounts[.all] == 0)
     #expect(!model.tickets.fetchedNothing, "Jira did return tickets; none are tracked")
 }
 
@@ -77,111 +79,130 @@ private func ticketRow(_ key: String) -> DashboardTicketRow {
     #expect(Project(id: "k", name: "K", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: "app").hasJira)
 }
 
-@MainActor @Test(.timeLimit(.minutes(1))) func overviewEntriesOpenWhatTheyCountWhileTheTabKeepsItsPlace() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func overviewTotalsOpenWhatTheyCountWhileTheTabKeepsItsPlace() async throws {
     let root = makeRoot()
     let model = await connectedDashboard(root, ProjectPageActions(),
         projects: [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")],
         tickets: [ticketRow("WEB-1"), ticketRow("OPS-2")])
     root.navigate(to: .overview)
-    model.showTickets(); model.selectTicketProject("ops")
-    // The Tickets tab returns to My Tickets as it was left.
-    root.navigate(to: .overview); model.selectTab(.tickets)
+    model.showTickets(); model.selectProject("ops")
+    // The Tickets tab returns to the list as it was left.
+    model.selectTab(.overview); model.selectTab(.tickets)
     #expect(model.tickets.project?.id == "ops")
-    // An overview badge opens the list it counts: every project, under its tag.
-    root.navigate(to: .overview); model.showTickets(.urgent)
-    #expect(model.tickets.project == nil && model.tickets.filter == .urgent)
-    // The pull request tiles likewise open every project's, unfiltered.
-    model.selectTab(.pullRequests); model.prs.project = "web"; model.prs.filter = .failing
+    // An Overview total opens the list it counts, in the project picked.
+    model.selectTab(.overview); model.tickets.author = .others; model.showTickets(.urgent)
+    #expect(model.tickets.project?.id == "ops" && model.tickets.author == .mine && model.tickets.filter == .urgent && model.tab == .tickets)
+    model.selectTab(.overview); model.showPullRequests(.mine, filter: .failing)
+    #expect(model.tab == .pullRequests && model.prs.author == .mine && model.prs.filter == .failing && model.prs.project == "ops")
     model.showPullRequests(.review)
-    #expect(model.prs.author == .review && model.prs.project == nil && model.prs.filter == .all)
+    #expect(model.prs.author == .review && model.prs.filter == .all && model.project == "ops")
 }
 
-// MARK: - The project's Board tab
+// MARK: - Projects' Board tab
 
-private func boardProject(key: String? = "WEB", enabled: Bool? = true) -> Project {
-    Project(id: "web", name: "Web", repo: "", color: nil, workspace: "/tmp", jiraProjectKey: key, boardEnabled: enabled)
-}
-
-@MainActor private func boardPage(_ project: Project, actions: ProjectPageActions = ProjectPageActions()) -> ProjectPageViewModel {
-    let editor = ProjectEditorViewModel(project: project, service: ProjectPageService(), chooseFolder: { nil })
-    return ProjectPageViewModel(project: project, editor: editor,
-                                composer: ProjectComposerModel(project: project, agent: .claude, operations: nil), pageActions: actions)
-}
-
-@MainActor @Test func theBoardTabIsOfferedOnlyWhenTurnedOnForAJiraProject() {
-    #expect(boardPage(boardProject()).sections == [.board, .settings])
-    #expect(!boardPage(boardProject(enabled: false)).sections.contains(.board))
-    #expect(!boardPage(boardProject(enabled: nil)).sections.contains(.board), "An older backend reads as off")
-    #expect(!boardPage(boardProject(key: nil)).sections.contains(.board), "A board needs a Jira key")
-    let off = boardPage(boardProject(enabled: false))
-    off.connectBoard(BoardFixture())
-    off.selectSection(.board)
-    #expect(off.section == .settings && off.board == nil)
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func theBoardRunsOnlyWhileItsTabIsShownAndFollowsTheToggle() throws {
-    let root = makeRoot()
-    root.appearance = .dark
-    let model = boardPage(boardProject())
-    #expect(model.board == nil, "No board before a backend connects")
-    model.connectBoard(BoardFixture())
-    root.installProject(model, runtime: nil)
-    let board = try #require(model.board)
-    #expect(board.projectID == "web" && !board.active && board.appearance == .dark)
-    root.navigate(to: .project("web"))
-    #expect(!board.active, "Settings is showing, not the board")
-    model.selectSection(.board)
-    #expect(board.active)
-    root.appearance = .light
-    #expect(board.appearance == .light)
-    root.navigate(to: .terminal)
-    #expect(!board.active)
-    root.navigate(to: .project("web"))
-    #expect(board.active, "The project returns to the tab it was left on")
-    model.connectBoard(nil)
-    #expect(!board.active && model.board === board, "A stopped backend idles the board and keeps it")
-    model.connectBoard(BoardFixture())
-    #expect(board.active)
-    // Turning the board off retires it and leaves the page on Settings; turning it on builds anew.
-    model.update(boardProject(enabled: false))
-    #expect(board.retired && model.board == nil && model.section == .settings && !model.sections.contains(.board))
-    model.update(boardProject())
-    let rebuilt = try #require(model.board)
-    #expect(rebuilt !== board && !rebuilt.active)
-    root.projectCoordinators["web"]?.retire()
-    #expect(rebuilt.retired && !rebuilt.active && model.board == nil)
-}
-
-@MainActor @Test(.timeLimit(.minutes(1))) func projectBoardCardOpensAreGatedByTheCoordinator() async throws {
+@MainActor @Test(.timeLimit(.minutes(1))) func boardCardOpensAreGatedByTheTabAndTheCoordinator() async throws {
     let root = makeRoot(), actions = ProjectPageActions()
-    let model = boardPage(boardProject(), actions: actions)
-    model.connectBoard(BoardFixture())
-    // The coordinator holds its runtime weakly, so the test keeps it.
-    let runtime = ProjectPageRuntime()
-    let coordinator = root.installProject(model, runtime: runtime)
-    root.navigate(to: .project("web")); model.selectSection(.board)
+    let model = await connectedDashboard(root, actions, projects: [jiraProject("web", key: "WEB")])
+    let coordinator = try #require(root.dashboardCoordinator)
+    model.boardProjectIDs = ["web"]
+    model.connectBoards(BoardFixture())
+    root.navigate(to: .overview)
+    model.selectProject("web"); model.selectTab(.board)
     let board = try #require(model.board)
     while board.siteURL == nil || board.tickets.isEmpty { await Task.yield() }
     let ticket = try #require(board.tickets.first)
     board.open(ticket); await board.navigation.waitForOpen()
-    #expect(actions.navigated == ["https://jira.example.test/browse/WEB-1"] && actions.opened.last?.projectID == "web")
+    #expect(actions.navigated == ["https://jira.example.test/browse/WEB-1"])
     coordinator.canPresent = { false }
     board.open(ticket); await board.navigation.waitForOpen()
-    #expect(actions.opened.count == 1, "A blocked project page stays silent")
+    #expect(actions.navigated.count == 1, "A blocked page stays silent")
     coordinator.canPresent = { true }
-    model.selectSection(.settings)
+    model.selectTab(.tickets)
     board.open(ticket); await board.navigation.waitForOpen()
-    #expect(actions.opened.count == 1, "A board that is not shown opens nothing")
-    model.selectSection(.board)
+    #expect(actions.navigated.count == 1, "A board that is not shown opens nothing")
+    model.selectTab(.board)
     board.open(ticket); await board.navigation.waitForOpen()
-    #expect(actions.opened.count == 2 && actions.opened.last?.projectID == "web")
+    #expect(actions.navigated.count == 2)
     coordinator.retire()
-    board.show(appearance: .system); board.open(ticket)
-    #expect(board.retired && !board.active && actions.opened.count == 2)
+    #expect(board.retired && !board.active)
+}
+
+@MainActor @Test func boardLinksOpenProjectsBoardTabOnTheirProject() async throws {
+    let root = makeRoot()
+    let model = await connectedDashboard(root, ProjectPageActions(), projects: [jiraProject("web", key: "WEB")])
+    model.boardProjectIDs = ["web"]
+    root.navigate(to: Route.projectBoard(projectID: "web"))
+    #expect(root.selection == .overview && model.tab == .board && model.project == "web")
 }
 
 @MainActor @Test func boardURLsOpenTheirProject() throws {
     let link = try #require(CascadeRouter().deepLink(for: URL(string: "cascade://app/projects/ops/board")!))
     #expect(link.destination == .project("ops") && link.droppingFirst().first == .projectBoard(projectID: "ops"))
     #expect(DeepLink([.destination(.terminal), .projectBoard(projectID: "ops")]).destination == nil)
+}
+
+
+@MainActor @Test(.timeLimit(.minutes(1))) func boardTabShowsThePickedProjectsBoardWhileOnScreen() async throws {
+    let root = makeRoot()
+    let model = await connectedDashboard(root, ProjectPageActions(),
+        projects: [jiraProject("web", key: "WEB"), jiraProject("ops", key: "OPS")])
+    // No project shows a board: no Board tab, and picking it stays on Overview.
+    #expect(!model.tabs.contains(.board))
+    model.selectTab(.board)
+    #expect(model.tab == .overview)
+    model.boardProjectIDs = ["web"]
+    model.connectBoards(BoardFixture())
+    model.selectTab(.board)
+    #expect(model.tabs.last == .board && model.tab == .board && model.board == nil, "Every project is picked")
+    // Picking a project with a board builds it; it loads only while Projects is on screen.
+    model.selectProject("web")
+    let board = try #require(model.board)
+    #expect(board.projectID == "web")
+    root.navigate(to: .overview)
+    #expect(board.active)
+    root.navigate(to: .automation)
+    #expect(!board.active)
+    // A project without one has no board, and the old one is retired.
+    model.selectProject("ops")
+    #expect(model.board == nil && board.retired)
+    // Turning the last board off leaves the tab.
+    model.boardProjectIDs = []
+    #expect(model.tab == .overview && !model.tabs.contains(.board))
+    model.retire()
+}
+
+@MainActor @Test func aBoardProjectCanBePickedBeforeThePullRequestsArrive() {
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    model.boardProjectIDs = ["web"]
+    model.selectProject("web")
+    #expect(model.project == "web" && model.projectShowsBoard, "A board link at launch keeps its project")
+    model.selectProject("unknown")
+    #expect(model.project == nil)
+    model.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aStoppedBackendIdlesTheBoardTabAndKeepsIt() async throws {
+    let root = makeRoot()
+    let model = await connectedDashboard(root, ProjectPageActions(), projects: [jiraProject("web", key: "WEB")])
+    model.boardProjectIDs = ["web"]
+    model.connectBoards(BoardFixture())
+    root.navigate(to: .overview)
+    model.selectProject("web"); model.selectTab(.board)
+    let board = try #require(model.board)
+    #expect(board.active)
+    model.connectBoards(nil)
+    #expect(!board.active && model.board === board, "A stopped backend idles the board and keeps its filters")
+    model.connectBoards(BoardFixture())
+    #expect(board.active)
+    model.retire()
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func projectSummariesFollowTheirSources() async throws {
+    let model = await connectedDashboard(makeRoot(), ProjectPageActions(),
+        projects: [jiraProject("web", key: "WEB")], tickets: [ticketRow("WEB-1")])
+    while model.tickets.rows.isEmpty { await Task.yield() }
+    #expect(model.projectSummaries.first?.tickets == 1)
+    model.sessionCounts = ["web": 2]
+    #expect(model.projectSummaries.first?.sessions == 2)
+    model.retire()
 }

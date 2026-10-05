@@ -1,33 +1,5 @@
 import SwiftUI
 
-/// A project's Board tab: its Jira sprint board, the whole team's, to move and assign. The board
-/// fills the page rather than scrolling with it: each column scrolls on its own.
-struct ProjectBoardView: View {
-    let project: Project
-    let board: WebBoardViewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            DashboardPageHeader(caption: caption, title: String(localized: "Sprint board")) {
-                DashboardRefreshButton(name: String(localized: "Sprint board"), id: "board", busy: board.loading, action: board.reload)
-                    .padding(.bottom, 6)
-            }
-            .padding(.bottom, 20)
-            BoardFilters(board: board)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 20)
-            WebBoardView(model: board).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .accessibilityIdentifier("project-board")
-        .onDisappear(perform: board.cancelActions)
-    }
-
-    private var caption: String {
-        guard let sprint = board.sprintTitle else { return String(localized: "\(project.name), the whole team") }
-        return String(localized: "\(project.name) · \(sprint)")
-    }
-}
-
 /// The board's own filters in the Dashboard's tag style: a JQL clause, applied on Return, and
 /// whose cards to show.
 struct BoardFilters: View {

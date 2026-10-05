@@ -221,11 +221,3 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
                                 composer: ProjectComposerModel(project: homeProject, agent: .claude, operations: nil))
 }
 
-@MainActor @Test func aProjectOpensOnSettingsAndOffersTheBoardOnlyWhenTurnedOn() {
-    let model = pageModel()
-    #expect(model.section == .settings && model.sections == [.settings], "Board is offered only when turned on")
-    model.selectSection(.board)
-    #expect(model.section == .settings, "No board to show")
-    model.update(homeProject)
-    #expect(model.section == .settings, "An update keeps the page the user is on")
-}

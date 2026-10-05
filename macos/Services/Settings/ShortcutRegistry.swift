@@ -74,7 +74,7 @@ enum ShortcutGroup: String, CaseIterable, Identifiable {
 extension ShellCommand {
     var title: String {
         switch self {
-        case .overview: String(localized: "Overview")
+        case .overview: String(localized: "Projects")
         case .terminal: String(localized: "Terminal")
         case .activity: String(localized: "Activity")
         case .settings: String(localized: "Settings…")

@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A sprint board's columns and cards. Its filters live with its host, the project's Board tab.
+/// A sprint board's columns and cards. Its filters live with its host, Projects' Board tab.
 struct WebBoardView: View {
     let model: WebBoardViewModel
 

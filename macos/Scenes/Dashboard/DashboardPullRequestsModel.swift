@@ -1,8 +1,8 @@
-import AppKit
+import Foundation
 import Observation
 
-/// The dashboard's pull requests: the snapshot read, the forced sync, and every list, count and
-/// tile built from it. Derivation runs off the main actor once per snapshot; views only read.
+/// The dashboard's pull requests: the snapshot read, the forced sync, and every list and count
+/// built from it. Derivation runs off the main actor once per snapshot; views only read.
 @MainActor @Observable final class DashboardPullRequestsModel {
     /// Fires after a changed snapshot is published, so the owner can follow it.
     @ObservationIgnored var onChange: () -> Void = {}
@@ -25,11 +25,6 @@ import Observation
     private(set) var linkedPRs: [String: String] = [:]
     /// The Pull Requests tab's rows under `filter`, one group per project.
     private(set) var groups: [ProjectGroup] = []
-    private(set) var tile = Tile()
-    private(set) var reviewTile = ReviewTile()
-    /// The review tile authors' GitHub avatars, by login, as `SidebarAvatars` finishes fetching
-    /// them; a login with none yet shows its initials.
-    private(set) var avatars: [String: NSImage] = [:]
     private(set) var warnings: [String] = []
     /// When the pull requests shown were last synced with GitHub: the oldest sync among the
     /// projects that have one, so the age said is never younger than any of what is shown. A
@@ -64,13 +59,6 @@ import Observation
     /// must not overwrite what the later one published.
     @ObservationIgnored private var loadSequence = 0
     @ObservationIgnored private var publishedSequence = 0
-    @ObservationIgnored private var avatarObserver: NSObjectProtocol?
-
-    init() {
-        avatarObserver = NotificationCenter.default.addObserver(forName: SidebarAvatars.loaded, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateAvatars() }
-        }
-    }
 
     var connected: Bool { service != nil }
 
@@ -154,8 +142,6 @@ import Observation
     func retire() {
         retired = true
         onChange = {}
-        if let avatarObserver { NotificationCenter.default.removeObserver(avatarObserver) }
-        avatarObserver = nil
         service = nil
         cancel()
     }
@@ -190,25 +176,10 @@ import Observation
         if reviews != snapshot.reviews { reviews = snapshot.reviews }
         if others != snapshot.others { others = snapshot.others }
         if linkedPRs != snapshot.linkedPRs { linkedPRs = snapshot.linkedPRs }
-        if tile != snapshot.tile { tile = snapshot.tile }
-        if reviewTile != snapshot.reviewTile { reviewTile = snapshot.reviewTile }
-        // Every snapshot, not only a changed tile: a fetch that failed may retry after a minute.
-        updateAvatars()
         if warnings != snapshot.warnings { warnings = snapshot.warnings }
         if synced != snapshot.synced { synced = snapshot.synced }
         updateGroups()
         onChange()
-    }
-
-    /// Asks the shared cache for each author's face; one still fetching arrives later through
-    /// `SidebarAvatars.loaded`, which calls this again.
-    private func updateAvatars() {
-        guard !retired else { return }
-        var value: [String: NSImage] = [:]
-        for login in reviewTile.authors {
-            if let image = SidebarAvatars.image(login: login, frozen: nil) { value[login] = image }
-        }
-        if avatars != value { avatars = value }
     }
 
     /// How many open pull requests `author` has in the chosen project, or in every project.
@@ -241,10 +212,7 @@ extension DashboardPullRequestsModel {
         var mine: [DashboardRow] = []
         var reviews: [DashboardRow] = []
         var others: [DashboardRow] = []
-        var counts: [Filter: Int] = [:]
         var linkedPRs: [String: String] = [:]
-        var tile = Tile()
-        var reviewTile = ReviewTile()
         var warnings: [String] = []
         var synced: Date?
     }
@@ -265,7 +233,6 @@ extension DashboardPullRequestsModel {
         snapshot.reviews = rows.filter { !$0.isMine && $0.inReviewGroup }.sorted { $0.sortDate > $1.sortDate }
         snapshot.others = rows.filter { !$0.isMine && !$0.inReviewGroup }.sorted { $0.sortDate > $1.sortDate }
         snapshot.visibleRows = rows.filter { $0.isMine || $0.inReviewGroup }
-        snapshot.counts = counts(snapshot.mine)
         var linked: [String: Int] = [:]
         for row in snapshot.visibleRows {
             guard let number = row.pr.number else { continue }
@@ -273,8 +240,6 @@ extension DashboardPullRequestsModel {
             for key in row.pr.ticketKeys.map({ $0.uppercased() }) where number < linked[key] ?? .max { linked[key] = number }
         }
         snapshot.linkedPRs = linked.mapValues { "#\($0)" }
-        snapshot.tile = Tile(mine: snapshot.mine, counts: snapshot.counts)
-        snapshot.reviewTile = ReviewTile(reviews: snapshot.reviews)
         snapshot.warnings = projects.flatMap { project -> [String] in
             var messages = project.prs.compactMap { $0.error.map { "\(project.name): \($0)" } }
             if let error = project.syncError { messages.insert("\(project.name): \(error)", at: 0) }
@@ -327,6 +292,10 @@ extension DashboardPullRequestsModel {
     enum Filter: String, CaseIterable, Identifiable, Sendable {
         case all, failing, running, changesRequested, approved, drafts
         var id: String { rawValue }
+        /// The filters the page offers: what needs someone. Another one, picked by a link, shows
+        /// beside them while it is the current one, so it can be seen and left.
+        static let critical: [Filter] = [.all, .failing, .changesRequested]
+        static func shown(with current: Filter) -> [Filter] { critical.contains(current) ? critical : critical + [current] }
         var title: String {
             switch self {
             case .all: return String(localized: "All")
@@ -353,52 +322,5 @@ extension DashboardPullRequestsModel {
         let project: DashboardProject
         let rows: [DashboardRow]
         var id: String { project.id }
-    }
-
-    /// The Open pull requests tile.
-    struct Tile: Equatable, Sendable {
-        var count = 0
-        var failing = 0
-        var footnote = String(localized: "Drafts: \(0) · Approved: \(0)")
-        /// Up to `dotLimit` rows for the check-state dot matrix, failing first so a cut never hides
-        /// one, then running, unknown and passing.
-        var dots: [DashboardRow] = []
-        /// Two rows of ten, the matrix's size in the tile.
-        static let dotLimit = 20
-
-        init() {}
-        init(mine: [DashboardRow], counts: [Filter: Int]) {
-            let drafts = counts[.drafts] ?? 0
-            count = mine.count
-            failing = counts[.failing] ?? 0
-            footnote = String(localized: "Drafts: \(drafts) · Approved: \(counts[.approved] ?? 0)")
-            dots = Array(mine.sorted { Self.rank($0.checks) < Self.rank($1.checks) }.prefix(Self.dotLimit))
-        }
-        private static func rank(_ checks: DashboardRow.Checks) -> Int {
-            switch checks { case .failing: 0; case .running: 1; case .unknown: 2; case .passing: 3 }
-        }
-    }
-
-    /// The Waiting on you tile.
-    struct ReviewTile: Equatable, Sendable {
-        var count = 0
-        /// The oldest waiting review's age, `3d`, or nil with none waiting.
-        var oldestAge: String?
-        var footnote = String(localized: "No review requests")
-        /// The first three distinct authors, in list order.
-        var authors: [String] = []
-
-        init() {}
-        init(reviews: [DashboardRow]) {
-            count = reviews.count
-            // `reviews` is newest first, so the longest wait is the last one with a date.
-            oldestAge = reviews.last(where: { $0.created != nil })?.ageLabel
-            let repos = Set(reviews.map { $0.pr.repo ?? $0.projectName }).count
-            if !reviews.isEmpty { footnote = String(localized: "Repositories: \(repos)") }
-            for login in reviews.map(\.author) where !login.isEmpty && !authors.contains(login) {
-                authors.append(login)
-                if authors.count == 3 { break }
-            }
-        }
     }
 }

@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 
 // The chrome around the outline: a footer of round glass buttons — the activity bell on the left,
-// Settings (gear only) on the right. New Project is the "Projects" heading's hover "+"
-// (`SidebarEntry.Role.projectsHeader`). The outline itself starts at the top of the column.
+// Settings (gear only) on the right. New Project is File → New Project and New Task's project
+// picker. The outline itself starts at the top of the column.
 struct SidebarView: View {
     let viewModel: RootViewModel
     @State private var showingActivity = false
@@ -13,8 +13,7 @@ struct SidebarView: View {
             CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
                          pinnedIDs: viewModel.pinnedIDs, forkableIDs: viewModel.forkableIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
-                         onNewProject: viewModel.newProject,
-                         onNewTask: viewModel.newTask(in:), onProjectSettings: viewModel.openProjectSettings,
+                         onNewTask: viewModel.newTask(in:),
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession, onForkSession: viewModel.forkSession,

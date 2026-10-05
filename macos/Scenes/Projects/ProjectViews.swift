@@ -28,14 +28,14 @@ struct ProjectEditorView: View {
                     Toggle("Show board", isOn: $model.draft.boardEnabled)
                         .disabled(JiraKeys.parse(model.draft.jiraProjectKey).isEmpty)
                         .accessibilityIdentifier("project-board-enabled")
-                    Text("Adds a Board tab to this project with its Jira sprint board.")
+                    Text("Shows this project’s Jira sprint board on the Board tab in Projects.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("GitHub Issues") {
-                    Toggle("Show the repository's issues in My Tickets", isOn: $model.draft.issuesEnabled)
+                    Toggle("Show the repository's issues in Tickets", isOn: $model.draft.issuesEnabled)
                         .disabled(model.draft.repo.isEmpty)
                         .accessibilityIdentifier("project-issues-enabled")
-                    Text("Open issues assigned to you appear beside your Jira tickets in Pull Requests.")
+                    Text("Open issues assigned to you appear beside your Jira tickets in Projects.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Editor") {
@@ -169,19 +169,26 @@ struct NewProjectSheet: View {
     }
 }
 
-/// A project's screen: the page its toolbar tabs pick (`Destination.windowToolbar`).
+/// The project page's way back to Projects, as an automation's is to Automations.
+struct ProjectBackButton: View {
+    let model: ProjectPageViewModel
+    var body: some View {
+        Button { model.goBack() } label: {
+            Label(String(localized: "Projects"), systemImage: "chevron.left")
+        }
+        .help(String(localized: "Back to Projects"))
+        .accessibilityIdentifier("project-back")
+    }
+}
+
+/// A project's screen: its Settings.
 struct ProjectPageView: View {
     let model: ProjectPageViewModel
     var body: some View {
-        switch model.section {
-        case .board:
-            if let board = model.board { ProjectBoardView(project: model.project, board: board) }
-        case .settings:
-            ProjectEditorView(model: model.editor)
-                .padding(.bottom, 16)
-                .frame(maxWidth: Theme.Size.readableColumn)
-                .frame(maxWidth: .infinity)
-        }
+        ProjectEditorView(model: model.editor)
+            .padding(.bottom, 16)
+            .frame(maxWidth: Theme.Size.readableColumn)
+            .frame(maxWidth: .infinity)
     }
 }
 
@@ -318,9 +325,9 @@ struct ProjectComposerView: View {
         Button { Task { await model.submit() } } label: {
             // Start's own colour is the text's, not the accent: black on a light page, white on a dark one.
             Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                .foregroundStyle(Theme.onProminent)
                 .frame(width: 32, height: 32)
-                .background(Circle().fill(model.canStart ? Color.primary : Color(nsColor: .tertiaryLabelColor)))
+                .background(Circle().fill(model.canStart ? Theme.prominent : Color(nsColor: .tertiaryLabelColor)))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)

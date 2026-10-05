@@ -27,13 +27,6 @@ struct WindowToolbarItem: Identifiable {
         case plain
         /// Takes whatever width its section leaves: a compact tab bar, which draws its own glass.
         case fill
-        /// The system search field, bound to the screen's query. The text is read as the toolbar is
-        /// described, so a query the screen changes itself reaches the field.
-        case search(prompt: String, value: String, text: Binding<String>)
-        /// The system's toolbar segmented control, one segment per title: AppKit sizes and draws
-        /// it, so it is never clipped the way hosted content measured once can be. `selected` is
-        /// read as the toolbar is described, like a search field's text.
-        case segments(titles: [String], selected: Int, select: (Int) -> Void)
         /// A choice of one as the system's toolbar item group: segments of symbols while the
         /// section has room, one pop-up button showing the chosen symbol when it is short of it.
         /// AppKit decides which, except for choices that toggle, which are always segments. `selected` and each choice's `enabled` are read as the toolbar is
@@ -66,17 +59,6 @@ struct WindowToolbarItem: Identifiable {
         self.content = AnyView(content())
     }
 
-    static func search(_ id: String, prompt: String, text: Binding<String>) -> Self {
-        Self(id, style: .search(prompt: prompt, value: text.wrappedValue, text: text)) { EmptyView() }
-    }
-
-    /// Tabs as the system's toolbar segmented control. `id` names the item, so a different set of
-    /// titles should come with a different id: the toolbar is then rebuilt rather than resized.
-    static func segments(_ id: String, titles: [String], selected: Int, priority: NSToolbarItem.VisibilityPriority = .standard,
-                         select: @escaping (Int) -> Void) -> Self {
-        Self(id, style: .segments(titles: titles, selected: selected, select: select), priority: priority) { EmptyView() }
-    }
-
     /// A choice of one that collapses to a pop-up button when short of room. A different set of
     /// choices rebuilds the toolbar itself, so the id can stay the same.
     static func picker(_ id: String, label: String, choices: [Choice], selected: Int, toggles: Bool = false,
@@ -86,7 +68,7 @@ struct WindowToolbarItem: Identifiable {
     }
 
     /// The page name, flat at the leading edge: the window's own title is hidden.
-    static func title(_ title: String, font: Font = .title3) -> Self {
+    static func title(_ title: String, font: Font = .windowTitle) -> Self {
         Self("title", style: .plain, priority: .high) { PageTitle(title: title, font: font) }
     }
 }

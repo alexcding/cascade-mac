@@ -49,8 +49,6 @@ private actor ProjectDeletionService: ProjectService {
         projects.removeAll { $0.id == id }; removed.append(id)
     }
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) {}
-    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession { throw CancellationError() }
-    func closeProjectTerminal(_ projectID: String) async {}
     func activateRootDestination() {}
     func performRootCommand(_ command: ShellCommand) {}
     func reconnect() async {}

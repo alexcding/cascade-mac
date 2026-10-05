@@ -224,11 +224,12 @@ private actor RefreshTransport: BackendTransport {
     try await Task.sleep(for: .milliseconds(250))
     #expect(await transport.paths.isEmpty)
 
-    // The sprint board is the project's Board tab: it loads only while shown, and follows only
-    // its own project's syncs.
-    let page = try #require(model.projectModels["p"])
-    page.selectSection(.board)
-    let board = try #require(page.board)
+    // The sprint board is Projects' Board tab: it loads only while shown, and follows only its
+    // own project's syncs.
+    model.select(.overview)
+    let dashboard = try #require(model.dashboard)
+    dashboard.selectProject("p"); dashboard.selectTab(.board)
+    let board = try #require(dashboard.board)
     try await refreshEventually { board.snapshot != nil && !board.loading }
     await transport.reset()
     runtime.emit("jira-sync", id: "p"); runtime.emit("jira-sync", id: "board:q")

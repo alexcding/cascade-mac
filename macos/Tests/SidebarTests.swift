@@ -95,52 +95,6 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     }
 }
 
-/// The "+" on the Projects heading and a session's pin sit in the same place. A source list frames a heading's cell differently from an item's, so they only line up
-/// on screen if the heading reads the item's edge rather than reusing its own offset.
-@MainActor @Test func projectsHeadingAddButtonLinesUpWithASessionsPin() throws {
-    _ = NSApplication.shared
-    let suite = "cascade-sidebar-align-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("s", created: nil)], canCreateProject: true),
-                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
-    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
-    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
-    let column = NSTableColumn(identifier: .init("name"))
-    column.resizingMask = .autoresizingMask
-    outline.addTableColumn(column); outline.outlineTableColumn = column
-    outline.headerView = nil
-    outline.style = .sourceList
-    outline.rowSizeStyle = .medium
-    outline.indentationPerLevel = 0
-    outline.dataSource = coordinator; outline.delegate = coordinator
-    coordinator.outline = outline
-    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
-    scroll.documentView = outline
-    let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled], backing: .buffered, defer: false)
-    // ARC owns this window. AppKit's default would release it again on close.
-    window.isReleasedWhenClosed = false
-    window.contentView = scroll
-    coordinator.update(value)
-    outline.expandItem(nil, expandChildren: true)
-    window.layoutIfNeeded()
-
-    func accessoryEdge(_ role: (SidebarEntry.Role) -> Bool) throws -> CGFloat {
-        for row in 0..<outline.numberOfRows {
-            guard let node = outline.item(atRow: row) as? CocoaSidebar.Node, role(node.entry.role),
-                  let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCellView else { continue }
-            cell.needsLayout = true; cell.layoutSubtreeIfNeeded()
-            let button = try #require(cell.subviews.first { $0 is SidebarAccessoryButton })
-            return button.convert(NSPoint(x: button.bounds.maxX, y: 0), to: outline).x
-        }
-        throw BackendError.operation("no such row")
-    }
-    let heading = try accessoryEdge { if case .projectsHeader = $0 { true } else { false } }
-    let pin = try accessoryEdge { if case .session = $0 { true } else { false } }
-    #expect(abs(heading - pin) < 0.5, "heading + ends at \(heading), a session's pin at \(pin)")
-    window.close()
-}
-
 /// A section heading is set in the sidebar's own heading font, not the source list's group font:
 /// the list styles a cell's `textField` as it displays a group row, so a heading keeps none.
 @MainActor @Test func sectionHeadingKeepsTheSidebarsHeadingFont() throws {
@@ -567,9 +521,9 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
     }
     let titles = coordinator.menu(for: try node("session:agent"))?.items.map(\.title) ?? []
-    #expect(Array(titles.suffix(5)) == ["Rename Session…", "Pin Session", "Remove Session…", "", "Fork Session"], "\(titles)")
-    let fork = try #require(coordinator.menu(for: try node("session:agent"))?.items.first { $0.title == "Fork Session" })
-    #expect(coordinator.menu(for: try node("session:shell"))?.items.contains { $0.title == "Fork Session" } == false)
+    #expect(Array(titles.suffix(5)) == ["Rename…", "Pin", "Remove…", "", "Fork"], "\(titles)")
+    let fork = try #require(coordinator.menu(for: try node("session:agent"))?.items.first { $0.title == "Fork" })
+    #expect(coordinator.menu(for: try node("session:shell"))?.items.contains { $0.title == "Fork" } == false)
     _ = (fork.target as? NSObject)?.perform(try #require(fork.action), with: fork)
     #expect(forked == ["agent"])
 }
@@ -599,10 +553,10 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
     }
     let titles = coordinator.menu(for: try node("session:stopped"))?.items.map(\.title) ?? []
-    #expect(Array(titles.suffix(4)) == ["Reattach Session", "Rename Session…", "Pin Session", "Remove Session…"], "\(titles)")
-    #expect(coordinator.menu(for: try node("session:live"))?.items.contains { $0.title == "Reattach Session" } == false)
-    #expect(coordinator.menu(for: try node("session:busy"))?.items.contains { $0.title == "Reattach Session" } == false)
-    let reattach = try #require(coordinator.menu(for: try node("session:stopped"))?.items.first { $0.title == "Reattach Session" })
+    #expect(Array(titles.suffix(4)) == ["Reattach", "Rename…", "Pin", "Remove…"], "\(titles)")
+    #expect(coordinator.menu(for: try node("session:live"))?.items.contains { $0.title == "Reattach" } == false)
+    #expect(coordinator.menu(for: try node("session:busy"))?.items.contains { $0.title == "Reattach" } == false)
+    let reattach = try #require(coordinator.menu(for: try node("session:stopped"))?.items.first { $0.title == "Reattach" })
     _ = (reattach.target as? NSObject)?.perform(try #require(reattach.action), with: reattach)
     #expect(reattached == ["stopped"])
 }
@@ -731,4 +685,34 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     let wide = try #require(SidebarIcons.symbol("folder")?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.symbolSize, weight: .regular)))
     let folder = try #require(SidebarIcons.rowSymbol("folder"))
     #expect(folder.size.width < wide.size.width, "the folder is drawn smaller than the rows' point size")
+}
+
+/// Projects shows selected while a project's page is open, so clicking it again goes back there.
+@MainActor @Test func clickingProjectsWhileAProjectPageShowsGoesBackToProjects() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    var chosen: [SidebarDestination] = []
+    func sidebar(_ selection: SidebarDestination) -> CocoaSidebar {
+        .init(entries: SidebarEntry.make(projects: [sidebarProject], sessions: []), selection: selection, pinnedIDs: [],
+              onSelect: { chosen.append($0) }, onTogglePin: { _ in })
+    }
+    let coordinator = CocoaSidebar.Coordinator(parent: sidebar(.project("p1")), preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(sidebar(.project("p1")))
+    let projects = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
+        .first { $0.entry.destination == .overview })
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects, "Projects shows selected")
+    chosen = []
+    coordinator.reselected(projects)
+    #expect(chosen == [.overview])
+    // Already on Projects, a second click is nothing.
+    coordinator.update(sidebar(.overview)); chosen = []
+    coordinator.reselected(projects)
+    #expect(chosen.isEmpty)
 }

@@ -1,24 +1,11 @@
 import SwiftUI
 
-/// Hosts the dashboard; its toolbar is the tabs where a page title would sit, with the dashboard's
-/// one search field on the trailing side (`Destination.windowToolbar`). My Tickets pushes over the
-/// home screen as the Tickets tab. The search is global: while it holds text its results stand in
-/// for whichever page is up, and clearing it shows that page again.
+/// Hosts Projects, one page whose tabs sit at its top (`Destination.windowToolbar` titles it).
 struct DashboardCoordinatorView: View {
     @Bindable var coordinator: DashboardCoordinator
 
     var body: some View {
-        let pushed = coordinator.path.last
-        let model = coordinator.model
-        // The page stays underneath while searching, hidden rather than torn down, so clearing the
-        // search returns to it where it was left, scroll position and in-flight opens included.
-        ZStack(alignment: .topLeading) {
-            (pushed ?? coordinator.root).view()
-                .opacity(model.searching ? 0 : 1)
-                .allowsHitTesting(!model.searching)
-                .accessibilityHidden(model.searching)
-            if model.searching { DashboardSearchView(model: model) }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        (coordinator.path.last ?? coordinator.root).view()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

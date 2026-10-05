@@ -50,6 +50,7 @@ public final class AppViewModel {
         didSet {
             guard oldValue != projects else { return }
             automation?.updateProjects(projects)
+            dashboard?.boardProjectIDs = Set(projects.filter(\.showsBoard).map(\.id))
             // Only while it shows: arriving there builds the picked project's composer.
             if selection == .newSession { coordinator.newSession?.update(projects: projects) }
         }
@@ -70,6 +71,7 @@ public final class AppViewModel {
             }
             updateWorkspaceReviewState()
             let byProject = Dictionary(grouping: sessions, by: \.projectId)
+            dashboard?.sessionCounts = byProject.mapValues(\.count)
             for (id, model) in projectModels { model.updateSessions(byProject[id] ?? []) }
         }
     }
@@ -88,8 +90,6 @@ public final class AppViewModel {
     @ObservationIgnored private var launchChoices: [String: AgentLaunchChoice] = [:]
     /// Sessions a fork is being made of, so a second request waits for the first.
     @ObservationIgnored private var forkingSessions: Set<String> = []
-    /// The last open or close of each project's panel shell, which the next one waits for.
-    @ObservationIgnored private var projectTerminalSteps: [String: Task<Void, Never>] = [:]
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
@@ -277,8 +277,7 @@ public final class AppViewModel {
                 needsInput: turns?.needsInput == true, done: turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id),
                 cli: turns?.cli ?? session.cli)
         }
-        return SidebarEntry.make(projects: projects, sessions: sessions, status: status,
-            order: sidebarOrder, canCreateProject: canPerform(.newProject))
+        return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder)
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -408,78 +407,14 @@ public final class AppViewModel {
 
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire()
-        // The project's own shell goes with it; its sessions' shells are theirs and stay.
-        let id = model.project.id
-        Task { await closeProjectTerminal(id) }
     }
 
-    static func projectTerminalKey(_ projectID: String) -> String { "project:\(projectID)" }
-
-    /// A new shell for a project's terminal panel, in `directory` (the project's checkout or one
-    /// of its worktrees) and needing no session. Any shell under the project's pair key is stopped
-    /// first, so the new one never attaches to it: one the panel had, or one an unexpected exit
-    /// left behind. Kept in `terminals`, so Quit stops it with every other.
-    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession {
-        try await projectTerminalStep(project.id) { [self] in
-            // Stopped before anything can fail, so a failed open never leaves the old shell running.
-            try await stopProjectTerminal(project.id)
-            let directory = directory.isEmpty ? project.workspace : directory
-            guard !directory.isEmpty else {
-                throw BackendError.operation(String(localized: "Choose a workspace folder for this project in its Settings."))
-            }
-            // Deleted while its old shell stopped.
-            guard projects.contains(where: { $0.id == project.id }) else { throw CancellationError() }
-            let key = Self.projectTerminalKey(project.id)
-            let terminal = platformFactory.terminal(.init(key: key, directory: directory, paired: true))
-            terminal.presentation.style = shell.terminalStyle
-            terminal.openLink = { [weak self] raw, directory, _ in
-                guard let self, let link = WorkspaceLink.parse(raw, directory: directory, home: platformFactory.homeDirectory) else { return }
-                switch link {
-                case .web(let url): NSWorkspace.shared.open(url)
-                case .file(let location): NSWorkspace.shared.open(URL(fileURLWithPath: location.path))
-                }
-            }
-            terminals[key] = terminal
-            return terminal
-        }
-    }
-
-    /// Stops the project's panel shell: the panel closed, or the project went.
-    func closeProjectTerminal(_ projectID: String) async {
-        _ = try? await projectTerminalStep(projectID) { [self] in try await stopProjectTerminal(projectID) }
-    }
-
-    private func stopProjectTerminal(_ projectID: String) async throws {
-        let key = Self.projectTerminalKey(projectID)
-        await terminals.removeValue(forKey: key)?.stopConnecting()
-        try await terminalControl.stopPaired(keys: [key])
-    }
-
-    /// Runs a project's terminal open or close after the ones asked for before it, so a panel
-    /// opened, closed and opened again ends with the shell the last asked for, and no other.
-    private func projectTerminalStep<T: Sendable>(_ projectID: String, _ body: @escaping @MainActor () async throws -> T) async throws -> T {
-        let previous = projectTerminalSteps[projectID]
-        let step = Task { @MainActor in
-            await previous?.value
-            return try await body()
-        }
-        let tail = Task { _ = await step.result }
-        projectTerminalSteps[projectID] = tail
-        defer { if projectTerminalSteps[projectID] == tail { projectTerminalSteps[projectID] = nil } }
-        return try await step.value
-    }
-
-    /// Panel shells a relaunch kept, or a crash left: no panel is open at launch, so each is stopped.
+    /// Shells an earlier version's project terminal panel left running: the panel is gone, so
+    /// each is stopped at launch.
     private func stopLeftoverProjectTerminals() async {
         guard let shells = try? await terminalControl.pairedShells() else { return }
-        let prefix = Self.projectTerminalKey("")
-        for key in shells.keys where key.hasPrefix(prefix) {
-            let projectID = String(key.dropFirst(prefix.count))
-            // Through the project's steps, so a panel opened meanwhile keeps its new shell.
-            _ = try? await projectTerminalStep(projectID) { [self] in
-                if terminals[key] == nil { try await terminalControl.stopPaired(keys: [key]) }
-            }
-        }
+        let keys = shells.keys.filter { $0.hasPrefix("project:") }
+        if !keys.isEmpty { try? await terminalControl.stopPaired(keys: Set(keys)) }
     }
 
     /// A new project: New Task on it, where its first session starts, or its Settings while it has no folder.
@@ -560,11 +495,10 @@ public final class AppViewModel {
     func newSessionComposer(for projectID: String) -> ProjectComposerModel? { prepareProjectModel(projectID)?.composer }
     func newSessionNewProject() { perform(.newProject) }
 
-    /// A project row's hover gear: the project's page, on its Settings.
+    /// A project's name on Projects: the project's page, on its Settings.
     func openProjectSettings(_ projectID: String) {
         guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
         select(.project(projectID))
-        projectModels[projectID]?.selectSection(.settings)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,
@@ -876,14 +810,6 @@ public final class AppViewModel {
     /// For the area extensions: `error` is only settable from this file.
     func reportRootError(_ message: String) { error = message }
 
-    /// Opens a page's link as the Dashboard's rows do, marking the session it already has.
-    private func projectPageActions() -> any PageActionServing {
-        platformFactory.pageActions(open: { [weak self] request in
-            guard let self else { throw BackendError.operation(String(localized: "The workspace has closed.")) }
-            try await self.openPage(request)
-        }, session: { [weak self] request in self?.pageSessionMark(request) })
-    }
-
     private func showSelectedContext() {
         switch selection {
         case .project(let id):
@@ -911,7 +837,7 @@ public final class AppViewModel {
         guard let project = projects.first(where: { $0.id == id }), let api else { return nil }
         let services = backendFactory.projectServices(api: api)
         coordinator.prepareProject(project, services: services, factory: projectFactory, runtime: self,
-                                   agent: shell.defaultAgent, pageActions: projectPageActions())
+                                   agent: shell.defaultAgent)
         guard let model = projectModels[id] else { return nil }
         model.updateSessions(sessions.filter { $0.projectId == id })
         if model.composer.catalogSource == nil {
@@ -1640,11 +1566,12 @@ public final class AppViewModel {
             api = connectedAPI
             if let api {
                 shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api))
+                dashboard?.connectBoards(backendFactory.boards(api: api))
                 usageWatch?.cancel(); usageWatch = Task { [shell] in await shell.watchUsage() }
                 loadRefreshInterval()
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
-            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api), boards: backendFactory.projectServices(api: api).boards) } }
+            if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api)) } }
             if api != nil, selection == .newSession { coordinator.newSession?.update(projects: projects) }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
             if let api { logs?.connect(backendFactory.logs(api: api)); todayActivity.connect(backendFactory.logs(api: api)) }
@@ -1676,8 +1603,9 @@ public final class AppViewModel {
     public func attend() {
         guard started, api != nil else { return }
         switch selection {
-        case .overview: dashboard?.prs.refresh(quiet: true, look: true)
-        case .project(let id): projectModels[id]?.board?.attend()
+        case .overview:
+            dashboard?.prs.refresh(quiet: true, look: true)
+            if dashboard?.tab == .board { dashboard?.board?.attend() }
         default: break
         }
     }
@@ -1700,7 +1628,7 @@ public final class AppViewModel {
         shell.refresh(look: look)
         shell.refreshUsage()
         dashboard?.reload(look: look)
-        if case .project(let id) = selection { projectModels[id]?.board?.refresh() }
+        if selection == .overview, dashboard?.tab == .board { dashboard?.board?.refresh() }
         if coordinator.activityVisible { logs?.refresh() }
         refreshInventory([.projects, .sessions])
     }
@@ -1813,7 +1741,7 @@ public final class AppViewModel {
         // The backend searched My Tickets again behind a look, and the answer changed.
         if events.contains(where: { $0.type == "sync" && $0.scope == "tickets" }) { dashboard?.tickets.refresh(.echo) }
         let jira = events.filter { $0.type == "jira-sync" }
-        for event in jira { for model in projectModels.values { model.refreshBoard(event: event.id) } }
+        for event in jira { dashboard?.refreshBoard(event: event.id) }
     }
 
     public func reconnect() async {
@@ -1984,6 +1912,8 @@ public final class AppViewModel {
         refreshPending.removeAll()
         await shell.stop()
         await dashboard?.stop()
+        // The Board tab's board idles with the backend gone, keeping its filters for the next one.
+        dashboard?.connectBoards(nil)
         await automation?.stop()
         await logs?.stop()
         await settings?.stop()

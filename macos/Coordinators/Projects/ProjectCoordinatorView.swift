@@ -4,11 +4,9 @@ struct ProjectCoordinatorView: View {
     @Bindable var coordinator: ProjectCoordinator
 
     var body: some View {
-        ProjectTerminalSplit(model: coordinator.model.terminal) {
-            coordinator.root.view()
-                .padding(28)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
+        coordinator.root.view()
+            .padding(28)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .sheet(item: Binding(get: { coordinator.deletionConfirmation }, set: { value in
                 if value == nil, let request = coordinator.deletionConfirmation { coordinator.cancelDeletion(id: request.id) }
             })) { request in

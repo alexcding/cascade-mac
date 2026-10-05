@@ -47,6 +47,4 @@ struct ProjectPageService: ProjectService {
     func applyProjectSave(_ project: Project, source: ProjectSaveSource) {}
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) {}
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) {}
-    func projectTerminal(for project: Project, directory: String) async throws -> TerminalSession { throw CancellationError() }
-    func closeProjectTerminal(_ projectID: String) async {}
 }

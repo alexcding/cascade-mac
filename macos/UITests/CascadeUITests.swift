@@ -24,7 +24,7 @@ final class CascadeUITests: XCTestCase {
         let saved = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["● Editable.swift"])
         wait(for: [saved], timeout: 6)
         editor.click(); app.typeText(" // unsaved")
-        app.outlines["workspace-sidebar"].staticTexts["Pull Requests"].click()
+        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
         row.click()
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
         XCTAssertEqual(editor.value as? String, "let saved = true // unsaved")
@@ -227,8 +227,8 @@ final class CascadeUITests: XCTestCase {
         app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
         app.launch()
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
-        app.outlines["workspace-sidebar"].staticTexts["Pull Requests"].click()
-        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 10), app.debugDescription)
+        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].waitForExistence(timeout: 10), app.debugDescription)
         app.activate()
         func emitActivity() async throws {
             var request = URLRequest(url: URL(string: base + "/fixture/activity-notification")!)
@@ -243,12 +243,12 @@ final class CascadeUITests: XCTestCase {
         toast.click()
         XCTAssertFalse(toast.exists, app.debugDescription)
         XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5), app.debugDescription)
-        app.outlines["workspace-sidebar"].staticTexts["Pull Requests"].click()
+        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
         try await emitActivity()
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
         app.buttons["Dismiss activity"].click()
         XCTAssertFalse(toast.exists)
-        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].exists)
     }
 
     @MainActor
@@ -609,15 +609,15 @@ final class CascadeUITests: XCTestCase {
         session.click()
         XCTAssertTrue(app.buttons["Remove Session"].waitForExistence(timeout: 5))
         app.buttons["Remove Session"].click()
-        XCTAssertTrue(app.buttons["Forget Session"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Forget Task"].waitForExistence(timeout: 10))
         app.sheets.buttons["Cancel"].click()
         let removalDismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.sheets.firstMatch)
         wait(for: [removalDismissed], timeout: 5)
         XCTAssertTrue(session.exists)
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("sidebar-1").path))
         app.buttons["Remove Session"].click()
-        XCTAssertTrue(app.buttons["Forget Session"].waitForExistence(timeout: 10))
-        app.buttons["Forget Session"].click()
+        XCTAssertTrue(app.buttons["Forget Task"].waitForExistence(timeout: 10))
+        app.buttons["Forget Task"].click()
         let removed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: session)
         wait(for: [removed], timeout: 10)
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("sidebar-1").path))
@@ -756,7 +756,7 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(pid.waitForExistence(timeout: 15), app.debugDescription)
         let original = try XCTUnwrap(pid.value as? String)
         XCTAssertTrue(original.hasPrefix("PID "))
-        app.outlines["workspace-sidebar"].staticTexts["Pull Requests"].click()
+        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
         row.click()
         XCTAssertTrue(pid.waitForExistence(timeout: 5))
         XCTAssertEqual(pid.value as? String, original)
@@ -814,8 +814,8 @@ final class CascadeUITests: XCTestCase {
 
         // Use XCTAssert and related functions to verify your tests produce the correct results.
         XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 5))
-        app.outlines["workspace-sidebar"].staticTexts["Pull Requests"].click()
-        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 5))
+        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
+        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["Reconnect"].waitForExistence(timeout: 15))
     }
 
@@ -898,7 +898,7 @@ final class CascadeUITests: XCTestCase {
         XCTAssertFalse(app.menuItems["Check for Updates…"].isEnabled)
         app.typeKey(.escape, modifierFlags: [])
         app.typeKey("1", modifierFlags: .command)
-        XCTAssertTrue(app.descendants(matching: .any)["dashboard-tabs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].waitForExistence(timeout: 5))
         app.typeKey("q", modifierFlags: .command)
         let stopped = expectation(for: NSPredicate(format: "state == %d", XCUIApplication.State.notRunning.rawValue), evaluatedWith: app)
         wait(for: [stopped], timeout: 10)
