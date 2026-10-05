@@ -235,10 +235,11 @@ extension WorkspaceServing {
     var canOpenTab: Bool { active && state.canPresent }
     /// Whether a page's tab shows its close button, which lets the page and its web view go. Closing
     /// a panel's last tab leaves its empty state, a blank page. A lone blank page is that empty
-    /// state: closing it would only make another.
+    /// state: closing it would only make another. The context pane's can close: its empty state, its
+    /// own blank page, is no tab in its strip.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return context.tabs.count > 1 || !page.controls.isBlank
+        return context.tabs.count > 1 || !page.controls.isBlank || showsInspector
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
@@ -330,9 +331,12 @@ extension WorkspaceServing {
         if canShowChanges, !open.contains(.changes) {
             tools.append(.init(id: "diff", title: WorkspaceTool.changes.title, symbol: WorkspaceTool.changes.symbol) { [weak self, weak context] in
                 // As the other tools do, Diff takes the blank tab's place once it opens.
-                let blank = context?.replaceableBlank
-                self?.toggleChanges()
-                if let blank, context?.activeTool == .changes { context?.close(.page(blank)) }
+                guard let context else { return }
+                let blank = context.replaceableBlank
+                context.inPlace {
+                    self?.toggleChanges()
+                    if let blank, context.activeTool == .changes { context.close(.page(blank)) }
+                }
             })
         }
         if canShowLive, !open.contains(.live) {

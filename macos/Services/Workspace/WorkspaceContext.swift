@@ -258,12 +258,22 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var activeTool: WorkspaceTool? { activeID.flatMap(WorkspaceToolTab.init(id:)).flatMap { tools.contains($0) ? $0.tool : nil } }
     /// Counts tabs opened, closed and moved by hand, never a restore: what the tab bar animates on.
     private(set) var tabEdits = 0
+    /// Tabs changed in place — a blank tab giving its place to what was picked in it — are not edits:
+    /// the strip swaps them rather than closing one and opening the other.
+    func inPlace(_ change: () -> Void) {
+        let edits = tabEdits
+        change()
+        tabEdits = edits
+    }
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
     /// The tabs the strip shows and cycling walks: every tab — pages, files and tools — in their
-    /// order. A blank page — the pane's own included — is a New Tab there until what is typed or
-    /// picked in it takes its place.
+    /// order. A blank page is a New Tab there until what is typed or picked in it takes its place;
+    /// the context pane's strip leaves out the pane's own (`stripTabs`).
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
+    /// The tabs the context pane's strip shows: all but the pane's own blank page, which is its
+    /// empty state rather than a tab until something is typed in it or New Tab takes it.
+    var stripTabs: [WorkspaceTab] { tabs.filter { $0.id != fillerPageID } }
     /// The tool last in the order other than Diff — the explorer, the Simulator or Live — which
     /// leaving Diff goes back to when there is no page or file.
     private var lastToolBesidesDiff: WorkspaceTab? {
@@ -333,6 +343,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let open = tools.filter { $0.tool == tool }
         // Of several tabs, the one shown, else the first.
         let existing = another && tool.unlimited ? nil : open.first { $0.id == activeID } ?? open.first
+        let edits = tabEdits
         let tab = existing ?? {
             // The lowest number free: the first tab goes by the tool's name alone.
             let taken = Set(open.map(\.number))
@@ -341,7 +352,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             return tab
         }()
         select(.tool(tab))
-        if let blank { close(blank) }
+        guard let blank else { return }
+        close(blank)
+        // A new tab took the blank's place: swapped in place. One already open was selected, and the
+        // blank closed as any tab does.
+        if existing == nil { tabEdits = edits }
     }
     /// The blank tab a pick from its start page replaces.
     var replaceableBlank: BrowserPage? { activePage.flatMap { $0.controls.isBlank ? $0 : nil } }
@@ -369,7 +384,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         case .tool(let toolTab): activeID = toolTab.id; pane = toolTab.tool.pane; changed() }
     }
     func cycle(_ direction: Int) {
-        let order = tabs.map(\.id)
+        // The tabs on screen: the context pane's strip leaves out its own blank page, which cycling
+        // must not land on; a panel's row shows it.
+        let order = (workspaceViewModel?.showsInspector == true ? stripTabs : tabs).map(\.id)
         guard !order.isEmpty else { return }
         // From no tab at all, the first tab is next and the last previous, as from just before
         // the strip.
@@ -382,11 +399,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         // A file opened from a blank tab — its address field, or its start page — takes its place.
         let blank = replaceableBlank
         fileSearch.reset()
-        defer { if let blank { close(blank) } }
-        if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
+        // An open file is selected, and the blank closes as any tab does.
+        if let file = documents.first(where: { $0.record.path == path }) {
+            select(.file(file)); file.focus(line: line, column: column)
+            if let blank { close(blank) }
+            return file
+        }
+        // A new file's tab takes the blank's place in place, as `inPlace`: not opened beside it and
+        // the blank then closed.
+        let edits = tabEdits
         let file = documentFactory.editor(record: .init(path: path))
         documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
         select(.file(file)); file.focus(line: line, column: column)
+        if let blank { close(blank); tabEdits = edits }
         return file
     }
     private func insert(_ id: String, atEnd: Bool = false) {

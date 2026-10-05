@@ -198,14 +198,13 @@ private struct FileBreadcrumb: View {
         .truncationMode(.middle)
         // The strip's size: the file stands out by its weight, not by being larger.
         .font(CompactTabMetrics.stripTabFont)
-        // The address's shapes: a raised capsule inside the bordered pill, filling the row.
+        // The address's shape: one outlined pill on the pane's colour, filling the row.
         .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: CompactTabMetrics.tabHeight)
-        .background(ActiveTabCapsule())
         .padding(CompactTabMetrics.pillInset)
         .frame(height: CompactTabMetrics.pillHeight)
-        .background(Theme.surfaceHover, in: Capsule())
+        .backdropFill(Theme.paneBackground, in: Capsule())
         .pixelOutline(Capsule())
         // Each crumb stays its own button: merged, VoiceOver could not open a folder.
         .accessibilityElement(children: .contain)

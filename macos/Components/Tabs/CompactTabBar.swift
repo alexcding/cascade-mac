@@ -142,7 +142,8 @@ struct CompactTabBar<Leading: View, Pill: View, Trailing: View, Suggestions: Vie
                     let button = showsNewTab ? Theme.Size.largeControl + 8 : 0
                     HStack(spacing: 8) {
                         pill(max(0, proxy.size.width - button))
-                        if showsNewTab { newTabButton }
+                        // Gone with the last tab, not faded out after it.
+                        if showsNewTab { newTabButton.transition(.identity) }
                     }
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
                 } else {
@@ -198,24 +199,24 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
     /// The unselected tab a gesture has asked to select, so that it asks once and not per event.
     @State private var picked: ID?
     @Environment(\.compactTabStyle) private var style
-    @Environment(\.controlActiveState) private var windowState
 
-    /// Whether a flat strip raises its selected tab. In a window that is not the key one it does
-    /// not, as Codex's: every tab the same grey, rules between them.
-    private var raisesActive: Bool { style != .flat || windowState != .inactive }
-    /// A flat strip's rule before a tab: between two tabs neither of which is raised.
+    /// A flat strip's rule before a tab: between two tabs neither of which is the selected one.
     private func ruled(_ id: ID, after previous: ID?) -> Bool {
         guard style == .flat, let previous else { return false }
-        return !raisesActive || (id != activeID && previous != activeID)
+        return id != activeID && previous != activeID
     }
 
     /// A tab slides in from the trailing side and out to it, inside the pill whose round ends clip
     /// it. A flat strip has no ends to clip a slide, which then crossed New Tab and the toggle: its
-    /// new tab fades in, growing from where it stands; closing still slides out.
+    /// tab opens out from its leading edge, its slot widening so the tabs after it and New Tab move
+    /// with its edge, and folds back into it on close. No fade either way.
+    /// The pane's address row is the selected page alone, not tabs: a page change swaps it in place.
     private var transition: AnyTransition {
-        let slide = AnyTransition.move(edge: .trailing).combined(with: .opacity)
-        guard style == .flat else { return slide }
-        return .asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.9, anchor: .leading)), removal: slide)
+        if style == .outlined { return .identity }
+        guard style == .flat else { return AnyTransition.move(edge: .trailing).combined(with: .opacity) }
+        // A tab being removed has already given up its slot, so it folds by its mask alone.
+        return .asymmetric(insertion: .modifier(active: TabExpand(fraction: 0), identity: TabExpand(fraction: 1)),
+                           removal: .modifier(active: TabReveal(fraction: 0), identity: TabReveal(fraction: 1)))
     }
 
     /// A drag in progress: the tab, where the pointer was when it took hold, how far the tab's slot
@@ -233,10 +234,9 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
         let layout = CompactTabLayout(ids: allIDs, activeID: activeID, available: available,
                                       minTitled: style == .flat ? CompactTabMetrics.minFlatTitledTabWidth : CompactTabMetrics.minTitledTabWidth)
         let ids = layout.visible
-        if ids.isEmpty, style == .flat {
-            // The pane's strip with no tabs is nothing but its New Tab.
-            Color.clear.frame(height: CompactTabMetrics.pillHeight)
-        } else if ids.isEmpty {
+        // A flat strip keeps its row when it has no tabs, so its last tab folds away as any other
+        // closes; replacing the row with a placeholder faded the tab out with it.
+        if ids.isEmpty, style != .flat {
             // Momentarily empty while the blank tab is created; holds the row's shape.
             BackdropFill(color: Theme.surfaceHover, shape: Capsule())
                 .pixelOutline(Capsule())
@@ -252,7 +252,7 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                         // Behind its own tab, inside the transition, so a tab that slides in or out
                         // carries its capsule with it. One capsule gliding between slots arrives
                         // after the tab does, and the field's text shows outside it on the way.
-                        .background { if id == activeID, raisesActive { if style == .flat { FlatActiveTab() } else { ActiveTabCapsule() } } }
+                        .background { if id == activeID { if style == .flat { FlatActiveTab().transition(.identity) } else { ActiveTabCapsule() } } }
                         // In the gap before the tab, so it moves with it.
                         .overlay(alignment: .leading) {
                             if ruled(id, after: previous) {
@@ -260,15 +260,19 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                                     .offset(x: -(CompactTabMetrics.tabSpacing + 1) / 2)
                             }
                         }
-                        .transition(transition)
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(pillSpace)) } action: { frames[id] = $0 }
                         // The dragged tab stays under the pointer: its slot changes as it passes its
                         // neighbours, and the offset makes up the difference. It takes each new slot
                         // at once, so that only the tabs making way are seen to slide.
                         .offset(x: drag.flatMap { $0.id == id ? $0.pointer - $0.origin - $0.shift : nil } ?? 0)
-                        .zIndex(drag?.id == id ? 1 : 0)
                         .transaction { if drag?.id == id { $0.animation = nil } }
                         .simultaneousGesture(reorder(id, titled: !iconOnly, among: ids), including: canMove(id) ? .all : .subviews)
+                        // After the modifiers above: set before them, it never reached the ForEach,
+                        // and every tab came and went by the default fade.
+                        .transition(transition)
+                        // Outside the transition's wrapper, so the stack sees it and the dragged tab
+                        // draws over its neighbours.
+                        .zIndex(drag?.id == id ? 1 : 0)
                 }
             }
             .coordinateSpace(.named(pillSpace))
@@ -366,15 +370,10 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
     private var showsClose: Bool { closable && (isEditing ? hoveringClose : active || hovering) }
 
     @Environment(\.compactTabStyle) private var style
-    @Environment(\.controlActiveState) private var windowState
 
     var body: some View {
         if iconOnly && !active { iconTab } else if style == .flat { flatTab } else { titledTab }
     }
-
-    /// A flat strip's selected title in the text's colour, while its window is the key one; out of
-    /// it every title is the same grey, as nothing is raised.
-    private var flatTitleStands: Bool { active && windowState != .inactive }
 
     /// ChatGPT's tab: icon and title from the leading edge, the tab's buttons, then Close at the
     /// trailing end, shown on the selected tab and under the pointer. Never a field. A title too
@@ -391,7 +390,10 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
                             .font(CompactTabMetrics.stripTabFont)
                             .fixedSize()
                             // An unselected tab's title is lighter still, so the selected one leads.
-                            .foregroundStyle(flatTitleStands ? .primary : active ? Theme.textSecondary : Theme.textTertiary)
+                            .foregroundStyle(active ? .primary : Theme.textTertiary)
+                            // Selection changes with a tab opened or closed, inside the strip's
+                            // animation: the titles switch rather than crossfade.
+                            .transaction(value: active) { $0.animation = nil }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -426,7 +428,7 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
         .preference(key: CompactTabTrailingWidth.self, value: accessoriesWidth)
         .padding(.leading, 12).padding(.trailing, 6)
         .frame(height: CompactTabMetrics.tabHeight)
-        .background(hovering && !active ? Theme.border.opacity(0.5) : .clear, in: RoundedRectangle(cornerRadius: FlatActiveTab.radius))
+        .background(hovering && !active ? FlatActiveTab.fill : .clear, in: RoundedRectangle(cornerRadius: FlatActiveTab.radius))
         .onHover { hovering = $0 }
         .accessibilityAddTraits(active ? .isSelected : [])
         .accessibilityAction(named: closeTitle, close)
@@ -449,6 +451,8 @@ struct CompactTabShell<Icon: View, Accessories: View>: View {
             .onHover { hoveringClose = $0 }
             .help("Close tab")
             .opacity(shown ? 1 : 0)
+            // Shown by selection at once; only the pointer fades it.
+            .transaction(value: active) { $0.animation = nil }
             .allowsHitTesting(shown)
             .accessibilityHidden(!shown)
     }
@@ -778,6 +782,59 @@ extension View {
     func pixelOutline<S: InsettableShape>(_ shape: S) -> some View { modifier(PixelOutline(shape: shape)) }
 }
 
+/// A tab closing: the part of it shown shrinks into its leading edge, so it reads as the tab
+/// narrowing rather than squeezing its title. The mask overhangs the tab, so it leaves the rule
+/// before the tab alone; a whole tab, dragged or not, it does not cut at all.
+private nonisolated struct TabReveal: ViewModifier, Animatable {
+    var fraction: CGFloat
+    var animatableData: CGFloat {
+        get { fraction }
+        set { fraction = newValue }
+    }
+    func body(content: Content) -> some View {
+        content.mask(alignment: .leading) {
+            Rectangle().padding(fraction < 1 ? -4 : -TabExpand.unclipped).scaleEffect(x: max(fraction, 0.001), anchor: .leading)
+        }
+    }
+}
+
+/// A tab opening: its slot grows from nothing to its whole width, so the tabs after it and New Tab
+/// move with its trailing edge, and the tab is drawn at full width, cut at that edge, so its title
+/// is uncovered rather than squeezed. The cut overhangs the tab above, below and before it, for the
+/// rule before the tab.
+private nonisolated struct TabExpand: ViewModifier, Animatable {
+    var fraction: CGFloat
+    var animatableData: CGFloat {
+        get { fraction }
+        set { fraction = newValue }
+    }
+    func body(content: Content) -> some View {
+        WidthFraction(fraction: fraction) { content }
+            .mask(alignment: .leading) {
+                // A whole tab is not cut at all: the mask stays on it while it is shown, and a tab
+                // dragged along the strip is drawn away from its slot.
+                if fraction < 1 { Rectangle().padding(.vertical, -4).padding(.leading, -4) }
+                else { Rectangle().padding(-Self.unclipped) }
+            }
+    }
+    /// How far past a whole tab its mask reaches: further than a drag carries it.
+    static let unclipped: CGFloat = 10_000
+
+    private struct WidthFraction: Layout {
+        var fraction: CGFloat
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            guard let tab = subviews.first else { return .zero }
+            let size = tab.sizeThatFits(proposal)
+            return CGSize(width: size.width * fraction, height: size.height)
+        }
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            guard let tab = subviews.first else { return }
+            let size = tab.sizeThatFits(proposal)
+            tab.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(size))
+        }
+    }
+}
+
 /// The pill's clip for tabs sliding in and out. Tabs only ever travel sideways, so the pill's round
 /// ends are what has to cut them. Between the ends it is open above and below, for what the
 /// selected tab draws past its own edge: the capsule's shadow and the focus ring.
@@ -788,13 +845,13 @@ private struct PillSlideClip: Shape {
     }
 }
 
-/// The selected tab of a flat strip: the page's colour on a rounded rectangle, lifted by a
-/// hairline shadow, with no glass.
+/// The selected tab of a flat strip: the same grey a tab takes under the pointer, flat, with no
+/// shadow or glass.
 struct FlatActiveTab: View {
     static let radius: CGFloat = 8
+    static var fill: Color { Theme.border.opacity(0.5) }
     var body: some View {
-        BackdropFill(color: Theme.paneBackground, shape: RoundedRectangle(cornerRadius: Self.radius))
-            .shadow(color: .black.opacity(0.08), radius: 1, y: 0.5)
+        RoundedRectangle(cornerRadius: Self.radius).fill(Self.fill)
     }
 }
 
@@ -808,7 +865,9 @@ private struct PillShape: ViewModifier {
             content
                 .padding(CompactTabMetrics.pillInset)
                 .frame(height: CompactTabMetrics.pillHeight)
-                .backdropFill(Theme.surfaceHover, in: Capsule())
+                // Outlined, the pane's own colour: one hairline, as its buttons have, not a grey band
+                // between the outline and the selected tab.
+                .backdropFill(style == .outlined ? Theme.paneBackground : Theme.surfaceHover, in: Capsule())
                 // A tab sliding in starts a full width to the right: keep it inside the pill.
                 .clipShape(PillSlideClip())
                 .pixelOutline(Capsule())
@@ -822,6 +881,9 @@ struct ActiveTabCapsule: View {
     var body: some View {
         if #available(macOS 26.0, *), style == .capsule {
             Color.clear.glassEffect(.regular.interactive(), in: Capsule())
+        } else if style == .outlined {
+            // Nothing raised: the outlined pill is the field, its outline the only edge.
+            Color.clear
         } else {
             BackdropFill(color: Color(nsColor: .controlBackgroundColor), shape: Capsule())
                 .shadow(color: .black.opacity(0.12), radius: 2, y: 1)

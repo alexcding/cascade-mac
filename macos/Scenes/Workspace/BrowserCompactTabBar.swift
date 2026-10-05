@@ -30,14 +30,16 @@ struct BrowserCompactTabBar: View {
     private var active: BrowserPage? { context.activePage }
     private var root: String? { model.session?.worktree }
     private var fillerIsBlank: Bool { pages.first { $0.id == context.fillerPageID }?.controls.isBlank == true }
+    /// The pane's strip leaves out its own blank page; a panel's row shows it, as its address field.
+    private var shownTabs: [WorkspaceTab] { part == .tabs ? context.stripTabs : context.tabs }
     private var suggestions: [AddressSuggestion] { BrowserAddressSuggestions(context: context).items }
 
     var body: some View {
         CompactTabBar(newTabTitle: String(localized: "New Tab"),
                       newTabHelp: String(localized: "Open a new web tab"),
                       newTab: model.newTab,
-                      // Always on the strip: one rule, whatever the tabs hold.
-                      showsNewTab: part != .address,
+                      // On the strip once it has a tab: with none, there is nothing to add one beside.
+                      showsNewTab: part != .address && !shownTabs.isEmpty,
                       placement: placement) {
             if part != .tabs { NavigationCluster(controls: active?.controls) }
         } pill: { available in
@@ -73,9 +75,16 @@ struct BrowserCompactTabBar: View {
         // refusal while a sheet is up is retried once the sheet goes away.
         // The tabs keep the filler, not the address row: the row is there only over a page.
         .onChange(of: part != .address && needsBlankTab, initial: true) { _, needed in
-            if needed { model.newTab(); context.fillerPageID = context.activePage?.id }
+            // In place, not opened: the strip's first tab must not slide New Tab along.
+            guard needed else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { model.newTab(); context.fillerPageID = context.activePage?.id }
         }
-        .onChange(of: fillerIsBlank) { _, blank in if !blank { context.fillerPageID = nil } }
+        // Typed in, the pane's own blank page becomes a tab of its strip: it opens out as a new tab does.
+        .onChange(of: fillerIsBlank) { _, blank in
+            if !blank { withAnimation(.snappy(duration: 0.3)) { context.fillerPageID = nil } }
+        }
         // The tabs alone have no field: the address row's editing state is not theirs to change.
         .onAppear { synchronizeEditing() }
         .onChange(of: context.activeID) { _, _ in synchronizeEditing() }
@@ -100,7 +109,7 @@ struct BrowserCompactTabBar: View {
 
     private func tabPill(_ available: CGFloat) -> some View {
         // The address alone is the selected page, as wide as the row.
-        let ids = part == .address ? (active.map { [$0.id] } ?? []) : context.tabs.map(\.id)
+        let ids = part == .address ? (active.map { [$0.id] } ?? []) : shownTabs.map(\.id)
         return CompactTabPill(ids: ids, activeID: context.activeID, available: available,
                        maxTabWidth: part == .address ? CompactTabMetrics.maxToolbarBarWidth
                            : part == .tabs ? CompactTabMetrics.maxStripTabWidth : CompactTabMetrics.maxWebTabWidth,
