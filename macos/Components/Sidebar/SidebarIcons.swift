@@ -24,10 +24,9 @@ import AppKit
         "newSession": ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g fill="none" stroke="#000" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M7.25 2.25H4.75a2.5 2.5 0 0 0-2.5 2.5v6.5a2.5 2.5 0 0 0 2.5 2.5h6.5a2.5 2.5 0 0 0 2.5-2.5V8.75"/><path d="M12.2 1.95a1.35 1.35 0 0 1 1.9 1.9L8.6 9.35l-2.55.6.6-2.55z"/></g></svg>"##,
         "fork": ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="#000" stroke-width="1.4" d="M1.5 8H7l6.5-6.5M9 1.5h4.5V6M9 10l4.5 4.5M9 14.5h4.5V10"/></svg>"##,
     ]
-    /// Drawn marks kept as SVG files beside this one, in `Icons/`, by the name the sidebar asks for: a
-    /// project's folder, closed and open (after Lucide's, ISC, `licenses/Lucide-LICENSE`). They are read
-    /// from the bundle this code is built into, the app's or the tests'.
-    private static let files = ["folderClosed": "FolderClosed", "folderOpen": "FolderOpen"]
+    /// Drawn marks kept as vector template images in the asset catalog, by the name the sidebar asks for:
+    /// a project's folder, closed and open (after Lucide's, ISC, `licenses/Lucide-LICENSE`).
+    private static let assets = ["folderClosed": "FolderClosed", "folderOpen": "FolderOpen"]
     /// Glyphs drawn at another's size in a row, rather than their own: the open folder at the closed one's.
     private static let sizedLike = ["folderOpen": "folderClosed"]
     private static var cache: [String: NSImage] = [:]
@@ -77,7 +76,7 @@ import AppKit
         let size = SidebarMetrics.symbolSize
         // A drawn mark is told its box, as a symbol its point size, and is measured the same way.
         func renderer(_ name: String) -> (CGFloat) -> NSImage? {
-            marks[name] == nil && files[name] == nil
+            marks[name] == nil && assets[name] == nil
                 ? { symbol(name)?.withSymbolConfiguration(.init(pointSize: $0, weight: .regular)) }
                 : { drawn(name, size: $0) }
         }
@@ -133,7 +132,7 @@ import AppKit
 
     private static func drawn(_ name: String, size: CGFloat) -> NSImage? {
         let image: NSImage? = if let svg = marks[name] { NSImage(data: Data(svg.utf8)) }
-            else { files[name].flatMap { Bundle(for: SidebarCellView.self).url(forResource: $0, withExtension: "svg") }.flatMap(NSImage.init(contentsOf:)) }
+            else { assets[name].flatMap { Bundle(for: SidebarCellView.self).image(forResource: NSImage.Name($0))?.copy() as? NSImage } }
         guard let image else { return nil }
         image.size = NSSize(width: size, height: size)
         image.isTemplate = true
