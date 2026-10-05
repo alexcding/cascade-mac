@@ -189,16 +189,24 @@ pub async fn patch_task(
 /// The session's conversation as chat turns, with the CLI's hook install beside it (`hooks`):
 /// without it the chat cannot tell a working agent from one at its prompt, and without the
 /// current permission hook approvals stay in the terminal.
-pub async fn agent_transcript(Query(query): Query<crate::agents::TranscriptQuery>) -> Json<Value> {
+/// The session's conversation as chat turns; with `format=thread`, as a read-only chat thread
+/// (`chat::thread_of_transcript`).
+pub async fn agent_transcript(
+    State(app): State<AppState>,
+    Query(query): Query<crate::agents::TranscriptQuery>,
+) -> Json<Value> {
+    if query.format.as_deref() == Some("thread") {
+        return Json(crate::chat::transcript_thread(&app, query).await);
+    }
     let found = tokio::task::spawn_blocking(move || {
         let (agent, mut found) = crate::agents::transcript(&query)?;
         found["hooks"] = json!(crate::integrations::hook_status_for(agent));
-        Some(found)
+        Some((agent, found))
     })
     .await
     .ok()
     .flatten();
-    Json(found.unwrap_or_else(|| json!({"revision": "", "turns": []})))
+    Json(found.map(|(_, found)| found).unwrap_or_else(|| json!({"revision": "", "turns": []})))
 }
 
 pub async fn get_projects(State(state): State<AppState>) -> ApiResult<Vec<Project>> {

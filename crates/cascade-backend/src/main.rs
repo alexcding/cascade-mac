@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
     std::fs::write(&port_file, bound_port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
     cascade_backend::start_background(&state, bound_port).await;
+    cascade_backend::chat::start(&state, &data_dir).await;
     let app = build_app(state.clone());
     tracing::info!("Cascade Rust backend running at http://127.0.0.1:{bound_port}");
     axum::serve(listener, app)
@@ -50,6 +51,7 @@ async fn main() -> Result<()> {
         .await
         .context("serve Cascade backend")?;
     state.forwarders.stop().await;
+    state.chat.shutdown().await;
     let _ = std::fs::remove_file(port_file);
     Ok(())
 }

@@ -33,6 +33,10 @@ extension AppCoordinator {
         case .session(let id) where !state.sessions.contains(where: { $0.id == id }):
             routingError = String(localized: "The linked session is no longer available.")
             return
+        // Only once the chats have been read: before that, a chat that exists is not listed yet.
+        case .chat(let id) where state.chatsLoaded && !state.chats.contains(where: { $0.id == id }):
+            routingError = String(localized: "The linked chat is no longer available.")
+            return
         default: break
         }
         if case .projectBoard(let id) = link.droppingFirst().first {

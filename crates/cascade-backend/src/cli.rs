@@ -194,6 +194,23 @@ pub(crate) fn command(program: &str) -> Command {
     command
 }
 
+/// What `command` gives every child, for a spawner that starts long-lived processes of its own
+/// (the chat engine's CLIs): the program resolved against the search path, and the variables
+/// set on it. The spawner still owes the child its own process group.
+pub(crate) fn launch(program: &str) -> (String, Vec<(String, String)>) {
+    let mut env = vec![("PATH".to_owned(), search_path().to_owned())];
+    if let Some(socket) = shell_ssh_auth_sock() {
+        env.push(("SSH_AUTH_SOCK".to_owned(), socket.to_owned()));
+    }
+    (resolve(program, search_path()).to_string_lossy().into_owned(), env)
+}
+
+/// Where `program` is installed on the search path, or None when it is not.
+pub(crate) fn find(program: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(resolve(program, search_path()));
+    is_executable(&path).then_some(path)
+}
+
 /// The program as an absolute path: the file `path` resolves it to, or — when nothing matches —
 /// where it would have been, which fails at the spawn with the same ENOENT as before.
 ///
@@ -713,6 +730,21 @@ where
 {
     let stdout = output_of(program, args, duration, cwd, &[], Some(input.to_vec()), &[]).await?;
     Ok(String::from_utf8_lossy(&stdout).trim().to_owned())
+}
+
+/// `run_in_env`'s stdout as it was printed, untrimmed and undecoded.
+pub(crate) async fn run_raw<I, S>(
+    program: &str,
+    args: I,
+    duration: Duration,
+    cwd: Option<&Path>,
+    env: &[(&str, &str)],
+) -> Result<Vec<u8>>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    output_of(program, args, duration, cwd, env, None, &[]).await
 }
 
 /// The NUL-separated records of a `-z` command as raw bytes: untrimmed, since a trim would eat

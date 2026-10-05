@@ -286,22 +286,39 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 
 The app is SwiftUI + AppKit over a Rust backend linked into the same process.
 Remote context pages use WebKit. **There are two bundled app pages**, each HTML + JS in a
-`WKWebView`, and they share one shape: push-only, native code hands the page its whole state
-through one `render` call; no network access (CSP `connect-src 'none'`); served on a scheme
-of its own; and reports back through one message handler.
+`WKWebView`. Both have no network access (CSP `connect-src 'none'`), are served on a scheme of
+their own, and report back through one message handler.
 
-- **Working-changes diff** (`macos/Resources/DiffPage/`, hand-written). `DiffViewModel` loads
-  the snapshot through `APIClient` and hands it to `window.nativeDiff.render`;
-  `DiffPageAssets` serves it on `cascade-diff://`; it reports `ready`/`files`/`open`/`discard`, and
-  `window.nativeDiff.reveal` scrolls it to a file of the changed-files list beside it.
-- **Agent chat** (`macos/Resources/ChatPage/`, built). `TranscriptChatPage` replaces the
-  whole conversation (`ChatPageState`) through `window.nativeChat.render` on every push;
-  `ChatPageAssets` serves it on `cascade-chat://`; it reports
-  `ready`/`copy`/`open`/`download`/`permission`/`error`. Its source is the React app in
-  `macos/web/chat/`, and the app ships only the built files: run `npm run build` there after
-  changing it, and commit the output.
+- **Working-changes diff** (`macos/Resources/DiffPage/`, hand-written). Push-only:
+  `DiffViewModel` loads the snapshot through `APIClient` and hands it to
+  `window.nativeDiff.render`; `DiffPageAssets` serves it on `cascade-diff://`; it reports
+  `ready`/`files`/`open`/`discard`, and `window.nativeDiff.reveal` scrolls it to a file of the
+  changed-files list beside it.
+- **Agent chat** (`macos/Resources/ChatPage/`, built). Synara's own web client
+  (`macos/web/chat/`, its files vendored verbatim under `vendor/synara` and never edited; see
+  `macos/web/chat/SYNARA.md`). It asks native for what it needs and is pushed the rest: requests
+  (`{kind:"request", method, params}`) are answered through `window.nativeChat.reply`, and
+  `window.nativeChat.push` delivers the `context`, `providers` and `thread` channels.
+  `ChatPageModel` hosts it, `ChatPageAssets` serves it on `cascade-chat://`, and a
+  `ChatPageBackend` answers it: the chat RPC for a chat session, the terminal transcript (read
+  only) for a terminal session. Only native reaches the backend; the page never does. The app
+  ships only the built files: run `npm run build` there after changing it, and commit the output.
 
 Do not add a third page, and do not give either page a way to reach the backend.
+
+## Chat sessions
+
+A chat is an agent CLI driven headlessly over its JSON protocol: `claude` over stream-json,
+`codex app-server` over JSON-RPC. The engine is `crates/cascade-chat`, a port of Synara's
+provider layer kept file for file like its TypeScript (`crates/cascade-chat/SYNARA.md` maps
+each file and pins the upstream commit). It owns `chat.db` under `<data>/chat` and starts its
+CLIs through the backend's process seam (`chat.rs` `CliSpawner`: login PATH, own process
+group, no terminal hook variables). The backend serves it on one route, `POST /api/chat/rpc`
+(`chat.rs`), and tells the app what changed as `chat-thread`/`chat-shell`/`chat-removed`
+events. A chat belongs to a project (it works in the project's folder) or to none
+(`cascade-standalone`, in a folder the person picked); either way it is a thread in `chat.db`,
+not a task record, and has no worktree of its own. To take Synara's newer code, re-vendor the
+page and port the mapped Rust files' upstream diffs by hand.
 
 ## The layers, and who owns what
 

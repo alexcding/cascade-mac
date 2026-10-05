@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 
@@ -91,10 +92,27 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
 /// conversation is read back from the transcript the agent writes, and a sent message is typed
 /// into the terminal exactly as a person would paste it.
 ///
+/// The conversation is drawn by the chat page (`ChatPageModel`) in read-only mode, handed the
+/// transcript as a thread (`TranscriptPageBackend`); the composer above stays native. Each poll
+/// reads the transcript's turns for the agent's state, and the thread when they or the approvals
+/// waiting changed, pushing it to the page only when its `snapshotSequence` moved on.
+///
 /// Typing is only safe at the agent's prompt. While it works, the terminal may be showing a
 /// dialog the chat covers, where a letter or an Enter picks an answer; so a message sent then
 /// waits for the turn to end, unless the person sends it anyway.
 @MainActor @Observable final class TranscriptChatModel {
+    /// The conversation as the page shows it.
+    struct Thread {
+        /// The thread id, project and folder the page shows it under; `readOnly` is set for it.
+        var context: ChatPageContext
+        /// `{revision, snapshot}` from the transcript endpoint with `format=thread`. Given the last
+        /// revision, a backend that can tell may leave `snapshot` out when nothing changed.
+        var read: (_ since: String?) async throws -> JSONValue
+        /// The chat backend's RPC, for the page's reads of the worktree (`context.cwd`); nil
+        /// refuses them.
+        var files: (@Sendable (_ method: String, _ params: JSONValue) async throws -> JSONValue)? = nil
+    }
+
     /// How the chat reaches its terminal's approval requests.
     struct Permissions {
         /// The terminal's run id, which names it to its hooks; nil until it has started.
@@ -129,8 +147,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     private(set) var hooks: String?
     /// What the CLI can do, as the last read reported it.
     @ObservationIgnored private var profile: AgentProfile?
-    /// What the agent is doing, as the last read of its transcript showed.
-    @ObservationIgnored private var activity: AgentActivity?
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
     /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
@@ -159,8 +175,19 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private let showTerminal: () -> Void
     /// Opens a link from the conversation beside it; false when it cannot, and the system browser does.
     @ObservationIgnored private let openLink: (URL) -> Bool
-    /// Fork Session, from under the conversation's last answer.
-    @ObservationIgnored private let fork: () -> Void
+    /// Opens a file the conversation names, at a line when it gives one.
+    @ObservationIgnored private let openFile: (_ path: String, _ line: Int?) -> Void
+    /// Fork Session: a new session carrying this conversation on.
+    @ObservationIgnored private let forkSession: () -> Void
+    @ObservationIgnored private let thread: Thread
+    @ObservationIgnored private let makePage: (ChatPageContext, any ChatPageBackend) -> ChatPageModel
+    /// The thread's revision as last read, which the next read passes as `since`.
+    @ObservationIgnored private var threadRevision: String?
+    /// The newest `snapshotSequence` the page has been given.
+    @ObservationIgnored private var shownSequence: Double = -1
+    /// The transcript or the approvals changed since the thread was last read.
+    @ObservationIgnored private var threadStale = true
+    @ObservationIgnored private var readingThread = false
     @ObservationIgnored private var watchedRun: String?
     @ObservationIgnored private var polling: Task<Void, Never>?
     @ObservationIgnored private var busy = false
@@ -184,7 +211,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var commandsRead: Date?
     @ObservationIgnored private var lookup: Task<Void, Never>?
     /// Built on first show and kept while the model lives, so switching back is immediate.
-    private(set) var page: TranscriptChatPage?
+    private(set) var page: ChatPageModel?
 
     typealias Deliver = (_ text: String, _ attachments: [ChatAttachment],
                          _ clear: @escaping @MainActor () async throws -> Void) async throws -> Void
@@ -207,17 +234,25 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          deliver: @escaping Deliver,
          completions: Completions = Completions(),
          permissions: Permissions,
+         thread: Thread,
          showTerminal: @escaping () -> Void = {},
          openLink: @escaping (URL) -> Bool = { _ in false },
-         fork: @escaping () -> Void = {}) {
+         openFile: @escaping (_ path: String, _ line: Int?) -> Void = { _, _ in },
+         fork: @escaping () -> Void = {},
+         makePage: @escaping (ChatPageContext, any ChatPageBackend) -> ChatPageModel = { ChatPageModel(context: $0, backend: $1) }) {
         self.agentName = agentName
         self.load = load
         self.deliver = deliver
         self.completions = completions
         self.permissions = permissions
+        var thread = thread
+        thread.context.readOnly = true
+        self.thread = thread
         self.showTerminal = showTerminal
         self.openLink = openLink
-        self.fork = fork
+        self.openFile = openFile
+        self.forkSession = fork
+        self.makePage = makePage
     }
 
     var canSend: Bool {
@@ -281,24 +316,34 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     var canSendQueuedNow: Bool { !retired && !sending && queuedPrompt != nil && permission == nil }
 
     func requestFocus() { if !retired { focusRequest &+= 1 } }
-    func zoom(_ delta: Double?) { if !retired { page?.zoom(delta) } }
+    func zoom(_ delta: Double?) {
+        guard !retired, let webView = page?.webView else { return }
+        TranscriptChatZoom.step(delta, from: webView)
+    }
+
+    /// Fork Session is offered once the agent has answered: there is a conversation to carry on.
+    var canFork: Bool { !retired && turns.contains { $0.role == .assistant } }
+    func fork() { if canFork { forkSession() } }
 
     /// Polls only while shown. An unchanged transcript answers with its revision alone.
     func appear() {
         guard !retired, polling == nil else { return }
         if page == nil {
-            let page = TranscriptChatPage()
-            page.onPermission = { [weak self] id, decision in Task { await self?.answerPermission(id, decision: decision) } }
-            page.onOpen = { [weak self] url in
-                guard let self, !self.retired else { return false }
-                return self.openLink(url)
-            }
-            page.onFork = { [weak self] in
-                guard let self, !self.retired else { return }
-                self.fork()
-            }
+            let backend = TranscriptPageBackend(
+                read: { [weak self] in
+                    guard let self else { throw TranscriptPageBackend.unavailable }
+                    return try await self.readThread()
+                },
+                respond: { [weak self] id, decision in
+                    guard let self else { throw TranscriptPageBackend.unavailable }
+                    return try await self.respond(to: id, decision: decision)
+                },
+                worktree: thread.context.cwd,
+                files: thread.files)
+            let page = makePage(thread.context, backend)
+            page.onEvent = { [weak self] event in self?.pageEvent(event) }
+            if let webView = page.webView { TranscriptChatZoom.attach(webView) }
             self.page = page
-            render()
         }
         // Holds the model only while it polls, so a model nobody keeps ends its loop.
         polling = Task { [weak self] in
@@ -313,6 +358,75 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         watchPermissions()
         await refresh()
         return true
+    }
+
+    private func pageEvent(_ event: ChatPageEvent) {
+        guard !retired else { return }
+        switch event {
+        case .openLink(let url):
+            if !openLink(url) { NSWorkspace.shared.open(url) }
+        case .openFile(let path, let line):
+            openFile(path, line)
+        case .revealFile(let path):
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+        // A transcript has no turn diffs of the chat engine's, and no providers to manage.
+        case .openTurnDiff, .openSettings:
+            break
+        }
+    }
+
+    // MARK: The page's thread
+
+    /// Reads the thread for the page, which asks when it comes up and when it wants it again.
+    private func readThread() async throws -> JSONValue {
+        guard !retired else { throw TranscriptPageBackend.unavailable }
+        let reply = try await thread.read(nil)
+        guard !retired else { throw TranscriptPageBackend.unavailable }
+        if let revision = reply["revision"]?.string { threadRevision = revision }
+        let snapshot = reply["snapshot"] ?? .null
+        if let sequence = snapshot["snapshotSequence"]?.number { shownSequence = max(shownSequence, sequence) }
+        return snapshot
+    }
+
+    /// Reads the thread again when the transcript or its approvals changed, and gives it to the
+    /// page only when it moved on from what the page has.
+    func refreshThread() async {
+        guard !retired, let page, threadStale, !readingThread else { return }
+        threadStale = false
+        readingThread = true
+        defer { readingThread = false }
+        do {
+            let reply = try await thread.read(threadRevision)
+            guard !retired else { return }
+            let revision = reply["revision"]?.string
+            // Left out: the backend says nothing changed since `threadRevision`.
+            guard let snapshot = reply["snapshot"], let sequence = snapshot["snapshotSequence"]?.number,
+                  snapshot["thread"].map({ !$0.isNull }) == true else {
+                if let revision { threadRevision = revision }
+                return
+            }
+            if sequence <= shownSequence || page.receiveSnapshot(snapshot) {
+                shownSequence = max(shownSequence, sequence)
+                if let revision { threadRevision = revision }
+            }
+        } catch {
+            // Read again on the next poll.
+            threadStale = true
+        }
+    }
+
+    /// The page's answer to the approval it shows: `allow` or `deny` for its accept or decline,
+    /// and to the terminal for one the app knows is too long to have been shown whole.
+    private func respond(to id: String, decision: String) async throws -> JSONValue {
+        guard !retired, var answer = TranscriptPageBackend.decision(decision) else { throw TranscriptPageBackend.unavailable }
+        if answer == "allow", permission?.id == id, permission?.truncated == true { answer = "pass" }
+        if permission?.id == id { permission = nil }
+        try await permissions.answer(id, answer)
+        guard !retired else { throw TranscriptPageBackend.unavailable }
+        if answer == "pass" { showTerminal() }
+        threadStale = true
+        await refreshThread()
+        return ["sequence": .number(max(shownSequence, 0))]
     }
 
     /// The agent's state as the terminal's hooks report it: working, or known to be at its prompt;
@@ -363,16 +477,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Shows the agent's state, and sends a held message once it can take it.
     private func settle() {
         updateReady()
-        render()
         // Asked again when the task runs: a prompt may have gone up in the terminal meanwhile.
         if deliverable, queuedPrompt != nil { Task { if deliverable { await sendQueued() } } }
-    }
-
-    private func render() {
-        page?.render(ChatPageState(turns: turns, busy: busy && !returnedToPrompt,
-                                   pending: pendingPrompt ?? queuedPrompt.map { Self.shown($0, with: queuedAttachments) },
-                                   queued: pendingPrompt == nil && queuedPrompt != nil, loaded: loaded, permission: permission,
-                                   activity: activity))
     }
 
     func disappear() {
@@ -383,7 +489,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         if let run = watchedRun { permissions.unwatch(run) }
         watchedRun = nil
         permission = nil
-        render()
+        threadStale = true
     }
 
     /// Follows the terminal's run id, which a restart changes; a terminal still starting has none.
@@ -394,33 +500,20 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         if let old = watchedRun { permissions.unwatch(old) }
         watchedRun = run
         permission = nil
-        render()
+        threadStale = true
         guard let run else { return }
         permissions.watch(run, PermissionWatcher(
             show: { [weak self] prompt in
                 guard let self, !self.retired else { return }
                 self.permission = prompt
-                self.render()
+                // The thread shows the approvals waiting: read it now rather than on the next poll.
+                self.threadStale = true
+                Task { await self.refreshThread() }
             },
             movedToTerminal: { [weak self] in
                 guard let self, !self.retired else { return }
                 self.showTerminal()
             }))
-    }
-
-    /// `allow`, `deny`, or `pass`: the card could not show all of it, so the terminal decides.
-    func answerPermission(_ id: String, decision: String) async {
-        guard !retired, permission?.id == id, ["allow", "deny", "pass"].contains(decision) else { return }
-        permission = nil
-        render()
-        do {
-            try await permissions.answer(id, decision)
-            error = nil
-            if decision == "pass", !retired { showTerminal() }
-        } catch {
-            guard !retired else { return }
-            self.error = error.localizedDescription
-        }
     }
 
     func refresh() async {
@@ -430,9 +523,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             guard !retired else { return }
             if let fresh = transcript.turns {
                 if fresh != turns { turns = fresh }
+                threadStale = true
                 // Read with the turns; an unchanged transcript leaves the last word standing.
                 transcriptAtPrompt = TranscriptTurn.parse(transcript.atPrompt)
-                activity = transcript.activity
             }
             // Only a prompt written after the send can be it; the transcript may word it
             // differently (a slash command), and its window drops older prompts as it moves.
@@ -450,6 +543,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         }
         loaded = true
         settle()
+        await refreshThread()
     }
 
     /// Sends at once when the agent can take it; otherwise holds the message until it can.
@@ -461,7 +555,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         draft = ""
         caret = 0
         clearSuggestions()
-        render()
         if deliverable { await sendQueued() }
     }
 
@@ -487,7 +580,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         draft = String(repeating: ChatCompletion.fileMark, count: queuedAttachments.count) + (draft.isEmpty ? text : draft)
         caret = (draft as NSString).length
         queuedAttachments = []
-        render()
     }
 
     private struct TypingStopped: Error {}
@@ -515,7 +607,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             busySince = sentAt
             pendingPrompt = Self.shown(text, with: files)
             error = nil
-            render()
             await refresh()
         } catch is TypingStopped {
             guard !retired else { return }
@@ -644,7 +735,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         retired = true
         clearSuggestions()
         disappear()
-        page?.close()
+        page?.retire()
         page = nil
     }
 }

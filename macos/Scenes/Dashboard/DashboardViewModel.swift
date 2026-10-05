@@ -34,6 +34,8 @@ import Observation
     /// Every session and its agent's state, from the app as its terminals change: Overview's lanes.
     /// Kept while Projects is off screen, laid out again only when it is on.
     var sessions: [DashboardSession] = [] { didSet { if sessions != oldValue, onScreen { updateLanes() } } }
+    /// Every chat session that is not archived, from the app's chat list: listed in its project's lane.
+    var chats: [DashboardChat] = [] { didSet { if chats != oldValue, onScreen { updateLanes() } } }
     /// Each project's symbol and colour, by id, from the app's projects: the lanes' badges.
     var projectLooks: [String: DashboardProjectLook] = [:] { didSet { if projectLooks != oldValue { updateLanes() } } }
     /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
@@ -127,6 +129,10 @@ extension DashboardViewModel {
         case openSession(String)
         /// Start, for a new session in a project, from its lane on Overview.
         case newSession(String)
+        /// A chat session, from its row in its project's lane.
+        case openChat(String)
+        /// New Chat in a project, from its lane.
+        case newChat(String)
         /// A card on the Board tab.
         case board(WebBoardViewModel.Action)
     }
@@ -191,6 +197,16 @@ extension DashboardViewModel {
     func newSession(in projectID: String) {
         guard !retired, prs.projects.contains(where: { $0.id == projectID }) else { return }
         onAction(.newSession(projectID))
+    }
+
+    func openChat(_ id: String) {
+        guard !retired, chats.contains(where: { $0.id == id }) else { return }
+        onAction(.openChat(id))
+    }
+
+    func newChat(in projectID: String) {
+        guard !retired, prs.projects.contains(where: { $0.id == projectID }) else { return }
+        onAction(.newChat(projectID))
     }
 
     /// The project every tab is narrowed to, from the menu at the tab bar's end; nil is every project.

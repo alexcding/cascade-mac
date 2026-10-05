@@ -86,6 +86,8 @@ public enum Routes {
     public static let AGENT_COMMANDS = "/api/agent/commands"
     public static let AGENT_LAST_HOOK = "/api/agent/last-hook"
     public static let AGENT_PERMISSION = "/api/agent/permission"
+    /// The chat engine's calls: `{method, params}` → `{result}` or `{error:{message, code?}}`.
+    public static let CHAT_RPC = "/api/chat/rpc"
     public static let EVENTS = "/api/events"
     public static let LOGS = "/api/logs"
     public static let LOGS_CATEGORIES = "/api/logs/categories"

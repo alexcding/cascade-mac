@@ -1,0 +1,22 @@
+[package]
+name = "cascade-chat"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Chat sessions that drive agent CLIs over their JSON protocols, ported from Synara"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+libc = "0.2"
+# Same version as cascade-backend's, so the graph links one bundled SQLite.
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.47", features = ["io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
+tracing = "0.1"
+uuid = { version = "1.18", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.21"

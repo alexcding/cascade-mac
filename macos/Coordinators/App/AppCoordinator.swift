@@ -14,6 +14,7 @@ import Observation
             case newProject(ProjectEditorViewModel)
             case build(BuildDestinationViewModel)
             case welcome(WelcomeViewModel)
+            case newChat(NewChatViewModel)
         }
         let id: UUID
         let destination: Destination
@@ -23,6 +24,7 @@ import Observation
             case .newProject(let model): model.retire()
             case .build(let model): model.retire()
             case .welcome(let model): model.retire()
+            case .newChat(let model): model.retire()
             }
         }
 
@@ -31,6 +33,7 @@ import Observation
             case .newProject(let model): !model.busy
             case .build(let model): !model.starting
             case .welcome(let model): !model.busy
+            case .newChat(let model): !model.busy
             }
         }
     }
@@ -91,6 +94,9 @@ import Observation
     var windowBackdrop = WindowBackdrop()
     var dashboardCoordinator: DashboardCoordinator?
     var automationCoordinator: AutomationCoordinator?
+    /// The chat on screen, while one is selected (`syncChatCoordinator`).
+    var chatCoordinator: ChatCoordinator?
+    @ObservationIgnored weak var chatRuntime: (any ChatCoordinating)?
     /// New Task, at the top of the sidebar: a project's own Start, on the project picked there.
     var newSessionCoordinator: NewSessionCoordinator? { didSet { refreshRoot() } }
     var newSession: NewSessionViewModel? { newSessionCoordinator?.model }
@@ -197,6 +203,9 @@ import Observation
             return automationCoordinator.map(Destination.automationCoordinator) ?? .unavailable(title: String(localized: "Automation"), message: String(localized: "Connect to load automations."))
         case .project(let id):
             return projectCoordinators[id].map(Destination.projectCoordinator) ?? .unavailable(title: rootModel?.title ?? String(localized: "Project"), message: String(localized: "Connect to load this project."))
+        case .chat(let id):
+            if let chat = chatCoordinator, chat.threadID == id { return .chatCoordinator(chat) }
+            return .unavailable(title: rootModel?.title ?? String(localized: "Chat"), message: String(localized: "Connect to load this chat."))
         // A workspace selection shows its coordinator once the viewer has activated the
         // context and a coordinator is bound to it; until then, the root placeholder.
         case .terminal:
@@ -225,6 +234,7 @@ import Observation
     /// selection or the set of children changes.
     func refreshRoot() {
         pruneWorkspaces()
+        syncChatCoordinator()
         let next = makeDestination(for: .destination(selection))
         if root != next { root = next }
     }
@@ -275,6 +285,18 @@ import Observation
     }
     var welcomeModel: WelcomeViewModel? {
         if case .welcome(let model) = sheet?.destination { model } else { nil }
+    }
+
+    /// New Chat: the agent and model are chosen on the sheet; `didCreate` gets the chat it made.
+    func presentNewChat(_ makeModel: () -> NewChatViewModel?, didCreate: @escaping (ChatThreadShell) -> Void) {
+        guard canPresent, let model = makeModel() else { return }
+        cancelPageActions()
+        let id = UUID()
+        model.onAction = { [weak self] action in
+            guard case .created(let shell) = action, self?.complete(id) == true else { return }
+            didCreate(shell)
+        }
+        sheet = Sheet(id: id, destination: .newChat(model))
     }
 
     func dismissSheet(id: UUID) {

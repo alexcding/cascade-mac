@@ -86,6 +86,8 @@ protocol AgentDriver: Sendable {
     var chatPlaceholder: String { get }
     /// Its mark in the asset catalogue.
     var asset: String { get }
+    /// The provider a chat session names it by (Synara's `ProviderKind`: `claudeAgent`, `codex`).
+    var chatProvider: String { get }
     /// Its brand colour, 0xRRGGBB, for what is that agent's and not the app's: its usage, its used
     /// context, its sidebar dot while it works. Not a palette colour, so it does not swap with the theme; it reads on
     /// light and dark.
@@ -124,6 +126,8 @@ enum AgentDrivers {
     static var primary: any AgentDriver { all[0] }
     /// The CLI with this id; nil for a plain shell or a CLI the app does not run.
     static func of(_ cli: String?) -> (any AgentDriver)? { all.first { $0.cli == cli } }
+    /// The CLI a chat's provider runs; nil for a provider the app does not drive.
+    static func of(chatProvider provider: String?) -> (any AgentDriver)? { all.first { $0.chatProvider == provider } }
     /// A session with no `cli` recorded runs the default CLI, as the backend assumes.
     static func driver(for cli: String?) -> any AgentDriver { of(cli) ?? primary }
     /// Each CLI as (id, short name), for pickers of one agent's usage.
@@ -145,6 +149,7 @@ struct ClaudeDriver: AgentDriver {
     let shortName = "Claude"
     var chatPlaceholder: String { String(localized: "Ask Claude") }
     let asset = "AgentClaude"
+    let chatProvider = "claudeAgent"
     let brandColor: UInt32 = 0xd97757
     /// Claude Code's own asterisk in full bloom.
     let restingGlyph = "✻"
@@ -205,6 +210,7 @@ struct CodexDriver: AgentDriver {
     let shortName = "Codex"
     var chatPlaceholder: String { String(localized: "Ask Codex") }
     let asset = "AgentCodex"
+    let chatProvider = "codex"
     let brandColor: UInt32 = 0x707af0
     let restingGlyph = "⠿"
     var markGlyphFont: Font { .system(size: 16) }

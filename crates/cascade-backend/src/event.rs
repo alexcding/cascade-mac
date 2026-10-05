@@ -111,6 +111,22 @@ pub enum Event {
         #[serde(rename = "agentType")]
         agent_type: Option<String>,
     },
+    /// Events a chat thread took, in order, each with its `sequence` (Synara's
+    /// `OrchestrationEvent`s): the page showing the thread applies them, and reads the thread again
+    /// past a gap.
+    ChatThread {
+        #[serde(rename = "threadId")]
+        thread_id: String,
+        events: Value,
+    },
+    /// A chat's list-level fields changed (`OrchestrationThreadShell`): its title, status or
+    /// archive.
+    ChatShell { shell: Value },
+    /// A chat was deleted.
+    ChatRemoved {
+        #[serde(rename = "threadId")]
+        thread_id: String,
+    },
 }
 
 impl Event {
@@ -225,6 +241,18 @@ mod tests {
             }),
             json!({"type":"agent-tool","runId":"r","cli":"claude","sessionId":"s","phase":"start","toolUseId":"t",
                    "tool":"Bash","kind":"run","label":"ls","agentId":null,"agentType":null})
+        );
+        assert_eq!(
+            Value::from(Event::ChatThread { thread_id: "t".into(), events: json!([{"sequence": 1}]) }),
+            json!({"type":"chat-thread","threadId":"t","events":[{"sequence":1}]})
+        );
+        assert_eq!(
+            Value::from(Event::ChatShell { shell: json!({"id": "t"}) }),
+            json!({"type":"chat-shell","shell":{"id":"t"}})
+        );
+        assert_eq!(
+            Value::from(Event::ChatRemoved { thread_id: "t".into() }),
+            json!({"type":"chat-removed","threadId":"t"})
         );
     }
 }

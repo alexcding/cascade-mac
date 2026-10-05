@@ -102,6 +102,16 @@ private struct DashboardSessionLaneView: View {
                     DashboardSessionRowView(row: row, wide: wide) { model.openSession(row.id) }
                 }
             }
+            if !lane.chats.isEmpty {
+                Rectangle().fill(DashboardPalette.hairline).frame(height: 1)
+                Text("Chats").font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    .padding(.horizontal, SessionColumn.inset).padding(.top, 10).padding(.bottom, 4)
+                    .accessibilityHidden(true)
+                ForEach(Array(lane.chats.enumerated()), id: \.element.id) { index, chat in
+                    if index > 0 { Rectangle().fill(DashboardPalette.rowRule).frame(height: 1) }
+                    DashboardChatRowView(chat: chat, wide: wide) { model.openChat(chat.id) }
+                }
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous).strokeBorder(DashboardPalette.hairline))
@@ -132,6 +142,11 @@ private struct DashboardSessionLaneView: View {
             if let error = summary.syncError {
                 Text("Sync failed").font(.system(size: 12)).foregroundStyle(DashboardPalette.criticalText).help(error)
             }
+            Button { model.newChat(in: summary.id) } label: {
+                DashboardTagLabel(title: String(localized: "New chat"), active: false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("dashboard-new-chat-\(summary.id)")
             Button { model.newSession(in: summary.id) } label: {
                 DashboardTagLabel(title: String(localized: "New session"), active: false)
             }
@@ -219,6 +234,43 @@ private struct DashboardSessionRowView: View {
         let parts = row.activityParts
         return parts.rest.isEmpty ? Text(parts.lead).fontWeight(.medium)
             : Text("\(Text(parts.lead).fontWeight(.medium)) \(parts.rest)")
+    }
+}
+
+/// A chat session's row in its project's lane, in the session rows' columns: its state, its title,
+/// its agent. The whole row opens the chat.
+private struct DashboardChatRowView: View {
+    let chat: DashboardChat
+    let wide: Bool
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let tint = DashboardPalette.sessionStage(chat.stage)
+        Button(action: open) {
+            HStack(spacing: SessionColumn.spacing) {
+                HStack(spacing: 7) {
+                    Circle().fill(tint.dot).frame(width: 7, height: 7)
+                    Text(chat.stateLabel).font(.system(size: 12, weight: .medium)).foregroundStyle(tint.text)
+                }
+                .frame(width: SessionColumn.state, alignment: .leading)
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left").font(.system(size: 11)).foregroundStyle(DashboardPalette.ink3)
+                    Text(chat.title).font(.system(size: 13.5))
+                }
+                .lineLimit(1).truncationMode(.tail)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                if wide { DashboardSessionAgent(cli: chat.cli).frame(width: SessionColumn.agent, alignment: .leading) }
+            }
+            .padding(.horizontal, SessionColumn.inset)
+            .frame(minHeight: 40)
+            .background(hovering ? Color.primary.opacity(0.04) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(String(localized: "Show \(chat.title)"))
+        .accessibilityIdentifier("dashboard-chat-\(chat.id)")
     }
 }
 

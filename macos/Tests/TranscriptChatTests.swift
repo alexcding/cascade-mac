@@ -25,6 +25,21 @@ import Testing
     var entered: [String] = []
     /// Runs once the text is typed, before its Enter.
     var afterText: () -> Void = {}
+    /// What the transcript endpoint answers with `format=thread`, and the `since` of each read.
+    var threadReply: JSONValue = ["revision": "t1", "snapshot": ["snapshotSequence": 5, "thread": ["id": "transcript-s1"]]]
+    var threadSinces: [String?] = []
+    /// What the chat sent its page.
+    var outputs: [ChatPageOutput] = []
+    var threadPushes: [JSONValue] {
+        outputs.compactMap { if case .push("thread", let value) = $0 { value } else { nil } }
+    }
+    var forks = 0
+    /// The session's worktree, as the page's context names it.
+    var cwd = "/work"
+    /// The page's reads of the worktree, as they reached the chat backend.
+    var folderReads: [(String, JSONValue)] = []
+    /// The files the page asked to open.
+    var opened: [String] = []
 
     /// Held strongly by what it builds: a send can finish after the test that started it.
     func model() -> TranscriptChatModel {
@@ -51,7 +66,18 @@ import Testing
                 watch: { run, watcher in self.watched.append(run); self.watcher = watcher },
                 unwatch: { run in self.unwatched.append(run) },
                 answer: { id, decision in self.answers.append((id, decision)) }),
-            showTerminal: { self.terminalShown += 1 })
+            thread: .init(context: ChatPageContext(threadId: "transcript-s1", projectId: "p1", cwd: cwd, projectName: "Work"),
+                          read: { since in self.threadSinces.append(since); return self.threadReply },
+                          files: { @MainActor method, params in
+                              self.folderReads.append((method, params))
+                              return ["read": .string(method)]
+                          }),
+            showTerminal: { self.terminalShown += 1 },
+            openFile: { path, _ in self.opened.append(path) },
+            fork: { self.forks += 1 },
+            makePage: { context, backend in
+                ChatPageModel(context: context, backend: backend, copy: { _ in }, output: { self.outputs.append($0) })
+            })
     }
 }
 
@@ -165,19 +191,12 @@ private func stamp(_ date: Date) -> String {
     #expect(transcript.agent == AgentProfile(id: "claude", queuesMidTurn: true))
 }
 
-@Test func theTranscriptCarriesWhatTheAgentIsDoingForThePage() throws {
+@Test func theTranscriptCarriesWhatTheAgentIsDoing() throws {
     // As `transcript::read` writes it: each tool call's kind, and the call still out.
     let json = #"{"revision":"r","hooks":"installed","activity":{"kind":"run","detail":"Run the tests"},"turns":[{"id":"a","role":"assistant","blocks":[{"type":"tool","name":"Bash","kind":"run","summary":"Run the tests"}]}]}"#
     let transcript = try JSONDecoder().decode(AgentTranscript.self, from: Data(json.utf8))
     #expect(transcript.activity == AgentActivity(kind: "run", detail: "Run the tests"))
     #expect(transcript.turns?.first?.blocks.first?.kind == "run")
-    // And on to the page, which draws from them.
-    let state = ChatPageState(turns: transcript.turns ?? [], busy: true, pending: nil, queued: false, loaded: true,
-                              permission: nil, activity: transcript.activity)
-    let page = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
-    #expect(page["activity"] as? [String: String] == ["kind": "run", "detail": "Run the tests"])
-    let turns = try #require(page["turns"] as? [[String: Any]])
-    #expect((turns.first?["blocks"] as? [[String: Any]])?.first?["kind"] as? String == "run")
 }
 
 @MainActor @Test func claudeTakesAMessageWhileItWorksAsItsTerminalWould() async {
@@ -318,18 +337,6 @@ private func stamp(_ date: Date) -> String {
     #expect(fixture.terminalShown == 1)
 }
 
-@MainActor @Test func handingARequestToTheTerminalShowsTheTerminal() async {
-    let fixture = ChatFixture(), chat = fixture.model()
-    chat.appear()
-    defer { chat.retire() }
-    try? await eventually { fixture.watcher != nil }
-    fixture.watcher?.show(AgentPermissionPrompt(id: "p1", details: .init(tool: "Bash", detail: "x", reason: "", truncated: true)))
-    await chat.answerPermission("p1", decision: "pass")
-    #expect(fixture.answers.map(\.1) == ["pass"] && fixture.terminalShown == 1)
-    await chat.answerPermission("p1", decision: "allow")
-    #expect(fixture.answers.count == 1, "An answered request is not answered again")
-}
-
 @MainActor @Test func aRetiredChatRefusesEverything() async {
     let fixture = ChatFixture(), chat = fixture.model()
     chat.retire()
@@ -339,20 +346,6 @@ private func stamp(_ date: Date) -> String {
     chat.setAgentState(busy: false, idle: true)
     await chat.refresh()
     #expect(fixture.typed.isEmpty && fixture.watched.isEmpty && chat.page == nil && !chat.loaded)
-}
-
-@Test func downloadsAreNumberedNotOverwrittenAndMarkedAsDownloaded() throws {
-    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-downloads-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: folder) }
-    let first = try #require(TranscriptChatPage.saveToDownloads(Data("a".utf8), named: "table.csv", in: folder))
-    let second = try #require(TranscriptChatPage.saveToDownloads(Data("b".utf8), named: "table.csv", in: folder))
-    let odd = try #require(TranscriptChatPage.saveToDownloads(Data("c".utf8), named: "../..hidden/x:y", in: folder))
-    #expect(first.lastPathComponent == "table.csv" && second.lastPathComponent == "table 2.csv")
-    #expect(odd.deletingLastPathComponent().standardizedFileURL == folder.standardizedFileURL && !odd.lastPathComponent.hasPrefix("."))
-    #expect(try String(contentsOf: first, encoding: .utf8) == "a")
-    let quarantine = try first.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties
-    #expect(quarantine?[kLSQuarantineAgentNameKey as String] as? String == "Cascade")
 }
 
 @MainActor @Test func aJustStartedAgentHoldsAMessageUntilItIsAtItsPrompt() async {
@@ -594,56 +587,152 @@ private func command(_ name: String, _ description: String = "", hint: String = 
     #expect(ChatAttachmentReader.files([URL(fileURLWithPath: "/tmp/My Shot.png")]).map(\.path) == ["/tmp/My\\ Shot.png"])
 }
 
-@MainActor @Test func chatPageEncodesLocalizedChromeWithoutChangingTranscriptContent() throws {
-    let userText = "Allow /review @src/main.swift — مرحبًا <script>literal text</script>"
-    var state = ChatPageState(turns: [prompt(userText, at: .distantPast)], busy: false,
-                              pending: userText, queued: true, loaded: true, permission: nil)
-    state.localization.locale = "fr-FR"
-    state.localization.language = "fr"
-    state.localization.strings["Allow"] = "Autoriser"
-    let data = try JSONEncoder().encode(state)
-    let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    let chrome = try #require(object["localization"] as? [String: Any])
-    #expect(chrome["locale"] as? String == "fr-FR")
-    #expect(chrome["language"] as? String == "fr")
-    let strings = try #require(chrome["strings"] as? [String: String])
-    #expect(strings["Allow"] == "Autoriser")
-    #expect(strings["Copy Code"] != nil && strings["Worked for %@"] != nil)
-    let turns = try #require(object["turns"] as? [[String: Any]])
-    let blocks = try #require(turns.first?["blocks"] as? [[String: Any]])
-    #expect(blocks.first?["text"] as? String == userText)
-    #expect(object["pending"] as? String == userText)
+private func answer(_ id: String, _ decision: String) -> JSONValue {
+    ["kind": "request", "id": .string("req-\(id)-\(decision)"), "method": "orchestration.dispatchCommand",
+     "params": ["command": ["type": "thread.approval.respond", "threadId": "transcript-s1", "requestId": .string(id),
+                            "decision": .string(decision)]]]
 }
 
-/// The test bundle carries no app resources: the page is read from the source tree, as built.
-private func useSourceTreeChatPage(file: String = #filePath) {
-    ChatPageAssets.directoryOverride = URL(fileURLWithPath: file).deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+private let pageReady: JSONValue = ["kind": "event", "name": "ready", "payload": [:]]
+
+/// The page gets the transcript as a read-only thread, and a new snapshot only once it moved on:
+/// a read that comes back with the same sequence, or with none (unchanged since), sends nothing.
+@MainActor @Test func theTranscriptPageGetsASnapshotOnlyWhenItMovesOn() async throws {
+    let fixture = ChatFixture(), chat = fixture.model()
+    chat.appear()
+    chat.disappear()
+    let page = try #require(chat.page)
+    page.receive(message: pageReady)
+    try await eventually { fixture.threadPushes.count == 1 }
+    let context = try #require(fixture.outputs.first.flatMap { if case .push("context", let value) = $0 { value } else { nil } })
+    #expect(context["readOnly"] == true && context["threadId"] == "transcript-s1")
+    #expect(fixture.threadSinces == [nil], "The page's own read is a whole one")
+    #expect(fixture.threadPushes[0]["snapshot"]?["snapshotSequence"] == 5)
+
+    await chat.refresh()
+    #expect(fixture.threadSinces.last == "t1" && fixture.threadPushes.count == 1, "The same sequence again is not pushed")
+
+    fixture.threadReply = ["revision": "t2", "snapshot": ["snapshotSequence": 9, "thread": ["id": "transcript-s1"]]]
+    await chat.refresh()
+    #expect(fixture.threadPushes.count == 2 && fixture.threadPushes[1]["snapshot"]?["snapshotSequence"] == 9)
+
+    // A backend that can tell answers an unchanged thread with its revision alone.
+    fixture.threadReply = ["revision": "t2"]
+    await chat.refresh()
+    fixture.threadReply = ["revision": "t1", "snapshot": ["snapshotSequence": 7, "thread": ["id": "transcript-s1"]]]
+    await chat.refresh()
+    #expect(fixture.threadPushes.count == 2, "Nothing unchanged or older goes to the page")
+    #expect(fixture.threadSinces.last == "t2")
+    chat.retire()
 }
 
-/// Fork Session carries the whole conversation on, so the page offers it under the last answer
-/// only, and a click on it reaches the page's owner.
-@MainActor @Test func theChatOffersForkUnderItsLastAnswerOnly() async throws {
-    useSourceTreeChatPage()
-    let page = TranscriptChatPage()
-    defer { page.close() }
-    var forks = 0
-    page.onFork = { forks += 1 }
-    let turns = try JSONDecoder().decode([TranscriptTurn].self, from: Data("""
-        [{"id":"u1","role":"user","blocks":[{"type":"text","text":"one"}]},
-         {"id":"a1","role":"assistant","blocks":[{"type":"text","text":"first"}]},
-         {"id":"u2","role":"user","blocks":[{"type":"text","text":"two"}]},
-         {"id":"a2","role":"assistant","blocks":[{"type":"text","text":"second"}]}]
-        """.utf8))
-    page.render(ChatPageState(turns: turns, busy: false, pending: nil, queued: false, loaded: true, permission: nil))
-    let view = page.webView
-    func count(_ selector: String) async throws -> Int {
-        try await view.evaluateJavaScript("document.querySelectorAll(\"\(selector)\").length") as? Int ?? 0
+/// The approval the page shows is answered through the permission route: accept allows, decline
+/// and cancel deny, and one too long to have been shown whole goes to the terminal instead.
+@MainActor @Test func theTranscriptPageAnswersApprovalsThroughThePermissionRoute() async throws {
+    let fixture = ChatFixture(), chat = fixture.model()
+    chat.appear()
+    defer { chat.retire() }
+    let page = try #require(chat.page)
+    page.receive(message: pageReady)
+    try await eventually { fixture.watcher != nil && !fixture.threadPushes.isEmpty }
+    let reads = fixture.threadSinces.count
+    page.receive(message: answer("p1", "accept"))
+    page.receive(message: answer("p2", "decline"))
+    page.receive(message: answer("p3", "cancel"))
+    page.receive(message: answer("p4", "acceptForSession"))
+    try await eventually { fixture.answers.count == 4 }
+    #expect(Set(fixture.answers.map { "\($0.0)=\($0.1)" }) == ["p1=allow", "p2=deny", "p3=deny", "p4=allow"])
+    func replies() -> [JSONValue] { fixture.outputs.compactMap { if case .reply(_, let value) = $0 { value } else { nil } } }
+    try await eventually { replies().count == 4 }
+    #expect(replies().allSatisfy { $0["ok"] == true && $0["result"]?["sequence"] != nil })
+    #expect(fixture.threadSinces.count > reads, "An answer reads the thread again")
+
+    fixture.watcher?.show(AgentPermissionPrompt(id: "p5", details: .init(tool: "Bash", detail: "x", reason: "", truncated: true)))
+    page.receive(message: answer("p5", "accept"))
+    try await eventually { fixture.answers.count == 5 }
+    #expect(fixture.answers.last! == ("p5", "pass") && fixture.terminalShown == 1 && chat.permission == nil)
+}
+
+/// The page cannot continue a terminal's conversation: anything but an approval is refused.
+@Test func theTranscriptPageRefusesWhatOnlyTheTerminalCanDo() async throws {
+    let backend = TranscriptPageBackend(read: { ["snapshotSequence": 1, "thread": ["id": "t"]] },
+                                        respond: { _, _ in ["sequence": 1] })
+    for (method, params) in [("orchestration.dispatchCommand", ["command": ["type": "thread.turn.start"]] as JSONValue),
+                             ("provider.listModels", ["provider": "claudeAgent"]), ("attachments.save", [:]),
+                             // No chat backend to read the worktree through.
+                             ("projects.readFile", ["cwd": "/work", "relativePath": "a"])] {
+        do { _ = try await backend.call(method, params: params); Issue.record("\(method) was answered") }
+        catch let error as ChatRPCError { #expect(error.code == "unavailable") }
     }
-    for _ in 0..<100 where try await count(".turn") < 4 { try await Task.sleep(for: .milliseconds(50)) }
-    #expect(try await count("button[aria-label='Fork Session']") == 1)
-    #expect(try await count("[data-turn='a2'] button[aria-label='Fork Session']") == 1)
-    _ = try await view.evaluateJavaScript("document.querySelector(\"button[aria-label='Fork Session']\").click(); 0")
-    for _ in 0..<40 where forks == 0 { try await Task.sleep(for: .milliseconds(50)) }
-    #expect(forks == 1)
+    let unknown: JSONValue = ["command": ["type": "thread.approval.respond", "requestId": "p", "decision": "maybe"]]
+    do { _ = try await backend.call("orchestration.dispatchCommand", params: unknown); Issue.record("An unknown decision was sent") }
+    catch let error as ChatRPCError { #expect(error.code == "invalid") }
+    #expect(try await backend.call("orchestration.getThreadDetailSnapshot", params: ["threadId": "t"])["snapshotSequence"] == 1)
+    #expect(try await backend.providers() == [])
+}
+
+/// The page's file-reference previews read the worktree through the chat backend: as the
+/// worktree, whatever folder or thread the page named, since the transcript is not a chat.
+@MainActor @Test func theTranscriptPageReadsTheWorktreeThroughTheChatBackend() async throws {
+    let fixture = ChatFixture(), chat = fixture.model()
+    chat.appear()
+    defer { chat.retire() }
+    let page = try #require(chat.page)
+    for method in ["projects.searchEntries", "projects.readFile", "projects.resolveWorkspaceFileReferences"] {
+        page.receive(message: ["kind": "request", "id": .string(method), "method": .string(method),
+                               "params": ["cwd": "/elsewhere", "threadId": "transcript-s1", "query": "a"]])
+    }
+    try await eventually { fixture.folderReads.count == 3 }
+    #expect(Set(fixture.folderReads.map(\.0)) == ChatFileAccess.folderMethods)
+    #expect(fixture.folderReads.allSatisfy { $0.1["cwd"] == "/work" && $0.1["threadId"] == nil && $0.1["query"] == "a" })
+    func replies() -> [JSONValue] { fixture.outputs.compactMap { if case .reply(_, let value) = $0 { value } else { nil } } }
+    try await eventually { replies().count == 3 }
+    #expect(replies().allSatisfy { $0["ok"] == true && $0["result"]?["read"] != nil })
+}
+
+/// A file the transcript names opens in the session's pane only when it is inside the worktree.
+@MainActor @Test func theTranscriptPageOpensOnlyWorktreeFiles() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("transcript-files-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let worktree = root.appendingPathComponent("work")
+    try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+    try Data("a".utf8).write(to: worktree.appendingPathComponent("a.swift"))
+    try Data("b".utf8).write(to: root.appendingPathComponent("b.txt"))
+    let fixture = ChatFixture()
+    fixture.cwd = worktree.path
+    let chat = fixture.model()
+    chat.appear()
+    defer { chat.retire() }
+    let page = try #require(chat.page)
+    for path in ["../b.txt", root.appendingPathComponent("b.txt").path, "/etc/hosts", "a.swift"] {
+        page.receive(message: ["kind": "event", "name": "openFile", "payload": ["path": .string(path)]])
+    }
+    #expect(fixture.opened == [ChatFileAccess.real(worktree.appendingPathComponent("a.swift").path)!])
+}
+
+/// Fork Session carries the whole conversation on, so the chat offers it (beside the composer's
+/// attach button) once the agent has answered, and not before.
+@MainActor @Test func theChatOffersForkOnceTheAgentHasAnswered() async throws {
+    let fixture = ChatFixture(), chat = fixture.model()
+    chat.fork()
+    #expect(!chat.canFork && fixture.forks == 0, "Nothing to carry on yet")
+    let question = try JSONDecoder().decode([TranscriptTurn].self, from: Data("""
+        [{"id":"u1","role":"user","blocks":[{"type":"text","text":"one"}]}]
+        """.utf8))
+    fixture.transcript = AgentTranscript(revision: "r1", turns: question, hooks: "installed")
+    await chat.refresh()
+    chat.fork()
+    #expect(!chat.canFork && fixture.forks == 0, "A question alone is not a conversation to fork")
+    let answered = try JSONDecoder().decode([TranscriptTurn].self, from: Data("""
+        [{"id":"u1","role":"user","blocks":[{"type":"text","text":"one"}]},
+         {"id":"a1","role":"assistant","blocks":[{"type":"text","text":"first"}]}]
+        """.utf8))
+    fixture.transcript = AgentTranscript(revision: "r2", turns: answered, hooks: "installed")
+    await chat.refresh()
+    #expect(chat.canFork)
+    chat.fork()
+    #expect(fixture.forks == 1)
+    chat.retire()
+    chat.fork()
+    #expect(fixture.forks == 1, "A retired chat forks nothing")
 }

@@ -35,12 +35,16 @@ struct WorkspaceSession: Codable, Identifiable, Equatable, Sendable {
 
 enum SidebarDestination: Hashable, Codable {
     case newSession, overview, automation, terminal, project(String), session(String)
+    /// A chat session, by its thread id: in a project's folder or in the Chats section.
+    case chat(String)
 
-    /// True for destinations that exist only while the sidebar lists them.
+    /// True for destinations that exist only while the sidebar lists them. A chat is listed from
+    /// its own store, read apart from the inventory, so it is not checked against the inventory's
+    /// rows: a deleted chat leaves by its `chat-removed` event (`AppCoordinator.chatRemoved`).
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session: true
-        case .newSession, .overview, .automation, .terminal: false
+        case .newSession, .overview, .automation, .terminal, .chat: false
         }
     }
 }
@@ -56,17 +60,29 @@ struct SidebarSessionStatus: Equatable {
     var cli: String?
 }
 
+/// What the sidebar draws of a chat: its agent's state, as the backend last reported it.
+struct SidebarChatStatus: Equatable {
+    var working = false
+    var needsInput = false
+    var archived = false
+    var cli: String?
+
+    /// The status dot's terms: a chat is never "stopped", its agent starts with each message.
+    var session: SidebarSessionStatus { SidebarSessionStatus(live: true, busy: working, needsInput: needsInput, done: false, cli: cli) }
+}
+
 struct SidebarEntry: Equatable {
     var isHeading: Bool {
         switch role { case .label: true; default: false }
     }
-    /// A row with a destination: headings don't react to the pointer.
-    var hoverable: Bool { destination != nil }
+    /// A row with a destination, or a heading with a hover "+": other headings don't react to the pointer.
+    var hoverable: Bool { destination != nil || newChat }
     enum Role: Equatable {
         case nav                                  // Dashboard
         case label                                // "Pinned" and "Projects" headings
         case project
         case session(SidebarSessionStatus, pinned: Bool)
+        case chat(SidebarChatStatus)
     }
 
     let id: String // placement identity changes when a session is pinned or unpinned
@@ -79,17 +95,24 @@ struct SidebarEntry: Equatable {
     var tooltip: String?
     /// A session made by forking another, marked after its name.
     var forked = false
+    /// The Chats heading: its hover "+" and its menu start a standalone chat.
+    var newChat = false
 
     /// Every destination this entry can take the selection to: a row is its own destination.
     var destinations: [SidebarDestination] { destination.map { [$0] } ?? [] }
     var sessionID: String? { if case .session(let id) = destination { id } else { nil } }
     var projectID: String? { if case .project(let id) = destination { id } else { nil } }
+    var chatID: String? { if case .chat(let id) = destination { id } else { nil } }
 
     /// Dashboard, Pinned sessions, then the Projects heading with each folder's unpinned sessions
     /// nested under it, then unpinned sessions whose project is gone (unlabeled). Headings are
     /// flat rows, not collapsible groups — only a project folder collapses.
+    ///
+    /// Each project's chats follow its sessions in its folder. The Chats heading closes the list,
+    /// over the chats that belong to no project (standalone, or a project that is gone).
     static func make(projects: [Project], sessions: [WorkspaceSession],
-                     status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init()) -> [Self] {
+                     status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init(),
+                     chats: [ChatThreadShell] = []) -> [Self] {
         let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
         let projects = displayOrder(projects, dragged: order.projects)
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
@@ -103,6 +126,19 @@ struct SidebarEntry: Equatable {
             return entry
         }
         func label(_ id: String, _ title: String) -> Self { Self(id: id, title: title, symbol: "", role: .label) }
+        func chatRow(_ chat: ChatThreadShell) -> Self {
+            let state = SidebarChatStatus(working: chat.working, needsInput: chat.needsInput, archived: chat.archived, cli: chat.cli)
+            var tip = chat.cwd
+            if chat.archived { tip += "\n" + String(localized: "Archived") }
+            return Self(id: "chat:\(chat.id)", title: chat.label, symbol: "chat", detail: chat.cwd,
+                        destination: .chat(chat.id), role: .chat(state)).withTip(tip)
+        }
+        let projectIDs = Set(projects.map(\.id))
+        var chatsByProject: [String: [ChatThreadShell]] = [:]
+        var looseChats: [ChatThreadShell] = []
+        for chat in chats {
+            if projectIDs.contains(chat.projectId) { chatsByProject[chat.projectId, default: []].append(chat) } else { looseChats.append(chat) }
+        }
         var result: [Self] = [
             .init(id: "new-session", title: String(localized: "New Task"), symbol: "newSession", destination: .newSession),
             .init(id: "overview", title: String(localized: "Projects"), symbol: "pullRequests", destination: .overview),
@@ -119,11 +155,15 @@ struct SidebarEntry: Equatable {
         result += projects.map { project in
             .init(id: "project:\(project.id)", title: project.name, symbol: project.symbol,
                   detail: project.workspace,
-                  destination: .project(project.id), children: ordered.filter { $0.projectId == project.id }.map { row($0) },
+                  destination: .project(project.id),
+                  children: ordered.filter { $0.projectId == project.id }.map { row($0) } + (chatsByProject[project.id] ?? []).map(chatRow),
                   role: .project)
         }
-        let projectIDs = Set(projects.map(\.id))
         result += ordered.filter { !projectIDs.contains($0.projectId) }.map { row($0) }
+        var chatsHeading = label("label:chats", String(localized: "Chats"))
+        chatsHeading.newChat = true
+        result.append(chatsHeading)
+        result += looseChats.map(chatRow)
         return result
     }
 

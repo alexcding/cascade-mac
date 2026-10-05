@@ -13,7 +13,11 @@ pub struct Codex;
 impl AgentProbe for Codex {
     /// What Codex does with a message typed mid-turn has not been checked here, so the chat holds
     /// one until its turn ends.
-    const PROFILE: Profile = Profile { id: "codex", command: "codex", queues_mid_turn: false };
+    const PROFILE: Profile = Profile {
+        id: "codex", command: "codex", queues_mid_turn: false, chat_provider: "codex",
+        display_name: "Codex",
+        compact_prompt: None,
+    };
     /// How Codex spawns its hooks has not been checked, so none is guarded: a wrong guard would
     /// silence them.
     const HOOKS: Hooks = Hooks {

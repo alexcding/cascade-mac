@@ -46,6 +46,12 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     public var automationId: String? = nil
     public var key: String? = nil
     public var prune: [String]? = nil
+    /// `chat-thread` and `chat-removed`: the chat it is about. `chat-thread` carries the thread's
+    /// new `OrchestrationEvent`s, in order, for the page showing it; `chat-shell` carries the chat's
+    /// `OrchestrationThreadShell` after a change of title, state or archive.
+    var threadId: String? = nil
+    var events: [JSONValue]? = nil
+    var shell: JSONValue? = nil
 }
 
 /// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.

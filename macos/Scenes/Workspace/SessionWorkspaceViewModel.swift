@@ -44,12 +44,28 @@ struct PermissionWatcher {
     let movedToTerminal: () -> Void
 }
 
+/// What names a terminal session's conversation as a chat thread (`GET /api/agent/transcript`
+/// with `format=thread`).
+struct TranscriptThreadQuery: Equatable, Sendable {
+    let cli: String
+    let worktree: String
+    /// The conversation the agent is in, when known.
+    var conversation: String?
+    /// The terminal the agent runs in, whose waiting approvals the thread shows.
+    var runID: String?
+    let threadID: String
+    let projectID: String
+}
+
 @MainActor protocol WorkspaceServing: AnyObject {
     func workspaceState(in context: WorkspaceContext) -> SessionWorkspaceState
     func agentCatalog(cli: String) async -> AgentCatalog?
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus?
     /// `conversation` is the one the agent is in, when known: its transcript alone is read.
     func agentTranscript(cli: String, worktree: String, since: String?, conversation: String?) async throws -> AgentTranscript
+    /// The same conversation as a read-only chat thread, `{revision, snapshot}`, for the chat page:
+    /// under `threadID` and `projectID`, with the approvals the terminal `runID` waits on.
+    func agentTranscriptThread(_ query: TranscriptThreadQuery, since: String?) async throws -> JSONValue
     /// The CLI's slash commands in this worktree, for the chat's `/` suggestions.
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand]
     /// Files of the worktree matching a query, best first, for the chat's `@` suggestions.
@@ -57,15 +73,22 @@ struct PermissionWatcher {
     func watchPermissions(runID: String, _ watcher: PermissionWatcher)
     func unwatchPermissions(runID: String)
     func answerPermission(_ id: String, decision: String) async throws
+    /// One of the chat page's reads of a folder (`ChatFileAccess.folderMethods`), through the chat
+    /// backend, for a terminal session's read-only chat.
+    func chatFolderRead(_ method: String, params: JSONValue) async throws -> JSONValue
 }
 extension WorkspaceServing {
     func watchPermissions(runID: String, _ watcher: PermissionWatcher) {}
     func unwatchPermissions(runID: String) {}
     func answerPermission(_ id: String, decision: String) async throws {}
+    func chatFolderRead(_ method: String, params: JSONValue) async throws -> JSONValue { throw TranscriptPageBackend.unavailable }
     func agentCatalog(cli: String) async -> AgentCatalog? { nil }
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus? { nil }
     func agentTranscript(cli: String, worktree: String, since: String?, conversation: String?) async throws -> AgentTranscript {
         AgentTranscript(revision: "", turns: [], hooks: nil)
+    }
+    func agentTranscriptThread(_ query: TranscriptThreadQuery, since: String?) async throws -> JSONValue {
+        ["revision": "", "snapshot": nil]
     }
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand] { [] }
     func worktreeFiles(_ worktree: String, matching query: String) async -> [String] { [] }
@@ -335,6 +358,11 @@ extension WorkspaceServing {
         context.setPane(.term)
         return true
     }
+    /// A file the chat names opens in this session's pane, beside the chat.
+    private func openFileFromChat(_ path: String, line: Int?) {
+        guard let context, context.openFile(path, line: max(line ?? 1, 1)) != nil else { return }
+        context.setPane(.term)
+    }
     func run() { if canRun { onAction(.run) } }
     func configureRun() { if canRun { onAction(.configureRun) } }
     func remove() { if canRemove { onAction(.remove) } }
@@ -525,8 +553,24 @@ extension WorkspaceServing {
                         guard let service = self?.service else { throw BackendError.operation(String(localized: "The workspace is closed.")) }
                         try await service.answerPermission(id, decision: decision)
                     }),
+                thread: .init(
+                    context: ChatPageContext(threadId: "transcript-\(session.id)", projectId: session.projectId, cwd: worktree,
+                                             projectName: state.project?.name ?? "", readOnly: true),
+                    read: { [weak self] since in
+                        guard let self, let service = self.service else { throw BackendError.operation(String(localized: "The workspace is closed.")) }
+                        // Read on every poll, as the transcript is: a restart or `/clear` changes them.
+                        let query = TranscriptThreadQuery(cli: cli, worktree: worktree, conversation: agentConversation,
+                                                          runID: terminal?.termID, threadID: "transcript-\(session.id)",
+                                                          projectID: session.projectId)
+                        return try await service.agentTranscriptThread(query, since: since)
+                    },
+                    files: { @MainActor [weak self] method, params in
+                        guard let service = self?.service else { throw TranscriptPageBackend.unavailable }
+                        return try await service.chatFolderRead(method, params: params)
+                    }),
                 showTerminal: { [weak self] in self?.setChatShown(false) },
                 openLink: { [weak self] url in self?.openInBrowser(url) ?? false },
+                openFile: { [weak self] path, line in self?.openFileFromChat(path, line: line) },
                 fork: { [weak self] in self?.fork() })
         }
         defer {

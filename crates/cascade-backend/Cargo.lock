@@ -135,6 +135,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",
+ "cascade-chat",
  "chrono",
  "futures-util",
  "http-body-util",
@@ -153,6 +154,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "cascade-chat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 

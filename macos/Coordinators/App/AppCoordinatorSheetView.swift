@@ -9,6 +9,7 @@ struct AppCoordinatorSheetView: View {
         case .newProject(let model): NewProjectSheet(model: model, cancel: cancel)
         case .build(let model): BuildDestinationView(model: model, cancel: cancel)
         case .welcome(let model): WelcomeView(model: model, cancel: cancel)
+        case .newChat(let model): NewChatSheet(model: model, cancel: cancel)
         }
     }
 }

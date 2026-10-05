@@ -44,6 +44,21 @@ struct DashboardSession: Equatable, Identifiable, Sendable {
     var live = true
 }
 
+/// A chat session as Projects lists it under its project: what the chat backend last reported.
+struct DashboardChat: Equatable, Identifiable, Sendable {
+    let id: String
+    let projectID: String
+    let title: String
+    let cli: String?
+    let working: Bool
+    let needsInput: Bool
+    /// What a person reads in its state column.
+    var stateLabel: String {
+        needsInput ? String(localized: "Needs you") : working ? String(localized: "Working") : String(localized: "Idle")
+    }
+    var stage: DashboardSessionStage { needsInput ? .needsYou : working ? .working : .idle }
+}
+
 /// What a session needs next, the board's columns on Projects, in their order.
 enum DashboardSessionStage: String, CaseIterable, Identifiable, Sendable {
     case needsYou, working, inReview, idle
@@ -150,6 +165,8 @@ struct DashboardSessionLane: Equatable, Identifiable, Sendable {
     var repo = ""
     var look: DashboardProjectLook?
     let rows: [DashboardSessionRow]
+    /// Its chat sessions, newest first.
+    var chats: [DashboardChat] = []
     var id: String { summary.id }
 }
 
@@ -161,6 +178,7 @@ extension DashboardViewModel {
         let open = prs.mine
         let order = Dictionary(uniqueKeysWithValues: DashboardSessionStage.allCases.enumerated().map { ($1, $0) })
         let byProject = Dictionary(grouping: sessions, by: \.projectID)
+        let chatsByProject = Dictionary(grouping: chats, by: \.projectID)
         return summaries.map { summary in
             let rows = (byProject[summary.id] ?? []).map { session in
                 DashboardSessionRow(session: session, pr: open.first {
@@ -170,7 +188,7 @@ extension DashboardViewModel {
             // Stable within a stage: the sessions keep the app's own order.
             let sorted = rows.enumerated().sorted { (order[$0.element.stage]!, $0.offset) < (order[$1.element.stage]!, $1.offset) }.map(\.element)
             return DashboardSessionLane(summary: summary, repo: prs.projects.first { $0.id == summary.id }?.repo ?? "",
-                                        look: projectLooks[summary.id], rows: sorted)
+                                        look: projectLooks[summary.id], rows: sorted, chats: chatsByProject[summary.id] ?? [])
         }
     }
 

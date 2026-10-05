@@ -23,6 +23,7 @@ private actor RefreshTransport: BackendTransport {
         requests.append(request)
         let url = request.url!
         let body: String
+        var status = 200
         switch url.path {
         case Routes.PROJECTS:
             body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC","boardEnabled":true}]"# : "[]"
@@ -33,9 +34,11 @@ private actor RefreshTransport: BackendTransport {
         case Routes.PRS_TRAY: body = "[]"
         case Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
+        // The chat engine is down: every chat listing fails.
+        case Routes.CHAT_RPC: body = #"{"error":{"message":"chats are not available"}}"#; status = 503
         default: body = "{}"
         }
-        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
 
@@ -99,9 +102,9 @@ private actor RefreshTransport: BackendTransport {
             print("First sidebar layout: \(path.path)")
         }
     }
-    #expect(initial.map(\.id) == ["new-session", "overview", "automation", "label:projects"])
+    #expect(initial.map(\.id) == ["new-session", "overview", "automation", "label:projects", "label:chats"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 4)
+    #expect(list.numberOfRows == 5)
     #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "new-session")
 }
 
@@ -173,6 +176,29 @@ private actor RefreshTransport: BackendTransport {
     try await refreshEventually { model.projects.isEmpty && model.projectModels["p"] == nil }
     let paths = await transport.paths
     #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS))
+    await model.stop()
+}
+
+/// Chat events missed (the backend's `reload`, or a reconnect) have the chat list read again,
+/// even when its first listing failed and there is nothing loaded to bring up to date.
+@MainActor @Test func missedEventsReadTheChatsAgainEvenAfterAFailedListing() async throws {
+    let suite = "refresh-chats-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime(), transport = runtime.transport
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.error != nil }
+    #expect(!model.chats.loaded)
+    await transport.reset()
+
+    runtime.emit("reload")
+    try await refreshEventually { await transport.paths.contains(Routes.CHAT_RPC) }
+    try await refreshEventually { model.dashboard?.prs.loading == false && !model.shell.trayLoading }
+    await transport.reset()
+
+    runtime.onEvent(.connected)
+    try await refreshEventually { await transport.paths.contains(Routes.CHAT_RPC) }
     await model.stop()
 }
 

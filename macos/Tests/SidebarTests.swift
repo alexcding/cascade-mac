@@ -14,9 +14,9 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
                     workspaceSession("orphan", created: "2026-01", project: "deleted"),
                     workspaceSession("pinned-orphan", created: "2026-03", pinned: true, project: "deleted")]
     let entries = SidebarEntry.make(projects: [sidebarProject], sessions: sessions)
-    // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans.
+    // Sidebar order: Dashboard, Pinned, Projects (sessions nested), orphans, then Chats.
     #expect(entries.map(\.id) == ["new-session", "overview", "automation", "label:pinned", "pin:new", "pin:pinned-orphan", "label:projects", "project:p1",
-                                   "session:orphan"])
+                                   "session:orphan", "label:chats"])
     let project = entries.first { $0.id == "project:p1" }
     #expect(project?.children.map(\.id) == ["session:old"])
     for session in sessions {
