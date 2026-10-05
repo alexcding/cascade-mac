@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Overview under its totals: each project in an outlined box of its sessions, then the session
-/// board, the same sessions by what they need next. One set of corners throughout: every box —
-/// project and board column — at the top cards' `SessionCorner.box`, everything inside one at
-/// `SessionCorner.card`. Everything shown is what the app already holds (`DashboardSession`); a
+/// Overview under its totals: each project in a table of its sessions, two side by side across the
+/// page's width, in the Automation table's look, then the session board, the same sessions by what
+/// they need next. The board's columns are at the top cards' `SessionCorner.box`, everything inside
+/// one at `SessionCorner.card`. Everything shown is what the app already holds (`DashboardSession`); a
 /// click on a session shows it.
 struct DashboardSessionsSection: View {
     let model: DashboardViewModel
@@ -13,8 +13,12 @@ struct DashboardSessionsSection: View {
     var body: some View {
         let lanes = model.shownSessionLanes
         VStack(alignment: .leading, spacing: 16) {
-            ForEach(lanes) { lane in
-                DashboardSessionLaneView(lane: lane, model: model, wide: wide)
+            // Two to a row while the page is wide, one under another when it is not.
+            let pair = Array(repeating: GridItem(.flexible(), spacing: 16, alignment: .top), count: wide ? 2 : 1)
+            LazyVGrid(columns: pair, alignment: .leading, spacing: 16) {
+                ForEach(lanes) { lane in
+                    DashboardSessionLaneView(lane: lane, model: model)
+                }
             }
             if lanes.contains(where: { !$0.rows.isEmpty }) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -65,59 +69,57 @@ struct DashboardSessionsSection: View {
 /// sharing the rest. The headings and every row are laid out by the same numbers, so they line up.
 private enum SessionColumn {
     static let state: CGFloat = 96
-    static let agent: CGFloat = 96
     static let pullRequest: CGFloat = 150
-    static let diff: CGFloat = 130
     static let spacing: CGFloat = 16
     /// A box's inner edge, for its header, headings and rows alike.
     static let inset: CGFloat = 16
 }
 
-/// The section's two corners: a box's, as the top cards have, and that of a card inside a box.
+/// The section's corners: a board column's, as the top cards have, that of a card inside one, and a
+/// project's table, as Automation's has.
 private enum SessionCorner {
     static let box: CGFloat = 20
     static let card: CGFloat = 12
+    static let table: CGFloat = 10
 }
 
-/// One project in an outlined box: its header, then its sessions as ruled rows under quiet column
-/// headings.
+/// One project's table, drawn as Automation's: its name in the tinted header row, then quiet column
+/// headings and its sessions as ruled rows, in a lightly filled box.
 private struct DashboardSessionLaneView: View {
     let lane: DashboardSessionLane
     let model: DashboardViewModel
-    /// Narrower, the rows leave out the agent and the diff, so the session's name keeps its room.
-    let wide: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Rectangle().fill(DashboardPalette.hairline).frame(height: 1)
+            Divider().overlay(DashboardPalette.hairline)
             if lane.rows.isEmpty {
-                Text("No sessions yet").font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink3)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, SessionColumn.inset)
+                Text("No sessions yet").font(Theme.Typography.emptyHint).foregroundStyle(DashboardPalette.ink3)
+                    .frame(maxWidth: .infinity).padding(.vertical, 24)
             } else {
                 headings
-                ForEach(Array(lane.rows.enumerated()), id: \.element.id) { index, row in
-                    if index > 0 { Rectangle().fill(DashboardPalette.rowRule).frame(height: 1) }
-                    DashboardSessionRowView(row: row, wide: wide) { model.openSession(row.id) }
+                ForEach(lane.rows) { row in
+                    Divider().overlay(DashboardPalette.hairline)
+                    DashboardSessionRowView(row: row) { model.openSession(row.id) }
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous).strokeBorder(DashboardPalette.hairline))
+        .background(Color.primary.opacity(0.015), in: RoundedRectangle(cornerRadius: SessionCorner.table, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: SessionCorner.table, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: SessionCorner.table, style: .continuous).strokeBorder(DashboardPalette.hairline, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("dashboard-lane-\(lane.id)")
     }
 
     private var summary: DashboardProjectSummary { lane.summary }
 
-    /// The project's badge and name in the rows' own size, with New session after.
-    /// A sync that failed says so there, with the reason on hover; one that worked says nothing.
+    /// The project's badge and name in the rows' own size. A sync that failed says so at the end,
+    /// with the reason on hover; one that worked says nothing.
     private var header: some View {
         HStack(alignment: .center, spacing: 10) {
             Button { model.openProject(summary.id) } label: {
                 HStack(alignment: .center, spacing: 10) {
-                    DashboardProjectBadge(look: lane.look)
+                    DashboardProjectBadge()
                     Text(summary.name).font(.system(size: 14, weight: .medium))
                     Text([lane.repo, summary.tracker].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.system(size: 12.5)).foregroundStyle(DashboardPalette.ink3)
@@ -132,37 +134,30 @@ private struct DashboardSessionLaneView: View {
             if let error = summary.syncError {
                 Text("Sync failed").font(.system(size: 12)).foregroundStyle(DashboardPalette.criticalText).help(error)
             }
-            Button { model.newSession(in: summary.id) } label: {
-                DashboardTagLabel(title: String(localized: "New session"), active: false)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("dashboard-new-session-\(summary.id)")
         }
-        .padding(.horizontal, SessionColumn.inset).padding(.vertical, 12)
+        .padding(.horizontal, SessionColumn.inset).frame(height: 44)
+        .background(Color.primary.opacity(0.025))
     }
 
-    /// The column headings, laid out as the rows are.
+    /// The column headings, laid out as the rows are, quiet under the tinted name.
     private var headings: some View {
         HStack(spacing: SessionColumn.spacing) {
             Text("State").frame(width: SessionColumn.state, alignment: .leading)
             Text("Session").frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            if wide { Text("Agent").frame(width: SessionColumn.agent, alignment: .leading) }
             Text("Doing now").frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             Text("Pull request").frame(width: SessionColumn.pullRequest, alignment: .leading)
-            if wide { Text("Diff").frame(width: SessionColumn.diff, alignment: .leading) }
         }
         .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3).lineLimit(1)
-        .padding(.horizontal, SessionColumn.inset).padding(.top, 10).padding(.bottom, 4)
+        .padding(.horizontal, SessionColumn.inset).frame(height: 32)
         .accessibilityHidden(true)
     }
 }
 
-/// The project's own symbol, the one chosen for it, as the sidebar draws it, on a pale square.
+/// The project's folder, the sidebar's closed one, on a pale square.
 private struct DashboardProjectBadge: View {
-    let look: DashboardProjectLook?
     var body: some View {
-        Image(systemName: look?.symbol ?? ProjectDraft.defaultIcon)
-            .font(.system(size: 11, weight: .medium))
+        Image(nsImage: SidebarIcons.mark("folderClosed", size: 13) ?? NSImage())
+            .renderingMode(.template)
             .foregroundStyle(DashboardPalette.ink2)
             .frame(width: 22, height: 22)
             .background(DashboardPalette.ink3.opacity(0.12), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -171,11 +166,9 @@ private struct DashboardProjectBadge: View {
 }
 
 /// A session's row, in the Pull Requests list's type and rules: its state, name over branch and
-/// ticket, agent, what it is doing over how long, its pull request and that pull request's size.
-/// The whole row shows the session.
+/// ticket, what it is doing over how long, and its pull request. The whole row shows the session.
 private struct DashboardSessionRowView: View {
     let row: DashboardSessionRow
-    let wide: Bool
     let open: () -> Void
     @State private var hovering = false
 
@@ -189,22 +182,22 @@ private struct DashboardSessionRowView: View {
                 }
                 .frame(width: SessionColumn.state, alignment: .leading)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(row.session.title).font(.system(size: 13.5))
-                    Text(row.detail).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    Text(row.session.title).font(.system(size: 13, weight: .medium))
+                    if !row.detail.isEmpty {
+                        Text(row.detail).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
+                    }
                 }
                 .lineLimit(1).truncationMode(.tail)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                if wide { DashboardSessionAgent(cli: row.session.cli).frame(width: SessionColumn.agent, alignment: .leading) }
                 VStack(alignment: .leading, spacing: 1) {
                     activity.font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
                     DashboardSessionTiming(row: row)
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 DashboardSessionPR(pr: row.pr).frame(width: SessionColumn.pullRequest, alignment: .leading)
-                if wide { DashboardSessionDiff(pr: row.pr?.pr).frame(width: SessionColumn.diff, alignment: .leading) }
             }
-            .padding(.horizontal, SessionColumn.inset)
-            .frame(minHeight: 48)
+            .padding(.horizontal, SessionColumn.inset).padding(.vertical, 6)
+            .frame(minHeight: 44)
             .background(hovering ? Color.primary.opacity(0.04) : .clear)
             .contentShape(Rectangle())
         }
@@ -315,36 +308,6 @@ private struct DashboardSessionPR: View {
             }
         } else {
             Text("No pull request").font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
-        }
-    }
-}
-
-/// The pull request's size: lines added and removed over a bar of the two.
-private struct DashboardSessionDiff: View {
-    let pr: DashboardPR?
-    var body: some View {
-        if let pr, let added = pr.additions, let removed = pr.deletions {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Text("+\(added)").foregroundStyle(DashboardPalette.addedText)
-                    Text("−\(removed)").foregroundStyle(DashboardPalette.removedText)
-                    if let files = pr.changedFiles { Text("· ^[\(files) file](inflect: true)").foregroundStyle(DashboardPalette.ink3) }
-                }
-                .font(.system(size: 12).monospacedDigit()).lineLimit(1)
-                GeometryReader { geometry in
-                    let total = CGFloat(max(1, added + removed))
-                    HStack(spacing: 0) {
-                        Rectangle().fill(DashboardPalette.addedBar).frame(width: geometry.size.width * CGFloat(added) / total)
-                        Rectangle().fill(DashboardPalette.removedBar).frame(width: geometry.size.width * CGFloat(removed) / total)
-                    }
-                }
-                .frame(height: 4)
-                .background(DashboardPalette.rowRule)
-                .clipShape(Capsule())
-                .accessibilityHidden(true)
-            }
-        } else {
-            Text("—").font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
         }
     }
 }

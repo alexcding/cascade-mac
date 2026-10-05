@@ -15,8 +15,6 @@ import Observation
     /// session Start made.
     enum Event {
         case saved(Project, ProjectSaveSource), deleted(String), presentationEnded, sessionCreated(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
-        /// Back to Projects.
-        case back
     }
     var root: Destination = .none
     var path: [Destination] = []
@@ -47,7 +45,6 @@ import Observation
         switch action {
         case .saved(let project, let source): onEvent(.saved(project, source))
         case .sessionCreated(let session, let prompt, let launch): onEvent(.sessionCreated(session, prompt: prompt, launch: launch))
-        case .back: onEvent(.back)
         case .deleted(let id):
             guard id == model.project.id else { return }
             deletionConfirmation = nil

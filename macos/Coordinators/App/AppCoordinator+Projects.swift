@@ -58,10 +58,6 @@ extension AppCoordinator {
     func handleProjectEvent(_ event: ProjectCoordinator.Event, projectID id: String) {
         guard let model = projectCoordinators[id]?.model else { return }
         if case .presentationEnded = event { schedulePendingDeepLink(); return }
-        if case .back = event {
-            if selection == .project(id) { navigate(to: .overview) }
-            return
-        }
         guard let runtime = projectRuntimes[id]?.runtime, runtime.ownsProject(id) else { return }
         switch event {
         case .saved(let project, let source):
@@ -78,7 +74,7 @@ extension AppCoordinator {
             if selection == .project(id) { navigate(to: .overview) }
             refreshRoot()
             schedulePendingDeepLink()
-        case .presentationEnded, .back: break
+        case .presentationEnded: break
         }
     }
 }

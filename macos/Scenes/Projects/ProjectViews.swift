@@ -8,7 +8,6 @@ struct ProjectEditorView: View {
             Form {
                 Section("Project") {
                     TextField("Name", text: $model.draft.name).accessibilityIdentifier("project-name")
-                    LabeledContent("Icon") { ProjectIconButton(icon: $model.draft.icon) }
                     HStack {
                         TextField("Workspace folder", text: $model.draft.workspace).accessibilityIdentifier("project-workspace")
                         Button("Choose…") { Task { await model.pickFolder() } }
@@ -98,13 +97,10 @@ struct NewProjectSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             SheetTitle(String(localized: "New Project"))
             SheetField(String(localized: "Project Name")) {
-                HStack(spacing: 8) {
-                    ProjectIconButton(icon: $model.draft.icon)
-                    TextField("", text: $model.draft.name)
-                        .textFieldStyle(.roundedBorder).focused($nameFocused)
-                        .accessibilityLabel("Project Name")
-                        .accessibilityIdentifier("project-name")
-                }
+                TextField("", text: $model.draft.name)
+                    .textFieldStyle(.roundedBorder).focused($nameFocused)
+                    .accessibilityLabel("Project Name")
+                    .accessibilityIdentifier("project-name")
             }
             SheetField(String(localized: "Project Folder"), last: true) {
                 HStack(spacing: 8) {
@@ -166,18 +162,6 @@ struct NewProjectSheet: View {
         .padding(24).frame(width: 440)
         .interactiveDismissDisabled(model.busy)
         .onAppear { nameFocused = true }
-    }
-}
-
-/// The project page's way back to Projects, as an automation's is to Automations.
-struct ProjectBackButton: View {
-    let model: ProjectPageViewModel
-    var body: some View {
-        Button { model.goBack() } label: {
-            Label(String(localized: "Projects"), systemImage: "chevron.left")
-        }
-        .help(String(localized: "Back to Projects"))
-        .accessibilityIdentifier("project-back")
     }
 }
 

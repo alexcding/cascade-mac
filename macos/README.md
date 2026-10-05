@@ -116,8 +116,10 @@ the standard app bundle does not include a separate `cascade-backend` executable
 The sidebar is an AppKit `NSOutlineView` with projects, sessions, and pinned
 entries. It preserves selection and ordering and provides context actions
 for opening, pinning, removing, and revealing items. A click on a project folder
-opens or closes it; under the pointer the folder shows its chevron and New Task,
-which its context menu also offers.
+opens or closes it, and its icon shows an open folder while it is open; under the
+pointer the folder shows a gear for its Settings and New Task, which its context
+menu also offers. Nothing in the sidebar is selected while a project's Settings
+page is open.
 
 **New Task** (**⌘N**) is the sidebar's first row. Pick the project, the branch, and
 whether the session forks a new branch from it or works on it; enter a task, branch

@@ -71,7 +71,7 @@ struct AutomationNewMenu: View {
     }
 }
 
-/// The table's kind filter beside its search, as the pull requests' filter tags: every
+/// The table's kind filter beside its search, in the Pull Requests tab's chips: every
 /// automation, the scheduled ones, or the event ones, each with its count.
 private struct AutomationKindFilter: View {
     let model: AutomationViewModel
@@ -96,10 +96,14 @@ private struct AutomationKindFilter: View {
 
     var body: some View {
         let selection = Choice.allCases.first { $0.kind == model.kindFilter } ?? .all
-        DashboardFilterTags(values: Choice.allCases, selection: selection, title: \.title,
-                            count: { choice in model.automations.filter { choice.kind == nil || $0.kind == choice.kind }.count },
-                            id: { "automation-kind-\($0.rawValue)" }) { model.kindFilter = $0.kind }
-            .fixedSize()
+        HStack(spacing: 4) {
+            ForEach(Choice.allCases, id: \.self) { choice in
+                DashboardChip(title: choice.title,
+                              count: model.automations.filter { choice.kind == nil || $0.kind == choice.kind }.count,
+                              active: choice == selection, id: "automation-kind-\(choice.rawValue)") { model.kindFilter = choice.kind }
+            }
+        }
+        .fixedSize()
     }
 }
 

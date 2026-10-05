@@ -24,6 +24,7 @@ mkdir -p "$APP/Contents/Resources/CascadeImages"
 cp -R "$ROOT/macos/Resources/ProviderImages/." "$APP/Contents/Resources/CascadeImages/"
 
 cp "$ROOT/macos/licenses/Sparkle-LICENSE" "$APP/Contents/Resources/Licenses/Sparkle-LICENSE"
+cp "$ROOT/macos/licenses/Lucide-LICENSE" "$APP/Contents/Resources/Licenses/Lucide-LICENSE"
 # The GhosttyTerminal package checkout SwiftPM made for the Xcode build (the
 # derived-data path the README's release build uses), unless one is given.
 GHOSTTY_PKG="${CASCADE_GHOSTTY_PACKAGE:-$ROOT/macos/.build/xcode/SourcePackages/checkouts/ghostty-terminal-spm}"

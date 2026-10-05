@@ -51,8 +51,6 @@ public final class AppViewModel {
             guard oldValue != projects else { return }
             automation?.updateProjects(projects)
             dashboard?.boardProjectIDs = Set(projects.filter(\.showsBoard).map(\.id))
-            dashboard?.projectLooks = Dictionary(projects.map { ($0.id, DashboardProjectLook(symbol: $0.symbol)) },
-                                                 uniquingKeysWith: { first, _ in first })
             // Only while it shows: arriving there builds the picked project's composer.
             if selection == .newSession { coordinator.newSession?.update(projects: projects) }
         }

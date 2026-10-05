@@ -65,24 +65,6 @@
       }
     },
     {
-      "identity" : "sfsafesymbols",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SFSafeSymbols/SFSafeSymbols.git",
-      "state" : {
-        "revision" : "e01b3d4f861412f8dcee8d93c417d2c2b0cdfd77",
-        "version" : "7.0.0"
-      }
-    },
-    {
-      "identity" : "sfsymbolspickerforswiftui",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/alessiorubicini/SFSymbolsPickerForSwiftUI",
-      "state" : {
-        "revision" : "cc982571dc28c62dedf9f2514a20a0ae5261a62d",
-        "version" : "1.1.0"
-      }
-    },
-    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",

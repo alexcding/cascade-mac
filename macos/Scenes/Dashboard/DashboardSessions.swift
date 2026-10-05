@@ -101,8 +101,12 @@ struct DashboardSessionRow: Equatable, Identifiable, Sendable {
         }
     }
 
-    /// The second line under the session's name: its branch and its ticket, a dash with none.
-    var detail: String { "\(session.branch) · \(session.ticket.flatMap { $0.isEmpty ? nil : $0 } ?? "—")" }
+    /// The second line under the session's name: its branch, unless the session is named after it, and
+    /// its ticket, if it has one. Empty when neither is left, and the row then shows the name alone.
+    var detail: String {
+        let branch = session.branch == session.title ? "" : session.branch
+        return [branch, session.ticket ?? ""].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
 
     /// Whether the timing changes within the minute: a call under way, drawn every few seconds.
     /// Otherwise it moves by the minute.
@@ -138,17 +142,11 @@ struct DashboardSessionRow: Equatable, Identifiable, Sendable {
     }
 }
 
-/// How a project is drawn, as the app has it: the symbol chosen for it.
-struct DashboardProjectLook: Equatable, Sendable {
-    var symbol: String
-}
-
 /// A project on Projects with its sessions, each in stage order.
 struct DashboardSessionLane: Equatable, Identifiable, Sendable {
     let summary: DashboardProjectSummary
     /// Its repository, `owner/name`, as the snapshot names it.
     var repo = ""
-    var look: DashboardProjectLook?
     let rows: [DashboardSessionRow]
     var id: String { summary.id }
 }
@@ -170,7 +168,7 @@ extension DashboardViewModel {
             // Stable within a stage: the sessions keep the app's own order.
             let sorted = rows.enumerated().sorted { (order[$0.element.stage]!, $0.offset) < (order[$1.element.stage]!, $1.offset) }.map(\.element)
             return DashboardSessionLane(summary: summary, repo: prs.projects.first { $0.id == summary.id }?.repo ?? "",
-                                        look: projectLooks[summary.id], rows: sorted)
+                                        rows: sorted)
         }
     }
 

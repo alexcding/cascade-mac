@@ -250,9 +250,6 @@
     "· %@" : {
 
     },
-    "· ^[%lld file](inflect: true)" : {
-
-    },
     "‘%@’ is not a VS Code Marketplace or Open VSX link, or an extension ID like publisher.name." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5672,9 +5669,6 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
-    "−%lld" : {
-
-    },
     "√ done" : {
 
     },
@@ -7355,9 +7349,6 @@
       }
     },
     "A zsh script run in the project folder before each run. A non-zero exit skips the run; what it prints is added under the prompt." : {
-
-    },
-    "Accessibility" : {
 
     },
     "Active refreshes: %lld · Combined requests: %lld" : {
@@ -12374,9 +12365,6 @@
         }
       }
     },
-    "Arrows" : {
-
-    },
     "As if" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14383,9 +14371,6 @@
         }
       }
     },
-    "Automotive" : {
-
-    },
     "Average: %lld ms · Maximum: %lld ms" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14542,83 +14527,6 @@
     },
     "Back to all automations" : {
 
-    },
-    "Back to Projects" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "প্রকল্পে ফিরে যান"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Volver a Proyectos"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Retour aux projets"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "प्रोजेक्ट पर वापस जाएँ"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Torna a Progetti"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プロジェクトに戻る"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "프로젝트로 돌아가기"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Voltar para Projetos"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Назад к проектам"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tillbaka till Projekt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "返回项目"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "返回專案"
-          }
-        }
-      }
     },
     "Back to start page" : {
       "extractionState" : "manual",
@@ -17242,9 +17150,6 @@
           }
         }
       }
-    },
-    "Camera & Photos" : {
-
     },
     "Can’t tell which status this column maps to — use the move menu." : {
       "extractionState" : "manual",
@@ -20503,9 +20408,6 @@
           }
         }
       }
-    },
-    "Choose Icon" : {
-
     },
     "Choose New Session and enter a branch name, GitHub pull request URL, or Jira ticket URL. Choose a base branch and an agent, or Shell only. A session keeps its terminal and Git worktree together so tasks can run independently. Worktrees created outside Cascade do not appear automatically. Settings → Worktrees controls location, copied files, and optional fetching." : {
       "extractionState" : "manual",
@@ -24897,9 +24799,6 @@
         }
       }
     },
-    "Commerce" : {
-
-    },
     "Commit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -25672,9 +25571,6 @@
           }
         }
       }
-    },
-    "Communication" : {
-
     },
     "Compact Conversation" : {
       "extractionState" : "manual",
@@ -27753,9 +27649,6 @@
           }
         }
       }
-    },
-    "Connectivity" : {
-
     },
     "context" : {
 
@@ -35702,9 +35595,6 @@
         }
       }
     },
-    "Devices" : {
-
-    },
     "Diff" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -37168,9 +37058,6 @@
           }
         }
       }
-    },
-    "Draw" : {
-
     },
     "Dry Run" : {
       "extractionState" : "manual",
@@ -41769,9 +41656,6 @@
     "finished just now" : {
 
     },
-    "Fitness" : {
-
-    },
     "Fix" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43320,9 +43204,6 @@
           }
         }
       }
-    },
-    "Gaming" : {
-
     },
     "General" : {
       "extractionState" : "manual",
@@ -45790,9 +45671,6 @@
         }
       }
     },
-    "Health" : {
-
-    },
     "Hear about new tickets assigned to you." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46723,9 +46601,6 @@
         }
       }
     },
-    "Home" : {
-
-    },
     "Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46807,12 +46682,6 @@
 
     },
     "Hourly queue check" : {
-
-    },
-    "Human" : {
-
-    },
-    "Icon" : {
 
     },
     "Icon theme" : {
@@ -47588,9 +47457,6 @@
           }
         }
       }
-    },
-    "Indices" : {
-
     },
     "Info" : {
       "extractionState" : "manual",
@@ -51373,9 +51239,6 @@
         }
       }
     },
-    "Keyboard" : {
-
-    },
     "Keyboard shortcuts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54551,9 +54414,6 @@
         }
       }
     },
-    "Maps" : {
-
-    },
     "Mark ready for review" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54785,9 +54645,6 @@
         }
       }
     },
-    "Math" : {
-
-    },
     "Max files changed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -55018,9 +54875,6 @@
           }
         }
       }
-    },
-    "Media" : {
-
     },
     "Medium" : {
       "extractionState" : "manual",
@@ -57335,9 +57189,6 @@
     "Moves the main checkout off %@ and opens it in a worktree of its own" : {
 
     },
-    "Multicolor" : {
-
-    },
     "Mute this tab" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -57878,9 +57729,6 @@
       }
     },
     "Name the session (optional)" : {
-
-    },
-    "Nature" : {
 
     },
     "Needs input" : {
@@ -58756,83 +58604,6 @@
     },
     "New scheduled automation" : {
 
-    },
-    "New session" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "নতুন সেশন"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nueva sesión"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nouvelle session"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "नया सत्र"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nuova sessione"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規セッション"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "새 세션"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nova sessão"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Новый сеанс"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ny session"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新建会话"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新增工作階段"
-          }
-        }
-      }
     },
     "New Session" : {
       "extractionState" : "manual",
@@ -66028,9 +65799,6 @@
           }
         }
       }
-    },
-    "Objects & Tools" : {
-
     },
     "Off" : {
       "extractionState" : "manual",
@@ -74218,9 +73986,6 @@
         }
       }
     },
-    "Privacy & Security" : {
-
-    },
     "Process" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -74605,9 +74370,6 @@
           }
         }
       }
-    },
-    "Project Icon" : {
-
     },
     "Project key" : {
       "extractionState" : "manual",
@@ -90905,9 +90667,6 @@
         }
       }
     },
-    "Shapes" : {
-
-    },
     "Shell" : {
       "localizations" : {
         "bn" : {
@@ -98553,9 +98312,6 @@
           }
         }
       }
-    },
-    "Text Formatting" : {
-
     },
     "that pull request" : {
       "extractionState" : "manual",
@@ -111468,9 +111224,6 @@
     "Translucent window" : {
 
     },
-    "Transportation" : {
-
-    },
     "Trigger matches" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -115940,9 +115693,6 @@
         }
       }
     },
-    "Variable" : {
-
-    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -117028,9 +116778,6 @@
         }
       }
     },
-    "Weather" : {
-
-    },
     "Web" : {
 
     },
@@ -117661,9 +117408,6 @@
           }
         }
       }
-    },
-    "What's New" : {
-
     },
     "When" : {
       "extractionState" : "manual",

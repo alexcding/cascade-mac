@@ -418,30 +418,6 @@ struct DashboardProjectTag: View {
     }
 }
 
-/// A row of tags that narrow a list, each with its count; the selected one filled.
-struct DashboardFilterTags<Value: Hashable>: View {
-    let values: [Value]
-    let selection: Value
-    let title: (Value) -> String
-    let count: (Value) -> Int
-    let id: (Value) -> String
-    let select: (Value) -> Void
-
-    var body: some View {
-        FlowRow(spacing: 8, lineSpacing: 8) {
-            ForEach(values, id: \.self) { value in
-                let active = value == selection
-                Button { select(value) } label: {
-                    DashboardTagLabel(title: title(value), count: count(value), active: active)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(id(value))
-                .accessibilityAddTraits(active ? .isSelected : [])
-            }
-        }
-    }
-}
-
 /// One tag's face: its name, then a count or a symbol; filled when selected.
 /// A tag's words in the tag face: its title, then its count and symbol, light on a filled tag.
 struct DashboardTagText: View {

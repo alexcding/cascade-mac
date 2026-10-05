@@ -10,13 +10,6 @@ enum DashboardPalette {
     static let critical = ThemeColor(light: 0xD03B3B, dark: 0xD03B3B).color
     static let criticalText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
     static let buttonBorder = ThemeColor(light: 0xDDDCD6, dark: 0x383835).color
-    /// A bar's empty track, lighter than a card's outline.
-    static let rowRule = ThemeColor(light: 0xEFEEEA, dark: 0x262624).color
-    /// Lines added and removed: their numbers, and their bar.
-    static let addedText = ThemeColor(light: 0x1E7A45, dark: 0x6FD49C).color
-    static let removedText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
-    static let addedBar = ThemeColor(light: 0x3FAE6A, dark: 0x3FAE6A).color
-    static let removedBar = ThemeColor(light: 0xE06A6A, dark: 0xE06A6A).color
 
     /// A session's state: its dot, and its words, which clear 4.5:1 on the page in both appearances.
     static func sessionStage(_ stage: DashboardSessionStage) -> (dot: Color, text: Color) {

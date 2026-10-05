@@ -68,11 +68,6 @@ public struct Project: Decodable, Identifiable, Equatable, Sendable {
     var issuesEnabled: Bool? = nil
     /// Whether the project page shows its Jira sprint board as a tab; nil (an older backend) reads as off.
     var boardEnabled: Bool? = nil
-    /// The SF Symbol chosen for the project; empty or nil (an older backend) is the folder.
-    var icon: String? = nil
-
-    /// The SF Symbol the project is drawn with.
-    var symbol: String { icon.flatMap { $0.isEmpty ? nil : $0 } ?? ProjectDraft.defaultIcon }
 }
 
 // Actor isolation keeps response decoding off the UI actor. Only decoded snapshots
