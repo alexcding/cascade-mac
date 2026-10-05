@@ -493,6 +493,54 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     cell.hovered = false
 }
 
+/// Under the pointer a folder's chevron stands before its icon, in the margin left of the cell, and a gear
+/// to its Settings stands before New Task.
+@MainActor @Test func aHoveredFolderShowsItsChevronBeforeItsIconAndOffersItsSettings() throws {
+    _ = NSApplication.shared
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")])
+    let project = try #require(entries.flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    var opened: String?
+    cell.onProjectSettings = { opened = $0 }
+    cell.configure(project, nested: false)
+    cell.setExpanded(true, animated: false)
+    func layOut() { cell.needsLayout = true; cell.layoutSubtreeIfNeeded() }
+    let chevron = try #require(cell.subviews.compactMap { $0 as? SidebarDisclosure }.first)
+    let buttons = cell.subviews.compactMap { $0 as? SidebarAccessoryButton }
+    let gear = try #require(buttons.first { $0.toolTip == "Project Settings" })
+    let newTask = try #require(buttons.first { $0.toolTip == "New Task" })
+    layOut()
+    #expect(!cell.icon.isHidden && chevron.isHidden && gear.isHidden && newTask.isHidden, "at rest the folder shows only its icon")
+    cell.hovered = true
+    layOut()
+    let title = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == project.title }).frame
+    #expect(!cell.icon.isHidden && !chevron.isHidden, "the icon stays")
+    #expect(chevron.frame.midX < 0 && chevron.frame.minX > -16, "the chevron is in the margin before the cell")
+    #expect(chevron.frame.maxX <= cell.icon.frame.midX - 4, "and clear of the folder's glyph")
+    let name = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == project.title })
+    let natural = try #require(name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 1_000, height: 100))).width
+    #expect(title.width >= natural, "a short name is not cut short")
+    // A long name gives way to the gear, and the chevron stays put.
+    let longProject = Project(id: "p1", name: String(repeating: "Long project name ", count: 6), repo: "o/r", color: nil, workspace: "/tmp")
+    let long = try #require(SidebarEntry.make(projects: [longProject], sessions: [workspaceSession("a", created: "2026-01")])
+        .flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    cell.configure(long, nested: false)
+    cell.setExpanded(true, animated: false)
+    layOut()
+    #expect(!chevron.isHidden && chevron.frame.midX < 0)
+    let longTitle = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == long.title }).frame
+    #expect(longTitle.maxX <= gear.frame.minX, "a long name ends before the gear")
+    cell.configure(project, nested: false)
+    cell.setExpanded(true, animated: false)
+    #expect(!gear.isHidden && !newTask.isHidden && gear.frame.maxX < newTask.frame.minX, "the gear stands before New Task")
+    gear.performClick(nil)
+    #expect(opened == sidebarProject.id)
+    // A folder with nothing to open keeps its icon under the pointer.
+    cell.setExpanded(nil, animated: false)
+    #expect(!cell.icon.isHidden && chevron.isHidden && !gear.isHidden)
+    cell.hovered = false
+}
+
 /// A session running an agent offers Fork Session, which names the session and asks nothing.
 @MainActor @Test func onlyAnAgentsSessionOffersForkSession() throws {
     _ = NSApplication.shared
@@ -687,8 +735,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(folder.size.width < wide.size.width, "the folder is drawn smaller than the rows' point size")
 }
 
-/// Projects shows selected while a project's page is open, so clicking it again goes back there.
-@MainActor @Test func clickingProjectsWhileAProjectPageShowsGoesBackToProjects() throws {
+/// A project's page shows its folder selected, not Projects, and a click on the folder still only opens or closes it.
+@MainActor @Test func aProjectPageShowsItsFolderSelected() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -705,14 +753,13 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.dataSource = coordinator; outline.delegate = coordinator
     coordinator.outline = outline
     coordinator.update(sidebar(.project("p1")))
-    let projects = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
-        .first { $0.entry.destination == .overview })
-    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects, "Projects shows selected")
+    let rows = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
+    let folder = try #require(rows.first { $0.entry.destination == .project("p1") })
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === folder, "the folder shows selected")
     chosen = []
-    coordinator.reselected(projects)
-    #expect(chosen == [.overview])
-    // Already on Projects, a second click is nothing.
-    coordinator.update(sidebar(.overview)); chosen = []
-    coordinator.reselected(projects)
-    #expect(chosen.isEmpty)
+    coordinator.reselected(folder)
+    #expect(chosen.isEmpty, "a click on the folder does not leave its page")
+    coordinator.update(sidebar(.overview))
+    let projects = try #require(rows.first { $0.entry.destination == .overview })
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects)
 }
