@@ -6,7 +6,8 @@
 //! Synara's reactor is a subscriber with durable delivery, leases and an interaction-claim table;
 //! here it runs inside the engine's one task, so those collapse into plain state on the thread's
 //! [`Entry`]. Provider calls and git run in tasks of their own and answer through
-//! [`Internal`] messages. Not ported: goals, sidechats, handoffs, the Claude cache, computer
+//! [`Internal`] messages. Not ported: goals, sidechats, handoffs (but for the handoff-context
+//! bootstrap a chat started with a session's knowledge sends), the Claude cache, computer
 //! control, messaging a running subagent (`steerSubagent`), model-generated titles (the first-message fallback title is), the
 //! context-bootstrap recap after a lost history, worktree branch renames, background-task stop and
 //! backgrounding (no adapter supports them yet), and one-turn file undo.
@@ -17,12 +18,12 @@ use serde_json::{json, Value};
 
 use crate::{
     checkpointing::store::{
-        checkpoint_ref_for_message_start, checkpoint_ref_for_thread_turn, checkpoint_ref_for_thread_turn_in_managed_family,
+        CheckpointStore, checkpoint_ref_for_message_start, checkpoint_ref_for_thread_turn, checkpoint_ref_for_thread_turn_in_managed_family,
         checkpoint_ref_for_turn_start, checkpoint_ref_for_turn_start_in_managed_family, is_managed_checkpoint_ref,
         is_managed_checkpoint_ref_for_thread, revert_rescue_checkpoint_ref,
     },
     contracts::{
-        base::{now_iso, CommandId, EventId, IsoDateTime, ProviderDriverKind, ThreadId, TurnId},
+        base::{now_iso, CheckpointRef, CommandId, EventId, IsoDateTime, ProviderDriverKind, ThreadId, TurnId},
         orchestration::*,
         provider::ProviderSessionStartInput,
         provider_runtime::{ProviderRuntimeEvent, ProviderRuntimeEventBody, RuntimeTurnState},
@@ -37,10 +38,39 @@ use super::{
     decider::{collect_tail_turn_ids, model_selection_provider, CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND},
     engine::{
         is_inside_git_work_tree, resolve_cwd, send_turn_input, server_command_id, Actor, CallOutcome,
-        CapturedCheckpoint, Ctx, EditRestore, Internal, LiveSession, PendingEdit, Reservation, RevertOutcome,
+        CapturedCheckpoint, Ctx, EditRestore, Internal, LiveSession, PendingEdit, Reservation, RevertOutcome, TurnTakeBack,
     },
     ingestion::parse_checkpoint_files_from_unified_diff,
 };
+
+/// Synara `PROVIDER_HANDOFF_ACTIVITY_KIND` (PCR:393): the divider a handoff shows.
+const PROVIDER_HANDOFF_ACTIVITY_KIND: &str = "provider.handoff";
+
+/// Synara `wrapProviderContext` (PCR:630) for `handoff_context`, which wraps the latest user
+/// message, with the context cut to what fits `PROVIDER_SEND_TURN_MAX_INPUT_CHARS`
+/// (`availableProviderContextChars`); the message alone when nothing fits.
+fn with_handoff_context(context: &str, message: &str) -> String {
+    let wrap = |context: &str| {
+        format!("<handoff_context>\n{context}\n</handoff_context>\n\n<latest_user_message>\n{message}\n</latest_user_message>")
+    };
+    let available = PROVIDER_SEND_TURN_MAX_INPUT_CHARS.saturating_sub(wrap("").chars().count());
+    if available == 0 {
+        return message.to_owned();
+    }
+    match context.chars().count() <= available {
+        true => wrap(context),
+        false => wrap(&context.chars().take(available).collect::<String>()),
+    }
+}
+
+/// How a provider is named in a timeline line.
+fn provider_display_name(provider: ProviderKind) -> &'static str {
+    match provider {
+        ProviderKind::ClaudeAgent => "Claude",
+        ProviderKind::Codex => "Codex",
+        other => other.as_str(),
+    }
+}
 
 /// Synara `PROVIDER_COMMAND_INTERRUPT_TIMEOUT`
 const PROVIDER_COMMAND_INTERRUPT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -310,6 +340,10 @@ impl Actor {
         if self.current_record(ctx).is_some() {
             ctx.record = Some(None);
         }
+        // The knowledge went with the conversation: unless a turn has completed, it is taken again.
+        if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+            entry.knowledge_applied = false;
+        }
         handle
     }
 
@@ -350,10 +384,15 @@ impl Actor {
         // resume cursor yet (Codex has one once `thread/fork` answers, Claude once a turn is sent),
         // and none ever: a fork whose record a revert, an edit, a rollback or a stale resume
         // cleared starts a conversation of its own, not the source's again.
-        let has_own_conversation = self.current_record(ctx).is_some()
-            || self.entries.get(&thread_id).is_some_and(|entry| entry.fork_bound);
+        // Cascade: a chat whose knowledge no conversation of it carries yet (none has started a
+        // turn with it, or that one was reset before a turn completed) takes it again: a new
+        // conversation forked from the knowledge's, not the one it has.
+        let knowledge_pending = self.knowledge_pending(&thread_id);
+        let has_own_conversation = !knowledge_pending
+            && (self.current_record(ctx).is_some() || self.entries.get(&thread_id).is_some_and(|entry| entry.fork_bound));
         let mut resume_cursor = self
             .current_record(ctx)
+            .filter(|_| !knowledge_pending)
             .filter(|record| record.provider == desired_provider.as_str())
             .and_then(|record| record.resume_cursor);
         if let Some(live) = live {
@@ -392,7 +431,9 @@ impl Actor {
             self.stop_in_background(&thread_id, old.handle, false);
         }
         let fork_source_resume_cursor = match has_own_conversation {
-            false => self.fork_source_resume_cursor(&thread, desired_provider),
+            false => self
+                .fork_source_resume_cursor(&thread, desired_provider)
+                .or_else(|| self.knowledge_resume_cursor(&thread_id, desired_provider)),
             true => None,
         };
         let generation = uuid::Uuid::new_v4().to_string();
@@ -461,6 +502,71 @@ impl Actor {
             }
         }
         Some(cursor)
+    }
+
+    // --- Cascade: a chat that starts with another conversation's knowledge ---
+
+    /// The chat started knowing another conversation (`ThreadKnowledgeSource`), no turn of it has
+    /// completed, and the conversation it has does not carry the knowledge: its next session forks
+    /// it, or its next turn recaps it.
+    fn knowledge_pending(&self, thread_id: &ThreadId) -> bool {
+        self.entries.get(thread_id).is_some_and(|entry| entry.knowledge.is_some() && !entry.fork_bound && !entry.knowledge_applied)
+    }
+
+    /// What the chat's session forks when it runs the provider of the conversation it started
+    /// knowing (`ThreadKnowledgeSource`): that conversation, natively. Only asked while the
+    /// knowledge is pending (`knowledge_pending`).
+    fn knowledge_resume_cursor(&self, thread_id: &ThreadId, provider: ProviderKind) -> Option<Value> {
+        let source = self.entries.get(thread_id)?.knowledge.as_ref()?;
+        (source.provider == provider && !source.conversation_id.trim().is_empty()).then(|| source.resume_cursor())
+    }
+
+    /// The recap the chat's turn carries when it runs another provider than the conversation it
+    /// started knowing, which it cannot fork: Synara's provider-handoff bootstrap. Only while the
+    /// knowledge is pending (`knowledge_pending`).
+    fn knowledge_recap(&self, ctx: &Ctx, provider: ProviderKind) -> Option<String> {
+        let source = self.entries.get(&ctx.thread_id)?.knowledge.as_ref()?;
+        if !self.knowledge_pending(&ctx.thread_id) || source.provider == provider {
+            return None;
+        }
+        source.recap.clone().filter(|recap| !recap.trim().is_empty())
+    }
+
+    /// The divider a chat started with another conversation's knowledge shows first: Synara's
+    /// `provider.handoff` activity (its `ProviderHandoffDivider`), from the session's agent to the
+    /// chat's, with the recap as its transferred context when there is one.
+    pub(super) fn append_knowledge_divider(&mut self, ctx: &mut Ctx, source: &ThreadKnowledgeSource) {
+        let Some(thread) = self.thread(&ctx.thread_id) else { return };
+        let target = serde_json::to_value(&thread.model_selection).unwrap_or(Value::Null);
+        let target_provider = model_selection_provider(&thread.model_selection);
+        let agent = provider_display_name(source.provider);
+        let source_model = source.model.clone().filter(|m| !m.trim().is_empty()).unwrap_or_else(|| "session".to_owned());
+        let context_text = match target_provider == source.provider {
+            true => Some(format!(
+                "{agent}'s conversation in the session ({}) is forked when this chat sends its first message: \
+                 its agent starts knowing what the session's agent knew, and the session's messages are not shown here.",
+                source.conversation_id
+            )),
+            false => source.recap.clone().filter(|recap| !recap.trim().is_empty()),
+        };
+        let payload = json!({
+            "sourceProvider": source.provider.as_str(),
+            "sourceModel": source_model,
+            "targetProvider": target_provider.as_str(),
+            "targetModel": target["model"],
+            "targetModelSelection": target,
+            "contextText": context_text,
+            "contextCharacters": context_text.as_ref().map_or(0, |text| text.chars().count()),
+            "knowledgeSource": { "conversationId": source.conversation_id },
+        });
+        self.append_activity(
+            ctx,
+            OrchestrationThreadActivityTone::Info,
+            PROVIDER_HANDOFF_ACTIVITY_KIND,
+            &format!("Started with {agent}'s knowledge from the session"),
+            payload,
+            None,
+        );
     }
 
     /// `thread.meta-updated` with a model and `thread.runtime-mode-set` (PCR:6744, 6809): only an
@@ -617,7 +723,12 @@ impl Actor {
         let Some(entry) = self.entries.get(&ctx.thread_id) else { return };
         let thread = entry.thread.as_ref().expect("a turn's thread exists");
         let baseline_count = thread.checkpoints.iter().map(|c| c.checkpoint_turn_count).max().unwrap_or(0);
-        let input = send_turn_input(&ctx.thread_id, &message, &session.model_selection, payload.interaction_mode);
+        let mut input = send_turn_input(&ctx.thread_id, &message, &session.model_selection, payload.interaction_mode);
+        if payload.review_target.is_none() && !native_steer {
+            if let Some(recap) = self.knowledge_recap(ctx, model_selection_provider(&session.model_selection)) {
+                input.input = Some(with_handoff_context(&recap, &message.text));
+            }
+        }
         let lease = entry.lease.clone();
         let checkpoints = self.checkpoints.clone();
         let internal = self.internal.clone();
@@ -709,6 +820,13 @@ impl Actor {
     ) {
         match result {
             Ok(started) => {
+                // The turn carried the chat's pending knowledge, forked or recapped: the
+                // conversation has it now.
+                if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+                    if entry.knowledge.is_some() && !entry.fork_bound {
+                        entry.knowledge_applied = true;
+                    }
+                }
                 if let Some(cursor) = started.resume_cursor.clone() {
                     let provider = self
                         .sessions
@@ -1283,27 +1401,22 @@ impl Actor {
             self.undo_turn_files(ctx, &thread, turn_count, cwd);
             return;
         }
-        let target = if turn_count == 0 {
-            Some(checkpoint_ref_for_thread_turn(&ctx.thread_id, 0))
-        } else {
-            thread
-                .checkpoints
-                .iter()
-                .find(|c| c.checkpoint_turn_count == turn_count && is_managed_checkpoint_ref(c.checkpoint_ref.as_str()))
-                .map(|c| c.checkpoint_ref.clone())
+        // Cascade: the chat's own turns are taken back, not the whole folder restored (see
+        // `reverse_checkpoint_diffs`), so what the person or a terminal agent did stays.
+        let turns = match turns_to_take_back(&thread, turn_count) {
+            Ok(turns) => turns,
+            Err(missing) => {
+                self.append_revert_failure(ctx, turn_count, &format!("Filesystem checkpoint is unavailable for turn {missing}."));
+                return;
+            }
         };
-        let Some(target) = target else {
-            self.append_revert_failure(ctx, turn_count, &format!("Filesystem checkpoint is unavailable for turn {turn_count}."));
-            return;
-        };
-        let mut obsolete: Vec<_> = thread
+        let obsolete: Vec<_> = thread
             .checkpoints
             .iter()
             .filter(|c| c.checkpoint_turn_count > turn_count && is_managed_checkpoint_ref(c.checkpoint_ref.as_str()))
             .map(|c| c.checkpoint_ref.clone())
             .collect();
         let rescue = revert_rescue_checkpoint_ref(&ctx.thread_id, &uuid::Uuid::new_v4().to_string());
-        obsolete.push(rescue.clone());
         let Some(lease) = self.entries.get(&ctx.thread_id).map(|e| e.lease.clone()) else { return };
         let checkpoints = self.checkpoints.clone();
         let internal = self.internal.clone();
@@ -1312,27 +1425,15 @@ impl Actor {
         tokio::spawn(async move {
             let _lease = lease.lock().await;
             let result = async {
-                if turn_count != 0 && !checkpoints.has_checkpoint_ref(&cwd, &target).await.unwrap_or(false) {
-                    return Err(format!("Filesystem checkpoint is unavailable for turn {turn_count}."));
+                if turns.is_empty() {
+                    return Ok(RevertOutcome { rolled_back_turns, cwd: cwd.clone(), obsolete_refs: obsolete });
                 }
-                if let Err(error) = checkpoints.capture_checkpoint(&cwd, &rescue, false).await {
-                    return Err(format!(
-                        "The pre-revert workspace snapshot could not be captured, so the revert was refused: {error:#}"
-                    ));
-                }
-                match checkpoints.restore_checkpoint(&cwd, &target, turn_count == 0).await {
+                let ranges = take_back_ranges(&checkpoints, &cwd, &turns).await?;
+                // Tried first, snapshotted, then taken back; the snapshot goes with the outcome.
+                match checkpoints.reverse_checkpoint_diffs(&cwd, &ranges, &rescue).await {
                     Ok(true) => Ok(RevertOutcome { rolled_back_turns, cwd: cwd.clone(), obsolete_refs: obsolete }),
-                    Ok(false) => Err(format!("Filesystem checkpoint became unavailable for turn {turn_count} during the revert.")),
-                    Err(error) => Err(match checkpoints.restore_checkpoint(&cwd, &rescue, false).await {
-                        Ok(true) => {
-                            let _ = checkpoints.delete_checkpoint_refs(&cwd, std::slice::from_ref(&rescue)).await;
-                            format!("Filesystem restore failed and the workspace was put back: {error:#}")
-                        }
-                        Ok(false) => format!("Filesystem restore failed and the workspace could not be put back (the snapshot is gone): {error:#}"),
-                        Err(rescue_error) => format!(
-                            "Filesystem restore failed and the workspace could not be put back ({rescue_error:#}): {error:#}"
-                        ),
-                    }),
+                    Ok(false) => Err(format!("Filesystem checkpoints are unavailable for the turns after turn {turn_count}.")),
+                    Err(error) => Err(format!("{error:#}")),
                 }
             }
             .await;
@@ -1394,7 +1495,7 @@ impl Actor {
             let _lease = lease.lock().await;
             let result = async {
                 let from = match checkpoints.has_checkpoint_ref(&cwd, &turn_start).await {
-                    Ok(true) => turn_start,
+                    Ok(true) => turn_start.clone(),
                     _ => previous.ok_or_else(|| format!("Starting checkpoint for turn {turn_count} is unavailable."))?,
                 };
                 match checkpoints.reverse_checkpoint_diff(&cwd, &from, &target.checkpoint_ref).await {
@@ -1403,7 +1504,9 @@ impl Actor {
                     Err(error) => return Err(format!("{error:#}")),
                 }
                 checkpoints.capture_checkpoint(&cwd, &target.checkpoint_ref, false).await.map_err(|e| format!("{e:#}"))?;
-                for reference in &later {
+                // Cascade: the turn's start moves onto its end too, so its diff is known to be
+                // empty from its refs alone, and a revert or an edit does not take it back again.
+                for reference in std::iter::once(&turn_start).chain(&later) {
                     checkpoints.copy_checkpoint_ref(&cwd, &target.checkpoint_ref, reference).await.map_err(|e| format!("{e:#}"))?;
                 }
                 Ok(target)
@@ -1528,50 +1631,56 @@ impl Actor {
             .collect();
         let cwd = resolve_cwd(&thread).ok().filter(|cwd| is_inside_git_work_tree(std::path::Path::new(cwd)));
         let edit = PendingEdit { payload: payload.clone(), original };
-        let (Some(min_removed), Some(cwd)) = (removed_counts.iter().min().copied(), cwd) else {
+        // Cascade: as a revert does, the edit takes back the removed turns' own changes, newest
+        // first, rather than restoring the folder to the checkpoint before them.
+        let target_count = removed_counts.iter().min().copied().unwrap_or(0).saturating_sub(1);
+        let turns = match (removed_counts.is_empty(), &cwd) {
+            (false, Some(_)) => turns_to_take_back(&thread, target_count),
+            _ => Ok(vec![]),
+        };
+        let turns = match turns {
+            Ok(turns) => turns,
+            Err(missing) => {
+                self.set_session_error(
+                    ctx,
+                    &format!("Filesystem checkpoint for edit replay turn {missing} is unavailable."),
+                    Some(payload.runtime_mode),
+                );
+                return;
+            }
+        };
+        let (false, Some(cwd)) = (turns.is_empty(), cwd) else {
             if self.edit_resets_conversation(ctx, &edit) {
                 self.reset_provider_conversation(ctx);
             }
             self.finish_message_edit(ctx, edit);
             return;
         };
-        // Synara `planWorkspaceRestoreForEditReplay`: the target is resolved, and then found in
-        // git, before the conversation is reset, so a missing checkpoint leaves everything as it was.
-        let target_count = min_removed.saturating_sub(1);
-        let target = if target_count == 0 {
-            Some(checkpoint_ref_for_thread_turn(&ctx.thread_id, 0))
-        } else {
-            thread
-                .checkpoints
-                .iter()
-                .find(|c| c.checkpoint_turn_count == target_count && is_managed_checkpoint_ref(c.checkpoint_ref.as_str()))
-                .map(|c| c.checkpoint_ref.clone())
-        };
-        let Some(target) = target else {
-            self.set_session_error(
-                ctx,
-                &format!("Filesystem checkpoint for edit replay turn {target_count} is unavailable."),
-                Some(payload.runtime_mode),
-            );
-            return;
-        };
+        // Synara `planWorkspaceRestoreForEditReplay`: what the edit takes back is found, and
+        // tried, before the conversation is reset, so an edit that cannot take it back leaves
+        // everything as it was.
         let Some(lease) = self.entries.get(&ctx.thread_id).map(|e| e.lease.clone()) else { return };
         let checkpoints = self.checkpoints.clone();
         let internal = self.internal.clone();
         let thread_id = ctx.thread_id.clone();
-        let restore = EditRestore { edit, cwd: PathBuf::from(cwd), target, target_count };
+        let mut restore = EditRestore { edit, cwd: PathBuf::from(cwd), ranges: vec![], target_count };
         if let Some(entry) = self.entry_mut(&ctx.thread_id) {
             entry.edit_in_flight = true;
         }
         tokio::spawn(async move {
-            let found = {
+            let result = {
                 let _lease = lease.lock().await;
-                checkpoints.has_checkpoint_ref(&restore.cwd, &restore.target).await
-            };
-            let result = match found {
-                Ok(true) => Ok(()),
-                Ok(false) => Err(format!("Filesystem checkpoint for edit replay turn {target_count} is unavailable.")),
-                Err(error) => Err(format!("{error:#}")),
+                match take_back_ranges(&checkpoints, &restore.cwd, &turns).await {
+                    Ok(ranges) => match checkpoints.check_reverse_checkpoint_diffs(&restore.cwd, &ranges).await {
+                        Ok(true) => {
+                            restore.ranges = ranges;
+                            Ok(())
+                        }
+                        Ok(false) => Err(format!("Filesystem checkpoint for edit replay turn {target_count} is unavailable.")),
+                        Err(error) => Err(format!("{error:#}")),
+                    },
+                    Err(detail) => Err(detail),
+                }
             };
             let _ = internal.send(Internal::EditChecked { thread_id, restore, result });
         });
@@ -1583,8 +1692,8 @@ impl Actor {
         edit.payload.rollback_turn_count.unwrap_or(0) > 0 || self.live_turn(&ctx.thread_id).is_some()
     }
 
-    /// Synara `executeEditReplayWorkspaceRestore`: the checkpoint exists, so reset the
-    /// conversation, wait for the CLI to be gone, keep a rescue snapshot, then restore.
+    /// Synara `executeEditReplayWorkspaceRestore`: the turns' changes reverse, so reset the
+    /// conversation, wait for the CLI to be gone, keep a rescue snapshot, then take them back.
     fn on_edit_checked(&mut self, ctx: &mut Ctx, restore: EditRestore, result: Result<(), String>) {
         if let Err(detail) = result {
             self.set_session_error(ctx, &detail, Some(restore.edit.payload.runtime_mode));
@@ -1602,34 +1711,16 @@ impl Actor {
                 let _ = tokio::time::timeout(PROVIDER_COMMAND_STOP_TIMEOUT, handle.stop()).await;
             }
             let _lease = lease.lock().await;
-            let EditRestore { edit, cwd, target, target_count } = restore;
+            let EditRestore { edit, cwd, ranges, target_count } = restore;
             let result = async {
-                if let Err(error) = checkpoints.capture_checkpoint(&cwd, &rescue, false).await {
-                    return Err(format!(
-                        "The pre-edit workspace snapshot could not be captured, so the edit was refused: {error:#}"
-                    ));
-                }
-                match checkpoints.restore_checkpoint(&cwd, &target, false).await {
-                    Ok(true) => {
-                        let _ = checkpoints.delete_checkpoint_refs(&cwd, std::slice::from_ref(&rescue)).await;
-                        Ok(())
-                    }
-                    Ok(false) => {
-                        let _ = checkpoints.delete_checkpoint_refs(&cwd, std::slice::from_ref(&rescue)).await;
-                        Err(format!(
-                            "Filesystem checkpoint for edit replay turn {target_count} became unavailable during the rollback."
-                        ))
-                    }
-                    Err(error) => Err(match checkpoints.restore_checkpoint(&cwd, &rescue, false).await {
-                        Ok(true) => {
-                            let _ = checkpoints.delete_checkpoint_refs(&cwd, std::slice::from_ref(&rescue)).await;
-                            format!("Filesystem restore failed and the workspace was put back: {error:#}")
-                        }
-                        Ok(false) => format!("Filesystem restore failed and the workspace could not be put back (the snapshot is gone): {error:#}"),
-                        Err(rescue_error) => format!(
-                            "Filesystem restore failed and the workspace could not be put back ({rescue_error:#}): {error:#}"
-                        ),
-                    }),
+                // Tried again (the folder may have changed while the CLI stopped), snapshotted,
+                // then taken back; the snapshot goes with the outcome.
+                match checkpoints.reverse_checkpoint_diffs(&cwd, &ranges, &rescue).await {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(format!(
+                        "Filesystem checkpoint for edit replay turn {target_count} became unavailable during the rollback."
+                    )),
+                    Err(error) => Err(format!("{error:#}")),
                 }
             }
             .await;
@@ -1733,6 +1824,60 @@ impl Actor {
             }
         }
     }
+}
+
+/// Cascade: the turns after `turn_count` a revert or an edit takes back, newest first — every one
+/// of the thread's own turns, taken back from its refs, whatever its summary lists: a summary with
+/// no files may be one that could not be computed (a diff over the cap, a failed diff, a missing
+/// turn-start baseline), and a turn whose changes are known to be gone (a files-scope undo moves
+/// its start onto its end) reverses as nothing. `Err(turn)` names a turn with no checkpoint of
+/// this thread's yet (a placeholder until its capture lands), whose changes are not known.
+fn turns_to_take_back(thread: &OrchestrationThread, turn_count: u64) -> Result<Vec<TurnTakeBack>, u64> {
+    let thread_id = &thread.id;
+    let mut turns = Vec::new();
+    for checkpoint in thread.checkpoints.iter().filter(|c| c.checkpoint_turn_count > turn_count) {
+        let reference = checkpoint.checkpoint_ref.as_str();
+        if !is_managed_checkpoint_ref_for_thread(reference, thread_id) {
+            return Err(checkpoint.checkpoint_turn_count);
+        }
+        let start = checkpoint_ref_for_turn_start_in_managed_family(reference, thread_id, &checkpoint.turn_id)
+            .unwrap_or_else(|| checkpoint_ref_for_turn_start(thread_id, &checkpoint.turn_id));
+        let previous = match checkpoint.checkpoint_turn_count {
+            1 => Some(
+                checkpoint_ref_for_thread_turn_in_managed_family(reference, thread_id, 0)
+                    .unwrap_or_else(|| checkpoint_ref_for_thread_turn(thread_id, 0)),
+            ),
+            count => thread.checkpoints.iter().find(|c| c.checkpoint_turn_count + 1 == count).map(|c| c.checkpoint_ref.clone()),
+        };
+        turns.push(TurnTakeBack {
+            turn_count: checkpoint.checkpoint_turn_count,
+            start,
+            previous,
+            end: checkpoint.checkpoint_ref.clone(),
+        });
+    }
+    turns.sort_by(|a, b| b.turn_count.cmp(&a.turn_count));
+    Ok(turns)
+}
+
+/// Each turn's `(from, to)`: from its start, or the turn before's end when its start was not kept.
+async fn take_back_ranges(
+    checkpoints: &CheckpointStore,
+    cwd: &std::path::Path,
+    turns: &[TurnTakeBack],
+) -> Result<Vec<(CheckpointRef, CheckpointRef)>, String> {
+    let mut ranges = Vec::with_capacity(turns.len());
+    for turn in turns {
+        let from = match checkpoints.has_checkpoint_ref(cwd, &turn.start).await {
+            Ok(true) => turn.start.clone(),
+            _ => turn
+                .previous
+                .clone()
+                .ok_or_else(|| format!("Starting checkpoint for turn {} is unavailable.", turn.turn_count))?,
+        };
+        ranges.push((from, turn.end.clone()));
+    }
+    Ok(ranges)
 }
 
 /// Synara `claudeSelectionRequiresRestart` (shared/model.ts:931): a Claude session is spawned

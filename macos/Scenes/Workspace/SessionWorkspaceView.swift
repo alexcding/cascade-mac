@@ -302,6 +302,9 @@ struct SessionWorkspaceContextBody: View {
             WorkspaceFileBrowser(context: context, model: model, document: nil,
                                  filesTab: context.activeID.flatMap(WorkspaceToolTab.init(id:)))
                 .id(context.activeID)
+        } else if context.activeTool == .chat, let tab = context.activeID.flatMap(WorkspaceToolTab.init(id:)) {
+            // Keyed by tab: each Chat tab shows its own chat.
+            PaneChatView(tab: tab, workspace: model).id(context.activeID)
         } else if context.activeTool == .live {
             Group {
                 if let live = model.live { LivePanelView(live: live, workspace: model) }

@@ -76,6 +76,26 @@ struct TranscriptThreadQuery: Equatable, Sendable {
     /// One of the chat page's reads of a folder (`ChatFileAccess.folderMethods`), through the chat
     /// backend, for a terminal session's read-only chat.
     func chatFolderRead(_ method: String, params: JSONValue) async throws -> JSONValue
+
+    // A session pane's Chat tabs: chats of their own, working in the session's worktree.
+    /// The chat backend is reachable, so a tab can show a chat or start one.
+    var paneChatsConnected: Bool { get }
+    /// The chat list has been read, so a chat it does not have is gone rather than not heard of yet.
+    var paneChatsLoaded: Bool { get }
+    /// A chat as the list knows it, for a tab's title and its agent's glyph.
+    func paneChatShell(_ id: String) -> ChatThreadShell?
+    /// The page for chat `threadID` in `context`'s pane; nil until the list has the chat.
+    func makePaneChat(threadID: String, in context: WorkspaceContext) -> ChatViewModel?
+    /// A new-chat form working in the session's worktree; nil without a session or a backend.
+    func makePaneNewChat(in context: WorkspaceContext) -> NewChatViewModel?
+    /// A chat a tab's form just started, for the list to have before the backend's word arrives.
+    func paneChatStarted(_ shell: ChatThreadShell)
+    /// The chats started in the panes of the session working in `worktree` (and their forks), not
+    /// archived, newest first: lists leave them out, so a tab's form is where a closed one is found.
+    func paneWorktreeChats(_ worktree: String) -> [ChatThreadShell]
+    /// What a tab's page asks of the app beyond the pane: a link, a reveal, a turn's diff, Settings,
+    /// another chat the list must read again for.
+    func performPaneChatAction(_ action: ChatViewModel.Action, threadID: String, in context: WorkspaceContext)
 }
 extension WorkspaceServing {
     func watchPermissions(runID: String, _ watcher: PermissionWatcher) {}
@@ -92,6 +112,14 @@ extension WorkspaceServing {
     }
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand] { [] }
     func worktreeFiles(_ worktree: String, matching query: String) async -> [String] { [] }
+    var paneChatsConnected: Bool { false }
+    var paneChatsLoaded: Bool { false }
+    func paneChatShell(_ id: String) -> ChatThreadShell? { nil }
+    func makePaneChat(threadID: String, in context: WorkspaceContext) -> ChatViewModel? { nil }
+    func makePaneNewChat(in context: WorkspaceContext) -> NewChatViewModel? { nil }
+    func paneChatStarted(_ shell: ChatThreadShell) {}
+    func paneWorktreeChats(_ worktree: String) -> [ChatThreadShell] { [] }
+    func performPaneChatAction(_ action: ChatViewModel.Action, threadID: String, in context: WorkspaceContext) {}
 }
 
 @MainActor @Observable final class SessionWorkspaceViewModel {
@@ -335,6 +363,10 @@ extension WorkspaceServing {
                 context?.openTool(.live, replacingBlank: true)
             })
         }
+        // As Files, offered every time: each pick opens another Chat tab, with a chat of its own.
+        tools.append(.init(id: "chat", title: WorkspaceTool.chat.title, symbol: WorkspaceTool.chat.symbol) { [weak context] in
+            context?.openChat(replacingBlank: true)
+        })
         if simulatorPreview != nil, !open.contains(.simulator) {
             tools.append(.init(id: "simulator", title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol) { [weak context] in
                 context?.openTool(.simulator, replacingBlank: true)
@@ -584,7 +616,146 @@ extension WorkspaceServing {
     }
 
     /// The workspace owns its chat, so its chat goes with it.
-    isolated deinit { chat?.retire(); live?.retire() }
+    isolated deinit { chat?.retire(); live?.retire(); paneChats.values.forEach { $0.retire() } }
+
+    // MARK: Chat tabs
+
+    /// Each Chat tab's model, made when the tab is first shown. A tab's chat is a thread of its own
+    /// in the chat backend, tagged with the session's worktree; it is not the terminal agent's
+    /// conversation and shares nothing with it but the folder.
+    private(set) var paneChats: [WorkspaceToolTab: PaneChatModel] = [:]
+    /// The session closed: no Chat tab is made again.
+    @ObservationIgnored private var paneChatsRetired = false
+
+    func paneChat(for tab: WorkspaceToolTab) -> PaneChatModel? { paneChats[tab] }
+
+    enum PaneChatPhase { case loading, offline, missing }
+    /// What a tab with neither form nor page is waiting on.
+    func paneChatPhase(_ tab: WorkspaceToolTab) -> PaneChatPhase {
+        guard let service, service.paneChatsConnected else { return .offline }
+        if let thread = context?.chatThread(for: tab), service.paneChatsLoaded, service.paneChatShell(thread) == nil { return .missing }
+        return .loading
+    }
+    /// Changes when a tab can be made, or made again: the backend comes, a restored tab's chat is
+    /// heard of, a chat is started in it.
+    func paneChatKey(_ tab: WorkspaceToolTab) -> String {
+        let thread = context?.chatThread(for: tab) ?? ""
+        let known = thread.isEmpty ? false : service?.paneChatShell(thread) != nil
+        return "\(tab.rawValue)|\(thread)|\(known)|\(service?.paneChatsConnected == true)"
+    }
+    /// The tab's title: its chat's, live as the backend renames it, or "New Chat" before one.
+    func paneChatTitle(_ tab: WorkspaceToolTab) -> String {
+        guard let thread = context?.chatThread(for: tab), let shell = service?.paneChatShell(thread) else { return String(localized: "New Chat") }
+        return shell.label
+    }
+    /// The CLI whose glyph the tab shows: its chat's, else the one its form has picked, else the session's.
+    func paneChatCLI(_ tab: WorkspaceToolTab) -> String? {
+        if let thread = context?.chatThread(for: tab), let cli = service?.paneChatShell(thread)?.cli { return cli }
+        return paneChats[tab]?.form?.agent ?? session?.cli
+    }
+
+    /// Makes the tab's model, and in it the form or the chat the tab is bound to.
+    func preparePaneChat(_ tab: WorkspaceToolTab) {
+        guard !paneChatsRetired, tab.tool == .chat, let context, context.tools.contains(tab), let service else { return }
+        let model = paneChats[tab] ?? {
+            let model = PaneChatModel(tab: tab)
+            paneChats[tab] = model
+            return model
+        }()
+        if let thread = context.chatThread(for: tab) {
+            guard model.threadID != thread, let chat = service.makePaneChat(threadID: thread, in: context) else { return }
+            chat.onAction = { [weak self] action in self?.paneChatAction(action, threadID: thread) }
+            model.show(chat: chat)
+        } else if model.form == nil, model.chat == nil {
+            guard let form = service.makePaneNewChat(in: context) else { return }
+            form.onAction = { [weak self, weak model] action in
+                guard let self, let model, !model.retired else { return }
+                switch action { case .created(let shell): paneChatCreated(shell, in: model.tab) }
+            }
+            model.show(form: form)
+        }
+    }
+
+    /// The worktree's chats a tab's form offers to open: those of this session's panes no tab
+    /// shows now, newest first. None for a tab that shows a chat.
+    func paneExistingChats(_ tab: WorkspaceToolTab) -> [ChatThreadShell] {
+        guard !paneChatsRetired, let context, context.chatThread(for: tab) == nil,
+              let worktree = session?.worktree, !worktree.isEmpty, let service else { return [] }
+        let shown = Set(context.tools.compactMap { context.chatThread(for: $0) })
+        return service.paneWorktreeChats(worktree).filter { !shown.contains($0.id) }
+    }
+
+    /// One of the worktree's chats, opened in the tab whose form offered it.
+    func openExistingPaneChat(_ threadID: String, in tab: WorkspaceToolTab) {
+        guard !paneChatsRetired, let context, context.tools.contains(tab), context.chatThread(for: tab) == nil,
+              paneExistingChats(tab).contains(where: { $0.id == threadID }) else { return }
+        context.bindChat(tab, thread: threadID)
+        preparePaneChat(tab)
+    }
+
+    private func paneChatCreated(_ shell: ChatThreadShell, in tab: WorkspaceToolTab) {
+        guard !paneChatsRetired, let context, context.tools.contains(tab) else { return }
+        service?.paneChatStarted(shell)
+        context.bindChat(tab, thread: shell.id)
+        preparePaneChat(tab)
+    }
+
+    /// What a tab's page asks for. A file opens in this pane, inside the worktree only; another
+    /// chat (a fork, a subagent's thread) in a Chat tab of its own here; the rest goes to the app.
+    private func paneChatAction(_ action: ChatViewModel.Action, threadID: String) {
+        guard !paneChatsRetired, let context, let service else { return }
+        switch action {
+        case .openFile(let path, let line):
+            guard let worktree = session?.worktree, let file = ChatFileAccess.confined(path, to: worktree) else { return }
+            openFileFromChat(file, line: line)
+        case .openThread(let id):
+            guard id != threadID else { return }
+            service.performPaneChatAction(action, threadID: threadID, in: context)
+            context.openChat(thread: id)
+        default:
+            service.performPaneChatAction(action, threadID: threadID, in: context)
+        }
+    }
+
+    /// The context closed a Chat tab: its page goes, its chat stays.
+    func chatTabClosed(_ tab: WorkspaceToolTab) { paneChats.removeValue(forKey: tab)?.retire() }
+    /// The context's tabs were replaced by a snapshot: a model whose tab is gone, or now shows
+    /// another chat, goes.
+    func chatTabsRestored() {
+        for (tab, model) in paneChats {
+            let bound = context?.chatThread(for: tab)
+            if context?.tools.contains(tab) != true || (model.chat != nil && model.threadID != bound) || (model.form != nil && bound != nil) {
+                paneChats.removeValue(forKey: tab); model.retire()
+            }
+        }
+    }
+    /// The session closed: every Chat tab's page goes, for good.
+    func retireChats() {
+        paneChatsRetired = true
+        let models = paneChats.values
+        paneChats = [:]
+        models.forEach { $0.retire() }
+    }
+    /// A `chat-thread` event: to every tab showing that chat.
+    func receivePaneChatEvents(threadID: String, events: [JSONValue]) {
+        for model in paneChats.values where model.threadID == threadID { model.chat?.receive(events: events) }
+    }
+    /// A `chat-shell` event: the tabs showing that chat take the backend's word on it.
+    func paneChatShellChanged(_ shell: ChatThreadShell, projectName: String) {
+        for model in paneChats.values where model.threadID == shell.id { model.chat?.update(shell: shell, projectName: projectName) }
+    }
+    /// A chat was deleted: the tabs showing it close.
+    func paneChatRemoved(_ threadID: String) {
+        guard let context else { return }
+        for tab in context.tools where context.chatThread(for: tab) == threadID { context.close(.tool(tab)) }
+    }
+    /// Chat events were missed: every tab's page reads its thread again, and its providers.
+    func resyncPaneChats() {
+        for model in paneChats.values { model.chat?.page.resync() }
+    }
+    func refreshPaneChatProviders() {
+        for model in paneChats.values { model.chat?.page.refreshProviders() }
+    }
     func setContextPresented(_ presented: Bool) {
         guard canToggleContext, let context else { return }
         guard presented else { context.setPane(.off); return }

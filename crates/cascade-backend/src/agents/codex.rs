@@ -72,6 +72,35 @@ impl AgentProbe for Codex {
             .map(str::to_owned)
     }
 
+    /// The session file named after this conversation (`rollout-<time>-<id>.jsonl`) whose
+    /// opening `session_meta` is this conversation's, run in this worktree.
+    fn conversation_in_worktree(home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+        let suffix = format!("-{id}.jsonl");
+        let mut pending = vec![home.join(".codex/sessions")];
+        while let Some(directory) = pending.pop() {
+            let Ok(entries) = fs::read_dir(directory) else { continue };
+            for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+                if path.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                if !path.file_name().and_then(|n| n.to_str()).is_some_and(|name| name.ends_with(&suffix)) {
+                    continue;
+                }
+                let mut first = String::new();
+                let read = fs::File::open(&path).ok().and_then(|file| BufReader::new(file).read_line(&mut first).ok());
+                let meta: Option<Value> = read.and_then(|_| serde_json::from_str(&first).ok());
+                let matches = meta.is_some_and(|meta| {
+                    meta["type"] == "session_meta" && meta["payload"]["id"] == id && meta["payload"]["cwd"] == worktree
+                });
+                if matches {
+                    return Some(path);
+                }
+            }
+        }
+        None
+    }
+
     /// `codex debug models` is the CLI's own catalog, reasoning levels included.
     async fn catalog(_home: &Path) -> Value {
         let raw = cli::run("codex", ["debug", "models"], Duration::from_secs(20)).await;

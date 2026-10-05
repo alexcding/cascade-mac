@@ -652,3 +652,147 @@ async fn the_shell_snapshot_and_diffs_are_served_in_synaras_shapes() {
     assert_eq!((status, reversed["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid")));
     app.chat.shutdown().await;
 }
+
+// --- a chat that starts with a terminal session's knowledge ---
+
+fn create_knowing(thread: &str, provider: &str, model: &str, worktree: &str, conversation: &str) -> ClientThreadCommand {
+    serde_json::from_value(json!({
+        "type": "thread.create",
+        "commandId": format!("create-{thread}"),
+        "threadId": thread,
+        "projectId": "project-1",
+        "title": "New chat",
+        "modelSelection": { "provider": provider, "model": model },
+        "runtimeMode": "approval-required",
+        "branch": null,
+        "worktreePath": worktree,
+        "workingDirectory": worktree,
+        "knowledgeSource": { "provider": "claudeAgent", "conversationId": conversation },
+        "createdAt": T0,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_sessions_recap_keeps_what_was_said_and_stays_in_its_budget() {
+    let home = tempfile::tempdir().unwrap();
+    let (_, _, _) = read_fixture(home.path(), None);
+    let read = crate::agents::transcript::read_with(home.path(), Agent::Claude, "/w/chat", None, Some(SESSION), false);
+    let recap = knowledge::recap(Agent::Claude, "/w/chat", read["turns"].as_array().unwrap()).unwrap();
+    assert!(recap.starts_with("This chat starts with what the Claude Code agent of a terminal session"), "{recap}");
+    assert!(recap.contains("Worktree path: /w/chat"));
+    assert!(recap.contains("User:\nList the files here, then tell me how many there are."), "{recap}");
+    assert!(recap.contains("Assistant:\nThere are 2 entries: `README.md` and `src`."), "{recap}");
+    assert!(!recap.contains("I should run ls"), "thinking is left out: {recap}");
+    assert!(!recap.contains("ls -1"), "tool calls are left out: {recap}");
+
+    let long: Vec<Value> = (0..500)
+        .map(|i| json!({ "role": if i % 2 == 0 { "user" } else { "assistant" }, "blocks": [{ "type": "text", "text": "y".repeat(3_000) }] }))
+        .collect();
+    let bounded = knowledge::recap(Agent::Claude, "/w/chat", &long).unwrap();
+    assert!(bounded.chars().count() <= cascade_chat::orchestration::handoff::BOOTSTRAP_TRANSCRIPT_CHAR_BUDGET);
+    assert_eq!(knowledge::recap(Agent::Claude, "/w/chat", &[]), None);
+}
+
+/// A session whose worktree is `/w/chat`, as the app records one.
+async fn with_session_at(app: &AppState, worktree: &str) {
+    let session = crate::domain::Session {
+        id: "session-1".into(),
+        project_id: "project-1".into(),
+        workspace: "/w".into(),
+        worktree: worktree.into(),
+        cli: "claude".into(),
+        ..Default::default()
+    };
+    app.db.upsert_task(&session).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_chat_created_with_a_sessions_knowledge_has_it_found_and_read() {
+    let home = tempfile::tempdir().unwrap();
+    read_fixture(home.path(), None);
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    with_session_at(&app, "/w/chat").await;
+    let home_path = Some(home.path().to_path_buf());
+    let none = std::collections::HashSet::new();
+
+    // Whether the pane may offer it: the session's conversation, named and in its worktree.
+    let ask = |conversation: Value| json!({ "provider": "claudeAgent", "worktree": "/w/chat", "conversationId": conversation });
+    assert_eq!(session_knowledge_in(&app, ask(json!(SESSION)), home_path.clone()).await.unwrap(), json!({ "conversationId": SESSION }));
+    assert_eq!(session_knowledge_in(&app, ask(Value::Null), home_path.clone()).await.unwrap(), Value::Null, "no newest stands in");
+    let elsewhere = json!({ "provider": "claudeAgent", "worktree": "/w/other", "conversationId": SESSION });
+    assert_eq!(session_knowledge_in(&app, elsewhere, home_path.clone()).await.unwrap(), Value::Null, "not a session's worktree");
+    assert_eq!(knowledge::describe(home.path(), "claudeAgent", "/w/chat", Some("0b7f3f52-0000-4000-8000-000000000000"), &none), Value::Null);
+
+    // Same provider: forked natively, so the divider names the conversation, not a recap.
+    run_command_in(&app, create_knowing("chat-same", "claudeAgent", "haiku", "/w/chat", SESSION), home_path.clone()).await.unwrap();
+    let engine = app.chat.engine().unwrap();
+    let same = engine.thread(ThreadId::new("chat-same")).await.unwrap().unwrap();
+    assert!(same.messages.is_empty());
+    let divider = same.activities.iter().find(|a| a.kind == "provider.handoff").expect("the divider");
+    assert_eq!(divider.payload["sourceModel"], "claude-opus-4-6", "the model the session ran");
+    assert!(divider.payload["contextText"].as_str().unwrap().contains(SESSION));
+
+    // Another provider: the transcript's recap.
+    run_command_in(&app, create_knowing("chat-other", "codex", "gpt-6-astra", "/w/chat", SESSION), home_path.clone()).await.unwrap();
+    let other = engine.thread(ThreadId::new("chat-other")).await.unwrap().unwrap();
+    let divider = other.activities.iter().find(|a| a.kind == "provider.handoff").expect("the divider");
+    let context = divider.payload["contextText"].as_str().unwrap();
+    assert!(context.contains("List the files here"), "{context}");
+    assert!(other.messages.is_empty(), "the session's messages are not imported");
+
+    // Refused, and no chat made: no conversation named; a worktree that is no session's; a
+    // conversation Claude filed for another folder only.
+    let refused = run_command_in(&app, create_knowing("chat-none", "claudeAgent", "haiku", "/w/chat", ""), home_path.clone()).await.unwrap_err();
+    assert_eq!((refused.code, refused.message.as_str()), (Some("invalid"), "The session's agent has no conversation to start from yet."));
+    let refused = run_command_in(&app, create_knowing("chat-none", "claudeAgent", "haiku", "/w/other", SESSION), home_path.clone()).await.unwrap_err();
+    assert_eq!(refused.code, Some("invalid"));
+    let moved = "7c1d2e3f-0000-4000-8000-000000000001";
+    let filed_elsewhere = home.path().join(".claude/projects/-w-elsewhere");
+    std::fs::create_dir_all(&filed_elsewhere).unwrap();
+    std::fs::write(filed_elsewhere.join(format!("{moved}.jsonl")), CLAUDE_TRANSCRIPT).unwrap();
+    let refused = run_command_in(&app, create_knowing("chat-none", "claudeAgent", "haiku", "/w/chat", moved), home_path).await.unwrap_err();
+    assert_eq!(refused.message, "The session's agent's conversation is not on disk in this worktree.");
+    assert!(engine.thread(ThreadId::new("chat-none")).await.unwrap().is_none());
+    engine.shutdown().await;
+}
+
+/// A conversation a chat holds (a pane chat runs in the same worktree) is never taken for the
+/// session's agent's, though it is on disk there.
+#[test]
+fn a_conversation_a_chat_holds_is_not_the_sessions() {
+    let home = tempfile::tempdir().unwrap();
+    read_fixture(home.path(), None);
+    let held: std::collections::HashSet<String> = [SESSION.to_owned()].into();
+    assert_eq!(knowledge::describe(home.path(), "claudeAgent", "/w/chat", Some(SESSION), &held), Value::Null);
+    let refused = knowledge::find(home.path(), "claudeAgent", "/w/chat", SESSION, &held).err().unwrap();
+    assert_eq!(refused, "That conversation is a chat's, not the session's agent's.");
+}
+
+/// Codex: the session file named after the conversation, whose `session_meta` names that id and
+/// the worktree; another worktree's, or a file whose meta names another id, is not it.
+#[test]
+fn a_codex_conversation_is_found_by_its_id_and_worktree() {
+    let home = tempfile::tempdir().unwrap();
+    let day = home.path().join(".codex/sessions/2026/10/05");
+    std::fs::create_dir_all(&day).unwrap();
+    let write = |id: &str, meta_id: &str, cwd: &str| {
+        let meta = json!({ "timestamp": T0, "type": "session_meta", "payload": { "id": meta_id, "cwd": cwd } });
+        std::fs::write(day.join(format!("rollout-2026-10-05T10-00-00-{id}.jsonl")), format!("{meta}\n")).unwrap();
+    };
+    let ours = "0199a1b2-0000-7000-8000-000000000001";
+    let theirs = "0199a1b2-0000-7000-8000-000000000002";
+    let mislabeled = "0199a1b2-0000-7000-8000-000000000003";
+    write(ours, ours, "/w/chat");
+    write(theirs, theirs, "/w/other");
+    write(mislabeled, ours, "/w/chat");
+    let found = crate::agents::conversation_in(home.path(), Agent::Codex, "/w/chat", ours).unwrap();
+    assert!(found.to_string_lossy().ends_with(&format!("{ours}.jsonl")), "{found:?}");
+    assert_eq!(crate::agents::conversation_in(home.path(), Agent::Codex, "/w/chat", theirs), None);
+    assert_eq!(crate::agents::conversation_in(home.path(), Agent::Codex, "/w/chat", mislabeled), None);
+    assert_eq!(crate::agents::conversation_in(home.path(), Agent::Codex, "/w/chat", "../x"), None);
+    let none = std::collections::HashSet::new();
+    assert_eq!(knowledge::describe(home.path(), "codex", "/w/chat", Some(ours), &none), json!({ "conversationId": ours }));
+}

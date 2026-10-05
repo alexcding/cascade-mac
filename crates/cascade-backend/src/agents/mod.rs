@@ -47,6 +47,10 @@ pub trait AgentProbe {
     /// hands the CLI: `conversation`, when the app knows it, or the worktree's newest. None when
     /// there is nothing on disk to fork, and the fork starts a new conversation.
     fn fork_source(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String>;
+    /// Conversation `id`'s own transcript, held for `worktree` exactly: none when it is not on
+    /// disk there (filed for another folder, or only the worktree's newest). What a chat that
+    /// starts with a session's knowledge reads and forks (`chat::knowledge`).
+    fn conversation_in_worktree(home: &Path, worktree: &str, id: &str) -> Option<PathBuf>;
     /// The slash commands the CLI reports itself, ahead of those found on disk.
     async fn reported_commands() -> Value {
         Value::Null
@@ -197,6 +201,13 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::fork_source(home, worktree, conversation),
             Agent::Codex => codex::Codex::fork_source(home, worktree, conversation),
+        }
+    }
+
+    fn conversation_in_worktree(self, home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+        match self {
+            Agent::Claude => claude::Claude::conversation_in_worktree(home, worktree, id),
+            Agent::Codex => codex::Codex::conversation_in_worktree(home, worktree, id),
         }
     }
 
@@ -410,6 +421,17 @@ pub(crate) fn fork_source(cli: &str, worktree: &str, conversation: &str) -> Opti
     }
     let conversation = Some(conversation).filter(|id| !id.is_empty() && is_name(id));
     agent.fork_source(&home, worktree, conversation)
+}
+
+/// The transcript of conversation `conversation`, which `agent` holds in `worktree` exactly
+/// (`AgentProbe::conversation_in_worktree`), that a new chat can start from (`chat::knowledge`).
+/// None for an id that is not a name, a worktree that is not absolute, or a conversation not on
+/// disk there: no other conversation stands in for it.
+pub(crate) fn conversation_in(home: &Path, agent: Agent, worktree: &str, conversation: &str) -> Option<PathBuf> {
+    if !worktree.starts_with('/') || conversation.is_empty() || !is_name(conversation) {
+        return None;
+    }
+    agent.conversation_in_worktree(home, worktree, conversation)
 }
 
 fn is_name(value: &str) -> bool {

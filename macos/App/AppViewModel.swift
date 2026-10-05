@@ -301,7 +301,7 @@ public final class AppViewModel {
     }
 
     private func makeDashboardChats() -> [DashboardChat] {
-        chats.visible().map { DashboardChat(id: $0.id, projectID: $0.projectId, title: $0.label, cli: $0.cli,
+        chats.visible(excludingWorktrees: sessionChatWorktrees).map { DashboardChat(id: $0.id, projectID: $0.projectId, title: $0.label, cli: $0.cli,
                                             working: $0.working, needsInput: $0.needsInput) }
     }
 
@@ -342,7 +342,7 @@ public final class AppViewModel {
                 cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
-                                 chats: chats.visible(includeArchived: showsArchivedChats))
+                                 chats: chats.visible(includeArchived: showsArchivedChats, excludingWorktrees: sessionChatWorktrees))
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -1701,6 +1701,8 @@ public final class AppViewModel {
         case .chat:
             // A CLI may have been installed or signed in to while the app was away.
             coordinator.chatCoordinator?.model.page.refreshProviders()
+        case .session:
+            viewer.active?.workspaceViewModel?.refreshPaneChatProviders()
         default: break
         }
     }
@@ -1883,6 +1885,7 @@ public final class AppViewModel {
     private func resyncChats() {
         chats.reload()
         coordinator.chatCoordinator?.model.page.resync()
+        for context in viewer.contexts.values { context.workspaceViewModel?.resyncPaneChats() }
     }
 
     private struct LastHook: Decodable { let event: ServerEvent? }

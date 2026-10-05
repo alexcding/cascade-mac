@@ -32,6 +32,7 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
 | `src/provider/codex/turn_input.rs` | `S/codexTurnInput.ts` |
 | `src/orchestration/decider.rs` | `S/orchestration/decider.ts` (thread commands, `thread.fork.create` included), `S/orchestration/commandInvariants.ts` (single-thread invariants), `S/orchestration/messageTurnId.ts` |
 | `src/orchestration/fork_thread_title.rs` | `S/orchestration/forkThreadTitle.ts` |
+| `src/orchestration/handoff.rs` | `S/orchestration/handoff.ts` (`buildImportedMessagesBootstrapText` alone, for the knowledge recap below) |
 | `src/orchestration/projector.rs` | `S/orchestration/projector.ts` (thread events), `S/orchestration/turnLifecycle.ts`, `S/orchestration/turnStartSession.ts` |
 | `src/orchestration/ingestion.rs` | `S/orchestration/Layers/ProviderRuntimeIngestion.ts`, with `ensureSubagentThread` split with the engine (below) |
 | `src/orchestration/activity_projection.rs` | `S/orchestration/providerRuntimeActivityProjection.ts` |
@@ -70,6 +71,47 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
   forks its source once: when its own first session binds, `chat.db` notes it (`fork_bindings`,
   which a revert, an edit, a rollback or a stale resume that clears `provider_sessions` leaves
   alone), and from then on the source is neither loaded with it nor forked again.
+- **Knowledge from another conversation (Cascade, not Synara).** `thread.create` may carry
+  `knowledgeSource: {provider, conversationId, model?, recap?}` (`ThreadKnowledgeSource`): a chat
+  started in a terminal session's pane that begins with what the session's agent knows. The engine
+  keeps it in `knowledge_sources` and appends Synara's `provider.handoff` activity (no turn) so the
+  page draws its `ProviderHandoffDivider`; no message is imported. The chat's first session on the
+  same provider forks `conversationId` the way a fork forks its source (`forkSourceResumeCursor`,
+  the cursor `{threadId, resume}` both adapters read); on another provider its first turn's input is
+  wrapped as Synara's handoff bootstrap (`<handoff_context>` + `<latest_user_message>`,
+  `wrapProviderContext`) with `recap`, which the backend builds from the terminal transcript with
+  `handoff.rs`. It stays pending until a turn carrying it (forked or recapped) has started; a
+  conversation reset before any turn of the chat completed (a revert, an edit, a stale resume) takes
+  it out of the conversation, and the next start forks or recaps it again. Once a turn has completed
+  it is used up for good, noted in `fork_bindings` as a fork's binding is. The message the person
+  sent is stored and shown unwrapped. `ChatEngine::chat_conversations` names every conversation a
+  chat holds (`provider_sessions`), so the backend never takes one for a session's agent's.
+- **A revert or an edit takes back the chat's own changes, not the folder.** Synara's full-scope
+  revert and its edit-and-resend restore the whole workspace to the target checkpoint
+  (`restoreCheckpoint`: `git restore --worktree --staged -- .` and `git clean -fd`), which also
+  undoes what the person did in their checkout, or a session's terminal agent did in the worktree a
+  pane chat shares, since the turn. Here both reverse each removed turn's own diff, newest first,
+  from its turn-start checkpoint (or the turn before's end) to its end, with the files-scope undo's
+  machinery (`reverse_checkpoint_diff`: a strict reverse apply, then a three-way one through a
+  throwaway index) — `CheckpointStore::reverse_checkpoint_diffs`. Every turn is taken back from its
+  refs, whatever its summary lists (a summary with no files may be one that could not be computed);
+  a files-scope undo moves the turn's start ref onto its recaptured end, so an undone turn reverses
+  as nothing. The patch goes to a file, so Synara's 10 MB diff cap does not apply to it. Where
+  Synara then resets each path's index entry to the turn's start, only an entry the turn left (the
+  agent staged its change) goes back; the person's staging, and an untracked file, stay. Paths are
+  passed to git as names (`GIT_LITERAL_PATHSPECS`). It is all or nothing: every reverse is first
+  tried on a throwaway index mirroring the folder (seeded from the person's index for its stat
+  cache), and a conflict refuses the revert with `checkpoint.revert.failed` (an edit, with the
+  session error) before anything changes or a rescue snapshot is taken — the folder, the
+  conversation and the CLI stay as they were. An edit is tried before its CLI is stopped, and again
+  once it has. A reverse that still fails for real puts back the paths the reverses touched from the
+  rescue snapshot taken just before, with their index entries; the snapshot is deleted once it is
+  not needed, and kept (and named in the error) only when that put-back fails.
+  `restoreCheckpoint` is not ported. What the person wrote into a file during a turn is part of
+  that turn's diff, and goes with it.
+- **A fork that names no worktree keeps its source's.** Synara's page always sends a worktree-backed
+  source's path for "Fork Into Local"; `decide_fork_create` falls back to the source's
+  `worktreePath` when the command has none, so a pane chat's forks stay tagged with its session.
 - **Forks into a new worktree are refused.** Synara's "Fork Into New Worktree" sends
   `envMode: "worktree"` with no path and its server makes the worktree on the first send.
   Nothing here makes one (a chat has no worktree of its own, and a Cascade worktree without a

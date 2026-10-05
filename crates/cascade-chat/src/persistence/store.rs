@@ -20,7 +20,7 @@ use serde_json::Value;
 
 use crate::contracts::{
     base::ThreadId,
-    orchestration::{OrchestrationThread, OrchestrationThreadShell},
+    orchestration::{OrchestrationThread, OrchestrationThreadShell, ThreadKnowledgeSource},
 };
 
 const SCHEMA: &str = include_str!("schema.sql");
@@ -205,6 +205,30 @@ impl ChatStore {
         .await
     }
 
+    /// Every provider conversation a chat holds: the ids its resume cursor names (Claude's
+    /// `resume`, Codex's `threadId`), so a conversation of a chat is never taken for another
+    /// agent's.
+    pub async fn provider_conversation_ids(&self) -> Result<std::collections::HashSet<String>> {
+        let cursors: Vec<String> = self
+            .call(|connection| {
+                let mut statement =
+                    connection.prepare("SELECT resume_cursor FROM provider_sessions WHERE resume_cursor IS NOT NULL")?;
+                let rows = statement.query_map([], |row| row.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?;
+        Ok(cursors
+            .iter()
+            .filter_map(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .flat_map(|cursor| {
+                ["resume", "threadId"]
+                    .into_iter()
+                    .filter_map(|key| cursor[key].as_str().filter(|id| !id.is_empty()).map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .collect())
+    }
+
     pub async fn set_provider_session(&self, record: ProviderSessionRecord) -> Result<()> {
         self.call(move |connection| {
             let cursor = record.resume_cursor.as_ref().map(serde_json::to_string).transpose()?;
@@ -236,6 +260,31 @@ impl ChatStore {
             connection.execute(
                 "INSERT OR IGNORE INTO fork_bindings (thread_id, bound_at) VALUES (?1, datetime('now'))",
                 [thread.as_str()],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// What the chat `thread` started knowing (`knowledge_sources`), if anything.
+    pub async fn knowledge_source(&self, thread: ThreadId) -> Result<Option<ThreadKnowledgeSource>> {
+        let raw: Option<String> = self
+            .call(move |connection| {
+                Ok(connection
+                    .query_row("SELECT source FROM knowledge_sources WHERE thread_id = ?1", [thread.as_str()], |row| row.get(0))
+                    .optional()?)
+            })
+            .await?;
+        Ok(raw.map(|raw| serde_json::from_str(&raw)).transpose()?)
+    }
+
+    /// Keeps what the chat `thread` starts knowing; its row must be saved already.
+    pub async fn set_knowledge_source(&self, thread: ThreadId, source: &ThreadKnowledgeSource) -> Result<()> {
+        let raw = serde_json::to_string(source)?;
+        self.call(move |connection| {
+            connection.execute(
+                "INSERT OR REPLACE INTO knowledge_sources (thread_id, source) VALUES (?1, ?2)",
+                params![thread.as_str(), raw],
             )?;
             Ok(())
         })
@@ -313,6 +362,7 @@ fn save_thread(
         }
         tx.execute("DELETE FROM provider_sessions WHERE thread_id = ?1", [id])?;
         tx.execute("DELETE FROM fork_bindings WHERE thread_id = ?1", [id])?;
+        tx.execute("DELETE FROM knowledge_sources WHERE thread_id = ?1", [id])?;
         return Ok(());
     }
     save_children(tx, id, "messages", before.map(|t| &t.messages[..]), &after.messages, |m| m.id.as_str())?;

@@ -58,10 +58,15 @@ extension ChatServing {
 
     /// Starts a chat: Synara's `thread.create`, working in `cwd`, on `provider`'s `model`. The
     /// backend names it from its first message (it starts with Synara's generic title, which lists show as "New Chat"). Answers its id.
-    func createThread(projectID: String, cwd: String, provider: String, model: String,
+    /// `worktreePath` tags a chat started in a session's pane with the session's worktree, which is
+    /// how lists know it is reached from the session. `knowledge` starts it with what that session's
+    /// agent knows (Cascade's `knowledgeSource`): the backend finds the conversation and the engine
+    /// forks it, or recaps it for another provider; the chat shows none of its messages.
+    func createThread(projectID: String, cwd: String, provider: String, model: String, worktreePath: String? = nil,
+                      knowledge: ChatKnowledgeSource? = nil,
                       title: String = ChatProject.untitled, runtimeMode: String = "approval-required",
                       id: String = UUID().uuidString.lowercased(), now: Date = Date()) async throws -> String {
-        let command: JSONValue = [
+        var command: [String: JSONValue] = [
             "type": "thread.create",
             "commandId": .string(Self.commandID()),
             "threadId": .string(id),
@@ -72,12 +77,25 @@ extension ChatServing {
             "interactionMode": "default",
             "envMode": "local",
             "branch": nil,
-            "worktreePath": nil,
+            "worktreePath": worktreePath.map(JSONValue.string) ?? .null,
             "workingDirectory": .string(cwd),
             "createdAt": .string(ChatTimestamp.string(now)),
         ]
-        try await dispatch(command)
+        if let knowledge {
+            command["knowledgeSource"] = ["provider": .string(knowledge.provider), "conversationId": .string(knowledge.conversationID)]
+        }
+        try await dispatch(.object(command))
         return id
+    }
+
+    /// The conversation of a session's agent a chat can start knowing (`chat.sessionKnowledge`):
+    /// `conversationID` when it is on disk, else the newest the agent has in `worktree`; nil when
+    /// it has none yet.
+    func sessionKnowledge(provider: String, worktree: String, conversationID: String?) async throws -> String? {
+        var params: [String: JSONValue] = ["provider": .string(provider), "worktree": .string(worktree)]
+        if let conversationID, !conversationID.isEmpty { params["conversationId"] = .string(conversationID) }
+        let result = try await rpc("chat.sessionKnowledge", params: .object(params))
+        return result["conversationId"]?.string
     }
 
     func renameThread(_ id: String, to title: String) async throws {
@@ -94,6 +112,12 @@ extension ChatServing {
     }
 
     static func commandID() -> String { UUID().uuidString.lowercased() }
+}
+
+/// A session agent's conversation a new chat starts knowing: the chat provider it runs as, and its id.
+struct ChatKnowledgeSource: Equatable, Sendable {
+    let provider: String
+    let conversationID: String
 }
 
 /// ISO 8601 with milliseconds, as Synara's `IsoDateTime` writes it.

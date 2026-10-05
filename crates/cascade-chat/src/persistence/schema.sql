@@ -59,6 +59,14 @@ CREATE TABLE IF NOT EXISTS fork_bindings (
   bound_at   TEXT NOT NULL
 );
 
+-- Cascade, not Synara: what a chat started with from another agent conversation (a terminal
+-- session's), as `ThreadKnowledgeSource` JSON. Used by its first session alone: once that binds,
+-- `fork_bindings` notes it, as for a fork.
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+  thread_id  TEXT PRIMARY KEY REFERENCES threads (id) ON DELETE CASCADE,
+  source     TEXT NOT NULL
+);
+
 -- The last event `sequence` the engine numbered for each thread, so numbering continues after a
 -- restart.
 CREATE TABLE IF NOT EXISTS thread_sequences (

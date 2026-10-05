@@ -919,7 +919,39 @@ pub struct ThreadCreateCommand {
     pub subagent_nickname: Option<String>,
     #[serde(default)]
     pub subagent_role: Option<String>,
+    /// Cascade, not Synara: what the new chat starts knowing (`ThreadKnowledgeSource`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_source: Option<ThreadKnowledgeSource>,
     pub created_at: IsoDateTime,
+}
+
+/// Cascade, not Synara: a new chat that starts with what another agent conversation knows (a
+/// terminal session's agent), without showing that conversation's messages. Its first session
+/// forks `conversation_id` natively when it runs the same provider (Claude `--resume
+/// --fork-session`, Codex `thread/fork`); on another provider its first turn carries `recap` as
+/// hidden context, as Synara bootstraps a provider handoff. Either way it is used once: when the
+/// chat's own first session binds (`fork_bindings`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadKnowledgeSource {
+    /// The provider whose conversation it is.
+    pub provider: ProviderKind,
+    /// That provider's conversation id: a Claude session id, a Codex thread id.
+    pub conversation_id: String,
+    /// The model the conversation last ran, for the divider; unknown when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The conversation's transcript as text, for a chat on another provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recap: Option<String>,
+}
+
+impl ThreadKnowledgeSource {
+    /// The conversation as both providers' resume cursors read it: Claude's `resume`, Codex's
+    /// `threadId`.
+    pub fn resume_cursor(&self) -> serde_json::Value {
+        serde_json::json!({ "threadId": self.conversation_id, "resume": self.conversation_id })
+    }
 }
 
 /// Synara `ThreadHandoffImportedMessage` (orchestration.ts:1437): what a fork imports.

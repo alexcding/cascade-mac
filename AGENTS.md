@@ -323,6 +323,29 @@ its `parentThreadId`: lists leave it out (`ChatListStore.visible`), the parent's
 it shows read-only. To take Synara's newer code, re-vendor the page and port the mapped Rust
 files' upstream diffs by hand.
 
+A session's pane has Chat tabs too (`PaneChatModel`, `PaneChatView`): each starts a chat from its
+own new-chat form (`PaneNewChatForm`), a regular chat with a history of its own that works in the
+session's worktree and is tagged with it (`worktreePath`), which keeps it, and the forks made from
+it, out of the lists (`ChatListStore.visible`); it is reached from its tab, and once its tab is
+closed from any Chat tab's form, which lists the worktree's chats no tab shows
+(`ChatListStore.inWorktree`) and opens one in its tab. That form alone offers
+"Include what the session's agent knows", off by default and disabled with its reason when the
+session runs no agent or the app knows no conversation of it (`chat.sessionKnowledge`). Turned on,
+`thread.create` carries Cascade's `knowledgeSource` (`{provider, conversationId}`, the session's
+agent and conversation): the backend takes it only for a session's worktree, for that exact
+conversation held there (Claude's transcript in the worktree's own project folder, Codex's session
+file whose `session_meta` names that id and worktree) and held by no chat — never the worktree's
+newest — and reads its transcript (`chat/knowledge.rs`). The engine keeps it until a turn of the
+chat completes — the same provider forks the conversation natively (Claude `--resume
+--fork-session`, Codex `thread/fork`), another gets Synara's handoff recap of the transcript as
+hidden context — and takes it again if the chat's conversation is reset before that.
+A chat's revert and edit take back only its own turns' changes, never the whole folder the
+terminal agent or the person also works in (`crates/cascade-chat/SYNARA.md`). The chat
+shows none of the session's messages, only one `provider.handoff` divider saying it started with
+that agent's knowledge, and the terminal session and its conversation are not touched. A Claude
+fork takes the transcript as it stands on disk, so a turn the terminal is still in is cut where
+it was written.
+
 ## The layers, and who owns what
 
 `macos/` is a layered tree. Each layer may depend on the ones below it, never above:
@@ -406,15 +429,16 @@ user collapses from the divider is told back to the workspace.
   hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).
   Every tab is in the one strip and the one order (`WorkspaceContext.tabs`): web pages, open
   files, and the tools (`WorkspaceTool`) — Diff, the Simulator, Files (which browses the worktree
-  as a tree) and Live Monitor (the agent drawn live, `LivePanelView`). The active tab decides what
+  as a tree), Live Monitor (the agent drawn live, `LivePanelView`) and Chat (a headless chat of its
+  own in the session's worktree, `PaneChatView`; see "Chat sessions"). The active tab decides what
   the pane shows; closing a tab selects its nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
   the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
   changed files' toggle); over a web page that row is its navigation and address (`.address`),
   whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
   the preview ends. A blank page — the one the pane opens for itself when it has no tab — is a New
   Tab in the strip, and its start page offers the tools; the Files explorer is a Files tab that stays
-  open, and each file picked there opens in a tab of its own. Files is the one tool with as many
-  tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip always shows its New Tab button, and New Tab takes
+  open, and each file picked there opens in a tab of its own. Files and Chat are the tools with as
+  many tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip always shows its New Tab button, and New Tab takes
   the pane's own blank page rather than opening a second one. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the

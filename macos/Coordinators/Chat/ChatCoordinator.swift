@@ -6,6 +6,20 @@ import Observation
     func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend) -> ChatViewModel
     func newChat(projectID: String?, projectName: String?, folder: String, service: any ChatServing,
                  chooseFolder: @escaping (String) async -> String?) -> NewChatViewModel
+    /// The new-chat form of a Chat tab in a session's pane: the chat works in the session's
+    /// worktree and is tagged with it, on the session's agent unless another is picked, and may
+    /// start with what that agent knows in `conversation`.
+    func paneChat(projectID: String, projectName: String, worktree: String, agent: String?, conversation: String?,
+                  service: any ChatServing) -> NewChatViewModel
+}
+
+extension ChatFeatureFactory {
+    func paneChat(projectID: String, projectName: String, worktree: String, agent: String?, conversation: String?,
+                  service: any ChatServing) -> NewChatViewModel {
+        NewChatViewModel(projectID: projectID, projectName: projectName, folder: worktree, service: service,
+                         worktreePath: worktree, agent: agent,
+                         knowledgeSession: .init(cli: agent, conversationID: conversation))
+    }
 }
 
 @MainActor struct NativeChatFeatureFactory: ChatFeatureFactory {

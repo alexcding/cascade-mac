@@ -84,6 +84,12 @@ pub fn read_with(
     let Some(path) = locate(home, agent, worktree, conversation) else {
         return json!({"revision": "", "turns": []});
     };
+    read_file(&path, agent, worktree, since, detailed)
+}
+
+/// [`read_with`] of the transcript at `path`, found by the caller.
+pub fn read_file(path: &Path, agent: Agent, worktree: &str, since: Option<&str>, detailed: bool) -> Value {
+    let path = path.to_path_buf();
     let revision = fs::metadata(&path)
         .ok()
         .map(|meta| {

@@ -10,6 +10,7 @@
 //! `git` through `cli` itself.
 
 mod flight;
+mod knowledge;
 mod transcript;
 mod workspace;
 
@@ -286,6 +287,7 @@ async fn call(app: &AppState, method: &str, params: Value) -> RpcResult {
         "attachments.read" => read_attachment(app, params).await,
         "chat.listThreads" => list_threads(app, params).await,
         "chat.providerStatuses" => Ok(provider_statuses(app).await),
+        "chat.sessionKnowledge" => session_knowledge(app, params).await,
         _ => Err(RpcError::unavailable(format!("{method} is not served"))),
     }
 }
@@ -356,11 +358,72 @@ async fn dispatch(app: &AppState, raw: Value) -> RpcResult {
 }
 
 async fn run_command(app: &AppState, command: ClientThreadCommand) -> RpcResult {
+    run_command_in(app, command, crate::agents::home()).await
+}
+
+/// [`run_command`] with the home folder the agents' transcripts are under: a `thread.create`
+/// that starts with a session's knowledge has it made whole first (`knowledge::resolve`).
+async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: Option<PathBuf>) -> RpcResult {
+    if let ClientThreadCommand::Create(create) = &mut command {
+        if let Some(source) = create.knowledge_source.take() {
+            let worktree = create
+                .worktree_path
+                .clone()
+                .or_else(|| create.working_directory.clone().flatten())
+                .filter(|path| path.starts_with('/'))
+                .ok_or_else(|| RpcError::invalid("A chat starts with a session's knowledge only in that session's worktree."))?;
+            if !is_session_worktree(app, &worktree).await? {
+                return Err(RpcError::invalid("A chat starts with a session's knowledge only in a session's worktree."));
+            }
+            let held = engine(app)?.chat_conversations().await.map_err(RpcError::internal)?;
+            let home = home.ok_or_else(|| RpcError::internal("no home folder"))?;
+            let resolved = tokio::task::spawn_blocking(move || knowledge::resolve(&home, source, &worktree, &held))
+                .await
+                .map_err(RpcError::internal)?
+                .map_err(RpcError::invalid)?;
+            create.knowledge_source = Some(resolved);
+        }
+    }
     match engine(app)?.dispatch(command).await {
         Ok(result) => Ok(json!(result)),
         Err(ChatError::Invalid(detail)) => Err(RpcError::invalid(detail)),
         Err(ChatError::Internal(error)) => Err(RpcError::internal(format!("{error:#}"))),
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionKnowledgeParams {
+    provider: String,
+    worktree: String,
+    #[serde(default)]
+    conversation_id: Option<String>,
+}
+
+/// Whether `worktree` is a Cascade session's: the only folder whose agent a chat may start
+/// knowing.
+async fn is_session_worktree(app: &AppState, worktree: &str) -> Result<bool, RpcError> {
+    let trimmed = |path: &str| path.trim_end_matches('/').to_owned();
+    let sessions = app.db.tasks().await.map_err(RpcError::internal)?;
+    Ok(sessions.iter().any(|session| !session.worktree.is_empty() && trimmed(&session.worktree) == trimmed(worktree)))
+}
+
+/// `chat.sessionKnowledge`: whether a chat started in a session's pane can start with what the
+/// session's agent knows (`knowledge::describe`), by the rule a `thread.create` is held to.
+async fn session_knowledge(app: &AppState, raw: Value) -> RpcResult {
+    session_knowledge_in(app, raw, crate::agents::home()).await
+}
+
+async fn session_knowledge_in(app: &AppState, raw: Value, home: Option<PathBuf>) -> RpcResult {
+    let SessionKnowledgeParams { provider, worktree, conversation_id } = params(raw)?;
+    let Some(home) = home else { return Ok(Value::Null) };
+    if !is_session_worktree(app, &worktree).await? {
+        return Ok(Value::Null);
+    }
+    let held = engine(app)?.chat_conversations().await.map_err(RpcError::internal)?;
+    tokio::task::spawn_blocking(move || knowledge::describe(&home, &provider, &worktree, conversation_id.as_deref(), &held))
+        .await
+        .map_err(RpcError::internal)
 }
 
 #[derive(Deserialize)]

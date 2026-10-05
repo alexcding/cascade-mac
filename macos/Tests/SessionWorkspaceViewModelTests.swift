@@ -52,11 +52,11 @@ import Testing
     context.select(.page(page))
     model.selectTab(.tool(.changes))
     #expect(service.actions.last == .operation(.changes), "Diff's tab goes through the app")
-    #expect(model.startPageTools().map(\.id) == ["files"], "Diff is open: it is not offered again")
+    #expect(model.startPageTools().map(\.id) == ["files", "chat"], "Diff is open: it is not offered again")
     context.close(.tool(.changes))
-    #expect(model.startPageTools().map(\.id) == ["files", "diff"])
+    #expect(model.startPageTools().map(\.id) == ["files", "diff", "chat"])
     context.openTool(.files)
-    #expect(model.startPageTools().map(\.id) == ["files", "diff"], "Files is offered again: it may have many tabs")
+    #expect(model.startPageTools().map(\.id) == ["files", "diff", "chat"], "Files is offered again: it may have many tabs")
 }
 
 @MainActor @Test func workspaceModelComputesPaneVisibilityAndGatesOperationsAgainstCurrentState() throws {

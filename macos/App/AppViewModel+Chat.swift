@@ -10,13 +10,19 @@ extension AppViewModel: ChatCoordinating {
     func receiveChat(_ event: ServerEvent) {
         switch event.type {
         case "chat-thread":
-            guard let id = event.threadId, let events = event.events, !events.isEmpty,
-                  let chat = coordinator.chatCoordinator, chat.threadID == id else { return }
+            guard let id = event.threadId, let events = event.events, !events.isEmpty else { return }
+            for context in viewer.contexts.values { context.workspaceViewModel?.receivePaneChatEvents(threadID: id, events: events) }
+            guard let chat = coordinator.chatCoordinator, chat.threadID == id else { return }
             chat.model.receive(events: events)
         case "chat-shell":
             guard let value = event.shell else { return }
             chats.receive(shell: value)
             guard let id = value["id"]?.string else { return }
+            if let shell = chats.shell(id) {
+                for context in viewer.contexts.values {
+                    context.workspaceViewModel?.paneChatShellChanged(shell, projectName: chatPlaceName(shell))
+                }
+            }
             // A chat selected before it was heard of (one the page opened) gets its screen now.
             if selection == .chat(id), coordinator.chatCoordinator?.threadID != id, chats.shell(id) != nil {
                 coordinator.refreshRoot()
@@ -26,6 +32,7 @@ extension AppViewModel: ChatCoordinating {
             guard let id = event.threadId else { return }
             chats.remove(id)
             coordinator.chatRemoved(id)
+            for context in viewer.contexts.values { context.workspaceViewModel?.paneChatRemoved(id) }
         default: break
         }
     }
@@ -59,6 +66,11 @@ extension AppViewModel: ChatCoordinating {
 
     func makeChatModel(threadID: String) -> ChatViewModel? {
         guard chatService != nil, let shell = chats.shell(threadID) else { return nil }
+        return chatModel(for: shell)
+    }
+
+    private func chatModel(for shell: ChatThreadShell) -> ChatViewModel {
+        let threadID = shell.id
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         // A subagent's thread follows its parent's agent: the page shows it without a composer.
         let context = ChatPageContext(threadId: threadID, projectId: shell.projectId, cwd: chatFolder(shell),
@@ -115,6 +127,42 @@ extension AppViewModel: ChatCoordinating {
         case .openSettings:
             coordinator.presentSettingsWindow()
         }
+    }
+
+    // MARK: A session pane's Chat tabs
+
+    var paneChatsConnected: Bool { chatService != nil }
+    var paneChatsLoaded: Bool { chats.loaded }
+    func paneChatShell(_ id: String) -> ChatThreadShell? { chats.shell(id) }
+
+    func makePaneChat(threadID: String, in context: WorkspaceContext) -> ChatViewModel? {
+        guard viewer.contexts[context.id] === context, chatService != nil, let shell = chats.shell(threadID) else { return nil }
+        return chatModel(for: shell)
+    }
+
+    func makePaneNewChat(in context: WorkspaceContext) -> NewChatViewModel? {
+        guard viewer.contexts[context.id] === context, let service = chatService,
+              let session = workspaceState(in: context).session, !session.worktree.isEmpty else { return nil }
+        let projectName = projects.first { $0.id == session.projectId }?.name ?? ""
+        return chatFactory.paneChat(projectID: session.projectId, projectName: projectName, worktree: session.worktree,
+                                    agent: session.cli, conversation: session.sessionId, service: service)
+    }
+
+    func paneChatStarted(_ shell: ChatThreadShell) { chats.receive(shell) }
+
+    func paneWorktreeChats(_ worktree: String) -> [ChatThreadShell] { chats.inWorktree(worktree) }
+
+    func performPaneChatAction(_ action: ChatViewModel.Action, threadID: String, in context: WorkspaceContext) {
+        guard viewer.contexts[context.id] === context else { return }
+        // Links, reveals, Settings and the list read again for a chat not heard of yet are the
+        // chat screen's; a turn's diff goes to this session's Diff, which is the one its folder names.
+        performChatAction(action, threadID: threadID)
+    }
+
+    /// The worktrees of the sessions there are, standardized: a chat tagged with one is reached from
+    /// its session's pane, and lists leave it out.
+    var sessionChatWorktrees: Set<String> {
+        Set(sessions.compactMap { $0.worktree.isEmpty ? nil : ChatListStore.standardized($0.worktree) })
     }
 
     /// The session whose worktree is `folder`, if any.
@@ -192,6 +240,7 @@ extension AppViewModel: ChatCoordinating {
                 guard let self else { return }
                 chats.remove(id)
                 coordinator.chatRemoved(id)
+                for context in viewer.contexts.values { context.workspaceViewModel?.paneChatRemoved(id) }
             } catch { self?.reportRootError(String(localized: "Could not delete the chat: \(error.localizedDescription)")) }
         }
     }

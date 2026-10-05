@@ -724,9 +724,9 @@ async fn an_edit_whose_restore_checkpoint_is_gone_changes_nothing() {
     let thread = "thread-edit-missing";
     let (mut cli, _exit) = thread_after_one_turn(&engine, &spawner, workspace.path(), thread).await;
 
-    // The turn-0 baseline is gone: there is nothing to restore the edit to.
-    let baseline = git_refs(workspace.path()).into_iter().find(|r| r.ends_with("/turn/0")).expect("a turn-0 baseline");
-    let status = std::process::Command::new("git").args(["update-ref", "-d", &baseline]).current_dir(workspace.path()).status().unwrap();
+    // The turn's end checkpoint is gone: there is nothing to take its changes back from.
+    let end = git_refs(workspace.path()).into_iter().find(|r| r.ends_with("/turn/1")).expect("turn 1's checkpoint");
+    let status = std::process::Command::new("git").args(["update-ref", "-d", &end]).current_dir(workspace.path()).status().unwrap();
     assert!(status.success());
     std::fs::write(workspace.path().join("later.txt"), "kept\n").unwrap();
 
@@ -825,6 +825,23 @@ async fn a_files_undo_takes_back_one_turns_changes_and_keeps_the_conversation() 
     .await;
     let failure = refused.activities.iter().find(|a| a.kind == "checkpoint.revert.failed").unwrap();
     assert_eq!(failure.payload["detail"], "File changes for turn 1 are unavailable or already undone.");
+
+    // A revert past the undone turn does not take it back again: the README edit made after it,
+    // which its recaptured end holds, stays.
+    engine.dispatch(revert_to(thread, 0, "revert-after-undo")).await.unwrap();
+    let reverted = wait_for(&engine, thread, "the revert after the undo", |t| {
+        t.activities.iter().filter(|a| a.kind == "checkpoint.revert.succeeded").count() == 2
+            || t.activities.iter().filter(|a| a.kind == "checkpoint.revert.failed").count() == 2
+    })
+    .await;
+    assert_eq!(
+        reverted.activities.iter().filter(|a| a.kind == "checkpoint.revert.succeeded").count(),
+        2,
+        "{:#?}",
+        reverted.activities.iter().map(|a| (&a.kind, &a.payload)).collect::<Vec<_>>()
+    );
+    assert_eq!(std::fs::read_to_string(workspace.path().join("README.md")).unwrap(), "hello\nlater\n");
+    assert!(!workspace.path().join("probe.txt").exists());
     engine.shutdown().await;
 }
 
@@ -852,6 +869,222 @@ async fn a_files_undo_that_conflicts_leaves_the_workspace_as_it_was() {
     );
     assert_eq!(std::fs::read_to_string(workspace.path().join("probe.txt")).unwrap(), "rewritten\n");
     assert!(!failed.checkpoints.iter().find(|c| c.checkpoint_turn_count == 1).unwrap().files.is_empty());
+    engine.shutdown().await;
+}
+
+/// [`thread_after_one_turn`], then a second turn that writes `second.txt`; the CLI still runs.
+async fn thread_after_two_turns(
+    engine: &ChatEngine,
+    spawner: &ScriptedSpawner,
+    workspace: &Path,
+    thread: &str,
+) -> (ClaudeCli, tokio::sync::oneshot::Sender<Option<i32>>) {
+    let (mut cli, exit) = thread_after_one_turn(engine, spawner, workspace, thread).await;
+    let first = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap().latest_turn.unwrap().turn_id;
+    engine.dispatch(turn_start(thread, "msg-2", "Write the second file", "queue")).await.unwrap();
+    cli.read_user_message().await;
+    wait_for(engine, thread, "the second turn to run", |t| {
+        running(t) && t.session.as_ref().and_then(|s| s.active_turn_id.as_ref()) != Some(&first)
+    })
+    .await;
+    std::fs::write(workspace.join("second.txt"), "two\n").unwrap();
+    let reply = json!({
+        "type": "assistant",
+        "message": { "id": "msg_second", "type": "message", "role": "assistant", "model": "claude-haiku-4-5-20251001",
+                     "content": [{ "type": "text", "text": "Written." }], "stop_reason": null, "usage": {} },
+        "parent_tool_use_id": null,
+        "session_id": CLAUDE_SESSION,
+        "uuid": "assistant-second",
+    });
+    cli.write_line(&reply.to_string()).await;
+    cli.write_line(&claude_result("result-second", "success")).await;
+    let done = wait_for(engine, thread, "the second turn's checkpoint", |t| {
+        t.checkpoints.iter().any(|c| c.checkpoint_turn_count == 2 && c.files.iter().any(|f| f.path == "second.txt"))
+    })
+    .await;
+    assert!(done.checkpoints.iter().any(|c| c.checkpoint_turn_count == 1 && c.files.iter().any(|f| f.path == "probe.txt")));
+    (cli, exit)
+}
+
+fn revert_to(thread: &str, turn_count: u64, id: &str) -> ClientThreadCommand {
+    command(json!({ "type": "thread.checkpoint.revert", "commandId": id, "threadId": thread, "turnCount": turn_count, "createdAt": T0 }))
+}
+
+/// What the person did beside the chat: an edit to a file no turn touched, and a new file.
+fn edit_beside_the_chat(workspace: &Path) {
+    std::fs::write(workspace.join("README.md"), "hello\nthe person's line\n").unwrap();
+    std::fs::write(workspace.join("notes.txt"), "untracked\n").unwrap();
+}
+
+fn assert_kept_beside_the_chat(workspace: &Path) {
+    assert_eq!(std::fs::read_to_string(workspace.join("README.md")).unwrap(), "hello\nthe person's line\n");
+    assert_eq!(std::fs::read_to_string(workspace.join("notes.txt")).unwrap(), "untracked\n");
+}
+
+/// A revert takes back the chat's own turns, newest first, and nothing else in the folder: not the
+/// person's edit, not their new file (Synara restores and cleans the whole folder).
+#[tokio::test]
+async fn a_revert_takes_back_only_the_chats_own_changes() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-revert-own";
+    let (mut cli, _exit) = thread_after_two_turns(&engine, &spawner, workspace.path(), thread).await;
+    edit_beside_the_chat(workspace.path());
+
+    engine.dispatch(revert_to(thread, 0, "revert-own")).await.unwrap();
+    let reverted = wait_for(&engine, thread, "the revert", |t| {
+        t.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded" || a.kind == "checkpoint.revert.failed")
+    })
+    .await;
+    assert!(
+        reverted.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded"),
+        "{:#?}",
+        reverted.activities.iter().map(|a| (&a.kind, &a.payload)).collect::<Vec<_>>()
+    );
+    assert!(!workspace.path().join("probe.txt").exists(), "turn 1's file was taken back");
+    assert!(!workspace.path().join("second.txt").exists(), "turn 2's file was taken back");
+    assert_kept_beside_the_chat(workspace.path());
+    assert!(reverted.checkpoints.is_empty());
+    cli.expect_closed().await;
+    // The rescue snapshot is deleted behind the revert.
+    let deadline = tokio::time::Instant::now() + WAIT;
+    while git_refs(workspace.path()).iter().any(|r| r.contains("/revert-rescue/")) {
+        assert!(tokio::time::Instant::now() < deadline, "the rescue snapshot was not cleaned up");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    engine.shutdown().await;
+}
+
+/// A turn whose diff summary could not be computed (here, a diff over the cap) lists no files, but
+/// its changes are still the chat's: a revert takes them back from its refs.
+#[tokio::test]
+async fn a_revert_takes_back_a_turn_whose_summary_is_unavailable() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-revert-unsummarized";
+    git_init(workspace.path());
+    std::fs::write(workspace.path().join("README.md"), "hello\n").unwrap();
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Write a big file", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    wait_for(&engine, thread, "the turn to run", running).await;
+    std::fs::write(workspace.path().join("probe.txt"), "hi\n").unwrap();
+    std::fs::write(workspace.path().join("big.txt"), "a line of the big file\n".repeat(500_000)).unwrap();
+    play_claude_turn(&engine, &mut cli, thread).await;
+    let done = wait_for(&engine, thread, "the turn's checkpoint", |t| {
+        t.checkpoints.iter().any(|c| c.checkpoint_turn_count == 1)
+            && t.activities.iter().any(|a| a.kind == "checkpoint.capture.failed")
+    })
+    .await;
+    assert!(done.checkpoints.iter().find(|c| c.checkpoint_turn_count == 1).unwrap().files.is_empty(), "the summary is unavailable");
+    edit_beside_the_chat(workspace.path());
+
+    engine.dispatch(revert_to(thread, 0, "revert-unsummarized")).await.unwrap();
+    let reverted = wait_for(&engine, thread, "the revert", |t| {
+        t.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded" || a.kind == "checkpoint.revert.failed")
+    })
+    .await;
+    assert!(
+        reverted.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded"),
+        "{:#?}",
+        reverted.activities.iter().map(|a| (&a.kind, &a.payload)).collect::<Vec<_>>()
+    );
+    assert!(!workspace.path().join("big.txt").exists(), "the big file was taken back");
+    assert!(!workspace.path().join("probe.txt").exists());
+    assert_kept_beside_the_chat(workspace.path());
+    engine.shutdown().await;
+}
+
+/// A revert whose older turn no longer reverses is refused whole: the newer turn's changes stay
+/// too, and the conversation is not rolled back.
+#[tokio::test]
+async fn a_revert_that_conflicts_changes_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-revert-conflict";
+    let (mut cli, _exit) = thread_after_two_turns(&engine, &spawner, workspace.path(), thread).await;
+    let before = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    edit_beside_the_chat(workspace.path());
+    std::fs::write(workspace.path().join("probe.txt"), "rewritten\n").unwrap();
+
+    engine.dispatch(revert_to(thread, 0, "revert-conflict")).await.unwrap();
+    let failed = wait_for(&engine, thread, "the refused revert", |t| {
+        t.activities.iter().any(|a| a.kind == "checkpoint.revert.failed" || a.kind == "checkpoint.revert.succeeded")
+    })
+    .await;
+    let failure = failed.activities.iter().find(|a| a.kind == "checkpoint.revert.failed").expect("the revert was refused");
+    assert!(
+        failure.payload["detail"].as_str().unwrap().starts_with("Undo could not be applied because the workspace changed"),
+        "{}",
+        failure.payload["detail"]
+    );
+    assert_eq!(std::fs::read_to_string(workspace.path().join("probe.txt")).unwrap(), "rewritten\n");
+    assert_eq!(std::fs::read_to_string(workspace.path().join("second.txt")).unwrap(), "two\n", "the newer turn stays too");
+    assert_kept_beside_the_chat(workspace.path());
+    assert_eq!(failed.messages.len(), before.messages.len());
+    assert_eq!(failed.checkpoints.len(), before.checkpoints.len());
+    let read = timeout(Duration::from_millis(300), cli.stdin.next_line()).await;
+    assert!(!matches!(read, Ok(Ok(None))), "a refused revert stopped the CLI");
+    assert!(!git_refs(workspace.path()).iter().any(|r| r.contains("/revert-rescue/")), "nothing was snapshotted");
+    engine.shutdown().await;
+}
+
+/// An edit of the latest message takes back its turn's changes the same way, then resends.
+#[tokio::test]
+async fn an_edit_takes_back_only_the_chats_own_changes() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-edit-own";
+    let (mut cli, exit) = thread_after_two_turns(&engine, &spawner, workspace.path(), thread).await;
+    edit_beside_the_chat(workspace.path());
+
+    engine.dispatch(edit_and_resend(thread, "msg-2", "Write the second file again")).await.unwrap();
+    cli.expect_closed().await;
+    let _ = exit.send(Some(0));
+    let (mut resent, _exit) = ClaudeCli::spawned(&spawner).await;
+    let user = resent.read_user_message().await;
+    assert_eq!(user["message"]["content"][0]["text"], "Write the second file again");
+    assert!(!workspace.path().join("second.txt").exists(), "the edited turn's file was taken back");
+    assert_eq!(std::fs::read_to_string(workspace.path().join("probe.txt")).unwrap(), "hi\n", "the turn before stays");
+    assert_kept_beside_the_chat(workspace.path());
+    engine.shutdown().await;
+}
+
+/// An edit whose turns no longer reverse is refused before the CLI is stopped: nothing changes.
+#[tokio::test]
+async fn an_edit_that_conflicts_changes_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-edit-conflict";
+    let (mut cli, _exit) = thread_after_two_turns(&engine, &spawner, workspace.path(), thread).await;
+    let before = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    edit_beside_the_chat(workspace.path());
+    std::fs::write(workspace.path().join("second.txt"), "rewritten\n").unwrap();
+
+    engine.dispatch(edit_and_resend(thread, "msg-2", "Write the second file again")).await.unwrap();
+    let failed = wait_for(&engine, thread, "the refused edit", |t| {
+        t.session.as_ref().is_some_and(|s| s.status == OrchestrationSessionStatus::Error)
+    })
+    .await;
+    let detail = failed.session.as_ref().unwrap().last_error.clone().unwrap();
+    assert!(detail.starts_with("Undo could not be applied because the workspace changed"), "{detail}");
+    assert_eq!(std::fs::read_to_string(workspace.path().join("second.txt")).unwrap(), "rewritten\n");
+    assert_eq!(std::fs::read_to_string(workspace.path().join("probe.txt")).unwrap(), "hi\n");
+    assert_kept_beside_the_chat(workspace.path());
+    assert_eq!(failed.messages.len(), before.messages.len());
+    let read = timeout(Duration::from_millis(300), cli.stdin.next_line()).await;
+    assert!(!matches!(read, Ok(Ok(None))), "a refused edit stopped the CLI");
     engine.shutdown().await;
 }
 
@@ -1480,4 +1713,327 @@ async fn archiving_a_parent_succeeds_when_a_subagent_thread_cannot_follow() {
         .expect("the parent's archive is not undone by its subagent");
     assert!(reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap().archived_at.is_some());
     reopened.shutdown().await;
+}
+
+// --- Cascade: a chat that starts with a terminal session's knowledge ---
+
+const TERMINAL_SESSION: &str = "0b7f3f52-4a35-4d1b-9a35-6f4c1c9d2e11";
+
+fn create_with_knowledge(thread: &str, provider: &str, model: &str, cwd: &Path, knowledge: Value) -> ClientThreadCommand {
+    let mut create = serde_json::to_value(create_thread(thread, provider, model, cwd)).unwrap();
+    create["knowledgeSource"] = knowledge;
+    command(create)
+}
+
+/// The one divider such a chat shows: Synara's `provider.handoff` activity, outside any turn.
+fn knowledge_divider(thread: &OrchestrationThread) -> &cascade_chat::contracts::orchestration::OrchestrationThreadActivity {
+    let dividers: Vec<_> = thread.activities.iter().filter(|a| a.kind == "provider.handoff").collect();
+    assert_eq!(dividers.len(), 1, "{:#?}", thread.activities);
+    assert!(dividers[0].turn_id.is_none());
+    dividers[0]
+}
+
+/// Same provider: the chat's first session forks the terminal's conversation natively, under a
+/// session of its own; the terminal's messages are not imported, and later sessions resume the
+/// chat's own conversation, even after a restart.
+#[tokio::test]
+async fn a_chat_with_a_claude_sessions_knowledge_forks_its_conversation_once() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-knowing";
+    let knowledge = json!({ "provider": "claudeAgent", "conversationId": TERMINAL_SESSION, "model": "claude-opus-4-1", "recap": "User: Remember PELICAN" });
+    engine.dispatch(create_with_knowledge(thread, "claudeAgent", "haiku", workspace.path(), knowledge)).await.unwrap();
+    let created = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert!(created.messages.is_empty(), "nothing of the session's conversation is shown");
+    assert!(created.fork_source_thread_id.is_none());
+    let divider = knowledge_divider(&created);
+    assert_eq!(divider.summary, "Started with Claude's knowledge from the session");
+    assert_eq!(divider.payload["sourceProvider"], "claudeAgent");
+    assert_eq!(divider.payload["sourceModel"], "claude-opus-4-1");
+    assert_eq!(divider.payload["targetProvider"], "claudeAgent");
+    assert_eq!(divider.payload["targetModel"], "haiku");
+    assert!(divider.payload["contextText"].as_str().unwrap().contains(TERMINAL_SESSION), "a native fork, not the recap");
+
+    engine.dispatch(turn_start(thread, "msg-k1", "What word?", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the chat started no CLI");
+    let args = child.spec.args.clone();
+    assert_eq!(arg_value(&args, "--resume"), Some(TERMINAL_SESSION), "{args:?}");
+    assert!(args.iter().any(|arg| arg == "--fork-session"), "{args:?}");
+    let own = arg_value(&args, "--session-id").expect("a session of the chat's own").to_owned();
+    assert_ne!(own, TERMINAL_SESSION);
+    let mut cli = ClaudeCli { stdin: BufReader::new(child.stdin).lines(), stdout: child.stdout };
+    let user = cli.read_user_message().await;
+    assert_eq!(user["message"]["content"][0]["text"], "What word?", "a native fork carries no recap");
+    write_claude_turn_as(&engine, &mut cli, thread, &own).await;
+    let done = wait_for(&engine, thread, "the first turn", turn_completed).await;
+    assert!(done.messages.iter().all(|m| m.source != OrchestrationMessageSource::ForkImport));
+    // The chat's conversation is known as a chat's; the terminal's it forked is not.
+    let held = engine.chat_conversations().await.unwrap();
+    assert!(held.contains(&own), "{held:?}");
+    assert!(!held.contains(TERMINAL_SESSION), "{held:?}");
+    drop(cli);
+    let _ = child.exit.send(Some(0));
+    wait_for(&engine, thread, "the CLI to end", |t| t.session.as_ref().is_some_and(|s| s.status == OrchestrationSessionStatus::Stopped)).await;
+    engine.shutdown().await;
+
+    // Read back after a restart: the chat's own conversation, not the terminal's again.
+    let (engine, _) = start(data.path(), &spawner).await;
+    engine.dispatch(turn_start(thread, "msg-k2", "Again", "queue")).await.unwrap();
+    let again = timeout(WAIT, spawner.next()).await.expect("no second CLI");
+    assert_eq!(arg_value(&again.spec.args, "--resume"), Some(own.as_str()), "{:?}", again.spec.args);
+    assert!(!again.spec.args.iter().any(|arg| arg == "--fork-session"));
+    assert_eq!(knowledge_divider(&engine.thread(ThreadId::new(thread)).await.unwrap().unwrap()).kind, "provider.handoff");
+    engine.shutdown().await;
+}
+
+/// Another provider: no fork; the first turn carries the recap as hidden handoff context, the
+/// message shown is what the person wrote, and the next turn carries nothing.
+#[tokio::test]
+async fn a_chat_with_another_providers_knowledge_sends_the_recap_with_its_first_turn() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-recapped";
+    let recap = "This conversation starts with what Codex knew.\n\nMost recent imported messages:\nUser:\nRemember PELICAN";
+    let knowledge = json!({ "provider": "codex", "conversationId": "codex-terminal-thread", "recap": recap });
+    engine.dispatch(create_with_knowledge(thread, "claudeAgent", "haiku", workspace.path(), knowledge)).await.unwrap();
+    let created = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    let divider = knowledge_divider(&created);
+    assert_eq!(divider.summary, "Started with Codex's knowledge from the session");
+    assert_eq!(divider.payload["sourceModel"], "session");
+    assert_eq!(divider.payload["contextText"], recap);
+
+    engine.dispatch(turn_start(thread, "msg-r1", "What word?", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the chat started no CLI");
+    let args = child.spec.args.clone();
+    assert_eq!(arg_value(&args, "--resume"), None, "{args:?}");
+    assert!(!args.iter().any(|arg| arg == "--fork-session"), "{args:?}");
+    let own = arg_value(&args, "--session-id").unwrap().to_owned();
+    let mut cli = ClaudeCli { stdin: BufReader::new(child.stdin).lines(), stdout: child.stdout };
+    let user = cli.read_user_message().await;
+    assert_eq!(
+        user["message"]["content"][0]["text"],
+        format!("<handoff_context>\n{recap}\n</handoff_context>\n\n<latest_user_message>\nWhat word?\n</latest_user_message>")
+    );
+    write_claude_turn_as(&engine, &mut cli, thread, &own).await;
+    let done = wait_for(&engine, thread, "the first turn", turn_completed).await;
+    let sent: Vec<_> = done.messages.iter().filter(|m| m.role == OrchestrationMessageRole::User).collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].text, "What word?", "the recap is not shown");
+
+    engine.dispatch(turn_start(thread, "msg-r2", "And now?", "queue")).await.unwrap();
+    let user = cli.read_user_message().await;
+    assert_eq!(user["message"]["content"][0]["text"], "And now?");
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_chat_with_a_codex_sessions_knowledge_opens_its_thread_with_thread_fork() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-codex-knowing";
+    let knowledge = json!({ "provider": "codex", "conversationId": "codex-terminal-thread", "recap": "unused" });
+    engine.dispatch(create_with_knowledge(thread, "codex", "gpt-6-astra", workspace.path(), knowledge)).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-c1", "What word?", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the chat started no CLI");
+    let mut cli = CodexCli { from_engine: BufReader::new(child.stdin).lines(), to_engine: child.stdout };
+    let initialize = cli.expect_request("initialize").await;
+    let recorded: Value = serde_json::from_str(CODEX_FIXTURE.lines().find(|l| l.starts_with("{\"id\":1,")).unwrap()).unwrap();
+    cli.write(&json!({ "id": initialize["id"], "result": recorded["result"] })).await;
+    let open = cli.expect_request("thread/fork").await;
+    assert_eq!(open["params"]["threadId"], "codex-terminal-thread");
+    cli.write(&json!({ "id": open["id"], "result": { "thread": { "id": "chat-codex-thread" }, "model": "gpt-6-astra" } })).await;
+    let turn = cli.expect_request("turn/start").await;
+    assert_eq!(turn["params"]["threadId"], "chat-codex-thread");
+    assert!(!turn.to_string().contains("handoff_context"), "{turn}");
+    engine.shutdown().await;
+}
+
+/// The knowledge is used once a turn carrying it has started; a first turn that never started,
+/// though the session had bound (Codex answered `thread/start`), leaves it pending, and the retry
+/// still carries the recap.
+#[tokio::test]
+async fn a_first_turn_that_fails_after_the_session_bound_keeps_the_knowledge_pending() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-codex-recap-retry";
+    let knowledge = json!({ "provider": "claudeAgent", "conversationId": TERMINAL_SESSION, "recap": "User: Remember PELICAN" });
+    engine.dispatch(create_with_knowledge(thread, "codex", "gpt-6-astra", workspace.path(), knowledge)).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-c1", "What word?", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the chat started no CLI");
+    let mut cli = CodexCli { from_engine: BufReader::new(child.stdin).lines(), to_engine: child.stdout };
+    let initialize = cli.expect_request("initialize").await;
+    let recorded: Value = serde_json::from_str(CODEX_FIXTURE.lines().find(|l| l.starts_with("{\"id\":1,")).unwrap()).unwrap();
+    cli.write(&json!({ "id": initialize["id"], "result": recorded["result"] })).await;
+    let open = cli.expect_request("thread/start").await;
+    cli.write(&json!({ "id": open["id"], "result": { "thread": { "id": "chat-codex-thread" }, "model": "gpt-6-astra" } })).await;
+    let turn = cli.expect_request("turn/start").await;
+    assert!(turn.to_string().contains("handoff_context"), "{turn}");
+    cli.write(&json!({ "id": turn["id"], "error": { "code": -32000, "message": "the turn could not start" } })).await;
+    wait_for(&engine, thread, "the failed start", |t| t.activities.iter().any(|a| a.kind == "provider.turn.start.failed")).await;
+
+    engine.dispatch(turn_start(thread, "msg-c2", "What word, again?", "queue")).await.unwrap();
+    let retry = cli.expect_request("turn/start").await;
+    assert!(retry.to_string().contains("handoff_context"), "the retry carries the recap: {retry}");
+    assert!(retry.to_string().contains("Remember PELICAN"), "{retry}");
+    engine.shutdown().await;
+}
+
+/// An edit of the first message while its turn runs resets the conversation before a turn
+/// completed: the resent message's session forks the terminal's conversation again.
+#[tokio::test]
+async fn an_edit_of_the_first_message_forks_the_knowledge_again() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-knowing-edit";
+    let knowledge = json!({ "provider": "claudeAgent", "conversationId": TERMINAL_SESSION });
+    engine.dispatch(create_with_knowledge(thread, "claudeAgent", "haiku", workspace.path(), knowledge)).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-k1", "What word?", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the chat started no CLI");
+    assert!(child.spec.args.iter().any(|arg| arg == "--fork-session"), "{:?}", child.spec.args);
+    let mut cli = ClaudeCli { stdin: BufReader::new(child.stdin).lines(), stdout: child.stdout };
+    cli.read_user_message().await;
+    wait_for(&engine, thread, "the first turn to run", running).await;
+
+    engine.dispatch(edit_and_resend(thread, "msg-k1", "What word, really?")).await.unwrap();
+    cli.expect_closed().await;
+    let _ = child.exit.send(Some(0));
+    let again = timeout(WAIT, spawner.next()).await.expect("the edit started no CLI");
+    let args = &again.spec.args;
+    assert_eq!(arg_value(args, "--resume"), Some(TERMINAL_SESSION), "{args:?}");
+    assert!(args.iter().any(|arg| arg == "--fork-session"), "{args:?}");
+    engine.shutdown().await;
+}
+
+/// A fork of a chat tagged with a session's worktree keeps the tag when its command names none.
+#[tokio::test]
+async fn a_fork_that_names_no_worktree_keeps_its_sources() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let source = "thread-pane-source";
+    engine.dispatch(create_thread(source, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    let mut fork = serde_json::to_value(fork_thread("thread-pane-fork", source, "project-1", "claudeAgent", "haiku", workspace.path(), vec![])).unwrap();
+    fork["worktreePath"] = Value::Null;
+    engine.dispatch(command(fork)).await.unwrap();
+    let forked = engine.thread(ThreadId::new("thread-pane-fork")).await.unwrap().unwrap();
+    assert_eq!(forked.worktree_path.as_deref(), Some(workspace.path().to_str().unwrap()));
+    engine.shutdown().await;
+}
+
+/// Live: a Claude chat (haiku) that starts with what a real Claude conversation knew, natively
+/// forked, and one that is only sent a recap. Run with `cargo test --test engine live_knowledge --
+/// --ignored --nocapture`, with `CASCADE_KNOWLEDGE_LIVE_DIR` the git folder the conversation ran in
+/// and `CASCADE_KNOWLEDGE_LIVE_SESSION` its session id (`claude -p --session-id <id> "Remember the
+/// word PELICAN"` there).
+#[tokio::test]
+#[ignore]
+async fn live_knowledge_of_a_claude_conversation() {
+    let dir = std::env::var("CASCADE_KNOWLEDGE_LIVE_DIR").expect("CASCADE_KNOWLEDGE_LIVE_DIR");
+    let session = std::env::var("CASCADE_KNOWLEDGE_LIVE_SESSION").expect("CASCADE_KNOWLEDGE_LIVE_SESSION");
+    let data = tempfile::tempdir().unwrap();
+    let engine = ChatEngine::start(ChatEngineConfig {
+        data_dir: data.path().to_path_buf(),
+        spawner: Arc::new(cascade_chat::provider::process::ProcessSpawner),
+        adapters: None,
+        publish: Arc::new(|_| {}),
+        git: None,
+    })
+    .await
+    .unwrap();
+    let ask = "What word did I ask you to remember? Reply with that word only.";
+    let cases = [
+        ("live-native", json!({ "provider": "claudeAgent", "conversationId": session })),
+        ("live-recap", json!({ "provider": "codex", "conversationId": "codex-elsewhere",
+            "recap": "This chat starts with what the Codex agent of a terminal session knew.\n\nMost recent imported messages:\nUser:\nRemember the word OSPREY\n\nAssistant:\nI will remember OSPREY." })),
+    ];
+    for (thread, knowledge) in cases {
+        engine.dispatch(create_with_knowledge(thread, "claudeAgent", "haiku", Path::new(&dir), knowledge)).await.unwrap();
+        engine.dispatch(turn_start(thread, &format!("{thread}-1"), ask, "queue")).await.unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+        let done = loop {
+            let found = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+            if turn_completed(&found) || found.activities.iter().any(|a| a.kind.contains("failed") || a.tone == cascade_chat::contracts::orchestration::OrchestrationThreadActivityTone::Error) {
+                break found;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "timed out: {}", serde_json::to_string_pretty(&found).unwrap());
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        };
+        let messages: Vec<(String, String)> = done.messages.iter().map(|m| (json!(m.role).as_str().unwrap().to_owned(), m.text.clone())).collect();
+        println!("{thread}: {messages:?}");
+        println!("{thread}: activities {:?}", done.activities.iter().map(|a| (&a.kind, &a.summary)).collect::<Vec<_>>());
+    }
+    engine.shutdown().await;
+}
+
+/// Live: a Claude chat (haiku) whose turn writes a file, beside which the person edits another
+/// file and adds one; reverting the turn takes back only the chat's file. Run with `cargo test
+/// --test engine live_revert -- --ignored --nocapture`, with `CASCADE_REVERT_LIVE_DIR` a scratch
+/// folder to make the git workspace in.
+#[tokio::test]
+#[ignore]
+async fn live_revert_takes_back_only_the_chats_turn() {
+    let parent = std::env::var("CASCADE_REVERT_LIVE_DIR").expect("CASCADE_REVERT_LIVE_DIR");
+    let workspace = Path::new(&parent).join(format!("revert-{}", std::process::id()));
+    std::fs::create_dir_all(&workspace).unwrap();
+    git_init(&workspace);
+    std::fs::write(workspace.join("README.md"), "hello\n").unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let engine = ChatEngine::start(ChatEngineConfig {
+        data_dir: data.path().to_path_buf(),
+        spawner: Arc::new(cascade_chat::provider::process::ProcessSpawner),
+        adapters: None,
+        publish: Arc::new(|_| {}),
+        git: None,
+    })
+    .await
+    .unwrap();
+    let thread = "live-revert";
+    let mut create = serde_json::to_value(create_thread(thread, "claudeAgent", "haiku", &workspace)).unwrap();
+    create["runtimeMode"] = json!("full-access");
+    engine.dispatch(command(create)).await.unwrap();
+    let mut turn = serde_json::to_value(turn_start(thread, "live-1", "Use the Write tool to create chat.txt containing the word hello. Then reply with: done", "queue")).unwrap();
+    turn["runtimeMode"] = json!("full-access");
+    engine.dispatch(command(turn)).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
+    let done = loop {
+        let found = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+        if found.activities.iter().any(|a| a.kind == "checkpoint.captured") {
+            break found;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "timed out: {}", serde_json::to_string_pretty(&found).unwrap());
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    };
+    let files: Vec<_> = done.checkpoints[0].files.iter().map(|f| f.path.clone()).collect();
+    println!("turn 1 changed {files:?}; chat.txt = {:?}", std::fs::read_to_string(workspace.join("chat.txt")).ok());
+    println!("checkpoints: {}", serde_json::to_string(&done.checkpoints).unwrap());
+    edit_beside_the_chat(&workspace);
+
+    engine.dispatch(revert_to(thread, 0, "live-revert")).await.unwrap();
+    let reverted = wait_for(&engine, thread, "the revert", |t| {
+        t.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded" || a.kind == "checkpoint.revert.failed")
+    })
+    .await;
+    let outcome: Vec<_> = reverted.activities.iter().filter(|a| a.kind.starts_with("checkpoint.revert")).map(|a| (&a.kind, &a.payload)).collect();
+    println!("revert: {outcome:?}");
+    println!(
+        "after: chat.txt exists = {}, README.md = {:?}, notes.txt = {:?}",
+        workspace.join("chat.txt").exists(),
+        std::fs::read_to_string(workspace.join("README.md")).ok(),
+        std::fs::read_to_string(workspace.join("notes.txt")).ok()
+    );
+    assert!(reverted.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded"));
+    assert!(!workspace.join("chat.txt").exists());
+    assert_kept_beside_the_chat(&workspace);
+    engine.shutdown().await;
 }

@@ -156,6 +156,7 @@ enum Request {
     ThreadDetail { thread_id: ThreadId, reply: oneshot::Sender<Result<Option<(OrchestrationThread, u64)>>> },
     Shells { project: Option<String>, reply: oneshot::Sender<Result<Vec<OrchestrationThreadShell>>> },
     ShellSnapshot { reply: oneshot::Sender<Result<OrchestrationShellSnapshot>> },
+    Conversations { reply: oneshot::Sender<Result<HashSet<String>>> },
     Shutdown { reply: oneshot::Sender<()> },
 }
 
@@ -332,6 +333,12 @@ impl ChatEngine {
         self.ask(|reply| Request::ShellSnapshot { reply }).await?
     }
 
+    /// Cascade: the ids of every provider conversation a chat holds (`provider_sessions`), so
+    /// the backend never takes one of them for a terminal session's agent's.
+    pub async fn chat_conversations(&self) -> Result<HashSet<String>> {
+        self.ask(|reply| Request::Conversations { reply }).await?
+    }
+
     /// Stops every provider session and saves what is unsaved; the engine then stops.
     pub async fn shutdown(&self) {
         let _ = self.ask(|reply| Request::Shutdown { reply }).await;
@@ -390,11 +397,22 @@ pub(super) struct PendingEdit {
     pub original: OrchestrationMessage,
 }
 
-/// Where an edit-and-resend puts the workspace back to, once its checkpoint is known to exist.
+/// One turn a revert or an edit takes back: its changes run from its start (`start`, or the
+/// turn before's end, `previous`, when the start was not kept) to its end.
+#[derive(Clone, Debug)]
+pub(super) struct TurnTakeBack {
+    pub turn_count: u64,
+    pub start: CheckpointRef,
+    pub previous: Option<CheckpointRef>,
+    pub end: CheckpointRef,
+}
+
+/// What an edit-and-resend takes back, once its turns' changes are known to reverse: each turn's
+/// `(from, to)`, newest first.
 pub(super) struct EditRestore {
     pub edit: PendingEdit,
     pub cwd: PathBuf,
-    pub target: CheckpointRef,
+    pub ranges: Vec<(CheckpointRef, CheckpointRef)>,
     pub target_count: u64,
 }
 
@@ -422,8 +440,17 @@ pub(super) struct Entry {
     /// What resumes the provider's conversation.
     pub record: Option<ProviderSessionRecord>,
     /// A fork whose own first session has bound (`fork_bindings`): its conversation is its own
-    /// for good, even once `record` is cleared, and its source's is never forked again.
+    /// for good, even once `record` is cleared, and its source's is never forked again. For a chat
+    /// that started with another conversation's knowledge (`knowledge`), that a turn of it has
+    /// completed: the knowledge is used up for good.
     pub fork_bound: bool,
+    /// Cascade: what the chat started knowing from another agent conversation, which its session
+    /// forks or its turn recaps until a turn of it completes (`knowledge_sources`).
+    pub knowledge: Option<ThreadKnowledgeSource>,
+    /// Cascade: the chat's provider conversation now carries `knowledge`: a turn that carried it
+    /// (forked or recapped) started in it. Cleared with the conversation, so a chat whose
+    /// conversation is reset before a turn completed takes the knowledge again.
+    pub knowledge_applied: bool,
     /// Synara's queued turn promotions, in order.
     pub queue: VecDeque<ThreadTurnQueuedPayload>,
     pub reservation: Option<Reservation>,
@@ -560,6 +587,9 @@ impl Actor {
                 .await;
                 let _ = reply.send(snapshot);
             }
+            Request::Conversations { reply } => {
+                let _ = reply.send(self.store.provider_conversation_ids().await);
+            }
             Request::Shutdown { .. } => unreachable!("handled by the loop"),
         }
     }
@@ -584,8 +614,25 @@ impl Actor {
             }
             _ => self.run_command(&mut ctx, command.clone()),
         };
+        // Cascade: a chat created with another conversation's knowledge says so in its timeline,
+        // and keeps the knowledge for its first session once its own row is saved.
+        let knowledge = match (&outcome, &command) {
+            (Ok(()), OrchestrationCommand::Client(ClientThreadCommand::Create(create))) => create.knowledge_source.clone(),
+            _ => None,
+        };
+        if let Some(source) = &knowledge {
+            if let Some(entry) = self.entries.get_mut(&thread_id) {
+                entry.knowledge = Some(source.clone());
+            }
+            self.append_knowledge_divider(&mut ctx, source);
+        }
         let sequence = self.entries.get(&thread_id).map_or(0, |e| e.sequence);
         self.commit(ctx).await;
+        if let Some(source) = &knowledge {
+            if let Err(error) = self.store.set_knowledge_source(thread_id.clone(), source).await {
+                tracing::warn!(thread = %thread_id, "chat: what the chat starts knowing could not be saved: {error:#}");
+            }
+        }
         self.forget_if_absent(&thread_id);
         if let (Ok(()), OrchestrationCommand::Client(client)) = (&outcome, &command) {
             // The thread itself took the command, and it is saved: a subtree that did not follow
@@ -719,11 +766,19 @@ impl Actor {
         let thread = self.store.load_thread(thread_id.clone()).await?;
         let sequence = self.store.thread_sequence(thread_id.clone()).await?;
         let record = self.store.provider_session(thread_id.clone()).await?;
-        let fork_bound = match thread.as_ref().is_some_and(|t| t.fork_source_thread_id.is_some()) {
+        let knowledge = match thread.is_some() {
+            true => self.store.knowledge_source(thread_id.clone()).await.unwrap_or_else(|error| {
+                tracing::warn!(thread = %thread_id, "chat: what the chat started knowing could not be read: {error:#}");
+                None
+            }),
+            false => None,
+        };
+        let fork_bound = match thread.as_ref().is_some_and(|t| t.fork_source_thread_id.is_some()) || knowledge.is_some() {
             true => self.store.fork_bound(thread_id.clone()).await?,
             false => false,
         };
         let shell = thread.as_ref().map(shell_of);
+        let knowledge_applied = record.is_some() && thread.as_ref().is_some_and(|t| t.latest_turn.is_some());
         self.entries.insert(
             thread_id.clone(),
             Entry {
@@ -736,6 +791,8 @@ impl Actor {
                 shell,
                 record,
                 fork_bound,
+                knowledge,
+                knowledge_applied,
                 queue: VecDeque::new(),
                 reservation: None,
                 terminal_before_bind: HashSet::new(),
@@ -808,17 +865,28 @@ impl Actor {
         if let Some(record) = &record {
             entry.record = record.clone();
         }
-        // A fork's first session of its own has bound: never fork its source again.
-        let fork_binds = matches!(record, Some(Some(_)))
-            && !entry.fork_bound
-            && entry.thread.as_ref().is_some_and(|t| t.fork_source_thread_id.is_some());
+        // A fork's first session of its own has bound: never fork its source again. A chat's
+        // knowledge is used up once a turn of it has completed; until then a conversation reset
+        // (a revert, an edit, a stale resume) clears it from the conversation, to be taken again.
+        if matches!(record, Some(None)) {
+            entry.knowledge_applied = false;
+        }
+        let is_fork = entry.thread.as_ref().is_some_and(|t| t.fork_source_thread_id.is_some());
+        let knowledge_used = entry.knowledge.is_some()
+            && entry
+                .thread
+                .as_ref()
+                .and_then(|t| t.latest_turn.as_ref())
+                .is_some_and(|turn| turn.state == OrchestrationLatestTurnState::Completed);
+        let fork_binds =
+            !entry.fork_bound && ((is_fork && matches!(record, Some(Some(_)))) || (!is_fork && knowledge_used));
         if fork_binds {
             entry.fork_bound = true;
         }
-        if events.is_empty() && record.is_none() {
+        if events.is_empty() && record.is_none() && !fork_binds {
             return;
         }
-        let streaming_only = record.is_none() && events.iter().all(is_streaming_delta);
+        let streaming_only = record.is_none() && !fork_binds && events.iter().all(is_streaming_delta);
         if streaming_only {
             entry.flush_at.get_or_insert_with(|| Instant::now() + STREAMING_SAVE_INTERVAL);
         } else {

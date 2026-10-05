@@ -79,20 +79,42 @@ import Observation
     func shell(_ id: String) -> ChatThreadShell? { shells[id] }
 
     /// The chats lists show, newest first by creation, so a row does not jump each time it is used.
-    /// A subagent's thread is left out unless asked for: it is reached from its parent's page.
-    func visible(includeArchived: Bool = false, includeSubagents: Bool = false) -> [ChatThreadShell] {
-        shells.values.filter { (includeArchived || !$0.archived) && (includeSubagents || !$0.subagent) }.sorted {
+    /// A subagent's thread is left out unless asked for: it is reached from its parent's page. So is
+    /// a chat started in a session's pane, tagged with a worktree in `excludingWorktrees`: the
+    /// session shows it. Once the session is gone, its chats are listed again.
+    func visible(includeArchived: Bool = false, includeSubagents: Bool = false,
+                 excludingWorktrees: Set<String> = []) -> [ChatThreadShell] {
+        shells.values.filter {
+            (includeArchived || !$0.archived) && (includeSubagents || !$0.subagent)
+                && !Self.inSession($0, worktrees: excludingWorktrees)
+        }.sorted {
             if ($0.createdAt ?? "") != ($1.createdAt ?? "") { return ($0.createdAt ?? "") > ($1.createdAt ?? "") }
             return $0.id < $1.id
         }
     }
 
+    /// The chats started in the panes of the session working in `worktree`, and their forks: not
+    /// archived, not a subagent's, newest first. What a pane's new-chat form offers to open again.
+    func inWorktree(_ worktree: String) -> [ChatThreadShell] {
+        let target: Set<String> = [Self.standardized(worktree)]
+        return visible().filter { Self.inSession($0, worktrees: target) }
+    }
+
+    /// Whether `shell` was started in the pane of a session working in one of `worktrees`
+    /// (standardized paths, as `standardized` makes them).
+    static func inSession(_ shell: ChatThreadShell, worktrees: Set<String>) -> Bool {
+        guard !worktrees.isEmpty, let path = shell.worktreePath, !path.isEmpty else { return false }
+        return worktrees.contains(standardized(path))
+    }
+    static func standardized(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
+
     /// The visible chats by where lists put them: each known project's under it, and every other —
     /// standalone, or a project that is gone — in the Chats section.
-    func grouped(projectIDs: Set<String>, includeArchived: Bool = false) -> (byProject: [String: [ChatThreadShell]], standalone: [ChatThreadShell]) {
+    func grouped(projectIDs: Set<String>, includeArchived: Bool = false,
+                 excludingWorktrees: Set<String> = []) -> (byProject: [String: [ChatThreadShell]], standalone: [ChatThreadShell]) {
         var byProject: [String: [ChatThreadShell]] = [:]
         var standalone: [ChatThreadShell] = []
-        for shell in visible(includeArchived: includeArchived) {
+        for shell in visible(includeArchived: includeArchived, excludingWorktrees: excludingWorktrees) {
             if projectIDs.contains(shell.projectId) { byProject[shell.projectId, default: []].append(shell) }
             else { standalone.append(shell) }
         }

@@ -1443,6 +1443,14 @@ pub fn decide_fork_create(
     if command.env_mode == ThreadEnvironmentMode::Worktree && command.worktree_path.as_deref().is_none_or(str::is_empty) {
         return Err(DecideError::ForkIntoNewWorktree { command_type });
     }
+    // Cascade: a fork that names no worktree keeps its source's. Synara's page always sends a
+    // worktree-backed source's path for "Fork Into Local"; a chat started in a session's pane is
+    // tagged with the session's worktree, which keeps it (and so its forks) out of the lists.
+    let worktree_path = command
+        .worktree_path
+        .clone()
+        .filter(|path| !path.is_empty())
+        .or_else(|| source_thread.worktree_path.clone().filter(|path| !path.is_empty()));
     let lineage_source = ForkLineageThread {
         id: source_thread.id.to_string(),
         project_id: source_thread.project_id.to_string(),
@@ -1452,7 +1460,7 @@ pub fn decide_fork_create(
     let (associated_worktree_path, associated_worktree_branch, associated_worktree_ref) =
         derive_associated_worktree_metadata(
             command.branch.as_ref(),
-            command.worktree_path.as_ref(),
+            worktree_path.as_ref(),
             &command.associated_worktree_path,
             &command.associated_worktree_branch,
             &command.associated_worktree_ref,
@@ -1470,7 +1478,7 @@ pub fn decide_fork_create(
             interaction_mode: command.interaction_mode,
             env_mode: command.env_mode,
             branch: command.branch.clone(),
-            worktree_path: command.worktree_path.clone(),
+            worktree_path,
             working_directory: command.working_directory.clone().flatten(),
             associated_worktree_path,
             associated_worktree_branch,

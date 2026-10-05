@@ -53,6 +53,12 @@ impl AgentProbe for Claude {
         Some(file.to_string_lossy().into_owned())
     }
 
+    /// Only under the worktree's own project folder, where `--resume <id>` run in the worktree
+    /// finds it.
+    fn conversation_in_worktree(home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+        conversation_file(home, worktree, id)
+    }
+
     fn has_conversation(home: &Path, id: &str) -> Option<bool> {
         Some(!id.is_empty() && super::is_name(id) && has_conversation(home, id))
     }

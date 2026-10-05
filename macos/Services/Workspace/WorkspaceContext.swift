@@ -36,10 +36,11 @@ struct SavedTabContent: Codable, Equatable, Sendable {
 }
 
 /// A tool the pane holds as a tab beside its pages and files: the worktree's changes, the
-/// Simulator, the worktree's files to pick one from, and the agent's live diagram. At most one tab
-/// of each, but for Files, which has as many as are opened, as web pages do.
+/// Simulator, the worktree's files to pick one from, the agent's live diagram, and a chat working
+/// in the worktree. At most one tab of each, but for Files and Chat, which have as many as are
+/// opened, as web pages do.
 enum WorkspaceTool: String, Codable, CaseIterable {
-    case changes, simulator, files, live
+    case changes, simulator, files, live, chat
     fileprivate static let prefix = "tool:"
     /// Its tab's id; of Files' tabs, the first one's.
     var id: String { Self.prefix + rawValue }
@@ -49,10 +50,10 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         self = tab.tool
     }
     /// Whether it may have more than one tab.
-    var unlimited: Bool { self == .files }
+    var unlimited: Bool { self == .files || self == .chat }
     /// The pane its tab shows.
     var pane: WorkspacePane {
-        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live: .term }
+        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live, .chat: .term }
     }
     var title: String {
         switch self {
@@ -60,20 +61,22 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
         case .live: String(localized: "Live Monitor")
+        case .chat: String(localized: "Chat")
         }
     }
     var symbol: String {
-        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart" }
+        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart"
+        case .chat: "bubble.left.and.bubble.right" }
     }
 }
 
 /// One tab of a tool. A tool's first tab goes by the tool's name alone, which is all the tools with
-/// one tab need; another Files tab adds its number, `files:2`.
+/// one tab need; another Files or Chat tab adds its number, `files:2`.
 struct WorkspaceToolTab: Hashable {
     let tool: WorkspaceTool
     let number: Int
     init(_ tool: WorkspaceTool, number: Int = 1) { self.tool = tool; self.number = number }
-    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live)
+    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live), chat = Self(.chat)
     /// What a snapshot saves it as.
     var rawValue: String { number == 1 ? tool.rawValue : "\(tool.rawValue):\(number)" }
     init?(rawValue: String) {
@@ -107,6 +110,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var tabOrder: [String]? = nil
     /// The tool tabs open, by `WorkspaceToolTab` raw value; their places are in `tabOrder`.
     var tools: [String]? = nil
+    /// The chat each Chat tab shows, by the tab's raw value; a tab not in it has none yet.
+    var chats: [String: String]? = nil
     var fileHistory: [FileDocumentRecord]? = nil
     var historyOrder: [String]? = nil
     var legacyDocuments: [SavedTabContent]? = nil
@@ -119,6 +124,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     private(set) var pages: [BrowserPage] = []
     private(set) var documents: [EditorDocumentViewModel] = []
     private(set) var tools: [WorkspaceToolTab] = []
+    /// The chat thread each Chat tab shows. A Chat tab missing here shows the new-chat form until a
+    /// chat is started in it. Closing the tab forgets the binding, never the chat.
+    private(set) var chatThreads: [WorkspaceToolTab: String] = [:]
     private(set) var tabOrder: [String] = []
     private(set) var fileHistory: [FileDocumentRecord] = []
     private(set) var historyOrder: [String] = []
@@ -219,6 +227,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             }
             documents = records.filter { $0.path.hasPrefix("/") && ids.insert($0.id).inserted }.map { documentFactory.editor(record: $0) }
             tools = (snapshot.tools ?? []).compactMap(WorkspaceToolTab.init(rawValue:)).filter { ids.insert($0.id).inserted }
+            for (raw, thread) in snapshot.chats ?? [:] {
+                if let tab = WorkspaceToolTab(rawValue: raw), tab.tool == .chat, tools.contains(tab), !thread.isEmpty { chatThreads[tab] = thread }
+            }
             tabOrder = Self.order(snapshot.tabOrder, ids: pages.map(\.id) + documents.map(\.id) + tools.map(\.id))
             fileHistory = snapshot.fileHistory ?? legacyFileHistory.compactMap { entry in
                 entry.filePath.map { FileDocumentRecord(path: $0) }
@@ -296,7 +307,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         return .init(pages: pages.map(\.record), activeID: saved, history: history,
                      pane: pane == .simulator ? WorkspacePane.term.rawValue : pane.rawValue,
                      reviewSection: reviewSection, documents: documents.map(\.record), tabOrder: tabOrder.filter { $0 != simulator },
-                     tools: tools.filter { $0 != .simulator }.map(\.rawValue), fileHistory: fileHistory, historyOrder: historyOrder,
+                     tools: tools.filter { $0 != .simulator }.map(\.rawValue),
+                     chats: chatThreads.isEmpty ? nil : Dictionary(uniqueKeysWithValues: chatThreads.map { ($0.key.rawValue, $0.value) }),
+                     fileHistory: fileHistory, historyOrder: historyOrder,
                      legacyDocuments: legacyDocuments, legacyFileHistory: legacyFileHistory)
     }
     func setReviewSection(_ value: ReviewSection) { reviewSection = value; changed() }
@@ -338,6 +351,27 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         }()
         select(.tool(tab))
         if let blank { close(blank) }
+    }
+    /// A Chat tab for `thread`: the one already showing it, else a new one after the active tab. With
+    /// no thread, a new tab that shows the new-chat form.
+    @discardableResult func openChat(thread: String? = nil, replacingBlank: Bool = false) -> WorkspaceToolTab {
+        if let thread, let existing = tools.first(where: { chatThreads[$0] == thread }) {
+            let blank = replacingBlank ? replaceableBlank : nil
+            select(.tool(existing))
+            if let blank { close(blank) }
+            return existing
+        }
+        openTool(.chat, replacingBlank: replacingBlank, another: true)
+        let tab = activeID.flatMap(WorkspaceToolTab.init(id:)) ?? .chat
+        if let thread { chatThreads[tab] = thread; changed() }
+        return tab
+    }
+    /// The chat a Chat tab shows, once one is started in it.
+    func chatThread(for tab: WorkspaceToolTab) -> String? { chatThreads[tab] }
+    /// A chat started in a Chat tab's form: the tab shows it from now on.
+    func bindChat(_ tab: WorkspaceToolTab, thread: String) {
+        guard tab.tool == .chat, tools.contains(tab), chatThreads[tab] != thread else { return }
+        chatThreads[tab] = thread; changed()
     }
     /// The blank tab a pick from its start page replaces.
     var replaceableBlank: BrowserPage? { activePage.flatMap { $0.controls.isBlank ? $0 : nil } }
@@ -412,7 +446,10 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             })
         case .tool(let tool):
             guard tools.contains(tool) else { return }
-            tools.removeAll { $0 == tool }; removeTab(tool.id)
+            tools.removeAll { $0 == tool }
+            // The tab's chat stays in the backend and the lists; only its page goes.
+            if tool.tool == .chat { chatThreads[tool] = nil; workspaceViewModel?.chatTabClosed(tool) }
+            removeTab(tool.id)
             // A later Files tab's own tree goes with it; the number's next tab starts afresh. The
             // first tree stays, as the file tabs show it, but the last Files tab gone takes its
             // filter, so the next Files tab opens on the whole tree.
@@ -491,7 +528,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         pages.forEach { $0.evict() }; documents.forEach { $0.dispose() }
         let restored = WorkspaceContext(id: id, sourceURL: sourceURL, title: "", snapshot: snapshot, pageFactory: pageFactory, documentFactory: documentFactory, closeCoordinator: closeCoordinator)
         pages = restored.pages; activeID = restored.activeID; history = restored.history; pane = restored.pane
-        lastPane = restored.lastPane; tools = restored.tools
+        lastPane = restored.lastPane; tools = restored.tools; chatThreads = restored.chatThreads
+        workspaceViewModel?.chatTabsRestored()
         reviewSection = restored.reviewSection
         documents = restored.documents; tabOrder = restored.tabOrder; fileHistory = restored.fileHistory; historyOrder = restored.historyOrder
         documents.forEach(wire)
@@ -793,6 +831,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         context?.pages.forEach { $0.evict() }
         context?.documents.forEach { $0.dispose() }
         context?.retireWorktreeFiles()
+        // The session's Chat tabs' pages go with it; their chats stay.
+        context?.workspaceViewModel?.retireChats()
         if activeContextID == id { activeContextID = nil }
         saved.removeValue(forKey: id)
         cache()
