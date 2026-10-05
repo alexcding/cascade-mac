@@ -51,6 +51,8 @@ public final class AppViewModel {
             guard oldValue != projects else { return }
             automation?.updateProjects(projects)
             dashboard?.boardProjectIDs = Set(projects.filter(\.showsBoard).map(\.id))
+            dashboard?.projectLooks = Dictionary(projects.map { ($0.id, DashboardProjectLook(symbol: $0.symbol)) },
+                                                 uniquingKeysWith: { first, _ in first })
             // Only while it shows: arriving there builds the picked project's composer.
             if selection == .newSession { coordinator.newSession?.update(projects: projects) }
         }
@@ -71,7 +73,6 @@ public final class AppViewModel {
             }
             updateWorkspaceReviewState()
             let byProject = Dictionary(grouping: sessions, by: \.projectId)
-            dashboard?.sessionCounts = byProject.mapValues(\.count)
             for (id, model) in projectModels { model.updateSessions(byProject[id] ?? []) }
         }
     }
@@ -226,6 +227,7 @@ public final class AppViewModel {
             try await openActivityEntry(entry)
         }
         scheduleSidebarLoad()
+        followDashboardSessions()
     }
 
     private func scheduleSidebarLoad() {
@@ -262,6 +264,39 @@ public final class AppViewModel {
         }
         if sidebarEntries != entries { sidebarEntries = entries }
         if sidebarPinnedIDs != pinnedIDs { sidebarPinnedIDs = pinnedIDs }
+    }
+
+    /// Projects' lanes follow the sessions and their terminals, the agents' calls too: in a loop of
+    /// their own, so a tool call does not rebuild the sidebar. A change re-reads on the next turn,
+    /// once however many changes it brought.
+    private func followDashboardSessions() {
+        let value = withObservationTracking { makeDashboardSessions() } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followDashboardSessions() }
+        }
+        if let dashboard, dashboard.sessions != value { dashboard.sessions = value }
+    }
+
+    /// Every session as Projects shows it: its agent's state as the sidebar's dot tells it, and the
+    /// agent's latest call as its hooks reported it. Nothing here asks the backend.
+    private func makeDashboardSessions() -> [DashboardSession] {
+        sessions.map { session in
+            let terminal = terminals["task:\(session.id)"]
+            let turns = terminal?.agentTurns
+            let live = terminal?.isLive ?? false
+            let state: DashboardSession.State =
+                turns?.needsInput == true ? .needsYou
+                : terminal?.agentBusy == true ? .working
+                : turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id) ? .finished
+                : live ? .idle : .stopped
+            // The current conversation's: after /clear or /resume, not the last one's.
+            let call = turns.flatMap { $0.tools.heard(in: $0.sessionID).calls.last }.map {
+                DashboardSession.Call(kind: $0.kind, label: $0.label, started: $0.started, ended: $0.ended)
+            }
+            return DashboardSession(id: session.id, projectID: session.projectId, title: session.label, branch: session.branch,
+                                    ticket: session.jiraKey, cli: turns?.cli ?? session.cli, state: state, call: call,
+                                    // Only while the hooks say an agent runs: the start time outlives an agent quit to its shell.
+                                    agentStarted: live && turns?.cli != nil ? terminal?.agentStartedAt : nil, live: live)
+        }
     }
 
     private func makeSidebarEntries() -> [SidebarEntry] {
@@ -499,6 +534,12 @@ public final class AppViewModel {
     func openProjectSettings(_ projectID: String) {
         guard coordinator.canPresent, projects.contains(where: { $0.id == projectID }) else { return }
         select(.project(projectID))
+    }
+
+    /// A session's row or card on Projects: the session, as a click in the sidebar shows it.
+    func openSession(_ id: String) {
+        guard coordinator.canPresent, sessions.contains(where: { $0.id == id }) else { return }
+        showSession(id)
     }
 
     /// The session a PR or ticket page already has: started from that page, on the ticket's key,

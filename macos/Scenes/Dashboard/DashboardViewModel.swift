@@ -27,16 +27,20 @@ import Observation
     /// The picked project's sprint board, while it has one and a backend is connected.
     private(set) var board: WebBoardViewModel?
     /// Whether Projects is the screen on show: the board loads and follows Jira only then.
-    var onScreen = false { didSet { if oldValue != onScreen { updateBoard() } } }
+    var onScreen = false { didSet { if oldValue != onScreen { updateBoard(); updateLanes() } } }
     var appearance = AppAppearance.system { didSet { if oldValue != appearance { updateBoard() } } }
     @ObservationIgnored private let pageActions: any PageActionServing
     @ObservationIgnored private var boardService: (any BoardService)?
-    /// Each project's sessions, by project id: the app's to tell, since sessions are not the backend's
-    /// pull request or ticket data.
-    var sessionCounts: [String: Int] = [:] { didSet { if sessionCounts != oldValue { updateSummaries() } } }
+    /// Every session and its agent's state, from the app as its terminals change: Overview's lanes.
+    /// Kept while Projects is off screen, laid out again only when it is on.
+    var sessions: [DashboardSession] = [] { didSet { if sessions != oldValue, onScreen { updateLanes() } } }
+    /// Each project's symbol and colour, by id, from the app's projects: the lanes' badges.
+    var projectLooks: [String: DashboardProjectLook] = [:] { didSet { if projectLooks != oldValue { updateLanes() } } }
     /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
     /// counts change rather than on every redraw.
     private(set) var projectSummaries: [DashboardProjectSummary] = []
+    /// Each project with its sessions, matched to their pull requests, worked out with the summaries.
+    private(set) var sessionLanes: [DashboardSessionLane] = []
 
     init(pageActions: any PageActionServing) {
         self.pageActions = pageActions
@@ -86,6 +90,14 @@ import Observation
         guard !retired else { return }
         let value = makeProjectSummaries()
         if projectSummaries != value { projectSummaries = value }
+        updateLanes()
+    }
+
+    /// The lanes alone, as a session's state changes: the summaries do not depend on it.
+    private func updateLanes() {
+        guard !retired else { return }
+        let lanes = makeSessionLanes(projectSummaries)
+        if sessionLanes != lanes { sessionLanes = lanes }
     }
 
     private func pullRequestsChanged() {
@@ -111,6 +123,10 @@ extension DashboardViewModel {
         case open(OpenPageRequest)
         /// A project's own page, from its name on Projects.
         case openProject(String)
+        /// A session, from its row or card on Overview.
+        case openSession(String)
+        /// Start, for a new session in a project, from its lane on Overview.
+        case newSession(String)
         /// A card on the Board tab.
         case board(WebBoardViewModel.Action)
     }
@@ -165,6 +181,16 @@ extension DashboardViewModel {
     func openProject(_ id: String) {
         guard !retired, prs.projects.contains(where: { $0.id == id }) else { return }
         onAction(.openProject(id))
+    }
+
+    func openSession(_ id: String) {
+        guard !retired, sessions.contains(where: { $0.id == id }) else { return }
+        onAction(.openSession(id))
+    }
+
+    func newSession(in projectID: String) {
+        guard !retired, prs.projects.contains(where: { $0.id == projectID }) else { return }
+        onAction(.newSession(projectID))
     }
 
     /// The project every tab is narrowed to, from the menu at the tab bar's end; nil is every project.

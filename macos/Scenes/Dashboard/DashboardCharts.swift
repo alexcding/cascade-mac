@@ -10,6 +10,33 @@ enum DashboardPalette {
     static let critical = ThemeColor(light: 0xD03B3B, dark: 0xD03B3B).color
     static let criticalText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
     static let buttonBorder = ThemeColor(light: 0xDDDCD6, dark: 0x383835).color
+    /// A bar's empty track, lighter than a card's outline.
+    static let rowRule = ThemeColor(light: 0xEFEEEA, dark: 0x262624).color
+    /// Lines added and removed: their numbers, and their bar.
+    static let addedText = ThemeColor(light: 0x1E7A45, dark: 0x6FD49C).color
+    static let removedText = ThemeColor(light: 0xB02A2A, dark: 0xF08A8A).color
+    static let addedBar = ThemeColor(light: 0x3FAE6A, dark: 0x3FAE6A).color
+    static let removedBar = ThemeColor(light: 0xE06A6A, dark: 0xE06A6A).color
+
+    /// A session's state: its dot, and its words, which clear 4.5:1 on the page in both appearances.
+    static func sessionStage(_ stage: DashboardSessionStage) -> (dot: Color, text: Color) {
+        switch stage {
+        case .needsYou: (ThemeColor(light: 0xC98A0A, dark: 0xE0AE35).color, ThemeColor(light: 0x8A5A00, dark: 0xF5C45C).color)
+        case .working: (ThemeColor(light: 0x2F9E57, dark: 0x3FAE6A).color, ThemeColor(light: 0x1E6B3E, dark: 0x6FD49C).color)
+        case .inReview: (ThemeColor(light: 0x3B6FD8, dark: 0x5A92DE).color, ThemeColor(light: 0x1C4F8F, dark: 0x9EC5F4).color)
+        case .idle: (ThemeColor(light: 0x9B9A90, dark: 0x6E6D68).color, ink2)
+        }
+    }
+
+    /// A pull request's checks: their square, and their words.
+    static func checks(_ checks: DashboardRow.Checks) -> (dot: Color, text: Color) {
+        switch checks {
+        case .passing: (sessionStage(.working).dot, sessionStage(.working).text)
+        case .running: (sessionStage(.needsYou).dot, sessionStage(.needsYou).text)
+        case .failing: (critical, criticalText)
+        case .unknown: (ThemeColor(light: 0xC9C8C2, dark: 0x4A4A46).color, ink3)
+        }
+    }
 
     /// Priority runs warm to cool: red, orange, amber, then a calm blue for Low, so urgency reads
     /// at a glance; the level's arrow glyph carries it without the colour.

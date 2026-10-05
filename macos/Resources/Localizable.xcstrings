@@ -83,160 +83,6 @@
         }
       }
     },
-    "Your failing checks" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "আপনার ব্যর্থ চেক"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tus comprobaciones con errores"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos vérifications en échec"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "आपके विफल चेक"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I tuoi controlli non riusciti"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自分の失敗したチェック"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "내 실패한 검사"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suas verificações com falha"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваши непройденные проверки"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dina misslyckade kontroller"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的失败检查"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的失敗檢查"
-          }
-        }
-      }
-    },
-    "Your open pull requests" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "আপনার খোলা পুল রিকোয়েস্ট"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tus solicitudes de incorporación abiertas"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos pull requests ouvertes"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "आपके खुले पुल रिक्वेस्ट"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le tue pull request aperte"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自分のオープンなプルリクエスト"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "내 열린 풀 리퀘스트"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Seus pull requests abertos"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваши открытые пул-реквесты"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dina öppna pull requests"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的打开的拉取请求"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的開啟中的拉取請求"
-          }
-        }
-      }
-    },
     "—" : {
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
@@ -400,6 +246,12 @@
       "comment" : "Literal symbol or number with no linguistic content.",
       "extractionState" : "manual",
       "shouldTranslate" : false
+    },
+    "· %@" : {
+
+    },
+    "· ^[%lld file](inflect: true)" : {
+
     },
     "‘%@’ is not a VS Code Marketplace or Open VSX link, or an extension ID like publisher.name." : {
       "extractionState" : "manual",
@@ -5820,6 +5672,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "−%lld" : {
+
+    },
     "√ done" : {
 
     },
@@ -9586,7 +9441,13 @@
         }
       }
     },
+    "agent just started" : {
+
+    },
     "Agent started" : {
+
+    },
+    "agent up %@" : {
 
     },
     "Agent usage" : {
@@ -13593,6 +13454,9 @@
           }
         }
       }
+    },
+    "At its prompt" : {
+
     },
     "At this pace, lasts until reset" : {
       "extractionState" : "manual",
@@ -19393,6 +19257,9 @@
         }
       }
     },
+    "Checks failing" : {
+
+    },
     "Checks on the head commit turn green." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19548,6 +19415,12 @@
       }
     },
     "Checks out %@ in a new worktree" : {
+
+    },
+    "Checks passing" : {
+
+    },
+    "Checks running" : {
 
     },
     "Choose" : {
@@ -36602,6 +36475,9 @@
         }
       }
     },
+    "Doing now" : {
+
+    },
     "Don’t catch up" : {
 
     },
@@ -41884,6 +41760,15 @@
         }
       }
     },
+    "Finished" : {
+
+    },
+    "finished %@ ago" : {
+
+    },
+    "finished just now" : {
+
+    },
     "Fitness" : {
 
     },
@@ -42579,6 +42464,9 @@
           }
         }
       }
+    },
+    "for your answer" : {
+
     },
     "Forget Task" : {
       "extractionState" : "manual",
@@ -47467,6 +47355,9 @@
         }
       }
     },
+    "In review" : {
+
+    },
     "In session" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -51872,6 +51763,9 @@
           }
         }
       }
+    },
+    "Last:" : {
+
     },
     "Latest 200 entries for the selected category and level." : {
       "extractionState" : "manual",
@@ -58146,6 +58040,9 @@
         }
       }
     },
+    "Needs you" : {
+
+    },
     "Never" : {
 
     },
@@ -62961,6 +62858,9 @@
         }
       }
     },
+    "No pull request" : {
+
+    },
     "No pull requests here." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -63191,6 +63091,12 @@
           }
         }
       }
+    },
+    "No sessions" : {
+
+    },
+    "No sessions yet" : {
+
     },
     "No simulator running" : {
       "extractionState" : "manual",
@@ -85571,6 +85477,9 @@
         }
       }
     },
+    "running %@" : {
+
+    },
     "Running %@, not a preset" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -89683,6 +89592,9 @@
         }
       }
     },
+    "Session board" : {
+
+    },
     "Session is not available." : {
       "localizations" : {
         "bn" : {
@@ -91148,6 +91060,9 @@
           }
         }
       }
+    },
+    "Show %@" : {
+
     },
     "Show a miniature overview beside the file." : {
       "extractionState" : "manual",
@@ -94944,6 +94859,9 @@
         }
       }
     },
+    "Stopped" : {
+
+    },
     "Stopped — click to resume" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -96419,6 +96337,9 @@
           }
         }
       }
+    },
+    "terminal closed" : {
+
     },
     "Terminal color response ownership could not be configured." : {
       "localizations" : {
@@ -111781,6 +111702,9 @@
         }
       }
     },
+    "Turn finished" : {
+
+    },
     "Turn hooks" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -116557,6 +116481,9 @@
         }
       }
     },
+    "Waiting" : {
+
+    },
     "Waiting for backend" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -116710,6 +116637,9 @@
           }
         }
       }
+    },
+    "Waiting for your answer" : {
+
     },
     "waiting on you" : {
 
@@ -119816,6 +119746,83 @@
         }
       }
     },
+    "Your failing checks" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "আপনার ব্যর্থ চেক"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus comprobaciones con errores"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos vérifications en échec"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपके विफल चेक"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I tuoi controlli non riusciti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分の失敗したチェック"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내 실패한 검사"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suas verificações com falha"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши непройденные проверки"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dina misslyckade kontroller"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的失败检查"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的失敗檢查"
+          }
+        }
+      }
+    },
     "Your GitHub issues" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -119889,6 +119896,83 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你的 GitHub issue"
+          }
+        }
+      }
+    },
+    "Your open pull requests" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "আপনার খোলা পুল রিকোয়েস্ট"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus solicitudes de incorporación abiertas"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos pull requests ouvertes"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "आपके खुले पुल रिक्वेस्ट"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le tue pull request aperte"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自分のオープンなプルリクエスト"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "내 열린 풀 리퀘스트"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seus pull requests abertos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши открытые пул-реквесты"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dina öppna pull requests"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的打开的拉取请求"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的開啟中的拉取請求"
           }
         }
       }

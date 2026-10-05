@@ -435,21 +435,78 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     let model = DashboardViewModel(pageActions: ProjectPageActions())
     var opened: [String] = []
     model.onAction = { if case .openProject(let id) = $0 { opened.append(id) } }
-    model.sessionCounts = ["p": 2]
     model.connect(fixture)
     while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
 
     let summaries = model.projectSummaries
     #expect(summaries.map(\.id) == ["p", "q"])
     let app = try #require(summaries.first)
-    #expect(app.open == 3 && app.waiting == 1, "Merged pull requests are not open; only the review counts as waiting")
-    #expect(app.failing == 1 && app.running == 1 && app.passing == 1 && app.checks == "1 failing")
-    #expect(app.tickets == 1 && app.sessions == 2 && app.tracker == "Jira OPS" && app.synced != nil)
-    #expect(summaries[1].syncError == "gone" && summaries[1].tracker == "GitHub issues" && summaries[1].checks == "No checks")
+    #expect(app.tickets == 1 && app.tracker == "Jira OPS" && app.syncError == nil)
+    #expect(summaries[1].syncError == "gone" && summaries[1].tracker == "GitHub issues")
     model.openProject("p"); model.openProject("missing")
     #expect(opened == ["p"], "Only a project the page shows opens")
     await model.stop()
     model.retire()
     model.openProject("p")
     #expect(opened == ["p"], "A retired page opens nothing")
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func overviewLanesMatchEachSessionToItsBranchPullRequestAndSortByStage() async throws {
+    func pr(_ number: Int, branch: String, additions: Int? = nil) -> DashboardPR {
+        DashboardPR(number: number, title: nil, url: "https://github.com/o/r/pull/\(number)", repo: nil, state: "OPEN", category: "mine",
+                    awaitingMyReview: nil, isDraft: nil, reviewDecision: "APPROVED", headRefName: branch, author: nil, createdAt: nil,
+                    labels: nil, jiraKeys: nil, ci: nil, error: nil, additions: additions, deletions: 3, changedFiles: 2)
+    }
+    func session(_ id: String, _ project: String, branch: String, _ state: DashboardSession.State) -> DashboardSession {
+        DashboardSession(id: id, projectID: project, title: id, branch: branch, ticket: nil, cli: "claude", state: state)
+    }
+    let fixture = ModelFixture(projects: [makeProject("p", prs: [pr(1, branch: "feat-a", additions: 10), pr(2, branch: "feat-b")]),
+                                          makeProject("q", name: "Other", repo: "o/q", prs: [])])
+    let model = DashboardViewModel(pageActions: ProjectPageActions())
+    var opened: [String] = []
+    model.onAction = { if case .openSession(let id) = $0 { opened.append(id) } }
+    model.sessions = [session("review", "p", branch: "feat-a", .idle), session("asks", "p", branch: "feat-b", .needsYou),
+                      session("busy", "p", branch: "other", .working), session("gone", "q", branch: "feat-a", .stopped)]
+    model.connect(fixture)
+    while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
+
+    let lanes = model.sessionLanes
+    #expect(lanes.map(\.id) == ["p", "q"])
+    #expect(lanes[0].rows.map(\.id) == ["asks", "busy", "review"], "Needs you, then working, then in review")
+    #expect(lanes[0].rows.map(\.stage) == [.needsYou, .working, .inReview])
+    #expect(lanes[0].rows[2].pr?.pr.number == 1 && lanes[0].rows[2].pr?.pr.additions == 10, "Matched by branch, with its size")
+    #expect(lanes[0].rows[0].pr?.pr.number == 2, "A session that needs you keeps its pull request")
+    #expect(lanes[1].rows[0].pr == nil && lanes[1].rows[0].stage == .idle && lanes[1].rows[0].stateLabel == "Stopped",
+            "Another project's branch of the same name is not this session's")
+    #expect(model.sessionColumns(lanes).map(\.rows.count) == [1, 1, 1, 1])
+
+    model.selectProject("q")
+    #expect(model.shownSessionLanes.map(\.id) == ["q"], "The picked project narrows the lanes")
+
+    model.openSession("busy"); model.openSession("missing")
+    #expect(opened == ["busy"], "Only a session the page shows opens")
+    await model.stop()
+    model.retire()
+}
+
+@Test func aSessionRowSaysWhatItsAgentDoesAndHowLongItHasRun() {
+    let now = Date(timeIntervalSince1970: 100_000)
+    let call = DashboardSession.Call(kind: "Bash", label: "xcodebuild test", started: now.addingTimeInterval(-30))
+    let working = DashboardSessionRow(session: DashboardSession(id: "s", projectID: "p", title: "s", branch: "b", ticket: nil, cli: nil,
+                                                                state: .working, call: call, agentStarted: now.addingTimeInterval(-8040)),
+                                      pr: nil)
+    #expect(working.activityParts == ("Bash", "xcodebuild test"))
+    #expect(working.timing(now: now) == "running 30s · agent up 2h 14m")
+    let stopped = DashboardSessionRow(session: DashboardSession(id: "s", projectID: "p", title: "s", branch: "b", ticket: nil, cli: nil,
+                                                                state: .stopped), pr: nil)
+    #expect(stopped.activityParts == ("Stopped", "") && stopped.timing(now: now) == "terminal closed")
+    let asking = DashboardSessionRow(session: DashboardSession(id: "s", projectID: "p", title: "s", branch: "b", ticket: nil, cli: nil,
+                                                               state: .needsYou, call: call), pr: nil)
+    #expect(asking.activityParts == ("Waiting", "for your answer") && asking.stage == .needsYou)
+}
+
+@Test func aPullRequestDecodesItsSize() throws {
+    let json = #"{"number":4,"state":"OPEN","additions":120,"deletions":30,"changedFiles":7}"#
+    let pr = try JSONDecoder().decode(DashboardPR.self, from: Data(json.utf8))
+    #expect(pr.additions == 120 && pr.deletions == 30 && pr.changedFiles == 7)
 }

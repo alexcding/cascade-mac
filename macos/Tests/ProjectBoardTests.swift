@@ -202,7 +202,5 @@ private func ticketRow(_ key: String) -> DashboardTicketRow {
         projects: [jiraProject("web", key: "WEB")], tickets: [ticketRow("WEB-1")])
     while model.tickets.rows.isEmpty { await Task.yield() }
     #expect(model.projectSummaries.first?.tickets == 1)
-    model.sessionCounts = ["web": 2]
-    #expect(model.projectSummaries.first?.sessions == 2)
     model.retire()
 }

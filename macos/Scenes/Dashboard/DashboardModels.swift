@@ -22,6 +22,10 @@ struct DashboardPR: Decodable, Equatable, Sendable {
     let error: String?
     /// The GitHub issues the PR closes when it merges, as `owner/repo#12`.
     var issueKeys: [String]? = nil
+    /// Its size, as the snapshot carries it: lines added and removed, files changed.
+    var additions: Int? = nil
+    var deletions: Int? = nil
+    var changedFiles: Int? = nil
     /// Every ticket the PR stands for: its Jira keys and the issues it closes.
     var ticketKeys: [String] { (jiraKeys ?? []) + (issueKeys ?? []) }
     /// The same tickets as a row's chips show them: a Jira key as it is, an issue in the PR's own

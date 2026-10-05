@@ -154,7 +154,7 @@ struct DashboardView: View {
         } else {
             VStack(alignment: .leading, spacing: 24) {
                 totals(projects)
-                projectTable(projects)
+                DashboardSessionsSection(model: model, wide: width >= Self.splitWidth)
             }
         }
     }
@@ -188,76 +188,6 @@ struct DashboardView: View {
     /// One headline number, a button to the list it counts.
     private func total(_ title: String, _ value: Int, critical: Bool = false, id: String, open: @escaping () -> Void) -> some View {
         DashboardTotal(title: title, value: value, critical: critical, id: "dashboard-total-\(id)", open: open)
-    }
-
-    /// One row per project, its name a button to the project's page. Ages are drawn again each
-    /// minute, as nothing else redraws them while nobody is looking.
-    private func projectTable(_ projects: [DashboardProjectSummary]) -> some View {
-        let tickets = model.tickets.available
-        return TimelineView(.periodic(from: .now, by: 60)) { _ in
-            Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 0) {
-                GridRow {
-                    Text("Project")
-                    Text("Open PRs")
-                    Text("Waiting on you")
-                    Text("Checks")
-                    if tickets { Text("Tickets") }
-                    Text("Sessions")
-                    // The last column takes the rest of the width, so the grid and its dividers fill the card.
-                    Text("Updated").frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(DashboardPalette.ink3)
-                .padding(.vertical, 10)
-                ForEach(projects) { project in
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                    GridRow {
-                        Button { model.openProject(project.id) } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(project.name).font(.system(size: 13, weight: .semibold))
-                                Text(project.tracker).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(String(localized: "Open \(project.name)"))
-                        .accessibilityIdentifier("dashboard-project-\(project.id)")
-                        Text(project.open, format: .number)
-                        Text(project.waiting, format: .number)
-                        HStack(spacing: 6) {
-                            Circle().fill(checksColor(project)).frame(width: 8, height: 8).accessibilityHidden(true)
-                            Text(project.checks)
-                        }
-                        if tickets { Text(project.tickets, format: .number) }
-                        Text(project.sessions, format: .number)
-                        updated(project).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .font(.system(size: 13)).monospacedDigit()
-                    .padding(.vertical, 10)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline))
-        }
-    }
-
-    private func checksColor(_ project: DashboardProjectSummary) -> Color {
-        if project.failing > 0 { return DashboardPalette.critical }
-        if project.running > 0 { return Theme.warn }
-        return project.passing > 0 ? Theme.success : DashboardPalette.hairline
-    }
-
-    /// How long ago the project synced, or that its sync failed, with the reason on hover.
-    @ViewBuilder private func updated(_ project: DashboardProjectSummary) -> some View {
-        if let error = project.syncError {
-            Text("Sync failed").foregroundStyle(DashboardPalette.criticalText).help(error)
-        } else if let synced = project.synced {
-            Text(synced.timeIntervalSinceNow > -60 ? String(localized: "Just now")
-                 : synced.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))
-                .foregroundStyle(DashboardPalette.ink3)
-        } else {
-            Text("Waiting for first sync").foregroundStyle(DashboardPalette.ink3)
-        }
     }
 
     // MARK: Pull requests

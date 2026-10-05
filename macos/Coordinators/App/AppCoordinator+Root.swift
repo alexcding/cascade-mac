@@ -19,6 +19,8 @@ import Foundation
     func focusSession(_ id: String)
     func newTask(in projectID: String)
     func openProjectSettings(_ projectID: String)
+    /// A session, from Projects: shown, with the keyboard on its agent.
+    func openSession(_ id: String)
 }
 
 extension RootCoordinating {
@@ -33,6 +35,7 @@ extension RootCoordinating {
     func focusSession(_ id: String) {}
     func newTask(in projectID: String) {}
     func openProjectSettings(_ projectID: String) {}
+    func openSession(_ id: String) {}
     func canPerform(_ command: ShellCommand) -> Bool { command == .newProject && rootState().canCreateProject }
 }
 
