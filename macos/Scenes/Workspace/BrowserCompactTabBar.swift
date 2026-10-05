@@ -120,10 +120,14 @@ struct BrowserCompactTabBar: View {
                                iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
             } else if let files = WorkspaceToolTab(id: id), files.tool == .files {
-                // Any of Files' tabs: it alone has more than one.
+                // Any of Files' tabs.
                 CompactToolTab(title: String(localized: "Files"), symbol: "folder",
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.tool(files)) }, close: { model.closeTab(.tool(files)) })
+            } else if let shell = WorkspaceToolTab(id: id), shell.tool == .terminal {
+                CompactToolTab(title: model.shellTitle(shell), symbol: WorkspaceTool.terminal.symbol,
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(shell)) }, close: { model.closeTab(.tool(shell)) })
             } else if id == WorkspaceTool.simulator.id {
                 CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,

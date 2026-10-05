@@ -5,6 +5,9 @@ import GhosttyTerminal
 /// terminal keeps one size — and therefore one PTY geometry — no matter what state it is in.
 struct TerminalPane: View {
     let session: TerminalSession
+    /// The safe-area edges its surface reaches into: all of them in the main column, none in the
+    /// context pane, whose tab strip sits in the title-bar zone.
+    var safeAreaEdges: Edge.Set = .all
     private var model: TerminalPaneViewModel { session.presentation }
     /// Both at once when both are set, so neither hides behind the other. `dismissNotice`
     /// hides this banner without clearing `error`/`styleError` themselves; a new error or
@@ -20,7 +23,7 @@ struct TerminalPane: View {
             .id(session.surfaceGeneration)
             .allowsHitTesting(session.ready)
             .frame(maxWidth: .infinity, minHeight: 240, maxHeight: .infinity)
-            .paneSurface()
+            .paneSurface(ignoresSafeAreaEdges: safeAreaEdges)
             .overlay(alignment: .top) { if let notice { banner(notice) } }
             .onAppear(perform: model.appear)
             .onDisappear(perform: model.disappear)

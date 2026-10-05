@@ -119,6 +119,25 @@ import Testing
         #expect(Set(restored.tools) == Set(context.tools) && restored.tabs.map(\.id) == context.tabs.map(\.id))
     }
 
+    // Terminal has as many tabs as are opened, as Files does; each is saved, and closing one tells
+    // the app, which ends its shell.
+    @Test func terminalOpensAnotherTabEachTimeAndClosingOneIsTold() throws {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        var closed: [WorkspaceToolTab] = []
+        context.toolClosed = { closed.append($0) }
+        context.openTool(.terminal, another: true)
+        context.openTool(.terminal, another: true)
+        let second = WorkspaceToolTab(.terminal, number: 2)
+        #expect(context.tools == [.terminal, second] && context.activeTool == .terminal && context.pane == .term)
+        #expect(WorkspaceToolTab(rawValue: "terminal:2") == second)
+        let restored = WorkspaceContext(id: context.id, sourceURL: "session:tools", title: "", snapshot: context.snapshot)
+        #expect(restored.tools == context.tools && restored.tabs.map(\.id) == context.tabs.map(\.id))
+        context.close(.tool(second))
+        #expect(closed == [second] && context.tools == [.terminal])
+        context.openTool(.terminal, another: true)
+        #expect(context.tools.contains(second), "the freed number is taken again")
+    }
+
     // Each later Files tab filters its own tree; the first shares the file tabs' tree, and a
     // closed tab's tree goes with it.
     @Test func eachFilesTabKeepsItsOwnTree() {

@@ -36,10 +36,11 @@ struct SavedTabContent: Codable, Equatable, Sendable {
 }
 
 /// A tool the pane holds as a tab beside its pages and files: the worktree's changes, the
-/// Simulator, the worktree's files to pick one from, and the agent's live diagram. At most one tab
-/// of each, but for Files, which has as many as are opened, as web pages do.
+/// Simulator, the worktree's files to pick one from, the agent's live diagram, and a shell in the
+/// worktree. At most one tab of each, but for Files and Terminal, which have as many as are opened,
+/// as web pages do.
 enum WorkspaceTool: String, Codable, CaseIterable {
-    case changes, simulator, files, live
+    case changes, simulator, files, live, terminal
     fileprivate static let prefix = "tool:"
     /// Its tab's id; of Files' tabs, the first one's.
     var id: String { Self.prefix + rawValue }
@@ -49,10 +50,10 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         self = tab.tool
     }
     /// Whether it may have more than one tab.
-    var unlimited: Bool { self == .files }
+    var unlimited: Bool { self == .files || self == .terminal }
     /// The pane its tab shows.
     var pane: WorkspacePane {
-        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live: .term }
+        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live, .terminal: .term }
     }
     var title: String {
         switch self {
@@ -60,10 +61,11 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
         case .live: String(localized: "Live Monitor")
+        case .terminal: String(localized: "Terminal")
         }
     }
     var symbol: String {
-        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart" }
+        switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart"; case .terminal: "terminal" }
     }
 }
 
@@ -73,7 +75,7 @@ struct WorkspaceToolTab: Hashable {
     let tool: WorkspaceTool
     let number: Int
     init(_ tool: WorkspaceTool, number: Int = 1) { self.tool = tool; self.number = number }
-    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live)
+    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live), terminal = Self(.terminal)
     /// What a snapshot saves it as.
     var rawValue: String { number == 1 ? tool.rawValue : "\(tool.rawValue):\(number)" }
     init?(rawValue: String) {
@@ -156,6 +158,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// Called when one of its pages creates its web view.
     @ObservationIgnored var pageMaterialized: (BrowserPage) -> Void = { _ in }
     @ObservationIgnored var isOwned: () -> Bool = { true }
+    /// Called when a tool's tab closes, so what the app keeps for it (a Terminal tab's shell) goes too.
+    @ObservationIgnored var toolClosed: (WorkspaceToolTab) -> Void = { _ in }
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
@@ -418,6 +422,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             // filter, so the next Files tab opens on the whole tree.
             if tool.tool == .files, tool.number > 1 { filesModels.removeValue(forKey: tool.number)?.retire() }
             if tool.tool == .files, !tools.contains(where: { $0.tool == .files }) { filesModels[1]?.query = "" }
+            toolClosed(tool)
         }
     }
     func remove(_ file: EditorDocumentViewModel) {

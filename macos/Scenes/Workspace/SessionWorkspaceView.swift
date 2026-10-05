@@ -263,6 +263,12 @@ private struct SessionWorkspaceContextContent: View {
     }
 }
 
+private struct ShellRequest: Equatable {
+    let tab: WorkspaceToolTab
+    let missing: Bool
+    let removing: Bool
+}
+
 /// What the context pane shows under its bars: the tab strip, and the address or review row.
 struct SessionWorkspaceContextBody: View {
     let context: WorkspaceContext
@@ -302,6 +308,20 @@ struct SessionWorkspaceContextBody: View {
             WorkspaceFileBrowser(context: context, model: model, document: nil,
                                  filesTab: context.activeID.flatMap(WorkspaceToolTab.init(id:)))
                 .id(context.activeID)
+        } else if context.activeTool == .terminal, let tab = context.activeID.flatMap(WorkspaceToolTab.init(id:)) {
+            // Keyed by tab: each Terminal tab is a shell of its own in the worktree.
+            Group {
+                if let shell = model.shell(for: tab) {
+                    // Kept out of the title-bar zone, where the pane's tab strip is.
+                    TerminalPane(session: shell, safeAreaEdges: []).id(shell.id)
+                } else { Color.clear }
+            }
+            .id(tab.id)
+            // Asked again whenever the tab has no shell and may get one: a removal that failed
+            // after ending the session's shells leaves its tabs to start new ones.
+            .task(id: ShellRequest(tab: tab, missing: model.shell(for: tab) == nil, removing: model.removingSession)) {
+                await model.prepareShell(tab)
+            }
         } else if context.activeTool == .live {
             Group {
                 if let live = model.live { LivePanelView(live: live, workspace: model) }
