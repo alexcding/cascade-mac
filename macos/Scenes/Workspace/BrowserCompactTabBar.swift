@@ -119,10 +119,11 @@ struct BrowserCompactTabBar: View {
                 CompactFileTab(file: file, active: id == context.activeID,
                                iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.file(file)) }, close: { model.closeTab(.file(file)) })
-            } else if id == WorkspaceTool.files.id {
+            } else if let files = WorkspaceToolTab(id: id), files.tool == .files {
+                // Any of Files' tabs: it alone has more than one.
                 CompactToolTab(title: String(localized: "Files"), symbol: "folder",
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
-                               select: { model.selectTab(.tool(.files)) }, close: { model.closeTab(.tool(.files)) })
+                               select: { model.selectTab(.tool(files)) }, close: { model.closeTab(.tool(files)) })
             } else if id == WorkspaceTool.simulator.id {
                 CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,

@@ -292,14 +292,13 @@ extension WorkspaceServing {
     /// itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
-        // One tab of each tool: one already open is in the strip, not offered again.
+        // One tab of each tool: one already open is in the strip, not offered again. But for Files,
+        // offered every time: each pick opens another tab of it, as a web page gets another.
         let open = Set(context.tools)
         var tools: [StartPageTool] = []
-        if !open.contains(.files) {
-            tools.append(.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
-                context?.openTool(.files, replacingBlank: true)
-            })
-        }
+        tools.append(.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
+            context?.openTool(.files, replacingBlank: true, another: true)
+        })
         if canShowChanges, !open.contains(.changes) {
             tools.append(.init(id: "diff", title: WorkspaceTool.changes.title, symbol: WorkspaceTool.changes.symbol) { [weak self, weak context] in
                 // As the other tools do, Diff takes the blank tab's place once it opens.

@@ -68,7 +68,9 @@ struct LivePanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .clipped()
         // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
-        .background(palette.ground.color, ignoresSafeAreaEdges: [])
+        // A look with no ground of its own stands on the pane's.
+        .background(palette.ground?.color ?? .clear, ignoresSafeAreaEdges: [])
+        .paneSurface(ignoresSafeAreaEdges: [])
         .onAppear { live.appear() }
         .onDisappear { live.disappear() }
         .accessibilityIdentifier("workspace-live-panel")
@@ -174,7 +176,7 @@ private struct LiveHeading: View {
 
 // MARK: Boxes
 
-/// A section's box: outlined in its colour.
+/// A section's box: outlined in its colour, and filled with a wash of it in a look that fills its boxes.
 private struct LiveBox<Content: View>: View {
     let color: ThemeColor
     let palette: LivePalette
@@ -185,8 +187,9 @@ private struct LiveBox<Content: View>: View {
         content()
             .padding(.horizontal, 12).padding(.vertical, 10)
             .frame(maxWidth: .infinity)
+            .background(color.color.opacity(palette.wash), in: shape)
             .background(palette.surface.color, in: shape)
-            .overlay(shape.strokeBorder(color.color, lineWidth: 1.25))
+            .overlay(shape.strokeBorder(color.color.opacity(palette.edge), lineWidth: 1.25))
     }
 }
 
@@ -342,12 +345,20 @@ private struct LiveLog: View {
         }
         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(shape.strokeBorder(palette.line.color, lineWidth: 1))
-        .overlay(alignment: .topLeading) {
-            Text(String(localized: "session log")).foregroundStyle(palette.muted.color)
-                .padding(.horizontal, 6).background(palette.ground.color)
-                .offset(x: 14, y: -8)
+        // The title's place is cut out of the frame, not painted over it: it is set into the line
+        // on any ground, the pane's own and a translucent window's included.
+        .overlay {
+            shape.strokeBorder(palette.line.color, lineWidth: 1)
+                .overlay(alignment: .topLeading) {
+                    title.background(.black).offset(x: 14, y: -8).blendMode(.destinationOut).accessibilityHidden(true)
+                }
+                .compositingGroup()
         }
+        .overlay(alignment: .topLeading) { title.offset(x: 14, y: -8) }
+    }
+
+    private var title: some View {
+        Text(String(localized: "session log")).foregroundStyle(palette.muted.color).padding(.horizontal, 6)
     }
 
     private static let rowHeight: CGFloat = 20
@@ -396,23 +407,24 @@ private struct LiveConnector: View {
     private func canvas(_ clock: LiveClock) -> some View {
         Canvas { context, size in
             let paths = Self.paths(shape, size: size)
-            let color = palette.line.color
+            let line = (palette.arrow ?? palette.line).color, tip = (palette.arrow ?? palette.agent).color
+            let dot = (palette.flow ?? palette.agent).color
             for points in paths {
                 var path = Path()
                 path.addLines(points)
-                context.stroke(path, with: .color(color), lineWidth: 1)
+                context.stroke(path, with: .color(line), lineWidth: 1)
             }
             // One arrowhead where each path ends; paths gathered into one end share it.
             for end in Set(paths.compactMap { $0.last.map { [$0.x, $0.y] } }) {
                 var head = Path()
                 head.move(to: CGPoint(x: end[0] - 4, y: end[1] - 6)); head.addLine(to: CGPoint(x: end[0] + 4, y: end[1] - 6))
                 head.addLine(to: CGPoint(x: end[0], y: end[1])); head.closeSubpath()
-                context.fill(head, with: .color(palette.agent.color))
+                context.fill(head, with: .color(tip))
             }
             guard clock.flowing else { return }
             for (index, points) in paths.enumerated() {
                 let at = Self.point(along: points, fraction: clock.progress(offset: Double(index) / Double(max(1, paths.count))))
-                context.fill(Path(ellipseIn: CGRect(x: at.x - 3.5, y: at.y - 3.5, width: 7, height: 7)), with: .color(palette.agent.color))
+                context.fill(Path(ellipseIn: CGRect(x: at.x - 3.5, y: at.y - 3.5, width: 7, height: 7)), with: .color(dot))
             }
         }
     }

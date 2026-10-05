@@ -297,7 +297,11 @@ struct SessionWorkspaceContextBody: View {
         } else if model.shownPane == .simulator, let preview = model.simulatorPreview {
             SimulatorPanelView(model: preview, openIntegrations: model.openHookSettings)
         } else if context.activeTool == .files {
-            WorkspaceFileBrowser(context: context, model: model, document: nil)
+            // Keyed by tab: each Files tab has its own tree, and a crumb's card left open belongs
+            // to the tab it was opened in.
+            WorkspaceFileBrowser(context: context, model: model, document: nil,
+                                 filesTab: context.activeID.flatMap(WorkspaceToolTab.init(id:)))
+                .id(context.activeID)
         } else if context.activeTool == .live {
             Group {
                 if let live = model.live { LivePanelView(live: live, workspace: model) }
@@ -313,8 +317,9 @@ struct SessionWorkspaceContextBody: View {
     }
 }
 
-/// The review's controls, all leading: the Changes/History switch, Commit and the changed files'
-/// toggle, in a row under the pane's tab strip while Diff's tab is shown (`SessionWorkspacePane`).
+/// The review's controls, in a row under the pane's tab strip while Diff's tab is shown
+/// (`SessionWorkspacePane`): the Changes/History switch leading, Commit and the changed files'
+/// toggle trailing.
 struct ReviewBar: View {
     let context: WorkspaceContext
     let diff: DiffViewModel?
@@ -323,11 +328,13 @@ struct ReviewBar: View {
         HStack(spacing: 10) {
             SegmentedPicker(title: String(localized: "Review section"), options: ReviewSection.allCases, label: \.title,
                                  selection: Binding(get: { context.reviewSection }, set: context.setReviewSection))
-            // Everything leading, beside Changes/History; the slack after it. The same buttons over
-            // History, so switching moves nothing: Commit still commits the working changes, and the
-            // changed files' toggle waits.
+            // The slack between the switch and the buttons. The same buttons over History, so
+            // switching moves nothing: Commit still commits the working changes, and the changed
+            // files' toggle waits.
+            Spacer(minLength: 4)
             if let diff {
-                let busy = diff.showsProgress
+                // Ahead of the capsule, which keeps its place at the edge while it spins.
+                if diff.showsProgress { ProgressView().controlSize(.small) }
                 // Commit and the changed files' toggle in one capsule, as Run and Stop are.
                 ButtonGroup {
                     if let actions = diff.actions {
@@ -349,9 +356,7 @@ struct ReviewBar: View {
                     FileTreeToggle(shown: Binding(get: { diff.filesShown }, set: { diff.filesShown = $0 }),
                                    enabled: context.reviewSection == .changes)
                 }
-                if busy { ProgressView().controlSize(.small) }
             }
-            Spacer(minLength: 4)
         }
         .padding(.horizontal, 12)
         .frame(height: 44)

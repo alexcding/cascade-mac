@@ -35,16 +35,21 @@ struct SavedTabContent: Codable, Equatable, Sendable {
     }
 }
 
-/// A tool the pane holds as a tab beside its pages and files, at most one of each: the worktree's
-/// changes, the Simulator, the worktree's files to pick one from, and the agent's live diagram.
+/// A tool the pane holds as a tab beside its pages and files: the worktree's changes, the
+/// Simulator, the worktree's files to pick one from, and the agent's live diagram. At most one tab
+/// of each, but for Files, which has as many as are opened, as web pages do.
 enum WorkspaceTool: String, Codable, CaseIterable {
     case changes, simulator, files, live
-    private static let prefix = "tool:"
+    fileprivate static let prefix = "tool:"
+    /// Its tab's id; of Files' tabs, the first one's.
     var id: String { Self.prefix + rawValue }
+    /// The tool a tab's id names, whichever of its tabs that is.
     init?(id: String) {
-        guard id.hasPrefix(Self.prefix) else { return nil }
-        self.init(rawValue: String(id.dropFirst(Self.prefix.count)))
+        guard let tab = WorkspaceToolTab(id: id) else { return nil }
+        self = tab.tool
     }
+    /// Whether it may have more than one tab.
+    var unlimited: Bool { self == .files }
     /// The pane its tab shows.
     var pane: WorkspacePane {
         switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live: .term }
@@ -59,6 +64,29 @@ enum WorkspaceTool: String, Codable, CaseIterable {
     }
     var symbol: String {
         switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart" }
+    }
+}
+
+/// One tab of a tool. A tool's first tab goes by the tool's name alone, which is all the tools with
+/// one tab need; another Files tab adds its number, `files:2`.
+struct WorkspaceToolTab: Hashable {
+    let tool: WorkspaceTool
+    let number: Int
+    init(_ tool: WorkspaceTool, number: Int = 1) { self.tool = tool; self.number = number }
+    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live)
+    /// What a snapshot saves it as.
+    var rawValue: String { number == 1 ? tool.rawValue : "\(tool.rawValue):\(number)" }
+    init?(rawValue: String) {
+        let parts = rawValue.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let tool = parts.first.flatMap({ WorkspaceTool(rawValue: String($0)) }) else { return nil }
+        guard parts.count == 2 else { self.init(tool); return }
+        guard tool.unlimited, let number = Int(parts[1]), number > 1 else { return nil }
+        self.init(tool, number: number)
+    }
+    var id: String { WorkspaceTool.prefix + rawValue }
+    init?(id: String) {
+        guard id.hasPrefix(WorkspaceTool.prefix) else { return nil }
+        self.init(rawValue: String(id.dropFirst(WorkspaceTool.prefix.count)))
     }
 }
 
@@ -77,7 +105,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var reviewSection: ReviewSection? = nil
     var documents: [FileDocumentRecord]? = nil
     var tabOrder: [String]? = nil
-    /// The tool tabs open, by `WorkspaceTool` raw value; their places are in `tabOrder`.
+    /// The tool tabs open, by `WorkspaceToolTab` raw value; their places are in `tabOrder`.
     var tools: [String]? = nil
     var fileHistory: [FileDocumentRecord]? = nil
     var historyOrder: [String]? = nil
@@ -90,7 +118,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     let sourceURL: String
     private(set) var pages: [BrowserPage] = []
     private(set) var documents: [EditorDocumentViewModel] = []
-    private(set) var tools: [WorkspaceTool] = []
+    private(set) var tools: [WorkspaceToolTab] = []
     private(set) var tabOrder: [String] = []
     private(set) var fileHistory: [FileDocumentRecord] = []
     private(set) var historyOrder: [String] = []
@@ -142,19 +170,25 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     @ObservationIgnored private var searchModel: FileSearchViewModel?
     /// The Files tab's tree; it lists through the same service as the address field's search.
     /// Made when first asked for, so a context that never shows it has none to retire.
-    var worktreeFiles: WorktreeFilesViewModel {
-        if let filesModel { return filesModel }
+    var worktreeFiles: WorktreeFilesViewModel { worktreeFiles(for: nil) }
+    /// The tree `tab` shows. Each Files tab past the first has its own, so its filter and its
+    /// shown tree are its own, as each web page keeps its own place; the first Files tab and the
+    /// file tabs (nil) share one.
+    func worktreeFiles(for tab: WorkspaceToolTab?) -> WorktreeFilesViewModel {
+        let key = tab.flatMap { $0.tool == .files ? $0.number : nil } ?? 1
+        if let model = filesModels[key] { return model }
         let model = WorktreeFilesViewModel()
         model.service = { [weak self] in self?.fileSearch.service() }
         model.onAction = { [weak self] action in
             switch action { case .open(let path): self?.openFromTree(path) }
         }
-        filesModel = model
+        filesModels[key] = model
         return model
     }
-    @ObservationIgnored private var filesModel: WorktreeFilesViewModel?
-    /// The worktree's tree and search go with the context: a listing still running must not land.
-    func retireWorktreeFiles() { filesModel?.retire(); searchModel?.retire() }
+    /// By Files tab number; 1 is the shared tree.
+    @ObservationIgnored private var filesModels: [Int: WorktreeFilesViewModel] = [:]
+    /// The worktree's trees and search go with the context: a listing still running must not land.
+    func retireWorktreeFiles() { filesModels.values.forEach { $0.retire() }; searchModel?.retire() }
     /// A file picked from the tree opens in a tab of its own beside the one it was picked from, or
     /// selects the tab it already has; the explorer stays open for the next pick.
     func openFromTree(_ path: String) { openFile(path) }
@@ -184,7 +218,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
                 entry.filePath.map { FileDocumentRecord(path: $0) }
             }
             documents = records.filter { $0.path.hasPrefix("/") && ids.insert($0.id).inserted }.map { documentFactory.editor(record: $0) }
-            tools = (snapshot.tools ?? []).compactMap(WorkspaceTool.init(rawValue:)).filter { ids.insert($0.id).inserted }
+            tools = (snapshot.tools ?? []).compactMap(WorkspaceToolTab.init(rawValue:)).filter { ids.insert($0.id).inserted }
             tabOrder = Self.order(snapshot.tabOrder, ids: pages.map(\.id) + documents.map(\.id) + tools.map(\.id))
             fileHistory = snapshot.fileHistory ?? legacyFileHistory.compactMap { entry in
                 entry.filePath.map { FileDocumentRecord(path: $0) }
@@ -217,7 +251,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
 
     var activeDocument: EditorDocumentViewModel? { documents.first { $0.id == activeID } }
     /// The tool whose tab is active, if the active tab is a tool's.
-    var activeTool: WorkspaceTool? { activeID.flatMap(WorkspaceTool.init(id:)).flatMap { tools.contains($0) ? $0 : nil } }
+    var activeTool: WorkspaceTool? { activeID.flatMap(WorkspaceToolTab.init(id:)).flatMap { tools.contains($0) ? $0.tool : nil } }
     /// Counts tabs opened, closed and moved by hand, never a restore: what the tab bar animates on.
     private(set) var tabEdits = 0
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
@@ -229,7 +263,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// The tool last in the order other than Diff — the explorer, the Simulator or Live — which
     /// leaving Diff goes back to when there is no page or file.
     private var lastToolBesidesDiff: WorkspaceTab? {
-        tabOrder.reversed().lazy.compactMap(tab).first { if case .tool(let tool) = $0 { tool != .changes } else { false } }
+        tabOrder.reversed().lazy.compactMap(tab).first { if case .tool(let tab) = $0 { tab.tool != .changes } else { false } }
     }
     /// The page or file last shown, which the tabs go back to and a save on the Simulator keeps.
     /// Noted whenever the active tab changes, and on restore.
@@ -245,7 +279,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var fileVisits: [WorkspaceVisit] { visits.filter { if case .file = $0 { true } else { false } } }
     func tab(_ id: String) -> WorkspaceTab? {
         if let page = pages.first(where: { $0.id == id }) { return .page(page) }
-        if let tool = WorkspaceTool(id: id), tools.contains(tool) { return .tool(tool) }
+        if let tool = WorkspaceToolTab(id: id), tools.contains(tool) { return .tool(tool) }
         return documents.first(where: { $0.id == id }).map(WorkspaceTab.file)
     }
     private static func order(_ preferred: [String]?, ids: [String]) -> [String] {
@@ -288,10 +322,21 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// A tool's tab, opened after the active tab or selected where it already is. A blank tab being
     /// typed in is left alone.
     /// `replacingBlank`: picked from a blank tab's start page, the tool takes that tab's place.
-    func openTool(_ tool: WorkspaceTool, replacingBlank: Bool = false) {
+    /// `another`: a tool with no limit on its tabs (`WorkspaceTool.unlimited`) opens one more, as a
+    /// new web page does, rather than going back to one it has.
+    func openTool(_ tool: WorkspaceTool, replacingBlank: Bool = false, another: Bool = false) {
         let blank = replacingBlank ? replaceableBlank : nil
-        if !tools.contains(tool) { tools.append(tool); insert(tool.id) }
-        select(.tool(tool))
+        let open = tools.filter { $0.tool == tool }
+        // Of several tabs, the one shown, else the first.
+        let existing = another && tool.unlimited ? nil : open.first { $0.id == activeID } ?? open.first
+        let tab = existing ?? {
+            // The lowest number free: the first tab goes by the tool's name alone.
+            let taken = Set(open.map(\.number))
+            let tab = WorkspaceToolTab(tool, number: (1...).first { !taken.contains($0) }!)
+            tools.append(tab); insert(tab.id)
+            return tab
+        }()
+        select(.tool(tab))
         if let blank { close(blank) }
     }
     /// The blank tab a pick from its start page replaces.
@@ -317,7 +362,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     func select(_ tab: WorkspaceTab) {
         switch tab { case .page(let page): select(page)
         case .file(let file): activeID = file.id; pane = .term; activateDocument(file); changed()
-        case .tool(let tool): activeID = tool.id; pane = tool.pane; changed() }
+        case .tool(let toolTab): activeID = toolTab.id; pane = toolTab.tool.pane; changed() }
     }
     func cycle(_ direction: Int) {
         let order = tabs.map(\.id)
@@ -368,6 +413,11 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         case .tool(let tool):
             guard tools.contains(tool) else { return }
             tools.removeAll { $0 == tool }; removeTab(tool.id)
+            // A later Files tab's own tree goes with it; the number's next tab starts afresh. The
+            // first tree stays, as the file tabs show it, but the last Files tab gone takes its
+            // filter, so the next Files tab opens on the whole tree.
+            if tool.tool == .files, tool.number > 1 { filesModels.removeValue(forKey: tool.number)?.retire() }
+            if tool.tool == .files, !tools.contains(where: { $0.tool == .files }) { filesModels[1]?.query = "" }
         }
     }
     func remove(_ file: EditorDocumentViewModel) {

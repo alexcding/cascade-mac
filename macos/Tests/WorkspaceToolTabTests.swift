@@ -99,6 +99,43 @@ import Testing
         #expect(context.tabs.map(\.id) == [WorkspaceTool.files.id, picked.id], "the explorer stays")
     }
 
+    // Files has as many tabs as are opened, as web pages do; the other tools one each. Each is saved.
+    @Test func filesOpensAnotherTabEachTimeAndTheyAreSaved() throws {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        context.openTool(.files, another: true)
+        context.openTool(.files, another: true)
+        context.openTool(.changes, another: true)
+        context.openTool(.changes, another: true)
+        let second = WorkspaceToolTab(.files, number: 2)
+        #expect(context.tools == [.files, second, .changes], "two Files tabs, one Diff")
+        context.select(.tool(second))
+        #expect(context.activeTool == .files)
+        context.openTool(.files)
+        #expect(context.activeID == second.id, "without `another`, the Files tab shown is kept")
+        context.close(.tool(.files))
+        context.openTool(.files, another: true)
+        #expect(context.tools.contains(.files), "the first number freed is taken again")
+        let restored = WorkspaceContext(id: context.id, sourceURL: "session:tools", title: "", snapshot: context.snapshot)
+        #expect(Set(restored.tools) == Set(context.tools) && restored.tabs.map(\.id) == context.tabs.map(\.id))
+    }
+
+    // Each later Files tab filters its own tree; the first shares the file tabs' tree, and a
+    // closed tab's tree goes with it.
+    @Test func eachFilesTabKeepsItsOwnTree() {
+        let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
+        context.openTool(.files, another: true)
+        context.openTool(.files, another: true)
+        let second = WorkspaceToolTab(.files, number: 2)
+        context.worktreeFiles(for: .files).query = "first"
+        context.worktreeFiles(for: second).query = "second"
+        #expect(context.worktreeFiles.query == "first" && context.worktreeFiles(for: second).query == "second")
+        let tree = context.worktreeFiles(for: second)
+        context.close(.tool(second))
+        #expect(tree.retired && context.worktreeFiles(for: second) !== tree, "closed, its tree is retired")
+        context.close(.tool(.files))
+        #expect(context.worktreeFiles.query.isEmpty, "the last Files tab gone, the next opens on the whole tree")
+    }
+
     @Test func cyclingFromATabTheStripHidesStartsAtTheEnds() throws {
         let context = WorkspaceContext(id: "task:tools", sourceURL: "session:tools", title: "")
         let first = try #require(context.openFile("/tmp/a.swift"))

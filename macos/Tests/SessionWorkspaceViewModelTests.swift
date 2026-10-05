@@ -56,7 +56,7 @@ import Testing
     context.close(.tool(.changes))
     #expect(model.startPageTools().map(\.id) == ["files", "diff"])
     context.openTool(.files)
-    #expect(model.startPageTools().map(\.id) == ["diff"], "nor is Files once open")
+    #expect(model.startPageTools().map(\.id) == ["files", "diff"], "Files is offered again: it may have many tabs")
 }
 
 @MainActor @Test func workspaceModelComputesPaneVisibilityAndGatesOperationsAgainstCurrentState() throws {

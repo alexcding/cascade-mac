@@ -382,17 +382,22 @@ struct DashboardTotal: View {
 
     var body: some View {
         Button(action: open) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 12)).foregroundStyle(DashboardPalette.ink3)
-                Text(value, format: .number).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+            // The earlier tiles' look: a roomy outlined card, its name over a large rounded figure.
+            VStack(alignment: .leading, spacing: 12) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
+                    // Two lines, kept in every card: a long translation wraps rather than
+                    // truncating, and the cards of a row stay one height.
+                    .lineLimit(2, reservesSpace: true)
+                Text(value, format: .number).font(.system(size: 30, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .tracking(-0.6).lineLimit(1)
                     .foregroundStyle(critical && value > 0 ? DashboardPalette.criticalText : Color.primary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            .padding(20)
             .background(hovering ? Theme.surfaceHover.opacity(0.6) : .clear,
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(DashboardPalette.hairline))
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(DashboardPalette.hairline))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

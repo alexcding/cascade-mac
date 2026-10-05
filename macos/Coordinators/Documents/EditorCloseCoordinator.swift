@@ -2,13 +2,13 @@ import AppKit
 import Observation
 
 @MainActor enum WorkspaceTab: Identifiable {
-    case page(BrowserPage), file(EditorDocumentViewModel), tool(WorkspaceTool)
+    case page(BrowserPage), file(EditorDocumentViewModel), tool(WorkspaceToolTab)
     nonisolated var id: String { switch self { case .page(let page): page.id; case .file(let file): file.id; case .tool(let tool): tool.id } }
     @MainActor var title: String {
         switch self {
         case .page(let page): page.title.isEmpty ? page.url : page.title
         case .file(let file): file.title
-        case .tool(let tool): tool.title
+        case .tool(let tab): tab.tool.title
         }
     }
     @MainActor var dirty: Bool { if case .file(let file) = self { file.dirty } else { false } }

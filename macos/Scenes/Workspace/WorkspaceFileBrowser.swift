@@ -8,13 +8,15 @@ struct WorkspaceFileBrowser: View {
     let model: SessionWorkspaceViewModel
     /// Nil in the Files tab.
     let document: EditorDocumentViewModel?
+    /// The Files tab shown, whose tree this is; nil for a file tab.
+    var filesTab: WorkspaceToolTab? = nil
 
     /// The crumb whose folder is dropped down, and where its card hangs.
     private struct CrumbMenu: Equatable { let index: Int; let entry: String; let x: CGFloat }
     @State private var menu: CrumbMenu?
     @State private var width: CGFloat = 0
 
-    private var files: WorktreeFilesViewModel { context.worktreeFiles }
+    private var files: WorktreeFilesViewModel { context.worktreeFiles(for: filesTab) }
     private var root: String? { model.session?.worktree }
 
     /// The shown file relative to the worktree, when it is inside it.

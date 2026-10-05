@@ -393,7 +393,8 @@ user collapses from the divider is told back to the workspace.
   whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
   the preview ends. A blank page — the one the pane opens for itself when it has no tab — is a New
   Tab in the strip, and its start page offers the tools; the Files explorer is a Files tab that stays
-  open, and each file picked there opens in a tab of its own. The strip always shows its New Tab button, and New Tab takes
+  open, and each file picked there opens in a tab of its own. Files is the one tool with as many
+  tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip always shows its New Tab button, and New Tab takes
   the pane's own blank page rather than opening a second one. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the
