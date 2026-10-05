@@ -49,6 +49,11 @@ import Observation
     let knowledgeSession: SessionKnowledge?
     /// Start with what the session's agent knows. Off unless the person turns it on.
     var includeKnowledge = false
+    /// The first message, in a pane's composer: sent as the chat's first turn once it exists.
+    var prompt = ""
+    /// The chat made for a Start whose first message then failed: Start again sends it there
+    /// rather than making another chat.
+    private(set) var startedShell: ChatThreadShell?
     /// The session agent's conversation the backend found, once asked; nil when it has none yet.
     private(set) var knowledgeConversation: String?
     private(set) var knowledgeChecked = false
@@ -114,6 +119,16 @@ import Observation
         !retired && !busy && !folder.isEmpty && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
     }
 
+    private var typedPrompt: String { prompt.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// A pane's Start: as New Task's, only once something is typed, and the chat starts with it.
+    var canStart: Bool { canCreate && !typedPrompt.isEmpty }
+
+    /// A pane's Start: makes the chat and sends the typed text as its first message.
+    func start() async {
+        guard canStart else { return }
+        await create()
+    }
+
     /// The providers, then the chosen agent's models.
     func load() async {
         guard !retired else { return }
@@ -175,21 +190,38 @@ import Observation
     /// A project chat works in its project's folder: one with none set cannot start a chat.
     var missingFolder: Bool { !standalone && folder.isEmpty }
 
+    /// Makes the chat and, when something is typed, sends it as the first message. The form gives way
+    /// to the chat only once both are done; a message that could not be sent stays in the field, and
+    /// Start sends it again to the chat already made.
     func create() async {
         guard canCreate, let agent = agents.first(where: { $0.cli == self.agent }), let model else { return }
         busy = true; error = nil
         defer { busy = false }
         let project = projectID ?? ChatProject.standalone
         let title = ChatProject.untitled
+        let text = typedPrompt
         do {
-            let id = try await service.createThread(projectID: project, cwd: folder, provider: agent.provider, model: model,
-                                                    worktreePath: worktreePath, knowledge: knowledge, title: title)
+            let shell: ChatThreadShell
+            if let startedShell {
+                shell = startedShell
+            } else {
+                let id = try await service.createThread(projectID: project, cwd: folder, provider: agent.provider, model: model,
+                                                        worktreePath: worktreePath, knowledge: knowledge, title: title)
+                let now = ChatTimestamp.string()
+                shell = ChatThreadShell(id: id, projectId: project, title: title,
+                                        modelSelection: .init(provider: agent.provider, model: model),
+                                        runtimeMode: "approval-required", workingDirectory: folder, worktreePath: worktreePath,
+                                        createdAt: now, updatedAt: now)
+                startedShell = shell
+            }
             guard !retired else { return }
-            let now = ChatTimestamp.string()
-            onAction(.created(ChatThreadShell(id: id, projectId: project, title: title,
-                                              modelSelection: .init(provider: agent.provider, model: model),
-                                              runtimeMode: "approval-required", workingDirectory: folder, worktreePath: worktreePath,
-                                              createdAt: now, updatedAt: now)))
+            if !text.isEmpty {
+                let selection = shell.modelSelection
+                try await service.startTurn(threadID: shell.id, text: text, provider: selection?.provider ?? agent.provider,
+                                            model: selection?.model ?? model)
+                guard !retired else { return }
+            }
+            onAction(.created(shell))
         } catch {
             guard !retired else { return }
             self.error = error.localizedDescription

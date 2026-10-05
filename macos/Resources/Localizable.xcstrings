@@ -12146,6 +12146,9 @@
         }
       }
     },
+    "Archived" : {
+
+    },
     "Arrows" : {
 
     },
@@ -18253,6 +18256,15 @@
         }
       }
     },
+    "Chat" : {
+
+    },
+    "Chat name" : {
+
+    },
+    "Chat not found" : {
+
+    },
     "Chat opens once %@ is ready. Answer anything it asks here first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -18329,6 +18341,12 @@
           }
         }
       }
+    },
+    "Chats" : {
+
+    },
+    "Chats in This Worktree" : {
+
     },
     "Check dependencies, failing tests, and risky open changes each weekday." : {
 
@@ -20434,6 +20452,9 @@
       }
     },
     "Choose the branch to work on" : {
+
+    },
+    "Choose the folder the chat's agent works in." : {
 
     },
     "Choose the project folder in Settings to start sessions." : {
@@ -26604,6 +26625,9 @@
         }
       }
     },
+    "Connect to load this chat." : {
+
+    },
     "Connect to load this project." : {
       "localizations" : {
         "bn" : {
@@ -27065,6 +27089,9 @@
         }
       }
     },
+    "Connect to the backend to chat." : {
+
+    },
     "Connect to the backend to load changes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -27295,6 +27322,9 @@
           }
         }
       }
+    },
+    "Connect to the backend to start a chat." : {
+
     },
     "Connected" : {
       "extractionState" : "manual",
@@ -28763,6 +28793,9 @@
         }
       }
     },
+    "Could not archive the chat: %@" : {
+
+    },
     "Could not close tab: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -28916,6 +28949,9 @@
           }
         }
       }
+    },
+    "Could not delete the chat: %@" : {
+
     },
     "Could not delete worktree build data" : {
       "extractionState" : "manual",
@@ -30376,6 +30412,9 @@
           }
         }
       }
+    },
+    "Could not rename the chat: %@" : {
+
     },
     "Could not render changes: %@" : {
       "extractionState" : "manual",
@@ -33247,6 +33286,9 @@
           }
         }
       }
+    },
+    "Delete “%@”?" : {
+
     },
     "Delete branch after merge" : {
       "extractionState" : "manual",
@@ -40644,6 +40686,9 @@
         }
       }
     },
+    "Fork Session: a new session that carries this conversation on" : {
+
+    },
     "Forked %@, but not all of its uncommitted work came across: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -45304,6 +45349,9 @@
         }
       }
     },
+    "Include what the session’s agent knows" : {
+
+    },
     "Includes the app, connected backend, PTY helper and their descendants, plus the WebKit and other helper processes macOS runs for the app. Totals cover only listed processes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -49321,6 +49369,9 @@
           }
         }
       }
+    },
+    "Knowledge" : {
+
     },
     "Labels" : {
       "extractionState" : "manual",
@@ -56226,6 +56277,15 @@
         }
       }
     },
+    "New chat" : {
+
+    },
+    "New Chat" : {
+
+    },
+    "New Chat in %@" : {
+
+    },
     "New Commit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -62433,6 +62493,9 @@
         }
       }
     },
+    "Not available" : {
+
+    },
     "Not checked" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -62509,6 +62572,12 @@
           }
         }
       }
+    },
+    "Not connected" : {
+
+    },
+    "Not connected to the backend." : {
+
     },
     "Not connected, so there are no tickets to show." : {
       "extractionState" : "manual",
@@ -65375,6 +65444,9 @@
           }
         }
       }
+    },
+    "Open Folder" : {
+
     },
     "Open in %@" : {
       "extractionState" : "manual",
@@ -78417,6 +78489,9 @@
         }
       }
     },
+    "Rename Chat" : {
+
+    },
     "Rename Task" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -86087,6 +86162,9 @@
         }
       }
     },
+    "Sent" : {
+
+    },
     "serve-sim answered with an address that is not on this Mac." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -90416,6 +90494,9 @@
       }
     },
     "Start a run now, outside the schedule." : {
+
+    },
+    "Start Chat" : {
 
     },
     "Start from" : {
@@ -95363,6 +95444,15 @@
     "The agent starts with this, as if typed at its prompt: skills, file paths and slash commands work." : {
 
     },
+    "The agent works in the project’s folder. It asks before running tools." : {
+
+    },
+    "The agent works in this folder. It asks before running tools." : {
+
+    },
+    "The agent works in this session’s worktree, in a conversation of its own. It asks before running tools." : {
+
+    },
     "The agent, model and effort the session starts with" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -95439,6 +95529,9 @@
           }
         }
       }
+    },
+    "The answer was not understood." : {
+
     },
     "The backend address must be a loopback HTTP origin." : {
       "localizations" : {
@@ -96516,6 +96609,9 @@
         }
       }
     },
+    "The chat starts knowing what %@ knows in the terminal, without showing its messages. The session is not changed." : {
+
+    },
     "The checkout at %@ does not match branch %@. It has been kept; resolve the branch or folder conflict before running this workflow." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -96900,6 +96996,9 @@
           }
         }
       }
+    },
+    "The conversation is deleted for good. Files the agent changed stay as they are." : {
+
     },
     "The daemon returned an incompatible or invalid terminal snapshot header." : {
       "localizations" : {
@@ -98277,6 +98376,9 @@
           }
         }
       }
+    },
+    "The linked chat is no longer available." : {
+
     },
     "The linked project has no Jira board." : {
       "extractionState" : "manual",
@@ -100348,6 +100450,12 @@
           }
         }
       }
+    },
+    "the session’s agent" : {
+
+    },
+    "The session’s agent has no conversation yet." : {
+
     },
     "The sidebar's background behind the whole window. Terminals draw on it in place of their theme's background." : {
 
@@ -103177,6 +103285,12 @@
         }
       }
     },
+    "This chat was deleted." : {
+
+    },
+    "This conversation is continued from its terminal." : {
+
+    },
     "This deletes all logs, including entries hidden by search or Errors only." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -104258,6 +104372,9 @@
         }
       }
     },
+    "This project has no workspace folder. Set one in the project’s settings to start a chat in it." : {
+
+    },
     "This PTY helper cannot acknowledge input failures. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved." : {
       "localizations" : {
         "bn" : {
@@ -105250,6 +105367,9 @@
       }
     },
     "This session runs no agent to show." : {
+
+    },
+    "This session runs no agent." : {
 
     },
     "This shell has an incompatible appearance owner. The existing shell has been preserved." : {
@@ -107417,6 +107537,7 @@
 
     },
     "Tool" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -108207,6 +108328,9 @@
 
     },
     "Turn On" : {
+
+    },
+    "Turned off" : {
 
     },
     "Turned off in the project's settings." : {
@@ -114092,6 +114216,7 @@
 
     },
     "Worked" : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {

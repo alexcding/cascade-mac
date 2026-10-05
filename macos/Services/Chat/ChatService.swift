@@ -88,6 +88,23 @@ extension ChatServing {
         return id
     }
 
+    /// Sends `text` as the person's next message in chat `threadID`: Synara's `thread.turn.start`,
+    /// on `provider`'s `model`, with no attachments, as the page sends one.
+    func startTurn(threadID: String, text: String, provider: String, model: String,
+                   runtimeMode: String = "approval-required", messageID: String = UUID().uuidString.lowercased(),
+                   now: Date = Date()) async throws {
+        try await dispatch([
+            "type": "thread.turn.start",
+            "commandId": .string(Self.commandID()),
+            "threadId": .string(threadID),
+            "message": ["messageId": .string(messageID), "role": "user", "text": .string(text), "attachments": []],
+            "modelSelection": ["provider": .string(provider), "model": .string(model)],
+            "runtimeMode": .string(runtimeMode),
+            "interactionMode": "default",
+            "createdAt": .string(ChatTimestamp.string(now)),
+        ])
+    }
+
     /// The conversation of a session's agent a chat can start knowing (`chat.sessionKnowledge`):
     /// `conversationID` when it is on disk, else the newest the agent has in `worktree`; nil when
     /// it has none yet.

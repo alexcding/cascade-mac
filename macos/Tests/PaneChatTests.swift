@@ -14,6 +14,8 @@ private final class RecordingChat: ChatServing, @unchecked Sendable {
     var knowledgeAsks: [JSONValue] { lock.withLock { _knowledgeAsks } }
     /// What `chat.sessionKnowledge` finds: the session agent's conversation, or none.
     var conversation: String?
+    /// How many `thread.turn.start`s to refuse before taking one.
+    var refusedTurns = 0
 
     func rpc(_ method: String, params: JSONValue) async throws -> JSONValue {
         switch method {
@@ -21,7 +23,13 @@ private final class RecordingChat: ChatServing, @unchecked Sendable {
             return [["provider": "claudeAgent", "available": true, "models": [["slug": "opus", "isDefault": true]]],
                     ["provider": "codex", "available": true, "models": [["slug": "gpt-5", "isDefault": true]]]]
         case "orchestration.dispatchCommand":
-            lock.withLock { _commands.append(params["command"] ?? .null) }
+            let refused = lock.withLock {
+                _commands.append(params["command"] ?? .null)
+                guard params["command"]?["type"]?.string == "thread.turn.start", refusedTurns > 0 else { return false }
+                refusedTurns -= 1
+                return true
+            }
+            if refused { throw ChatRPCError(message: "Provider offline") }
             return ["sequence": 1]
         case "chat.sessionKnowledge":
             lock.withLock { _knowledgeAsks.append(params) }
@@ -258,6 +266,58 @@ private struct QuietPageBackend: ChatPageBackend {
         #expect(context.chatThread(for: tab) == "t1", "the chat it came from keeps its tab")
         chat.onAction(.openLink(URL(string: "https://example.com")!))
         #expect(service.forwarded.last == .openLink(URL(string: "https://example.com")!))
+    }
+
+    @Test func startMakesTheChatThenSendsWhatIsTypedAsItsFirstMessage() async throws {
+        let context = WorkspaceContext(id: "task:s1", sourceURL: "session:s1", title: "")
+        let service = PaneChatFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
+        service.state.session = session(cli: "claude")
+        let tab = context.openChat()
+        model.preparePaneChat(tab)
+        let form = try #require(model.paneChat(for: tab)?.form)
+        await form.load()
+        #expect(form.canCreate && !form.canStart, "as New Task's Start: nothing typed, nothing to start")
+        form.prompt = "  \n "
+        #expect(!form.canStart, "blank is nothing")
+        await form.start()
+        #expect(service.chat.commands.isEmpty)
+
+        form.prompt = "  Why does the build fail?\n"
+        #expect(form.canStart)
+        await form.start()
+        let commands = service.chat.commands
+        #expect(commands.compactMap { $0["type"]?.string } == ["thread.create", "thread.turn.start"])
+        let thread = try #require(commands.first?["threadId"]?.string)
+        let turn = try #require(commands.last)
+        #expect(turn["threadId"]?.string == thread)
+        #expect(turn["message"]?["text"]?.string == "Why does the build fail?", "trimmed")
+        #expect(turn["message"]?["role"]?.string == "user" && turn["message"]?["attachments"] == [])
+        #expect(turn["message"]?["messageId"]?.string?.isEmpty == false && turn["commandId"]?.string?.isEmpty == false)
+        #expect(turn["modelSelection"] == ["provider": "claudeAgent", "model": "opus"])
+        #expect(turn["runtimeMode"]?.string == "approval-required" && turn["interactionMode"]?.string == "default")
+        #expect(turn["createdAt"]?.string?.hasSuffix("Z") == true)
+        #expect(context.chatThread(for: tab) == thread && model.paneChat(for: tab)?.chat?.threadID == thread,
+                "the tab shows the chat once its first message is sent")
+    }
+
+    @Test func aFirstMessageThatFailsIsSentAgainToTheSameChat() async throws {
+        let context = WorkspaceContext(id: "task:s1", sourceURL: "session:s1", title: "")
+        let service = PaneChatFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
+        service.state.session = session(cli: "codex")
+        service.chat.refusedTurns = 1
+        let tab = context.openChat()
+        model.preparePaneChat(tab)
+        let form = try #require(model.paneChat(for: tab)?.form)
+        await form.load()
+        form.prompt = "Hello"
+        await form.start()
+        #expect(form.error == "Provider offline" && !form.retired && form.prompt == "Hello", "the form stays, the text with it")
+        #expect(context.chatThread(for: tab) == nil && service.started.isEmpty)
+        await form.start()
+        let types = service.chat.commands.compactMap { $0["type"]?.string }
+        #expect(types == ["thread.create", "thread.turn.start", "thread.turn.start"], "one chat, the message sent again")
+        #expect(Set(service.chat.commands.compactMap { $0["threadId"]?.string }).count == 1)
+        #expect(form.retired && context.chatThread(for: tab) == service.started.first?.id)
     }
 
     @Test func aChatTabsPageGoesWithItsTabAndItsSession() async throws {
