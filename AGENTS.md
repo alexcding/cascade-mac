@@ -317,8 +317,11 @@ group, no terminal hook variables). The backend serves it on one route, `POST /a
 (`chat.rs`), and tells the app what changed as `chat-thread`/`chat-shell`/`chat-removed`
 events. A chat belongs to a project (it works in the project's folder) or to none
 (`cascade-standalone`, in a folder the person picked); either way it is a thread in `chat.db`,
-not a task record, and has no worktree of its own. To take Synara's newer code, re-vendor the
-page and port the mapped Rust files' upstream diffs by hand.
+not a task record, and has no worktree of its own. A subagent the agent runs (Claude's Task tool,
+a Codex child conversation) gets a thread of its own, `subagent:<parent>:<id>`, whose shell names
+its `parentThreadId`: lists leave it out (`ChatListStore.visible`), the parent's page opens it, and
+it shows read-only. To take Synara's newer code, re-vendor the page and port the mapped Rust
+files' upstream diffs by hand.
 
 ## The layers, and who owns what
 

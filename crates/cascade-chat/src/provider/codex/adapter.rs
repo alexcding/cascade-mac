@@ -225,8 +225,8 @@ impl CodexAdapter {
                 let result = manager.start_review(&target).await.map_err(|cause| to_request_error("review/start", cause));
                 let _ = reply.send(result);
             }
-            SessionCommand::InterruptTurn { turn_id, reply } => {
-                let result = manager.interrupt_turn(turn_id, None).await;
+            SessionCommand::InterruptTurn { turn_id, provider_thread_id, reply } => {
+                let result = manager.interrupt_turn(turn_id, provider_thread_id).await;
                 let _ = reply.send(result.map_err(|cause| to_request_error("turn/interrupt", cause)));
             }
             SessionCommand::RespondToRequest { request_id, decision, reply } => {

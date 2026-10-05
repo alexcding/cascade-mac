@@ -94,6 +94,12 @@ import { ComposerModelPicker, type ComposerModelSelectionOptions } from "~/compo
 import { ComposerPendingApprovalPanel } from "~/components/chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "~/components/chat/ComposerPendingUserInputPanel";
 import { ComposerQueuedHeader } from "~/components/chat/ComposerQueuedHeader";
+import { ComposerSubagentStrip } from "~/components/chat/ComposerSubagentStrip";
+import {
+  collectRunningSubagentStripItems,
+  type ComposerSubagentStripItem,
+} from "~/components/chat/ComposerSubagentStrip.logic";
+import { localSubagentThreadId } from "~/components/ChatView.selectors";
 import { ComposerReferenceAttachments } from "~/components/chat/ComposerReferenceAttachments";
 import { ContextWindowMeter } from "~/components/chat/ContextWindowMeter";
 import { ExpandedImageOverlay } from "~/components/chat/ExpandedImageOverlay";
@@ -184,6 +190,7 @@ import { emit, request, type ChatContext } from "./bridge";
 import { containedPath } from "./filePaths";
 import { setRouteThreadId } from "./shims/npm/@tanstack__react-router";
 import { readNativeApi } from "./shims/web/nativeApi";
+import { relatedThreads, useRelatedThreadSnapshots } from "./relatedThreads";
 import { hasSnapshot, refreshSnapshot, setStreamThread } from "./threadStream";
 import { TurnDiffPanel, type TurnDiffSelection } from "./TurnDiffPanel";
 
@@ -443,7 +450,21 @@ export function ChatController({ context }: { context: ChatContext }) {
   // page that closed, found again with the thread's turn over, drains as it would have when
   // that turn ended.
   const queuePhase = phase === "disconnected" ? "ready" : phase;
-  const { workLogEntries } = useChatWorkLog({ activeThread, latestTurnSettled, latestTurnLive });
+  const { workLogEntries, composerSubagentStripItems, stripSourceThreadId } = useChatWorkLog({
+    activeThread,
+    latestTurnSettled,
+    latestTurnLive,
+  });
+  // The subagent strip reads the threads around this one: its subagents, or its parent and
+  // siblings when it is a subagent's. The app pushes only this thread, so the page reads them.
+  const stripParentThreadId = activeThread?.parentThreadId ?? null;
+  const stripParentThread = useStore(useMemo(() => createThreadSelector(stripParentThreadId), [stripParentThreadId]));
+  const related = useMemo(
+    () => relatedThreads(activeThread, stripParentThread),
+    [activeThread, stripParentThread],
+  );
+  useRelatedThreadSnapshots(related, activeThread);
+  const [subagentStripCompact, setSubagentStripCompact] = useState(false);
   const [openAgentActivityId, setOpenAgentActivityId] = useState<string | null>(null);
   const agentActivityTimelineState = useMemo(
     () => deriveAgentActivityTimelineState(workLogEntries),
@@ -615,6 +636,28 @@ export function ChatController({ context }: { context: ChatContext }) {
   const openThread = useCallback((nextThreadId: ThreadId) => {
     if (String(nextThreadId) !== String(threadId)) emit("openThread", { threadId: nextThreadId });
   }, [threadId]);
+
+  // ChatView's subagent strip handlers. A strip row opens the subagent's thread in the app; Stop
+  // goes through the interrupt seam on the subagent's thread, which stops that subagent only.
+  // "Run in background" is not offered: no adapter here can background a running tool.
+  const onStopSubagentStripItem = useCallback(
+    async (item: ComposerSubagentStripItem) => {
+      if (!stripSourceThreadId) return;
+      await request("orchestration.dispatchCommand", {
+        command: {
+          type: "thread.turn.interrupt",
+          commandId: newCommandId(),
+          threadId: localSubagentThreadId(stripSourceThreadId, item.providerThreadId),
+          createdAt: new Date().toISOString(),
+        },
+      }).catch(() => undefined);
+    },
+    [stripSourceThreadId],
+  );
+  const onStopAllSubagentStripItems = useCallback(async () => {
+    const running = collectRunningSubagentStripItems(composerSubagentStripItems);
+    await Promise.all(running.map((item) => onStopSubagentStripItem(item)));
+  }, [composerSubagentStripItems, onStopSubagentStripItem]);
 
   // --- focus ---------------------------------------------------------------------------
   const focusComposer = useCallback(() => {
@@ -1980,11 +2023,29 @@ export function ChatController({ context }: { context: ChatContext }) {
     </div>
   ) : null;
 
+  const subagentStrip =
+    composerSubagentStripItems.length > 0 ? (
+      <ComposerSubagentStrip
+        items={composerSubagentStripItems}
+        compact={subagentStripCompact}
+        onCompactChange={setSubagentStripCompact}
+        onOpenThread={openThread}
+        onStopItem={(item) => void onStopSubagentStripItem(item)}
+        onStopAll={() => void onStopAllSubagentStripItems()}
+        attachedToPrevious={false}
+      />
+    ) : null;
+
+  // A read-only host (a terminal session's transcript, a subagent's thread) has no editor: what
+  // the agent waits on and the subagent strip are drawn alone.
   const composer = readOnly ? (
-    pendingPanel ? (
+    pendingPanel || subagentStrip ? (
       <div ref={composerOverlayRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-10" data-chat-composer-slot="" data-chat-pending-only="">
         <div className="pointer-events-auto relative z-10 w-full overflow-visible">
-          <ComposerColumnFrame>{pendingPanel}</ComposerColumnFrame>
+          <ComposerColumnFrame>
+            {pendingPanel}
+            {subagentStrip}
+          </ComposerColumnFrame>
         </div>
       </div>
     ) : null
@@ -1999,13 +2060,14 @@ export function ChatController({ context }: { context: ChatContext }) {
         <ComposerColumnFrame>
           <div>
             {pendingPanel}
+            {subagentStrip}
             <ComposerQueuedHeader
               queuedTurns={queuedComposerTurns}
               onSteer={onSteerQueuedComposerTurn}
               onRemove={removeQueuedComposerTurn}
               onEdit={onEditQueuedComposerTurn}
               cwd={threadWorkspaceCwd ?? undefined}
-              attachedToPrevious={false}
+              attachedToPrevious={subagentStrip !== null}
             />
           </div>
           <div

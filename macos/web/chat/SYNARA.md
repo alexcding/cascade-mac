@@ -23,6 +23,7 @@ page reaches it only through the app.
 | `src/ChatController.tsx` | A slim ChatView: Synara's hooks and components for one thread. |
 | `src/TurnDiffPanel.tsx` | A slim DiffPanel: the turn and whole-thread checkpoint diffs, drawn over the chat. |
 | `src/threadStream.ts` | Folds pushed snapshots and events into Synara's store. |
+| `src/relatedThreads.ts` | Reads the threads the subagent strip needs beside the one on screen (its subagents, or its parent and siblings) into Synara's store. |
 | `src/decode.ts` | Decodes pushes with Synara's schemas, as its WebSocket transport does. |
 | `src/storage.ts` | In-memory `localStorage` if the origin has none; otherwise the real one, with the composer drafts' key merged on write (`storageMerge.ts`). |
 | `src/storageMerge.ts` | Merges a page's whole-state write onto what another page stored since. |
@@ -108,7 +109,7 @@ Events:
 | `openFile` | `{ path, line? }` | A file reference was clicked. `path` is absolute and inside `context.cwd` or `context.homeDir`; the page sends nothing for a file outside them (the app should check too). |
 | `revealFile` | `{ path }` | "Show in Finder" on a file reference. Same rule for `path`. |
 | `openTurnDiff` | `{ threadId, turnId, filePath? }` | "Edit file" on a file of the page's turn diff (Synara opens its own diff editor there): show Cascade's diff of that file. "Review" and the changed-file rows open the diff in the page instead. |
-| `openThread` | `{ threadId }` | Show another chat thread: the one a `/fork`, a message's "Fork from here" or Codex's `/review` just made, or a thread link. Synara navigates to it; the page shows one thread, so the app is asked to. Never sent for the thread on screen. |
+| `openThread` | `{ threadId }` | Show another chat thread: the one a `/fork`, a message's "Fork from here" or Codex's `/review` just made, a thread link, or a row of the subagent strip (a subagent's thread, `subagent:<parent>:<provider thread id>`, or from there its parent). Synara navigates to it; the page shows one thread, so the app is asked to. Never sent for the thread on screen. |
 | `openSettings` | `{ path }` | Synara's "Manage providers" link. |
 | `copy` | `{ text }` | Put text on the pasteboard. The page routes `navigator.clipboard.writeText` here (Synara's copy buttons), since a custom-scheme page may have no Clipboard API. |
 | `error` | `{ message, stack? }` | An uncaught error or rejection. |
@@ -229,7 +230,7 @@ absent, so Synara's feature checks see them missing. Any other method rejects wi
 
 Left out with ChatView itself: the sidebar, header, split panes, right dock, terminal drawer,
 plan sidebar, git and worktree controls, handoffs, sidechats, export commands, automations,
-computer control, voice, pinned messages and notes, goal header, workflow/subagent strips, plan
+computer control, voice, pinned messages and notes, goal header, the workflow run card, plan
 follow-ups from the plan card, and the composer footer's width-adaptive tiers (the footer always
 plans for full width). The transcript's assistant-selection action (select text to quote it in
 the composer) is not wired.
@@ -240,6 +241,18 @@ git through methods the app does not serve. A fork to a new worktree is not offe
 sends it with `envMode: "worktree"` and no path and creates the worktree on the first send,
 and a chat here has no worktree of its own, so the engine refuses it (a typed `/fork worktree`
 ends in Synara's "Could not fork thread" toast with the engine's reason).
+
+**Subagents** go Synara's way: the transcript drops a subagent tool call's row
+(`omitRoutedSubagentWorkEntries`) and ChatView's `ComposerSubagentStrip` lists the turn's
+subagents above the composer, from `useChatWorkLog`'s `composerSubagentStripItems`. Synara keeps
+the subagents' own threads in its store through detail subscriptions; the app pushes only the
+thread on screen, so `relatedThreads.ts` reads them with `orchestration.getThreadDetailSnapshot`
+(and, on a subagent's page, its parent and siblings), again whenever the thread on screen changes,
+at most every 500 ms. A row opens the subagent's thread through `openThread`; Stop sends
+`thread.turn.interrupt` for the subagent's thread, which stops that subagent only; "Run in
+background" is not offered. A subagent's thread opens read-only (`readOnly` in the context): it
+follows its parent's agent, and messaging a running subagent is not ported. Its strip leads back
+to the parent.
 
 On a read-only page (a terminal session's transcript) there is no composer, so no queue, and the
 transcript offers no edit, revert, undo or fork; the approval and question panels, the turn diff

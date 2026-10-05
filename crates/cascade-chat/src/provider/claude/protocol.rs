@@ -108,6 +108,8 @@ pub enum ControlRequest {
     SetPermissionMode { mode: String },
     SetModel { model: Option<String> },
     ApplyFlagSettings { settings: Map<String, Value> },
+    /// `Query.stopTask`: ends one background or subagent task.
+    StopTask { task_id: String },
 }
 
 impl ControlRequest {
@@ -118,6 +120,7 @@ impl ControlRequest {
             Self::SetPermissionMode { .. } => "set_permission_mode",
             Self::SetModel { .. } => "set_model",
             Self::ApplyFlagSettings { .. } => "apply_flag_settings",
+            Self::StopTask { .. } => "stop_task",
         }
     }
 
@@ -129,6 +132,9 @@ impl ControlRequest {
                 if let Some(append) = append_system_prompt {
                     body.insert("appendSystemPrompt".into(), json!(append));
                 }
+                // Synara's `forwardSubagentText: true`: a subagent's whole conversation (text and
+                // thinking, not only its tool calls) comes tagged with its Task tool's id.
+                body.insert("forwardSubagentText".into(), json!(true));
             }
             Self::Interrupt => {}
             Self::SetPermissionMode { mode } => {
@@ -139,6 +145,9 @@ impl ControlRequest {
             }
             Self::ApplyFlagSettings { settings } => {
                 body.insert("settings".into(), Value::Object(settings.clone()));
+            }
+            Self::StopTask { task_id } => {
+                body.insert("task_id".into(), json!(task_id));
             }
         }
         Value::Object(body)

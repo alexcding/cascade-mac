@@ -1260,3 +1260,224 @@ async fn a_saved_attachment_is_read_back_by_its_id_alone() {
     }
     engine.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_claude_subagent_gets_a_read_only_child_thread() {
+    const SUBAGENT_FIXTURE: &str = include_str!("fixtures/claude-turn-with-subagent.jsonl");
+    const AGENT: &str = "toolu_01UURA7ASnZqors4Psep6oL5";
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, published) = start(data.path(), &spawner).await;
+    let thread = "thread-parent";
+    let child = format!("subagent:{thread}:{AGENT}");
+
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Use the Agent tool to list the files", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let lines: Vec<&str> = SUBAGENT_FIXTURE.lines().filter(|l| !l.trim().is_empty()).collect();
+    let approval = lines.iter().position(|l| l.contains("\"can_use_tool\"")).unwrap();
+    cli.write_lines(&lines[..=approval]).await;
+
+    // The subagent's Bash approval waits on the parent, where the person answers it.
+    let request_id = pending_approval(&wait_for(&engine, thread, "the approval", |t| pending_approval(t).is_some()).await).unwrap();
+    let running_child = wait_for(&engine, &child, "the child to run", running).await;
+    assert_eq!(pending_approval(&running_child), None);
+    engine.dispatch(approve(thread, &request_id)).await.unwrap();
+    cli.read_until("the approval response", |v| v["type"] == "control_response").await;
+    cli.write_lines(&lines[approval + 1..]).await;
+    let parent = wait_for(&engine, thread, "the parent's turn", turn_completed).await;
+
+    // The child: made from the Task tool, linked to its parent, holding the subagent's work.
+    let done = wait_for(&engine, &child, "the child's turn", |t| {
+        t.latest_turn.as_ref().is_some_and(|turn| turn.state == OrchestrationLatestTurnState::Completed)
+    })
+    .await;
+    assert_eq!(done.parent_thread_id.as_ref().map(ThreadId::as_str), Some(thread));
+    assert_eq!(done.project_id, parent.project_id);
+    assert_eq!(done.subagent_nickname.as_deref(), Some("List files in current directory"));
+    assert_eq!(done.subagent_role.as_deref(), Some("general-purpose"));
+    assert_eq!(done.title, "List files in current directory [general-purpose]");
+    assert_eq!(serde_json::to_value(done.creation_source).unwrap(), "provider_native");
+    assert_eq!(done.worktree_path, parent.worktree_path);
+    let child_text: Vec<&str> = done
+        .messages
+        .iter()
+        .filter(|m| m.role == OrchestrationMessageRole::Assistant)
+        .map(|m| m.text.as_str())
+        .collect();
+    assert_eq!(child_text.len(), 1, "{child_text:?}");
+    assert!(child_text[0].contains("a.txt"), "{child_text:?}");
+    assert!(
+        done.activities.iter().any(|a| a.kind == "tool.completed" && a.payload["itemType"] == "command_execution"),
+        "{:?}",
+        done.activities.iter().map(|a| &a.kind).collect::<Vec<_>>()
+    );
+
+    // The parent keeps the Task tool as one row naming the child, and only its own words.
+    let parent_text: Vec<&str> =
+        parent.messages.iter().filter(|m| m.role == OrchestrationMessageRole::Assistant).map(|m| m.text.as_str()).collect();
+    assert_eq!(parent_text.len(), 1, "{parent_text:?}");
+    assert!(parent_text[0].starts_with("The directory contains five files"));
+    let collab = parent
+        .activities
+        .iter()
+        .find(|a| a.kind == "tool.completed" && a.payload["itemType"] == "collab_agent_tool_call")
+        .expect("the Task tool's row");
+    assert_eq!(collab.payload["data"]["receiverThreadId"], AGENT);
+    assert!(!parent.activities.iter().any(|a| a.payload["itemType"] == "command_execution"));
+
+    // Lists see it with its parent, and the app hears of it.
+    let shells = engine.shells(None).await.unwrap();
+    let listed = shells.iter().find(|s| s.id.as_str() == child).expect("the child is listed");
+    assert_eq!(listed.parent_thread_id.as_ref().map(ThreadId::as_str), Some(thread));
+    assert!(published.lock().unwrap().iter().any(|e| matches!(e, ChatEngineEvent::Shell { shell } if shell.id.as_str() == child)));
+
+    // Nothing is sent from the child: it follows its parent's agent.
+    let refused = engine.dispatch(turn_start(&child, "msg-2", "hello", "queue")).await;
+    assert!(matches!(refused, Err(ChatError::Invalid(_))), "{refused:?}");
+
+    // Archiving, restoring and deleting the parent take the child along.
+    engine
+        .dispatch(command(json!({ "type": "thread.archive", "commandId": "archive", "threadId": thread })))
+        .await
+        .unwrap();
+    assert!(engine.thread(ThreadId::new(child.clone())).await.unwrap().unwrap().archived_at.is_some());
+    engine
+        .dispatch(command(json!({ "type": "thread.unarchive", "commandId": "unarchive", "threadId": thread })))
+        .await
+        .unwrap();
+    assert!(engine.thread(ThreadId::new(child.clone())).await.unwrap().unwrap().archived_at.is_none());
+    engine.dispatch(command(json!({ "type": "thread.delete", "commandId": "delete", "threadId": thread }))).await.unwrap();
+    assert!(engine.thread(ThreadId::new(child.clone())).await.unwrap().is_none());
+    engine.shutdown().await;
+}
+
+const SUBAGENT_FIXTURE: &str = include_str!("fixtures/claude-turn-with-subagent.jsonl");
+const SUBAGENT_TOOL: &str = "toolu_01UURA7ASnZqors4Psep6oL5";
+
+#[tokio::test]
+async fn a_running_subagent_thread_is_settled_when_the_engine_starts_again() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-parent-restart";
+    let child = format!("subagent:{thread}:{SUBAGENT_TOOL}");
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Use the Agent tool to list the files", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let lines: Vec<&str> = SUBAGENT_FIXTURE.lines().filter(|l| !l.trim().is_empty()).collect();
+    let approval = lines.iter().position(|l| l.contains("\"can_use_tool\"")).unwrap();
+    cli.write_lines(&lines[..=approval]).await;
+    wait_for(&engine, &child, "the child to run", running).await;
+    engine.shutdown().await;
+
+    // The app quit mid-subagent: the child is saved running, and is settled with its parent.
+    let (reopened, _) = start(data.path(), &ScriptedSpawner::new()).await;
+    let after = reopened.thread(ThreadId::new(child.clone())).await.unwrap().unwrap();
+    let session = after.session.clone().unwrap();
+    assert_eq!(session.status, OrchestrationSessionStatus::Stopped);
+    assert_eq!(session.active_turn_id, None);
+    assert_eq!(after.latest_turn.unwrap().state, OrchestrationLatestTurnState::Interrupted);
+    assert!(after.messages.iter().all(|m| !m.streaming));
+    reopened.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_parent_turn_shows_at_most_twenty_subagent_threads() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-many-subagents";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Spawn 21 agents", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let lines: Vec<&str> = SUBAGENT_FIXTURE.lines().filter(|l| !l.trim().is_empty()).collect();
+    let line = |needle: &str| *lines.iter().find(|l| l.contains(needle)).unwrap();
+    let tool_start = lines.iter().position(|l| l.contains("\"content_block_start\",\"index\":1")).unwrap();
+    let tool_message = line("\"wire_tool_inputs\"");
+    let task_started = line("\"subtype\":\"task_started\"");
+    let prompt = line("\"task_description\"");
+    let child_text = *lines.iter().find(|l| l.contains("\"type\":\"text\",\"text\":\"The current working directory")).unwrap();
+
+    // One assistant message with 21 Task tools, each its own block.
+    cli.write_lines(&lines[..tool_start]).await;
+    let tool = |i: usize| format!("toolu_many_{i:02}");
+    for i in 0..21 {
+        let index = i + 1;
+        let id = tool(i);
+        cli.write_line(&lines[tool_start].replace(SUBAGENT_TOOL, &id).replace("\"index\":1", &format!("\"index\":{index}")).replace("\"uuid\":\"", &format!("\"uuid\":\"s{i}-"))).await;
+        cli.write_line(&tool_message.replace(SUBAGENT_TOOL, &id).replace("\"uuid\":\"", &format!("\"uuid\":\"m{i}-"))).await;
+        cli.write_line(&format!(
+            r#"{{"type":"stream_event","event":{{"type":"content_block_stop","index":{index}}},"session_id":"a67cccb5-1155-486e-ba1f-63ee053c5e97","parent_tool_use_id":null,"uuid":"stop-{i}"}}"#
+        ))
+        .await;
+    }
+    let capped = wait_for(&engine, thread, "the cap notice", |t| {
+        t.activities.iter().any(|a| a.kind == "subagent.materialization.capped")
+    })
+    .await;
+    let parent_turn = capped.session.as_ref().and_then(|s| s.active_turn_id.clone()).expect("the parent's turn runs");
+
+    // The 21st subagent runs anyway: its own events, under its own turn, make no thread either.
+    let last = tool(20);
+    for template in [task_started, prompt, child_text] {
+        cli.write_line(&template.replace(SUBAGENT_TOOL, &last).replace("\"uuid\":\"", "\"uuid\":\"last-")).await;
+    }
+    cli.write_line(&claude_result("result-many", "success")).await;
+    wait_for(&engine, thread, "the parent's turn", |t| t.session.as_ref().is_some_and(|s| s.active_turn_id.is_none())).await;
+
+    let children: Vec<_> = engine
+        .shells(None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|s| s.parent_thread_id.as_ref().map(ThreadId::as_str) == Some(thread))
+        .collect();
+    assert_eq!(children.len(), 20, "{:?}", children.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
+    assert!(children.iter().all(|c| c.source_turn_id.as_ref() == Some(&parent_turn)));
+    assert!(engine.thread(ThreadId::new(format!("subagent:{thread}:{last}"))).await.unwrap().is_none());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn archiving_a_parent_succeeds_when_a_subagent_thread_cannot_follow() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-parent-archive";
+    let child = format!("subagent:{thread}:{SUBAGENT_TOOL}");
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Use the Agent tool to list the files", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let lines: Vec<&str> = SUBAGENT_FIXTURE.lines().filter(|l| !l.trim().is_empty()).collect();
+    let approval = lines.iter().position(|l| l.contains("\"can_use_tool\"")).unwrap();
+    cli.write_lines(&lines[..=approval]).await;
+    let request_id = pending_approval(&wait_for(&engine, thread, "the approval", |t| pending_approval(t).is_some()).await).unwrap();
+    engine.dispatch(approve(thread, &request_id)).await.unwrap();
+    cli.read_until("the approval response", |v| v["type"] == "control_response").await;
+    cli.write_lines(&lines[approval + 1..]).await;
+    wait_for(&engine, thread, "the parent's turn", turn_completed).await;
+    wait_for(&engine, &child, "the child's turn", |t| t.latest_turn.as_ref().is_some_and(|l| l.state == OrchestrationLatestTurnState::Completed)).await;
+    engine.shutdown().await;
+
+    // The child is listed but can no longer be read whole.
+    let db = rusqlite::Connection::open(data.path().join("chat.db")).unwrap();
+    assert!(db.execute("UPDATE messages SET json = '{' WHERE thread_id = ?1", [&child]).unwrap() > 0);
+    drop(db);
+
+    let (reopened, _) = start(data.path(), &ScriptedSpawner::new()).await;
+    reopened
+        .dispatch(command(json!({ "type": "thread.archive", "commandId": "archive", "threadId": thread })))
+        .await
+        .expect("the parent's archive is not undone by its subagent");
+    assert!(reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap().archived_at.is_some());
+    reopened.shutdown().await;
+}

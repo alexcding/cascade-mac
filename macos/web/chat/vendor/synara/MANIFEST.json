@@ -592,6 +592,7 @@
     "apps/web/src/components/chat/ComposerStackedPanel.tsx": "55d50bfce86d7f18bfae3debadc97344d845847c462499d429920a7ddc1835ab",
     "apps/web/src/components/chat/ComposerStackedPanelContent.tsx": "c48c92c16115a90966184519f22350420f065fb5001823f93cc480e34926415f",
     "apps/web/src/components/chat/ComposerSubagentStrip.logic.ts": "f89a687a702abfdc80296d9ab257f80b8e007d2bafd00df4e12e44a28059e2a4",
+    "apps/web/src/components/chat/ComposerSubagentStrip.tsx": "f1e3f36ac1a0349461a575fddd5bba824afaffe78601d0c3f59313dadb76c8bb",
     "apps/web/src/components/chat/ComposerVoiceButton.tsx": "ad77514d0335c918bd18f11e78349934e810ca02cad74d920c3884db51977473",
     "apps/web/src/components/chat/ComposerVoiceRecorderBar.tsx": "16ad802e2079ea22612c201b674c740d1a8682ae69c28cead768fab3b2786295",
     "apps/web/src/components/chat/ComputerActionCard.tsx": "aa1ba9d4b4926d56d93adcb6f331674349e62ebeb72f7f6431b88a8a2e41bce3",

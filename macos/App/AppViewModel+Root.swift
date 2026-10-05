@@ -7,7 +7,7 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating, NewSessionCoordin
                   canCreateProject: canPerform(.newProject),
                   canCreateSession: canPerform(.newSession), canRefresh: canPerform(.refresh),
                   gitClientLabel: workspaceLaunch.gitClientLabel(shell.gitClient),
-                  chats: chats.visible(includeArchived: true), chatsLoaded: chats.loaded, showsArchivedChats: showsArchivedChats)
+                  chats: chats.visible(includeArchived: true, includeSubagents: true), chatsLoaded: chats.loaded, showsArchivedChats: showsArchivedChats)
     }
     func performRootCommand(_ command: ShellCommand) { perform(command) }
 

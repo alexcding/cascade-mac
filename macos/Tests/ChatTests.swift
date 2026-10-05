@@ -92,6 +92,28 @@ private func pageContext(_ id: String = "t1") -> ChatPageContext {
     ChatPageContext(threadId: id, projectId: "p", cwd: "/work", projectName: "Project", locale: "en-US", homeDir: "/Users/me")
 }
 
+// MARK: - Subagent threads
+
+@MainActor @Test func subagentThreadsAreKeptButNotListed() async throws {
+    var child = shell("subagent:parent:toolu_1", project: "p", created: "2026-02-02")
+    child.parentThreadId = "parent"
+    let listing: JSONValue = try .from([shell("parent", project: "p", created: "2026-02-01"), child,
+                                        shell("loose", project: ChatProject.standalone, created: "2026-01-15")].map(Encoded.init))
+    let store = ChatListStore()
+    store.connect(ScriptedChat { _, _ in listing })
+    await store.settle()
+
+    // The backend's shell names the parent; the store keeps the child so its parent's page can open it.
+    let decoded = try JSONValue.from(["id": "c", "projectId": "p", "title": "List files [general-purpose]", "parentThreadId": "parent"])
+        .decode(ChatThreadShell.self)
+    #expect(decoded.subagent && decoded.parentThreadId == "parent")
+    #expect(store.shell(child.id)?.subagent == true && store.shell("parent")?.subagent == false)
+    // Lists (sidebar, Projects) leave it out; routing, which takes the app to it, does not.
+    #expect(store.visible().map(\.id) == ["parent", "loose"])
+    #expect(store.grouped(projectIDs: ["p"]).byProject["p"]?.map(\.id) == ["parent"])
+    #expect(store.visible(includeSubagents: true).map(\.id) == [child.id, "parent", "loose"])
+}
+
 // MARK: - ChatService
 
 @MainActor @Test func chatServiceSendsMethodsAndDecodesShells() async throws {
@@ -206,6 +228,7 @@ private struct Encoded: Encodable {
         if let folder = shell.workingDirectory { object["workingDirectory"] = .string(folder) }
         if let created = shell.createdAt { object["createdAt"] = .string(created) }
         if let archived = shell.archivedAt { object["archivedAt"] = .string(archived) }
+        if let parent = shell.parentThreadId { object["parentThreadId"] = .string(parent) }
         try JSONValue.object(object).encode(to: encoder)
     }
 }

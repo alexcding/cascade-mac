@@ -7,3 +7,4 @@ pub mod fork_thread_title;
 pub mod ingestion;
 pub mod projector;
 mod reactor;
+pub mod subagents;

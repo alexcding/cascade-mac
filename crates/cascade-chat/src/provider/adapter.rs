@@ -61,7 +61,9 @@ pub enum SessionCommand {
     /// Synara `startReview`: a native review run on the session's conversation. Only for
     /// adapters that have one (Codex's `review/start`); the others answer with an error.
     StartReview { target: ProviderReviewTarget, reply: Reply<ProviderTurnStartResult> },
-    InterruptTurn { turn_id: Option<TurnId>, reply: Reply<()> },
+    /// Synara `interruptTurn(threadId, turnId, providerThreadId)`: with a provider thread id, only
+    /// that subagent's run (a Claude Task tool spawn, a Codex child conversation) is stopped.
+    InterruptTurn { turn_id: Option<TurnId>, provider_thread_id: Option<String>, reply: Reply<()> },
     RespondToRequest { request_id: ApprovalRequestId, decision: ProviderApprovalDecision, reply: Reply<()> },
     RespondToUserInput { request_id: ApprovalRequestId, answers: ProviderUserInputAnswers, reply: Reply<()> },
     SetRuntimeMode { mode: RuntimeMode, reply: Reply<()> },
@@ -107,7 +109,12 @@ impl ProviderSessionHandle {
     }
 
     pub async fn interrupt_turn(&self, turn_id: Option<TurnId>) -> Result<()> {
-        self.ask(|reply| SessionCommand::InterruptTurn { turn_id, reply }).await
+        self.ask(|reply| SessionCommand::InterruptTurn { turn_id, provider_thread_id: None, reply }).await
+    }
+
+    /// Stops one subagent of the session's conversation, which runs as `provider_thread_id`.
+    pub async fn interrupt_subagent(&self, turn_id: Option<TurnId>, provider_thread_id: String) -> Result<()> {
+        self.ask(|reply| SessionCommand::InterruptTurn { turn_id, provider_thread_id: Some(provider_thread_id), reply }).await
     }
 
     pub async fn respond_to_request(

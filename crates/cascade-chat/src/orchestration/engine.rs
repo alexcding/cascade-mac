@@ -57,7 +57,10 @@ use crate::{
 use super::{
     decider::{command_thread_id, decide, decide_fork_create, DecideError},
     fork_thread_title::ForkLineageThread,
-    ingestion::{IngestionEnvironment, ProviderRuntimeIngestion},
+    ingestion::{
+        ensure_subagent_thread_command, local_subagent_thread_id, native_child_budget_key, native_child_overflow_command,
+        subagent_routing, IngestionEnvironment, ProviderRuntimeIngestion, SubagentIdentity,
+    },
     projector::project,
 };
 
@@ -565,20 +568,88 @@ impl Actor {
         let command = OrchestrationCommand::Client(command);
         let thread_id = command_thread_id(&command).clone();
         self.load(&thread_id).await.map_err(ChatError::Internal)?;
+        // A subagent's thread follows its parent's agent; messaging a running subagent
+        // (Synara's `steerSubagent`) is not ported, so nothing is sent from it.
+        let is_send = matches!(
+            &command,
+            OrchestrationCommand::Client(ClientThreadCommand::TurnStart(_) | ClientThreadCommand::MessageEditAndResend(_))
+        );
+        if is_send && self.thread(&thread_id).is_some_and(|t| t.parent_thread_id.is_some()) {
+            return Err(ChatError::Invalid("A subagent's thread is read-only: it follows its parent's agent.".into()));
+        }
         let mut ctx = Ctx::new(thread_id.clone());
         let outcome = match &command {
             OrchestrationCommand::Client(ClientThreadCommand::ForkCreate(fork)) => {
                 self.run_fork_create(&mut ctx, fork).await.map_err(ChatError::Internal)?
             }
-            _ => self.run_command(&mut ctx, command),
+            _ => self.run_command(&mut ctx, command.clone()),
         };
         let sequence = self.entries.get(&thread_id).map_or(0, |e| e.sequence);
         self.commit(ctx).await;
         self.forget_if_absent(&thread_id);
+        if let (Ok(()), OrchestrationCommand::Client(client)) = (&outcome, &command) {
+            // The thread itself took the command, and it is saved: a subtree that did not follow
+            // is logged, not reported as the command failing.
+            if let Err(error) = self.cascade_to_subagents(client).await {
+                tracing::warn!(thread = %thread_id, "chat: subagent threads did not follow their parent: {error:#}");
+            }
+        }
         match outcome {
             Ok(()) => Ok(DispatchResult { sequence }),
             Err(error) => Err(ChatError::Invalid(error.to_string())),
         }
+    }
+
+    /// Subagent threads are reached only through their parent, so archiving, restoring or deleting
+    /// a thread does the same to its subagent subtree once the thread itself took it (Synara
+    /// decider.ts:1497-1555 and `collectSubagentDescendants`). A child that refuses (already in
+    /// that state) is skipped.
+    async fn cascade_to_subagents(&mut self, command: &ClientThreadCommand) -> Result<()> {
+        let (root, kind) = match command {
+            ClientThreadCommand::Archive(c) => (&c.thread_id, "thread.archive"),
+            ClientThreadCommand::Unarchive(c) => (&c.thread_id, "thread.unarchive"),
+            ClientThreadCommand::Delete(c) => (&c.thread_id, "thread.delete"),
+            _ => return Ok(()),
+        };
+        self.flush_all().await;
+        let shells = self.store.list_shells(None).await?;
+        let mut descendants: Vec<(ThreadId, bool)> = Vec::new();
+        let mut queue = vec![root.clone()];
+        let mut seen: HashSet<ThreadId> = HashSet::from([root.clone()]);
+        while let Some(parent) = queue.pop() {
+            for shell in shells.iter().filter(|t| t.parent_thread_id.as_ref() == Some(&parent)) {
+                if seen.insert(shell.id.clone()) {
+                    descendants.push((shell.id.clone(), shell.archived_at.is_some()));
+                    queue.push(shell.id.clone());
+                }
+            }
+        }
+        for (child, archived) in descendants {
+            let applies = match kind {
+                "thread.archive" => !archived,
+                "thread.unarchive" => archived,
+                _ => true,
+            };
+            if !applies {
+                continue;
+            }
+            if let Err(error) = self.load(&child).await {
+                tracing::warn!(thread = %child, "chat: a subagent thread could not be read to follow its parent: {error:#}");
+                continue;
+            }
+            let command: ClientThreadCommand = serde_json::from_value(serde_json::json!({
+                "type": kind,
+                "commandId": server_command_id("subagent-cascade"),
+                "threadId": child,
+            }))?;
+            let mut ctx = Ctx::new(child.clone());
+            if let Err(error) = self.run_command(&mut ctx, command.into()) {
+                tracing::debug!(thread = %child, %error, "chat: a subagent thread did not follow its parent");
+            }
+            self.commit(ctx).await;
+            self.forget_if_absent(&child);
+        }
+        Ok(())
     }
 
     /// A thread not in memory as stored, with its sequence.
@@ -849,9 +920,91 @@ impl Actor {
             self.forget_if_absent(&thread_id);
             return;
         }
+        // Synara `processRuntimeEvent` (PRI:2286): the children a collab tool call names are made
+        // first, then a subagent's own event goes to its child thread.
+        let routing = subagent_routing(&event);
+        for (provider_thread_id, identity) in &routing.receivers {
+            let source_turn = event.turn_id.clone();
+            self.ensure_subagent_thread(&thread_id, provider_thread_id, identity.as_ref(), source_turn, &event).await;
+        }
+        if let Some((provider_thread_id, identity)) = &routing.target {
+            // A subagent's own event carries the child's turn, not the parent's: the child it may
+            // make belongs to the parent's turn, which is what the cap and `sourceTurnId` count.
+            let source_turn = self.thread(&thread_id).and_then(parent_source_turn);
+            let Some(child) =
+                self.ensure_subagent_thread(&thread_id, provider_thread_id, identity.as_ref(), source_turn, &event).await
+            else {
+                return;
+            };
+            let mut ctx = Ctx::new(child);
+            self.ingest_subagent_runtime(&mut ctx, &event);
+            self.commit(ctx).await;
+            return;
+        }
         let mut ctx = Ctx::new(thread_id);
         self.ingest_runtime(&mut ctx, &event);
         self.commit(ctx).await;
+    }
+
+    /// Synara `ensureSubagentThread` (PRI:2111): the child thread of `parent_id` that runs as
+    /// `provider_thread_id`, made if it is not there yet, or told what `identity` adds. `None`
+    /// when there is no child to write to: one deleted (it stays deleted), or one past the cap of
+    /// children a parent turn may make. `source_turn` is the parent's turn that spawned it.
+    async fn ensure_subagent_thread(
+        &mut self,
+        parent_id: &ThreadId,
+        provider_thread_id: &str,
+        identity: Option<&SubagentIdentity>,
+        source_turn: Option<TurnId>,
+        event: &ProviderRuntimeEvent,
+    ) -> Option<ThreadId> {
+        let child_id = local_subagent_thread_id(parent_id, provider_thread_id);
+        if let Err(error) = self.load(&child_id).await {
+            tracing::warn!(thread = %child_id, "chat: could not load a subagent thread: {error:#}");
+            return None;
+        }
+        let parent = self.thread(parent_id)?.clone();
+        let existing = self.thread(&child_id).cloned();
+        if existing.as_ref().is_some_and(|t| t.deleted_at.is_some()) {
+            return None;
+        }
+        if existing.is_none() {
+            let key = native_child_budget_key(parent_id, source_turn.as_ref());
+            if !self.ingestion.has_native_child_budget(&key) {
+                self.flush_all().await;
+                let siblings = match self.store.list_shells(Some(parent.project_id.to_string())).await {
+                    Ok(shells) => shells,
+                    Err(error) => {
+                        tracing::warn!(thread = %parent_id, "chat: could not list a thread's subagents: {error:#}");
+                        Vec::new()
+                    }
+                };
+                self.ingestion.init_native_child_budget(
+                    key.clone(),
+                    siblings
+                        .into_iter()
+                        .filter(|t| t.parent_thread_id.as_ref() == Some(parent_id) && t.source_turn_id == source_turn)
+                        .map(|t| t.id),
+                );
+            }
+            if !self.ingestion.claim_native_child_slot(&key, &child_id) {
+                self.forget_if_absent(&child_id);
+                let mut ctx = Ctx::new(parent_id.clone());
+                self.run_logged(&mut ctx, native_child_overflow_command(parent_id, source_turn.as_ref(), &event.created_at));
+                self.commit(ctx).await;
+                return None;
+            }
+        }
+        if let Some(command) = ensure_subagent_thread_command(&parent, existing.as_ref(), provider_thread_id, identity, source_turn.as_ref(), event) {
+            let mut ctx = Ctx::new(child_id.clone());
+            self.run_logged(&mut ctx, command);
+            self.commit(ctx).await;
+        }
+        if self.thread(&child_id).is_none() {
+            self.forget_if_absent(&child_id);
+            return None;
+        }
+        Some(child_id)
     }
 
     async fn on_internal(&mut self, message: Internal) {
@@ -982,6 +1135,15 @@ impl Actor {
 }
 
 /// A batch made only of streamed assistant text is saved on a timer rather than at once.
+/// The parent's turn a subagent's own event belongs to: the one running, else the last one.
+fn parent_source_turn(parent: &OrchestrationThread) -> Option<TurnId> {
+    parent
+        .session
+        .as_ref()
+        .and_then(|s| s.active_turn_id.clone())
+        .or_else(|| parent.latest_turn.as_ref().map(|t| t.turn_id.clone()))
+}
+
 fn is_streaming_delta(event: &OrchestrationEvent) -> bool {
     matches!(
         &event.body,

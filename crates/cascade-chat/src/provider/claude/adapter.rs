@@ -8,12 +8,16 @@
 //! A session is one tokio task that owns the CLI process: it reads the CLI's stdout line by line,
 //! writes its stdin, and serves the [`SessionCommand`]s of its handle, in a `select!`.
 //!
+//! A Task/Agent tool's subagent runs as a scoped context of its own (Synara `ensureSubagentRun`):
+//! its messages, tagged with the tool's id, are projected by the same handlers, and every event
+//! they make carries the subagent's `providerRefs`, which ingestion routes to the child thread.
+//!
 //! Left out on purpose (Synara-specific or not reachable without the SDK): the MCP gateway,
-//! computer control, Claude cache observation, account isolation, subagent child threads (a
-//! Task/Agent tool is an ordinary `collab_agent_tool_call` item, and the subagent's own traffic
-//! is dropped), the workflow runtime, compaction bookkeeping, tracked TaskCreate/TaskUpdate
-//! tasks, context-usage probes, model refusal reroutes, VCS notices, thread import and
-//! `readThread`.
+//! computer control, Claude cache observation, account isolation, messaging a running subagent
+//! (`steerSubagent`, which needs the SDK's PreToolUse hook), per-task token meters
+//! (`emitTaskUsageSnapshot`), the workflow runtime, compaction bookkeeping, tracked
+//! TaskCreate/TaskUpdate tasks, context-usage probes, model refusal reroutes, VCS notices, thread
+//! import and `readThread`.
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -807,6 +811,19 @@ fn parent_tool_use_id(message: &Value) -> Option<&str> {
     message.get("parent_tool_use_id").and_then(Value::as_str).filter(|id| !id.is_empty())
 }
 
+/// Synara `runtimeSessionStateFromClaudeTaskStatus` (ClaudeAdapter.ts:2020)
+fn runtime_session_state_from_claude_task_status(status: &str) -> Option<RuntimeSessionState> {
+    match status {
+        "pending" => Some(RuntimeSessionState::Starting),
+        "running" => Some(RuntimeSessionState::Running),
+        "paused" => Some(RuntimeSessionState::Waiting),
+        "completed" => Some(RuntimeSessionState::Ready),
+        "failed" => Some(RuntimeSessionState::Error),
+        "killed" => Some(RuntimeSessionState::Stopped),
+        _ => None,
+    }
+}
+
 /// Synara `normalizeClaudeTodoTasks` (claudeTaskTracker.ts:163)
 fn normalize_claude_todo_tasks(input: &Map<String, Value>) -> Option<TurnTasksUpdatedPayload> {
     let todos = input.get("todos")?.as_array()?;
@@ -1317,6 +1334,54 @@ enum PendingControl {
     Fire { subtype: &'static str },
 }
 
+/// Synara `ClaudeSubagentRun` (ClaudeAdapter.ts:341): one live Task tool spawn. Its traffic is
+/// keyed by the Task tool's id (`parent_tool_use_id` on what the CLI forwards); the task id comes
+/// later, with `task_started`, and is what `stop_task` takes.
+struct ClaudeSubagentRun {
+    tool_use_id: String,
+    task_id: Option<String>,
+    scope: ClaudeScope,
+}
+
+/// Synara `subagentRefs`: stamped on every event a subagent's scoped context makes.
+#[derive(Clone, Debug)]
+struct SubagentRefs {
+    provider_thread_id: String,
+    provider_parent_thread_id: String,
+}
+
+/// What a conversation of the session owns: the session's own, or one subagent run's. Synara
+/// gives a run a `ClaudeSessionContext` of its own that shares the parent's session and query
+/// (ClaudeAdapter.ts:3496). Here the session's context takes a run's scope in for as long as a
+/// handler runs on it (`swap_scope`), so the same handlers project the subagent's messages.
+struct ClaudeScope {
+    session: ProviderSession,
+    pending_approvals: HashMap<String, PendingApproval>,
+    pending_user_inputs: HashMap<String, PendingUserInput>,
+    turn_count: u64,
+    in_flight_tools: Vec<(i64, ToolInFlight)>,
+    turn_state: Option<ClaudeTurnState>,
+    last_turn_id: Option<TurnId>,
+    interrupt_requested_turn_id: Option<TurnId>,
+    last_known_token_usage: Option<ThreadTokenUsageSnapshot>,
+    processed_token_total: u64,
+    processed_token_turn_baseline: u64,
+    processed_token_result_baseline: u64,
+    processed_token_baseline_known: bool,
+    request_usage: ClaudeRequestUsage,
+    result_usage_baseline: Option<Value>,
+    last_result_uuid: Option<String>,
+    last_assistant_uuid: Option<String>,
+    last_thread_started_id: Option<String>,
+    last_interaction_mode: Option<ProviderInteractionMode>,
+    current_api_model_id: Option<String>,
+    resume_session_id: Option<String>,
+    first_turn_spawn_mode_authoritative: bool,
+    known_background_task_ids: Vec<String>,
+    terminal_task_ids: HashSet<String>,
+    subagent_refs: Option<SubagentRefs>,
+}
+
 /// Synara `ClaudeSessionContext` (ClaudeAdapter.ts:349)
 struct ClaudeSessionContext {
     session: ProviderSession,
@@ -1363,6 +1428,15 @@ struct ClaudeSessionContext {
     known_background_task_ids: Vec<String>,
     terminal_task_ids: HashSet<String>,
     pending_controls: HashMap<String, PendingControl>,
+    /// Set while a subagent run's scope is swapped in.
+    subagent_refs: Option<SubagentRefs>,
+    /// Live Task tool spawns by tool use id.
+    subagent_runs: HashMap<String, ClaudeSubagentRun>,
+    /// Stops asked for before `task_started` named the run's task; sent when it does.
+    pending_subagent_stops: HashSet<String>,
+    /// How each settled run ended. Late messages tagged with one are dropped, not let start a turn
+    /// on its child thread that would never end.
+    settled_subagent_tool_use_ids: HashMap<String, &'static str>,
 }
 
 /// The session task: spawn, then serve the CLI and the handle until one of them ends.
@@ -1458,6 +1532,10 @@ async fn run_session(
         known_background_task_ids: Vec::new(),
         terminal_task_ids: HashSet::new(),
         pending_controls: HashMap::new(),
+        subagent_refs: None,
+        subagent_runs: HashMap::new(),
+        pending_subagent_stops: HashSet::new(),
+        settled_subagent_tool_use_ids: HashMap::new(),
     };
     context.update_resume_cursor(None);
     context.start(&input, &plan).await;
@@ -1536,9 +1614,136 @@ impl ClaudeSessionContext {
             item_id: None,
             request_id: None,
             lifecycle_generation: self.lifecycle_generation.clone(),
-            provider_refs: Some(ProviderRefs::default()),
+            // Synara `nativeProviderRefs` (ClaudeAdapter.ts:1597): a subagent's events name it.
+            provider_refs: Some(ProviderRefs {
+                provider_thread_id: self.subagent_refs.as_ref().map(|r| r.provider_thread_id.clone()),
+                provider_parent_thread_id: self.subagent_refs.as_ref().map(|r| r.provider_parent_thread_id.clone()),
+                ..ProviderRefs::default()
+            }),
             raw: None,
             body,
+        }
+    }
+
+    // ---- subagent runs ----------------------------------------------------------------------
+
+    /// Exchanges the conversation state on the context with `scope`'s: once to enter a run's
+    /// scope, again to leave it.
+    fn swap_scope(&mut self, scope: &mut ClaudeScope) {
+        macro_rules! swap {
+            ($($field:ident),* $(,)?) => { $(std::mem::swap(&mut self.$field, &mut scope.$field);)* };
+        }
+        swap!(
+            session,
+            pending_approvals,
+            pending_user_inputs,
+            turn_count,
+            in_flight_tools,
+            turn_state,
+            last_turn_id,
+            interrupt_requested_turn_id,
+            last_known_token_usage,
+            processed_token_total,
+            processed_token_turn_baseline,
+            processed_token_result_baseline,
+            processed_token_baseline_known,
+            request_usage,
+            result_usage_baseline,
+            last_result_uuid,
+            last_assistant_uuid,
+            last_thread_started_id,
+            last_interaction_mode,
+            current_api_model_id,
+            resume_session_id,
+            first_turn_spawn_mode_authoritative,
+            known_background_task_ids,
+            terminal_task_ids,
+            subagent_refs,
+        );
+    }
+
+    /// Synara `ensureSubagentRun` (ClaudeAdapter.ts:3496): the run for a Task tool, made the first
+    /// time it is heard of. Taken out of the map; [`Self::put_subagent_run`] gives it back.
+    fn take_subagent_run(&mut self, tool_use_id: &str) -> ClaudeSubagentRun {
+        if let Some(run) = self.subagent_runs.remove(tool_use_id) {
+            return run;
+        }
+        ClaudeSubagentRun {
+            tool_use_id: tool_use_id.to_owned(),
+            task_id: None,
+            scope: ClaudeScope {
+                session: self.session.clone(),
+                pending_approvals: HashMap::new(),
+                pending_user_inputs: HashMap::new(),
+                turn_count: 0,
+                in_flight_tools: Vec::new(),
+                turn_state: None,
+                last_turn_id: None,
+                interrupt_requested_turn_id: None,
+                last_known_token_usage: None,
+                processed_token_total: 0,
+                processed_token_turn_baseline: 0,
+                processed_token_result_baseline: 0,
+                processed_token_baseline_known: true,
+                request_usage: ClaudeRequestUsage::default(),
+                result_usage_baseline: None,
+                last_result_uuid: None,
+                last_assistant_uuid: None,
+                last_thread_started_id: None,
+                last_interaction_mode: None,
+                current_api_model_id: None,
+                resume_session_id: None,
+                // A run only projects events of a CLI already running; it never sends the first prompt.
+                first_turn_spawn_mode_authoritative: false,
+                known_background_task_ids: Vec::new(),
+                terminal_task_ids: HashSet::new(),
+                subagent_refs: Some(SubagentRefs {
+                    provider_thread_id: tool_use_id.to_owned(),
+                    provider_parent_thread_id: self.session.thread_id.to_string(),
+                }),
+            },
+        }
+    }
+
+    fn put_subagent_run(&mut self, run: ClaudeSubagentRun) {
+        self.subagent_runs.insert(run.tool_use_id.clone(), run);
+    }
+
+    /// Synara `isRecognizedSubagentToolUseId` (ClaudeAdapter.ts:1987)
+    fn is_recognized_subagent_tool_use_id(&self, tool_use_id: &str) -> bool {
+        self.subagent_runs.contains_key(tool_use_id)
+            || self.settled_subagent_tool_use_ids.contains_key(tool_use_id)
+            || self
+                .in_flight_tools
+                .iter()
+                .any(|(_, tool)| tool.item_id == tool_use_id && tool.item_type == CanonicalItemType::CollabAgentToolCall)
+    }
+
+    /// Synara `recognizedSubagentParentToolUseId` (ClaudeAdapter.ts:1999). Claude also tags async
+    /// Bash progress with a parent tool use id, so only a known Task/Agent tool's id routes.
+    fn recognized_subagent_parent_tool_use_id(&self, message: &Value) -> Option<String> {
+        parent_tool_use_id(message).filter(|id| self.is_recognized_subagent_tool_use_id(id)).map(str::to_owned)
+    }
+
+    /// Synara `subagentRunForTask` (ClaudeAdapter.ts:2041): the run's tool use id.
+    fn subagent_run_for_task(&mut self, tool_use_id: Option<&str>, task_id: &str) -> Option<String> {
+        if let Some(run) = tool_use_id.and_then(|id| self.subagent_runs.get_mut(id)) {
+            run.task_id.get_or_insert_with(|| task_id.to_owned());
+            return Some(run.tool_use_id.clone());
+        }
+        self.subagent_runs.values().find(|run| run.task_id.as_deref() == Some(task_id)).map(|run| run.tool_use_id.clone())
+    }
+
+    /// A settled run leaves: later messages tagged with it are dropped, and its turn, if one is
+    /// open, ends as the task did.
+    async fn settle_subagent_run(&mut self, tool_use_id: &str, settled: &'static str, turn_status: RuntimeTurnState) {
+        let Some(mut run) = self.subagent_runs.remove(tool_use_id) else { return };
+        self.pending_subagent_stops.remove(tool_use_id);
+        self.settled_subagent_tool_use_ids.insert(tool_use_id.to_owned(), settled);
+        if run.scope.turn_state.is_some() {
+            self.swap_scope(&mut run.scope);
+            self.complete_turn(turn_status, None, None).await;
+            self.swap_scope(&mut run.scope);
         }
     }
 
@@ -1741,7 +1946,10 @@ impl ClaudeSessionContext {
                 // Synara's ClaudeAdapter has no `startReview` (ProviderService.startReview).
                 let _ = reply.send(Err(anyhow!("Provider 'claudeAgent' does not support native review.")));
             }
-            SessionCommand::InterruptTurn { turn_id, reply } => self.interrupt_turn(turn_id, reply).await,
+            SessionCommand::InterruptTurn { turn_id: _, provider_thread_id: Some(provider_thread_id), reply } => {
+                let _ = reply.send(self.interrupt_subagent(&provider_thread_id).await);
+            }
+            SessionCommand::InterruptTurn { turn_id, provider_thread_id: None, reply } => self.interrupt_turn(turn_id, reply).await,
             SessionCommand::RespondToRequest { request_id, decision, reply } => {
                 let _ = reply.send(self.respond_to_request(&request_id, decision).await);
             }
@@ -2626,6 +2834,14 @@ impl ClaudeSessionContext {
             let (_, tool) = self.in_flight_tools.remove(slot);
             let mut extra = Map::new();
             extra.insert("result".into(), tool_result.block.clone());
+            // A stopped task answers with an error-shaped result: the agent's state says stopped,
+            // so its row does not read "Failed".
+            let settled = matches!(tool.tool_name.as_str(), "Task" | "Agent")
+                .then(|| self.settled_subagent_tool_use_ids.get(&tool.item_id).copied())
+                .flatten();
+            if settled == Some("stopped") {
+                extra.insert("agentStates".into(), json!({ tool.item_id.clone(): { "status": "stopped" } }));
+            }
             let tool_data = tool_lifecycle_event_data(&tool, Some(extra));
 
             let updated = self
@@ -2715,6 +2931,22 @@ impl ClaudeSessionContext {
         let content = message.pointer("/message/content").and_then(Value::as_array).cloned();
         if let Some(content) = &content {
             for block in content {
+                // A subagent's conversation comes as whole messages, never streamed, so this is the
+                // one chance to open its tools. The parent's are opened from the stream (whose
+                // `content_block_start` may come after this snapshot), so only a subagent's are.
+                let tool_use_block = matches!(block.get("type").and_then(Value::as_str), Some("tool_use" | "server_tool_use" | "mcp_tool_use"));
+                if let (true, true, Some(id), Some(name)) = (
+                    tool_use_block,
+                    self.subagent_refs.is_some(),
+                    block.get("id").and_then(Value::as_str),
+                    block.get("name").and_then(Value::as_str),
+                ) {
+                    if !is_client_surfaced_claude_tool(name) && !self.in_flight_tools.iter().any(|(_, tool)| tool.item_id == id) {
+                        let synthetic_index = self.in_flight_tools.iter().map(|(index, _)| *index).filter(|i| *i <= -1).min().map_or(-1, |i| i - 1);
+                        let input = block.get("input").and_then(Value::as_object).cloned().unwrap_or_default();
+                        self.open_in_flight_tool(synthetic_index, name, id, input, "claude/assistant", message.clone()).await;
+                    }
+                }
                 if block.get("type").and_then(Value::as_str) != Some("tool_use")
                     || block.get("name").and_then(Value::as_str) != Some("ExitPlanMode")
                 {
@@ -2895,7 +3127,7 @@ impl ClaudeSessionContext {
                 self.known_background_task_ids.retain(|id| *id != task_id);
             }
             let mut payload = json!({ "taskId": task_id });
-            if let Some(status) = status {
+            if let Some(status) = &status {
                 payload["status"] = json!(status);
             }
             if let Some(error) = patch.and_then(|p| p.get("error")).and_then(Value::as_str) {
@@ -2904,7 +3136,38 @@ impl ClaudeSessionContext {
             if let Some(backgrounded) = is_backgrounded {
                 payload["isBackgrounded"] = json!(backgrounded);
             }
-            self.offer_body("task.updated", payload, base_raw).await;
+            let run = self.subagent_run_for_task(None, &task_id);
+            if let Some(run) = &run {
+                payload["toolUseId"] = json!(run);
+            }
+            self.offer_body("task.updated", payload, base_raw.clone()).await;
+            // A tracked subagent's child thread follows its task's state.
+            let (Some(tool_use_id), Some(state)) = (run, status.as_deref().and_then(runtime_session_state_from_claude_task_status))
+            else {
+                return;
+            };
+            if let Some(mut run) = self.subagent_runs.remove(&tool_use_id) {
+                self.swap_scope(&mut run.scope);
+                let changed = self
+                    .event(ProviderRuntimeEventBody::SessionStateChanged(SessionStateChangedPayload {
+                        state,
+                        reason: Some(format!("task:{}", status.as_deref().unwrap_or_default())),
+                        detail: Some(message.clone()),
+                    }))
+                    .turn(self.current_turn_id())
+                    .raw(base_raw);
+                self.offer(changed).await;
+                self.swap_scope(&mut run.scope);
+                self.put_subagent_run(run);
+            }
+            if terminal {
+                let (settled, turn_status) = match status.as_deref() {
+                    Some("completed") => ("completed", RuntimeTurnState::Completed),
+                    Some("failed") => ("failed", RuntimeTurnState::Failed),
+                    _ => ("stopped", RuntimeTurnState::Interrupted),
+                };
+                self.settle_subagent_run(&tool_use_id, settled, turn_status).await;
+            }
             return;
         }
 
@@ -2968,6 +3231,19 @@ impl ClaudeSessionContext {
             "task_started" => {
                 let task_id = text("task_id").unwrap_or_default();
                 self.terminal_task_ids.remove(&task_id);
+                // A subagent task gets its run, so later progress, its end and a stop find it by
+                // the Task tool's id, which ingestion routes on.
+                if let Some(tool_use_id) = text("tool_use_id")
+                    .filter(|id| message.get("subagent_type").is_some_and(|t| !t.is_null()) || self.subagent_runs.contains_key(id))
+                {
+                    let mut run = self.take_subagent_run(&tool_use_id);
+                    run.task_id = Some(task_id.clone());
+                    self.put_subagent_run(run);
+                    // A stop that raced the spawn goes now that the task has an id.
+                    if self.pending_subagent_stops.remove(&tool_use_id) {
+                        self.stop_subagent_task(&task_id).await;
+                    }
+                }
                 let mut payload = json!({ "taskId": task_id, "description": field("description") });
                 for (from, to) in [("task_type", "taskType"), ("subagent_type", "subagentType"), ("workflow_name", "workflowName"), ("tool_use_id", "toolUseId")] {
                     if let Some(value) = text(from) {
@@ -3000,7 +3276,18 @@ impl ClaudeSessionContext {
                 if let Some(usage) = message.get("usage").filter(|u| !u.is_null()) {
                     payload["usage"] = usage.clone();
                 }
-                ("task.completed", payload)
+                let tool_use_id = text("tool_use_id");
+                let status = text("status");
+                self.offer_body("task.completed", payload, base_raw).await;
+                if let Some(run) = self.subagent_run_for_task(tool_use_id.as_deref(), &task_id) {
+                    let (settled, turn_status) = match status.as_deref() {
+                        Some("completed") => ("completed", RuntimeTurnState::Completed),
+                        Some("failed") => ("failed", RuntimeTurnState::Failed),
+                        _ => ("stopped", RuntimeTurnState::Interrupted),
+                    };
+                    self.settle_subagent_run(&run, settled, turn_status).await;
+                }
+                return;
             }
             "files_persisted" => {
                 let files: Vec<Value> = message
@@ -3131,17 +3418,26 @@ impl ClaudeSessionContext {
 
     /// Synara `handleSdkMessage` (ClaudeAdapter.ts:5188)
     async fn handle_sdk_message(&mut self, message: Value) {
-        // Claude tags a subagent's own traffic with the Task tool's id. Synara routes it to a
-        // child thread; here the Task tool stays one item on this thread and its insides are
-        // not shown.
-        if let Some(parent) = parent_tool_use_id(&message) {
-            let is_subagent = self
-                .in_flight_tools
-                .iter()
-                .any(|(_, tool)| tool.item_id == parent && tool.item_type == CanonicalItemType::CollabAgentToolCall);
-            if is_subagent {
+        // Claude tags a subagent's own traffic with its Task tool's id: the run's scope projects
+        // it, and its events go to the subagent's child thread.
+        if let Some(tool_use_id) = self.recognized_subagent_parent_tool_use_id(&message) {
+            // A settled task's tail (messages in flight when it stopped) is dropped, not projected
+            // onto the settled child.
+            if self.settled_subagent_tool_use_ids.contains_key(&tool_use_id) {
                 return;
             }
+            let mut run = self.take_subagent_run(&tool_use_id);
+            self.swap_scope(&mut run.scope);
+            self.ensure_synthetic_turn().await;
+            match message_type(&message).unwrap_or_default() {
+                "stream_event" => self.handle_stream_event(&message).await,
+                "user" => self.handle_user_message(&message).await,
+                "assistant" => self.handle_assistant_message(&message).await,
+                _ => self.handle_sdk_telemetry_message(&message).await,
+            }
+            self.swap_scope(&mut run.scope);
+            self.put_subagent_run(run);
+            return;
         }
 
         self.ensure_thread_id(&message).await;
@@ -3416,6 +3712,16 @@ impl ClaudeSessionContext {
             return;
         }
         self.settle_pending_human_interactions(None).await;
+        let runs: Vec<String> = self.subagent_runs.keys().cloned().collect();
+        for tool_use_id in runs {
+            let Some(mut run) = self.subagent_runs.remove(&tool_use_id) else { continue };
+            if run.scope.turn_state.is_some() {
+                self.swap_scope(&mut run.scope);
+                self.complete_turn(RuntimeTurnState::Interrupted, Some("Session stopped.".into()), None).await;
+                self.swap_scope(&mut run.scope);
+            }
+        }
+        self.pending_subagent_stops.clear();
         if self.turn_state.is_some() {
             self.complete_turn(RuntimeTurnState::Interrupted, Some("Session stopped.".into()), None).await;
         }
@@ -3613,6 +3919,36 @@ impl ClaudeSessionContext {
     }
 
     /// Synara `interruptTurn` (ClaudeAdapter.ts:7133): answered when the CLI acknowledges.
+    /// Synara `interruptTurn` with a provider thread id (ClaudeAdapter.ts:7140): a subagent's
+    /// Task tool spawn is stopped, not the whole turn. Before `task_started` names its task there
+    /// is nothing to stop yet, so the stop waits for it. An id that names no run, settled or live,
+    /// and no open Task/Agent tool is an error: nothing would ever end the child's turn, so the
+    /// caller settles it.
+    async fn interrupt_subagent(&mut self, tool_use_id: &str) -> Result<()> {
+        // Already settled: nothing to stop, and a queued stop could hit an unrelated later task.
+        if self.settled_subagent_tool_use_ids.contains_key(tool_use_id) {
+            return Ok(());
+        }
+        if !self.is_recognized_subagent_tool_use_id(tool_use_id) {
+            return Err(anyhow!("No running subagent '{tool_use_id}' in this Claude session."));
+        }
+        match self.subagent_runs.get(tool_use_id).and_then(|run| run.task_id.clone()) {
+            Some(task_id) => self.stop_subagent_task(&task_id).await,
+            None => {
+                self.pending_subagent_stops.insert(tool_use_id.to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    /// `Query.stopTask`
+    async fn stop_subagent_task(&mut self, task_id: &str) {
+        let request = ControlRequest::StopTask { task_id: task_id.to_owned() };
+        if let Err(error) = self.send_control(request, PendingControl::Fire { subtype: "stop_task" }).await {
+            self.emit_runtime_error(&format!("Failed to stop subagent task '{task_id}': {error}"), None).await;
+        }
+    }
+
     async fn interrupt_turn(&mut self, turn_id: Option<TurnId>, reply: oneshot::Sender<Result<()>>) {
         if turn_id.is_some() && turn_id != self.current_turn_id() {
             tracing::warn!("claude.stale_interrupt_ignored");
@@ -4018,6 +4354,178 @@ mod tests {
         })
         .await
         .is_ok());
+    }
+
+    /// The subagent fixture, fed to a session up to the line `until` matches (all of it for "").
+    async fn start_subagent_replay() -> (
+        ProviderSessionHandle,
+        mpsc::Receiver<ProviderRuntimeEvent>,
+        tokio::io::Lines<BufReader<tokio::io::DuplexStream>>,
+        tokio::io::DuplexStream,
+        Vec<String>,
+        TurnId,
+    ) {
+        let fixture = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/claude-turn-with-subagent.jsonl")).unwrap();
+        let lines: Vec<String> = fixture.lines().map(str::to_owned).collect();
+        let spawner = ScriptedSpawner::new();
+        let adapter = ClaudeAdapter::new("/tmp/attachments");
+        let (sink, events) = mpsc::channel(1024);
+        let handle = adapter.start_session(start_input(RuntimeMode::ApprovalRequired), sink, Arc::new(spawner.clone()));
+        let child = spawner.next().await;
+        let mut stdin = BufReader::new(child.stdin).lines();
+        let initialize = read_json_line(&mut stdin).await;
+        // Synara's `forwardSubagentText`: the subagent's text comes, not only its tool calls.
+        assert_eq!(initialize["request"]["forwardSubagentText"], true);
+        let turn = handle
+            .send_turn(ProviderSendTurnInput {
+                thread_id: ThreadId::new("thread-1"),
+                input: Some("Use the Agent tool".into()),
+                attachments: None,
+                skills: None,
+                mentions: None,
+                model_selection: None,
+                interaction_mode: None,
+            })
+            .await
+            .unwrap();
+        let _user = read_json_line(&mut stdin).await;
+        (handle, events, stdin, child.stdout, lines, turn.turn_id)
+    }
+
+    fn subagent_of(event: &ProviderRuntimeEvent) -> Option<(&str, &str)> {
+        let refs = event.provider_refs.as_ref()?;
+        Some((refs.provider_thread_id.as_deref()?, refs.provider_parent_thread_id.as_deref()?))
+    }
+
+    #[tokio::test]
+    async fn a_subagents_traffic_runs_in_its_own_scope() {
+        const AGENT: &str = "toolu_01UURA7ASnZqors4Psep6oL5";
+        let (handle, mut events, mut stdin, mut stdout, lines, parent_turn) = start_subagent_replay().await;
+        let approval_line = lines.iter().position(|l| l.contains("\"can_use_tool\"")).unwrap();
+        for line in &lines[..=approval_line] {
+            stdout.write_all(line.as_bytes()).await.unwrap();
+            stdout.write_all(b"\n").await.unwrap();
+        }
+        let mut seen = Vec::new();
+        // The subagent's Bash approval is asked on the parent's turn, as Synara asks it.
+        let opened = next_until(&mut events, &mut seen, "request.opened").await;
+        assert_eq!(opened.turn_id.as_ref(), Some(&parent_turn));
+        assert_eq!(subagent_of(&opened), None);
+        handle
+            .respond_to_request(ApprovalRequestId::new(opened.request_id.as_ref().unwrap().as_str()), ProviderApprovalDecision::Accept)
+            .await
+            .unwrap();
+        let _response = read_json_line(&mut stdin).await;
+        for line in &lines[approval_line + 1..] {
+            stdout.write_all(line.as_bytes()).await.unwrap();
+            stdout.write_all(b"\n").await.unwrap();
+        }
+        loop {
+            let event = next_until(&mut events, &mut seen, "turn.completed").await;
+            if subagent_of(&event).is_none() {
+                break;
+            }
+        }
+        let kinds: Vec<String> = seen.iter().map(kind).collect();
+        assert!(!kinds.iter().any(|k| k == "runtime.error" || k == "runtime.warning"), "{kinds:?}");
+
+        // The Task tool is one collab item on the parent, naming its child.
+        let collab = seen
+            .iter()
+            .find(|e| matches!(&e.body, ProviderRuntimeEventBody::ItemStarted(p) if p.item_type == CanonicalItemType::CollabAgentToolCall))
+            .unwrap();
+        assert_eq!(subagent_of(collab), None);
+        assert_eq!(collab.turn_id.as_ref(), Some(&parent_turn));
+        let collab_done = seen
+            .iter()
+            .find_map(|e| match &e.body {
+                ProviderRuntimeEventBody::ItemCompleted(p) if p.item_type == CanonicalItemType::CollabAgentToolCall => Some(p.clone()),
+                _ => None,
+            })
+            .unwrap();
+        let data = collab_done.data.unwrap();
+        assert_eq!(data["receiverThreadId"], AGENT);
+        assert_eq!(data["agentType"], "general-purpose");
+        assert_eq!(data["nickname"], "List files in current directory");
+
+        // Everything the subagent did is tagged with it and has a turn of its own.
+        let child: Vec<&ProviderRuntimeEvent> = seen.iter().filter(|e| subagent_of(e) == Some((AGENT, "thread-1"))).collect();
+        let child_kinds: Vec<String> = child.iter().map(|e| kind(e)).collect();
+        let child_turn = child.first().and_then(|e| e.turn_id.clone()).unwrap();
+        assert_ne!(child_turn, parent_turn);
+        assert_eq!(child_kinds.first().map(String::as_str), Some("turn.started"));
+        assert!(child.iter().all(|e| e.turn_id.as_ref() == Some(&child_turn) || e.turn_id.is_none()), "{child_kinds:?}");
+        let mut cursor = child_kinds.iter();
+        for wanted in ["turn.started", "item.started", "item.completed", "session.state.changed", "turn.completed"] {
+            assert!(cursor.any(|k| k == wanted), "{wanted} missing or out of order in {child_kinds:?}");
+        }
+        let bash = child
+            .iter()
+            .find_map(|e| match &e.body {
+                ProviderRuntimeEventBody::ItemCompleted(p) if p.item_type == CanonicalItemType::CommandExecution => Some(p.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(bash.status, Some(RuntimeItemStatus::Completed));
+        assert_eq!(bash.data.unwrap()["toolCallId"], "toolu_01QMhVgLsf7JiXxjLCkoJn8u");
+        let text = child
+            .iter()
+            .find_map(|e| match &e.body {
+                ProviderRuntimeEventBody::ItemCompleted(p) if p.item_type == CanonicalItemType::AssistantMessage => p.detail.clone(),
+                _ => None,
+            })
+            .unwrap();
+        assert!(text.contains("a.txt"), "{text}");
+        let ProviderRuntimeEventBody::TurnCompleted(done) = &child.last().unwrap().body else { panic!("{child_kinds:?}") };
+        assert_eq!(done.state, RuntimeTurnState::Completed);
+
+        // Nothing of the subagent's reached the parent's turn: its text is the parent's own.
+        let parent_text: String = seen
+            .iter()
+            .filter(|e| subagent_of(e).is_none())
+            .filter_map(|e| match &e.body {
+                ProviderRuntimeEventBody::ContentDelta(d) if d.stream_kind == RuntimeContentStreamKind::AssistantText => Some(d.delta.clone()),
+                _ => None,
+            })
+            .collect();
+        assert!(parent_text.starts_with("The directory contains five files"), "{parent_text}");
+        handle.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn stopping_a_subagent_stops_its_task_once_it_has_one() {
+        const AGENT: &str = "toolu_01UURA7ASnZqors4Psep6oL5";
+        let (handle, mut events, mut stdin, mut stdout, lines, _) = start_subagent_replay().await;
+        // The Task tool is open but its task is not started yet: the stop waits.
+        let started = lines.iter().position(|l| l.contains("\"subtype\":\"task_started\"")).unwrap();
+        for line in &lines[..started] {
+            stdout.write_all(line.as_bytes()).await.unwrap();
+            stdout.write_all(b"\n").await.unwrap();
+        }
+        let mut seen = Vec::new();
+        next_until(&mut events, &mut seen, "item.started").await;
+        handle.interrupt_subagent(None, AGENT.into()).await.unwrap();
+        stdout.write_all(lines[started].as_bytes()).await.unwrap();
+        stdout.write_all(b"\n").await.unwrap();
+        let stop = read_json_line(&mut stdin).await;
+        assert_eq!(stop["request"], json!({ "subtype": "stop_task", "task_id": "a38b7bd2324a4a267" }));
+        // Once its task ends, a stop for it is not sent again.
+        let notification = lines.iter().position(|l| l.contains("\"subtype\":\"task_notification\"")).unwrap();
+        for line in &lines[started + 1..=notification] {
+            if line.contains("\"can_use_tool\"") {
+                continue;
+            }
+            stdout.write_all(line.as_bytes()).await.unwrap();
+            stdout.write_all(b"\n").await.unwrap();
+        }
+        next_until(&mut events, &mut seen, "task.completed").await;
+        handle.interrupt_subagent(None, AGENT.into()).await.unwrap();
+        // An id that names no Task tool is refused, not parked for a task that never comes.
+        let unknown = handle.interrupt_subagent(None, "toolu_unknown".into()).await;
+        assert!(unknown.is_err(), "{unknown:?}");
+        handle.stop().await.unwrap();
+        let after = tokio::time::timeout(Duration::from_millis(200), stdin.next_line()).await;
+        assert!(!matches!(after, Ok(Ok(Some(line))) if line.contains("stop_task")));
     }
 
     #[tokio::test]

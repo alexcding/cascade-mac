@@ -79,8 +79,9 @@ import Observation
     func shell(_ id: String) -> ChatThreadShell? { shells[id] }
 
     /// The chats lists show, newest first by creation, so a row does not jump each time it is used.
-    func visible(includeArchived: Bool = false) -> [ChatThreadShell] {
-        shells.values.filter { includeArchived || !$0.archived }.sorted {
+    /// A subagent's thread is left out unless asked for: it is reached from its parent's page.
+    func visible(includeArchived: Bool = false, includeSubagents: Bool = false) -> [ChatThreadShell] {
+        shells.values.filter { (includeArchived || !$0.archived) && (includeSubagents || !$0.subagent) }.sorted {
             if ($0.createdAt ?? "") != ($1.createdAt ?? "") { return ($0.createdAt ?? "") > ($1.createdAt ?? "") }
             return $0.id < $1.id
         }

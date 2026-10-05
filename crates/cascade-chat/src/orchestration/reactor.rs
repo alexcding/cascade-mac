@@ -7,7 +7,7 @@
 //! here it runs inside the engine's one task, so those collapse into plain state on the thread's
 //! [`Entry`]. Provider calls and git run in tasks of their own and answer through
 //! [`Internal`] messages. Not ported: goals, sidechats, handoffs, the Claude cache, computer
-//! control, subagent threads, model-generated titles (the first-message fallback title is), the
+//! control, messaging a running subagent (`steerSubagent`), model-generated titles (the first-message fallback title is), the
 //! context-bootstrap recap after a lost history, worktree branch renames, background-task stop and
 //! backgrounding (no adapter supports them yet), and one-turn file undo.
 
@@ -33,6 +33,7 @@ use crate::{
 
 use super::{
     activity_projection::runtime_turn_state,
+    ingestion::resolve_subagent_provider_thread_id,
     decider::{collect_tail_turn_ids, model_selection_provider, CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND},
     engine::{
         is_inside_git_work_tree, resolve_cwd, send_turn_input, server_command_id, Actor, CallOutcome,
@@ -806,6 +807,30 @@ impl Actor {
     fn interrupt_provider_turn(&mut self, ctx: &mut Ctx, requested_turn: Option<TurnId>, at: &IsoDateTime) {
         let Some(thread) = self.thread(&ctx.thread_id).cloned() else { return };
         let session = thread.session.as_ref();
+        // A subagent shares its parent's session: its run is stopped, not the session (PCR:6304).
+        let child = thread.parent_thread_id.as_ref().and_then(|parent| {
+            Some((parent.clone(), resolve_subagent_provider_thread_id(&thread.id, Some(parent))?))
+        });
+        if let Some((parent_id, provider_thread_id)) = child {
+            let running_turn = session
+                .filter(|s| s.status == OrchestrationSessionStatus::Running)
+                .and_then(|s| s.active_turn_id.clone());
+            let parent_handle = self.live_session(&parent_id).map(|live| live.handle.clone());
+            if let (Some(turn_id), Some(handle)) = (running_turn, parent_handle) {
+                let internal = self.internal.clone();
+                let thread_id = ctx.thread_id.clone();
+                tokio::spawn(async move {
+                    let call = handle.interrupt_subagent(Some(turn_id.clone()), provider_thread_id);
+                    let outcome = match tokio::time::timeout(PROVIDER_COMMAND_INTERRUPT_TIMEOUT, call).await {
+                        Ok(Ok(())) => CallOutcome::Ok,
+                        Ok(Err(error)) => CallOutcome::Failed(format!("{error:#}")),
+                        Err(_) => CallOutcome::TimedOut,
+                    };
+                    let _ = internal.send(Internal::Interrupted { thread_id, turn_id: Some(turn_id), outcome });
+                });
+                return;
+            }
+        }
         let live_turn = self.live_turn(&ctx.thread_id);
         let latest_running = thread.latest_turn.as_ref().is_some_and(|t| t.state == OrchestrationLatestTurnState::Running);
         let stuck = session.is_some_and(|s| {
@@ -846,6 +871,21 @@ impl Actor {
         let now = now_iso();
         match outcome {
             CallOutcome::Ok => {}
+            // The parent was never told to end the child's turn, so no terminal child event is
+            // coming: the child's turn is settled here (PCR:6330).
+            CallOutcome::TimedOut if self.thread(&ctx.thread_id).is_some_and(|t| t.parent_thread_id.is_some()) => {
+                self.append_provider_failure(
+                    ctx,
+                    "provider.turn.interrupt.failed",
+                    "Provider turn interrupt failed",
+                    json!({
+                        "detail": format!("The provider did not confirm the interrupt within {}ms.", PROVIDER_COMMAND_INTERRUPT_TIMEOUT.as_millis()),
+                        "settlementStatus": "uncertain",
+                    }),
+                    turn_id,
+                );
+                self.settle_interrupted_turn(ctx, &now);
+            }
             CallOutcome::TimedOut => {
                 self.append_provider_failure(
                     ctx,
@@ -994,6 +1034,20 @@ impl Actor {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// A subagent's runtime event, ingested against its child thread. What follows a parent's
+    /// events (the session's binding, checkpoints, the queue) is the parent session's and is left
+    /// alone, as Synara's `updateSessionBindingFromRuntimeEvent` leaves subagent events.
+    pub(super) fn ingest_subagent_runtime(&mut self, ctx: &mut Ctx, event: &ProviderRuntimeEvent) {
+        let Some(entry) = self.entries.get_mut(&ctx.thread_id) else { return };
+        entry.runtime_sequence = entry.runtime_sequence.max(entry.sequence) + 1;
+        let runtime_sequence = entry.runtime_sequence;
+        let Some(thread) = self.entries.get(&ctx.thread_id).and_then(|e| e.thread.as_ref()) else { return };
+        let commands = self.ingestion.ingest(thread, event, runtime_sequence);
+        for command in commands {
+            self.run_logged(ctx, command);
         }
     }
 

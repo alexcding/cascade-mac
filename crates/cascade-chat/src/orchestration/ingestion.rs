@@ -10,7 +10,12 @@
 //! reasoning summaries, tool output, proposed plans, delivery-mode bindings) are this struct's
 //! fields; Synara's TTL caches are plain maps cleared at the same points.
 //!
-//! Not ported: provider-native subagent threads (`ensureSubagentThread`), the durable runtime
+//! Provider-native subagent threads (`ensureSubagentThread`) are split between here and the
+//! engine: [`subagent_routing`] reads what an event says of subagents, and
+//! [`ensure_subagent_thread_command`] makes a child's `thread.create` or `thread.meta.update`; the
+//! engine reads the child, dispatches that, and ingests a subagent's event against the child.
+//!
+//! Not ported: the durable runtime
 //! journal and its replay, worker-activity and in-flight-tool tracking (`touchLastActivity`,
 //! `markToolStarted`), computer-control leases, goals, Studio image copies and the persisted
 //! generated-image recovery, and marking a source proposed plan implemented. Pending interactions
@@ -37,6 +42,10 @@ use super::activity_projection::{
     js_len, project_provider_runtime_activities, provider_activity_update_dedupe_key,
     provider_activity_update_fingerprint, readable_reasoning_detail, runtime_payload_record,
     runtime_turn_state, wire,
+};
+use super::subagents::{
+    build_subagent_identity_directory, collect_subagent_provider_thread_ids, extract_subagent_identity_hints,
+    resolve_subagent_identity_from_directory, ParsedSubagentIdentityHint,
 };
 use super::decider::{model_selection_instance_id, model_selection_provider, provider_supports_native_turn_steering};
 
@@ -140,8 +149,251 @@ pub struct ProviderRuntimeIngestion {
     segment_state_by_thread: HashMap<ThreadId, HashMap<MessageId, SegmentState>>,
     buffered_text_segments_by_message_key: HashMap<String, Vec<BufferedTextSegment>>,
     buffered_text_spilled_by_message_key: HashSet<String>,
+    /// Synara `nativeChildIdsBySourceTurn`: the child threads made per parent turn, to cap them.
+    native_child_ids_by_source_turn: HashMap<String, HashSet<ThreadId>>,
     /// The commands of the event being ingested, in dispatch order.
     out: Vec<OrchestrationCommand>,
+}
+
+// ---- provider-native subagent threads (PRI:644-700, 975-1001, 2111-2320) --------------------
+
+/// Synara `MAX_NATIVE_CHILDREN_PER_PARENT_TURN` (PRI:192)
+pub const MAX_NATIVE_CHILDREN_PER_PARENT_TURN: usize = 20;
+
+/// Synara `SubagentIdentity` (PRI:644)
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubagentIdentity {
+    pub provider_thread_id: String,
+    pub agent_id: Option<String>,
+    pub nickname: Option<String>,
+    pub role: Option<String>,
+    pub model: Option<String>,
+    pub model_is_requested_hint: Option<bool>,
+}
+
+fn subagent_identity_from_hint(provider_thread_id: &str, hint: ParsedSubagentIdentityHint) -> SubagentIdentity {
+    SubagentIdentity {
+        provider_thread_id: hint.provider_thread_id.unwrap_or_else(|| provider_thread_id.to_owned()),
+        agent_id: hint.agent_id,
+        nickname: hint.nickname,
+        role: hint.role,
+        model: hint.model,
+        model_is_requested_hint: hint.model_is_requested_hint,
+    }
+}
+
+/// Synara `extractCollabPayload` and the item it holds: `payload.data.item`, or `payload.data`.
+fn collab_item(event: &ProviderRuntimeEvent) -> Option<Map<String, Value>> {
+    let data = runtime_payload_record(event)?.remove("data")?;
+    let Value::Object(mut data) = data else { return None };
+    match data.remove("item") {
+        Some(Value::Object(item)) => Some(item),
+        Some(other) => {
+            data.insert("item".into(), other);
+            Some(data)
+        }
+        None => Some(data),
+    }
+}
+
+/// Synara `extractSubagentIdentity` (PRI:658)
+fn extract_subagent_identity(event: &ProviderRuntimeEvent, provider_thread_id: &str) -> Option<SubagentIdentity> {
+    let item = collab_item(event)?;
+    let directory = build_subagent_identity_directory(&extract_subagent_identity_hints(&item));
+    resolve_subagent_identity_from_directory(&directory, Some(provider_thread_id), None)
+        .map(|hint| subagent_identity_from_hint(provider_thread_id, hint))
+}
+
+/// Synara `subagentThreadTitle` (PRI:675)
+pub fn subagent_thread_title(nickname: Option<&str>, role: Option<&str>, provider_thread_id: Option<&str>) -> String {
+    match (nickname, role) {
+        (Some(nickname), Some(role)) => format!("{nickname} [{role}]"),
+        (Some(nickname), None) => nickname.to_owned(),
+        (None, Some(role)) => format!("Subagent [{role}]"),
+        (None, None) => provider_thread_id.map_or_else(|| "Subagent".to_owned(), |id| format!("Subagent {id}")),
+    }
+}
+
+/// Synara `localSubagentThreadId` (web ChatView.selectors.ts:188), the id ingestion gives a child.
+pub fn local_subagent_thread_id(parent_thread_id: &ThreadId, provider_thread_id: &str) -> ThreadId {
+    ThreadId::new(format!("subagent:{parent_thread_id}:{provider_thread_id}"))
+}
+
+/// The provider thread id of a subagent thread, read back from its id (Synara
+/// `resolveSubagentProviderThreadId`, ProviderCommandReactor.ts:1680).
+pub fn resolve_subagent_provider_thread_id(thread_id: &ThreadId, parent_thread_id: Option<&ThreadId>) -> Option<String> {
+    let prefix = format!("subagent:{}:", parent_thread_id?);
+    thread_id.as_str().strip_prefix(&prefix).map(str::to_owned)
+}
+
+/// What one provider runtime event says of subagent threads (the head of Synara
+/// `processRuntimeEvent`, PRI:2286-2320): the children a collab tool call names, each to be made
+/// on the parent, and the child the event itself belongs to, if it is a subagent's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SubagentRouting {
+    pub receivers: Vec<(String, Option<SubagentIdentity>)>,
+    pub target: Option<(String, Option<SubagentIdentity>)>,
+}
+
+pub fn subagent_routing(event: &ProviderRuntimeEvent) -> SubagentRouting {
+    let mut routing = SubagentRouting::default();
+    let is_collab_tool_event = matches!(
+        &event.body,
+        ProviderRuntimeEventBody::ItemStarted(p) | ProviderRuntimeEventBody::ItemUpdated(p) | ProviderRuntimeEventBody::ItemCompleted(p)
+            if p.item_type == CanonicalItemType::CollabAgentToolCall
+    );
+    if is_collab_tool_event {
+        if let Some(item) = collab_item(event) {
+            let directory = build_subagent_identity_directory(&extract_subagent_identity_hints(&item));
+            for receiver in collect_subagent_provider_thread_ids(&item) {
+                let identity = resolve_subagent_identity_from_directory(&directory, Some(&receiver), None)
+                    .map(|hint| subagent_identity_from_hint(&receiver, hint));
+                routing.receivers.push((receiver, identity));
+            }
+        }
+    }
+    let refs = event.provider_refs.as_ref();
+    let provider_thread_id = normalize_non_empty_string(refs.and_then(|r| r.provider_thread_id.as_deref()));
+    let provider_parent_thread_id = normalize_non_empty_string(refs.and_then(|r| r.provider_parent_thread_id.as_deref()));
+    if let (Some(child), Some(parent)) = (provider_thread_id, provider_parent_thread_id) {
+        if child != parent {
+            let identity = extract_subagent_identity(event, &child);
+            routing.target = Some((child, identity));
+        }
+    }
+    routing
+}
+
+/// The command `ensureSubagentThread` (PRI:2111) dispatches for one child: its `thread.create`, in
+/// the parent's project and folder and named from its identity, or, for a child that exists, a
+/// `thread.meta.update` with what the identity adds. `None` when there is nothing to say.
+pub fn ensure_subagent_thread_command(
+    parent: &OrchestrationThread,
+    existing: Option<&OrchestrationThread>,
+    provider_thread_id: &str,
+    identity: Option<&SubagentIdentity>,
+    source_turn_id: Option<&TurnId>,
+    event: &ProviderRuntimeEvent,
+) -> Option<ClientThreadCommand> {
+    let child_thread_id = local_subagent_thread_id(&parent.id, provider_thread_id);
+    let now = &event.created_at;
+    // The parent's whole selection when the models match, so its flags survive; a model of the
+    // subagent's own gets the parent's selection with that model.
+    let resolved_model_selection = identity
+        .filter(|i| i.model_is_requested_hint != Some(true))
+        .and_then(|i| i.model.as_ref())
+        .map(|model| {
+            let mut selection = serde_json::to_value(&parent.model_selection).unwrap_or(Value::Null);
+            if let Some(object) = selection.as_object_mut() {
+                object.insert("model".into(), json!(model));
+            }
+            selection
+        });
+    let nickname = identity.and_then(|i| i.nickname.clone());
+    let role = identity.and_then(|i| i.role.clone());
+    let agent_id = identity.and_then(|i| i.agent_id.clone());
+    let command = match existing {
+        None => json!({
+            "type": "thread.create",
+            "commandId": provider_command_id(event, "subagent-thread-create", child_thread_id.as_str()),
+            "threadId": child_thread_id,
+            "projectId": parent.project_id,
+            "title": subagent_thread_title(nickname.as_deref(), role.as_deref(), Some(provider_thread_id)),
+            "modelSelection": resolved_model_selection.unwrap_or_else(|| serde_json::to_value(&parent.model_selection).unwrap_or(Value::Null)),
+            "runtimeMode": parent.runtime_mode,
+            "interactionMode": parent.interaction_mode,
+            "envMode": parent.env_mode,
+            "branch": parent.branch,
+            "worktreePath": parent.worktree_path,
+            "workingDirectory": parent.working_directory,
+            "associatedWorktreePath": parent.associated_worktree_path,
+            "associatedWorktreeBranch": parent.associated_worktree_branch,
+            "associatedWorktreeRef": parent.associated_worktree_ref,
+            "parentThreadId": parent.id,
+            "creationSource": "provider_native",
+            "sourceThreadId": parent.id,
+            "sourceTurnId": source_turn_id,
+            "subagentAgentId": agent_id,
+            "subagentNickname": nickname,
+            "subagentRole": role,
+            "createdAt": now,
+        }),
+        Some(existing) => {
+            let existing_model = serde_json::to_value(&existing.model_selection).ok().and_then(|s| s.get("model").cloned());
+            let model_changes = resolved_model_selection.filter(|selection| selection.get("model") != existing_model.as_ref());
+            // Only what differs from the child as it is: a field it already holds is no change.
+            let agent_id = agent_id.filter(|id| existing.subagent_agent_id.as_ref() != Some(id));
+            let nickname = nickname.filter(|n| existing.subagent_nickname.as_ref() != Some(n));
+            let role = role.filter(|r| existing.subagent_role.as_ref() != Some(r));
+            let title = (nickname.is_some() || role.is_some())
+                .then(|| {
+                    subagent_thread_title(
+                        nickname.as_deref().or(existing.subagent_nickname.as_deref()),
+                        role.as_deref().or(existing.subagent_role.as_deref()),
+                        Some(provider_thread_id),
+                    )
+                })
+                .filter(|title| *title != existing.title);
+            if agent_id.is_none() && nickname.is_none() && role.is_none() && title.is_none() && model_changes.is_none() {
+                return None;
+            }
+            let mut update = json!({
+                "type": "thread.meta.update",
+                "commandId": provider_command_id(event, "subagent-thread-meta-update", child_thread_id.as_str()),
+                "threadId": child_thread_id,
+                "parentThreadId": parent.id,
+            });
+            if let Some(title) = title {
+                update["title"] = json!(title);
+            }
+            if let Some(selection) = model_changes {
+                update["modelSelection"] = selection;
+            }
+            if let Some(agent_id) = agent_id {
+                update["subagentAgentId"] = json!(agent_id);
+            }
+            if let Some(nickname) = nickname {
+                update["subagentNickname"] = json!(nickname);
+            }
+            if let Some(role) = role {
+                update["subagentRole"] = json!(role);
+            }
+            update
+        }
+    };
+    match serde_json::from_value::<ClientThreadCommand>(command) {
+        Ok(command) => Some(command),
+        Err(error) => {
+            tracing::error!("chat: a subagent thread command did not build: {error}");
+            None
+        }
+    }
+}
+
+/// The parent's notice that a turn made more children than are shown (PRI:2161-2185).
+pub fn native_child_overflow_command(parent_thread_id: &ThreadId, source_turn_id: Option<&TurnId>, now: &IsoDateTime) -> ClientThreadCommand {
+    let budget_key = native_child_budget_key(parent_thread_id, source_turn_id);
+    ClientThreadCommand::ActivityAppend(ThreadActivityAppendCommand {
+        require_unarchived: None,
+        command_id: CommandId::new(format!("provider:native-child-overflow:{budget_key}")),
+        thread_id: parent_thread_id.clone(),
+        activity: OrchestrationThreadActivity {
+            id: EventId::new(format!("provider-native-child-overflow:{budget_key}")),
+            tone: OrchestrationThreadActivityTone::Error,
+            kind: "subagent.materialization.capped".into(),
+            summary: format!("Cascade limited this provider turn to {MAX_NATIVE_CHILDREN_PER_PARENT_TURN} visible native subagents."),
+            payload: json!({ "source": "provider_native", "cap": MAX_NATIVE_CHILDREN_PER_PARENT_TURN }),
+            turn_id: source_turn_id.cloned(),
+            sequence: None,
+            created_at: now.clone(),
+        },
+        created_at: now.clone(),
+    })
+}
+
+/// Synara's budget key: the parent thread and the turn that spawned the children.
+pub fn native_child_budget_key(parent_thread_id: &ThreadId, source_turn_id: Option<&TurnId>) -> String {
+    format!("{parent_thread_id}:{}", source_turn_id.map_or("session", |t| t.as_str()))
 }
 
 fn dispatch_internal(out: &mut Vec<OrchestrationCommand>, command: InternalThreadCommand) {
@@ -486,6 +738,29 @@ impl ProviderRuntimeIngestion {
 
     pub fn with_environment(environment: IngestionEnvironment) -> Self {
         Self { environment, ..Self::default() }
+    }
+
+    /// Whether the child budget of `key` was read from the threads that exist.
+    pub fn has_native_child_budget(&self, key: &str) -> bool {
+        self.native_child_ids_by_source_turn.contains_key(key)
+    }
+
+    /// Seeds the child budget of `key` with the children its parent turn already has.
+    pub fn init_native_child_budget(&mut self, key: String, existing: impl IntoIterator<Item = ThreadId>) {
+        self.native_child_ids_by_source_turn.entry(key).or_default().extend(existing);
+    }
+
+    /// Synara `claimNativeChildSlot` (PRI:975): whether `child` may be made (or exists).
+    pub fn claim_native_child_slot(&mut self, key: &str, child: &ThreadId) -> bool {
+        let children = self.native_child_ids_by_source_turn.entry(key.to_owned()).or_default();
+        if children.contains(child) {
+            return true;
+        }
+        if children.len() >= MAX_NATIVE_CHILDREN_PER_PARENT_TURN {
+            return false;
+        }
+        children.insert(child.clone());
+        true
     }
 
     fn dispatch(&mut self, command: InternalThreadCommand) {
@@ -944,6 +1219,7 @@ impl ProviderRuntimeIngestion {
         let plan_prefix = format!("plan:{thread_id}:");
         self.buffered_proposed_plan_by_id.retain(|key, _| !key.starts_with(&plan_prefix));
         self.pending_generated_images_by_turn_key.retain(|key, _| !key.starts_with(&prefix));
+        self.native_child_ids_by_source_turn.retain(|key, _| !key.starts_with(&prefix));
     }
 
     fn settle_unanswerable_pending_interactions(
@@ -1165,6 +1441,11 @@ impl ProviderRuntimeIngestion {
         let active_turn_id = thread.session.as_ref().and_then(|s| s.active_turn_id.clone());
         let is_terminal_turn_event = matches!(event.body, B::TurnCompleted(_) | B::TurnAborted(_));
         let raw_event_turn_id = event.turn_id.clone();
+        if is_terminal_turn_event {
+            // The turn made all the children it will: its budget is read again from the threads
+            // if a late one comes.
+            self.native_child_ids_by_source_turn.remove(&native_child_budget_key(&thread.id, raw_event_turn_id.as_ref()));
+        }
         if let (B::TurnStarted(_), Some(turn_id)) = (&event.body, &raw_event_turn_id) {
             let outstanding = self.outstanding_turn_ids_by_thread.entry(thread.id.clone()).or_default();
             if !outstanding.contains(turn_id) {
@@ -1993,6 +2274,90 @@ mod tests {
             event[key] = value.clone();
         }
         event
+    }
+
+    #[test]
+    fn codex_collab_calls_and_child_conversations_route_to_subagent_threads() {
+        // A collab tool call on the parent names its receivers (a Codex `collabAgentToolCall`).
+        let collab: ProviderRuntimeEvent = serde_json::from_value(runtime(
+            "c1",
+            T0,
+            "item.started",
+            json!({ "providerRefs": { "providerThreadId": "conv-parent" } }),
+            json!({
+                "itemType": "collab_agent_tool_call",
+                "data": { "item": { "type": "collabAgentToolCall", "receiverThreadIds": ["conv-child"], "agentsStates": { "conv-child": { "agentNickname": "Ada", "agentRole": "explorer" } } } },
+            }),
+        ))
+        .unwrap();
+        let routing = subagent_routing(&collab);
+        assert_eq!(routing.target, None, "the parent's own event stays on the parent");
+        assert_eq!(routing.receivers.len(), 1);
+        let (receiver, identity) = &routing.receivers[0];
+        assert_eq!(receiver, "conv-child");
+        let identity = identity.clone().unwrap();
+        assert_eq!((identity.nickname.as_deref(), identity.role.as_deref()), (Some("Ada"), Some("explorer")));
+
+        // The child conversation's own events go to its thread, made in the parent's project.
+        let child: ProviderRuntimeEvent = serde_json::from_value(runtime(
+            "c2",
+            T0,
+            "turn.started",
+            json!({ "providerRefs": { "providerThreadId": "conv-child", "providerParentThreadId": "conv-parent" } }),
+            json!({}),
+        ))
+        .unwrap();
+        let (target, _) = subagent_routing(&child).target.unwrap();
+        assert_eq!(target, "conv-child");
+        let h = Harness::new();
+        let parent = h.thread.clone().unwrap();
+        let ClientThreadCommand::Create(create) =
+            ensure_subagent_thread_command(&parent, None, "conv-child", Some(&identity), Some(&TurnId::new("turn-parent")), &child).unwrap()
+        else {
+            panic!("a new child is created")
+        };
+        assert_eq!(create.thread_id.as_str(), "subagent:thread-1:conv-child");
+        assert_eq!(create.parent_thread_id.as_ref(), Some(&parent.id));
+        assert_eq!(create.title, "Ada [explorer]");
+        assert_eq!(create.worktree_path, parent.worktree_path);
+        assert_eq!(create.project_id, parent.project_id);
+        assert_eq!(create.creation_source, Some(ThreadCreationSource::ProviderNative));
+        assert_eq!(resolve_subagent_provider_thread_id(&create.thread_id, Some(&parent.id)).as_deref(), Some("conv-child"));
+        // The child belongs to the parent turn it is given, not to the turn its own event names.
+        assert_eq!(create.source_turn_id.as_ref().map(TurnId::as_str), Some("turn-parent"));
+        // An existing child is only told what it did not know.
+        assert!(ensure_subagent_thread_command(&parent, Some(&parent), "conv-child", None, None, &child).is_none());
+        let mut known = parent.clone();
+        known.title = create.title.clone();
+        known.subagent_nickname = Some("Ada".into());
+        known.subagent_role = Some("explorer".into());
+        assert!(
+            ensure_subagent_thread_command(&parent, Some(&known), "conv-child", Some(&identity), None, &child).is_none(),
+            "an identity the child already holds is no update"
+        );
+        known.subagent_role = Some("worker".into());
+        known.title = "Ada [worker]".into();
+        let ClientThreadCommand::MetaUpdate(update) =
+            ensure_subagent_thread_command(&parent, Some(&known), "conv-child", Some(&identity), None, &child).unwrap()
+        else {
+            panic!("a changed role is an update")
+        };
+        assert_eq!(update.subagent_role.as_ref().and_then(|r| r.as_deref()), Some("explorer"));
+        assert_eq!(update.subagent_nickname, None);
+        assert_eq!(update.title.as_deref(), Some("Ada [explorer]"));
+    }
+
+    #[test]
+    fn a_parent_turns_child_budget_is_dropped_when_the_turn_ends() {
+        let mut h = Harness::new();
+        let thread_id = h.thread.as_ref().unwrap().id.clone();
+        let ended = native_child_budget_key(&thread_id, Some(&TurnId::new("turn-1")));
+        let other = native_child_budget_key(&thread_id, Some(&TurnId::new("turn-2")));
+        assert!(h.ingestion.claim_native_child_slot(&ended, &ThreadId::new("subagent:thread-1:a")));
+        assert!(h.ingestion.claim_native_child_slot(&other, &ThreadId::new("subagent:thread-1:b")));
+        h.feed(runtime("e1", T0, "turn.completed", json!({ "turnId": "turn-1" }), json!({ "state": "completed" })));
+        assert!(!h.ingestion.has_native_child_budget(&ended), "the ended turn's budget is let go");
+        assert!(h.ingestion.has_native_child_budget(&other), "another turn's budget stays");
     }
 
     #[test]

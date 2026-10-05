@@ -387,3 +387,29 @@ private actor RefreshTransport: BackendTransport {
     #expect(windows == 1 && logs.navigation.error != nil)
     await model.stop()
 }
+
+/// A subagent's thread is not a row of the sidebar or of Projects, but the app can go to it from
+/// its parent's page, where it opens read-only: it follows its parent's agent.
+@MainActor @Test func aSubagentThreadOpensReadOnlyAndStaysOutOfTheLists() async throws {
+    let suite = "refresh-subagent-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.error != nil }
+    let selection = ChatThreadShell.ModelSelection(provider: "claudeAgent", model: "haiku")
+    model.chats.receive(ChatThreadShell(id: "parent", projectId: ChatProject.standalone, title: "Parent", modelSelection: selection,
+                                        workingDirectory: "/work", createdAt: "2026-10-05T10:00:00.000Z"))
+    model.chats.receive(ChatThreadShell(id: "subagent:parent:toolu_1", projectId: ChatProject.standalone, title: "List files",
+                                        modelSelection: selection, workingDirectory: "/work", createdAt: "2026-10-05T10:00:01.000Z",
+                                        parentThreadId: "parent"))
+    try await refreshEventually { model.root.entries.contains { $0.chatID == "parent" || $0.children.contains { $0.chatID == "parent" } } }
+    let chatIDs = model.root.entries.flatMap { [$0] + $0.children }.compactMap(\.chatID)
+    #expect(chatIDs == ["parent"])
+    #expect(model.rootState().chats.contains { $0.id == "subagent:parent:toolu_1" })
+    #expect(model.makeChatModel(threadID: "parent")?.page.context.readOnly == false)
+    let child = try #require(model.makeChatModel(threadID: "subagent:parent:toolu_1"))
+    #expect(child.page.context.readOnly && child.page.context.cwd == "/work")
+    await model.stop()
+}

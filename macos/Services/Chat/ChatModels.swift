@@ -38,11 +38,16 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
     var session: Session? = nil
     var hasPendingApprovals: Bool? = nil
     var hasPendingUserInput: Bool? = nil
+    /// Set on a subagent's thread: the chat whose agent ran it. Such a thread is reached from its
+    /// parent's page, never listed, and read-only (it follows its parent's agent).
+    var parentThreadId: String? = nil
 
     /// The folder the agent works in: the one it was created with, else its worktree.
     var cwd: String { workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? worktreePath ?? "" }
     var archived: Bool { archivedAt?.isEmpty == false }
     var standalone: Bool { projectId == ChatProject.standalone }
+    /// A subagent's thread, which its parent's page opens.
+    var subagent: Bool { parentThreadId?.isEmpty == false }
     /// The CLI that answers it, as the app's drivers know it.
     var cli: String? { AgentDrivers.of(chatProvider: modelSelection?.provider)?.cli }
     /// A turn is under way.

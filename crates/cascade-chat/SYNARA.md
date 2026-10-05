@@ -33,8 +33,9 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
 | `src/orchestration/decider.rs` | `S/orchestration/decider.ts` (thread commands, `thread.fork.create` included), `S/orchestration/commandInvariants.ts` (single-thread invariants), `S/orchestration/messageTurnId.ts` |
 | `src/orchestration/fork_thread_title.rs` | `S/orchestration/forkThreadTitle.ts` |
 | `src/orchestration/projector.rs` | `S/orchestration/projector.ts` (thread events), `S/orchestration/turnLifecycle.ts`, `S/orchestration/turnStartSession.ts` |
-| `src/orchestration/ingestion.rs` | `S/orchestration/Layers/ProviderRuntimeIngestion.ts` |
+| `src/orchestration/ingestion.rs` | `S/orchestration/Layers/ProviderRuntimeIngestion.ts`, with `ensureSubagentThread` split with the engine (below) |
 | `src/orchestration/activity_projection.rs` | `S/orchestration/providerRuntimeActivityProjection.ts` |
+| `src/orchestration/subagents.rs` | `packages/shared/src/subagents.ts` (receiver ids, identity hints and their directory) |
 | `src/orchestration/engine.rs` | `S/orchestration/Layers/OrchestrationEngine.ts` and `S/provider/Layers/ProviderService.ts`, reduced to what a single-user app needs: one task owning threads, sessions and the store; the shell snapshot of `S/orchestration/Layers/ProjectionSnapshotQuery.ts` (`getShellSnapshot`) |
 | `src/orchestration/reactor.rs` | `S/orchestration/Layers/ProviderCommandReactor.ts` (`processDomainEvent` and its handlers, the fork branch of `ensureSessionForThread`), `ProviderService.forkThread`, and `S/orchestration/Layers/CheckpointReactor.ts` (capture, diff, revert) |
 | `src/checkpointing/store.rs` | `S/checkpointing/Layers/CheckpointStore.ts`, the ref names of `S/checkpointing/Utils.ts` (under `refs/cascade/checkpoints`, with the managed-family helpers) |
@@ -83,11 +84,30 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
 - **Attachments are read by a call**, `attachments.read {attachmentId}`, where Synara serves an
   HTTP route; ids are checked against Synara's pattern and only a regular file in the
   attachments folder is read.
+- **Subagent threads.** As in Synara, a Claude Task/Agent tool's subagent runs in a scoped context
+  of the session (`ensureSubagentRun`; here the session's context swaps a run's scope in for as long
+  as a handler runs, `ClaudeScope`), and every event it makes carries `providerRefs` naming it
+  (`providerThreadId` = the tool use id, `providerParentThreadId` = the parent thread). The CLI
+  forwards a subagent's text because `initialize` asks with `forwardSubagentText`. Codex child
+  conversations already carried the same refs. Ingestion's `ensureSubagentThread` is split: the
+  pure part (`subagent_routing`, `ensure_subagent_thread_command`, the cap of
+  `MAX_NATIVE_CHILDREN_PER_PARENT_TURN`) is in `ingestion.rs`, and the engine (`on_runtime`,
+  `ensure_subagent_thread`) reads the child, dispatches its `thread.create` or `thread.meta.update`
+  and ingests a subagent's event against the child (`ingest_subagent_runtime`), leaving the parent
+  session's binding, checkpoints and queue alone as ProviderService does. A child's id is
+  `subagent:<parent>:<provider thread id>`. Stopping one (`thread.turn.interrupt` on the child)
+  stops only that run: Claude's `stop_task`, Codex's `turn/interrupt` on the child conversation.
+  Archive, unarchive and delete take a thread's subagent subtree along (decider.ts:1497-1555, done
+  by the engine, which sees all threads). Not ported: messaging a running subagent
+  (`steerSubagent`, which needs the SDK's PreToolUse hook), so the engine refuses a send to a child
+  thread and the app shows it read-only; per-task token meters (`emitTaskUsageSnapshot`); the
+  workflow runtime.
 - **Providers.** Claude and Codex. The ACP family (Cursor, Droid, Grok, Devin, OMP), OpenCode,
   Pi and Antigravity are not ported yet.
 
 ## Recorded fixtures
 
 `tests/fixtures/*.jsonl` are real sessions recorded with `tests/fixtures/*_probe.py` (one turn
-that runs a shell command after an approval), scrubbed of home paths and account details. To
+that runs a shell command after an approval; `claude_subagent_probe.py`, a turn whose foreground
+general-purpose subagent runs `ls` after an approval), scrubbed of home paths and account details. To
 record again after a CLI update, run the probe in an empty folder and scrub the same way.

@@ -60,8 +60,10 @@ extension AppViewModel: ChatCoordinating {
     func makeChatModel(threadID: String) -> ChatViewModel? {
         guard chatService != nil, let shell = chats.shell(threadID) else { return nil }
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        // A subagent's thread follows its parent's agent: the page shows it without a composer.
         let context = ChatPageContext(threadId: threadID, projectId: shell.projectId, cwd: chatFolder(shell),
-                                      projectName: chatPlaceName(shell), appearance: dark ? .dark : .light)
+                                      projectName: chatPlaceName(shell), appearance: dark ? .dark : .light,
+                                      readOnly: shell.subagent)
         return chatFactory.chat(threadID: threadID, shell: shell, context: context,
                                 backend: ChatServiceBackend(service: { [weak self] in self?.chatService }))
     }
