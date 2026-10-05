@@ -586,3 +586,69 @@ async fn a_thread_read_since_its_revision_answers_the_revision_alone() {
     let written = transcript_thread_in(&app, query(Some("1-1:0")), home.path().to_path_buf()).await;
     assert_eq!(written, full);
 }
+
+#[tokio::test]
+async fn an_attachment_is_read_back_as_base64_and_only_by_its_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = app_with_engine(dir.path(), &ScriptedSpawner::new()).await;
+    let router = build_app(app.clone());
+    let (_, saved) = rpc_call(
+        &router,
+        "attachments.save",
+        json!({ "threadId": "chat-4", "type": "image", "name": "dot.png", "mimeType": "image/png", "dataBase64": "iVBORw0KGgo=" }),
+    )
+    .await;
+    let id = saved["result"]["id"].as_str().unwrap().to_owned();
+    let (status, read) = rpc_call(&router, "attachments.read", json!({ "attachmentId": id })).await;
+    assert_eq!(status, StatusCode::OK, "{read}");
+    assert_eq!(read["result"], json!({ "mimeType": "image/png", "dataBase64": "iVBORw0KGgo=" }));
+
+    std::fs::write(dir.path().join("chat/secret.txt"), "no").unwrap();
+    for refused in ["../secret", "../chat/secret", "/etc/passwd", &format!("{id}.png"), &format!("{id}/x"), ""] {
+        let (status, body) = rpc_call(&router, "attachments.read", json!({ "attachmentId": refused })).await;
+        assert_eq!((status, body["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid")), "{refused}: {body}");
+    }
+    let unknown = "chat-4-0f8fad5b-d9cb-469f-a165-70867728950e";
+    let (status, _) = rpc_call(&router, "attachments.read", json!({ "attachmentId": unknown })).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    app.chat.shutdown().await;
+}
+
+#[test]
+fn base64_round_trips() {
+    for bytes in [&b""[..], b"f", b"fo", b"foo", b"foob", b"\xff\x00\x10"] {
+        assert_eq!(decode_base64(&encode_base64(bytes)).unwrap(), bytes);
+    }
+    assert_eq!(encode_base64(b"hello world"), "aGVsbG8gd29ybGQ=");
+}
+
+#[tokio::test]
+async fn the_shell_snapshot_and_diffs_are_served_in_synaras_shapes() {
+    let dir = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let app = app_with_engine(dir.path(), &ScriptedSpawner::new()).await;
+    let router = build_app(app.clone());
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", create("chat-5", workspace.path())).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, snapshot) = rpc_call(&router, "orchestration.getShellSnapshot", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{snapshot}");
+    let snapshot = &snapshot["result"];
+    assert_eq!(snapshot["threads"][0]["id"], "chat-5");
+    assert!(snapshot["snapshotSequence"].as_u64().unwrap() >= 1);
+    assert_eq!((snapshot["spaces"].clone(), snapshot["projects"].clone()), (json!([]), json!([])));
+
+    // No turn has run: an empty range is an empty diff, and a turn with no checkpoint is not there.
+    let (status, empty) =
+        rpc_call(&router, "orchestration.getTurnDiff", json!({ "threadId": "chat-5", "fromTurnCount": 0, "toTurnCount": 0 })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(empty["result"], json!({ "threadId": "chat-5", "fromTurnCount": 0, "toTurnCount": 0, "diff": "" }));
+    let (status, missing) =
+        rpc_call(&router, "orchestration.getFullThreadDiff", json!({ "threadId": "chat-5", "toTurnCount": 1 })).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+    assert_eq!(missing["error"]["message"], "Turn diff range exceeds current turn count: requested 1, current 0.");
+    let (status, reversed) =
+        rpc_call(&router, "orchestration.getTurnDiff", json!({ "threadId": "chat-5", "fromTurnCount": 2, "toTurnCount": 1 })).await;
+    assert_eq!((status, reversed["error"]["code"].as_str()), (StatusCode::BAD_REQUEST, Some("invalid")));
+    app.chat.shutdown().await;
+}

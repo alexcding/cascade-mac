@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::contracts::{
     base::{ApprovalRequestId, ThreadId, TurnId},
-    orchestration::{ProviderApprovalDecision, ProviderKind, ProviderUserInputAnswers, RuntimeMode},
+    orchestration::{ProviderApprovalDecision, ProviderKind, ProviderReviewTarget, ProviderUserInputAnswers, RuntimeMode},
     provider::{ProviderSendTurnInput, ProviderSessionStartInput, ProviderTurnStartResult},
     provider_runtime::ProviderRuntimeEvent,
 };
@@ -58,6 +58,9 @@ pub enum SessionCommand {
     SendTurn { input: ProviderSendTurnInput, reply: Reply<ProviderTurnStartResult> },
     /// Redirect the live turn. Only for adapters whose capabilities say they steer.
     SteerTurn { input: ProviderSendTurnInput, reply: Reply<ProviderTurnStartResult> },
+    /// Synara `startReview`: a native review run on the session's conversation. Only for
+    /// adapters that have one (Codex's `review/start`); the others answer with an error.
+    StartReview { target: ProviderReviewTarget, reply: Reply<ProviderTurnStartResult> },
     InterruptTurn { turn_id: Option<TurnId>, reply: Reply<()> },
     RespondToRequest { request_id: ApprovalRequestId, decision: ProviderApprovalDecision, reply: Reply<()> },
     RespondToUserInput { request_id: ApprovalRequestId, answers: ProviderUserInputAnswers, reply: Reply<()> },
@@ -97,6 +100,10 @@ impl ProviderSessionHandle {
 
     pub async fn steer_turn(&self, input: ProviderSendTurnInput) -> Result<ProviderTurnStartResult> {
         self.ask(|reply| SessionCommand::SteerTurn { input, reply }).await
+    }
+
+    pub async fn start_review(&self, target: ProviderReviewTarget) -> Result<ProviderTurnStartResult> {
+        self.ask(|reply| SessionCommand::StartReview { target, reply }).await
     }
 
     pub async fn interrupt_turn(&self, turn_id: Option<TurnId>) -> Result<()> {

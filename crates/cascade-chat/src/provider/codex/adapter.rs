@@ -7,7 +7,8 @@
 //! Synara's manager listener feeds the adapter's runtime queue.
 //!
 //! Left out, with Synara's names: generated images (`mapGeneratedImageEndEvent`), realtime
-//! (`thread/realtime/*`, which fall through to `event.unmapped`), review, rollback, fork,
+//! (`thread/realtime/*`, which fall through to `event.unmapped`), review, rollback, `forkThread`
+//! (a fork's first session opens its thread with `thread/fork` from `forkSourceResumeCursor`),
 //! compaction, discovery (skills, plugins, model list, voice), the native event log, the turn
 //! idle watchdog and the bounded callback ingress (the sink's own capacity bounds it here).
 
@@ -218,6 +219,11 @@ impl CodexAdapter {
                     result.thread_id = input.thread_id.clone();
                     result
                 }));
+            }
+            SessionCommand::StartReview { target, reply } => {
+                // Synara `startReview` (CodexAdapter.ts:2220)
+                let result = manager.start_review(&target).await.map_err(|cause| to_request_error("review/start", cause));
+                let _ = reply.send(result);
             }
             SessionCommand::InterruptTurn { turn_id, reply } => {
                 let result = manager.interrupt_turn(turn_id, None).await;

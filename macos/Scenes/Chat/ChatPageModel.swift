@@ -58,6 +58,8 @@ enum ChatPageEvent: Equatable {
     case revealFile(String)
     case openTurnDiff(threadID: String, turnID: String, filePath: String?)
     case openSettings(String)
+    /// Another chat to show: a fork or a review thread the page made.
+    case openThread(String)
 }
 
 /// What the model sends the page: a reply to one of its requests, or a push on a channel.
@@ -85,6 +87,8 @@ enum ChatPageOutput: Equatable {
 /// in, so the page never sees an event it has no conversation for. Retired is terminal: a retired
 /// model sends nothing and answers nothing.
 @MainActor @Observable final class ChatPageModel {
+    /// The chat pages' own persistent website data store (`ChatPageHost.dataStore`).
+    nonisolated static let dataStoreIdentifier = UUID(uuidString: "6A1C3E52-7F0B-4C1D-9E7A-3B2D5C8F4A10")!
     private(set) var context: ChatPageContext
     /// The last error the page reported, or a failure to reach it.
     private(set) var failure: String?
@@ -127,7 +131,10 @@ enum ChatPageOutput: Equatable {
                 self?.delivered(value)
             }
         } else {
-            let host = ChatPageHost()
+            // The page's attachment images are read through the same backend as its requests.
+            let host = ChatPageHost(readAttachment: { id in
+                try await backend.call("attachments.read", params: ["attachmentId": .string(id)])
+            })
             self.host = host
             webView = host.webView
             host.owner = self
@@ -209,6 +216,10 @@ enum ChatPageOutput: Equatable {
                                   filePath: payload["filePath"]?.string.map(resolve)))
         case "openSettings":
             onEvent(.openSettings(payload["path"]?.string ?? ""))
+        case "openThread":
+            guard let thread = payload["threadId"]?.string, !thread.isEmpty, thread.count <= 256,
+                  thread != context.threadId else { return }
+            onEvent(.openThread(thread))
         case "copy":
             guard let text = payload["text"]?.string, text.utf8.count <= 16 << 20 else { return }
             copy(text)
@@ -410,10 +421,18 @@ enum ChatPageOutput: Equatable {
     let webView: WKWebView
     weak var owner: ChatPageModel?
 
-    override init() {
+    /// One persistent store for every chat page, a chat's and a terminal transcript's alike: the
+    /// page keeps each thread's composer draft and queued follow-ups in its localStorage, and they
+    /// must outlive the page, which goes when its screen does. Not `.default()`, which the browser
+    /// pane's sites share and Settings clears: the chat page's origin has nothing to do with
+    /// them. Pages open at once share its localStorage; the page merges its writes
+    /// (`macos/web/chat/src/storage.ts`).
+    static let dataStore = WKWebsiteDataStore(forIdentifier: ChatPageModel.dataStoreIdentifier)
+
+    init(readAttachment: @escaping ChatPageAssets.AttachmentReader) {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
-        config.setURLSchemeHandler(ChatPageAssets(), forURLScheme: ChatPageAssets.scheme)
+        config.websiteDataStore = Self.dataStore
+        config.setURLSchemeHandler(ChatPageAssets(readAttachment: readAttachment), forURLScheme: ChatPageAssets.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
         super.init()
         // Through a weak proxy: the controller holds its handlers strongly.
@@ -436,6 +455,10 @@ enum ChatPageOutput: Equatable {
     }
 
     func close() {
+        // Synara writes drafts on a debounce; have it write them now, before the page goes. The
+        // completion holds the web view until the page has.
+        let webView = webView
+        webView.evaluateJavaScript("window.nativeChat?.flush?.()") { _, _ in _ = webView }
         webView.stopLoading(); webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "chat")
         webView.removeFromSuperview()

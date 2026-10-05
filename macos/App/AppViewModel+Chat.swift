@@ -16,7 +16,12 @@ extension AppViewModel: ChatCoordinating {
         case "chat-shell":
             guard let value = event.shell else { return }
             chats.receive(shell: value)
-            if let id = value["id"]?.string { updateChatScreen(id) }
+            guard let id = value["id"]?.string else { return }
+            // A chat selected before it was heard of (one the page opened) gets its screen now.
+            if selection == .chat(id), coordinator.chatCoordinator?.threadID != id, chats.shell(id) != nil {
+                coordinator.refreshRoot()
+            }
+            updateChatScreen(id)
         case "chat-removed":
             guard let id = event.threadId else { return }
             chats.remove(id)
@@ -85,12 +90,36 @@ extension AppViewModel: ChatCoordinating {
         case .openFolder(let path):
             guard path.hasPrefix("/") else { return }
             desktop.openBrowser(URL(fileURLWithPath: path, isDirectory: true))
-        case .openTurnDiff:
-            // A chat works in a folder, not in a session's worktree: there is no Diff to open.
-            Logger(subsystem: "com.cascade.app", category: "chat").notice("chat \(threadID, privacy: .public): turn diff asked for, none to show")
+        case .openTurnDiff(_, _, let filePath):
+            // The page draws a turn's diff itself. A chat working in a session's worktree can also
+            // show that worktree's changes in the session's Diff, scrolled to the file asked for;
+            // any other folder has none.
+            guard let shell = chats.shell(threadID), let session = sessionWorking(in: chatFolder(shell)) else {
+                Logger(subsystem: "com.cascade.app", category: "chat").notice("chat \(threadID, privacy: .public): turn diff asked for, no session's Diff for its folder")
+                return
+            }
+            select(.session(session.id))
+            guard let context = viewer.active, context.id == "task:\(session.id)" else { return }
+            if context.pane != .diff {
+                prepareChanges(for: session, context: context)
+                guard diffModels[context.id] != nil else { return }
+                context.setPane(.diff)
+            }
+            if let filePath { diffModels[context.id]?.reveal(path: filePath) }
+        case .openThread(let id):
+            // The coordinator goes to it; a chat the list has not heard of yet (a fork just made)
+            // is read again, and its screen comes when the list has it.
+            if chats.shell(id) == nil { chats.reload() }
         case .openSettings:
             coordinator.presentSettingsWindow()
         }
+    }
+
+    /// The session whose worktree is `folder`, if any.
+    private func sessionWorking(in folder: String) -> WorkspaceSession? {
+        guard !folder.isEmpty else { return nil }
+        let target = URL(fileURLWithPath: folder).standardizedFileURL.path
+        return sessions.first { !$0.worktree.isEmpty && URL(fileURLWithPath: $0.worktree).standardizedFileURL.path == target }
     }
 
     // MARK: Sidebar and Projects

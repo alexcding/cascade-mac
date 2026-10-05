@@ -6,8 +6,9 @@
 //! Synara decides against the whole read model; this decider sees one thread, so what needs
 //! another thread or a project is reduced: `thread.create` does not check its project, archiving
 //! does not cascade to subagent threads, and a proposed plan from another thread is passed in
-//! ([`decide_turn_start`]). Spaces, projects, sidechats, handoffs, forks, goals, the Claude cache
-//! and computer control are not ported. Events come out without a `sequence` (0): the engine
+//! ([`decide_turn_start`]), as are a fork's source thread and its project's threads
+//! ([`decide_fork_create`]). Spaces, projects, sidechats, handoffs, goals, the Claude cache and
+//! computer control are not ported. Events come out without a `sequence` (0): the engine
 //! numbers them as it stores them.
 
 use std::collections::BTreeMap;
@@ -20,6 +21,8 @@ use crate::contracts::base::{
     ApprovalRequestId, CommandId, EventId, IsoDateTime, MessageId, ThreadId, TurnId,
 };
 use crate::contracts::orchestration::*;
+
+use super::fork_thread_title::{build_fork_thread_title, ForkLineageThread};
 
 /// Commands from the web client always carry an explicit mode; this covers omitted fields.
 const DEFAULT_ASSISTANT_DELIVERY_MODE: AssistantDeliveryMode = AssistantDeliveryMode::Streaming;
@@ -76,7 +79,11 @@ pub enum DecideError {
     UserMessageMissing { command_type: &'static str, message_id: MessageId, thread_id: ThreadId },
     UserMessageBound { command_type: &'static str, message_id: MessageId, turn_id: TurnId },
     SessionChanged { command_type: &'static str, thread_id: ThreadId },
-    /// A command whose family is not ported (`thread.fork.create`).
+    ForkSourceOtherProject { command_type: &'static str, source_thread_id: ThreadId },
+    /// Cascade: a fork into a new worktree, which only Synara's server makes (see
+    /// [`decide_fork_create`]).
+    ForkIntoNewWorktree { command_type: &'static str },
+    /// A command whose family is not ported.
     Unsupported { command_type: &'static str },
 }
 
@@ -110,6 +117,8 @@ impl DecideError {
             | UserMessageMissing { command_type, .. }
             | UserMessageBound { command_type, .. }
             | SessionChanged { command_type, .. }
+            | ForkSourceOtherProject { command_type, .. }
+            | ForkIntoNewWorktree { command_type }
             | Unsupported { command_type } => command_type,
         }
     }
@@ -217,6 +226,13 @@ impl fmt::Display for DecideError {
             SessionChanged { thread_id, .. } => write!(
                 f,
                 "Thread '{thread_id}' session changed before the conditional update."
+            ),
+            ForkSourceOtherProject { source_thread_id, .. } => {
+                write!(f, "Source thread '{source_thread_id}' belongs to a different project.")
+            }
+            ForkIntoNewWorktree { .. } => write!(
+                f,
+                "A chat cannot be forked into a new worktree here. Fork into the local folder instead."
             ),
             Unsupported { command_type } => {
                 write!(f, "Command '{command_type}' is not supported here.")
@@ -908,7 +924,8 @@ fn decide_client(
             )])
         }
 
-        ClientThreadCommand::ForkCreate(_) => Err(DecideError::Unsupported { command_type }),
+        // The engine decides a fork with its source and the project's threads at hand.
+        ClientThreadCommand::ForkCreate(command) => decide_fork_create(command, thread, None, &[]),
 
         ClientThreadCommand::Delete(command) => {
             let thread = require_thread(command_type, thread, &command.thread_id)?;
@@ -1398,6 +1415,114 @@ fn decide_meta_update(
             updated_at: now.clone(),
         }),
     )])
+}
+
+/// Synara decider.ts `thread.fork.create` (decider.ts:1264). `thread` is the new thread (absent),
+/// `source` the thread forked, `project_threads` the threads of its project, for the fork's title.
+/// The project itself is not checked: projects are the app's.
+pub fn decide_fork_create(
+    command: &ThreadForkCreateCommand,
+    thread: Option<&OrchestrationThread>,
+    source: Option<&OrchestrationThread>,
+    project_threads: &[ForkLineageThread],
+) -> Result<Vec<OrchestrationEvent>, DecideError> {
+    let command_type = "thread.fork.create";
+    let source_thread = require_thread(command_type, source, &command.source_thread_id)?;
+    require_thread_absent(command_type, thread, &command.thread_id)?;
+    validate_auto_runtime_mode(command_type, &command.model_selection, command.runtime_mode)?;
+    if source_thread.project_id != command.project_id {
+        return Err(DecideError::ForkSourceOtherProject {
+            command_type,
+            source_thread_id: command.source_thread_id.clone(),
+        });
+    }
+    // Cascade: Synara forks into a new worktree with no path and lets its server create the
+    // worktree on the first send; nothing here creates one (a chat has no worktree of its own,
+    // and a Cascade worktree without a session is invisible), so that fork is refused. A fork
+    // that keeps a worktree it names stays allowed.
+    if command.env_mode == ThreadEnvironmentMode::Worktree && command.worktree_path.as_deref().is_none_or(str::is_empty) {
+        return Err(DecideError::ForkIntoNewWorktree { command_type });
+    }
+    let lineage_source = ForkLineageThread {
+        id: source_thread.id.to_string(),
+        project_id: source_thread.project_id.to_string(),
+        title: source_thread.title.clone(),
+        fork_source_thread_id: source_thread.fork_source_thread_id.as_ref().map(ToString::to_string),
+    };
+    let (associated_worktree_path, associated_worktree_branch, associated_worktree_ref) =
+        derive_associated_worktree_metadata(
+            command.branch.as_ref(),
+            command.worktree_path.as_ref(),
+            &command.associated_worktree_path,
+            &command.associated_worktree_branch,
+            &command.associated_worktree_ref,
+        );
+    let mut events = vec![event(
+        &command.command_id,
+        &command.thread_id,
+        &command.created_at,
+        OrchestrationEventBody::ThreadCreated(ThreadCreatedPayload {
+            thread_id: command.thread_id.clone(),
+            project_id: command.project_id.clone(),
+            title: build_fork_thread_title(&lineage_source, project_threads),
+            model_selection: command.model_selection.clone(),
+            runtime_mode: command.runtime_mode,
+            interaction_mode: command.interaction_mode,
+            env_mode: command.env_mode,
+            branch: command.branch.clone(),
+            worktree_path: command.worktree_path.clone(),
+            working_directory: command.working_directory.clone().flatten(),
+            associated_worktree_path,
+            associated_worktree_branch,
+            associated_worktree_ref,
+            create_branch_flow_completed: command.create_branch_flow_completed,
+            is_pinned: false,
+            parent_thread_id: None,
+            creation_source: None,
+            source_thread_id: None,
+            source_turn_id: None,
+            gateway_operation_id: None,
+            gateway_operation_index: None,
+            subagent_agent_id: None,
+            subagent_nickname: None,
+            subagent_role: None,
+            fork_source_thread_id: Some(command.source_thread_id.clone()),
+            created_at: command.created_at.clone(),
+            updated_at: command.created_at.clone(),
+        }),
+    )];
+    // Imported messages keep their source-thread timestamps so the transcript still reads in order.
+    events.extend(command.imported_messages.iter().map(|message| {
+        event(
+            &command.command_id,
+            &command.thread_id,
+            &command.created_at,
+            OrchestrationEventBody::ThreadMessageSent(ThreadMessageSentPayload {
+                async_user_input: None,
+                thread_id: command.thread_id.clone(),
+                message_id: message.message_id.clone(),
+                role: match message.role {
+                    ThreadHandoffImportedMessageRole::User => OrchestrationMessageRole::User,
+                    ThreadHandoffImportedMessageRole::Assistant => OrchestrationMessageRole::Assistant,
+                },
+                text: message.text.clone(),
+                segment_started_at: None,
+                segment_sequence: None,
+                attachments: message.attachments.clone(),
+                skills: None,
+                mentions: None,
+                dispatch_mode: None,
+                dispatch_origin: None,
+                starts_new_turn: None,
+                turn_id: None,
+                streaming: false,
+                source: OrchestrationMessageSource::ForkImport,
+                created_at: message.created_at.clone(),
+                updated_at: message.updated_at.clone(),
+            }),
+        )
+    }));
+    Ok(events)
 }
 
 /// Synara decider.ts `thread.turn.start` for the server form of the command. `source_thread` is

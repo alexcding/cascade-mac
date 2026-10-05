@@ -215,6 +215,21 @@ struct APIDiffService: DiffService {
     }
     /// The page starts again, so its file list does too until it reports its next render.
     func reload() { documentError = nil; loadError = nil; loaded = false; changedFiles = []; webView?.reload(); refresh() }
+    /// A file asked for before the page listed it (`reveal(path:)`): revealed when it does.
+    @ObservationIgnored private(set) var pendingReveal: String?
+    /// Scrolls the diff to the file at `path`, relative to the worktree or absolute inside it: now
+    /// if the page lists it, else when its next list does (a diff just opened has drawn nothing).
+    func reveal(path: String) {
+        let prefix = worktree.hasSuffix("/") ? worktree : worktree + "/"
+        let relative = path.hasPrefix("/") ? (path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : nil) : path
+        guard let relative, !relative.isEmpty else { return }
+        if active, loaded, let file = changedFiles.first(where: { $0.path == relative }) {
+            pendingReveal = nil
+            reveal(file)
+        } else {
+            pendingReveal = relative
+        }
+    }
     /// Scrolls the diff to a file of `changedFiles`.
     func reveal(_ file: ChangedFile) {
         guard active, loaded else { return }
@@ -242,7 +257,7 @@ struct APIDiffService: DiffService {
         webView?.stopLoading(); webView?.navigationDelegate = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: "diff")
         webView?.removeFromSuperview(); webView = nil
-        loaded = false; contentProcessEnded = false
+        loaded = false; contentProcessEnded = false; pendingReveal = nil
         snapshot = nil; changedFiles = []; documentScript = nil; documentError = nil; loadError = nil
     }
 
@@ -270,6 +285,10 @@ struct APIDiffService: DiffService {
         } else if body["type"] as? String == "files" {
             // A list that cannot be read is no list, rather than the last render's beside this one.
             changedFiles = ChangedFile.decode(files: body["files"], untracked: body["untracked"]) ?? []
+            if let pending = pendingReveal, let file = changedFiles.first(where: { $0.path == pending }) {
+                pendingReveal = nil
+                reveal(file)
+            }
         } else if body["type"] as? String == "error", let text = body["message"] as? String, text.utf8.count <= 4096 {
             documentError = text.isEmpty ? String(localized: "Could not load changes.") : String(localized: "Could not load changes: \(text)")
         } else if let request = DiscardSelectionMessage.decode(body, revision: snapshot?.revision), active, loaded, !loading, let actions {

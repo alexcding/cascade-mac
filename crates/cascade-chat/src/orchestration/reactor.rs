@@ -17,8 +17,9 @@ use serde_json::{json, Value};
 
 use crate::{
     checkpointing::store::{
-        checkpoint_ref_for_message_start, checkpoint_ref_for_thread_turn, checkpoint_ref_for_turn_start,
-        is_managed_checkpoint_ref, revert_rescue_checkpoint_ref,
+        checkpoint_ref_for_message_start, checkpoint_ref_for_thread_turn, checkpoint_ref_for_thread_turn_in_managed_family,
+        checkpoint_ref_for_turn_start, checkpoint_ref_for_turn_start_in_managed_family, is_managed_checkpoint_ref,
+        is_managed_checkpoint_ref_for_thread, revert_rescue_checkpoint_ref,
     },
     contracts::{
         base::{now_iso, CommandId, EventId, IsoDateTime, ProviderDriverKind, ThreadId, TurnId},
@@ -344,6 +345,12 @@ impl Actor {
         let cwd = resolve_cwd(&thread).map_err(EnsureError::new)?;
         let provider_options = options.provider_options.or_else(|| live.and_then(|l| l.provider_options.clone()));
 
+        // Synara forks only a thread with no provider binding of its own (PS:3316): here, no
+        // resume cursor yet (Codex has one once `thread/fork` answers, Claude once a turn is sent),
+        // and none ever: a fork whose record a revert, an edit, a rollback or a stale resume
+        // cleared starts a conversation of its own, not the source's again.
+        let has_own_conversation = self.current_record(ctx).is_some()
+            || self.entries.get(&thread_id).is_some_and(|entry| entry.fork_bound);
         let mut resume_cursor = self
             .current_record(ctx)
             .filter(|record| record.provider == desired_provider.as_str())
@@ -383,6 +390,10 @@ impl Actor {
         if let Some(old) = self.sessions.remove(&thread_id) {
             self.stop_in_background(&thread_id, old.handle, false);
         }
+        let fork_source_resume_cursor = match has_own_conversation {
+            false => self.fork_source_resume_cursor(&thread, desired_provider),
+            true => None,
+        };
         let generation = uuid::Uuid::new_v4().to_string();
         let input = ProviderSessionStartInput {
             thread_id: thread_id.clone(),
@@ -392,7 +403,7 @@ impl Actor {
             cwd: Some(cwd.clone()),
             model_selection: Some(desired_selection.clone()),
             resume_cursor,
-            fork_source_resume_cursor: None,
+            fork_source_resume_cursor,
             approval_policy: None,
             sandbox_mode: None,
             provider_options: provider_options.clone(),
@@ -429,6 +440,26 @@ impl Actor {
             }
         }
         Ok(EnsuredSession { handle, generation, cwd, model_selection: desired_selection })
+    }
+
+    /// Synara `ProviderService.forkThread` (PS:3309) and the fork branch of
+    /// `ensureSessionForThread` (PCR:2425): the source's conversation to fork the thread's first
+    /// session from, when the source has one with the same provider. Claude does not fork a source
+    /// whose turn is in flight (ClaudeAdapter.ts:7287); like any thread with no native fork, the
+    /// fork then starts a conversation of its own. The engine loads a fork's source with it.
+    fn fork_source_resume_cursor(&self, thread: &OrchestrationThread, provider: ProviderKind) -> Option<Value> {
+        let source_id = thread.fork_source_thread_id.as_ref()?;
+        let source = self.entries.get(source_id)?;
+        let cursor = source.record.as_ref().filter(|r| r.provider == provider.as_str())?.resume_cursor.clone()?;
+        if provider == ProviderKind::ClaudeAgent {
+            let busy = self.live_session(source_id).is_some()
+                && source.thread.as_ref().and_then(|t| t.session.as_ref()).is_some_and(|s| s.active_turn_id.is_some());
+            if busy {
+                tracing::info!(thread = %thread.id, source = %source_id, "chat: the fork's source has a turn in flight; not forked natively");
+                return None;
+            }
+        }
+        Some(cursor)
     }
 
     /// `thread.meta-updated` with a model and `thread.runtime-mode-set` (PCR:6744, 6809): only an
@@ -605,7 +636,13 @@ impl Actor {
                     tracing::warn!(thread = %thread_id, "chat: baseline checkpoint failed: {error:#}");
                 }
             }
-            let result = if native_steer { session.handle.steer_turn(input).await } else { session.handle.send_turn(input).await };
+            // Synara `dispatchTurnForThreadCore` (PCR:3482): a turn that carries a review target
+            // is the provider's native review (`ProviderService.startReview`), not a message.
+            let result = match (&payload.review_target, native_steer) {
+                (Some(target), _) => session.handle.start_review(target.clone()).await,
+                (None, true) => session.handle.steer_turn(input).await,
+                (None, false) => session.handle.send_turn(input).await,
+            };
             if let (true, Ok(started)) = (checkpointed, &result) {
                 // Synara copies message-start to turn-start on `turn.started` (CR:806).
                 let turn_start = checkpoint_ref_for_turn_start(&thread_id, &started.turn_id);
@@ -1165,10 +1202,6 @@ impl Actor {
 
     fn on_checkpoint_revert_requested(&mut self, ctx: &mut Ctx, payload: &ThreadCheckpointRevertRequestedPayload) {
         let turn_count = payload.turn_count;
-        if payload.scope == ThreadCheckpointRevertScope::Files {
-            self.append_revert_failure(ctx, turn_count, "Undoing one turn's file changes is not supported yet.");
-            return;
-        }
         let Some(thread) = self.thread(&ctx.thread_id).cloned() else { return };
         let current = thread.checkpoints.iter().map(|c| c.checkpoint_turn_count).max().unwrap_or(0);
         if turn_count > current {
@@ -1179,13 +1212,23 @@ impl Actor {
             );
             return;
         }
+        let files_scope = payload.scope == ThreadCheckpointRevertScope::Files;
         let cwd = match self.sessions.get(&ctx.thread_id).map(|l| l.cwd.clone()).ok_or(()).or_else(|_| resolve_cwd(&thread)) {
             Ok(cwd) if is_inside_git_work_tree(std::path::Path::new(&cwd)) => PathBuf::from(cwd),
             _ => {
-                self.append_revert_failure(ctx, turn_count, "No git workspace is available for this thread's checkpoints.");
+                let detail = if files_scope {
+                    "No git workspace is available for file Undo."
+                } else {
+                    "No git workspace is available for this thread's checkpoints."
+                };
+                self.append_revert_failure(ctx, turn_count, detail);
                 return;
             }
         };
+        if files_scope {
+            self.undo_turn_files(ctx, &thread, turn_count, cwd);
+            return;
+        }
         let target = if turn_count == 0 {
             Some(checkpoint_ref_for_thread_turn(&ctx.thread_id, 0))
         } else {
@@ -1241,6 +1284,103 @@ impl Actor {
             .await;
             let _ = internal.send(Internal::Reverted { thread_id, turn_count, result });
         });
+    }
+
+    /// Synara's `scope: "files"` branch of `handleRevertRequestedWithoutLease` (CR:1082-1220):
+    /// take back the newest undoable turn's file changes, leaving the conversation as it is.
+    fn undo_turn_files(&mut self, ctx: &mut Ctx, thread: &OrchestrationThread, turn_count: u64, cwd: PathBuf) {
+        let thread_id = ctx.thread_id.clone();
+        let is_undoable = |c: &OrchestrationCheckpointSummary| {
+            c.status == OrchestrationCheckpointStatus::Ready
+                && !c.files.is_empty()
+                && is_managed_checkpoint_ref_for_thread(c.checkpoint_ref.as_str(), &thread_id)
+        };
+        let Some(target) = thread.checkpoints.iter().find(|c| c.checkpoint_turn_count == turn_count).filter(|c| is_undoable(c)).cloned()
+        else {
+            self.append_revert_failure(
+                ctx,
+                turn_count,
+                &format!("File changes for turn {turn_count} are unavailable or already undone."),
+            );
+            return;
+        };
+        let latest_undoable = thread.checkpoints.iter().filter(|c| is_undoable(c)).map(|c| c.checkpoint_turn_count).max().unwrap_or(0);
+        if target.checkpoint_turn_count != latest_undoable {
+            self.append_revert_failure(ctx, turn_count, "Undo newer file changes before undoing this turn.");
+            return;
+        }
+        let turn_start = checkpoint_ref_for_turn_start_in_managed_family(target.checkpoint_ref.as_str(), &thread_id, &target.turn_id)
+            .unwrap_or_else(|| checkpoint_ref_for_turn_start(&thread_id, &target.turn_id));
+        let previous = if turn_count == 1 {
+            Some(
+                checkpoint_ref_for_thread_turn_in_managed_family(target.checkpoint_ref.as_str(), &thread_id, 0)
+                    .unwrap_or_else(|| checkpoint_ref_for_thread_turn(&thread_id, 0)),
+            )
+        } else {
+            thread.checkpoints.iter().find(|c| c.checkpoint_turn_count + 1 == turn_count).map(|c| c.checkpoint_ref.clone())
+        };
+        // The later turns' refs, end and start, are moved onto the undone workspace.
+        let later: Vec<crate::contracts::base::CheckpointRef> = thread
+            .checkpoints
+            .iter()
+            .filter(|c| {
+                c.checkpoint_turn_count > target.checkpoint_turn_count
+                    && is_managed_checkpoint_ref_for_thread(c.checkpoint_ref.as_str(), &thread_id)
+            })
+            .flat_map(|c| {
+                let start = checkpoint_ref_for_turn_start_in_managed_family(c.checkpoint_ref.as_str(), &thread_id, &c.turn_id)
+                    .unwrap_or_else(|| checkpoint_ref_for_turn_start(&thread_id, &c.turn_id));
+                [c.checkpoint_ref.clone(), start]
+            })
+            .collect();
+        let Some(lease) = self.entries.get(&ctx.thread_id).map(|e| e.lease.clone()) else { return };
+        let checkpoints = self.checkpoints.clone();
+        let internal = self.internal.clone();
+        tokio::spawn(async move {
+            let _lease = lease.lock().await;
+            let result = async {
+                let from = match checkpoints.has_checkpoint_ref(&cwd, &turn_start).await {
+                    Ok(true) => turn_start,
+                    _ => previous.ok_or_else(|| format!("Starting checkpoint for turn {turn_count} is unavailable."))?,
+                };
+                match checkpoints.reverse_checkpoint_diff(&cwd, &from, &target.checkpoint_ref).await {
+                    Ok(true) => {}
+                    Ok(false) => return Err(format!("Filesystem checkpoints for turn {turn_count} are unavailable.")),
+                    Err(error) => return Err(format!("{error:#}")),
+                }
+                checkpoints.capture_checkpoint(&cwd, &target.checkpoint_ref, false).await.map_err(|e| format!("{e:#}"))?;
+                for reference in &later {
+                    checkpoints.copy_checkpoint_ref(&cwd, &target.checkpoint_ref, reference).await.map_err(|e| format!("{e:#}"))?;
+                }
+                Ok(target)
+            }
+            .await;
+            let _ = internal.send(Internal::FilesUndone { thread_id, turn_count, result });
+        });
+    }
+
+    /// The files-scope undo finished: the turn's diff is now empty, the latest turn stays.
+    fn on_files_undone(&mut self, ctx: &mut Ctx, turn_count: u64, result: Result<OrchestrationCheckpointSummary, String>) {
+        match result {
+            Ok(target) => self.run_logged(
+                ctx,
+                InternalThreadCommand::TurnDiffComplete(ThreadTurnDiffCompleteCommand {
+                    command_id: server_command_id("checkpoint-files-undone"),
+                    thread_id: ctx.thread_id.clone(),
+                    turn_id: target.turn_id,
+                    completed_at: target.completed_at,
+                    checkpoint_ref: target.checkpoint_ref,
+                    status: target.status,
+                    files: vec![],
+                    assistant_message_id: target.assistant_message_id,
+                    checkpoint_turn_count: target.checkpoint_turn_count,
+                    preserve_latest_turn: Some(true),
+                    checkpoint_revert_turn_count: Some(turn_count),
+                    created_at: now_iso(),
+                }),
+            ),
+            Err(detail) => self.append_revert_failure(ctx, turn_count, &detail),
+        }
     }
 
     fn on_reverted(&mut self, ctx: &mut Ctx, turn_count: u64, result: Result<RevertOutcome, String>) {
@@ -1522,6 +1662,7 @@ impl Actor {
             ),
             Internal::CheckpointCaptured(captured) => self.on_checkpoint_captured(ctx, captured),
             Internal::Reverted { turn_count, result, .. } => self.on_reverted(ctx, turn_count, result),
+            Internal::FilesUndone { turn_count, result, .. } => self.on_files_undone(ctx, turn_count, result),
             Internal::EditChecked { restore, result, .. } => {
                 let failed = result.is_err();
                 self.on_edit_checked(ctx, restore, result);

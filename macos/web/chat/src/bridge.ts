@@ -10,7 +10,10 @@
 //       openFile { path, line? }             a file reference was clicked (absolute, inside
 //                                            the context's cwd or homeDir)
 //       revealFile { path }                  "Show in Finder" on a file reference (same rule)
-//       openTurnDiff { threadId, turnId, filePath? }   "Review" on a turn's changes
+//       openTurnDiff { threadId, turnId, filePath? }   open Cascade's diff of a turn's file
+//                                            ("Edit file" in the page's turn diff)
+//       openThread { threadId }              show another chat thread (one a fork or a review
+//                                            made, a thread link); the page shows one thread
 //       openSettings { path }                Synara's "Manage providers" link
 //       copy    { text }                     copy to the pasteboard (Synara's copy buttons)
 //       error   { message, stack? }          an uncaught error, for the app's log
@@ -27,6 +30,8 @@
 // native → page
 //   nativeChat.reply(id, { ok: true, result } | { ok: false, error: { message, code? } })
 //   nativeChat.push(channel, payload)
+//   nativeChat.flush()                         the page is about to close: write what Synara
+//                                              holds back for storage (drafts, queued follow-ups)
 //       "context"    ChatContext (below)
 //       "providers"  ServerProviderStatus[] (Synara's, as server.getConfig carries them)
 //       "thread"     OrchestrationThreadStreamItem: { kind: "snapshot", snapshot: {
@@ -59,6 +64,7 @@ declare global {
     nativeChat?: {
       reply: (id: string, reply: Reply) => void;
       push: (channel: PushChannel, payload: unknown) => void;
+      flush: () => void;
     };
   }
 }
@@ -195,6 +201,11 @@ window.nativeChat = {
         reportError(error);
       }
     }
+  },
+  flush() {
+    // Synara's stores write what they debounce on pagehide (lib/storage.ts
+    // flushStorageBeforePageHide); a web view the app takes down never sees one of its own.
+    window.dispatchEvent(new Event("pagehide"));
   },
 };
 

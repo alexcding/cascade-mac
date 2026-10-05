@@ -76,7 +76,13 @@ extension AppCoordinator {
         child.canPresent = { [weak self] in
             self?.selection == .chat(id) && self?.canPresent == true && self?.canOpenExternalRoute() == true
         }
-        child.perform = { [weak self] action in self?.chatRuntime?.performChatAction(action, threadID: id) }
+        child.perform = { [weak self] action in
+            guard let self else { return }
+            // The app hears of it first, so it can read the list again for a chat it has not heard
+            // of yet; the window then goes to that chat, which retires this one.
+            chatRuntime?.performChatAction(action, threadID: id)
+            if case .openThread(let other) = action, other != id { navigate(to: .chat(other)) }
+        }
         chatCoordinator = child
         return child
     }

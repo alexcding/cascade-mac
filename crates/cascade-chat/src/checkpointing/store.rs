@@ -91,6 +91,54 @@ pub fn is_managed_checkpoint_ref(value: &str) -> bool {
         && (parts[4] != "turn" || parts[5].chars().all(|c| c.is_ascii_digit()))
 }
 
+/// Synara `ManagedCheckpointRefParts` (Utils.ts:17), the parts the diff query reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ManagedCheckpointRefParts {
+    pub thread_token: String,
+    pub family_prefix: String,
+}
+
+/// Synara `parseManagedCheckpointRef` (Utils.ts:24)
+pub fn parse_managed_checkpoint_ref(value: &str) -> Option<ManagedCheckpointRefParts> {
+    if !is_managed_checkpoint_ref(value) {
+        return None;
+    }
+    let parts: Vec<&str> = value.split('/').collect();
+    Some(ManagedCheckpointRefParts {
+        thread_token: parts[3].to_owned(),
+        family_prefix: format!("refs/{}/checkpoints/{}", parts[1], parts[3]),
+    })
+}
+
+/// Synara `isManagedCheckpointRefForThread` (Utils.ts): a ref this layer wrote for `thread`.
+pub fn is_managed_checkpoint_ref_for_thread(value: &str, thread: &ThreadId) -> bool {
+    parse_managed_checkpoint_ref(value).is_some_and(|parts| parts.thread_token == encode_base64_url(thread.as_str()))
+}
+
+/// Synara `checkpointRefForThreadTurnInManagedFamily` (Utils.ts:51): turn `turn_count` of the
+/// ref family `managed_ref` belongs to, when that family is this thread's.
+pub fn checkpoint_ref_for_thread_turn_in_managed_family(
+    managed_ref: &str,
+    thread: &ThreadId,
+    turn_count: u64,
+) -> Option<CheckpointRef> {
+    let parsed = parse_managed_checkpoint_ref(managed_ref)?;
+    (parsed.thread_token == encode_base64_url(thread.as_str()))
+        .then(|| CheckpointRef::new(format!("{}/turn/{turn_count}", parsed.family_prefix)))
+}
+
+/// Synara `checkpointRefForThreadTurnStartInManagedFamily` (Utils.ts:76)
+pub fn checkpoint_ref_for_turn_start_in_managed_family(
+    managed_ref: &str,
+    thread: &ThreadId,
+    turn: &TurnId,
+) -> Option<CheckpointRef> {
+    let parsed = parse_managed_checkpoint_ref(managed_ref)?;
+    (parsed.thread_token == encode_base64_url(thread.as_str())).then(|| {
+        CheckpointRef::new(format!("{}/turn-start/{}", parsed.family_prefix, encode_base64_url(turn.as_str())))
+    })
+}
+
 /// Synara `CheckpointStore`.
 pub struct CheckpointStore {
     git: Arc<dyn GitRunner>,
@@ -219,6 +267,17 @@ impl CheckpointStore {
 
     /// Synara `diffCheckpoints`: the unified diff from one checkpoint to another.
     pub async fn diff_checkpoints(&self, cwd: &Path, from: &CheckpointRef, to: &CheckpointRef) -> Result<String> {
+        self.diff_checkpoints_with(cwd, from, to, false).await
+    }
+
+    /// [`Self::diff_checkpoints`] with Synara's `ignoreWhitespace` (`--ignore-all-space`).
+    pub async fn diff_checkpoints_with(
+        &self,
+        cwd: &Path,
+        from: &CheckpointRef,
+        to: &CheckpointRef,
+        ignore_whitespace: bool,
+    ) -> Result<String> {
         let from_commit = self.resolve_checkpoint_commit(cwd, from).await?;
         let to_commit = self.resolve_checkpoint_commit(cwd, to).await?;
         let (Some(from_commit), Some(to_commit)) = (from_commit, to_commit) else {
@@ -227,7 +286,12 @@ impl CheckpointStore {
         let output = self
             .git_ok(
                 cwd,
-                &["diff", "--patch", "--minimal", "--no-color", "--no-ext-diff", "--no-textconv", &from_commit, &to_commit],
+                &[
+                    &["diff", "--patch", "--minimal", "--no-color", "--no-ext-diff", "--no-textconv"][..],
+                    if ignore_whitespace { &["--ignore-all-space"][..] } else { &[][..] },
+                    &[from_commit.as_str(), to_commit.as_str()][..],
+                ]
+                .concat(),
                 &[],
             )
             .await?;
@@ -253,6 +317,131 @@ impl CheckpointStore {
             self.git_ok(cwd, &["reset", "--quiet", "--", "."], &[]).await?;
         }
         Ok(true)
+    }
+
+    /// Synara `reverseCheckpointDiff`: take back, in the workspace, the changes from `from` to
+    /// `to`, leaving everything else as it is. `false` when either checkpoint is unavailable. The
+    /// patch is written by git to a file of its own, so no byte of it passes through a string.
+    pub async fn reverse_checkpoint_diff(&self, cwd: &Path, from: &CheckpointRef, to: &CheckpointRef) -> Result<bool> {
+        let from_commit = self.resolve_checkpoint_commit(cwd, from).await?;
+        let to_commit = self.resolve_checkpoint_commit(cwd, to).await?;
+        let (Some(from_commit), Some(to_commit)) = (from_commit, to_commit) else {
+            return Ok(false);
+        };
+        let temp_dir = std::env::temp_dir().join(format!("cascade-checkpoint-undo-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).context("Failed to prepare the checkpoint patch for undo.")?;
+        let outcome = self.reverse_into(cwd, &from_commit, &to_commit, &temp_dir).await;
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        outcome.map(|()| true)
+    }
+
+    async fn reverse_into(&self, cwd: &Path, from_commit: &str, to_commit: &str, temp_dir: &Path) -> Result<()> {
+        let patch_path = temp_dir.join("turn.patch");
+        let patch = patch_path.to_string_lossy().into_owned();
+        let output = format!("--output={patch}");
+        self.git_ok(
+            cwd,
+            &[
+                "diff",
+                "--patch",
+                "--binary",
+                "--full-index",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                &output,
+                from_commit,
+                to_commit,
+            ],
+            &[],
+        )
+        .await?;
+        let size = std::fs::metadata(&patch_path).map(|m| m.len()).unwrap_or(0);
+        if size == 0 {
+            return Ok(());
+        }
+        if size as usize > CHECKPOINT_DIFF_MAX_OUTPUT_BYTES {
+            bail!("The turn diff is larger than {CHECKPOINT_DIFF_MAX_OUTPUT_BYTES} bytes.");
+        }
+        let changed = self
+            .git_ok(cwd, &["diff", "--name-only", "--no-renames", "-z", from_commit, to_commit], &[])
+            .await?;
+        let affected: Vec<&str> = changed.stdout.split('\0').filter(|p| !p.is_empty()).collect();
+
+        let strict = self.git(cwd, &["apply", "--reverse", "--whitespace=nowarn", "--", &patch], &[]).await?;
+        if !strict.success() {
+            self.apply_reverse_with_three_way_merge(cwd, temp_dir, &patch, &affected, &strict.stderr).await?;
+        }
+        if !affected.is_empty() {
+            let reset_args: Vec<&str> = [&["reset", "--quiet", from_commit, "--"][..], &affected[..]].concat();
+            if let Err(error) = self.git_ok(cwd, &reset_args, &[]).await {
+                self.git_ok(cwd, &["apply", "--whitespace=nowarn", "--", &patch], &[]).await?;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    /// Synara `applyReverseWithThreeWayMerge`: when the workspace drifted after the checkpoint, a
+    /// three-way reverse apply through a throwaway index that mirrors the working tree (the user's
+    /// index stays untouched). A conflicted apply is rolled back to the tree it started from.
+    async fn apply_reverse_with_three_way_merge(
+        &self,
+        cwd: &Path,
+        temp_dir: &Path,
+        patch: &str,
+        affected: &[&str],
+        strict_stderr: &str,
+    ) -> Result<()> {
+        let index = temp_dir.join(format!("undo-index-{}", uuid::Uuid::new_v4()));
+        let env = vec![("GIT_INDEX_FILE".to_owned(), index.to_string_lossy().into_owned())];
+        if self.has_head_commit(cwd).await? {
+            self.git_ok(cwd, &["read-tree", "HEAD"], &env).await?;
+        }
+        self.git_ok(cwd, &["add", "-A", "--", "."], &env).await?;
+        let pre_attempt_tree = self.git_ok(cwd, &["write-tree"], &env).await?.stdout.trim().to_owned();
+        let applied = self
+            .git(cwd, &["apply", "--reverse", "--3way", "--whitespace=nowarn", "--", patch], &env)
+            .await?;
+        if applied.success() {
+            return Ok(());
+        }
+        if !pre_attempt_tree.is_empty() {
+            if let Err(error) = self.restore_worktree_paths_from_tree(cwd, &pre_attempt_tree, affected).await {
+                tracing::warn!("failed to roll back a conflicted checkpoint undo: {error:#}");
+            }
+        }
+        let detail = [
+            "Undo could not be applied because the workspace changed since this checkpoint.",
+            strict_stderr.trim(),
+            applied.stderr.trim(),
+        ]
+        .iter()
+        .filter(|part| !part.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+        bail!(detail)
+    }
+
+    /// Synara `restoreWorktreePathsFromTree`: put `paths` back as `tree` has them, without the
+    /// index; a path the tree lacks did not exist before, so it is deleted.
+    async fn restore_worktree_paths_from_tree(&self, cwd: &Path, tree: &str, paths: &[&str]) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let ls_args: Vec<&str> = [&["ls-tree", "-r", "--name-only", "-z", tree, "--"][..], paths].concat();
+        let listed = self.git(cwd, &ls_args, &[]).await?;
+        let tracked: Vec<&str> = listed.stdout.split('\0').filter(|p| !p.is_empty()).collect();
+        if !tracked.is_empty() {
+            let restore_args: Vec<&str> = [&["restore", "--source", tree, "--worktree", "--"][..], &tracked[..]].concat();
+            self.git_ok(cwd, &restore_args, &[]).await?;
+        }
+        for path in paths.iter().filter(|p| !tracked.contains(p)) {
+            let full = cwd.join(path);
+            let _ = if full.is_dir() { std::fs::remove_dir_all(&full) } else { std::fs::remove_file(&full) };
+        }
+        Ok(())
     }
 
     /// Synara `deleteCheckpointRefs`

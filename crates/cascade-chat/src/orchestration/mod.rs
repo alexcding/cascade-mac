@@ -3,6 +3,7 @@
 pub mod activity_projection;
 pub mod decider;
 pub mod engine;
+pub mod fork_thread_title;
 pub mod ingestion;
 pub mod projector;
 mod reactor;

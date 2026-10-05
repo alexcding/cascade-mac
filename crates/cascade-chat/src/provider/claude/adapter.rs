@@ -1214,9 +1214,31 @@ struct ClaudeStartPlan {
 }
 
 fn plan_claude_start(input: &ProviderSessionStartInput, binary: &str) -> ClaudeStartPlan {
-    let resume_state = read_claude_resume_state(input.resume_cursor.as_ref());
+    let mut resume_state = read_claude_resume_state(input.resume_cursor.as_ref());
     let existing_resume_session_id = resume_state.as_ref().and_then(|s| s.resume.clone());
     let new_session_id = existing_resume_session_id.is_none().then(new_id);
+    // Synara `forkThread` (ClaudeAdapter.ts:7279) copies the source transcript with the SDK's
+    // `forkSession` before the fork's first start. Without the SDK the CLI does the copy: the
+    // fork's session resumes the source's with `--fork-session` under a new id of its own. The
+    // SDK fork remaps every message uuid, so the source's resume pin does not carry over; the
+    // turn count does, and token accounting starts again (the forked cursor of 7409-7418).
+    let fork_source_session_id = match (&existing_resume_session_id, &input.fork_source_resume_cursor) {
+        (None, Some(cursor)) => {
+            let source = read_claude_resume_state(Some(cursor));
+            let source_session_id = source.as_ref().and_then(|s| s.resume.clone());
+            if source_session_id.is_some() {
+                resume_state = Some(ClaudeResumeState {
+                    thread_id: Some(input.thread_id.clone()),
+                    resume: new_session_id.clone(),
+                    resume_session_at: None,
+                    turn_count: source.and_then(|s| s.turn_count),
+                    processed_token_total: Some(0),
+                });
+            }
+            source_session_id
+        }
+        _ => None,
+    };
     let provider_options = input.provider_options.as_ref().and_then(|o| o.claude_agent.as_ref());
     let selection = claude_selection(input.model_selection.as_ref());
     let options = selection.and_then(|s| s.options.as_ref());
@@ -1254,10 +1276,10 @@ fn plan_claude_start(input: &ProviderSessionStartInput, binary: &str) -> ClaudeS
         max_thinking_tokens: provider_options.and_then(|o| o.max_thinking_tokens),
         permission_mode: permission_mode.map(str::to_owned),
         allow_dangerously_skip_permissions: permission_mode == Some("bypassPermissions"),
-        resume: existing_resume_session_id.clone(),
+        resume: existing_resume_session_id.clone().or_else(|| fork_source_session_id.clone()),
         session_id: new_session_id.clone(),
         resume_session_at: None,
-        fork_session: false,
+        fork_session: fork_source_session_id.is_some(),
         include_partial_messages: true,
         additional_directories: input.cwd.iter().cloned().collect(),
         settings: Some(settings),
@@ -1714,6 +1736,10 @@ impl ClaudeSessionContext {
             }
             SessionCommand::SteerTurn { input, reply } => {
                 let _ = reply.send(self.steer_turn(input).await);
+            }
+            SessionCommand::StartReview { reply, .. } => {
+                // Synara's ClaudeAdapter has no `startReview` (ProviderService.startReview).
+                let _ = reply.send(Err(anyhow!("Provider 'claudeAgent' does not support native review.")));
             }
             SessionCommand::InterruptTurn { turn_id, reply } => self.interrupt_turn(turn_id, reply).await,
             SessionCommand::RespondToRequest { request_id, decision, reply } => {

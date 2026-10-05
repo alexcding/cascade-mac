@@ -28,10 +28,15 @@ use axum::{
 };
 use cascade_chat::{
     checkpointing::{git::GitFuture, GitOutput, GitRunner},
+    checkpointing::diff_query::CheckpointDiffError,
     contracts::{
         base::{now_iso, ThreadId},
-        orchestration::{ClientThreadCommand, OrchestrationThread, PROVIDER_SEND_TURN_MAX_FILE_BYTES, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES},
+        orchestration::{
+            ClientThreadCommand, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput, OrchestrationThread,
+            ThreadTurnDiff, PROVIDER_SEND_TURN_MAX_FILE_BYTES, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+        },
     },
+    provider::attachment_projection::is_attachment_id,
     provider::process::{ChildProcess, ProcessSpawner, SpawnSpec, Spawner},
     ChatEngine, ChatEngineConfig, ChatEngineEvent, ChatError,
 };
@@ -253,6 +258,9 @@ async fn call(app: &AppState, method: &str, params: Value) -> RpcResult {
     match method {
         "orchestration.getThreadDetailSnapshot" => thread_detail(app, params).await,
         "orchestration.dispatchCommand" => dispatch(app, params).await,
+        "orchestration.getShellSnapshot" => shell_snapshot(app).await,
+        "orchestration.getTurnDiff" => turn_diff(app, params).await,
+        "orchestration.getFullThreadDiff" => full_thread_diff(app, params).await,
         "provider.listModels" => list_models(app, params).await,
         "provider.getComposerCapabilities" => composer_capabilities(params),
         "provider.listCommands" => list_commands(app, params).await,
@@ -275,6 +283,7 @@ async fn call(app: &AppState, method: &str, params: Value) -> RpcResult {
             workspace::resolve_references(&app.chat.files, &folder, params).await
         }
         "attachments.save" => save_attachment(app, params).await,
+        "attachments.read" => read_attachment(app, params).await,
         "chat.listThreads" => list_threads(app, params).await,
         "chat.providerStatuses" => Ok(provider_statuses(app).await),
         _ => Err(RpcError::unavailable(format!("{method} is not served"))),
@@ -303,6 +312,37 @@ async fn thread_detail(app: &AppState, raw: Value) -> RpcResult {
         Some((thread, sequence)) => json!({ "snapshotSequence": sequence, "thread": thread }),
         None => Value::Null,
     })
+}
+
+/// Every chat's shell, as Synara's `OrchestrationShellSnapshot`: how the page finds a thread it
+/// just made (a fork) before it opens it.
+async fn shell_snapshot(app: &AppState) -> RpcResult {
+    let snapshot = engine(app)?.shell_snapshot().await.map_err(RpcError::internal)?;
+    Ok(json!(snapshot))
+}
+
+/// A diff's failure as the page reads it: the request or thread is wrong (`invalid`), the
+/// checkpoint is not there (yet), or git failed.
+fn diff_result(result: Result<ThreadTurnDiff, CheckpointDiffError>) -> RpcResult {
+    match result {
+        Ok(diff) => Ok(json!(diff)),
+        Err(CheckpointDiffError::Invariant(detail)) => Err(RpcError::invalid(detail)),
+        Err(CheckpointDiffError::Unavailable { detail, .. }) => Err(RpcError::not_found(detail)),
+        Err(CheckpointDiffError::Failed(detail)) => Err(RpcError::internal(detail)),
+    }
+}
+
+/// `orchestration.getTurnDiff {threadId, fromTurnCount, toTurnCount, ignoreWhitespace?}`: git
+/// between the thread's checkpoint refs, in its own folder.
+async fn turn_diff(app: &AppState, raw: Value) -> RpcResult {
+    let input: OrchestrationGetTurnDiffInput = params(raw)?;
+    diff_result(engine(app)?.turn_diff(input).await)
+}
+
+/// `orchestration.getFullThreadDiff {threadId, toTurnCount, ignoreWhitespace?}`
+async fn full_thread_diff(app: &AppState, raw: Value) -> RpcResult {
+    let input: OrchestrationGetFullThreadDiffInput = params(raw)?;
+    diff_result(engine(app)?.full_thread_diff(input).await)
 }
 
 #[derive(Deserialize)]
@@ -522,6 +562,47 @@ async fn save_attachment(app: &AppState, raw: Value) -> RpcResult {
         .await
         .map_err(|error| RpcError::invalid(format!("{error:#}")))?;
     Ok(json!(attachment))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadAttachmentParams {
+    attachment_id: String,
+}
+
+/// `attachments.read {attachmentId}` → `{mimeType, dataBase64}`: a saved chat attachment, for the
+/// image URLs the page shows. Only an attachment id names one (`is_attachment_id`: no path, no
+/// extension), and only a file in the attachments folder, no larger than an attachment may be,
+/// is read.
+async fn read_attachment(app: &AppState, raw: Value) -> RpcResult {
+    let ReadAttachmentParams { attachment_id } = params(raw)?;
+    if !is_attachment_id(&attachment_id) {
+        return Err(RpcError::invalid("not an attachment id"));
+    }
+    let (path, bytes) = engine(app)?
+        .read_attachment(attachment_id)
+        .await
+        .map_err(RpcError::internal)?
+        .ok_or_else(|| RpcError::not_found("no such attachment"))?;
+    let mime_type = mime_guess::from_path(&path).first_or_octet_stream();
+    Ok(json!({ "mimeType": mime_type.essence_str(), "dataBase64": encode_base64(&bytes) }))
+}
+
+/// Standard base64, padded.
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = u32::from(chunk[0]) << 16 | u32::from(*chunk.get(1).unwrap_or(&0)) << 8 | u32::from(*chunk.get(2).unwrap_or(&0));
+        for index in 0..4 {
+            if index <= chunk.len() {
+                out.push(ALPHABET[((n >> (18 - 6 * index)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
 
 /// How many bytes `text` decodes to, as `decode_base64` counts them, without decoding it.

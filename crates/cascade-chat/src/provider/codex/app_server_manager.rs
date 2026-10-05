@@ -10,14 +10,14 @@
 //! [`CodexIncoming`], in order.
 //!
 //! Left out on purpose, with Synara's names so a later port can find them: the agent gateway
-//! (`gatewaySessionLease`, Synara MCP auto-approval, computer control), review mode
-//! (`startReview`, `reviewTurnIds`, `settleTrackedReview`), discovery sessions, skills, plugins,
+//! (`gatewaySessionLease`, Synara MCP auto-approval, computer control), the review recovery of
+//! `interruptTurn` (`readThread`, `findLatestReviewTurnId`), discovery sessions, skills, plugins,
 //! models, voice, import, fork/rollback/compact of an open thread, the legacy
 //! `codex/event/task_complete` fallback timer, the CLI version gate and the `CODEX_HOME`
 //! overlays of `codexProcessEnv.ts`. The user's own codex home is used as it is.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -34,7 +34,7 @@ use crate::contracts::{
     base::{now_iso, ApprovalRequestId, EventId, ProviderDriverKind, ProviderInstanceId, ProviderItemId, ThreadId, TurnId},
     model::default_model_by_provider,
     orchestration::{
-        ProviderApprovalDecision, ProviderInteractionMode, ProviderKind, ProviderRequestKind,
+        ProviderApprovalDecision, ProviderInteractionMode, ProviderKind, ProviderRequestKind, ProviderReviewTarget,
         ProviderStartOptions, ProviderUserInputAnswer, ProviderUserInputAnswers, RuntimeMode,
     },
     provider::{
@@ -780,6 +780,12 @@ pub struct CodexAppServerManager {
     session_approval_override: Option<CodexTurnOverrides>,
     collab_receiver_turns: HashMap<String, TurnId>,
     collab_receiver_parents: HashMap<String, String>,
+    /// Synara `reviewTurnIds`: the turns of a native review run (`review/start`).
+    review_turn_ids: HashSet<TurnId>,
+    /// Cascade: the text of the review that just exited, and the agent messages that only repeat
+    /// it (see [`Self::is_review_echo`]).
+    review_echo: Option<String>,
+    review_echo_items: HashSet<String>,
     active_interaction_mode: Option<ProviderInteractionMode>,
     next_request_id: u64,
     stopping: bool,
@@ -826,6 +832,9 @@ impl CodexAppServerManager {
             session_approval_override: None,
             collab_receiver_turns: HashMap::new(),
             collab_receiver_parents: HashMap::new(),
+            review_turn_ids: HashSet::new(),
+            review_echo: None,
+            review_echo_items: HashSet::new(),
             active_interaction_mode: None,
             next_request_id: 1,
             stopping: false,
@@ -1121,6 +1130,117 @@ impl CodexAppServerManager {
             turn_id,
             resume_cursor: self.session.resume_cursor.clone(),
         })
+    }
+
+    /// Synara `startReview` (codexAppServerManager.ts:1798): a native review of `target`, run
+    /// inline on the session's conversation as a turn of its own.
+    pub async fn start_review(&mut self, target: &ProviderReviewTarget) -> Result<ProviderTurnStartResult> {
+        self.require_session()?;
+        let provider_thread_id =
+            self.provider_thread_id().ok_or_else(|| anyhow!("Session is missing a provider resume thread id."))?;
+        let response = self
+            .send_request(
+                "review/start",
+                json!({
+                    "threadId": provider_thread_id,
+                    "delivery": "inline",
+                    "target": to_codex_review_target(target),
+                }),
+            )
+            .await?;
+        let turn_id = to_turn_id(read_string(read_object(Some(&response), "turn"), "id"))
+            .ok_or_else(|| anyhow!("review/start response did not include a turn id."))?;
+        self.review_turn_ids.insert(turn_id.clone());
+        tracing::info!(thread_id = %self.session.thread_id, turn_id = %turn_id, "[codex-review] review/start acknowledged");
+        self.update_session(|session| {
+            session.status = ProviderSessionStatus::Running;
+            session.active_turn_id = Some(turn_id.clone());
+        });
+        Ok(ProviderTurnStartResult {
+            thread_id: self.session.thread_id.clone(),
+            turn_id,
+            resume_cursor: self.session.resume_cursor.clone(),
+        })
+    }
+
+    /// Synara `settleTrackedReview` (codexAppServerManager.ts:4713): a review that has exited
+    /// settles the session and is reported as a completed turn, since the terminal
+    /// `turn/completed` can be missing.
+    async fn settle_tracked_review(&mut self, completed_turn_id: Option<TurnId>, reason: &str) {
+        let terminal_turn_id = match &self.session.active_turn_id {
+            Some(active) if self.review_turn_ids.contains(active) => Some(active.clone()),
+            _ => match completed_turn_id {
+                Some(completed) if self.review_turn_ids.contains(&completed) => Some(completed),
+                _ => self.review_turn_ids.iter().next().cloned(),
+            },
+        };
+        self.update_session(|session| {
+            session.status = ProviderSessionStatus::Ready;
+            session.active_turn_id = None;
+            session.last_error = None;
+        });
+        self.review_turn_ids.clear();
+        let Some(terminal_turn_id) = terminal_turn_id else { return };
+        let mut event = self.base_event(ProviderEventKind::Notification, "turn/completed");
+        event.turn_id = Some(terminal_turn_id.clone());
+        event.message = Some(reason.to_string());
+        event.payload = Some(json!({ "turn": { "id": terminal_turn_id, "status": "completed" } }));
+        self.emit_event(event).await;
+    }
+
+    /// Cascade, against codex 0.160: a review runs an inner turn of its own (`turn/started` with a
+    /// new id while the review's turn is live), yet every item is routed to the review's turn, and
+    /// only the review's turn completes. Synara follows the inner id (it extends `reviewTurnIds`
+    /// and makes it the active turn), which here left the thread with a second turn that never
+    /// had a start checkpoint. The inner turn is tracked, and its start is reported as the start
+    /// of the review's turn, which stays the live one.
+    fn fold_inner_review_turn_start(&mut self, method: &str, params: &mut Option<Value>) {
+        if method != "turn/started" {
+            return;
+        }
+        // Only the session's own conversation, not a subagent's.
+        if read_string(params.as_ref(), "threadId").is_some_and(|thread| Some(thread.to_string()) != self.provider_thread_id()) {
+            return;
+        }
+        let Some(turn_id) = to_turn_id(read_string(read_object(params.as_ref(), "turn"), "id")) else { return };
+        let Some(active) = self.session.active_turn_id.clone() else { return };
+        if active == turn_id || !self.review_turn_ids.contains(&active) {
+            return;
+        }
+        self.review_turn_ids.insert(turn_id);
+        if let Some(turn) = params.as_mut().and_then(|p| p.get_mut("turn")).and_then(Value::as_object_mut) {
+            turn.insert("id".into(), json!(active));
+        }
+    }
+
+    /// Cascade, against codex 0.160: after `exitedReviewMode` (which Synara draws as the
+    /// assistant's message) codex sends an `agentMessage` with the same text. That repeat, and its
+    /// deltas, are not reported, so the review is drawn once.
+    fn is_review_echo(&mut self, method: &str, params: Option<&Value>, item_id: Option<&ProviderItemId>) -> bool {
+        match method {
+            "item/started" | "item/completed" => {
+                let item = read_object(params, "item");
+                if read_string(item, "type") == Some("exitedReviewMode") {
+                    self.review_echo = read_string(item, "review").map(|text| text.trim().to_string());
+                    self.review_echo_items.clear();
+                    return false;
+                }
+                let Some(id) = read_string(item, "id") else { return false };
+                if self.review_echo_items.contains(id) {
+                    return true;
+                }
+                let echoes = read_string(item, "type") == Some("agentMessage")
+                    && self.review_echo.as_deref().is_some_and(|review| {
+                        read_string(item, "text").is_some_and(|text| !review.is_empty() && text.trim() == review)
+                    });
+                if echoes {
+                    self.review_echo_items.insert(id.to_string());
+                }
+                echoes
+            }
+            "item/agentMessage/delta" => item_id.is_some_and(|id| self.review_echo_items.contains(id.as_str())),
+            _ => false,
+        }
     }
 
     /// Synara `interruptTurn` (codexAppServerManager.ts:1917), without the review recovery.
@@ -1572,10 +1692,15 @@ impl CodexAppServerManager {
 
     /// Synara `handleServerNotification` (codexAppServerManager.ts:4039)
     async fn handle_server_notification(&mut self, method: &str, params: Option<Value>) {
+        let mut params = params;
+        self.fold_inner_review_turn_start(method, &mut params);
         let raw_route = read_route_fields(params.as_ref());
         self.remember_collab_receiver_turns(params.as_ref(), raw_route.turn_id.as_ref());
         let route = self.resolve_collaboration_route(params.as_ref());
         if route.is_child_conversation && should_suppress_child_conversation_notification(method) {
+            return;
+        }
+        if self.is_review_echo(method, params.as_ref(), raw_route.item_id.as_ref()) {
             return;
         }
         let text_delta =
@@ -1618,6 +1743,11 @@ impl CodexAppServerManager {
                     return;
                 }
                 let turn_id = to_turn_id(read_string(read_object(params.as_ref(), "turn"), "id"));
+                if let (Some(turn_id), Some(active)) = (&turn_id, &self.session.active_turn_id) {
+                    if self.review_turn_ids.contains(active) {
+                        self.review_turn_ids.insert(turn_id.clone());
+                    }
+                }
                 let interaction_mode = self.active_interaction_mode;
                 self.update_session(|session| {
                     session.status = ProviderSessionStatus::Running;
@@ -1633,6 +1763,11 @@ impl CodexAppServerManager {
                 }
                 self.collab_receiver_turns.clear();
                 self.collab_receiver_parents.clear();
+                if let Some(turn_id) = &raw_route.turn_id {
+                    self.review_turn_ids.remove(turn_id);
+                }
+                self.review_echo = None;
+                self.review_echo_items.clear();
                 let turn = read_object(params.as_ref(), "turn");
                 let failed = read_string(turn, "status") == Some("failed");
                 let error_message =
@@ -1651,11 +1786,33 @@ impl CodexAppServerManager {
                 }
                 self.collab_receiver_turns.clear();
                 self.collab_receiver_parents.clear();
+                if let Some(turn_id) = &raw_route.turn_id {
+                    self.review_turn_ids.remove(turn_id);
+                }
                 self.update_session(|session| {
                     session.status = ProviderSessionStatus::Ready;
                     session.active_turn_id = None;
                     session.last_error = None;
                 });
+            }
+            "item/completed" if is_exited_review_mode(params.as_ref()) => {
+                if route.is_child_conversation {
+                    return;
+                }
+                let review_turn_id =
+                    to_turn_id(read_string(read_object(params.as_ref(), "item"), "id")).or_else(|| raw_route.turn_id.clone());
+                let review_turn_tracked = review_turn_id.as_ref().is_some_and(|id| self.review_turn_ids.contains(id));
+                let active_turn_tracked =
+                    self.session.active_turn_id.as_ref().is_some_and(|id| self.review_turn_ids.contains(id));
+                if let (Some(review), Some(active)) = (&review_turn_id, &self.session.active_turn_id) {
+                    if review != active && !review_turn_tracked && !active_turn_tracked {
+                        return;
+                    }
+                }
+                // `review/start` can emit the final review result via `exitedReviewMode` before
+                // the terminal `turn/completed` arrives; settle here so a review whose completion
+                // never shows up does not stay "running".
+                self.settle_tracked_review(review_turn_id, "review exited via exitedReviewMode").await;
             }
             "error" => {
                 if route.is_child_conversation {
@@ -2096,6 +2253,21 @@ fn should_suppress_child_conversation_notification(method: &str) -> bool {
 
 /// Synara `isTurnAlreadyIdleError` (codexAppServerManager.ts:5127):
 /// `/turn\/interrupt[^\n]*no active turn(?: to interrupt)?/i`.
+/// Synara `isExitedReviewModeNotification` (codexAppServerManager.ts:5114), given an
+/// `item/completed`'s params.
+fn is_exited_review_mode(params: Option<&Value>) -> bool {
+    let item = read_object(params, "item");
+    read_string(item, "type").or_else(|| read_string(item, "kind")) == Some("exitedReviewMode")
+}
+
+/// Synara `toCodexReviewTarget` (codexAppServerManager.ts:4860)
+fn to_codex_review_target(target: &ProviderReviewTarget) -> Value {
+    match target {
+        ProviderReviewTarget::UncommittedChanges => json!({ "type": "uncommittedChanges" }),
+        ProviderReviewTarget::BaseBranch { branch } => json!({ "type": "baseBranch", "branch": branch }),
+    }
+}
+
 fn is_turn_already_idle_error(message: &str) -> bool {
     let lower = message.to_lowercase();
     lower.lines().any(|line| {

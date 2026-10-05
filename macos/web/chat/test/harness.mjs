@@ -81,9 +81,11 @@ function answer(method, params) {
   }
 }
 
-/** Loads the page. Returns the messages it posted and helpers to drive it. */
-export async function loadPage() {
+/** Loads the page. Returns the messages it posted and helpers to drive it. `storage` is what
+ *  the page's localStorage holds before it loads, as an earlier page left it. */
+export async function loadPage({ storage = {} } = {}) {
   GlobalRegistrator.register({ url: "http://localhost/ChatPage.html", width: 900, height: 900 });
+  for (const [key, value] of Object.entries(storage)) window.localStorage.setItem(key, value);
   document.body.innerHTML = '<div id="chat"></div>';
   // happy-dom lays nothing out: every box is 0×0, and Synara's virtualized transcript
   // (LegendList) renders no rows into a viewport of no height. Give the transcript's scroll
@@ -93,6 +95,10 @@ export async function loadPage() {
   for (const [name, axis] of [["clientHeight", "height"], ["offsetHeight", "height"], ["clientWidth", "width"], ["offsetWidth", "width"]]) {
     Object.defineProperty(window.HTMLElement.prototype, name, { configurable: true, get() { return sizeOf(this)[axis]; } });
   }
+  // Nor Web Animations: Base UI's popups (the composer's command menu) wait on getAnimations().
+  window.Element.prototype.getAnimations ??= function () {
+    return [];
+  };
   window.HTMLElement.prototype.getBoundingClientRect = function () {
     const { width, height } = sizeOf(this);
     return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height, toJSON() {} };
@@ -182,6 +188,23 @@ export async function loadPage() {
     },
     reply: (id, reply) => window.nativeChat.reply(id, reply),
   };
+}
+
+/** Puts `value` into the composer as a paste (happy-dom has no keyboard input). */
+export async function typeInComposer(value) {
+  const editor = document.querySelector("[data-chat-composer-form] [contenteditable]");
+  if (!editor) throw new Error("the composer has no editor");
+  editor.focus();
+  const range = document.createRange();
+  range.selectNodeContents(editor.querySelector("p") ?? editor);
+  range.collapse(false);
+  window.getSelection().removeAllRanges();
+  window.getSelection().addRange(range);
+  document.dispatchEvent(new window.Event("selectionchange"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const data = new window.DataTransfer();
+  data.setData("text/plain", value);
+  editor.dispatchEvent(new window.ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
 }
 
 export async function waitFor(condition, what, timeoutMs = 10_000) {

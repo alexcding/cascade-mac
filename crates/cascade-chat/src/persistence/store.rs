@@ -8,6 +8,7 @@
 //! closure and the answer comes back over a oneshot.
 
 use std::{
+    collections::HashMap,
     path::Path,
     sync::mpsc,
 };
@@ -171,6 +172,18 @@ impl ChatStore {
         .await
     }
 
+    /// Every thread's last saved event `sequence`, in one read.
+    pub async fn thread_sequences(&self) -> Result<HashMap<ThreadId, u64>> {
+        self.call(move |connection| {
+            let mut statement = connection.prepare("SELECT thread_id, sequence FROM thread_sequences")?;
+            let rows = statement
+                .query_map([], |row| Ok((ThreadId::new(row.get::<_, String>(0)?), row.get::<_, i64>(1)? as u64)))?
+                .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+            Ok(rows)
+        })
+        .await
+    }
+
     pub async fn provider_session(&self, thread: ThreadId) -> Result<Option<ProviderSessionRecord>> {
         self.call(move |connection| {
             connection
@@ -201,6 +214,28 @@ impl ChatStore {
                  ON CONFLICT(thread_id) DO UPDATE SET provider = ?2, resume_cursor = ?3,
                    updated_at = datetime('now')",
                 params![record.thread_id.as_str(), record.provider, cursor],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Whether the fork `thread`'s own first session has bound (`fork_bindings`).
+    pub async fn fork_bound(&self, thread: ThreadId) -> Result<bool> {
+        self.call(move |connection| {
+            Ok(connection
+                .query_row("SELECT 1 FROM fork_bindings WHERE thread_id = ?1", [thread.as_str()], |_| Ok(()))
+                .optional()?
+                .is_some())
+        })
+        .await
+    }
+
+    pub async fn set_fork_bound(&self, thread: ThreadId) -> Result<()> {
+        self.call(move |connection| {
+            connection.execute(
+                "INSERT OR IGNORE INTO fork_bindings (thread_id, bound_at) VALUES (?1, datetime('now'))",
+                [thread.as_str()],
             )?;
             Ok(())
         })
@@ -277,6 +312,7 @@ fn save_thread(
             tx.execute(&format!("DELETE FROM {table} WHERE thread_id = ?1"), [id])?;
         }
         tx.execute("DELETE FROM provider_sessions WHERE thread_id = ?1", [id])?;
+        tx.execute("DELETE FROM fork_bindings WHERE thread_id = ?1", [id])?;
         return Ok(());
     }
     save_children(tx, id, "messages", before.map(|t| &t.messages[..]), &after.messages, |m| m.id.as_str())?;

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import WebKit
 
 // MARK: - Fixtures
 
@@ -561,4 +562,146 @@ private actor CommandLog {
     #expect(Array(entries.map(\.id).suffix(2)) == ["label:chats", "chat:loose"])
     #expect(entries.first { $0.id == "label:chats" }?.newChat == true)
     #expect(entries.first { $0.id == "label:chats" }?.hoverable == true)
+}
+
+/// The page asks for another chat (a fork it made): the window goes to it, and the app hears of it
+/// first so it can read the list again. Its own chat, or no id, is no ask.
+@MainActor @Test func chatPageOpenThreadShowsThatChat() throws {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let runtime = ChatRuntimeFixture()
+    coordinator.chatRuntime = runtime
+    coordinator.navigate(to: .chat("t1"))
+    let first = try #require(coordinator.chatCoordinator)
+
+    first.model.page.receive(message: ["kind": "event", "name": "openThread", "payload": ["threadId": "t1"]])
+    first.model.page.receive(message: ["kind": "event", "name": "openThread", "payload": [:]])
+    #expect(runtime.performed.isEmpty && coordinator.chatCoordinator === first)
+
+    first.model.page.receive(message: ["kind": "event", "name": "openThread", "payload": ["threadId": "t2"]])
+    #expect(runtime.performed == [.openThread("t2")])
+    #expect(coordinator.selection == .chat("t2") && coordinator.chatCoordinator?.threadID == "t2")
+    #expect(first.retired && first.model.page.retired)
+}
+
+// MARK: - Attachment images
+
+private actor AttachmentReads {
+    private(set) var ids: [String] = []
+    func add(_ id: String) { ids.append(id) }
+}
+
+/// The page's attachment images come from `attachments.read` on its own scheme, as the type the
+/// backend names; a path that is not a plain attachment id is refused without asking.
+@MainActor @Test func chatSchemeServesAttachmentImagesAndRefusesOtherPaths() async throws {
+    let reads = AttachmentReads()
+    let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let assets = ChatPageAssets(readAttachment: { id in
+        await reads.add(id)
+        switch id {
+        case "thread-1_image.png": return ["mimeType": "image/png", "dataBase64": .string(png.base64EncodedString())]
+        case "notes.txt": return ["mimeType": "text/html", "dataBase64": .string(Data("<script>".utf8).base64EncodedString())]
+        default: throw ChatRPCError(message: "No such attachment")
+        }
+    })
+    func serve(_ text: String) async -> (Data, String)? { await assets.response(for: URL(string: text)!) }
+
+    let served = try #require(await serve("cascade-chat://page/attachments/thread-1_image.png"))
+    #expect(served.0 == png && served.1 == "image/png")
+    // An attachment that is not an image, or one the backend does not have, is not served.
+    #expect(await serve("cascade-chat://page/attachments/notes.txt") == nil)
+    #expect(await serve("cascade-chat://page/attachments/missing") == nil)
+    #expect(await reads.ids == ["thread-1_image.png", "notes.txt", "missing"])
+
+    for refused in ["cascade-chat://page/other/thread-1_image.png", "cascade-chat://page/thread-1_image.png",
+                    "cascade-chat://elsewhere/attachments/thread-1_image.png", "https://page/attachments/thread-1_image.png",
+                    "cascade-chat://page/attachments/a/b", "cascade-chat://page/attachments/a%2Fb",
+                    "cascade-chat://page/attachments/..", "cascade-chat://page/attachments/%2E%2E",
+                    "cascade-chat://page/attachments/a..b", "cascade-chat://page/attachments/.hidden",
+                    "cascade-chat://page/attachments/", "cascade-chat://page/attachments/a%00b"] {
+        #expect(await serve(refused) == nil, "\(refused)")
+    }
+    #expect(await reads.ids.count == 3)
+    // A page with no reader (a transcript's) serves no attachment.
+    #expect(await ChatPageAssets().response(for: URL(string: "cascade-chat://page/attachments/thread-1_image.png")!) == nil)
+}
+
+/// Synara builds an attachment's image URL as `new URL("/attachments/<id>", location.origin)`
+/// (`wsHttpUrl.ts`), so the page's origin on its own scheme must be a real one, not "null". This
+/// loads the built page through `ChatPageAssets` in a real web view, checks the origin and that
+/// resolution, and loads an image at such a URL from the scheme, past the page's CSP.
+@MainActor @Test func chatPageResolvesAttachmentURLsOnItsScheme() async throws {
+    ChatPageAssets.directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+    defer { ChatPageAssets.directoryOverride = nil }
+    // A 1x1 PNG.
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    let reads = AttachmentReads()
+    let config = WKWebViewConfiguration()
+    config.websiteDataStore = .nonPersistent()
+    config.setURLSchemeHandler(ChatPageAssets(readAttachment: { id in
+        await reads.add(id)
+        return ["mimeType": "image/png", "dataBase64": .string(png)]
+    }), forURLScheme: ChatPageAssets.scheme)
+    let view = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: config)
+    view.load(URLRequest(url: ChatPageAssets.pageURL))
+    var state: String?
+    for _ in 0..<400 {
+        state = try? await view.evaluateJavaScript("location.href + ' ' + document.readyState") as? String
+        if state == "\(ChatPageAssets.pageURL.absoluteString) complete" { break }
+        try await Task.sleep(for: .milliseconds(25))
+    }
+    #expect(state == "\(ChatPageAssets.pageURL.absoluteString) complete", "the page did not load")
+
+    #expect(try await view.evaluateJavaScript("location.origin") as? String == "cascade-chat://page")
+    let resolved = try await view.evaluateJavaScript("new URL('/attachments/x', location.origin).href") as? String
+    #expect(resolved == "cascade-chat://page/attachments/x")
+    let loaded = try await view.callAsyncJavaScript("""
+        const image = new Image();
+        image.src = new URL("/attachments/" + encodeURIComponent("thread-1_image.png"), location.origin).href;
+        try { await image.decode(); } catch (error) { return "failed: " + error; }
+        return image.naturalWidth + "x" + image.naturalHeight;
+        """, contentWorld: .page) as? String
+    #expect(loaded == "1x1")
+    #expect(await reads.ids == ["thread-1_image.png"])
+}
+
+/// Every chat page shares one persistent data store, so what one page keeps in its localStorage
+/// (Synara's drafts and queued follow-ups) is there for the page made when the chat comes back;
+/// and a page that is retired writes what it holds back first (`nativeChat.flush`).
+@MainActor @Test func chatPagesShareOnePersistentStoreAndFlushWhenRetired() async throws {
+    ChatPageAssets.directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+    defer { ChatPageAssets.directoryOverride = nil }
+    func loaded() async throws -> (ChatPageModel, WKWebView) {
+        let page = ChatPageModel(context: pageContext(), backend: PageBackend())
+        let view = try #require(page.webView)
+        for _ in 0..<400 {
+            if try await view.evaluateJavaScript("typeof window.nativeChat?.flush") as? String == "function" { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(try await view.evaluateJavaScript("typeof window.nativeChat?.flush") as? String == "function", "the page did not load")
+        return (page, view)
+    }
+    let key = "cascade-test-\(UUID().uuidString)"
+    let (first, firstView) = try await loaded()
+    #expect(firstView.configuration.websiteDataStore.isPersistent)
+    #expect(firstView.configuration.websiteDataStore.identifier == ChatPageModel.dataStoreIdentifier)
+    // The page's own localStorage, not the in-memory stand-in storage.ts puts in when there is none.
+    _ = try await firstView.evaluateJavaScript("localStorage.setItem('\(key)', 'kept'); 0")
+    // What the page writes when it is told it is closing.
+    _ = try await firstView.evaluateJavaScript("window.addEventListener('pagehide', () => localStorage.setItem('\(key)-flushed', 'yes')); 0")
+    first.retire()
+
+    let (second, secondView) = try await loaded()
+    defer { second.retire() }
+    #expect(secondView.configuration.websiteDataStore === firstView.configuration.websiteDataStore)
+    #expect(try await secondView.evaluateJavaScript("localStorage.getItem('\(key)') ?? ''") as? String == "kept")
+    var flushed: String?
+    for _ in 0..<80 {
+        flushed = try await secondView.evaluateJavaScript("localStorage.getItem('\(key)-flushed') ?? ''") as? String
+        if flushed == "yes" { break }
+        try await Task.sleep(for: .milliseconds(25))
+    }
+    #expect(flushed == "yes", "the retired page did not flush")
+    _ = try await secondView.evaluateJavaScript("localStorage.removeItem('\(key)'); localStorage.removeItem('\(key)-flushed'); 0")
 }

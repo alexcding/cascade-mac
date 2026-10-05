@@ -174,6 +174,59 @@ pub fn resolve_attachment_relative_path(attachments_dir: &Path, relative_path: &
     Some(attachments_dir.join(normalized))
 }
 
+/// Synara `ATTACHMENT_ID_PATTERN` (attachmentStore.ts:20), as `parseThreadSegmentFromAttachmentId`
+/// applies it: `<thread segment>-<uuid>`, the segment ASCII letters, digits and `_` in runs joined
+/// by single `-`, at most 80 characters. Nothing else names an attachment: no `/`, `.` or `\`.
+pub fn is_attachment_id(id: &str) -> bool {
+    const UUID_LEN: usize = 36;
+    if !id.is_ascii() || id.len() < UUID_LEN + 2 {
+        return false;
+    }
+    let (segment, uuid) = id.split_at(id.len() - UUID_LEN);
+    let Some(segment) = segment.strip_suffix('-') else { return false };
+    let uuid_ok = uuid.char_indices().all(|(i, c)| match i {
+        8 | 13 | 18 | 23 => c == '-',
+        _ => c.is_ascii_hexdigit(),
+    });
+    let segment_ok = !segment.is_empty()
+        && segment.len() <= 80
+        && segment.split('-').all(|run| !run.is_empty() && run.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    uuid_ok && segment_ok
+}
+
+/// Synara `resolveAttachmentPathById` (attachmentStore.ts:96) for the flat layout the app saves
+/// into: the regular file `<id><ext>` in `attachments_dir`, whatever extension
+/// [`attachment_relative_path`] gave it. `None` for an id that is not one, or no such file.
+///
+/// Every extension an image can be given, and every one a file gets from its MIME type, is looked
+/// up directly; only a file whose extension came from its own name, which can be any, needs the
+/// folder listed.
+pub fn resolve_attachment_path_by_id(attachments_dir: &Path, id: &str) -> Option<PathBuf> {
+    if !is_attachment_id(id) {
+        return None;
+    }
+    let known = SAFE_IMAGE_FILE_EXTENSIONS.iter().copied().chain(KNOWN_MIME_EXTENSIONS.iter().copied()).chain([".bin"]);
+    for extension in known {
+        let path = attachments_dir.join(format!("{id}{extension}"));
+        // A link is not followed: only a file the app wrote is served.
+        if std::fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_file()) {
+            return Some(path);
+        }
+    }
+    let entries = std::fs::read_dir(attachments_dir).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(extension) = name.strip_prefix(id).and_then(|rest| rest.strip_prefix('.')) else { continue };
+        let valid = (1..=8).contains(&extension.len()) && extension.chars().all(|c| c.is_ascii_alphanumeric());
+        // A link is not followed: only a file the app wrote is served.
+        if valid && entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            return Some(attachments_dir.join(name));
+        }
+    }
+    None
+}
+
 /// Synara `IMAGE_EXTENSION_BY_MIME_TYPE` (imageMime.ts:3)
 fn image_extension_by_mime_type(mime_type: &str) -> Option<&'static str> {
     Some(match mime_type {
@@ -194,6 +247,9 @@ fn image_extension_by_mime_type(mime_type: &str) -> Option<&'static str> {
 /// Synara `SAFE_IMAGE_FILE_EXTENSIONS` (imageMime.ts:17)
 const SAFE_IMAGE_FILE_EXTENSIONS: &[&str] =
     &[".avif", ".bmp", ".gif", ".heic", ".heif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".tiff", ".webp"];
+
+/// What [`mime_extension`] answers, as extensions.
+const KNOWN_MIME_EXTENSIONS: &[&str] = &[".pdf", ".json", ".zip", ".xml", ".txt", ".md", ".csv", ".html", ".ico"];
 
 /// The few `Mime.getExtension` answers attachments need (Synara asks a full MIME database).
 fn mime_extension(mime_type: &str) -> Option<&'static str> {
@@ -326,6 +382,72 @@ mod tests {
         let dir = Path::new("/data/attachments");
         assert_eq!(resolve_attachment_relative_path(dir, "../etc/passwd"), None);
         assert_eq!(resolve_attachment_relative_path(dir, "a/../b.png"), Some(dir.join("b.png")));
+    }
+
+    #[test]
+    fn attachment_ids_are_strict() {
+        let uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        assert!(is_attachment_id(&format!("thread_1-{uuid}")));
+        assert!(is_attachment_id(&format!("Thread-1_a-{uuid}")));
+        for bad in [
+            uuid.to_owned(),
+            format!("-{uuid}"),
+            format!("a--b-{uuid}"),
+            format!("../x-{uuid}"),
+            format!("a/b-{uuid}"),
+            format!("a.b-{uuid}"),
+            format!("a-{uuid}.png"),
+            format!("a-{}", uuid.replace('-', "_")),
+            "a-not-a-uuid".to_owned(),
+            format!("{}-{uuid}", "x".repeat(81)),
+        ] {
+            assert!(!is_attachment_id(&bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn resolves_attachments_by_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "t-0f8fad5b-d9cb-469f-a165-70867728950e";
+        std::fs::write(dir.path().join(format!("{id}.png")), b"png").unwrap();
+        std::fs::write(dir.path().join("other.txt"), b"x").unwrap();
+        assert_eq!(resolve_attachment_path_by_id(dir.path(), id), Some(dir.path().join(format!("{id}.png"))));
+        assert_eq!(resolve_attachment_path_by_id(dir.path(), "t-0f8fad5b-d9cb-469f-a165-70867728950f"), None);
+        assert_eq!(resolve_attachment_path_by_id(dir.path(), "../other"), None);
+        #[cfg(unix)]
+        {
+            let link = "l-0f8fad5b-d9cb-469f-a165-70867728950e";
+            std::os::unix::fs::symlink(dir.path().join("other.txt"), dir.path().join(format!("{link}.txt"))).unwrap();
+            assert_eq!(resolve_attachment_path_by_id(dir.path(), link), None);
+        }
+    }
+
+    /// A known extension is looked up, not listed for: it resolves in a folder that cannot be
+    /// listed. A file named with an extension of its own still resolves from the listing.
+    #[cfg(unix)]
+    #[test]
+    fn resolves_known_extensions_without_listing_the_folder() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let image = "t-0f8fad5b-d9cb-469f-a165-70867728950e";
+        let text = "t-1f8fad5b-d9cb-469f-a165-70867728950e";
+        let other = "t-2f8fad5b-d9cb-469f-a165-70867728950e";
+        std::fs::write(dir.path().join(format!("{image}.png")), b"png").unwrap();
+        std::fs::write(dir.path().join(format!("{text}.md")), b"md").unwrap();
+        std::fs::write(dir.path().join(format!("{other}.swift")), b"swift").unwrap();
+        assert_eq!(resolve_attachment_path_by_id(dir.path(), other), Some(dir.path().join(format!("{other}.swift"))));
+        // Search, not read: a stat by name works, a listing does not.
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o300)).unwrap();
+        assert!(std::fs::read_dir(dir.path()).is_err(), "the folder can still be listed");
+        let resolved = (
+            resolve_attachment_path_by_id(dir.path(), image),
+            resolve_attachment_path_by_id(dir.path(), text),
+            resolve_attachment_path_by_id(dir.path(), other),
+        );
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(resolved.0, Some(dir.path().join(format!("{image}.png"))));
+        assert_eq!(resolved.1, Some(dir.path().join(format!("{text}.md"))));
+        assert_eq!(resolved.2, None, "an extension of its own needs the listing");
     }
 
     #[test]

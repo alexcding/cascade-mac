@@ -51,6 +51,14 @@ CREATE TABLE IF NOT EXISTS provider_sessions (
   updated_at     TEXT NOT NULL
 );
 
+-- A fork whose own first session has bound: from then on its conversation is its own, and its
+-- source's is never forked again, whatever later clears `provider_sessions` (a revert, an edit,
+-- a rollback, a stale resume).
+CREATE TABLE IF NOT EXISTS fork_bindings (
+  thread_id  TEXT PRIMARY KEY REFERENCES threads (id) ON DELETE CASCADE,
+  bound_at   TEXT NOT NULL
+);
+
 -- The last event `sequence` the engine numbered for each thread, so numbering continues after a
 -- restart.
 CREATE TABLE IF NOT EXISTS thread_sequences (

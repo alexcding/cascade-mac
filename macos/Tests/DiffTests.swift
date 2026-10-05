@@ -134,6 +134,36 @@ private func useSourceTreeDiffPage(file: String = #filePath) {
     #expect(model.webView == nil && !model.isPageReady && model.changedFiles.isEmpty)
 }
 
+/// A chat's "Edit file" opens the session's Diff at that file (`AppViewModel.performChatAction`):
+/// asked for before the page has drawn anything, the file is revealed once the page lists it; a
+/// path outside the worktree is not asked for at all.
+@MainActor @Test func aFileAskedForBeforeTheDiffIsDrawnIsRevealedWhenThePageListsIt() async throws {
+    useSourceTreeDiffPage()
+    let model = DiffViewModel(worktree: "/tmp/diff-test", baseURL: URL(string: "http://127.0.0.1:3000")!, service: PatchFixture())
+    model.reveal(path: "/elsewhere/fä.png")
+    #expect(model.pendingReveal == nil)
+    model.reveal(path: "/tmp/diff-test/fä.png")
+    #expect(model.pendingReveal == "fä.png")
+    model.show(appearance: .light)
+    await model.waitForRefresh()
+    for _ in 0..<100 where model.changedFiles.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+    #expect(model.changedFiles.map(\.path) == ["Sources/App.swift", "fä.png", "Notes.md"])
+    #expect(model.pendingReveal == nil, "the page's list took the file asked for")
+    // Over a drawn diff, a file is revealed at once: a collapsed one opens.
+    let view = try #require(model.webView)
+    _ = try await view.evaluateJavaScript("document.querySelector('.diff-file[data-fi=\"1\"]').classList.add('collapsed'); 0")
+    model.reveal(path: "fä.png")
+    #expect(model.pendingReveal == nil)
+    var collapsed = 1
+    for _ in 0..<20 {
+        collapsed = try #require(try await view.evaluateJavaScript("document.querySelectorAll('.diff-file.collapsed').length") as? Int)
+        if collapsed == 0 { break }
+        try await Task.sleep(for: .milliseconds(50))
+    }
+    #expect(collapsed == 0)
+    model.disconnect()
+}
+
 @MainActor @Test func diffContentProcessTerminationWhileHiddenReloadsSilentlyOnNextShow() async throws {
     useSourceTreeDiffPage()
     let model = DiffViewModel(worktree: "/tmp/diff-terminate", baseURL: URL(string: "http://127.0.0.1:3000")!, service: PatchFixture())

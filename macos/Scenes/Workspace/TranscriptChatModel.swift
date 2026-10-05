@@ -369,8 +369,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             openFile(path, line)
         case .revealFile(let path):
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-        // A transcript has no turn diffs of the chat engine's, and no providers to manage.
-        case .openTurnDiff, .openSettings:
+        // A transcript has no turn diffs of the chat engine's, no providers to manage, and no
+        // other chats to open.
+        case .openTurnDiff, .openSettings, .openThread:
             break
         }
     }

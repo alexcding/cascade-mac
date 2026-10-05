@@ -20,6 +20,7 @@ import {
 } from "@synara/contracts";
 import { Schema } from "effect";
 
+import { showConfirmDialogFallback } from "~/confirmDialogFallback";
 import { showContextMenuFallback } from "~/contextMenuFallback";
 
 import { BridgeError, emit, latestPush, logOnce, request, type ChatContext } from "../../bridge";
@@ -31,6 +32,9 @@ import { refreshSnapshot, streamThreadId } from "../../threadStream";
 export const FORWARDED = new Set([
   "orchestration.getThreadDetailSnapshot",
   "orchestration.dispatchCommand",
+  "orchestration.getTurnDiff",
+  "orchestration.getFullThreadDiff",
+  "orchestration.getShellSnapshot",
   "provider.getComposerCapabilities",
   "provider.listCommands",
   "provider.listSkills",
@@ -126,7 +130,9 @@ const LOCAL: Record<string, Handler> = {
   // The app keeps no Synara server settings: the page runs on Synara's defaults and the
   // settings it keeps itself (localStorage), as Synara's client does before its server answers.
   "server.getSettings": () => Promise.reject(new BridgeError("No server settings in Cascade.", "unavailable")),
-  "dialogs.confirm": async (message: string) => window.confirm(message),
+  // Synara's own in-page dialog, as its web build shows it (wsNativeApi.ts): a WKWebView answers
+  // window.confirm only if its UI delegate implements the panel, so the page draws its own.
+  "dialogs.confirm": (message: string) => showConfirmDialogFallback(message),
   "dialogs.pickFolder": async () => null,
 };
 

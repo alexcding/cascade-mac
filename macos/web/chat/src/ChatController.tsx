@@ -10,21 +10,32 @@
 // useChatTimelineMessages, deriveTimelineEntries), the slash/mention menu
 // (useComposerDiscovery, useComposerCommandMenuItems, useComposerSlashCommands,
 // useChatComposerEditing, useChatComposerCommands) and the transcript scroll
-// (useChatTranscriptScroll). Sending follows useChatTurnSubmission/useChatTurnExecution
-// without their worktree, handoff, automation and queue branches: attachments are saved
-// through the app (`attachments.save`) instead of Synara's HTTP upload route.
+// (useChatTranscriptScroll), the local dispatch marker (useChatLocalDispatch) and the
+// client-side queue of follow-ups (useChatQueuedTurns, ComposerQueuedHeader). Sending follows
+// useChatTurnSubmission/useChatTurnExecution without their worktree, handoff and automation
+// branches: attachments are saved through the app (`attachments.save`) instead of Synara's
+// HTTP upload route. Editing the last message, reverting to a checkpoint and undoing a turn's
+// files follow useChatTurnFollowUps and ChatView's handlers; the turn diff opens in a slim
+// DiffPanel (TurnDiffPanel.tsx); a flow that makes another thread (fork, review) hands it to
+// the app (`openThread`) where Synara would navigate to it.
 import {
   MessageId,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ThreadId,
   type ChatFileAttachment,
+  type TurnId,
   type ChatImageAttachment,
   type ModelSlug,
   type ProviderKind,
   type UploadChatAttachment,
 } from "@synara/contracts";
 import { resolveComputerInvocationMode } from "@synara/shared/computerInvocation";
+import {
+  resolveLatestTailUserMessageEditTarget,
+  resolveTailUserMessageEditTarget,
+} from "@synara/shared/conversationEdit";
+import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
 import { resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
 import { type LegendListRef } from "@legendapp/list/react";
 import { LoaderCircleIcon } from "~/lib/icons";
@@ -45,18 +56,30 @@ import {
   resolveFollowUpDispatchMode,
   useAppSettings,
 } from "~/appSettings";
-import { collapseExpandedComposerCursor, detectComposerTrigger } from "~/composer-logic";
-import { useComposerDraftStore, type ComposerImageAttachment, type ComposerFileAttachment } from "~/composerDraftStore";
+import { collapseExpandedComposerCursor, detectComposerTrigger, stripComposerTriggerText } from "~/composer-logic";
+import {
+  useComposerDraftStore,
+  type ComposerImageAttachment,
+  type ComposerFileAttachment,
+  type QueuedComposerChatTurn,
+} from "~/composerDraftStore";
+import { canOfferForkSlashCommand, canOfferReviewSlashCommand } from "~/composerSlashCommands";
 import { RuntimeUsageControls } from "~/components/BranchToolbar";
 import {
   canApplyComposerFocus,
   commitAfterRuntimeModePersistence,
   deriveComposerSendState,
   derivePromptHistoryFromMessages,
+  editAndResendDispatchFields,
+  hasFileUndoSettled,
+  queuedChatTurnDispatchFields,
   resolveCommittedProviderModel,
+  resolveQueuedTurnDispatchSettings,
   resolveWorkingLabel,
   shouldEnableComposerPastedTextCollapse,
+  threadSettingsDispatchFields,
   turnStartDispatchFields,
+  type PendingFileUndo,
   type TurnDispatchSettings,
 } from "~/components/ChatView.logic";
 import { ComposerPromptEditor } from "~/components/ComposerPromptEditor";
@@ -70,12 +93,16 @@ import { ComposerExtrasTrigger } from "~/components/chat/ComposerExtrasTrigger";
 import { ComposerModelPicker, type ComposerModelSelectionOptions } from "~/components/chat/ComposerModelPicker";
 import { ComposerPendingApprovalPanel } from "~/components/chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "~/components/chat/ComposerPendingUserInputPanel";
+import { ComposerQueuedHeader } from "~/components/chat/ComposerQueuedHeader";
 import { ComposerReferenceAttachments } from "~/components/chat/ComposerReferenceAttachments";
 import { ContextWindowMeter } from "~/components/chat/ContextWindowMeter";
 import { ExpandedImageOverlay } from "~/components/chat/ExpandedImageOverlay";
 import type { MessagesTimelineController } from "~/components/chat/MessagesTimeline";
 import { buildTurnDiffSummaryByAssistantMessageId } from "~/components/chat/MessagesTimeline.logic";
 import { deriveAgentActivityTimelineState } from "~/components/chat/agentActivity.logic";
+import { buildQueuedComposerPreviewText } from "~/components/chat/queuedComposerPreview";
+import { ChatThreadFindHost } from "~/components/chat/ThreadFindBar";
+import { createThreadFindHighlightStore, shouldCaptureChatFindShortcut, type ThreadFindMatch } from "~/components/chat/threadFind.logic";
 import {
   COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME,
   COMPOSER_EDITOR_PADDING_CLASS_NAME,
@@ -88,9 +115,11 @@ import { resolveRuntimeModelDescriptor } from "~/components/chat/runtimeModelCap
 import { useChatComposerCommands } from "~/components/chat/useChatComposerCommands";
 import { useChatComposerDraft } from "~/components/chat/useChatComposerDraft";
 import { useChatComposerEditing } from "~/components/chat/useChatComposerEditing";
+import { useChatLocalDispatch } from "~/components/chat/useChatLocalDispatch";
 import { useChatPendingInteractions } from "~/components/chat/useChatPendingInteractions";
 import { useChatProviderModels } from "~/components/chat/useChatProviderModels";
 import { useChatProviderStatus } from "~/components/chat/useChatProviderStatus";
+import { useChatQueuedTurns } from "~/components/chat/useChatQueuedTurns";
 import { useChatRuntimeModes } from "~/components/chat/useChatRuntimeModes";
 import { useChatTimelineMessages } from "~/components/chat/useChatTimelineMessages";
 import { useChatTranscriptScroll } from "~/components/chat/useChatTranscriptScroll";
@@ -106,16 +135,19 @@ import { useComposerSlashCommands } from "~/hooks/useComposerSlashCommands";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { useTurnDiffSummaries } from "~/hooks/useTurnDiffSummaries";
+import { resolveShortcutCommand } from "~/keybindings";
 import { appendAssistantSelectionsToPrompt } from "~/lib/assistantSelections";
 import { appendBrowserAnnotationsToPrompt } from "~/lib/browserAnnotations";
 import { appendComposerPromptText } from "~/lib/chatReferences";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
+import { FORK_THREAD_TARGET_LABELS } from "~/lib/threadFork";
 import { filterPromptProviderMentionReferences, filterPromptSkillReferences } from "~/lib/composerMentions";
 import { appendPastedTextsToPrompt, createPastedTextDraft } from "~/lib/composerPastedText";
 import {
   buildComposerFileAttachmentsFromFiles,
   effectiveComposerAttachmentCount,
   formatOutgoingComposerPrompt,
+  readFileAsDataUrl,
 } from "~/lib/composerSend";
 import {
   deriveComposerContextWindowLabel,
@@ -126,8 +158,13 @@ import {
 import { appendFileCommentsToPrompt } from "~/lib/fileComments";
 import { findProviderStatus } from "~/lib/providerAvailability";
 import { appendPullRequestContextsToPrompt } from "~/lib/pullRequestContext";
+import { armQueuedComposerSteerGate } from "~/lib/queuedComposerDrain";
 import { normalizeRuntimeModeForProvider, providerModelSupportsAutoRuntimeMode } from "~/lib/runtimeMode";
-import { IMAGE_ONLY_BOOTSTRAP_PROMPT, appendTerminalContextsToPrompt } from "~/lib/terminalContext";
+import {
+  IMAGE_ONLY_BOOTSTRAP_PROMPT,
+  appendOriginalComposerPromptBlocks,
+  appendTerminalContextsToPrompt,
+} from "~/lib/terminalContext";
 import { cn, newCommandId, newMessageId, randomUUID } from "~/lib/utils";
 import { WorkspaceFileOpenerContext, type WorkspaceFileOpener } from "~/lib/workspaceFileOpener";
 import { setPendingUserInputCustomAnswer } from "~/pendingUserInput";
@@ -146,9 +183,15 @@ import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatMessage } from
 import { emit, request, type ChatContext } from "./bridge";
 import { containedPath } from "./filePaths";
 import { setRouteThreadId } from "./shims/npm/@tanstack__react-router";
+import { readNativeApi } from "./shims/web/nativeApi";
 import { hasSnapshot, refreshSnapshot, setStreamThread } from "./threadStream";
+import { TurnDiffPanel, type TurnDiffSelection } from "./TurnDiffPanel";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
+/** Synara's LateComposerSendHandlers (chatSendTypes.ts, a types-only module not vendored). */
+type LateComposerSendHandlers = NonNullable<
+  Parameters<typeof useChatQueuedTurns>[0]["lateComposerSendHandlersRef"]["current"]
+>;
 const EMPTY_ACTIVITIES: never[] = [];
 const COMPOSER_EXTRAS_PANEL_ID = "composer-extras-panel";
 
@@ -178,29 +221,6 @@ async function saveAttachments(
   return saved;
 }
 
-/**
- * Typed `/fork …` and Codex's `/review …` create another thread (Synara then reads its shell
- * snapshot and navigates to it). This page shows one thread and the backend does not fork, so
- * they are refused before anything is sent, rather than run where their result cannot be seen.
- * Both are left out of the slash menu too (canOfferForkCommand/canOfferReviewCommand). Other
- * providers' `/review` is their own text command and goes through.
- */
-function refuseUnservedSlashCommand(prompt: string, provider: string): boolean {
-  const match = /^\/(fork|review)(?:\s|$)/i.exec(prompt.trim());
-  if (!match) return false;
-  const command = match[1]!.toLowerCase();
-  if (command === "review" && provider !== "codex") return false;
-  toastManager.add({
-    type: "warning",
-    title: command === "fork" ? "Fork is unavailable" : "Review is unavailable",
-    description:
-      command === "fork"
-        ? "Cascade's chat shows one session; start a new session to branch off."
-        : "Ask for a review in a message instead.",
-  });
-  return true;
-}
-
 export function ChatController({ context }: { context: ChatContext }) {
   const threadId = ThreadId.makeUnsafe(context.threadId);
   const readOnly = context.readOnly;
@@ -222,7 +242,17 @@ export function ChatController({ context }: { context: ChatContext }) {
     (store) => store.setModelSelectionAndSticky,
   );
   const setStoreThreadError = useStore((store) => store.setError);
-  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  const syncStoreShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  // Synara reads the shell snapshot after a fork or a review so the new thread is in its store
+  // before it navigates there. A shell snapshot is authoritative: it prunes every thread it does
+  // not list. This page shows one thread and hands the new one to the app, so a snapshot that
+  // does not list the thread on screen is not applied rather than let it empty the page.
+  const syncServerShellSnapshot = useCallback(
+    (snapshot: Parameters<typeof syncStoreShellSnapshot>[0]) => {
+      if (snapshot.threads.some((thread) => String(thread.id) === String(threadId))) syncStoreShellSnapshot(snapshot);
+    },
+    [syncStoreShellSnapshot, threadId],
+  );
   const {
     overlayRef: composerOverlayRef,
     overlayHeightPx: composerOverlayHeightPx,
@@ -243,6 +273,7 @@ export function ChatController({ context }: { context: ChatContext }) {
     composerPullRequestContexts,
     composerSkills,
     composerMentions,
+    queuedComposerTurns,
     composerSendState,
     nonPersistedComposerImageIds,
     durablyPersistedComposerImageIds,
@@ -251,7 +282,16 @@ export function ChatController({ context }: { context: ChatContext }) {
     restoreComposerDraftPromptHistorySavedDraft,
     setComposerDraftProviderModelOptions,
     setComposerDraftInteractionMode,
+    setComposerDraftModelSelection,
+    setComposerDraftRuntimeMode,
+    setComposerDraftComputerControlMode,
+    setComposerDraftComputerControl,
+    enqueueQueuedComposerTurn,
+    insertQueuedComposerTurn,
+    removeQueuedComposerTurnFromDraft,
+    setDraftThreadContext,
     removeComposerDraftFile,
+    addComposerDraftBrowserAnnotations,
     addComposerDraftPastedTexts,
     setComposerDraftTerminalContexts,
     clearComposerDraftContent,
@@ -271,6 +311,11 @@ export function ChatController({ context }: { context: ChatContext }) {
     discardPromptHistoryNavigationForComposerMutation,
     addComposerImagesToDraft,
     addComposerFilesToDraft,
+    addComposerAssistantSelectionToDraft,
+    addComposerTerminalContextsToDraft,
+    addComposerPastedTextsToDraft,
+    addComposerFileCommentToDraft,
+    addComposerPullRequestContextsToDraft,
     removeComposerImageFromDraft,
     clearComposerAssistantSelectionsFromDraft,
     clearComposerFileCommentsFromDraft,
@@ -294,7 +339,12 @@ export function ChatController({ context }: { context: ChatContext }) {
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isContextWindowMeterOpen, setIsContextWindowMeterOpen] = useState(false);
-  const [optimisticSendBusy, setOptimisticSendBusy] = useState(false);
+  const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
+  const [pendingFileUndo, setPendingFileUndo] = useState<PendingFileUndo | null>(null);
+  const [turnDiffSelection, setTurnDiffSelection] = useState<TurnDiffSelection | null>(null);
+  const [threadFindOpen, setThreadFindOpen] = useState(false);
+  const [threadFindFocusNonce, setThreadFindFocusNonce] = useState(0);
+  const [threadFindHighlightStore] = useState(() => createThreadFindHighlightStore());
   const legendListRef = useRef<LegendListRef | null>(null);
   const timelineControllerRef = useRef<MessagesTimelineController | null>(null);
   const composerFormRef = useRef<HTMLFormElement>(null);
@@ -305,6 +355,8 @@ export function ChatController({ context }: { context: ChatContext }) {
   const activeComposerMenuItemRef = useRef<ComposerCommandItem | null>(null);
   const localDirectoryMenuRef = useRef(null);
   const sendInFlightRef = useRef(false);
+  const sendPreflightInFlightRef = useRef(false);
+  const lateComposerSendHandlersRef = useRef<LateComposerSendHandlers | null>(null);
   const dragDepthRef = useRef(0);
   const [, setIsDragOverComposer] = useState(false);
 
@@ -385,6 +437,12 @@ export function ChatController({ context }: { context: ChatContext }) {
   const phase = derivePhase(activeThread?.session ?? null);
   const isConnecting = phase === "connecting";
   const hasLiveTurn = phase === "running";
+  // Synara holds its queue while the session is "disconnected": its server reconnects one, and
+  // the queue drains when it is back. Here nothing comes back by itself: a stopped (or never
+  // started) session is the CLI not running, and a send starts it again. So a queue left by a
+  // page that closed, found again with the thread's turn over, drains as it would have when
+  // that turn ended.
+  const queuePhase = phase === "disconnected" ? "ready" : phase;
   const { workLogEntries } = useChatWorkLog({ activeThread, latestTurnSettled, latestTurnLive });
   const [openAgentActivityId, setOpenAgentActivityId] = useState<string | null>(null);
   const agentActivityTimelineState = useMemo(
@@ -428,6 +486,36 @@ export function ChatController({ context }: { context: ChatContext }) {
     setComposerHighlightedItemId,
   });
 
+  const {
+    localDispatch,
+    turnTakenOver,
+    isSendBusy,
+    isAwaitingTurnStart,
+    isSettlingTurnDispatch,
+    beginLocalDispatch,
+    resetLocalDispatch,
+    armLocalDispatchAckFallback,
+  } = useChatLocalDispatch({
+    threadId,
+    phase,
+    activeLatestTurn,
+    activeThread,
+    activePendingApproval,
+    activePendingUserInput,
+  });
+  // A session stuck "running" with no turn would never drain the queue (ChatView's guard).
+  const hasQueueableLiveTurn = hasLiveTurn && activeThread?.session?.activeTurnId != null;
+  // The edit affordance mirrors the policy the server applies (ChatView's editableUserMessageId).
+  const editableUserMessageId = useMemo(() => {
+    if (readOnly || !activeThread) return null;
+    const editTarget = resolveLatestTailUserMessageEditTarget({
+      messages: activeThread.messages,
+      activeTurnId:
+        activeThread.session?.orchestrationStatus === "running" ? (activeThread.session.activeTurnId ?? null) : null,
+    });
+    return editTarget.editable ? (editTarget.messageId as MessageId) : null;
+  }, [activeThread, readOnly]);
+
   const { timelineMessages, optimisticUserMessages, setOptimisticUserMessages } = useChatTimelineMessages({
     threadId,
     activeThread,
@@ -452,7 +540,7 @@ export function ChatController({ context }: { context: ChatContext }) {
     [optimisticUserMessages],
   );
 
-  const isWorking = hasLiveTurn || optimisticSendBusy || isConnecting;
+  const isWorking = hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint || isAwaitingTurnStart;
   const hasStreamingAssistantText =
     activeThread?.messages.some((message) => message.role === "assistant" && message.streaming) ?? false;
   const activeWorkStartedAt = hasLiveTurnTail
@@ -486,7 +574,36 @@ export function ChatController({ context }: { context: ChatContext }) {
       }),
     [inferredCheckpointTurnCountByTurnId, turnDiffSummaries, timelineMessages],
   );
-  const revertTurnCountByUserMessageId = useMemo(() => new Map<MessageId, number>(), []);
+  // The checkpoint each user message reverts to: the turn count before the first diffed answer
+  // that follows it (ChatView's revertTurnCountByUserMessageId). None on a read-only page.
+  const revertTurnCountByUserMessageId = useMemo(() => {
+    const byUserMessageId = new Map<MessageId, number>();
+    if (readOnly) return byUserMessageId;
+    for (let index = 0; index < timelineEntries.length; index += 1) {
+      const entry = timelineEntries[index];
+      if (!entry || entry.kind !== "message" || entry.message.role !== "user") continue;
+      for (let nextIndex = index + 1; nextIndex < timelineEntries.length; nextIndex += 1) {
+        const nextEntry = timelineEntries[nextIndex];
+        if (!nextEntry || nextEntry.kind !== "message") continue;
+        if (nextEntry.message.role === "user") break;
+        const summary = turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
+        if (!summary) continue;
+        const turnCount = summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+        if (typeof turnCount !== "number") break;
+        byUserMessageId.set(entry.message.id, Math.max(0, turnCount - 1));
+        break;
+      }
+    }
+    return byUserMessageId;
+  }, [inferredCheckpointTurnCountByTurnId, readOnly, timelineEntries, turnDiffSummaryByAssistantMessageId]);
+  useEffect(() => {
+    if (!pendingFileUndo || !hasFileUndoSettled({ pending: pendingFileUndo, thread: activeThread ?? null })) return;
+    const settle = window.setTimeout(() => {
+      setPendingFileUndo(null);
+      setIsRevertingCheckpoint(false);
+    }, 0);
+    return () => window.clearTimeout(settle);
+  }, [activeThread, pendingFileUndo]);
 
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
@@ -494,6 +611,10 @@ export function ChatController({ context }: { context: ChatContext }) {
     },
     [setStoreThreadError],
   );
+
+  const openThread = useCallback((nextThreadId: ThreadId) => {
+    if (String(nextThreadId) !== String(threadId)) emit("openThread", { threadId: nextThreadId });
+  }, [threadId]);
 
   // --- focus ---------------------------------------------------------------------------
   const focusComposer = useCallback(() => {
@@ -527,7 +648,13 @@ export function ChatController({ context }: { context: ChatContext }) {
     () => findProviderStatus(providerStatuses, selectedProvider, selectedProviderInstanceId),
     [selectedProvider, selectedProviderInstanceId, providerStatuses],
   );
-  const { persistRuntimeModeChange, handleRuntimeModeChange, handleInteractionModeChange, resetInteractionMode } =
+  const {
+    persistRuntimeModeChange,
+    persistThreadSettingsForNextTurn,
+    handleRuntimeModeChange,
+    handleInteractionModeChange,
+    resetInteractionMode,
+  } =
     useChatRuntimeModes({
       threadId,
       activeThread,
@@ -675,9 +802,32 @@ export function ChatController({ context }: { context: ChatContext }) {
     isServerThread &&
     activeThread?.session !== null &&
     activeThread?.session?.status !== "closed";
+  // ChatView's /review and /fork offers. Neither is offered on a read-only page (no composer).
+  const composerPromptWithoutActiveSlashTrigger =
+    composerTrigger?.kind === "slash-command" ? stripComposerTriggerText(prompt, composerTrigger) : prompt;
+  const canOfferReviewCommand =
+    !readOnly &&
+    canOfferReviewSlashCommand({
+      prompt: composerPromptWithoutActiveSlashTrigger,
+      imageCount: composerImages.length,
+      terminalContextCount: composerTerminalContexts.length,
+      selectedSkillCount: selectedComposerSkills.length,
+      selectedMentionCount: selectedComposerMentions.length,
+    });
+  const canOfferForkCommand =
+    !readOnly &&
+    isServerThread &&
+    canOfferForkSlashCommand({
+      prompt: composerPromptWithoutActiveSlashTrigger,
+      imageCount: composerImages.length,
+      terminalContextCount: composerTerminalContexts.length,
+      selectedSkillCount: selectedComposerSkills.length,
+      selectedMentionCount: selectedComposerMentions.length,
+      interactionMode,
+    });
   const composerThreadSummaries = useMemo(() => [], []);
   const composerThreadProjects = useStore((state) => state.projects);
-  const composerMenuItems = useComposerCommandMenuItems({
+  const normalComposerMenuItems = useComposerCommandMenuItems({
     composerTrigger: effectiveComposerTrigger,
     provider: selectedProvider,
     providerPlugins,
@@ -687,8 +837,8 @@ export function ChatController({ context }: { context: ChatContext }) {
     searchableModelOptions,
     supportsFastSlashCommand,
     canOfferCompactCommand,
-    canOfferReviewCommand: false,
-    canOfferForkCommand: false,
+    canOfferReviewCommand,
+    canOfferForkCommand,
     canOfferSideCommand: false,
     canOfferExportCommand: false,
     providerArtifacts,
@@ -699,6 +849,35 @@ export function ChatController({ context }: { context: ChatContext }) {
       currentThreadId: threadId,
     },
   });
+  // ChatView's pickers for /fork and /review (ChatView.tsx composerMenuItems). The page offers
+  // only the targets this app can carry out: a fork stays in the chat's own folder (Cascade
+  // makes no worktree for a chat, and the engine refuses one), and a review covers the
+  // uncommitted changes (the page knows no base branch: Synara reads it from the root checkout).
+  const composerMenuItems = useMemo((): typeof normalComposerMenuItems => {
+    if (composerCommandPicker === "fork-target") {
+      return [
+        {
+          id: "fork-target:local",
+          type: "fork-target" as const,
+          target: "local" as const,
+          label: FORK_THREAD_TARGET_LABELS.local,
+          description: "Continue in the current local thread",
+        },
+      ];
+    }
+    if (composerCommandPicker === "review-target") {
+      return [
+        {
+          id: "review-target:changes",
+          type: "review-target" as const,
+          target: "changes" as const,
+          label: "Review Uncommitted Changes",
+          description: "Review local uncommitted changes",
+        },
+      ];
+    }
+    return normalComposerMenuItems;
+  }, [composerCommandPicker, normalComposerMenuItems]);
   const composerMenuOpen = Boolean(composerTrigger || composerCommandPicker);
   const composerExtrasPanelOpen = isComposerExtrasPanelOpen && !composerMenuOpen;
   const composerOverlayOpen = composerMenuOpen || composerExtrasPanelOpen;
@@ -824,8 +1003,13 @@ export function ChatController({ context }: { context: ChatContext }) {
     }),
     [applyPromptReplacement, clearComposerSlashDraft, resolveActiveComposerTrigger, scheduleComposerFocus, setComposerPromptValue],
   );
-  const { handleForkTargetSelection, handleReviewTargetSelection, handleStandaloneSlashCommand, handleSlashCommandSelection } =
-    useComposerSlashCommands({
+  const {
+    handleForkTargetSelection,
+    handleReviewTargetSelection,
+    handleForkFromMessage,
+    handleStandaloneSlashCommand,
+    handleSlashCommandSelection,
+  } = useComposerSlashCommands({
       activeProject,
       activeThread,
       activeRootBranch: null,
@@ -848,13 +1032,22 @@ export function ChatController({ context }: { context: ChatContext }) {
       interactionMode,
       threadId,
       syncServerShellSnapshot,
-      navigateToThread: async () => undefined,
+      // Synara navigates to a thread it made (a fork, a review); the page shows one thread, so
+      // the app is asked to show it.
+      navigateToThread: async (nextThreadId) => openThread(nextThreadId),
       handleClearConversation: () => {
         toastManager.add({ type: "warning", title: "Clear is unavailable", description: "Start a new session instead." });
       },
       handleInteractionModeChange,
-      openForkTargetPicker: () => undefined,
-      openReviewTargetPicker: () => undefined,
+      openForkTargetPicker: () => {
+        setComposerCommandPicker("fork-target");
+        // Staying in the chat's folder is the only target offered (composerMenuItems above).
+        setComposerHighlightedItemId("fork-target:local");
+      },
+      openReviewTargetPicker: () => {
+        setComposerCommandPicker("review-target");
+        setComposerHighlightedItemId("review-target:changes");
+      },
       setComposerDraftProviderModelOptions,
       editorActions: slashEditorActions,
     });
@@ -875,15 +1068,72 @@ export function ChatController({ context }: { context: ChatContext }) {
     [activeThread?.envMode, assistantDeliveryMode, interactionMode, providerOptionsForDispatch, runtimeMode, selectedModelSelection],
   );
 
+  const queuedTurns = useChatQueuedTurns({
+    threadId,
+    queuedComposerTurns,
+    activeThread,
+    promptRef,
+    clearComposerDraftContent,
+    setComposerDraftPrompt,
+    setDraftThreadContext,
+    addComposerImagesToDraft,
+    addComposerFilesToDraft,
+    addComposerAssistantSelectionToDraft,
+    addComposerDraftBrowserAnnotations,
+    addComposerFileCommentToDraft,
+    addComposerTerminalContextsToDraft,
+    addComposerPastedTextsToDraft,
+    addComposerPullRequestContextsToDraft,
+    updateSelectedComposerSkills,
+    updateSelectedComposerMentions,
+    setRestoredQueuedSourceProposedPlan,
+    setComposerDraftModelSelection,
+    setComposerDraftRuntimeMode,
+    setComposerDraftInteractionMode,
+    setComposerDraftComputerControlMode,
+    setComposerDraftComputerControl,
+    setComposerCursor,
+    setComposerTrigger,
+    scheduleComposerFocus,
+    removeQueuedComposerTurnFromDraft,
+    lateComposerSendHandlersRef,
+    insertQueuedComposerTurn,
+    phase: queuePhase,
+    localDispatch,
+    isLocalDraftThread: false,
+    activeLatestTurn,
+    isConnecting,
+    activePendingApproval,
+    activePendingProgress,
+    pendingUserInputs,
+    hasPendingCacheReview: activeThread?.claudeCacheReview != null,
+    sendInFlightRef,
+    sendPreflightInFlightRef,
+  });
+  const { setQueuedSteerGate } = queuedTurns;
+
+  // useChatTurnSubmission's onSend: the composer's content, or a queued turn when the queue
+  // drains (`queuedTurn`). A follow-up while a turn runs in "queue" mode goes into Synara's
+  // client-side queue (ComposerQueuedHeader) and is sent when the turn ends; "steer" sends it now.
   const onSend = useCallback(
-    async (event?: { preventDefault: () => void }, requestedDispatchMode?: "queue" | "steer"): Promise<boolean> => {
+    async (
+      event?: { preventDefault: () => void },
+      requestedDispatchMode?: "queue" | "steer",
+      queuedTurn?: QueuedComposerChatTurn,
+    ): Promise<boolean> => {
       event?.preventDefault();
-      if (readOnly || !activeThread || sendInFlightRef.current || isConnecting) return false;
+      if (readOnly || !activeThread || sendInFlightRef.current || sendPreflightInFlightRef.current) return false;
+      if (isSendBusy || isConnecting || isRevertingCheckpoint) return false;
       if (activeThread.claudeCacheReview != null) return false;
       const dispatchMode =
         requestedDispatchMode ?? resolveFollowUpDispatchMode({ behavior: settings.followUpBehavior, hasLiveTurn });
-      await waitForPendingComposerImages();
-      if (activePendingProgress) {
+      const queuedChatTurn = queuedTurn ?? null;
+      if (!queuedChatTurn) {
+        sendPreflightInFlightRef.current = true;
+        await waitForPendingComposerImages();
+        sendPreflightInFlightRef.current = false;
+      }
+      if (activePendingProgress && !queuedChatTurn) {
         const activeQuestion = activePendingProgress.activeQuestion;
         const liveText = composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
         const currentDraftAnswer =
@@ -908,36 +1158,99 @@ export function ChatController({ context }: { context: ChatContext }) {
         return onAdvanceActivePendingUserInput(answerOverrides);
       }
 
-      const promptForSend = composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
+      const dispatchSettingsBase = resolveQueuedTurnDispatchSettings(turnDispatchSettings, queuedChatTurn);
+      const promptForSend =
+        queuedChatTurn?.prompt ?? composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
       const draft = useComposerDraftStore.getState().draftsByThreadId[activeThread.id];
-      const imagesForSend = draft?.images ?? composerImages;
-      const filesForSend = composerFiles;
+      const imagesForSend = queuedChatTurn?.images ?? draft?.images ?? composerImages;
+      const filesForSend = queuedChatTurn?.files ?? composerFiles;
+      const assistantSelectionsForSend = queuedChatTurn?.assistantSelections ?? composerAssistantSelections;
+      const browserAnnotationsForSend = queuedChatTurn?.browserAnnotations ?? composerBrowserAnnotations;
+      const fileCommentsForSend = queuedChatTurn?.fileComments ?? composerFileComments;
+      const terminalContextsForSend = queuedChatTurn?.terminalContexts ?? composerTerminalContexts;
+      const pastedTextsForSend = queuedChatTurn?.pastedTexts ?? composerPastedTexts;
+      const pullRequestContextsForSend = queuedChatTurn?.pullRequestContexts ?? composerPullRequestContexts;
+      const skillsForSend = queuedChatTurn?.skills ?? selectedComposerSkillsRef.current;
+      const mentionsForSend = queuedChatTurn?.mentions ?? selectedComposerMentionsRef.current;
+      const providerForSend = queuedChatTurn?.selectedProvider ?? selectedProvider;
+      const modelForSend = queuedChatTurn?.selectedModel ?? selectedModel;
+      const effortForSend = queuedChatTurn?.selectedPromptEffort ?? selectedPromptEffort;
       const sendState = deriveComposerSendState({
         prompt: promptForSend,
         imageCount: imagesForSend.length,
         fileCount: filesForSend.length,
-        assistantSelectionCount: composerAssistantSelections.length,
-        browserAnnotationCount: composerBrowserAnnotations.length,
-        fileCommentCount: composerFileComments.length,
-        terminalContexts: composerTerminalContexts,
-        pastedTexts: composerPastedTexts,
-        pullRequestContexts: composerPullRequestContexts,
+        assistantSelectionCount: assistantSelectionsForSend.length,
+        browserAnnotationCount: browserAnnotationsForSend.length,
+        fileCommentCount: fileCommentsForSend.length,
+        terminalContexts: terminalContextsForSend,
+        pastedTexts: pastedTextsForSend,
+        pullRequestContexts: pullRequestContextsForSend,
       });
       const hasNoStructuredContext =
         imagesForSend.length === 0 &&
         filesForSend.length === 0 &&
-        composerAssistantSelections.length === 0 &&
-        composerBrowserAnnotations.length === 0 &&
-        composerFileComments.length === 0 &&
+        assistantSelectionsForSend.length === 0 &&
+        browserAnnotationsForSend.length === 0 &&
+        fileCommentsForSend.length === 0 &&
         sendState.sendableTerminalContexts.length === 0 &&
         sendState.sendablePastedTexts.length === 0 &&
-        selectedComposerMentionsRef.current.length === 0;
-      if (hasNoStructuredContext && refuseUnservedSlashCommand(sendState.trimmedPrompt, selectedProvider)) {
-        clearComposerSlashDraft();
+        mentionsForSend.length === 0;
+      if (!queuedChatTurn && hasNoStructuredContext && (await handleStandaloneSlashCommand(sendState.trimmedPrompt))) {
         return true;
       }
-      if (hasNoStructuredContext && (await handleStandaloneSlashCommand(sendState.trimmedPrompt))) return true;
       if (!sendState.hasSendableContent) return false;
+
+      if (hasQueueableLiveTurn && dispatchMode === "queue" && queuedChatTurn === null) {
+        promptRef.current = "";
+        clearComposerDraftContent(activeThread.id);
+        setComposerHighlightedItemId(null);
+        setComposerCursor(0);
+        setComposerTrigger(null);
+        scheduleComposerFocus();
+        // A queued image keeps a data: preview, as Synara persists it, so it shows after a reload.
+        const queuedImages = await Promise.all(
+          imagesForSend.map(async (image) => {
+            try {
+              return { ...image, previewUrl: await readFileAsDataUrl(image.file) };
+            } catch {
+              return image;
+            }
+          }),
+        );
+        enqueueQueuedComposerTurn(activeThread.id, {
+          id: randomUUID(),
+          kind: "chat",
+          createdAt: new Date().toISOString(),
+          previewText: buildQueuedComposerPreviewText({
+            trimmedPrompt: sendState.trimmedPrompt,
+            images: queuedImages,
+            files: filesForSend,
+            assistantSelections: assistantSelectionsForSend,
+            browserAnnotations: browserAnnotationsForSend,
+            terminalContexts: sendState.sendableTerminalContexts,
+            fileComments: fileCommentsForSend,
+            pastedTexts: sendState.sendablePastedTexts,
+            pullRequestContexts: sendState.sendablePullRequestContexts,
+          }),
+          prompt: promptForSend,
+          images: queuedImages,
+          files: filesForSend,
+          assistantSelections: assistantSelectionsForSend,
+          browserAnnotations: browserAnnotationsForSend,
+          fileComments: fileCommentsForSend,
+          terminalContexts: sendState.sendableTerminalContexts,
+          pastedTexts: sendState.sendablePastedTexts,
+          pullRequestContexts: sendState.sendablePullRequestContexts,
+          skills: skillsForSend,
+          mentions: mentionsForSend,
+          selectedProvider: providerForSend,
+          selectedModel: modelForSend,
+          selectedPromptEffort: effortForSend,
+          ...queuedChatTurnDispatchFields(dispatchSettingsBase, undefined),
+          envMode: dispatchSettingsBase.envMode,
+        });
+        return true;
+      }
 
       const messageId = newMessageId();
       const messageText = appendBrowserAnnotationsToPrompt(
@@ -945,32 +1258,34 @@ export function ChatController({ context }: { context: ChatContext }) {
           appendPastedTextsToPrompt(
             appendFileCommentsToPrompt(
               appendTerminalContextsToPrompt(
-                appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelections),
-                composerTerminalContexts,
+                appendAssistantSelectionsToPrompt(promptForSend, assistantSelectionsForSend),
+                terminalContextsForSend,
               ),
-              composerFileComments,
+              fileCommentsForSend,
             ),
-            composerPastedTexts,
+            pastedTextsForSend,
           ),
-          composerPullRequestContexts,
+          pullRequestContextsForSend,
         ),
-        composerBrowserAnnotations,
+        browserAnnotationsForSend,
         messageId,
       );
       const createdAt = new Date().toISOString();
       const outgoingText = formatOutgoingComposerPrompt({
-        provider: selectedProvider,
-        model: selectedModel,
-        effort: selectedPromptEffort,
+        provider: providerForSend,
+        model: modelForSend,
+        effort: effortForSend,
         text: messageText || (imagesForSend.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : ""),
       });
-      const skills = filterPromptSkillReferences(outgoingText, selectedComposerSkillsRef.current, selectedProvider);
-      const mentions = filterPromptProviderMentionReferences(outgoingText, selectedComposerMentionsRef.current);
-      const computerMode = resolveComputerInvocationMode({ messageText: outgoingText, enableComputerControl: false });
-      const dispatchSettings = { ...turnDispatchSettings, computerControlMode: computerMode };
+      const skills = filterPromptSkillReferences(outgoingText, skillsForSend, providerForSend);
+      const mentions = filterPromptProviderMentionReferences(outgoingText, mentionsForSend);
+      const computerMode = queuedChatTurn
+        ? dispatchSettingsBase.computerControlMode
+        : resolveComputerInvocationMode({ messageText: outgoingText, enableComputerControl: false });
+      const dispatchSettings = { ...dispatchSettingsBase, computerControlMode: computerMode };
 
       sendInFlightRef.current = true;
-      setOptimisticSendBusy(true);
+      beginLocalDispatch({ expectedUserMessageId: messageId });
       setOptimisticUserMessages((existing) => [
         ...existing,
         {
@@ -1007,18 +1322,20 @@ export function ChatController({ context }: { context: ChatContext }) {
         } as ChatMessage,
       ]);
       setThreadError(activeThread.id, null);
-      promptHistoryNavigationRef.current = null;
-      applyingPromptHistoryNavigationRef.current = false;
-      expectedPromptHistoryPromptRef.current = null;
-      promptRef.current = "";
-      clearComposerDraftContent(activeThread.id, { preservePreviewUrls: true });
-      setComposerHighlightedItemId(null);
-      setComposerCursor(0);
-      setComposerTrigger(null);
-      scheduleComposerFocus();
+      if (!queuedChatTurn) {
+        promptHistoryNavigationRef.current = null;
+        applyingPromptHistoryNavigationRef.current = false;
+        expectedPromptHistoryPromptRef.current = null;
+        promptRef.current = "";
+        clearComposerDraftContent(activeThread.id, { preservePreviewUrls: true });
+        setComposerHighlightedItemId(null);
+        setComposerCursor(0);
+        setComposerTrigger(null);
+        scheduleComposerFocus();
+      }
       try {
         const attachments: UploadChatAttachment[] = [
-          ...composerAssistantSelections.map((selection) => ({
+          ...assistantSelectionsForSend.map((selection) => ({
             type: "assistant-selection" as const,
             assistantMessageId: MessageId.makeUnsafe(selection.assistantMessageId),
             text: selection.text,
@@ -1042,17 +1359,33 @@ export function ChatController({ context }: { context: ChatContext }) {
             createdAt,
           },
         });
+        armLocalDispatchAckFallback(activeThread.id);
+        // A steer on a provider without native steering interrupts the turn and sends again:
+        // hold the queue through that gap (useChatTurnExecution).
+        const liveProvider = activeThread.session?.provider ?? dispatchSettings.modelSelection.provider;
+        if (dispatchMode === "steer" && !providerSupportsNativeTurnSteering(liveProvider)) {
+          const gate = {
+            sawInterruptGap: false,
+            gapStartedAt: null,
+            armedActiveTurnId: activeThread.session?.activeTurnId ?? null,
+          };
+          setQueuedSteerGate(gate);
+          armQueuedComposerSteerGate(threadId, gate);
+        }
         return true;
       } catch (error) {
-        // The message goes back into the composer, as Synara's failed send does.
+        // The message goes back into the composer (a queued turn back into the queue, which
+        // its dispatcher does), as Synara's failed send does.
+        resetLocalDispatch();
         setOptimisticUserMessages((existing) => existing.filter((message) => message.id !== messageId));
-        promptRef.current = promptForSend;
-        setComposerDraftPrompt(activeThread.id, promptForSend);
+        if (!queuedChatTurn) {
+          promptRef.current = promptForSend;
+          setComposerDraftPrompt(activeThread.id, promptForSend);
+        }
         setThreadError(activeThread.id, error instanceof Error ? error.message : "The message could not be sent.");
         return false;
       } finally {
         sendInFlightRef.current = false;
-        setOptimisticSendBusy(false);
       }
     },
     [
@@ -1060,8 +1393,9 @@ export function ChatController({ context }: { context: ChatContext }) {
       activePendingUserInputKey,
       activeThread,
       applyingPromptHistoryNavigationRef,
+      armLocalDispatchAckFallback,
+      beginLocalDispatch,
       clearComposerDraftContent,
-      clearComposerSlashDraft,
       composerAssistantSelections,
       composerBrowserAnnotations,
       composerEditorRef,
@@ -1071,15 +1405,20 @@ export function ChatController({ context }: { context: ChatContext }) {
       composerPastedTexts,
       composerPullRequestContexts,
       composerTerminalContexts,
+      enqueueQueuedComposerTurn,
       expectedPromptHistoryPromptRef,
       handleStandaloneSlashCommand,
       hasLiveTurn,
+      hasQueueableLiveTurn,
       isConnecting,
+      isRevertingCheckpoint,
+      isSendBusy,
       onAdvanceActivePendingUserInput,
       pendingUserInputAnswersByRequestIdRef,
       promptHistoryNavigationRef,
       promptRef,
       readOnly,
+      resetLocalDispatch,
       scheduleComposerFocus,
       selectedComposerMentionsRef,
       selectedComposerSkillsRef,
@@ -1091,11 +1430,193 @@ export function ChatController({ context }: { context: ChatContext }) {
       setComposerTrigger,
       setOptimisticUserMessages,
       setPendingUserInputAnswersByRequestId,
+      setQueuedSteerGate,
       setThreadError,
       settings.followUpBehavior,
+      threadId,
       turnDispatchSettings,
       waitForPendingComposerImages,
     ],
+  );
+  useLayoutEffect(() => {
+    lateComposerSendHandlersRef.current = {
+      send: onSend,
+      // Plan follow-ups are queued only from Synara's plan card, which this page does not draw.
+      submitPlanFollowUp: async () => false,
+      advanceActivePendingUserInput: onAdvanceActivePendingUserInput,
+      handleStandaloneSlashCommand,
+    };
+  }, [handleStandaloneSlashCommand, onAdvanceActivePendingUserInput, onSend]);
+
+  const {
+    removeQueuedComposerTurn,
+    onSteerQueuedComposerTurn,
+    onEditQueuedComposerTurn,
+  } = queuedTurns;
+
+  // --- edit and resend, checkpoint revert, file undo -----------------------------------
+  // useChatTurnFollowUps' onEditUserMessage: the latest rollbackable user message is replaced
+  // and the conversation resent from it.
+  const onEditUserMessage = useCallback(
+    async (messageId: MessageId, text: string): Promise<boolean> => {
+      if (readOnly || !activeThread || isRevertingCheckpoint) return false;
+      const editTarget = resolveTailUserMessageEditTarget({
+        messages: activeThread.messages,
+        messageId,
+        activeTurnId:
+          activeThread.session?.orchestrationStatus === "running" ? (activeThread.session.activeTurnId ?? null) : null,
+      });
+      const originalMessage = editTarget.editable ? activeThread.messages[editTarget.messageIndex] : undefined;
+      if (!originalMessage || originalMessage.role !== "user") {
+        setThreadError(activeThread.id, "Only the latest rollbackable user message can be edited.");
+        return false;
+      }
+      if (isSendBusy || isConnecting || sendInFlightRef.current) {
+        setThreadError(activeThread.id, "Wait for the current send to start before editing.");
+        return false;
+      }
+      setIsRevertingCheckpoint(true);
+      setThreadError(activeThread.id, null);
+      const createdAt = new Date().toISOString();
+      const outgoingText = formatOutgoingComposerPrompt({
+        provider: selectedProvider,
+        model: selectedModel,
+        effort: selectedPromptEffort,
+        text: appendOriginalComposerPromptBlocks({ editedPrompt: text, originalPrompt: originalMessage.text, messageId }),
+      });
+      try {
+        await persistThreadSettingsForNextTurn({
+          ...threadSettingsDispatchFields(turnDispatchSettings),
+          threadId: activeThread.id,
+          createdAt,
+        });
+        await request("orchestration.dispatchCommand", {
+          command: {
+            type: "thread.message.edit-and-resend",
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            messageId,
+            text: outgoingText,
+            ...editAndResendDispatchFields(turnDispatchSettings),
+            createdAt,
+          },
+        });
+        return true;
+      } catch (error) {
+        setThreadError(activeThread.id, error instanceof Error ? error.message : "Failed to edit message.");
+        return false;
+      } finally {
+        setIsRevertingCheckpoint(false);
+      }
+    },
+    [
+      activeThread,
+      isConnecting,
+      isRevertingCheckpoint,
+      isSendBusy,
+      persistThreadSettingsForNextTurn,
+      readOnly,
+      selectedModel,
+      selectedPromptEffort,
+      selectedProvider,
+      setThreadError,
+      turnDispatchSettings,
+    ],
+  );
+
+  // ChatView's onRevertToTurnCount: asks first (Synara's confirm dialog), then rolls the thread
+  // back to the checkpoint, dropping newer messages and their file changes.
+  const onRevertToTurnCount = useCallback(
+    async (turnCount: number) => {
+      if (readOnly || !activeThread || isRevertingCheckpoint) return;
+      if (hasLiveTurn || isSendBusy || isConnecting) {
+        setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
+        return;
+      }
+      const confirmed = await readNativeApi()?.dialogs.confirm(
+        [
+          `Revert this thread to checkpoint ${turnCount}?`,
+          "This will discard newer messages and turn diffs in this thread.",
+          "This action cannot be undone.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      setIsRevertingCheckpoint(true);
+      setThreadError(activeThread.id, null);
+      try {
+        await request("orchestration.dispatchCommand", {
+          command: {
+            type: "thread.checkpoint.revert",
+            commandId: newCommandId(),
+            threadId: activeThread.id,
+            turnCount,
+            scope: "thread",
+            createdAt: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        setThreadError(activeThread.id, error instanceof Error ? error.message : "Failed to revert thread state.");
+      }
+      setIsRevertingCheckpoint(false);
+    },
+    [activeThread, hasLiveTurn, isConnecting, isRevertingCheckpoint, isSendBusy, readOnly, setThreadError],
+  );
+  const onRevertUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const turnCount = revertTurnCountByUserMessageId.get(messageId);
+      if (typeof turnCount === "number") void onRevertToTurnCount(turnCount);
+    },
+    [onRevertToTurnCount, revertTurnCountByUserMessageId],
+  );
+  // ChatView's onUndoTurnFiles: the card's turns' file changes are undone newest first, keeping
+  // the messages; the revert holds until the thread shows them undone (hasFileUndoSettled).
+  const onUndoTurnFiles = useCallback(
+    async (turnCounts: readonly number[]) => {
+      if (readOnly || !activeThread || isRevertingCheckpoint || turnCounts.length === 0) return;
+      if (hasLiveTurn || isSendBusy || isConnecting) {
+        setThreadError(activeThread.id, "Interrupt the current turn before undoing file changes.");
+        return;
+      }
+      const confirmed = await readNativeApi()?.dialogs.confirm(
+        [
+          "Undo the file changes shown in this card?",
+          "Earlier file changes will remain available to undo.",
+          "Messages and provider conversation history will be kept.",
+          "This action cannot be undone.",
+        ].join("\n"),
+      );
+      if (!confirmed) return;
+      setIsRevertingCheckpoint(true);
+      setThreadError(activeThread.id, null);
+      const ordered = [...new Set(turnCounts)].toSorted((left, right) => right - left);
+      const requestedAt = new Date().toISOString();
+      setPendingFileUndo({
+        threadId: activeThread.id,
+        turnCounts: ordered,
+        existingFailureActivityIds: activeThread.activities
+          .filter((activity) => activity.kind === "checkpoint.revert.failed")
+          .map((activity) => activity.id),
+      });
+      try {
+        for (const turnCount of ordered) {
+          await request("orchestration.dispatchCommand", {
+            command: {
+              type: "thread.checkpoint.revert",
+              commandId: newCommandId(),
+              threadId: activeThread.id,
+              turnCount,
+              scope: "files",
+              createdAt: requestedAt,
+            },
+          });
+        }
+      } catch (error) {
+        setPendingFileUndo(null);
+        setIsRevertingCheckpoint(false);
+        setThreadError(activeThread.id, error instanceof Error ? error.message : "Failed to undo file changes.");
+      }
+    },
+    [activeThread, hasLiveTurn, isConnecting, isRevertingCheckpoint, isSendBusy, readOnly, setThreadError],
   );
 
   const { onSelectComposerItem, onComposerMenuItemHighlighted, onPromptChange, onComposerCommandKey } =
@@ -1249,6 +1770,42 @@ export function ChatController({ context }: { context: ChatContext }) {
     [context],
   );
 
+  // --- thread find (ChatView's Cmd-F and ChatThreadFindHost) --------------------------
+  const handleThreadFindJump = (match: ThreadFindMatch) => {
+    timelineControllerRef.current?.scrollToMessage(match.messageId, {
+      ...(match.segmentIndex === undefined ? {} : { segmentIndex: match.segmentIndex }),
+      fineScrollFind: true,
+    });
+  };
+  const handleThreadFindActiveMatchChange = (match: ThreadFindMatch | null) => {
+    threadFindHighlightStore.setActiveMatch(match);
+    timelineControllerRef.current?.setActiveFindMatch(match);
+  };
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const command = resolveShortcutCommand(event, [], {
+        context: { terminalFocus: false, terminalOpen: false },
+      });
+      if (command !== "chat.find") return;
+      if (
+        !shouldCaptureChatFindShortcut({
+          shouldRenderChatPaneContent: true,
+          terminalWorkspaceTerminalTabActive: false,
+          inAppBrowserFocused: false,
+        })
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setThreadFindOpen(true);
+      setThreadFindFocusNonce((current) => current + 1);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const handlePromptChange = useStableCallback(onPromptChange);
   const handleComposerCommandKey = useStableCallback(onComposerCommandKey);
   const handleComposerPaste = useStableCallback(onComposerPaste);
@@ -1283,15 +1840,19 @@ export function ChatController({ context }: { context: ChatContext }) {
 
   const transcript = (
     <ChatTranscriptPane
+      // The timeline memoizes its rows on what Synara changes while a thread is open; the
+      // conversation actions (edit, revert, undo, fork) come and go with read-only, so a switch
+      // draws it again.
+      key={readOnly ? "read-only" : "conversation"}
       activeThreadId={activeThread.id}
       activeTurnId={activeThread.session?.activeTurnId ?? activeLatestTurn?.turnId ?? null}
       agentActivityDetail={openAgentActivityDetail}
       hasMessages={timelineEntries.length > 0}
       isWorking={isWorking}
       workingLabel={resolveWorkingLabel({
-        isSettlingTurnDispatch: false,
-        isSendBusy: optimisticSendBusy,
-        turnTakenOver: false,
+        isSettlingTurnDispatch,
+        isSendBusy,
+        turnTakenOver,
         isConnecting,
         providerName: PROVIDER_DISPLAY_NAMES[activeThread.session?.provider ?? selectedProvider],
       })}
@@ -1307,13 +1868,21 @@ export function ChatController({ context }: { context: ChatContext }) {
       turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
       threadError={activeThread.error ?? null}
       onDismissThreadError={() => setThreadError(activeThread.id, null)}
-      onOpenTurnDiff={(turnId, filePath) =>
-        emit("openTurnDiff", { threadId: activeThread.id, turnId, ...(filePath ? { filePath } : {}) })
-      }
-      onOpenThread={() => undefined}
+      onOpenTurnDiff={(turnId, filePath) => setTurnDiffSelection({ turnId, filePath: filePath ?? null })}
+      onOpenThread={openThread}
       revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-      onRevertUserMessage={() => undefined}
-      isRevertingCheckpoint={false}
+      onRevertUserMessage={onRevertUserMessage}
+      isRevertingCheckpoint={isRevertingCheckpoint}
+      {...(readOnly
+        ? {}
+        : {
+            onEditUserMessage,
+            editableUserMessageId,
+            onUndoTurnFiles: (turnCounts: readonly number[]) => void onUndoTurnFiles(turnCounts),
+            onForkFromMessage: handleForkFromMessage,
+          })}
+      findHighlightStore={threadFindHighlightStore}
+      messageTrailAudioSource={settings.messageTrailAudioSource}
       onExpandTimelineImage={setExpandedImage}
       followLiveOutput={hasStreamingAssistantText && !isUserScrollDetached}
       onIsAtEndChange={onIsAtEndChange}
@@ -1430,6 +1999,14 @@ export function ChatController({ context }: { context: ChatContext }) {
         <ComposerColumnFrame>
           <div>
             {pendingPanel}
+            <ComposerQueuedHeader
+              queuedTurns={queuedComposerTurns}
+              onSteer={onSteerQueuedComposerTurn}
+              onRemove={removeQueuedComposerTurn}
+              onEdit={onEditQueuedComposerTurn}
+              cwd={threadWorkspaceCwd ?? undefined}
+              attachedToPrevious={false}
+            />
           </div>
           <div
             className={cn(
@@ -1606,7 +2183,7 @@ export function ChatController({ context }: { context: ChatContext }) {
                   }
                   submission={{
                     phase,
-                    busy: optimisticSendBusy,
+                    busy: isSendBusy || isRevertingCheckpoint,
                     connecting: isConnecting,
                     expired: false,
                     hasPendingCacheReview: activeThread.claudeCacheReview != null,
@@ -1633,6 +2210,28 @@ export function ChatController({ context }: { context: ChatContext }) {
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" data-chat-root="" data-read-only={readOnly ? "true" : undefined}>
         {transcript}
         {composer}
+        <ChatThreadFindHost
+          open={threadFindOpen}
+          focusNonce={threadFindFocusNonce}
+          timelineEntries={timelineEntries}
+          threadId={threadId}
+          onClose={() => setThreadFindOpen(false)}
+          onJump={handleThreadFindJump}
+          onHighlightChange={threadFindHighlightStore.set}
+          onActiveMatchChange={handleThreadFindActiveMatchChange}
+        />
+        {turnDiffSelection ? (
+          <TurnDiffPanel
+            threadId={activeThread.id}
+            workspaceRoot={threadWorkspaceCwd}
+            readOnly={readOnly}
+            turnDiffSummaries={turnDiffSummaries}
+            inferredCheckpointTurnCountByTurnId={inferredCheckpointTurnCountByTurnId}
+            selection={turnDiffSelection}
+            onSelect={setTurnDiffSelection}
+            onClose={() => setTurnDiffSelection(null)}
+          />
+        ) : null}
       </div>
       {expandedImage ? (
         <ExpandedImageOverlay

@@ -2380,6 +2380,51 @@ impl From<InternalThreadCommand> for OrchestrationCommand {
     }
 }
 
+/// Synara `OrchestrationShellSnapshot` (orchestration.ts:1241), without spaces' and projects'
+/// shells: those are the app's, and the lists are always empty.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestrationShellSnapshot {
+    pub snapshot_sequence: u64,
+    pub spaces: Vec<Value>,
+    pub projects: Vec<Value>,
+    pub threads: Vec<OrchestrationThreadShell>,
+    pub updated_at: IsoDateTime,
+}
+
+/// Synara `ThreadTurnDiff` (orchestration.ts:2795): the result of `orchestration.getTurnDiff` and
+/// `orchestration.getFullThreadDiff`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadTurnDiff {
+    pub thread_id: ThreadId,
+    pub from_turn_count: u64,
+    pub to_turn_count: u64,
+    pub diff: String,
+}
+
+/// Synara `OrchestrationGetTurnDiffInput` (orchestration.ts:2863). `fromTurnCount <= toTurnCount`
+/// is checked where it is served.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestrationGetTurnDiffInput {
+    pub thread_id: ThreadId,
+    pub from_turn_count: u64,
+    pub to_turn_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_whitespace: Option<bool>,
+}
+
+/// Synara `OrchestrationGetFullThreadDiffInput` (orchestration.ts:2875)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestrationGetFullThreadDiffInput {
+    pub thread_id: ThreadId,
+    pub to_turn_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_whitespace: Option<bool>,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

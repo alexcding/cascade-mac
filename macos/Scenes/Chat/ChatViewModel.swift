@@ -15,6 +15,8 @@ import Observation
         case openTurnDiff(threadID: String, turnID: String, filePath: String?)
         /// Synara's "Manage providers".
         case openSettings
+        /// Another chat, which the page made (a fork, a review): shown in place of this one.
+        case openThread(String)
     }
 
     let threadID: String
@@ -68,6 +70,7 @@ import Observation
         case .revealFile(let path): onAction(.revealFile(path))
         case .openTurnDiff(let thread, let turn, let file): onAction(.openTurnDiff(threadID: thread, turnID: turn, filePath: file))
         case .openSettings: onAction(.openSettings)
+        case .openThread(let id): onAction(.openThread(id))
         }
     }
 
