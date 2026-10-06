@@ -470,3 +470,58 @@ private actor RefreshTransport: BackendTransport {
     #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-open-folder"])
     await model.stop()
 }
+
+/// A new chat is titled twice as its first turn runs (the first message, then the generated title),
+/// each a `chat-shell` event for the chat on screen: the title changes and nothing else. The screen,
+/// its page model and its web view are the ones New Task opened, so the page is not loaded again
+/// mid-turn.
+@MainActor @Test func aNewChatsTitlesChangeOnlyItsTitleNotItsPage() async throws {
+    let suite = "refresh-chat-titles-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.chatsUp("[]")
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.loaded }
+
+    // New Task made the chat and sent its first message: the app hears of it, then goes to it.
+    let selection = ChatThreadShell.ModelSelection(provider: "claudeAgent", model: "default")
+    model.newSessionChatCreated(ChatThreadShell(id: "new", projectId: ChatProject.standalone, title: ChatProject.untitled,
+                                                modelSelection: selection, workingDirectory: "/scratch/new"))
+    model.coordinator.navigate(to: .chat("new"))
+    let screen = try #require(model.coordinator.chatCoordinator)
+    let page = screen.model.page
+    let view = try #require(page.webView)
+    // The real main window draws it, so a screen SwiftUI made again would put the page in a new host.
+    let window = MainWindowController(model: model)
+    window.window?.orderBack(nil)
+    defer { window.window?.orderOut(nil) }
+    try await refreshEventually { view.window === window.window }
+    let host = try #require(view.superview)
+    var moves = 0
+    let observer = view.observe(\.superview, options: [.new]) { _, _ in MainActor.assumeIsolated { moves += 1 } }
+    defer { observer.invalidate() }
+
+    func shellEvent(_ title: String, updated: String) throws -> ServerEvent {
+        try JSONDecoder().decode(ServerEvent.self, from: Data(#"""
+            {"type":"chat-shell","shell":{"id":"new","projectId":"cascade-standalone","title":"\#(title)",
+             "modelSelection":{"provider":"claudeAgent","model":"default"},"workingDirectory":"/scratch/new",
+             "createdAt":"2026-10-05T10:00:00.000Z","updatedAt":"\#(updated)"}}
+            """#.utf8))
+    }
+    runtime.onEvent(.message(try shellEvent("Reply with exactly the word PONG", updated: "2026-10-05T10:00:01.000Z")))
+    try await refreshEventually { screen.model.title == "Reply with exactly the word PONG" }
+    runtime.onEvent(.message(try shellEvent("PONG reply test", updated: "2026-10-05T10:00:05.000Z")))
+    try await refreshEventually { screen.model.title == "PONG reply test" }
+
+    #expect(model.selection == .chat("new"))
+    #expect(model.coordinator.chatCoordinator === screen && !screen.retired)
+    #expect(screen.model.page === page && !page.retired)
+    #expect(page.webView === view)
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(view.superview === host && view.window === window.window, "the page was put in another host")
+    #expect(moves == 0, "the page left its host \(moves) times")
+    if case .chatCoordinator(let shown) = model.coordinator.root { #expect(shown === screen) } else { Issue.record("no chat screen") }
+    await model.stop()
+}
