@@ -5,8 +5,8 @@ import SwiftUI
 // snapshots and receives semantic selection/actions. The look is the system's: a source list
 // over the sidebar material, with its selection, its section headers and its label colours.
 // What is ours sits inside that: no disclosure triangles (a click on a project folder collapses
-// or expands it, and never selects it), sessions nested under their project, a session's hover-only
-// pin, a folder's hover chevron and New Task, and the session status dot.
+// or expands it, and never selects it; nothing shows selected while its page is open), sessions nested under their project, a session's hover-only
+// pin, a folder's icon drawn open while open and its hover Settings and New Task, and the session status dot.
 struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
     let selection: SidebarDestination
@@ -187,11 +187,12 @@ struct CocoaSidebar: NSViewRepresentable {
                     if let scrollPosition { outline.enclosingScrollView?.contentView.scroll(to: scrollPosition) }
                 }
             }
-            // A project's page is opened from Projects and goes back to it, so Projects stays highlighted.
-            let shown: SidebarDestination = if case .project = value.selection { .overview } else { value.selection }
+            // A project's page is not a place in the sidebar: nothing shows selected while it is open.
+            let shown: SidebarDestination? = if case .project = value.selection { nil } else { value.selection }
             let placed = selectedPlacement.flatMap { nodes[$0] }
-            let selected = placed?.entry.destination == shown ? placed
-                : roots.flatMap(flatten).first { $0.entry.destination == shown }
+            let selected = shown.flatMap { shown in
+                placed?.entry.destination == shown ? placed : roots.flatMap(flatten).first { $0.entry.destination == shown }
+            }
             guard let selected else { outline.deselectAll(nil); return }
             let changedPlacement = selectedPlacement != selected.entry.id
             selectedPlacement = selected.entry.id
@@ -217,8 +218,8 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int { children(item).count }
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any { children(item)[index] }
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { (item as? Node)?.children.isEmpty == false }
-        /// A project folder is not a page to go to: a click on it only collapses or expands it. Its
-        /// page opens from its name on Projects, and Projects stays highlighted while it is shown.
+        /// A click on a project folder only collapses or expands it, and never selects it. Its page opens from
+        /// its gear, its menu or its name on Projects, and nothing in the sidebar shows selected while it is open.
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             guard let entry = (item as? Node)?.entry else { return false }
             return entry.destination != nil && entry.projectID == nil
@@ -356,15 +357,16 @@ struct CocoaSidebar: NSViewRepresentable {
             configure(cell, node: node, row: row)
         }
 
-        private func configure(_ cell: SidebarCellView, node: Node, row: Int, animated: Bool = false) {
+        private func configure(_ cell: SidebarCellView, node: Node, row: Int) {
             guard let outline else { return }
             let nested = outline.parent(forItem: node) != nil
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewTask = { [weak self] id in self?.parent.onNewTask(id) }
+            cell.onProjectSettings = { [weak self] id in self?.parent.onSelect(.project(id)) }
             cell.onToggleExpanded = { [weak self, weak node] in if let node { self?.reselected(node) } }
             cell.configure(node.entry, nested: nested,
                            shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
-            cell.setExpanded(node.children.isEmpty ? nil : outline.isItemExpanded(node), animated: animated)
+            cell.setExpanded(node.children.isEmpty ? nil : outline.isItemExpanded(node))
             if row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) as? SidebarRowView {
                 rowView.hoverable = node.entry.hoverable
                 cell.hovered = rowView.hovered
@@ -392,13 +394,8 @@ struct CocoaSidebar: NSViewRepresentable {
         }
 
         // A click on a folder collapses / expands its sessions — the web sidebar's projectClick;
-        // there is no disclosure caret. Projects shows selected while a project's page is open, so
-        // a click on it is a choice of its own: back to Projects.
+        // there is no disclosure caret.
         func reselected(_ node: Node) {
-            if node.entry.destination == .overview, case .project = parent.selection {
-                parent.onSelect(.overview)
-                return
-            }
             guard let outline, node.entry.projectID != nil, !node.children.isEmpty else { return }
             if outline.isItemExpanded(node) { outline.animator().collapseItem(node) }
             else { outline.animator().expandItem(node) }
@@ -410,7 +407,7 @@ struct CocoaSidebar: NSViewRepresentable {
             guard let outline, let node = notification.userInfo?["NSObject"] as? Node else { return }
             let row = outline.row(forItem: node)
             if row >= 0, let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarCellView {
-                configure(cell, node: node, row: row, animated: !updating)
+                configure(cell, node: node, row: row)
             }
             guard !updating else { return }
             if isCollapsed { collapsed.insert(node.entry.id) } else { collapsed.remove(node.entry.id) }
@@ -430,8 +427,9 @@ struct CocoaSidebar: NSViewRepresentable {
                 return menu
             }
             guard let destination = node.entry.destination else { return nil }
-            // A folder's hover New Task, for the keyboard and for anyone who opens its menu instead.
+            // A folder's hover gear and New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project = destination {
+                add("Project Settings", action: #selector(projectSettings(_:)))
                 add("New Task", action: #selector(newTask(_:)))
                 menu.addItem(.separator())
             }
@@ -598,6 +596,10 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func newTask(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, let id = node.entry.projectID else { return }
             parent.onNewTask(id)
+        }
+        @objc private func projectSettings(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, let id = node.entry.projectID else { return }
+            parent.onSelect(.project(id))
         }
         @objc private func reveal(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node else { return }
@@ -817,6 +819,8 @@ enum SidebarMetrics {
 @MainActor final class SidebarCellView: NSTableCellView {
     var onTogglePin: (String) -> Void = { _ in }
     var onNewTask: (String) -> Void = { _ in }
+    /// A project row's hover gear: the project's Settings.
+    var onProjectSettings: (String) -> Void = { _ in }
     /// Opens or closes the folder, as a click on it does.
     var onToggleExpanded: () -> Void = {}
     var hovered = false { didSet { if oldValue != hovered { applyState() } } }
@@ -835,10 +839,8 @@ enum SidebarMetrics {
     /// After a forked session's name.
     private let forkMark = NSImageView()
     private let accessory = SidebarAccessoryButton()
-    /// A folder's chevron, before its New Task under the pointer: right while collapsed, down while open.
-    private let disclosure = SidebarDisclosure()
-    /// Whether the folder has sessions to open, so its chevron has something to say.
-    private var expandable = false
+    /// A folder's gear, before its New Task under the pointer: the project's Settings.
+    private let settings = SidebarAccessoryButton()
     private var entry = SidebarEntry(id: "", title: "", symbol: "")
     private var nested = false
 
@@ -855,6 +857,11 @@ enum SidebarMetrics {
         icon.wantsLayer = true
         accessory.target = self
         accessory.action = #selector(accessoryPressed)
+        settings.target = self
+        settings.action = #selector(settingsPressed)
+        settings.image = SidebarIcons.projectActionSymbol("gearshape")
+        settings.toolTip = String(localized: "Project Settings")
+        settings.setAccessibilityLabel(settings.toolTip)
         forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
         subtitle.lineBreakMode = .byTruncatingTail
@@ -862,7 +869,7 @@ enum SidebarMetrics {
         subtitle.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         subtitle.textColor = .secondaryLabelColor
         subtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        [disclosure, icon, dot, title, subtitle, forkMark, accessory, shortcut].forEach(addSubview)
+        [icon, dot, title, subtitle, forkMark, accessory, settings, shortcut].forEach(addSubview)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -881,7 +888,7 @@ enum SidebarMetrics {
             return super.draggingImageComponents
         }
         // A dragged row is under the pointer, where a session shows its pin: the picture leaves it out.
-        let hover = [accessory, disclosure], wasHidden = hover.map(\.isHidden)
+        let hover = [accessory, settings], wasHidden = hover.map(\.isHidden)
         hover.forEach { $0.isHidden = true }
         cacheDisplay(in: bounds, to: bitmap)
         zip(hover, wasHidden).forEach { $0.isHidden = $1 }
@@ -911,7 +918,7 @@ enum SidebarMetrics {
         setAccessibilityIdentifier(entry.id)
         // The dot is shown or hidden once, in `applyState`: hiding it here and showing it again there
         // would restart a working dot's blink on every refresh.
-        icon.isHidden = false; accessory.isHidden = true; disclosure.isHidden = true
+        icon.isHidden = false; accessory.isHidden = true; settings.isHidden = true
         forkMark.isHidden = !entry.forked
         icon.layer?.cornerRadius = 0
         alphaValue = 1
@@ -929,7 +936,7 @@ enum SidebarMetrics {
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project:
-            icon.image = SidebarIcons.rowSymbol(entry.symbol) ?? SidebarIcons.rowSymbol("folder")
+            icon.image = SidebarIcons.rowSymbol(entry.symbol)
             accessory.image = SidebarIcons.projectActionSymbol("newSession")
             accessory.toolTip = String(localized: "New Task")
             accessory.setAccessibilityLabel(accessory.toolTip)
@@ -983,12 +990,10 @@ enum SidebarMetrics {
         let iconColor = selected ? title.textColor : SidebarPalette.icon
         icon.contentTintColor = iconColor
         forkMark.contentTintColor = iconColor
-        disclosure.color = iconColor ?? SidebarPalette.icon
         switch entry.role {
-        // A folder's chevron and New Task show under the pointer.
+        // A folder's Settings and New Task show under the pointer.
         case .project:
-            accessory.isHidden = !hovered; dot.isHidden = true
-            disclosure.isHidden = !(hovered && expandable)
+            accessory.isHidden = !hovered; settings.isHidden = !hovered; dot.isHidden = true
         // The pin shows in the trailing slot under the pointer, and the ⌘-held hint takes it. The status
         // dot leads the row, always shown.
         case .session:
@@ -999,7 +1004,7 @@ enum SidebarMetrics {
             dot.isHidden = !chatActive; icon.isHidden = chatActive
         default: accessory.isHidden = true; dot.isHidden = true
         }
-        if case .project = entry.role {} else { disclosure.isHidden = true }
+        if case .project = entry.role {} else { settings.isHidden = true }
         needsLayout = true
     }
 
@@ -1008,12 +1013,15 @@ enum SidebarMetrics {
         else if let id = entry.sessionID { onTogglePin(id) }
     }
 
-    /// Whether the folder is open; nil for a row that has nothing to open. Animated when it was clicked.
-    func setExpanded(_ expanded: Bool?, animated: Bool) {
+    @objc private func settingsPressed() {
+        if let id = entry.projectID { onProjectSettings(id) }
+    }
+
+    /// Whether the folder is open; nil for a row that has nothing to open. An open folder's icon is
+    /// drawn open, and a closed or empty one closed.
+    func setExpanded(_ expanded: Bool?) {
         let isProject = if case .project = entry.role { true } else { false }
-        expandable = isProject && expanded != nil
-        disclosure.isHidden = !(expandable && hovered)
-        needsLayout = true
+        if isProject { icon.image = SidebarIcons.rowSymbol(expanded == true ? "folderOpen" : entry.symbol) }
         // The hover buttons are hidden from VoiceOver with the pointer elsewhere, so the row offers them itself.
         var actions: [NSAccessibilityCustomAction] = []
         if isProject {
@@ -1022,23 +1030,16 @@ enum SidebarMetrics {
                     self?.onToggleExpanded(); return true
                 })
             }
+            actions.append(.init(name: String(localized: "Project Settings")) { [weak self] in
+                guard let id = self?.entry.projectID else { return false }
+                self?.onProjectSettings(id); return true
+            })
             actions.append(.init(name: String(localized: "New Task")) { [weak self] in
                 guard let id = self?.entry.projectID else { return false }
                 self?.onNewTask(id); return true
             })
         }
         setAccessibilityCustomActions(actions.isEmpty ? nil : actions)
-        let angle: CGFloat = expanded == true ? .pi / 2 : 0
-        guard angle != disclosure.angle else { return }
-        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.2
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                disclosure.animator().angle = angle
-            }
-        } else {
-            disclosure.angle = angle
-        }
     }
 
     override func layout() {
@@ -1076,7 +1077,7 @@ enum SidebarMetrics {
             // project's name is from its folder. Under its project the dot sits on the edge between the
             // folder's glyph and the project's name; at the top level (Pinned, or a project that is gone)
             // its box ends where a folder does.
-            let folder = SidebarIcons.rowSymbol("folder")?.size.width ?? slot
+            let folder = SidebarIcons.rowSymbol("folderClosed")?.size.width ?? slot
             let folderRight = left + ((slot + folder) / 2 * 2).rounded() / 2
             let toName = titleX - folderRight
             let width = Self.statusSlot
@@ -1091,13 +1092,13 @@ enum SidebarMetrics {
         // A folder's New Task takes the same slot, so it stands in line with the pins under it.
         let slotX = (session || project ? bounds.width : right) - accessorySlot
         accessory.frame = centered(slotX, accessorySlot)
-        // A folder's chevron stands before its New Task, a little apart, so neither is clicked for the other.
-        disclosure.frame = centered(slotX - accessorySlot - 4, accessorySlot)
+        // A folder's gear stands before its New Task, a little apart, so neither is clicked for the other.
+        settings.frame = centered(slotX - accessorySlot - 4, accessorySlot)
         // A session's name runs to the row's edge, and gives way to the pin only while it shows: to a gap
         // before the pin's glyph, not before the slot, as the glyph is far narrower than the slot it is centred in.
         var titleRight = accessory.isHidden ? right
             : session ? slotX + (accessorySlot - SidebarIcons.pinSize) / 2 - SidebarMetrics.gap
-            : !disclosure.isHidden ? disclosure.frame.minX - SidebarMetrics.gap
+            : !settings.isHidden ? settings.frame.minX - SidebarMetrics.gap
             : slotX - SidebarMetrics.gap
         title.sizeToFit()
         let titleHeight = title.frame.height
@@ -1127,8 +1128,11 @@ enum SidebarMetrics {
         // The mark follows the name, and a long name gives way to it rather than hide it.
         if !forkMark.isHidden {
             let size = Self.forkMarkSize, gap: CGFloat = 4
-            // The text's own width, not whatever frame the label was last given.
-            titleWidth = min(title.intrinsicContentSize.width.rounded(.up), max(0, titleWidth - size - gap))
+            // The text's own width, measured unbounded: the label's intrinsic size follows the frame it
+            // was last given, so a name cut short once would stay cut short.
+            let natural = (title.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: .greatestFiniteMagnitude, height: height)).width
+                ?? title.intrinsicContentSize.width).rounded(.up)
+            titleWidth = min(natural, max(0, titleWidth - size - gap))
             forkMark.frame = centered(titleX + titleWidth + gap, size)
         }
         // A subtitle follows the title on its baseline and takes only the room the title leaves:
@@ -1150,39 +1154,6 @@ enum SidebarMetrics {
 
     override func resizeSubviews(withOldSize oldSize: NSSize) { super.resizeSubviews(withOldSize: oldSize); needsLayout = true }
     override var isFlipped: Bool { true }
-}
-
-/// A folder's disclosure chevron, drawn rather than a symbol so it can turn: `angle` 0 points right,
-/// a quarter turn points down, and `animator().angle` turns it between the two.
-@MainActor final class SidebarDisclosure: NSView {
-    @objc dynamic var angle: CGFloat = 0 { didSet { needsDisplay = true } }
-    var color: NSColor = SidebarPalette.icon { didSet { needsDisplay = true } }
-
-    override var isFlipped: Bool { true }
-
-    override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
-        key == "angle" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        // A right-pointing chevron about the centre, turned by `angle`: y runs down, so a positive
-        // angle turns it clockwise, and a quarter turn puts its tip below the centre.
-        let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let reach: CGFloat = 2, spread: CGFloat = 3.75
-        let (sine, cosine) = (sin(angle), cos(angle))
-        func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
-            NSPoint(x: center.x + x * cosine - y * sine, y: center.y + x * sine + y * cosine)
-        }
-        let path = NSBezierPath()
-        path.move(to: point(-reach, -spread))
-        path.line(to: point(reach, 0))
-        path.line(to: point(-reach, spread))
-        path.lineWidth = 1.5
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        color.setStroke()
-        path.stroke()
-    }
 }
 
 /// The hover pin / "+": invisible until the row is hovered (the cell hides it), a muted glyph

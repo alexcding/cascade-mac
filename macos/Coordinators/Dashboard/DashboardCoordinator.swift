@@ -24,7 +24,6 @@ import Observation
     /// A project's page, from its name on Projects, handed to the app.
     @ObservationIgnored var requestProject: (String) -> Void = { _ in }
     @ObservationIgnored var requestSession: (String) -> Void = { _ in }
-    @ObservationIgnored var requestNewSession: (String) -> Void = { _ in }
     @ObservationIgnored var requestChat: (String) -> Void = { _ in }
     @ObservationIgnored var canCreateProject: () -> Bool = { false }
 
@@ -46,7 +45,6 @@ import Observation
             if model.prs.connected { model.navigation.open(request) } else { model.navigation.reject("Connect to open pull requests in Cascade.") }
         case .openProject(let id): requestProject(id)
         case .openSession(let id): requestSession(id)
-        case .newSession(let projectID): requestNewSession(projectID)
         case .openChat(let id): requestChat(id)
         case .board(.open(let request)):
             guard model.tab == .board else { return }
@@ -60,7 +58,7 @@ import Observation
     }
     func retire() {
         retired = true; isOwned = { false }; canPresent = { false }; requestNewProject = {}; canCreateProject = { false }
-        requestProject = { _ in }; requestSession = { _ in }; requestNewSession = { _ in }
+        requestProject = { _ in }; requestSession = { _ in }
         requestChat = { _ in }
         model.retire()
     }
@@ -82,7 +80,6 @@ extension AppCoordinator {
         child.canCreateProject = { [weak self] in self?.rootRuntime?.canPerform(.newProject) ?? false }
         child.requestProject = { [weak self] id in self?.rootRuntime?.openProjectSettings(id) }
         child.requestSession = { [weak self] id in self?.rootRuntime?.openSession(id) }
-        child.requestNewSession = { [weak self] id in self?.rootRuntime?.newTask(in: id) }
         child.requestChat = { [weak self] id in self?.navigate(to: .chat(id)) }
         dashboardCoordinator = child
         model.onScreen = selection == .overview

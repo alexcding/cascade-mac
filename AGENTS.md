@@ -432,17 +432,19 @@ user collapses from the divider is told back to the workspace.
   hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).
   Every tab is in the one strip and the one order (`WorkspaceContext.tabs`): web pages, open
   files, and the tools (`WorkspaceTool`) — Diff, the Simulator, Files (which browses the worktree
-  as a tree), Live Monitor (the agent drawn live, `LivePanelView`) and Chat (a headless chat of its
-  own in the session's worktree, `PaneChatView`; see "Chat sessions"). The active tab decides what
+  as a tree), Live Monitor (the agent drawn live, `LivePanelView`), Terminal (a shell of its own in the
+  worktree) and Chat (a headless chat of its own in the session's worktree, `PaneChatView`; see "Chat sessions"). The active tab decides what
   the pane shows; closing a tab selects its nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
   the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
   changed files' toggle); over a web page that row is its navigation and address (`.address`),
   whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
-  the preview ends. A blank page — the one the pane opens for itself when it has no tab — is a New
-  Tab in the strip, and its start page offers the tools; the Files explorer is a Files tab that stays
-  open, and each file picked there opens in a tab of its own. Files and Chat are the tools with as
-  many tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip always shows its New Tab button, and New Tab takes
-  the pane's own blank page rather than opening a second one. When a screen's items do change,
+  the preview ends. A blank page is a New Tab in the strip, and its start page offers the tools; the
+  one the pane opens for itself when it has no tab is its empty state, not a tab
+  (`WorkspaceContext.stripTabs`) — no tab and no New Tab button — until something is typed in it; the Files explorer is a Files tab that stays
+  open, and each file picked there opens in a tab of its own. Files, Terminal and Chat are the tools
+  with as many tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip shows its New Tab button once it has a tab, and New Tab takes
+  the pane's own blank page rather than opening a second one. Closing the strip's last tab leaves
+  the pane open on that empty state. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items
   that changed, rather than making a new toolbar, which re-laid out every item and jolted the
   whole bar.

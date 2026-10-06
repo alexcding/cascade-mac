@@ -39,7 +39,7 @@ import Testing
     let model = try #require(root.projectModels[project.id])
     root.navigate(to: .project(project.id))
     #expect(root.projectCoordinator?.model === model)
-    #expect(root.windowToolbar.leading.map(\.id) == ["project-back", "title"] && root.windowToolbar.pane == nil)
+    #expect(root.windowToolbar.leading.map(\.id) == ["title"] && root.windowToolbar.pane == nil, "the project's name, with no way back")
     await model.editor.pickFolder()
     #expect(model.editor.draft.workspace == "/tmp/injected-project")
     model.editor.draft.name = "Keep this draft"
@@ -52,8 +52,6 @@ import Testing
     model.editor.onAction(.saved(project))
     #expect(runtime.saves.map(\.1) == [.configuration])
     #expect(model.editor.draft.name == "Keep this draft")
-    model.goBack()
-    #expect(root.selection == .overview, "Back returns to Projects, where the page was opened from")
 }
 
 @MainActor @Test func projectCoordinatorRejectsObsoleteCompletionAndPreservesUnrelatedNavigationOnDelete() throws {

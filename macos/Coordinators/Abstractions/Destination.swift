@@ -131,10 +131,8 @@ extension Destination {
             }
             return WindowToolbar(leading: [.title(String(localized: "Automations"))], trailing: [new])
         case .projectCoordinator(let coordinator):
-            // Back to Projects, where the page was opened from, then the project's name.
-            let model = coordinator.model
-            let back = WindowToolbarItem("project-back") { ProjectBackButton(model: model) }
-            return WindowToolbar(leading: [back, .title(model.project.name)])
+            // The project's name.
+            return WindowToolbar(leading: [.title(coordinator.model.project.name)])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .chatCoordinator(let coordinator):

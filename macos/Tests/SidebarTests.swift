@@ -163,7 +163,6 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.expandItem(nil, expandChildren: true)
     window.layoutIfNeeded(); outline.displayIfNeeded()
     var titleX: [String: CGFloat] = [:], dotX: [String: CGFloat] = [:]
-    var folderRight: CGFloat = 0
     for row in 0..<outline.numberOfRows {
         guard let node = outline.item(atRow: row) as? CocoaSidebar.Node,
               let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? SidebarCellView else { continue }
@@ -173,18 +172,14 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         if let dot = cell.subviews.compactMap({ $0 as? SidebarStatusDot }).first, !dot.isHidden {
             dotX[node.entry.id] = cell.convert(dot.frame, to: outline).midX
         }
-        if node.entry.id.hasPrefix("project:"), let glyph = cell.icon.image {
-            folderRight = cell.convert(cell.icon.frame, to: outline).midX + glyph.size.width / 2
-        }
     }
     window.close()
     let pinned = try #require(titleX["pin:pinned"])
     let project = try #require(titleX["project:p1"]), nested = try #require(titleX["session:nested"])
     #expect(pinned == project, "a pinned session's name where a project's is")
     #expect(nested > project, "further in, after its dot")
-    let pinnedDot = try #require(dotX["pin:pinned"])
-    #expect(abs(pinnedDot - (folderRight - SidebarCellView.statusSlot / 2)) <= 0.5, "the dot's slot ends where the folder's glyph does")
-    #expect(abs(try #require(dotX["session:nested"]) - (folderRight + project) / 2) <= 0.5, "a nested dot sits between the folder's glyph and the project's name")
+    let pinnedDot = try #require(dotX["pin:pinned"]), nestedDot = try #require(dotX["session:nested"])
+    #expect(pinnedDot < pinned && nestedDot < nested, "each dot before its name")
 }
 
 @MainActor @Test func sessionReorderStaysInsideItsProjectAndTheDraggedOrderIsTheApps() throws {
@@ -231,19 +226,11 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(UserDefaultsSidebarOrderStore(preferences: preferences).load() == .init(projects: ["p2"], sessions: dragged, pinned: ["x"]))
 }
 
-/// A project row is a folder until an icon is chosen for it in the project's forms, and the
-/// draft those forms edit sends the icon to the backend, storing nothing for the folder.
-@MainActor @Test func projectRowsDrawTheIconChosenForThem() throws {
-    #expect(SidebarEntry.make(projects: [sidebarProject], sessions: []).first { $0.id == "project:p1" }?.symbol == "folder")
-    let iconed = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "hammer")
-    #expect(SidebarEntry.make(projects: [iconed], sessions: []).first { $0.id == "project:p1" }?.symbol == "hammer")
-    #expect(Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "").symbol == "folder")
-    #expect(SidebarIcons.rowSymbol("hammer") != nil)
-
-    #expect(ProjectDraft(iconed).icon == "hammer")
-    #expect(ProjectDraft(sidebarProject).icon.isEmpty)
-    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProjectDraft(iconed))) as? [String: Any]
-    #expect(body?["icon"] as? String == "hammer")
+/// A project row is a folder, and the draft its forms edit sends no icon to the backend.
+@MainActor @Test func projectRowsAreFolders() throws {
+    #expect(SidebarEntry.make(projects: [sidebarProject], sessions: []).first { $0.id == "project:p1" }?.symbol == "folderClosed")
+    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProjectDraft(sidebarProject))) as? [String: Any]
+    #expect(body?["icon"] == nil)
 }
 
 @MainActor private final class SidebarDropInfo: NSObject, @MainActor NSDraggingInfo {
@@ -463,14 +450,10 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(cell.icon.isHidden, "a session has no icon")
     #expect(!dot.isHidden, "an idle session shows its dot")
     let slot = SidebarCellView.statusSlot
-    let folderIcon = folder.icon, folderImage = try #require(folderIcon.image)
-    let folderRight = folderIcon.frame.midX + folderImage.size.width / 2
-    #expect(abs(dot.frame.midX - (folderRight + folderTitle.minX) / 2) <= 0.5, "the dot sits between the folder's glyph and the project's name")
     let font = try #require(label(idle.title)?.font)
     let middle = title.minY + font.ascender - (font.capHeight + font.xHeight) / 4
     #expect(abs(dot.frame.midY - middle) <= 0.5, "the dot is on the letters' middle, not the label frame's")
-    let folderToName = folderTitle.minX - folderRight
-    #expect(abs((title.minX - (dot.frame.midX + slot / 2)) - folderToName) <= 0.5, "as far from its name as the folder is from the project's")
+    #expect(dot.frame.midX + slot / 2 < title.minX && title.minX > folderTitle.minX, "the dot before the name, under the project's")
 
     cell.configure(working, nested: true)
     _ = label(working.title)
@@ -490,6 +473,43 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(!hint.drawsBackground && hint.layer?.backgroundColor == nil)
     cell.hovered = true
     #expect(pin.isHidden && !dot.isHidden, "the hint keeps the slot under the pointer")
+    cell.hovered = false
+}
+
+/// Under the pointer a folder offers a gear to its Settings before New Task, and a name gives way to the gear.
+@MainActor @Test func aFolderOffersItsSettings() throws {
+    _ = NSApplication.shared
+    let entries = SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01")])
+    let project = try #require(entries.flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    var opened: String?
+    cell.onProjectSettings = { opened = $0 }
+    // The folder icons are in the app's asset catalog, which the tests do not carry, so only the gear is checked.
+    cell.configure(project, nested: false)
+    cell.setExpanded(true)
+    func layOut() { cell.needsLayout = true; cell.layoutSubtreeIfNeeded() }
+    let buttons = cell.subviews.compactMap { $0 as? SidebarAccessoryButton }
+    let gear = try #require(buttons.first { $0.toolTip == "Project Settings" })
+    let newTask = try #require(buttons.first { $0.toolTip == "New Task" })
+    layOut()
+    #expect(gear.isHidden && newTask.isHidden, "at rest the folder shows only its icon and name")
+    cell.hovered = true
+    layOut()
+    let name = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == project.title })
+    let natural = try #require(name.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: 1_000, height: 100))).width
+    #expect(name.frame.width >= natural, "a short name is not cut short")
+    #expect(!gear.isHidden && !newTask.isHidden && gear.frame.maxX < newTask.frame.minX, "the gear stands before New Task")
+    // A long name gives way to the gear.
+    let longProject = Project(id: "p1", name: String(repeating: "Long project name ", count: 6), repo: "o/r", color: nil, workspace: "/tmp")
+    let long = try #require(SidebarEntry.make(projects: [longProject], sessions: [workspaceSession("a", created: "2026-01")])
+        .flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    cell.configure(long, nested: false)
+    cell.setExpanded(true)
+    layOut()
+    let longTitle = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == long.title }).frame
+    #expect(longTitle.maxX <= gear.frame.minX, "a long name ends before the gear")
+    gear.performClick(nil)
+    #expect(opened == sidebarProject.id)
     cell.hovered = false
 }
 
@@ -641,32 +661,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(!blinking(), "waiting is steady")
 }
 
-/// The icon picker's categories come from the system's tables in their own order, All first with
-/// no list of its own, each category's symbols in the system's symbol order; with no tables there
-/// are none.
-@Test func symbolCategoriesReadTheSystemTables() throws {
-    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-glyphs-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: folder) }
-    func write(_ value: Any, _ name: String) throws {
-        try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
-            .write(to: folder.appendingPathComponent(name))
-    }
-    #expect(SymbolCategories(resources: folder).categories.isEmpty)
-    try write([["key": "all", "icon": "square.grid.2x2"], ["key": "objectsandtools", "icon": "folder"],
-               ["key": "empty", "icon": "xmark"], ["key": "arrows", "icon": "arrow.forward"]], "categories.plist")
-    try write(["hammer": ["objectsandtools"], "folder": ["objectsandtools"], "arrow.up": ["arrows"]], "symbol_categories.plist")
-    try write(["folder", "hammer", "arrow.up"], "symbol_order.plist")
-    let read = SymbolCategories(resources: folder).categories
-    #expect(read.map(\.id) == ["all", "objectsandtools", "arrows"])
-    #expect(read[0].symbols == nil)
-    #expect(read[1].symbols == ["folder", "hammer"])
-    #expect(read[1].title == "Objects & Tools")
-}
-
 /// Every row's icon covers about the same area, however its glyph is shaped, but none is wider than
-/// the cap: the folder, a quarter wider than the grid at one point size, is drawn smaller rather than
-/// reading bigger, and the Pull Requests list, flat, does not stretch past the others to make up its area.
+/// the cap: the Pull Requests list, flat, does not stretch past the others to make up its area.
 @MainActor @Test func rowSymbolsCoverTheSameArea() throws {
     func glyph(_ name: String) throws -> CGSize {
         let image = try #require(SidebarIcons.rowSymbol(name))
@@ -677,18 +673,15 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
         let covered = try glyph(name)
         #expect(abs(covered.width * covered.height - target) / target < 0.12, "\(name) covers \(covered), not about \(target)pt²")
     }
-    for name in ["pullRequests", "folder", "automation", "hammer", "newSession"] {
+    for name in ["pullRequests", "automation", "hammer", "newSession"] {
         let width = try glyph(name).width
         #expect(width <= SidebarMetrics.glyphMaxWidth, "\(name) is \(width)pt wide")
     }
     #expect(try glyph("pullRequests").width > SidebarMetrics.glyphMaxWidth - 1, "the list is held at the cap, not shrunk past it")
-    let wide = try #require(SidebarIcons.symbol("folder")?.withSymbolConfiguration(.init(pointSize: SidebarMetrics.symbolSize, weight: .regular)))
-    let folder = try #require(SidebarIcons.rowSymbol("folder"))
-    #expect(folder.size.width < wide.size.width, "the folder is drawn smaller than the rows' point size")
 }
 
-/// Projects shows selected while a project's page is open, so clicking it again goes back there.
-@MainActor @Test func clickingProjectsWhileAProjectPageShowsGoesBackToProjects() throws {
+/// A project's page shows nothing selected in the sidebar, and a click on its folder still only opens or closes it.
+@MainActor @Test func aProjectPageShowsNothingSelected() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -705,14 +698,13 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.dataSource = coordinator; outline.delegate = coordinator
     coordinator.outline = outline
     coordinator.update(sidebar(.project("p1")))
-    let projects = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
-        .first { $0.entry.destination == .overview })
-    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects, "Projects shows selected")
+    let rows = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
+    let folder = try #require(rows.first { $0.entry.destination == .project("p1") })
+    #expect(outline.selectedRow == -1, "nothing shows selected")
     chosen = []
-    coordinator.reselected(projects)
-    #expect(chosen == [.overview])
-    // Already on Projects, a second click is nothing.
-    coordinator.update(sidebar(.overview)); chosen = []
-    coordinator.reselected(projects)
-    #expect(chosen.isEmpty)
+    coordinator.reselected(folder)
+    #expect(chosen.isEmpty, "a click on the folder does not leave its page")
+    coordinator.update(sidebar(.overview))
+    let projects = try #require(rows.first { $0.entry.destination == .overview })
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects)
 }

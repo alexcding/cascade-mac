@@ -11,8 +11,6 @@ import Observation
         case requestDeletion(ProjectEditorViewModel.DeletionRequest)
         /// Start made a session; `prompt` is its agent's first message, when it has one.
         case sessionCreated(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
-        /// The toolbar's back button: back to Projects, where the page was opened from.
-        case back
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in } {
         didSet {
@@ -40,8 +38,6 @@ import Observation
     init(project: Project, editor: ProjectEditorViewModel, composer: ProjectComposerModel) {
         self.project = project; self.editor = editor; self.composer = composer
     }
-
-    func goBack() { if !retired { onAction(.back) } }
 
     func connect(_ service: (any ProjectService)?, sessions: (any SessionCreating)?) {
         guard !retired else { return }

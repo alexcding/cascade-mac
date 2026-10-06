@@ -52,11 +52,15 @@ import Testing
     context.select(.page(page))
     model.selectTab(.tool(.changes))
     #expect(service.actions.last == .operation(.changes), "Diff's tab goes through the app")
-    #expect(model.startPageTools().map(\.id) == ["files", "chat"], "Diff is open: it is not offered again")
+    #expect(model.startPageTools().map(\.id) == ["files", "terminal", "chat"], "Diff is open: it is not offered again")
     context.close(.tool(.changes))
-    #expect(model.startPageTools().map(\.id) == ["files", "diff", "chat"])
+    #expect(model.startPageTools().map(\.id) == ["files", "terminal", "diff", "chat"])
     context.openTool(.files)
-    #expect(model.startPageTools().map(\.id) == ["files", "diff", "chat"], "Files is offered again: it may have many tabs")
+    context.openTool(.terminal)
+    #expect(model.startPageTools().map(\.id) == ["files", "terminal", "diff", "chat"],
+            "Files and Terminal are offered again: they may have many tabs")
+    #expect(model.shellTitle(.terminal) == "picker" && model.shellTitle(WorkspaceToolTab(.terminal, number: 2)) == "picker 2",
+            "a Terminal tab goes by its worktree's folder, numbered past the first")
 }
 
 @MainActor @Test func workspaceModelComputesPaneVisibilityAndGatesOperationsAgainstCurrentState() throws {
@@ -248,5 +252,77 @@ import Testing
     #expect(model.offersClose(page) && model.offersClose(blank))
     session.close(page)
     #expect(session.pages.count == 1 && !model.offersClose(blank))
+}
+
+// The context pane's last tab, blank or not, closes, and the pane stays open on its empty state.
+@MainActor @Test func theContextPanesLastTabClosesAndThePaneStays() throws {
+    let service = WorkspaceFixture()
+    let scratch = WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal")
+    scratch.configureWorkspace(factory: NativeWorkspaceFeatureFactory(), service: service)
+    let model = try #require(scratch.workspaceViewModel)
+    model.onAction = { [weak scratch] action in
+        if case .closeTab(let id) = action, let scratch, let tab = scratch.tab(id) { scratch.close(tab) }
+    }
+    model.setContextPresented(true)
+    let blank = scratch.openBlankPage()
+    #expect(model.showsInspector && scratch.stripTabs.count == 1 && model.offersClose(blank))
+    model.closeTab(.page(blank))
+    #expect(scratch.stripTabs.isEmpty && model.showsInspector)
+}
+
+// The blank page the pane opens for itself is its empty state, not a tab in its strip, until New Tab
+// takes it; cycling the tabs never lands on it.
+@MainActor @Test func thePanesOwnBlankPageIsNoTabInItsStrip() throws {
+    let scratch = WorkspaceContext(id: "scratch", sourceURL: "", title: "Terminal")
+    scratch.configureWorkspace(factory: NativeWorkspaceFeatureFactory(), service: WorkspaceFixture())
+    scratch.workspaceViewModel?.setContextPresented(true)
+    let filler = scratch.openBlankPage()
+    scratch.fillerPageID = filler.id
+    #expect(scratch.tabs.count == 1 && scratch.stripTabs.isEmpty)
+    let files = WorkspaceToolTab(.files, number: 1)
+    scratch.openTool(.files)
+    #expect(scratch.stripTabs.map(\.id) == [files.id])
+    scratch.cycle(1)
+    #expect(scratch.activeID == files.id)
+    #expect(scratch.openBlankPage() === filler && scratch.fillerPageID == nil && scratch.stripTabs.count == 2)
+}
+
+// A panel's row shows its own blank page as a tab, so cycling there reaches it; only the context
+// pane's strip leaves it out.
+@MainActor @Test func cyclingReachesThePanelsOwnBlankPage() throws {
+    let context = WorkspaceContext(id: "task:panel", sourceURL: "", title: "Panel")
+    let filler = context.openBlankPage()
+    context.fillerPageID = filler.id
+    let page = try #require(context.open("https://example.test/cycle"))
+    #expect(context.activeID == page.id)
+    context.cycle(1)
+    #expect(context.activeID == filler.id)
+}
+
+// A pick from a blank tab swaps in place only when it opens a new tab there; selecting a tab already
+// open closes the blank as any tab closes, which the strip animates.
+@MainActor @Test func aBlankTabSwapsInPlaceOnlyForANewTab() throws {
+    let context = WorkspaceContext(id: "task:swap", sourceURL: "", title: "Swap")
+    context.openTool(.live)
+    _ = context.openBlankPage()
+    var edits = context.tabEdits
+    context.openTool(.simulator, replacingBlank: true)
+    #expect(context.tabEdits == edits && context.activeTool == .simulator && context.pages.isEmpty)
+    _ = context.openBlankPage()
+    edits = context.tabEdits
+    context.openTool(.live, replacingBlank: true)
+    #expect(context.tabEdits > edits && context.activeTool == .live && context.pages.isEmpty)
+
+    let path = NSTemporaryDirectory() + "blank-swap-\(UUID().uuidString).txt"
+    try "text".write(toFile: path, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(atPath: path) }
+    _ = context.openBlankPage()
+    edits = context.tabEdits
+    let file = try #require(context.openFile(path))
+    #expect(context.tabEdits == edits && context.activeID == file.id && context.pages.isEmpty)
+    _ = context.openBlankPage()
+    edits = context.tabEdits
+    #expect(context.openFile(path) === file)
+    #expect(context.tabEdits > edits && context.activeID == file.id && context.pages.isEmpty)
 }
 

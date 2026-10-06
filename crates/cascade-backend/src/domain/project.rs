@@ -28,8 +28,6 @@ pub struct Project {
     pub worktree_include: String,
     pub issues_enabled: bool,
     pub board_enabled: bool,
-    /// The SF Symbol the app draws the project with; empty for its folder.
-    pub icon: String,
 }
 
 impl Default for Project {
@@ -56,7 +54,6 @@ impl Default for Project {
             worktree_include: String::new(),
             issues_enabled: true,
             board_enabled: false,
-            icon: String::new(),
         }
     }
 }
@@ -98,8 +95,7 @@ mod tests {
         assert_eq!(value["forwardWebhooks"], true);
         assert_eq!(value["boardEnabled"], false);
         assert_eq!(value["fixVersionScript"], "");
-        assert_eq!(value["icon"], "");
-        assert_eq!(value.as_object().unwrap().len(), 20, "every column the row has");
+        assert_eq!(value.as_object().unwrap().len(), 19, "every column the row has");
         let back: Project = serde_json::from_value(value).unwrap();
         assert_eq!(back, project);
     }

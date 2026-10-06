@@ -36,11 +36,11 @@ struct SavedTabContent: Codable, Equatable, Sendable {
 }
 
 /// A tool the pane holds as a tab beside its pages and files: the worktree's changes, the
-/// Simulator, the worktree's files to pick one from, the agent's live diagram, and a chat working
-/// in the worktree. At most one tab of each, but for Files and Chat, which have as many as are
-/// opened, as web pages do.
+/// Simulator, the worktree's files to pick one from, the agent's live diagram, a shell in the
+/// worktree, and a chat working in it. At most one tab of each, but for Files, Terminal and Chat,
+/// which have as many as are opened, as web pages do.
 enum WorkspaceTool: String, Codable, CaseIterable {
-    case changes, simulator, files, live, chat
+    case changes, simulator, files, live, terminal, chat
     fileprivate static let prefix = "tool:"
     /// Its tab's id; of Files' tabs, the first one's.
     var id: String { Self.prefix + rawValue }
@@ -50,10 +50,10 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         self = tab.tool
     }
     /// Whether it may have more than one tab.
-    var unlimited: Bool { self == .files || self == .chat }
+    var unlimited: Bool { self == .files || self == .terminal || self == .chat }
     /// The pane its tab shows.
     var pane: WorkspacePane {
-        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live, .chat: .term }
+        switch self { case .changes: .diff; case .simulator: .simulator; case .files, .live, .terminal, .chat: .term }
     }
     var title: String {
         switch self {
@@ -61,12 +61,13 @@ enum WorkspaceTool: String, Codable, CaseIterable {
         case .simulator: String(localized: "Simulator")
         case .files: String(localized: "Open file")
         case .live: String(localized: "Live Monitor")
+        case .terminal: String(localized: "Terminal")
         case .chat: String(localized: "Chat")
         }
     }
     var symbol: String {
         switch self { case .changes: "plus.forwardslash.minus"; case .simulator: "iphone"; case .files: "doc"; case .live: "flowchart"
-        case .chat: "bubble.left.and.bubble.right" }
+        case .terminal: "terminal"; case .chat: "bubble.left.and.bubble.right" }
     }
 }
 
@@ -76,7 +77,8 @@ struct WorkspaceToolTab: Hashable {
     let tool: WorkspaceTool
     let number: Int
     init(_ tool: WorkspaceTool, number: Int = 1) { self.tool = tool; self.number = number }
-    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live), chat = Self(.chat)
+    static let changes = Self(.changes), simulator = Self(.simulator), files = Self(.files), live = Self(.live)
+    static let terminal = Self(.terminal), chat = Self(.chat)
     /// What a snapshot saves it as.
     var rawValue: String { number == 1 ? tool.rawValue : "\(tool.rawValue):\(number)" }
     init?(rawValue: String) {
@@ -164,6 +166,8 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     /// Called when one of its pages creates its web view.
     @ObservationIgnored var pageMaterialized: (BrowserPage) -> Void = { _ in }
     @ObservationIgnored var isOwned: () -> Bool = { true }
+    /// Called when a tool's tab closes, so what the app keeps for it (a Terminal tab's shell) goes too.
+    @ObservationIgnored var toolClosed: (WorkspaceToolTab) -> Void = { _ in }
     @ObservationIgnored private let closeCoordinator: EditorCloseCoordinator
     @ObservationIgnored private let pageFactory: BrowserPageFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
@@ -265,12 +269,22 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
     var activeTool: WorkspaceTool? { activeID.flatMap(WorkspaceToolTab.init(id:)).flatMap { tools.contains($0) ? $0.tool : nil } }
     /// Counts tabs opened, closed and moved by hand, never a restore: what the tab bar animates on.
     private(set) var tabEdits = 0
+    /// Tabs changed in place — a blank tab giving its place to what was picked in it — are not edits:
+    /// the strip swaps them rather than closing one and opening the other.
+    func inPlace(_ change: () -> Void) {
+        let edits = tabEdits
+        change()
+        tabEdits = edits
+    }
     /// The empty-state page the bar opened itself: unlike Cmd-T it must not take the keyboard.
     var fillerPageID: String?
     /// The tabs the strip shows and cycling walks: every tab — pages, files and tools — in their
-    /// order. A blank page — the pane's own included — is a New Tab there until what is typed or
-    /// picked in it takes its place.
+    /// order. A blank page is a New Tab there until what is typed or picked in it takes its place;
+    /// the context pane's strip leaves out the pane's own (`stripTabs`).
     var tabs: [WorkspaceTab] { tabOrder.compactMap(tab) }
+    /// The tabs the context pane's strip shows: all but the pane's own blank page, which is its
+    /// empty state rather than a tab until something is typed in it or New Tab takes it.
+    var stripTabs: [WorkspaceTab] { tabs.filter { $0.id != fillerPageID } }
     /// The tool last in the order other than Diff — the explorer, the Simulator or Live — which
     /// leaving Diff goes back to when there is no page or file.
     private var lastToolBesidesDiff: WorkspaceTab? {
@@ -342,15 +356,21 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let open = tools.filter { $0.tool == tool }
         // Of several tabs, the one shown, else the first.
         let existing = another && tool.unlimited ? nil : open.first { $0.id == activeID } ?? open.first
-        let tab = existing ?? {
+        // One already open is selected, and the blank closes as any tab does.
+        if let existing {
+            select(.tool(existing))
+            if let blank { close(blank) }
+            return
+        }
+        // A new tab takes the blank's place in place.
+        func add() {
             // The lowest number free: the first tab goes by the tool's name alone.
             let taken = Set(open.map(\.number))
             let tab = WorkspaceToolTab(tool, number: (1...).first { !taken.contains($0) }!)
             tools.append(tab); insert(tab.id)
-            return tab
-        }()
-        select(.tool(tab))
-        if let blank { close(blank) }
+            select(.tool(tab))
+        }
+        if let blank { inPlace { add(); close(blank) } } else { add() }
     }
     /// A Chat tab for `thread`: the one already showing it, else a new one after the active tab. With
     /// no thread, a new tab that shows the new-chat form.
@@ -399,7 +419,9 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         case .tool(let toolTab): activeID = toolTab.id; pane = toolTab.tool.pane; changed() }
     }
     func cycle(_ direction: Int) {
-        let order = tabs.map(\.id)
+        // The tabs on screen: the context pane's strip leaves out its own blank page, which cycling
+        // must not land on; a panel's row shows it.
+        let order = (workspaceViewModel?.showsInspector == true ? stripTabs : tabs).map(\.id)
         guard !order.isEmpty else { return }
         // From no tab at all, the first tab is next and the last previous, as from just before
         // the strip.
@@ -412,11 +434,19 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         // A file opened from a blank tab — its address field, or its start page — takes its place.
         let blank = replaceableBlank
         fileSearch.reset()
-        defer { if let blank { close(blank) } }
-        if let file = documents.first(where: { $0.record.path == path }) { select(.file(file)); file.focus(line: line, column: column); return file }
+        // An open file is selected, and the blank closes as any tab does.
+        if let file = documents.first(where: { $0.record.path == path }) {
+            select(.file(file)); file.focus(line: line, column: column)
+            if let blank { close(blank) }
+            return file
+        }
+        // A new file's tab takes the blank's place in place.
         let file = documentFactory.editor(record: .init(path: path))
-        documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
-        select(.file(file)); file.focus(line: line, column: column)
+        func add() {
+            documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
+            select(.file(file)); file.focus(line: line, column: column)
+        }
+        if let blank { inPlace { add(); close(blank) } } else { add() }
         return file
     }
     private func insert(_ id: String, atEnd: Bool = false) {
@@ -455,6 +485,7 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             // filter, so the next Files tab opens on the whole tree.
             if tool.tool == .files, tool.number > 1 { filesModels.removeValue(forKey: tool.number)?.retire() }
             if tool.tool == .files, !tools.contains(where: { $0.tool == .files }) { filesModels[1]?.query = "" }
+            toolClosed(tool)
         }
     }
     func remove(_ file: EditorDocumentViewModel) {

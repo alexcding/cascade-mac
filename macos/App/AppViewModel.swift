@@ -58,8 +58,6 @@ public final class AppViewModel {
             guard oldValue != projects else { return }
             automation?.updateProjects(projects)
             dashboard?.boardProjectIDs = Set(projects.filter(\.showsBoard).map(\.id))
-            dashboard?.projectLooks = Dictionary(projects.map { ($0.id, DashboardProjectLook(symbol: $0.symbol)) },
-                                                 uniquingKeysWith: { first, _ in first })
             // Only while it shows: arriving there builds the picked project's composer.
             if selection == .newSession { coordinator.newSession?.update(projects: projects) }
         }
@@ -89,6 +87,8 @@ public final class AppViewModel {
     }
     var projectModels: [String: ProjectPageViewModel] { coordinator.projectModels }
     private(set) var changingSessions: Set<String> = []
+    /// Pane Terminal tabs' shells being ended, by key.
+    @ObservationIgnored private var closingShells: [String: Task<Void, Never>] = [:]
     /// Sessions the pool stopped with a finished turn nobody had looked at: their terminal, and the
     /// tracker that knew it, are gone, but the row stays done until the session is shown.
     private var finishedUnseenStopped: Set<String> = []
@@ -227,6 +227,9 @@ public final class AppViewModel {
         viewer.prepareContext = { [weak self] context in
             guard let self else { return }
             context.configureWorkspace(factory: workspaceFactory, service: self)
+            context.toolClosed = { [weak self, weak context] tab in
+                if let context, tab.tool == .terminal { self?.closeWorkspaceShell(tab, in: context) }
+            }
             if let model = context.workspaceViewModel { coordinator.bindWorkspace(model, context: context, runtime: self) }
         }
         coordinator.chatRuntime = self
@@ -971,6 +974,9 @@ public final class AppViewModel {
                     historyModels.removeValue(forKey: key)?.hide()
                     terminals.removeValue(forKey: "build:\(record.url)")?.disconnect()
                     terminals.removeValue(forKey: key)?.disconnect()
+                    for shellKey in terminals.keys where shellKey.hasPrefix(Self.shellPrefix(contextID: key)) {
+                        terminals.removeValue(forKey: shellKey)?.disconnect()
+                    }
                     await viewer.remove(id: key)
                 }
                 sessions.removeAll { record in removed.contains { $0.id == record.id } }
@@ -1039,11 +1045,64 @@ public final class AppViewModel {
             workspaceLaunch.cancel(sessionID: id)
             buildModels.removeValue(forKey: "task:\(id)")?.disconnect()
         }
-        for (key, terminal) in terminals where keys.contains(terminal.pairKey) {
+        // The sessions' pane shells go with them, those not shown since a relaunch included.
+        let shellPrefixes = ids.map { Self.shellPrefix(contextID: "task:\($0)") }
+        func isShell(_ key: String) -> Bool { shellPrefixes.contains { key.hasPrefix($0) } }
+        let running = (try? await terminalControl.pairedShells())?.keys.filter(isShell) ?? []
+        let stopping = keys.union(running).union(terminals.values.map(\.pairKey).filter(isShell))
+        for (key, terminal) in terminals where stopping.contains(terminal.pairKey) {
             await terminal.stopConnecting()
             if terminals[key] === terminal { terminals.removeValue(forKey: key) }
         }
-        try await terminalControl.stopPaired(keys: keys)
+        try await terminalControl.stopPaired(keys: stopping)
+    }
+
+    /// What a session's pane Terminal tabs are keyed by, in `terminals` and in ptyd: the context and
+    /// the tab's number, so a relaunch after a crash reattaches each tab to its own shell.
+    static func shellPrefix(contextID: String) -> String { "shell:\(contextID):" }
+    static func shellKey(_ tab: WorkspaceToolTab, contextID: String) -> String { shellPrefix(contextID: contextID) + "\(tab.number)" }
+
+    func workspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) -> TerminalSession? {
+        guard viewer.contexts[context.id] === context else { return nil }
+        return terminals[Self.shellKey(tab, contextID: context.id)]
+    }
+
+    /// A pane Terminal tab's shell, started in its session's worktree the first time the tab shows.
+    /// A tab reopened under a number whose shell is still being ended waits for it, rather than
+    /// reattaching to the shell on its way out.
+    func prepareWorkspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) async {
+        let key = Self.shellKey(tab, contextID: context.id)
+        while let closing = closingShells[key] {
+            // Cleared here as well: a finished task is awaited without suspending, so the loop must
+            // not wait on the cleanup below to run.
+            await closing.value
+            if closingShells[key] == closing { closingShells[key] = nil }
+        }
+        guard tab.tool == .terminal, viewer.contexts[context.id] === context, context.tools.contains(tab),
+              terminals[key] == nil,
+              let session = sessions.first(where: { "task:\($0.id)" == context.id }),
+              !isRemoving(session.id) else { return }
+        let terminal = platformFactory.terminal(.init(key: key, directory: session.worktree, paired: true))
+        terminal.presentation.style = shell.terminalStyle
+        wireLinks(terminal, contextID: context.id)
+        terminals[key] = terminal
+    }
+
+    /// A closed Terminal tab's shell is ended, not left running behind a tab nobody can reach.
+    func closeWorkspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) {
+        let key = Self.shellKey(tab, contextID: context.id)
+        let terminal = terminals.removeValue(forKey: key)
+        let previous = closingShells[key]
+        let closing = Task { [terminalControl] in
+            await previous?.value
+            await terminal?.stopConnecting()
+            try? await terminalControl.stopPaired(keys: [key])
+        }
+        closingShells[key] = closing
+        Task { [weak self] in
+            await closing.value
+            if self?.closingShells[key] == closing { self?.closingShells[key] = nil }
+        }
     }
 
     private func makeTerminal(_ record: WorkspaceSession, fresh: Bool = false, afresh: Bool = false) -> TerminalSession {
@@ -1375,11 +1434,17 @@ public final class AppViewModel {
     }
 
     /// Whether nobody is using a run's session: not shown, not changing, its agent idle or its
-    /// terminal gone, no document open on it, and no shell of its own still running unattached.
+    /// terminal gone, no document open on it, no pane Terminal tab's shell, and no shell of its own
+    /// still running unattached.
     private func mayPrune(_ record: WorkspaceSession, running: [String: Int32]) -> Bool {
         let id = record.id
         guard selection != .session(id), !changingSessions.contains(id), !isRemoving(id),
               !viewer.hasDocuments(contextIDs: ["task:\(id)"], worktrees: [record.worktree]) else { return false }
+        // A pane Terminal tab's shell, attached or still running from before a relaunch, is someone's
+        // to end: removal would kill whatever runs in it.
+        let shells = Self.shellPrefix(contextID: "task:\(id)")
+        guard !terminals.keys.contains(where: { $0.hasPrefix(shells) }),
+              !running.keys.contains(where: { $0.hasPrefix(shells) }) else { return false }
         guard let terminal = terminals["task:\(id)"] else { return running[id] == nil }
         return !terminal.isLive || agentIdle(record)
     }

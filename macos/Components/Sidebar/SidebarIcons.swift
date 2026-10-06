@@ -8,7 +8,6 @@ import AppKit
         // The Overview: pull requests first, with reviews and tickets beside them.
         "pullRequests": ["list.bullet"],
         "automation": ["timer"],
-        "folder": ["folder"],
         "close": [Theme.Symbol.close],
         "plus": ["plus"],
         "globe": ["globe"],
@@ -26,11 +25,16 @@ import AppKit
         "newSession": ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g fill="none" stroke="#000" stroke-width="1.05" stroke-linecap="round" stroke-linejoin="round"><path d="M7.25 2.25H4.75a2.5 2.5 0 0 0-2.5 2.5v6.5a2.5 2.5 0 0 0 2.5 2.5h6.5a2.5 2.5 0 0 0 2.5-2.5V8.75"/><path d="M12.2 1.95a1.35 1.35 0 0 1 1.9 1.9L8.6 9.35l-2.55.6.6-2.55z"/></g></svg>"##,
         "fork": ##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill="none" stroke="#000" stroke-width="1.4" d="M1.5 8H7l6.5-6.5M9 1.5h4.5V6M9 10l4.5 4.5M9 14.5h4.5V10"/></svg>"##,
     ]
+    /// Drawn marks kept as vector template images in the asset catalog, by the name the sidebar asks for:
+    /// a project's folder, closed and open (after Lucide's, ISC, `licenses/Lucide-LICENSE`).
+    private static let assets = ["folderClosed": "FolderClosed", "folderOpen": "FolderOpen"]
+    /// Glyphs drawn at another's size in a row, rather than their own: the open folder at the closed one's.
+    private static let sizedLike = ["folderOpen": "folderClosed"]
     private static var cache: [String: NSImage] = [:]
 
     /// A symbol as the system hands it out, with no size of its own: the source list sizes a row's
     /// icon for its row size, and a button sizes its glyph for its control size. A name this table
-    /// does not know is taken as an SF Symbol's own, as one chosen for a project is.
+    /// does not know is taken as an SF Symbol's own.
     static func symbol(_ name: String) -> NSImage? {
         if let hit = cache[name] { return hit }
         let image = (symbols[name] ?? [name]).lazy.compactMap { NSImage(systemSymbolName: $0, accessibilityDescription: name) }.first
@@ -64,19 +68,24 @@ import AppKit
     /// A row's own icon, baked into the image, sized by how much it covers rather than by one point
     /// size: at one size a folder is a quarter wider than the Dashboard's grid and reads as the bigger
     /// icon, and a glyph of lines and dots reads as the smaller. Each is drawn at the size where its
-    /// glyph covers the area of a `SidebarMetrics.glyphSide` square, so every row's icon, a project's
-    /// own symbol included, reads as the same size, but no wider than `SidebarMetrics.glyphMaxWidth`: a
+    /// glyph covers the area of a `SidebarMetrics.glyphSide` square, so every row's icon reads as the
+    /// same size, but no wider than `SidebarMetrics.glyphMaxWidth`: a
     /// flat glyph such as a list's lines would otherwise grow to cover the area and read as the wider.
     static func rowSymbol(_ name: String) -> NSImage? {
         let key = "\(name)@row"
         if let hit = cache[key] { return hit }
         let size = SidebarMetrics.symbolSize
         // A drawn mark is told its box, as a symbol its point size, and is measured the same way.
-        let render: (CGFloat) -> NSImage? = marks[name] == nil
-            ? { symbol(name)?.withSymbolConfiguration(.init(pointSize: $0, weight: .regular)) }
-            : { drawn(name, size: $0) }
-        guard let measured = render(size) else { return nil }
-        var image = measured
+        func renderer(_ name: String) -> (CGFloat) -> NSImage? {
+            marks[name] == nil && assets[name] == nil
+                ? { symbol(name)?.withSymbolConfiguration(.init(pointSize: $0, weight: .regular)) }
+                : { drawn(name, size: $0) }
+        }
+        let render = renderer(name)
+        guard var image = render(size) else { return nil }
+        // A glyph that stands in for another, as an open folder for a closed one, is drawn at the size
+        // the other is, so the row's icon keeps its size as it changes rather than jumping to its own.
+        guard let measured = renderer(sizedLike[name] ?? name)(size) else { return nil }
         if let glyph = glyphSize(measured), glyph.width > 0, glyph.height > 0 {
             let byArea = size * SidebarMetrics.glyphSide / (glyph.width * glyph.height).squareRoot()
             let byWidth = size * SidebarMetrics.glyphMaxWidth / glyph.width
@@ -123,7 +132,9 @@ import AppKit
     }
 
     private static func drawn(_ name: String, size: CGFloat) -> NSImage? {
-        guard let svg = marks[name], let image = NSImage(data: Data(svg.utf8)) else { return nil }
+        let image: NSImage? = if let svg = marks[name] { NSImage(data: Data(svg.utf8)) }
+            else { assets[name].flatMap { Bundle(for: SidebarCellView.self).image(forResource: NSImage.Name($0))?.copy() as? NSImage } }
+        guard let image else { return nil }
         image.size = NSSize(width: size, height: size)
         image.isTemplate = true
         return image

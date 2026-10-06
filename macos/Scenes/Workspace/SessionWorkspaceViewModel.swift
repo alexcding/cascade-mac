@@ -73,6 +73,11 @@ struct TranscriptThreadQuery: Equatable, Sendable {
     func watchPermissions(runID: String, _ watcher: PermissionWatcher)
     func unwatchPermissions(runID: String)
     func answerPermission(_ id: String, decision: String) async throws
+    /// A pane Terminal tab's shell, once it has been prepared.
+    func workspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) -> TerminalSession?
+    /// Starts a pane Terminal tab's shell in the session's worktree, if it has none.
+    func prepareWorkspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) async
+
     /// One of the chat page's reads of a folder (`ChatFileAccess.folderMethods`), through the chat
     /// backend, for a terminal session's read-only chat.
     func chatFolderRead(_ method: String, params: JSONValue) async throws -> JSONValue
@@ -98,6 +103,8 @@ struct TranscriptThreadQuery: Equatable, Sendable {
     func performPaneChatAction(_ action: ChatViewModel.Action, threadID: String, in context: WorkspaceContext)
 }
 extension WorkspaceServing {
+    func workspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) -> TerminalSession? { nil }
+    func prepareWorkspaceShell(_ tab: WorkspaceToolTab, in context: WorkspaceContext) async {}
     func watchPermissions(runID: String, _ watcher: PermissionWatcher) {}
     func unwatchPermissions(runID: String) {}
     func answerPermission(_ id: String, decision: String) async throws {}
@@ -280,10 +287,11 @@ extension WorkspaceServing {
     var canOpenTab: Bool { active && state.canPresent }
     /// Whether a page's tab shows its close button, which lets the page and its web view go. Closing
     /// a panel's last tab leaves its empty state, a blank page. A lone blank page is that empty
-    /// state: closing it would only make another.
+    /// state: closing it would only make another. The context pane's can close: its empty state, its
+    /// own blank page, is no tab in its strip.
     func offersClose(_ page: BrowserPage) -> Bool {
         guard let context else { return false }
-        return context.tabs.count > 1 || !page.controls.isBlank
+        return context.tabs.count > 1 || !page.controls.isBlank || showsInspector
     }
     /// Whether the workspace on screen is visible to the user, for taking keyboard focus.
     var isActive: Bool { active }
@@ -301,6 +309,9 @@ extension WorkspaceServing {
     func terminalStateChanged() {
         let state = state
         state.terminal?.presentation.style = state.terminalStyle
+        for tab in context?.tools ?? [] where tab.tool == .terminal {
+            shell(for: tab)?.presentation.style = state.terminalStyle
+        }
         // The build log hangs in a toolbar popover, off the window's backdrop: it keeps its theme's
         // own background whether or not the window is translucent.
         var buildStyle = state.terminalStyle
@@ -335,11 +346,26 @@ extension WorkspaceServing {
         }
     }
     func prepareChanges() { if active && showsChanges { perform(.prepareChanges) } }
+    /// The shell a pane Terminal tab shows.
+    func shell(for tab: WorkspaceToolTab) -> TerminalSession? {
+        guard let context else { return nil }
+        return service?.workspaceShell(tab, in: context)
+    }
+    /// A Terminal tab goes by its worktree's folder, numbered past the first: `app`, `app 2`.
+    func shellTitle(_ tab: WorkspaceToolTab) -> String {
+        let folder = session.map { URL(fileURLWithPath: $0.worktree).lastPathComponent } ?? ""
+        let name = folder.isEmpty ? WorkspaceTool.terminal.title : folder
+        return tab.number == 1 ? name : "\(name) \(tab.number)"
+    }
+    func prepareShell(_ tab: WorkspaceToolTab) async {
+        guard let context, let service else { return }
+        await service.prepareWorkspaceShell(tab, in: context)
+    }
     func openEditor() { if canOpenExternal && editorLabel != nil { perform(.openEditor) } }
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
-    /// What a session's blank tab offers to open: its worktree's Files explorer, its changes, its
-    /// agent's Live diagram, and the Simulator while a build has one. A web page is the blank tab
+    /// What a session's blank tab offers to open: its worktree's Files explorer, a shell in its
+    /// worktree, its changes, its agent's Live diagram, and the Simulator while a build has one. A web page is the blank tab
     /// itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
@@ -350,12 +376,19 @@ extension WorkspaceServing {
         tools.append(.init(id: "files", title: String(localized: "Files"), symbol: "folder") { [weak context] in
             context?.openTool(.files, replacingBlank: true, another: true)
         })
+        // Offered every time too: each pick opens another shell in the worktree.
+        tools.append(.init(id: "terminal", title: WorkspaceTool.terminal.title, symbol: WorkspaceTool.terminal.symbol) { [weak context] in
+            context?.openTool(.terminal, replacingBlank: true, another: true)
+        })
         if canShowChanges, !open.contains(.changes) {
             tools.append(.init(id: "diff", title: WorkspaceTool.changes.title, symbol: WorkspaceTool.changes.symbol) { [weak self, weak context] in
                 // As the other tools do, Diff takes the blank tab's place once it opens.
-                let blank = context?.replaceableBlank
-                self?.toggleChanges()
-                if let blank, context?.activeTool == .changes { context?.close(.page(blank)) }
+                guard let context else { return }
+                let blank = context.replaceableBlank
+                context.inPlace {
+                    self?.toggleChanges()
+                    if let blank, context.activeTool == .changes { context.close(.page(blank)) }
+                }
             })
         }
         if canShowLive, !open.contains(.live) {

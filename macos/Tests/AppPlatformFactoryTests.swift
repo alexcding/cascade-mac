@@ -152,3 +152,46 @@ private actor RecordingTerminalControl: TerminalRuntimeControlling {
     #expect(SidebarTabsRemovalNotice(defaults: defaults, tabsFile: file).take() == nil, "still once after a relaunch")
     #expect(FileManager.default.fileExists(atPath: file.path), "the old file is left alone")
 }
+
+/// Each pane Terminal tab is a paired shell of its own in the session's worktree, made when the tab
+/// first shows; closing the tab ends that shell, and only it.
+@MainActor @Test func paneTerminalTabsRunTheirOwnShellsInTheWorktree() async throws {
+    _ = NSApplication.shared
+    let suite = "platform-pane-shell-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let platform = RecordingAppPlatform()
+    let model = AppViewModel(creationFactory: NativeCreationFlowFactory(chooseFolder: { nil }),
+                            shellFactory: NativeShellFeatureFactory(preferences: preferences, fileIcons: nil), platformFactory: platform,
+                            selectionStore: TransientSidebarSelectionStore(.overview), orderStore: TransientSidebarOrderStore())
+    let record = WorkspaceSession(id: "shell-session", projectId: "project", workspace: "/tmp",
+        worktree: "/tmp/cascade-shell-worktree", title: "Shell session", branch: "", url: "", createdAt: nil, pinned: false)
+    model.createdSession(record)
+    let context = try #require(model.viewer.contexts["task:\(record.id)"])
+    context.openTool(.terminal, another: true)
+    context.openTool(.terminal, another: true)
+    let first = WorkspaceToolTab.terminal, second = WorkspaceToolTab(.terminal, number: 2)
+    await model.prepareWorkspaceShell(first, in: context)
+    await model.prepareWorkspaceShell(second, in: context)
+    await model.prepareWorkspaceShell(second, in: context)
+    #expect(Array(platform.requests.suffix(2)) == [
+        .init(key: "shell:task:\(record.id):1", directory: record.worktree, paired: true),
+        .init(key: "shell:task:\(record.id):2", directory: record.worktree, paired: true),
+    ], "one shell per tab, in the worktree, made once")
+    let shell = try #require(model.workspaceShell(second, in: context))
+    #expect(shell !== model.workspaceShell(first, in: context))
+    context.close(.tool(second))
+    #expect(model.workspaceShell(second, in: context) == nil)
+    let deadline = ContinuousClock.now + .seconds(3)
+    while await platform.control.paired.isEmpty && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
+    #expect(await platform.control.paired == [["shell:task:\(record.id):2"]], "the closed tab's shell alone is ended")
+    #expect(model.workspaceShell(first, in: context) != nil)
+    // Reopened under the same number while its old shell is still being ended: the new tab waits
+    // for that, then gets a shell of its own.
+    context.close(.tool(second))
+    context.openTool(.terminal, another: true)
+    let requests = platform.requests.count
+    await model.prepareWorkspaceShell(second, in: context)
+    #expect(platform.requests.count == requests + 1 && model.workspaceShell(second, in: context) != nil)
+    await model.stop()
+}
