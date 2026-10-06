@@ -56,6 +56,18 @@ struct ChatToolbarTitle: View {
     }
 }
 
+/// An archived chat's way back into the lists.
+struct ChatUnarchiveButton: View {
+    let model: ChatViewModel
+    var body: some View {
+        Button { model.unarchive() } label: {
+            Label(String(localized: "Unarchive"), systemImage: "tray.and.arrow.up")
+        }
+        .help(String(localized: "This chat is archived. Unarchive it to list it in the sidebar again."))
+        .accessibilityIdentifier("chat-unarchive")
+    }
+}
+
 /// Opens the chat's working folder in Finder.
 struct ChatOpenFolderButton: View {
     let model: ChatViewModel

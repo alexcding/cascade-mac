@@ -110,6 +110,7 @@ import { buildQueuedComposerPreviewText } from "~/components/chat/queuedComposer
 import { ChatThreadFindHost } from "~/components/chat/ThreadFindBar";
 import { createThreadFindHighlightStore, shouldCaptureChatFindShortcut, type ThreadFindMatch } from "~/components/chat/threadFind.logic";
 import {
+  CHAT_COLUMN_GUTTER_CLASS_NAME,
   COMPOSER_COMMAND_MENU_FLOATING_WRAPPER_CLASS_NAME,
   COMPOSER_EDITOR_PADDING_CLASS_NAME,
   COMPOSER_INPUT_SHELL_CLASS_NAME,
@@ -201,6 +202,12 @@ type LateComposerSendHandlers = NonNullable<
 >;
 const EMPTY_ACTIVITIES: never[] = [];
 const COMPOSER_EXTRAS_PANEL_ID = "composer-extras-panel";
+/** The composer's slot: floats above the dock's bottom margin inside the shared chat gutter,
+ *  the column centred at Synara's chat max width (ComposerColumnFrame). */
+const COMPOSER_SLOT_CLASS_NAME = cn(
+  "pointer-events-none absolute inset-x-0 bottom-full z-10 w-full overflow-visible",
+  CHAT_COLUMN_GUTTER_CLASS_NAME,
+);
 
 /** Saves composer images and files through the app; the turn then carries their ids. */
 async function saveAttachments(
@@ -2040,7 +2047,7 @@ export function ChatController({ context }: { context: ChatContext }) {
   // the agent waits on and the subagent strip are drawn alone.
   const composer = readOnly ? (
     pendingPanel || subagentStrip ? (
-      <div ref={composerOverlayRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-10" data-chat-composer-slot="" data-chat-pending-only="">
+      <div ref={composerOverlayRef} className={COMPOSER_SLOT_CLASS_NAME} data-chat-composer-slot="" data-chat-pending-only="">
         <div className="pointer-events-auto relative z-10 w-full overflow-visible">
           <ComposerColumnFrame>
             {pendingPanel}
@@ -2050,7 +2057,7 @@ export function ChatController({ context }: { context: ChatContext }) {
       </div>
     ) : null
   ) : (
-    <div ref={composerOverlayRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-10" data-chat-composer-slot="">
+    <div ref={composerOverlayRef} className={COMPOSER_SLOT_CLASS_NAME} data-chat-composer-slot="">
       <form
         ref={composerFormRef}
         onSubmit={(event: FormEvent) => void onSend(event)}
@@ -2271,7 +2278,15 @@ export function ChatController({ context }: { context: ChatContext }) {
     <WorkspaceFileOpenerContext.Provider value={fileOpener}>
       <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" data-chat-root="" data-read-only={readOnly ? "true" : undefined}>
         {transcript}
-        {composer}
+        {/* As Synara's ChatView lays it out: the composer floats at the top of an in-flow dock
+            (`bottom-full`), so the transcript's viewport ends at the composer's bottom edge and
+            nothing scrolls through the margin under it. The margin is the session overlay's
+            (TranscriptChatOverlay); a read-only page has none, the native composer below it
+            keeps its own. */}
+        <div className="relative z-10 w-full shrink-0" data-chat-composer-dock="">
+          {composer}
+          {readOnly ? null : <div className="chat-composer-bottom-margin" aria-hidden="true" />}
+        </div>
         <ChatThreadFindHost
           open={threadFindOpen}
           focusNonce={threadFindFocusNonce}

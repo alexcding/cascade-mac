@@ -40,3 +40,15 @@ body,
   display: flex;
   flex-direction: column;
 }
+
+/* The composer's margins, the session chat overlay's (TranscriptChatOverlay: 24pt either side,
+   18pt under the card), in both the Chat screen and the pane's narrow tab. The column keeps
+   Synara's max width and centring (ComposerColumnFrame). */
+[data-chat-composer-dock] {
+  --app-density-chat-gutter-x: 24px;
+  --app-density-chat-gutter-x-lg: 24px;
+}
+
+.chat-composer-bottom-margin {
+  height: 18px;
+}

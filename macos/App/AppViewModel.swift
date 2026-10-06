@@ -338,7 +338,8 @@ public final class AppViewModel {
                 cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
-                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees))
+                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
+                                 hasArchivedChats: chats.shells.values.contains { $0.archived && !$0.subagent })
     }
     var activeTerminalKey: String? {
         switch selection {

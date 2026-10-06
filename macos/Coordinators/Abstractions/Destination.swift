@@ -138,11 +138,13 @@ extension Destination {
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
         case .chatCoordinator(let coordinator):
-            // The agent's mark and the chat's title lead; its folder trails.
+            // The agent's mark and the chat's title lead; its folder trails, after Unarchive on an
+            // archived chat (one opened from a sidebar menu's Archived Chats).
             let model = coordinator.model
+            let unarchive: [WindowToolbarItem] = model.archived ? [.init("chat-unarchive") { ChatUnarchiveButton(model: model) }] : []
             return WindowToolbar(
                 leading: [.init("title", style: .plain, priority: .high) { ChatToolbarTitle(model: model) }],
-                trailing: [.init("chat-open-folder") { ChatOpenFolderButton(model: model) }])
+                trailing: unarchive + [.init("chat-open-folder") { ChatOpenFolderButton(model: model) }])
         case .terminal(let root), .session(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):

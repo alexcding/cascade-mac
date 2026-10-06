@@ -126,6 +126,8 @@ extension AppViewModel: ChatCoordinating {
             if chats.shell(id) == nil { chats.reload() }
         case .openSettings:
             coordinator.presentSettingsWindow()
+        case .unarchive:
+            archiveChat(threadID, archived: false)
         }
     }
 
@@ -241,6 +243,8 @@ extension AppViewModel: ChatCoordinating {
                 guard let self, var shell = chats.shell(id) else { return }
                 shell.archivedAt = archived ? ChatTimestamp.string() : nil
                 chats.receive(shell)
+                // Unarchived on its own screen (opened from Archived Chats), its toolbar drops Unarchive.
+                updateChatScreen(id)
                 // An archived chat is no longer listed: it leaves the screen.
                 if archived, selection == .chat(id) { select(.overview) }
             } catch { self?.reportRootError(String(localized: "Could not archive the chat: \(error.localizedDescription)")) }

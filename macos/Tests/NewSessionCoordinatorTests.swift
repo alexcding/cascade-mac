@@ -163,6 +163,47 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
     }
 }
 
+@MainActor @Test func withNoProjectsTheChatSideWaitsForAFolderThenStartsAStandaloneChat() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [])
+        // Task keeps No Projects; the switch still goes to Chat.
+        #expect(model.mode == .task && model.chat == nil && model.place == .folder("") && model.needsChatFolder)
+        model.setMode(.chat)
+        #expect(model.mode == .chat && runtime.chatPlaces == [.folder("")], "No Project…, no folder picked yet")
+        let waiting = try #require(model.chat)
+        await waiting.load()
+        waiting.prompt = "What is in here?"
+        #expect(waiting.standalone && waiting.folder.isEmpty && !waiting.canStart, "Start waits for a folder")
+        await waiting.start()
+        #expect(runtime.chat.commands.isEmpty)
+
+        await model.chooseNoProject()
+        #expect(model.place == .folder("/picked") && !model.needsChatFolder)
+        let chat = try #require(model.chat)
+        #expect(chat !== waiting && chat.prompt == "What is in here?", "what was typed is carried over")
+        await chat.load()
+        #expect(chat.canStart, "a folder picked, Start is enabled")
+        await chat.start()
+        let create = try #require(runtime.chat.commands.first)
+        #expect(create["type"]?.string == "thread.create")
+        #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"]?.string == "/picked")
+        #expect(root.selection == .chat(try #require(create["threadId"]?.string)))
+    }
+}
+
+@MainActor @Test func withProjectsTheChatSideIsNeverWaitingForAFolder() async {
+    await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        #expect(model.place == .project("p") && !model.needsChatFolder)
+    }
+}
+
 @MainActor @Test func chatSideKnowledgeIsASessionPickedAndTheChatWorksInItsWorktree() async throws {
     try await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()

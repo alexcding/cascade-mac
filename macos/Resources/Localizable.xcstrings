@@ -4100,6 +4100,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@’s agent has no conversation to start from." : {
+
+    },
     "%@%@, needs 20 or later" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4491,6 +4494,9 @@
       }
     },
     "%lld minutes" : {
+
+    },
+    "%lld more not shown" : {
 
     },
     "%lld opened" : {
@@ -12149,6 +12155,9 @@
     "Archived" : {
 
     },
+    "Archived Chats" : {
+
+    },
     "Arrows" : {
 
     },
@@ -12228,6 +12237,12 @@
           }
         }
       }
+    },
+    "Ask %@ about this folder" : {
+
+    },
+    "Ask %@ about this project" : {
+
     },
     "Ask %@ anything" : {
       "extractionState" : "manual",
@@ -12382,6 +12397,9 @@
           }
         }
       }
+    },
+    "Ask anything" : {
+
     },
     "Ask Claude" : {
       "extractionState" : "manual",
@@ -19986,6 +20004,9 @@
         }
       }
     },
+    "Choose an agent" : {
+
+    },
     "Choose an external application in Settings." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -26935,6 +26956,9 @@
         }
       }
     },
+    "Connect to start chats." : {
+
+    },
     "Connect to start sessions." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -27322,9 +27346,6 @@
           }
         }
       }
-    },
-    "Connect to the backend to start a chat." : {
-
     },
     "Connected" : {
       "extractionState" : "manual",
@@ -45349,9 +45370,6 @@
         }
       }
     },
-    "Include what the session’s agent knows" : {
-
-    },
     "Includes the app, connected backend, PTY helper and their descendants, plus the WebKit and other helper processes macOS runs for the app. Totals cover only listed processes." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -49369,9 +49387,6 @@
           }
         }
       }
-    },
-    "Knowledge" : {
-
     },
     "Labels" : {
       "extractionState" : "manual",
@@ -56283,9 +56298,6 @@
     "New Chat" : {
 
     },
-    "New Chat in %@" : {
-
-    },
     "New Commit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -59941,6 +59953,9 @@
         }
       }
     },
+    "No models to choose from." : {
+
+    },
     "No pages match “%@”" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -60017,6 +60032,9 @@
           }
         }
       }
+    },
+    "No Project" : {
+
     },
     "No project has a GitHub repository yet." : {
       "extractionState" : "manual",
@@ -60402,6 +60420,9 @@
           }
         }
       }
+    },
+    "No Project…" : {
+
     },
     "No Projects" : {
       "extractionState" : "manual",
@@ -60867,6 +60888,9 @@
           }
         }
       }
+    },
+    "No session of this project has an agent conversation yet." : {
+
     },
     "No sessions" : {
 
@@ -69001,6 +69025,9 @@
           }
         }
       }
+    },
+    "Pick the folder the chat's agent works in." : {
+
     },
     "PID" : {
       "extractionState" : "manual",
@@ -90493,7 +90520,13 @@
         }
       }
     },
+    "Start" : {
+
+    },
     "Start a run now, outside the schedule." : {
+
+    },
+    "Start a task with a worktree of its own, or a chat about the project" : {
 
     },
     "Start Chat" : {
@@ -90654,6 +90687,12 @@
       }
     },
     "Start from a template" : {
+
+    },
+    "Start Knowing Nothing" : {
+
+    },
+    "Start the chat knowing what a session’s agent knows. The chat works in that session’s worktree; the session is not changed." : {
 
     },
     "Starting" : {
@@ -92760,6 +92799,9 @@
           }
         }
       }
+    },
+    "Task" : {
+
     },
     "Task name" : {
       "extractionState" : "manual",
@@ -95287,6 +95329,9 @@
         }
       }
     },
+    "The agent and model the chat starts with" : {
+
+    },
     "The agent forgets everything said so far. The worktree is not touched." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -95444,13 +95489,7 @@
     "The agent starts with this, as if typed at its prompt: skills, file paths and slash commands work." : {
 
     },
-    "The agent works in the project’s folder. It asks before running tools." : {
-
-    },
-    "The agent works in this folder. It asks before running tools." : {
-
-    },
-    "The agent works in this session’s worktree, in a conversation of its own. It asks before running tools." : {
+    "The agent works in %@. It asks before running tools." : {
 
     },
     "The agent, model and effort the session starts with" : {
@@ -99528,6 +99567,9 @@
         }
       }
     },
+    "The project the chat works in" : {
+
+    },
     "The project the session starts in" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -103285,6 +103327,9 @@
         }
       }
     },
+    "This chat is archived. Unarchive it to list it in the sidebar again." : {
+
+    },
     "This chat was deleted." : {
 
     },
@@ -104371,9 +104416,6 @@
           }
         }
       }
-    },
-    "This project has no workspace folder. Set one in the project’s settings to start a chat in it." : {
-
     },
     "This PTY helper cannot acknowledge input failures. Save your work, quit Cascade explicitly, rebuild the helper, and reopen. Existing shells have been preserved." : {
       "localizations" : {
@@ -108794,6 +108836,9 @@
           }
         }
       }
+    },
+    "Unarchive" : {
+
     },
     "Unassigned" : {
       "extractionState" : "manual",
@@ -113824,6 +113869,21 @@
         }
       }
     },
+    "What %@ knows" : {
+
+    },
+    "What %@’s agent knows" : {
+
+    },
+    "What a session’s agent knows" : {
+
+    },
+    "What should we ask about %@?" : {
+
+    },
+    "What should we ask?" : {
+
+    },
     "What should we build in %@?" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -113900,6 +113960,9 @@
           }
         }
       }
+    },
+    "What should we chat about?" : {
+
     },
     "What's New" : {
 

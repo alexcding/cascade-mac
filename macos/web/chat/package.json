@@ -7,7 +7,7 @@
     "build": "node build.mjs",
     "vendor": "node scripts/vendor-synara.mjs",
     "vendor:check": "node scripts/vendor-synara.mjs --check",
-    "test": "node build.mjs && node --test --test-force-exit test/smoke.test.mjs test/queue-restore.test.mjs test/storage-merge.test.mjs test/subagents.test.mjs",
+    "test": "node build.mjs && node --test --test-force-exit test/smoke.test.mjs test/queue-restore.test.mjs test/storage-merge.test.mjs test/subagents.test.mjs test/layout.test.mjs",
     "dev:fixture": "node build.mjs && node test/render-fixture.mjs",
     "typecheck": "node scripts/typecheck.mjs"
   },

@@ -8,6 +8,16 @@ private actor RefreshTransport: BackendTransport {
     var includesProject = true
     private var includesSession = false
     func addSession() { includesSession = true }
+    /// The chats the chat engine lists, as JSON; nil while the engine is down.
+    var chatThreads: String?
+    func chatsUp(_ threads: String) { chatThreads = threads }
+    /// The chat commands dispatched, by type.
+    var chatCommands: [String] {
+        requests.filter { $0.url?.path == Routes.CHAT_RPC }.compactMap { request in
+            let body = try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
+            return body?["method"]?.string == "orchestration.dispatchCommand" ? body?["params"]?["command"]?["type"]?.string : nil
+        }
+    }
     func removeProject() { includesProject = false }
     func reset() { requests.removeAll() }
     var paths: [String] { requests.compactMap { $0.url?.path } }
@@ -35,7 +45,15 @@ private actor RefreshTransport: BackendTransport {
         case Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
         // The chat engine is down: every chat listing fails.
-        case Routes.CHAT_RPC: body = #"{"error":{"message":"chats are not available"}}"#; status = 503
+        case Routes.CHAT_RPC:
+            if let chatThreads {
+                let method = (try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data()))?["method"]?.string
+                switch method {
+                case "chat.listThreads": body = #"{"result":\#(chatThreads)}"#
+                case "orchestration.dispatchCommand": body = #"{"result":{"sequence":1}}"#
+                default: body = #"{"result":null}"#
+                }
+            } else { body = #"{"error":{"message":"chats are not available"}}"#; status = 503 }
         default: body = "{}"
         }
         return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
@@ -429,4 +447,43 @@ private actor RefreshTransport: BackendTransport {
     let page = try #require(model.coordinator.newSession)
     #expect(page.mode == .chat && page.projectID == "p")
     #expect(page.chat?.projectID == "p" && page.chat?.folder == "/fixture")
+}
+
+/// An archived chat is listed nowhere: the Chats heading's Archived Chats opens it, and its toolbar's
+/// Unarchive lists it again.
+@MainActor @Test func anArchivedChatOpensFromTheChatsMenuAndUnarchivesFromItsToolbar() async throws {
+    let suite = "refresh-archived-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.chatsUp(#"""
+        [{"id":"old","projectId":"p","title":"Old","workingDirectory":"/fixture","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-02T10:00:00.000Z"},
+         {"id":"live","projectId":"p","title":"Live","workingDirectory":"/fixture","createdAt":"2026-10-03T10:00:00.000Z"},
+         {"id":"loose","projectId":"cascade-standalone","title":"Loose","workingDirectory":"/elsewhere","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-04T10:00:00.000Z"}]
+        """#)
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.loaded && model.projects.contains { $0.id == "p" } }
+    try await refreshEventually { model.root.entries.contains { $0.chatID == "live" } }
+    let listed = model.root.entries.flatMap(\.descendants).compactMap(\.chatID)
+    #expect(listed == ["live"], "archived chats are listed nowhere")
+    #expect(model.root.entries.contains { $0.id == SidebarEntry.chatsID })
+    #expect(model.root.archivedChats().items.map(\.id) == ["loose", "old"], "newest archived first")
+    #expect(model.root.archivedChats().items.map(\.place) == ["elsewhere", "Project"])
+
+    model.root.openArchivedChat("old")
+    #expect(model.selection == .chat("old"))
+    let screen = try #require(model.coordinator.chatCoordinator)
+    #expect(screen.threadID == "old" && screen.model.archived)
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive", "chat-open-folder"])
+
+    screen.model.unarchive()
+    try await refreshEventually { model.chats.shell("old")?.archived == false }
+    #expect(await runtime.transport.chatCommands == ["thread.unarchive"])
+    try await refreshEventually { model.root.entries.flatMap(\.descendants).contains { $0.chatID == "old" } }
+    #expect(model.root.archivedChats().items.map(\.id) == ["loose"])
+    #expect(model.selection == .chat("old"), "it stays on screen")
+    try await refreshEventually { !screen.model.archived }
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-open-folder"])
+    await model.stop()
 }

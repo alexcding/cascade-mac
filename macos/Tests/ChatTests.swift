@@ -517,10 +517,13 @@ private actor CommandLog {
     var made: [String] = []
     var performed: [ChatViewModel.Action] = []
     var available: Set<String> = ["t1", "t2"]
+    /// The chats whose screen is made with an archived shell.
+    var archived: Set<String> = []
     func makeChatModel(threadID: String) -> ChatViewModel? {
         guard available.contains(threadID) else { return nil }
         made.append(threadID)
-        return ChatViewModel(threadID: threadID, shell: nil, projectName: "Project",
+        let record = archived.contains(threadID) ? shell(threadID, project: "p", created: "2026-01-01", archived: true) : nil
+        return ChatViewModel(threadID: threadID, shell: record, projectName: "Project",
                              page: ChatPageModel(context: pageContext(threadID), backend: PageBackend(), output: { _ in }))
     }
     func performChatAction(_ action: ChatViewModel.Action, threadID: String) { performed.append(action) }
@@ -572,25 +575,125 @@ private actor CommandLog {
     #expect(runtime.performed.count == 1)
 }
 
-@MainActor @Test func sidebarListsChatsUnderProjectsAndOtherChats() {
+@MainActor @Test func sidebarListsEveryChatUnderChatsNewestFirstWithItsPlace() {
     let project = Project(id: "p", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
+    // No chat: no Chats heading at all, and the project holds no chat rows.
+    let none = SidebarEntry.make(projects: [project], sessions: [workspaceSessionForChats("s")])
+    #expect(!none.contains { $0.id == SidebarEntry.chatsID })
+    #expect(none.first { $0.id == "project:p" }?.children.map(\.id) == ["session:s"])
+
+    // The first chat brings the heading and its row.
     var working = shell("busy", project: "p", created: "2026-02-01")
     working.latestTurn = .init(state: "running")
-    let entries = SidebarEntry.make(projects: [project], sessions: [], chats: [working, shell("loose", project: ChatProject.standalone, created: "2026-01-01")])
-    let folder = entries.first { $0.id == "project:p" }
-    #expect(folder?.children.map(\.id) == ["chat:busy"])
-    #expect(folder?.children.first?.destination == .chat("busy"))
-    if case .chat(let status) = folder?.children.first?.role { #expect(status.working && status.cli == "claude") }
-    else { Issue.record("not a chat row") }
-    #expect(Array(entries.map(\.id).suffix(2)) == ["label:other-chats", "chat:loose"])
-    #expect(entries.first { $0.id == "label:other-chats" }?.title == "Other Chats")
-    #expect(entries.first { $0.id == "label:other-chats" }?.hoverable == false, "a heading with no New Chat")
-    #expect(!entries.contains { $0.id == "label:chats" }, "no Chats heading")
+    let first = SidebarEntry.make(projects: [project], sessions: [workspaceSessionForChats("s")], chats: [working])
+    #expect(Array(first.map(\.id).suffix(2)) == [SidebarEntry.chatsID, "chat:busy"])
+    #expect(first.first { $0.id == SidebarEntry.chatsID }?.title == "Chats")
+    #expect(first.first { $0.id == SidebarEntry.chatsID }?.hoverable == false, "a heading with no +")
+    #expect(first.first { $0.id == "project:p" }?.children.map(\.id) == ["session:s"], "project rows show only their sessions")
 
-    // Only project chats: no Other Chats group at all.
-    let projectOnly = SidebarEntry.make(projects: [project], sessions: [], chats: [working])
-    #expect(!projectOnly.contains { $0.role == .label && $0.id != "label:projects" })
-    #expect(projectOnly.last?.id == "project:p")
+    // Every chat archived: the heading stays, rowless, so its menu still reaches them.
+    let archivedOnly = SidebarEntry.make(projects: [project], sessions: [], chats: [], hasArchivedChats: true)
+    #expect(archivedOnly.last?.id == SidebarEntry.chatsID)
+
+    // Every chat, a project's or not, in the order given (the store's, newest first), with its place.
+    let loose = shell("loose", project: ChatProject.standalone, created: "2026-01-01")
+    let gone = shell("gone", project: "deleted", created: "2025-12-01")
+    let entries = SidebarEntry.make(projects: [project], sessions: [], chats: [working, loose, gone])
+    let chats = entries.filter { $0.chatID != nil }
+    #expect(chats.map(\.id) == ["chat:busy", "chat:loose", "chat:gone"])
+    #expect(chats.map(\.subtitle) == ["Project", "loose", "gone"], "the project's name, or the folder's")
+    #expect(chats.first?.destination == .chat("busy"))
+    if case .chat(let status) = chats.first?.role { #expect(status.working && status.cli == "claude") }
+    else { Issue.record("not a chat row") }
+    #expect(!entries.contains { $0.id == "label:other-chats" })
+    #expect(entries.flatMap(\.children).allSatisfy { $0.chatID == nil })
+}
+
+private func workspaceSessionForChats(_ id: String) -> WorkspaceSession {
+    WorkspaceSession(id: id, projectId: "p", workspace: "/tmp", worktree: "/tmp/wt/\(id)", title: id, branch: id, url: "",
+                     createdAt: "2026-01-01", pinned: false)
+}
+
+/// The Chats heading's menu lists every archived chat under its place, newest archived first;
+/// choosing one asks to show it. A project's menu keeps New Chat and lists none.
+@MainActor @Test func archivedChatsMenuListsArchivedChatsByPlaceAndOpensOne() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let project = Project(id: "p", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
+    var older = shell("older", project: "p", created: "2026-01-01", archived: true); older.archivedAt = "2026-01-02T00:00:00.000Z"
+    var newer = shell("newer", project: "p", created: "2026-01-01", archived: true); newer.archivedAt = "2026-03-01T00:00:00.000Z"
+    var child = shell("subagent:newer:t", project: "p", created: "2026-01-01", archived: true); child.parentThreadId = "newer"
+    var loose = shell("loose", project: ChatProject.standalone, created: "2026-01-01", archived: true); loose.archivedAt = "2026-02-01T00:00:00.000Z"
+    let live = shell("live", project: "p", created: "2026-02-01")
+    let chats = [older, newer, child, live, loose]
+    let all = SidebarArchivedChats.of(chats, projects: [project])
+    #expect(all.items.map(\.id) == ["newer", "loose", "older"], "archived only, no subagent, newest archived first")
+    #expect(all.items.map(\.place) == ["Project", "loose", "Project"])
+    #expect(all.byPlace.map(\.place) == ["Project", "loose"])
+    #expect(all.byPlace.first?.items.map(\.id) == ["newer", "older"])
+    let capped = SidebarArchivedChats.of(chats, projects: [project], limit: 1)
+    #expect(capped.items.map(\.id) == ["newer"] && capped.more == 2)
+
+    var opened: [String] = []
+    var newChats: [String] = []
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: [project], sessions: [], chats: [live]),
+                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    value.archivedChats = { capped }
+    value.onOpenArchivedChat = { opened.append($0) }
+    value.onNewChat = { newChats.append($0) }
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    func node(_ id: String) throws -> CocoaSidebar.Node {
+        try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
+    }
+    let projectMenu = try #require(coordinator.menu(for: try node("project:p")))
+    #expect(!projectMenu.items.contains { $0.title == "Archived Chats" }, "on the Chats heading, not a project")
+    let newChat = try #require(projectMenu.items.first { $0.title == "New Chat" })
+    _ = (newChat.target as? NSObject)?.perform(try #require(newChat.action), with: newChat)
+    #expect(newChats == ["p"])
+
+    let heading = try #require(coordinator.menu(for: try node(SidebarEntry.chatsID)))
+    let archived = try #require(heading.items.first { $0.title == "Archived Chats" })
+    let items = try #require(archived.submenu).items
+    #expect(items.map(\.title) == ["Project", "newer", "", "2 more not shown"], "\(items.map(\.title))")
+    #expect(items.first?.isSectionHeader == true && items.last?.action == nil, "a place's header and the count are notes, not choices")
+    _ = (items[1].target as? NSObject)?.perform(try #require(items[1].action), with: items[1])
+    #expect(opened == ["newer"])
+
+    // None archived: the item is there, greyed, with nothing under it.
+    value.archivedChats = { .empty }
+    coordinator.update(value)
+    let none = try #require(coordinator.menu(for: try node(SidebarEntry.chatsID))?.items.first { $0.title == "Archived Chats" })
+    #expect(none.submenu == nil && none.action == nil)
+}
+
+/// An archived chat chosen from the Chats menu is shown; its screen's Unarchive asks the app to list it again.
+@MainActor @Test func anArchivedChatOpenedFromTheMenuRoutesToItsScreenAndUnarchives() throws {
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    let runtime = ChatRuntimeFixture()
+    runtime.archived = ["t1"]
+    coordinator.chatRuntime = runtime
+    coordinator.handle(RootViewModel.Action.select(.chat("t1")))
+    #expect(coordinator.selection == .chat("t1"))
+    let screen = try #require(coordinator.chatCoordinator)
+    #expect(screen.model.archived)
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive", "chat-open-folder"])
+    screen.model.unarchive()
+    #expect(runtime.performed == [.unarchive])
+
+    // A chat that is not archived offers no Unarchive, and asks none.
+    coordinator.navigate(to: .chat("t2"))
+    let other = try #require(coordinator.chatCoordinator)
+    #expect(!other.model.archived && Destination.chatCoordinator(other).windowToolbar.trailing.map(\.id) == ["chat-open-folder"])
+    other.model.unarchive()
+    #expect(runtime.performed == [.unarchive])
 }
 
 /// The page asks for another chat (a fork it made): the window goes to it, and the app hears of it

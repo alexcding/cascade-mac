@@ -118,6 +118,13 @@ import Observation
     /// A chat row's Rename…, with the title typed into the prompt.
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }
     func archiveChat(_ id: String, archived: Bool) { onAction(.archiveChat(id, archived: archived)) }
+    /// The archived chats, by place, for the Chats heading's Archived Chats.
+    func archivedChats() -> SidebarArchivedChats {
+        let state = self.state
+        return SidebarArchivedChats.of(state.chats, projects: state.projects)
+    }
+    /// One chosen from Archived Chats: its screen shows it, and its toolbar offers Unarchive.
+    func openArchivedChat(_ id: String) { select(.chat(id)) }
     /// A chat row's Delete…, once its confirmation was answered.
     func deleteChat(_ id: String) { onAction(.deleteChat(id)) }
     func openTerminal() { onAction(.openTerminal) }

@@ -64,11 +64,17 @@ import Observation
 
     var project: Project? { projects.first { $0.id == projectID } }
 
-    /// The Chat side's place: the folder picked with no project, else the picked project's.
+    /// The Chat side's place: the folder picked with no project, else the picked project's. With no
+    /// project at all it is No Project… in a folder not yet picked (an empty one): the form shows,
+    /// and Start waits for the folder.
     var place: ChatPlace? {
         if let chatFolder { return .folder(chatFolder) }
-        return projectID.map(ChatPlace.project)
+        if let projectID { return .project(projectID) }
+        return projects.isEmpty ? .folder("") : nil
     }
+
+    /// Whether the Chat side waits for a folder: No Project…, none picked yet.
+    var needsChatFolder: Bool { place == .folder("") }
 
     /// The projects changed, or the backend came: the pick stays when it can, and its composer is
     /// asked for again, as a project's model is rebuilt on reconnect.
