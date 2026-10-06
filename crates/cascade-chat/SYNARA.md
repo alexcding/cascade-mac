@@ -42,6 +42,7 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
 | `src/checkpointing/store.rs` | `S/checkpointing/Layers/CheckpointStore.ts`, the ref names of `S/checkpointing/Utils.ts` (under `refs/cascade/checkpoints`, with the managed-family helpers) |
 | `src/checkpointing/diff_query.rs` | `S/checkpointing/Layers/CheckpointDiffQuery.ts` (`orchestration.getTurnDiff`, `orchestration.getFullThreadDiff`) |
 | `src/persistence/store.rs` | `S/persistence/Layers/*` (read model tables, not the event store) |
+| `src/text_generation.rs` | `S/git/Services/TextGeneration.ts` (`generateThreadTitle`), `S/git/textGenerationShared.ts` (`buildThreadTitlePrompt`), `packages/shared/src/chatThreads.ts` (title sanitizing and checks); the CLI run of `S/git/Layers/ClaudeTextGeneration.ts` / `CodexTextGeneration.ts` is the backend's (`cascade-backend/src/chat/titles.rs`) |
 
 ## Where this differs from Synara, on purpose
 
@@ -144,6 +145,15 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
   (`steerSubagent`, which needs the SDK's PreToolUse hook), so the engine refuses a send to a child
   thread and the app shows it read-only; per-task token meters (`emitTaskUsageSnapshot`); the
   workflow runtime.
+- **Generated titles.** As `maybeGenerateAndRenameThreadTitleForFirstTurn`, the first user
+  message of a thread with the generic title names it, but the first-message fallback is applied at
+  once and the generated title replaces it when it comes (Synara applies the fallback only without a
+  text model or on failure). The host hands the engine a `TextGeneration` (`ChatEngineConfig`); the
+  backend's runs `claude -p --safe-mode` on `haiku` (a Codex chat too, when Claude is installed;
+  else `codex exec` on the chat's model at low effort), not a configured git-writing model.
+  `expectedTitleSequence` is kept as a pending marker on the thread's entry: any title set after the
+  fallback clears it, and the generated title is dropped. Conversation-context regeneration
+  (`regenerateThreadTitle`) is not ported.
 - **Providers.** Claude and Codex. The ACP family (Cursor, Droid, Grok, Devin, OMP), OpenCode,
   Pi and Antigravity are not ported yet.
 

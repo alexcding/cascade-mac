@@ -142,11 +142,6 @@ private struct DashboardSessionLaneView: View {
             if let error = summary.syncError {
                 Text("Sync failed").font(.system(size: 12)).foregroundStyle(DashboardPalette.criticalText).help(error)
             }
-            Button { model.newChat(in: summary.id) } label: {
-                DashboardTagLabel(title: String(localized: "New chat"), active: false)
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("dashboard-new-chat-\(summary.id)")
             Button { model.newSession(in: summary.id) } label: {
                 DashboardTagLabel(title: String(localized: "New session"), active: false)
             }

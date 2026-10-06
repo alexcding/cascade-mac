@@ -41,6 +41,7 @@ async fn start(data_dir: &Path, spawner: &ScriptedSpawner) -> (ChatEngine, Publi
         adapters: None,
         publish: Arc::new(move |event| sink.lock().unwrap().push(event)),
         git: None,
+        text_generation: None,
     })
     .await
     .unwrap();
@@ -1948,6 +1949,7 @@ async fn live_knowledge_of_a_claude_conversation() {
         adapters: None,
         publish: Arc::new(|_| {}),
         git: None,
+        text_generation: None,
     })
     .await
     .unwrap();
@@ -1995,6 +1997,7 @@ async fn live_revert_takes_back_only_the_chats_turn() {
         adapters: None,
         publish: Arc::new(|_| {}),
         git: None,
+        text_generation: None,
     })
     .await
     .unwrap();
@@ -2035,5 +2038,130 @@ async fn live_revert_takes_back_only_the_chats_turn() {
     assert!(reverted.activities.iter().any(|a| a.kind == "checkpoint.revert.succeeded"));
     assert!(!workspace.join("chat.txt").exists());
     assert_kept_beside_the_chat(&workspace);
+    engine.shutdown().await;
+}
+
+// --- generated titles ---
+
+/// A title generator the test answers: each call is handed over with the way to answer it.
+#[derive(Clone, Default)]
+struct ScriptedTitles {
+    calls: Arc<Mutex<Vec<(cascade_chat::text_generation::ThreadTitleGenerationInput, tokio::sync::oneshot::Sender<Result<String, String>>)>>>,
+}
+
+impl cascade_chat::text_generation::TextGeneration for ScriptedTitles {
+    fn generate_thread_title(
+        &self,
+        input: cascade_chat::text_generation::ThreadTitleGenerationInput,
+    ) -> cascade_chat::text_generation::TextGenerationFuture {
+        let (answer, answered) = tokio::sync::oneshot::channel();
+        self.calls.lock().unwrap().push((input, answer));
+        Box::pin(async move { answered.await.unwrap_or_else(|_| Err("dropped".into())) })
+    }
+}
+
+impl ScriptedTitles {
+    async fn next(&self) -> (cascade_chat::text_generation::ThreadTitleGenerationInput, tokio::sync::oneshot::Sender<Result<String, String>>) {
+        let deadline = tokio::time::Instant::now() + WAIT;
+        loop {
+            if let Some(call) = { let mut calls = self.calls.lock().unwrap(); (!calls.is_empty()).then(|| calls.remove(0)) } {
+                return call;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "no title was asked for");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+}
+
+async fn start_with_titles(data_dir: &Path, spawner: &ScriptedSpawner, titles: &ScriptedTitles) -> ChatEngine {
+    ChatEngine::start(ChatEngineConfig {
+        data_dir: data_dir.to_path_buf(),
+        spawner: Arc::new(spawner.clone()),
+        adapters: None,
+        publish: Arc::new(|_| {}),
+        git: None,
+        text_generation: Some(Arc::new(titles.clone())),
+    })
+    .await
+    .unwrap()
+}
+
+async fn title_of(engine: &ChatEngine, thread: &str) -> String {
+    engine.thread(ThreadId::new(thread)).await.unwrap().unwrap().title
+}
+
+#[tokio::test]
+async fn the_first_message_gets_a_generated_title_after_its_fallback() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let titles = ScriptedTitles::default();
+    let engine = start_with_titles(data.path(), &spawner, &titles).await;
+    engine.dispatch(create_thread("t", "claudeAgent", "claude-opus-4-6", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start("t", "m1", "hi, what's 2+2", "queue")).await.unwrap();
+
+    let (input, answer) = titles.next().await;
+    assert_eq!(input.message, "hi, what's 2+2");
+    assert_eq!(input.cwd.as_deref(), Some(workspace.path()));
+    assert_eq!(serde_json::to_value(&input.model_selection).unwrap()["provider"], "claudeAgent");
+    // The fallback stands while the title is generated.
+    assert_eq!(title_of(&engine, "t").await, "hi what's 2+2");
+    answer.send(Ok("\"Basic arithmetic question.\"".into())).unwrap();
+    wait_for(&engine, "t", "the generated title", |t| t.title == "Basic arithmetic question").await;
+
+    // A second message asks for nothing.
+    engine.dispatch(turn_start("t", "m2", "and 3+3?", "queue")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(titles.calls.lock().unwrap().is_empty());
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_title_set_while_one_is_generated_is_kept() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let titles = ScriptedTitles::default();
+    let engine = start_with_titles(data.path(), &spawner, &titles).await;
+    engine.dispatch(create_thread("t", "claudeAgent", "claude-opus-4-6", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start("t", "m1", "hi, what's 2+2", "queue")).await.unwrap();
+    let (_, answer) = titles.next().await;
+    engine
+        .dispatch(command(json!({ "type": "thread.meta.update", "commandId": "rename", "threadId": "t", "title": "Mine" })))
+        .await
+        .unwrap();
+    answer.send(Ok("Basic arithmetic question".into())).unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(title_of(&engine, "t").await, "Mine");
+
+    // Nor is a title the person gave before the first message replaced, or even generated.
+    engine.dispatch(create_thread("named", "claudeAgent", "claude-opus-4-6", workspace.path())).await.unwrap();
+    engine
+        .dispatch(command(json!({ "type": "thread.meta.update", "commandId": "rename-2", "threadId": "named", "title": "Named" })))
+        .await
+        .unwrap();
+    engine.dispatch(turn_start("named", "m1", "hello there", "queue")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(titles.calls.lock().unwrap().is_empty());
+    assert_eq!(title_of(&engine, "named").await, "Named");
+    engine.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_failed_or_generic_generation_keeps_the_fallback() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let titles = ScriptedTitles::default();
+    let engine = start_with_titles(data.path(), &spawner, &titles).await;
+    for (thread, answer) in [("failed", Err("claude timed out".to_owned())), ("generic", Ok("New chat".to_owned()))] {
+        engine.dispatch(create_thread(thread, "claudeAgent", "claude-opus-4-6", workspace.path())).await.unwrap();
+        engine.dispatch(turn_start(thread, "m1", "Fix the flaky build", "queue")).await.unwrap();
+        let (_, reply) = titles.next().await;
+        reply.send(answer).unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(title_of(&engine, "failed").await, "Fix the flaky build");
+    assert_eq!(title_of(&engine, "generic").await, "Fix the flaky build");
     engine.shutdown().await;
 }

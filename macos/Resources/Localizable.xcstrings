@@ -4100,9 +4100,6 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
-    "%@’s agent has no conversation to start from." : {
-
-    },
     "%@%@, needs 20 or later" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -19539,6 +19536,9 @@
         }
       }
     },
+    "Choose a folder for the chat's agent to work in" : {
+
+    },
     "Choose a project" : {
 
     },
@@ -22247,6 +22247,9 @@
           }
         }
       }
+    },
+    "Clear Folder" : {
+
     },
     "Clear History" : {
       "extractionState" : "manual",
@@ -40165,6 +40168,9 @@
         }
       }
     },
+    "Folder…" : {
+
+    },
     "Font" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -56292,9 +56298,6 @@
         }
       }
     },
-    "New chat" : {
-
-    },
     "New Chat" : {
 
     },
@@ -60421,9 +60424,6 @@
         }
       }
     },
-    "No Project…" : {
-
-    },
     "No Projects" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -60888,9 +60888,6 @@
           }
         }
       }
-    },
-    "No session of this project has an agent conversation yet." : {
-
     },
     "No sessions" : {
 
@@ -69025,9 +69022,6 @@
           }
         }
       }
-    },
-    "Pick the folder the chat's agent works in." : {
-
     },
     "PID" : {
       "extractionState" : "manual",
@@ -90526,7 +90520,7 @@
     "Start a run now, outside the schedule." : {
 
     },
-    "Start a task with a worktree of its own, or a chat about the project" : {
+    "Start a task with a worktree of its own, or a chat of no project" : {
 
     },
     "Start Chat" : {
@@ -90687,12 +90681,6 @@
       }
     },
     "Start from a template" : {
-
-    },
-    "Start Knowing Nothing" : {
-
-    },
-    "Start the chat knowing what a session’s agent knows. The chat works in that session’s worktree; the session is not changed." : {
 
     },
     "Starting" : {
@@ -95492,6 +95480,9 @@
     "The agent works in %@. It asks before running tools." : {
 
     },
+    "The agent works in a folder of the chat's own. It asks before running tools." : {
+
+    },
     "The agent, model and effort the session starts with" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -99566,9 +99557,6 @@
           }
         }
       }
-    },
-    "The project the chat works in" : {
-
     },
     "The project the session starts in" : {
       "extractionState" : "manual",
@@ -113872,12 +113860,6 @@
     "What %@ knows" : {
 
     },
-    "What %@’s agent knows" : {
-
-    },
-    "What a session’s agent knows" : {
-
-    },
     "What should we ask about %@?" : {
 
     },
@@ -114274,6 +114256,9 @@
           }
         }
       }
+    },
+    "Work in a folder of the chat's own" : {
+
     },
     "Work on %@" : {
 

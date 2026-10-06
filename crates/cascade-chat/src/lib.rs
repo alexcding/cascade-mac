@@ -11,6 +11,7 @@ pub mod contracts;
 pub mod orchestration;
 pub mod persistence;
 pub mod provider;
+pub mod text_generation;
 
 /// The project id of a chat that belongs to no Cascade project (Synara's `ProjectId` must not be
 /// empty). A project's chats carry the project's UUID.

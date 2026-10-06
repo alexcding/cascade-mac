@@ -11,6 +11,7 @@
 
 mod flight;
 mod knowledge;
+mod titles;
 mod transcript;
 mod workspace;
 
@@ -33,7 +34,7 @@ use cascade_chat::{
     contracts::{
         base::{now_iso, ThreadId},
         orchestration::{
-            ClientThreadCommand, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput, OrchestrationThread,
+            ClientThreadCommand, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput, OrchestrationThread, ThreadCreateCommand,
             ThreadTurnDiff, PROVIDER_SEND_TURN_MAX_FILE_BYTES, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
         },
     },
@@ -56,11 +57,13 @@ pub struct Chat {
     statuses: flight::Flights<(), Value>,
     /// The files of the folders chats work in, for the `@` menu and file references.
     files: workspace::Index,
+    /// Where a chat created with no folder gets one of its own: `<data>/chat/workspaces`.
+    scratch: OnceLock<PathBuf>,
 }
 
 impl Default for Chat {
     fn default() -> Self {
-        Self { engine: OnceLock::new(), statuses: flight::Flights::new(STATUS_TTL, 1), files: workspace::Index::default() }
+        Self { engine: OnceLock::new(), statuses: flight::Flights::new(STATUS_TTL, 1), files: workspace::Index::default(), scratch: OnceLock::new() }
     }
 }
 
@@ -68,6 +71,9 @@ impl Default for Chat {
 /// `attachments.save` of the largest file the engine takes (`PROVIDER_SEND_TURN_MAX_FILE_BYTES`,
 /// 25 MiB) is that file as base64, a third larger, plus the call around it.
 pub const RPC_BODY_LIMIT: usize = 36 * 1024 * 1024;
+
+/// The folder, in the engine's, that holds the scratch folders of chats created with none.
+const SCRATCH_FOLDER: &str = "workspaces";
 
 /// How long a provider's installed version stands before it is asked again.
 const STATUS_TTL: Duration = Duration::from_secs(120);
@@ -96,6 +102,7 @@ pub async fn start(state: &AppState, data_dir: &Path) {
         adapters: None,
         publish: publisher(state.events.clone()),
         git: Some(Arc::new(CliGit)),
+        text_generation: Some(Arc::new(titles::CliTitles::new())),
     };
     if let Err(error) = start_with(state, config).await {
         tracing::error!(error = %format!("{error:#}"), "chat: the engine did not start");
@@ -104,11 +111,13 @@ pub async fn start(state: &AppState, data_dir: &Path) {
 
 /// Starts the engine with `config` as given; tests hand it a scripted spawner.
 pub(crate) async fn start_with(state: &AppState, config: ChatEngineConfig) -> anyhow::Result<()> {
+    let scratch = config.data_dir.join(SCRATCH_FOLDER);
     let engine = ChatEngine::start(config).await?;
     if let Err(engine) = state.chat.engine.set(engine) {
         engine.shutdown().await;
         anyhow::bail!("the chat engine was already started");
     }
+    let _ = state.chat.scratch.set(scratch);
     Ok(())
 }
 
@@ -383,11 +392,67 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
                 .map_err(RpcError::invalid)?;
             create.knowledge_source = Some(resolved);
         }
+        give_scratch_folder(app, create).await?;
     }
+    let deleted = match &command {
+        ClientThreadCommand::Delete(delete) => engine(app)?.thread(delete.thread_id.clone()).await.ok().flatten(),
+        _ => None,
+    };
+    let created_folder = match &command {
+        ClientThreadCommand::Create(create) => create.working_directory.clone().flatten(),
+        _ => None,
+    };
     match engine(app)?.dispatch(command).await {
-        Ok(result) => Ok(json!(result)),
+        Ok(result) => {
+            if let Some(thread) = deleted {
+                remove_scratch_folder(app, &thread).await;
+            }
+            let mut result = json!(result);
+            // The folder the chat works in, which the app shows before the chat's shell comes.
+            if let Some(folder) = created_folder {
+                result["workingDirectory"] = json!(folder);
+            }
+            Ok(result)
+        }
         Err(ChatError::Invalid(detail)) => Err(RpcError::invalid(detail)),
         Err(ChatError::Internal(error)) => Err(RpcError::internal(format!("{error:#}"))),
+    }
+}
+
+/// A chat created with no folder and no worktree (New Task's, which belongs to no project) works
+/// in a private folder of its own, `<data>/chat/workspaces/<thread id>`, made here. It is not a
+/// git repository, so the engine takes no checkpoints in it.
+async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -> Result<(), RpcError> {
+    let named = |folder: &Option<String>| folder.as_deref().is_some_and(|folder| !folder.trim().is_empty());
+    if named(&create.working_directory.clone().flatten()) || named(&create.worktree_path) {
+        return Ok(());
+    }
+    let root = app.chat.scratch.get().ok_or_else(|| RpcError::unavailable("chats are not available"))?;
+    let id = create.thread_id.as_str();
+    if id.is_empty() || id.contains('/') || id.contains("..") || id.starts_with('.') {
+        return Err(RpcError::invalid("A chat's id names no folder."));
+    }
+    let folder = root.join(id);
+    std::fs::create_dir_all(&folder).map_err(RpcError::internal)?;
+    create.working_directory = Some(Some(folder.to_string_lossy().into_owned()));
+    Ok(())
+}
+
+/// A deleted chat's scratch folder goes with it, unless another chat still works there (a fork).
+async fn remove_scratch_folder(app: &AppState, thread: &OrchestrationThread) {
+    let (Some(root), Some(engine)) = (app.chat.scratch.get(), app.chat.engine()) else { return };
+    let Some(folder) = folder_of(thread).map(PathBuf::from) else { return };
+    if folder.parent() != Some(root.as_path()) {
+        return;
+    }
+    let shells = engine.shells(None).await.unwrap_or_default();
+    let shared = shells.iter().any(|shell| {
+        shell.id != thread.id && [&shell.working_directory, &shell.worktree_path].into_iter().flatten().any(|f| PathBuf::from(f) == folder)
+    });
+    if !shared {
+        if let Err(error) = std::fs::remove_dir_all(&folder) {
+            tracing::warn!(folder = %folder.display(), %error, "chat: a scratch folder was not removed");
+        }
     }
 }
 

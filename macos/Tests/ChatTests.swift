@@ -129,9 +129,9 @@ private func pageContext(_ id: String = "t1") -> ChatPageContext {
     #expect(shells[1].label == String(localized: "New Chat"))
 
     _ = try await service.listThreads(projectID: "p")
-    let id = try await service.createThread(projectID: "p", cwd: "/work", provider: "claudeAgent", model: "opus", id: "new-thread",
-                                            now: Date(timeIntervalSince1970: 0))
-    #expect(id == "new-thread")
+    let created = try await service.createThread(projectID: "p", cwd: "/work", provider: "claudeAgent", model: "opus", id: "new-thread",
+                                                 now: Date(timeIntervalSince1970: 0))
+    #expect(created == ChatCreated(id: "new-thread", workingDirectory: "/work"))
     try await service.renameThread("t1", to: "Renamed")
     try await service.archiveThread("t1")
     try await service.deleteThread("t1")
@@ -481,9 +481,9 @@ private struct ChatFolder {
     #expect(await commands.values.count == 1)
 }
 
-/// A standalone chat's models are read again for a folder picked anew; a project with no folder
-/// says so rather than offering a chat that cannot start.
-@MainActor @Test func newChatReadsModelsAgainForANewFolder() async throws {
+/// New Task's chat needs no folder (the backend makes one) and asks for models with none; a project
+/// chat with no folder says so rather than offering a chat that cannot start.
+@MainActor @Test func aNewTaskChatNeedsNoFolder() async throws {
     let asked = CommandLog()
     let service = ScriptedChat { method, params in
         switch method {
@@ -494,13 +494,11 @@ private struct ChatFolder {
         default: throw ChatRPCError(message: "unexpected \(method)")
         }
     }
-    let model = NewChatViewModel(projectID: nil, projectName: nil, folder: "/one", service: service, chooseFolder: { _ in "/two" })
+    let model = NativeChatFeatureFactory().newChat(agent: nil, service: service)
     await model.load()
     await until { model.model != nil }
-    await model.changeFolder()
-    #expect(model.folder == "/two")
-    #expect(await asked.values.last == "/two")
-    #expect(!model.missingFolder)
+    #expect(model.standalone && model.folder.isEmpty && model.canCreate && !model.missingFolder && !model.offersKnowledge)
+    #expect(await asked.values.last == .null, "no cwd")
 
     let project = NewChatViewModel(projectID: "p", projectName: "Project", folder: "", service: service)
     #expect(project.missingFolder && !project.canCreate)
@@ -602,6 +600,13 @@ private actor CommandLog {
     let chats = entries.filter { $0.chatID != nil }
     #expect(chats.map(\.id) == ["chat:busy", "chat:loose", "chat:gone"])
     #expect(chats.map(\.subtitle) == ["Project", "loose", "gone"], "the project's name, or the folder's")
+    // A New Task chat in the folder the backend made for it names no place; one in a picked folder does.
+    var scratch = shell("scratch", project: ChatProject.standalone, created: "2026-01-02")
+    scratch.workingDirectory = "/Users/me/Library/Application Support/Cascade/chat/workspaces/scratch"
+    #expect(scratch.inScratchFolder && !loose.inScratchFolder)
+    let scratchRow = SidebarEntry.make(projects: [project], sessions: [], chats: [scratch]).first { $0.id == "chat:scratch" }
+    #expect(scratchRow?.subtitle == "")
+    #expect(SidebarEntry.chatPlace(scratch, projects: [:]) == "No Project", "the archived list still groups it")
     #expect(chats.first?.destination == .chat("busy"))
     if case .chat(let status) = chats.first?.role { #expect(status.working && status.cli == "claude") }
     else { Issue.record("not a chat row") }
@@ -637,12 +642,10 @@ private func workspaceSessionForChats(_ id: String) -> WorkspaceSession {
     #expect(capped.items.map(\.id) == ["newer"] && capped.more == 2)
 
     var opened: [String] = []
-    var newChats: [String] = []
     var value = CocoaSidebar(entries: SidebarEntry.make(projects: [project], sessions: [], chats: [live]),
                              selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
     value.archivedChats = { capped }
     value.onOpenArchivedChat = { opened.append($0) }
-    value.onNewChat = { newChats.append($0) }
     let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
     let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
     let column = NSTableColumn(identifier: .init("name"))
@@ -655,9 +658,9 @@ private func workspaceSessionForChats(_ id: String) -> WorkspaceSession {
     }
     let projectMenu = try #require(coordinator.menu(for: try node("project:p")))
     #expect(!projectMenu.items.contains { $0.title == "Archived Chats" }, "on the Chats heading, not a project")
-    let newChat = try #require(projectMenu.items.first { $0.title == "New Chat" })
-    _ = (newChat.target as? NSObject)?.perform(try #require(newChat.action), with: newChat)
-    #expect(newChats == ["p"])
+    // A chat belongs to no project: a project's menu starts none.
+    #expect(!projectMenu.items.contains { $0.title == "New Chat" })
+    #expect(projectMenu.items.contains { $0.title == "New Task" })
 
     let heading = try #require(coordinator.menu(for: try node(SidebarEntry.chatsID)))
     let archived = try #require(heading.items.first { $0.title == "Archived Chats" })
@@ -836,4 +839,24 @@ private actor AttachmentReads {
     }
     #expect(flushed == "yes", "the retired page did not flush")
     _ = try await secondView.evaluateJavaScript("localStorage.removeItem('\(key)'); localStorage.removeItem('\(key)-flushed'); 0")
+}
+
+// MARK: - Sidebar row layout
+
+/// A chat row's title has the row first: the subtitle takes only what the title leaves, truncating,
+/// and is dropped before the title is cut.
+@MainActor @Test func aChatRowsTitleWinsOverItsSubtitle() {
+    let layout = SidebarCellView.titleAndSubtitle
+    let gap = SidebarCellView.subtitleGap
+    // Room for both: each at its own width.
+    #expect(layout(200, 80, 60) == (80, 60))
+    // Room for the title and part of the subtitle: the subtitle truncates, the title stays whole.
+    #expect(layout(150, 80, 100) == (80, 150 - 80 - gap))
+    // Too little left for a subtitle worth reading: it goes, and the title keeps its full width.
+    #expect(layout(100, 80, 100) == (80, 0))
+    // A title wider than the row is cut only to the row, with nothing left for the subtitle.
+    #expect(layout(120, 300, 50) == (120, 0))
+    #expect(layout(0, 80, 50) == (0, 0))
+    // A subtitle shorter than the minimum shows whole when it fits.
+    #expect(layout(110, 80, 20) == (80, 20))
 }

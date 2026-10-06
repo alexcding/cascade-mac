@@ -31,6 +31,7 @@ async fn app_with_engine(dir: &Path, spawner: &ScriptedSpawner) -> AppState {
         adapters: None,
         publish: publisher(app.events.clone()),
         git: None,
+        text_generation: None,
     };
     start_with(&app, config).await.unwrap();
     app
@@ -795,4 +796,148 @@ fn a_codex_conversation_is_found_by_its_id_and_worktree() {
     assert_eq!(crate::agents::conversation_in(home.path(), Agent::Codex, "/w/chat", "../x"), None);
     let none = std::collections::HashSet::new();
     assert_eq!(knowledge::describe(home.path(), "codex", "/w/chat", Some(ours), &none), json!({ "conversationId": ours }));
+}
+
+// ---- a chat with no folder, and generated titles ----
+
+fn create_without_folder(thread: &str) -> Value {
+    let mut command = create(thread, Path::new("/unused"));
+    command["command"]["workingDirectory"] = Value::Null;
+    command["command"]["title"] = json!("New thread");
+    command
+}
+
+#[tokio::test]
+async fn a_chat_created_with_no_folder_works_in_a_scratch_folder_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    let router = build_app(app.clone());
+
+    let (status, created) = rpc_call(&router, "orchestration.dispatchCommand", create_without_folder("loose-1")).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let folder = dir.path().join("chat").join("workspaces").join("loose-1");
+    assert_eq!(created["result"]["workingDirectory"], folder.to_string_lossy().as_ref());
+    assert!(folder.is_dir());
+    let (_, snapshot) = rpc_call(&router, "orchestration.getThreadDetailSnapshot", json!({ "threadId": "loose-1" })).await;
+    assert_eq!(snapshot["result"]["thread"]["workingDirectory"], folder.to_string_lossy().as_ref());
+    assert_eq!(snapshot["result"]["thread"]["projectId"], STANDALONE_PROJECT_ID);
+
+    // A picked folder is kept as it is, and nothing is made for it.
+    let work = tempfile::tempdir().unwrap();
+    let (_, picked) = rpc_call(&router, "orchestration.dispatchCommand", create("picked", work.path())).await;
+    assert_eq!(picked["result"]["workingDirectory"], work.path().to_string_lossy().as_ref());
+    assert!(!dir.path().join("chat").join("workspaces").join("picked").exists());
+
+    // An id that is no folder name is refused.
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", create_without_folder("../escape")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Deleting the chat takes its scratch folder along; a picked folder stays.
+    for thread in ["loose-1", "picked"] {
+        let delete = json!({ "command": { "type": "thread.delete", "commandId": format!("delete-{thread}"), "threadId": thread } });
+        let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", delete).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    assert!(!folder.exists());
+    assert!(work.path().is_dir());
+    app.chat.shutdown().await;
+}
+
+fn claude_envelope(title: &str) -> Vec<u8> {
+    json!({ "type": "result", "subtype": "success", "is_error": false, "result": format!("{{\"title\":\"{title}\"}}"),
+            "structured_output": { "title": title } })
+    .to_string()
+    .into_bytes()
+}
+
+#[tokio::test]
+async fn the_first_message_is_titled_by_a_headless_claude_on_haiku() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let runner = Arc::new(cli::ScriptedRunner::new().on("claude", |_| Some(Ok(claude_envelope("Basic arithmetic question.")))));
+    let scripted: Arc<dyn cli::CommandRunner> = runner.clone();
+    let app = cli::scoped(scripted, async {
+        let app = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+        let config = ChatEngineConfig {
+            data_dir: dir.path().join("chat"),
+            spawner: Arc::new(spawner.clone()),
+            adapters: None,
+            publish: publisher(app.events.clone()),
+            git: None,
+            text_generation: Some(Arc::new(titles::CliTitles::new())),
+        };
+        start_with(&app, config).await.unwrap();
+        app
+    })
+    .await;
+    let router = build_app(app.clone());
+    rpc_call(&router, "orchestration.dispatchCommand", create_without_folder("titled")).await;
+    let turn = json!({ "command": {
+        "type": "thread.turn.start", "commandId": "turn-1", "threadId": "titled",
+        "message": { "messageId": "message-1", "role": "user", "text": "hi, what's 2+2", "attachments": [] },
+        "dispatchMode": "queue", "runtimeMode": "approval-required", "interactionMode": "default", "createdAt": T0,
+    }});
+    let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", turn).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let title = timeout(WAIT, async {
+        loop {
+            let thread = app.chat.engine().unwrap().thread(ThreadId::new("titled")).await.unwrap().unwrap();
+            if thread.title != "hi what's 2+2" && thread.title != "New thread" {
+                return thread.title;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the title was generated");
+    assert_eq!(title, "Basic arithmetic question");
+
+    let asked = runner.asked.lock().unwrap().clone();
+    let call = asked.iter().find(|call| call.program == "claude").expect("claude was asked");
+    let args: Vec<String> = call.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    assert_eq!(args, titles::claude_args());
+    for flag in ["--safe-mode", "--strict-mcp-config", "--no-session-persistence"] {
+        assert!(args.iter().any(|arg| arg == flag), "{flag}");
+    }
+    let at = |flag: &str| args[args.iter().position(|arg| arg == flag).unwrap() + 1].clone();
+    assert_eq!((at("--model"), at("--tools"), at("--setting-sources"), at("--output-format")), ("haiku".into(), String::new(), String::new(), "json".into()));
+    let prompt = String::from_utf8(call.input.clone().unwrap()).unwrap();
+    assert!(prompt.starts_with("You generate concise chat thread titles.") && prompt.ends_with("User message:\nhi, what's 2+2"));
+    // Not in the chat's folder: an empty one of its own, gone once the title came.
+    let cwd = call.cwd.clone().unwrap();
+    assert!(!cwd.starts_with(dir.path()) && !cwd.exists());
+    drop(timeout(WAIT, spawner.next()).await);
+    app.chat.shutdown().await;
+}
+
+#[test]
+fn a_claude_reply_is_read_for_its_title() {
+    assert_eq!(titles::title_of_claude_output(&String::from_utf8(claude_envelope("Fix login")).unwrap()).as_deref(), Some("Fix login"));
+    let raw = json!({ "type": "result", "is_error": false, "result": "{\"title\":\"From result\"}" }).to_string();
+    assert_eq!(titles::title_of_claude_output(&raw).as_deref(), Some("From result"));
+    let text = json!({ "type": "result", "is_error": false, "result": "Plain words title" }).to_string();
+    assert_eq!(titles::title_of_claude_output(&text).as_deref(), Some("Plain words title"));
+    let prose = json!({ "type": "result", "is_error": false, "result": "word ".repeat(20) }).to_string();
+    assert_eq!(titles::title_of_claude_output(&prose), None);
+    let failed = json!({ "type": "result", "is_error": true, "result": "Not logged in" }).to_string();
+    assert_eq!(titles::title_of_claude_output(&failed), None);
+    assert_eq!(titles::title_of_claude_output("not json"), None);
+}
+
+#[tokio::test]
+async fn a_failed_claude_leaves_no_title() {
+    let runner: Arc<dyn cli::CommandRunner> =
+        Arc::new(cli::ScriptedRunner::new().on("claude", |_| Some(Err(cli::Failed::timed_out("claude", titles::TITLE_TIMEOUT)))));
+    let generator = cli::scoped(runner, async { titles::CliTitles::new() }).await;
+    let input = cascade_chat::text_generation::ThreadTitleGenerationInput {
+        cwd: None,
+        message: "hello".into(),
+        attachments: Vec::new(),
+        model_selection: serde_json::from_value(json!({ "provider": "claudeAgent", "model": "opus" })).unwrap(),
+    };
+    use cascade_chat::text_generation::TextGeneration;
+    let result = generator.generate_thread_title(input).await;
+    assert!(result.unwrap_err().contains("timed out"));
 }

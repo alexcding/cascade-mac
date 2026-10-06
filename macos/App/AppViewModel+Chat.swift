@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 
 /// Chat sessions: the list's events, the chat screen's model and what its page asks for, New Task's
-/// Chat side, and the sidebar's New Chat, Rename, Archive and Delete.
+/// Chat side, and the sidebar's Rename, Archive and Delete.
 extension AppViewModel: ChatCoordinating {
     // MARK: Events
 
@@ -58,6 +58,7 @@ extension AppViewModel: ChatCoordinating {
     func chatPlaceName(_ shell: ChatThreadShell?) -> String {
         guard let shell else { return "" }
         if let project = projects.first(where: { $0.id == shell.projectId }) { return project.name }
+        if shell.inScratchFolder { return String(localized: "Chat") }
         let folder = (shell.cwd as NSString).lastPathComponent
         return folder.isEmpty ? String(localized: "Chat") : folder
     }
@@ -174,52 +175,19 @@ extension AppViewModel: ChatCoordinating {
         return sessions.first { !$0.worktree.isEmpty && URL(fileURLWithPath: $0.worktree).standardizedFileURL.path == target }
     }
 
-    // MARK: Sidebar and Projects
-
-    /// A project's New Chat, from its sidebar row or Projects: New Task, on its Chat side, in that
-    /// project. A project with no folder has nowhere for a chat to work, so its Settings open instead.
-    func newChat(in projectID: String) {
-        guard coordinator.canPresent, let project = projects.first(where: { $0.id == projectID }) else { return }
-        guard !project.workspace.isEmpty else {
-            openProjectSettings(projectID)
-            projectModels[projectID]?.editor.explainMissingFolder()
-            return
-        }
-        select(.newSession)
-        coordinator.newSession?.startChat(in: projectID)
-    }
-
     // MARK: New Task's Chat side
 
-    func newSessionChat(in place: NewSessionViewModel.ChatPlace, agent: String?) -> NewChatViewModel? {
+    /// New Task's chat belongs to no project: it works in a scratch folder the backend makes, or in a
+    /// folder the system picker chooses (no control offers it yet).
+    func newSessionChat(agent: String?) -> NewChatViewModel? {
         guard let service = chatService else { return nil }
         let choose = chooseChatFolder
-        switch place {
-        case .project(let id):
-            guard let project = projects.first(where: { $0.id == id }), !project.workspace.isEmpty else { return nil }
-            let model = chatFactory.newChat(projectID: id, projectName: project.name, folder: project.workspace, agent: agent,
-                                            service: service, chooseFolder: { await choose($0) })
-            model.knowledgeSourcesProvider = { [weak self] in self?.knowledgeSources(in: id) ?? [] }
-            return model
-        case .folder(let folder):
-            return chatFactory.newChat(projectID: nil, projectName: nil, folder: folder, agent: agent,
-                                       service: service, chooseFolder: { await choose($0) })
-        }
+        return chatFactory.newChat(agent: agent, service: service, chooseFolder: { await choose($0.isEmpty ? nil : $0) })
     }
-
-    func newSessionChooseChatFolder(from start: String?) async -> String? { await chooseChatFolder(start) }
 
     func newSessionChatCreated(_ shell: ChatThreadShell) { chats.receive(shell) }
 
-    /// The project's sessions a chat may start knowing from: those running an agent the app knows
-    /// a conversation of, in a worktree of their own.
-    func knowledgeSources(in projectID: String) -> [NewChatViewModel.KnowledgeSource] {
-        sessions.compactMap { session in
-            guard session.projectId == projectID, !session.worktree.isEmpty, let cli = session.cli,
-                  AgentDrivers.of(cli) != nil, let conversation = session.sessionId, !conversation.isEmpty else { return nil }
-            return .init(id: session.id, title: session.label, cli: cli, conversationID: conversation, worktree: session.worktree)
-        }
-    }
+    // MARK: Sidebar
 
     func renameChat(_ id: String, to name: String) {
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)

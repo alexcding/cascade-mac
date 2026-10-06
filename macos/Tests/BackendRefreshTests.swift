@@ -432,23 +432,6 @@ private actor RefreshTransport: BackendTransport {
     await model.stop()
 }
 
-/// A project's New Chat, from its sidebar row or Projects, is New Task on its Chat side, in that project.
-@MainActor @Test func aProjectsNewChatOpensNewTaskInChatMode() async throws {
-    let suite = "new-chat-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let savedProject = UserDefaults.standard.object(forKey: "newSessionProject")
-    defer { if let savedProject { UserDefaults.standard.set(savedProject, forKey: "newSessionProject") } else { UserDefaults.standard.removeObject(forKey: "newSessionProject") } }
-    let model = refreshApp(RefreshRuntime(), preferences: preferences)
-    await model.start()
-    try await refreshEventually { model.projects.contains { $0.id == "p" } }
-    model.root.newChat(in: "p")
-    #expect(model.selection == .newSession)
-    let page = try #require(model.coordinator.newSession)
-    #expect(page.mode == .chat && page.projectID == "p")
-    #expect(page.chat?.projectID == "p" && page.chat?.folder == "/fixture")
-}
-
 /// An archived chat is listed nowhere: the Chats heading's Archived Chats opens it, and its toolbar's
 /// Unarchive lists it again.
 @MainActor @Test func anArchivedChatOpensFromTheChatsMenuAndUnarchivesFromItsToolbar() async throws {

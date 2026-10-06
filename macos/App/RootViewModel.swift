@@ -33,8 +33,6 @@ import Observation
         case reattachSession(String)
         /// A project row's hover New Task.
         case newTask(String)
-        /// A project's New Chat: New Task, on its Chat side, in that project.
-        case newChat(String)
         case renameChat(String, name: String)
         case archiveChat(String, archived: Bool)
         case deleteChat(String)
@@ -113,8 +111,6 @@ import Observation
     /// A project row's hover pencil: New Task on that project, wherever the window is.
     func newTask(in projectID: String) { onAction(.newTask(projectID)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
-    /// New Chat on a project's row: New Task, on its Chat side, in that project.
-    func newChat(in projectID: String) { onAction(.newChat(projectID)) }
     /// A chat row's Rename…, with the title typed into the prompt.
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }
     func archiveChat(_ id: String, archived: Bool) { onAction(.archiveChat(id, archived: archived)) }

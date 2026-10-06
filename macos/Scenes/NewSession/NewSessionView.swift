@@ -6,7 +6,7 @@ struct NewSessionView: View {
     let model: NewSessionViewModel
 
     var body: some View {
-        if model.mode == .chat, model.place != nil {
+        if model.mode == .chat {
             chatSide.padding(28)
         } else if let project = model.project, let composer = model.composer {
             ProjectComposerView(project: project, model: composer, projects: model.projects, onChooseProject: model.choose,
@@ -17,7 +17,7 @@ struct NewSessionView: View {
                 .padding(28)
         } else if model.projects.isEmpty {
             // Nothing to start a task in yet: the way to make the first project is right here. The
-            // switch stays, since a chat needs only a folder.
+            // switch stays, since a chat needs no project.
             VStack(spacing: 0) {
                 NewTaskModeControl(model: model).padding(.top, 28)
                 noProjects
@@ -67,7 +67,7 @@ struct NewTaskModeControl: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.border))
         .fixedSize()
         .padding(.leading, 4).padding(.trailing, 6)
-        .help(String(localized: "Start a task with a worktree of its own, or a chat about the project"))
+        .help(String(localized: "Start a task with a worktree of its own, or a chat of no project"))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Start"))
         .accessibilityIdentifier("new-task-mode")
@@ -99,39 +99,26 @@ private struct NewTaskModeButton: View {
     }
 }
 
-/// New Task's Chat side: the question, and Start's composer — the Task | Chat switch, the project (or
-/// No Project…, a folder) and the session whose agent's knowledge the chat starts with on its tray;
-/// the agent and model by Start. Start makes the chat, sends what is typed as its first message, and
-/// goes to it.
+/// New Task's Chat side: the question, and Start's composer — the Task | Chat switch on its tray, the
+/// agent and model by Start. The chat belongs to no project and works in a scratch folder of its own.
+/// Start makes the chat, sends what is typed as its first message, and goes to it.
 private struct NewTaskChatComposer: View {
     let page: NewSessionViewModel
     @Bindable var model: NewChatViewModel
     @FocusState private var focused: Bool
-    @State private var choosingProject = false
-    @State private var choosingKnowledge = false
 
     private var chosen: NewChatViewModel.Agent? { model.agents.first { $0.cli == model.agent } }
-    /// The project's name, or with no project the folder's, or No Project… before one is picked.
-    private var placeName: String {
-        if page.needsChatFolder { return String(localized: "No Project…") }
-        return model.projectName ?? (model.folder as NSString).lastPathComponent
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
-            Group {
-                if page.needsChatFolder { Text("What should we ask?") }
-                else { Text("What should we ask about \(Text(placeName).underline(pattern: .dot))?") }
-            }
+            Text("What should we ask?")
                 .font(.system(size: 32)).tracking(-0.6).multilineTextAlignment(.center)
                 .lineLimit(1).minimumScaleFactor(0.6)
             Spacer(minLength: 24)
             VStack(alignment: .leading, spacing: 6) {
                 ComposerTray {
                     NewTaskModeControl(model: page)
-                    projectChip
-                    if model.offersKnowledgeSources { knowledgeChip }
                     Spacer(minLength: 0)
                     if model.busy || (model.loading && model.agents.isEmpty) {
                         ProgressView().controlSize(.small).padding(.trailing, 8)
@@ -156,15 +143,10 @@ private struct NewTaskChatComposer: View {
                 ComposerMessageLine {
                     if let error = model.error {
                         Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
-                    } else if let note = model.knowledgeNote {
-                        Text(note).foregroundStyle(.secondary)
                     } else if let chosen, !chosen.usable, let note = chosen.note {
                         Text(note).foregroundStyle(.secondary)
-                    } else if page.needsChatFolder {
-                        Text("Pick the folder the chat's agent works in.").foregroundStyle(.secondary)
-                    } else if model.standalone {
-                        Text("The agent works in \(model.folder). It asks before running tools.").foregroundStyle(.secondary)
-                            .truncationMode(.middle)
+                    } else {
+                        Text("The agent works in a folder of the chat's own. It asks before running tools.").foregroundStyle(.secondary)
                     }
                 }
             }
@@ -174,79 +156,5 @@ private struct NewTaskChatComposer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { focused = true }
         .task { await model.load() }
-    }
-
-    /// The project the chat works in, or the folder of a chat with none; it opens the projects, and
-    /// No Project… under them.
-    private var projectChip: some View {
-        // With no project to pick, the chip goes straight to the folder picker.
-        Button {
-            if page.projects.isEmpty { Task { await page.chooseNoProject() } } else { choosingProject.toggle() }
-        } label: {
-            ComposerChip(symbol: model.standalone ? "questionmark.folder" : "folder", title: placeName, active: choosingProject)
-        }
-        .buttonStyle(.plain)
-        .disabled(model.busy)
-        .onChange(of: choosingProject) { _, open in if !open { focused = true } }
-        .popover(isPresented: $choosingProject, arrowEdge: .top) {
-            ProjectPicker(projects: page.projects, current: page.chatFolder == nil ? page.projectID : nil,
-                          choose: page.choose, newProject: page.newProject,
-                          noProject: { Task { await page.chooseNoProject() } }) {
-                choosingProject = false
-            }
-        }
-        .help(model.standalone ? model.folder : String(localized: "The project the chat works in"))
-        .accessibilityIdentifier("new-task-chat-project")
-    }
-
-    /// The session whose agent's knowledge the chat starts with: none until one is picked, and
-    /// greyed with its reason when no session has a conversation to start from.
-    private var knowledgeChip: some View {
-        let source = model.chosenKnowledgeSource
-        return Button { choosingKnowledge.toggle() } label: {
-            ComposerChip(symbol: "brain",
-                         title: source.map { String(localized: "What \($0.title)’s agent knows") }
-                            ?? String(localized: "What a session’s agent knows"),
-                         chevron: true, active: choosingKnowledge || source != nil, interactive: model.canChooseKnowledge)
-        }
-        .buttonStyle(.plain)
-        .disabled(!model.canChooseKnowledge)
-        .opacity(model.canChooseKnowledge ? 1 : 0.5)
-        .onChange(of: choosingKnowledge) { _, open in if !open { focused = true } }
-        .popover(isPresented: $choosingKnowledge, arrowEdge: .top) {
-            KnowledgePicker(model: model) { choosingKnowledge = false }
-        }
-        .help(model.knowledgeSourcesReason
-              ?? String(localized: "Start the chat knowing what a session’s agent knows. The chat works in that session’s worktree; the session is not changed."))
-        .accessibilityAddTraits(source != nil ? .isSelected : [])
-        .accessibilityIdentifier("new-task-chat-knowledge")
-    }
-}
-
-/// The knowledge chip's popover: no session, then the project's sessions with an agent conversation.
-private struct KnowledgePicker: View {
-    let model: NewChatViewModel
-    let done: () -> Void
-
-    var body: some View {
-        VStack(spacing: 1) {
-            PickerRow(symbol: "circle.slash", title: String(localized: "Start Knowing Nothing"),
-                      selected: model.knowledgeSourceID == nil) { pick(nil) }
-            Divider().padding(.vertical, 4)
-            ForEach(model.knowledgeSources) { source in
-                PickerRow(title: source.title, selected: model.knowledgeSourceID == source.id) {
-                    AgentMark(key: source.cli, size: 16)
-                } action: { pick(source.id) }
-                .help(source.worktree)
-                .accessibilityIdentifier("new-task-chat-knowledge-\(source.id)")
-            }
-        }
-        .padding(8)
-        .frame(width: 300)
-    }
-
-    private func pick(_ id: String?) {
-        done()
-        Task { await model.chooseKnowledge(id) }
     }
 }

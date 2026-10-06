@@ -28,6 +28,12 @@ struct APIChatService: ChatServing {
     }
 }
 
+/// A chat just made: its id, and the folder it works in (nil when the backend did not say).
+struct ChatCreated: Equatable, Sendable {
+    let id: String
+    let workingDirectory: String?
+}
+
 extension ChatServing {
     /// Every chat of a project, or of every project for nil, newest first; archived ones included.
     func listThreads(projectID: String? = nil) async throws -> [ChatThreadShell] {
@@ -56,16 +62,18 @@ extension ChatServing {
         return result["sequence"]?.number.map { Int($0) }
     }
 
-    /// Starts a chat: Synara's `thread.create`, working in `cwd`, on `provider`'s `model`. The
-    /// backend names it from its first message (it starts with Synara's generic title, which lists show as "New Chat"). Answers its id.
+    /// Starts a chat: Synara's `thread.create`, working in `cwd`, on `provider`'s `model`. With no
+    /// `cwd` the backend makes the chat a scratch folder of its own. The backend names it from its
+    /// first message (it starts with Synara's generic title, which lists show as "New Chat").
+    /// Answers its id and the folder it works in, as the backend reports it.
     /// `worktreePath` tags a chat started in a session's pane with the session's worktree, which is
     /// how lists know it is reached from the session. `knowledge` starts it with what that session's
     /// agent knows (Cascade's `knowledgeSource`): the backend finds the conversation and the engine
     /// forks it, or recaps it for another provider; the chat shows none of its messages.
-    func createThread(projectID: String, cwd: String, provider: String, model: String, worktreePath: String? = nil,
+    func createThread(projectID: String, cwd: String?, provider: String, model: String, worktreePath: String? = nil,
                       knowledge: ChatKnowledgeSource? = nil,
                       title: String = ChatProject.untitled, runtimeMode: String = "approval-required",
-                      id: String = UUID().uuidString.lowercased(), now: Date = Date()) async throws -> String {
+                      id: String = UUID().uuidString.lowercased(), now: Date = Date()) async throws -> ChatCreated {
         var command: [String: JSONValue] = [
             "type": "thread.create",
             "commandId": .string(Self.commandID()),
@@ -78,14 +86,14 @@ extension ChatServing {
             "envMode": "local",
             "branch": nil,
             "worktreePath": worktreePath.map(JSONValue.string) ?? .null,
-            "workingDirectory": .string(cwd),
+            "workingDirectory": cwd.map(JSONValue.string) ?? .null,
             "createdAt": .string(ChatTimestamp.string(now)),
         ]
         if let knowledge {
             command["knowledgeSource"] = ["provider": .string(knowledge.provider), "conversationId": .string(knowledge.conversationID)]
         }
-        try await dispatch(.object(command))
-        return id
+        let result = try await rpc("orchestration.dispatchCommand", params: ["command": .object(command)])
+        return ChatCreated(id: id, workingDirectory: result["workingDirectory"]?.string ?? cwd)
     }
 
     /// Sends `text` as the person's next message in chat `threadID`: Synara's `thread.turn.start`,

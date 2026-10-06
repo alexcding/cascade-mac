@@ -30,8 +30,6 @@ struct CocoaSidebar: NSViewRepresentable {
     var onFocusSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
-    /// A project's New Chat: New Task, on its Chat side, in that project.
-    var onNewChat: (String) -> Void = { _ in }
     var onRenameChat: (String, String) -> Void = { _, _ in }
     var onArchiveChat: (String, Bool) -> Void = { _, _ in }
     /// Called once the deletion was confirmed.
@@ -435,7 +433,6 @@ struct CocoaSidebar: NSViewRepresentable {
             // A folder's hover New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project = destination {
                 add("New Task", action: #selector(newTask(_:)))
-                add("New Chat", action: #selector(newProjectChat(_:)))
                 menu.addItem(.separator())
             }
             if node.entry.detail.hasPrefix("/") {
@@ -496,10 +493,6 @@ struct CocoaSidebar: NSViewRepresentable {
         @objc private func openArchivedChat(_ sender: NSMenuItem) {
             guard let id = sender.representedObject as? String else { return }
             parent.onOpenArchivedChat(id)
-        }
-        @objc private func newProjectChat(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, let id = node.entry.projectID else { return }
-            parent.onNewChat(id)
         }
         @objc private func archiveChat(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, let id = node.entry.chatID,
@@ -954,6 +947,20 @@ enum SidebarMetrics {
     }
 
     private static let forkMarkSize: CGFloat = 12
+    static let subtitleGap: CGFloat = 6
+    /// The narrowest a subtitle is shown at: less is an ellipsis and a letter, which says nothing.
+    static let subtitleMinimum: CGFloat = 28
+
+    /// A row's title and subtitle in `available` points: the title first, whole when it fits and cut
+    /// only when it alone does not; the subtitle takes what is left after the gap, truncating, and is
+    /// dropped (zero) when less than `subtitleMinimum` is left for it.
+    static func titleAndSubtitle(available: CGFloat, title: CGFloat, subtitle: CGFloat) -> (title: CGFloat, subtitle: CGFloat) {
+        let titleShown = max(0, min(title, available))
+        let left = available - titleShown - subtitleGap
+        let subtitleShown = min(subtitle, left)
+        guard subtitleShown > 0, subtitleShown >= min(subtitle, subtitleMinimum) else { return (titleShown, 0) }
+        return (titleShown, subtitleShown)
+    }
     /// The box a session's status dot is centred in, before its name: about as wide as a row symbol's glyph.
     static let statusSlot: CGFloat = 15
 
@@ -1123,16 +1130,15 @@ enum SidebarMetrics {
             titleWidth = min(title.intrinsicContentSize.width.rounded(.up), max(0, titleWidth - size - gap))
             forkMark.frame = centered(titleX + titleWidth + gap, size)
         }
-        // A subtitle follows the title on its baseline and takes what room the title leaves; the
-        // title gives way to it only down to half the row.
+        // A subtitle follows the title on its baseline and takes only the room the title leaves:
+        // the title is never cut for it, and a subtitle with too little room is not shown.
         if !subtitle.isHidden {
             subtitle.sizeToFit()
-            let gap: CGFloat = 6
-            let wanted = subtitle.frame.width.rounded(.up)
-            let titleWanted = title.intrinsicContentSize.width.rounded(.up)
-            let titleShown = min(titleWanted, max(titleWidth - wanted - gap, titleWidth / 2))
-            let subtitleWidth = max(0, min(wanted, titleWidth - titleShown - gap))
-            titleWidth = titleShown
+            let gap = Self.subtitleGap
+            let widths = Self.titleAndSubtitle(available: titleWidth, title: title.intrinsicContentSize.width.rounded(.up),
+                                               subtitle: subtitle.frame.width.rounded(.up))
+            let subtitleWidth = widths.subtitle
+            if subtitleWidth > 0 { titleWidth = widths.title }
             let font = title.font ?? .systemFont(ofSize: NSFont.systemFontSize)
             let baseline = titleY + font.ascender
             let subtitleY = (baseline - (subtitle.font?.ascender ?? font.ascender)).rounded()

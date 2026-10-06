@@ -26,7 +26,6 @@ import Observation
     @ObservationIgnored var requestSession: (String) -> Void = { _ in }
     @ObservationIgnored var requestNewSession: (String) -> Void = { _ in }
     @ObservationIgnored var requestChat: (String) -> Void = { _ in }
-    @ObservationIgnored var requestNewChat: (String) -> Void = { _ in }
     @ObservationIgnored var canCreateProject: () -> Bool = { false }
 
     init(model: DashboardViewModel, shell: ShellStore = ShellStore()) {
@@ -49,7 +48,6 @@ import Observation
         case .openSession(let id): requestSession(id)
         case .newSession(let projectID): requestNewSession(projectID)
         case .openChat(let id): requestChat(id)
-        case .newChat(let projectID): requestNewChat(projectID)
         case .board(.open(let request)):
             guard model.tab == .board else { return }
             model.board?.navigation.open(request)
@@ -63,7 +61,7 @@ import Observation
     func retire() {
         retired = true; isOwned = { false }; canPresent = { false }; requestNewProject = {}; canCreateProject = { false }
         requestProject = { _ in }; requestSession = { _ in }; requestNewSession = { _ in }
-        requestChat = { _ in }; requestNewChat = { _ in }
+        requestChat = { _ in }
         model.retire()
     }
 }
@@ -86,7 +84,6 @@ extension AppCoordinator {
         child.requestSession = { [weak self] id in self?.rootRuntime?.openSession(id) }
         child.requestNewSession = { [weak self] id in self?.rootRuntime?.newTask(in: id) }
         child.requestChat = { [weak self] id in self?.navigate(to: .chat(id)) }
-        child.requestNewChat = { [weak self] id in self?.rootRuntime?.newChat(in: id) }
         dashboardCoordinator = child
         model.onScreen = selection == .overview
         model.appearance = appearance

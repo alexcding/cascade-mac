@@ -1,11 +1,10 @@
 import Foundation
 import Observation
 
-/// New Chat: which agent, which of its models, and where it works. A project's chat works in the
-/// project's folder; a standalone one in a folder the person picked, which they can change here.
-/// New Task's Chat side may start a project's chat with what one of its sessions' agents knows: the
-/// chat then works in that session's worktree, the one place the backend takes that knowledge for,
-/// and is listed under the project as any of its chats.
+/// New Chat: which agent and which of its models. New Task's chat belongs to no project: it works in
+/// a private scratch folder the backend makes for it, or in a folder picked with `changeFolder` (the
+/// logic is here; New Task shows no folder control yet). A session
+/// pane's chat works in the session's worktree, and may start with what the session's agent knows.
 /// The chat starts asking before every tool call (`approval-required`), and is titled "New Chat"
 /// until the backend titles it from the first message.
 @MainActor @Observable final class NewChatViewModel {
@@ -32,21 +31,12 @@ import Observation
         let conversationID: String?
     }
 
-    /// A session of the project a New Task chat may start knowing from: one running an agent the
-    /// app knows a conversation of, in a worktree of its own.
-    struct KnowledgeSource: Identifiable, Equatable {
-        /// The session's id.
-        let id: String
-        let title: String
-        let cli: String
-        let conversationID: String
-        let worktree: String
-    }
-
     /// Nil for a standalone chat.
     let projectID: String?
     /// The project's name, or nil for a standalone chat.
     let projectName: String?
+    /// The folder the chat works in; empty for New Task's chat, which works in a scratch folder of
+    /// its own.
     private(set) var folder: String
     /// The session worktree a chat started in a session's pane is tagged with; nil elsewhere.
     let worktreePath: String?
@@ -59,21 +49,8 @@ import Observation
     private(set) var busy = false
     private(set) var error: String?
     private(set) var retired = false
-    /// The session whose agent's knowledge the form offers to start with: a pane's own, or the one
-    /// picked on New Task; nil otherwise.
-    private(set) var knowledgeSession: SessionKnowledge?
-    /// Whether this is a pane's form, which offers its own session's knowledge as a switch.
-    private let paneKnowledge: Bool
-    /// The project's folder, which a New Task chat goes back to when no session's knowledge is picked.
-    private let baseFolder: String
-    /// New Task's sessions to start knowing from, read as the form loads.
-    private(set) var knowledgeSources: [KnowledgeSource] = []
-    /// The session picked from them, by id; nil while the chat starts knowing nothing.
-    private(set) var knowledgeSourceID: String?
-    /// Why the session just picked could not be started from.
-    private(set) var knowledgeNote: String?
-    @ObservationIgnored var knowledgeSourcesProvider: () -> [KnowledgeSource] = { [] }
-    @ObservationIgnored private var knowledgeRequest = UUID()
+    /// The session whose agent's knowledge a pane's form offers to start with; nil elsewhere.
+    let knowledgeSession: SessionKnowledge?
     /// Start with what the session's agent knows. Off unless the person turns it on.
     var includeKnowledge = false
     /// The first message, in a pane's composer: sent as the chat's first turn once it exists.
@@ -96,10 +73,8 @@ import Observation
          worktreePath: String? = nil, agent: String? = nil, knowledgeSession: SessionKnowledge? = nil) {
         self.projectID = projectID
         self.knowledgeSession = knowledgeSession
-        self.paneKnowledge = knowledgeSession != nil
         self.projectName = projectName
         self.folder = folder
-        self.baseFolder = folder
         self.worktreePath = worktreePath
         self.agent = agent
         self.service = service
@@ -109,50 +84,7 @@ import Observation
     var standalone: Bool { projectID == nil }
 
     /// Whether the form offers to start with the session agent's knowledge as a switch: in a pane only.
-    var offersKnowledge: Bool { paneKnowledge }
-    /// Whether the form offers the project's sessions to start knowing from: New Task's project chat.
-    var offersKnowledgeSources: Bool { !standalone && !paneKnowledge && worktreePath == nil }
-    var chosenKnowledgeSource: KnowledgeSource? { knowledgeSources.first { $0.id == knowledgeSourceID } }
-    /// Why no session can be picked, when none can.
-    var knowledgeSourcesReason: String? {
-        knowledgeSources.isEmpty ? String(localized: "No session of this project has an agent conversation yet.") : nil
-    }
-    var canChooseKnowledge: Bool { !retired && !busy && startedShell == nil && !knowledgeSources.isEmpty }
-
-    /// Picks the session whose agent's knowledge the chat starts with, or none. The chat then works
-    /// in that session's worktree, where the backend finds the conversation; a session whose agent
-    /// has none there is not picked, and says so.
-    func chooseKnowledge(_ id: String?) async {
-        guard !retired, !busy, offersKnowledgeSources, startedShell == nil else { return }
-        let request = UUID()
-        knowledgeRequest = request
-        knowledgeNote = nil
-        let before = folder
-        if let id, let source = knowledgeSources.first(where: { $0.id == id }) {
-            knowledgeSourceID = id
-            knowledgeSession = SessionKnowledge(cli: source.cli, conversationID: source.conversationID)
-            knowledgeConversation = nil; knowledgeChecked = false; includeKnowledge = false
-            folder = source.worktree
-            await checkKnowledge()
-            guard !retired, knowledgeRequest == request else { return }
-            if knowledgeConversation != nil {
-                includeKnowledge = true
-            } else {
-                clearKnowledge()
-                knowledgeNote = String(localized: "\(source.title)’s agent has no conversation to start from.")
-            }
-        } else {
-            clearKnowledge()
-        }
-        // A CLI may offer a folder models of its own.
-        if folder != before { await loadModels() }
-    }
-
-    private func clearKnowledge() {
-        knowledgeSourceID = nil; knowledgeSession = nil; knowledgeConversation = nil
-        knowledgeChecked = false; includeKnowledge = false
-        folder = baseFolder
-    }
+    var offersKnowledge: Bool { knowledgeSession != nil }
 
     /// The agent and model, as the composer's agent menu names them.
     var agentTitle: String {
@@ -165,6 +97,7 @@ import Observation
     /// New Task's field, before anything is typed.
     var askPlaceholder: String {
         guard let name = AgentDrivers.of(agent)?.shortName else { return String(localized: "Ask anything") }
+        if folder.isEmpty { return String(localized: "Ask \(name) anything") }
         return standalone ? String(localized: "Ask \(name) about this folder") : String(localized: "Ask \(name) about this project")
     }
     /// The session's agent, as the form names it.
@@ -203,7 +136,7 @@ import Observation
         return ChatKnowledgeSource(provider: driver.chatProvider, conversationID: conversation)
     }
     var canCreate: Bool {
-        !retired && !busy && !folder.isEmpty && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
+        !retired && !busy && (standalone || !folder.isEmpty) && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
     }
 
     private var typedPrompt: String { prompt.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -219,7 +152,6 @@ import Observation
     /// The providers, then the chosen agent's models.
     func load() async {
         guard !retired else { return }
-        if offersKnowledgeSources { knowledgeSources = knowledgeSourcesProvider() }
         loading = true
         defer { loading = false }
         do {
@@ -257,7 +189,7 @@ import Observation
         defer { if modelsRequest == request { loadingModels = false } }
         var list = statuses[agent.provider]?.models ?? []
         if list.isEmpty {
-            do { list = try await service.listModels(provider: agent.provider, cwd: folder) }
+            do { list = try await service.listModels(provider: agent.provider, cwd: folder.isEmpty ? nil : folder) }
             catch {
                 guard !retired, modelsRequest == request else { return }
                 self.error = error.localizedDescription
@@ -268,11 +200,25 @@ import Observation
         if !list.contains(where: { $0.slug == model }) { model = (list.first { $0.isDefault == true } ?? list.first)?.slug }
     }
 
-    /// A standalone chat's folder, picked again; the models are read again for it, since a CLI may
-    /// offer a folder its own.
+    /// A standalone chat's folder, picked; the models are read again for it, since a CLI may offer
+    /// a folder its own. Cancelled, the chat stays where it was.
     func changeFolder() async {
-        guard !retired, standalone, !busy, let picked = await chooseFolder(folder), !retired, picked != folder else { return }
+        guard !retired, standalone, !busy, startedShell == nil, let picked = await chooseFolder(folder), !retired,
+              !picked.isEmpty, picked != folder else { return }
         folder = picked
+        await loadModels()
+    }
+
+    /// A form made anew (on reconnect) keeps the folder the one before had picked.
+    func carryFolder(from previous: NewChatViewModel) {
+        guard !retired, standalone, previous.standalone, startedShell == nil else { return }
+        folder = previous.folder
+    }
+
+    /// Back to a scratch folder of the chat's own.
+    func clearFolder() async {
+        guard !retired, standalone, !busy, startedShell == nil, !folder.isEmpty else { return }
+        folder = ""
         await loadModels()
     }
 
@@ -294,12 +240,15 @@ import Observation
             if let startedShell {
                 shell = startedShell
             } else {
-                let id = try await service.createThread(projectID: project, cwd: folder, provider: agent.provider, model: model,
-                                                        worktreePath: worktreePath, knowledge: knowledge, title: title)
+                // No folder: the backend makes the chat a scratch folder of its own, and says which.
+                let created = try await service.createThread(projectID: project, cwd: folder.isEmpty ? nil : folder,
+                                                             provider: agent.provider, model: model,
+                                                             worktreePath: worktreePath, knowledge: knowledge, title: title)
                 let now = ChatTimestamp.string()
-                shell = ChatThreadShell(id: id, projectId: project, title: title,
+                shell = ChatThreadShell(id: created.id, projectId: project, title: title,
                                         modelSelection: .init(provider: agent.provider, model: model),
-                                        runtimeMode: "approval-required", workingDirectory: folder, worktreePath: worktreePath,
+                                        runtimeMode: "approval-required",
+                                        workingDirectory: created.workingDirectory ?? folder, worktreePath: worktreePath,
                                         createdAt: now, updatedAt: now)
                 startedShell = shell
             }

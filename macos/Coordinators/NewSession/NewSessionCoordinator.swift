@@ -10,13 +10,12 @@ import Observation
 }
 
 /// What New Task needs from the app: a project's Start composer, and New Project; on its Chat side,
-/// a chat's form, the folder picker for a chat with no project, and the chat it started.
+/// a chat's form (which picks its folder through the app) and the chat it started.
 @MainActor protocol NewSessionCoordinating: AnyObject {
     func newSessionComposer(for projectID: String) -> ProjectComposerModel?
     func newSessionNewProject()
-    /// The Chat side's form for `place`, on `agent` when usable; nil while not connected.
-    func newSessionChat(in place: NewSessionViewModel.ChatPlace, agent: String?) -> NewChatViewModel?
-    func newSessionChooseChatFolder(from start: String?) async -> String?
+    /// The Chat side's form, a chat of no project, on `agent` when usable; nil while not connected.
+    func newSessionChat(agent: String?) -> NewChatViewModel?
     /// A chat New Task started: the list hears of it before the window goes to it.
     func newSessionChatCreated(_ shell: ChatThreadShell)
 }
@@ -40,13 +39,9 @@ import Observation
             guard let self, !retired, isOwned() else { return nil }
             return self.runtime?.newSessionComposer(for: id)
         }
-        model.chatFor = { [weak self] place, agent in
+        model.chatFor = { [weak self] agent in
             guard let self, !retired, isOwned() else { return nil }
-            return self.runtime?.newSessionChat(in: place, agent: agent)
-        }
-        model.chooseChatFolder = { [weak self] start in
-            guard let self, !retired, isOwned(), canPresent() else { return nil }
-            return await self.runtime?.newSessionChooseChatFolder(from: start)
+            return self.runtime?.newSessionChat(agent: agent)
         }
     }
 

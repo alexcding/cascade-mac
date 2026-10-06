@@ -171,7 +171,8 @@ struct SidebarEntry: Equatable {
             if chat.archived { tip += "\n" + String(localized: "Archived") }
             var entry = Self(id: "chat:\(chat.id)", title: chat.label, symbol: "chat", detail: chat.cwd,
                              destination: .chat(chat.id), role: .chat(state)).withTip(tip)
-            entry.subtitle = chatPlace(chat, projects: projectNames)
+            // A chat of its own folder is nowhere to name; a picked folder or a project is.
+            entry.subtitle = chat.inScratchFolder ? "" : chatPlace(chat, projects: projectNames)
             return entry
         }
         let projectIDs = Set(projects.map(\.id))
@@ -206,9 +207,11 @@ struct SidebarEntry: Equatable {
     /// The Chats heading's id: its menu lists the archived chats.
     static let chatsID = "label:chats"
 
-    /// Where a chat is, as its row's subtitle says: its project's name, or its folder's.
+    /// Where a chat is, as its row's subtitle and the archived list say: its project's name, or its
+    /// folder's; No Project for one in a folder of its own.
     static func chatPlace(_ chat: ChatThreadShell, projects: [String: String]) -> String {
         if let name = projects[chat.projectId] { return name }
+        if chat.inScratchFolder { return String(localized: "No Project") }
         let folder = (chat.cwd as NSString).lastPathComponent
         return folder.isEmpty ? String(localized: "No Project") : folder
     }

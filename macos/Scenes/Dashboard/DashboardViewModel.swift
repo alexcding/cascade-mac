@@ -131,8 +131,6 @@ extension DashboardViewModel {
         case newSession(String)
         /// A chat session, from its row in its project's lane.
         case openChat(String)
-        /// New Chat in a project, from its lane.
-        case newChat(String)
         /// A card on the Board tab.
         case board(WebBoardViewModel.Action)
     }
@@ -202,11 +200,6 @@ extension DashboardViewModel {
     func openChat(_ id: String) {
         guard !retired, chats.contains(where: { $0.id == id }) else { return }
         onAction(.openChat(id))
-    }
-
-    func newChat(in projectID: String) {
-        guard !retired, prs.projects.contains(where: { $0.id == projectID }) else { return }
-        onAction(.newChat(projectID))
     }
 
     /// The project every tab is narrowed to, from the menu at the tab bar's end; nil is every project.

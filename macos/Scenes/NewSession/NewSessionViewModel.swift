@@ -5,8 +5,8 @@ import Observation
 /// It shows that project's own composer rather than one of its own, so a link, a draft or a branch
 /// picked on either page is the same one, and a session it makes reaches the app as Start's do.
 ///
-/// Its Chat side starts a chat instead: in the picked project's folder, or with no project in a
-/// folder picked for it. The side last chosen is kept across launches.
+/// Its Chat side starts a chat instead, which belongs to no project and works in a scratch folder
+/// of its own. The side last chosen is kept across launches.
 @MainActor @Observable final class NewSessionViewModel {
     /// What the page asks its coordinator to do.
     enum Action: Equatable {
@@ -25,12 +25,6 @@ import Observation
             }
         }
     }
-    /// Where the Chat side's chat works: a project's folder, or a folder with no project.
-    enum ChatPlace: Equatable {
-        case project(String)
-        case folder(String)
-    }
-
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     /// The projects a session can start in: those with a folder.
     private(set) var projects: [Project] = []
@@ -40,17 +34,11 @@ import Observation
     private(set) var mode: Mode
     /// The Chat side's form, built while that side is shown; nil until the backend is there.
     private(set) var chat: NewChatViewModel?
-    /// The folder a chat with no project works in; nil while the chat is a project's.
-    private(set) var chatFolder: String?
     private(set) var retired = false
     /// The project's composer, built when first asked for.
     @ObservationIgnored var composerFor: (String) -> ProjectComposerModel? = { _ in nil }
-    /// The Chat side's form for a place, starting on `agent` when it is usable.
-    @ObservationIgnored var chatFor: (_ place: ChatPlace, _ agent: String?) -> NewChatViewModel? = { _, _ in nil }
-    /// The folder picker, for a chat with no project; nil when cancelled.
-    @ObservationIgnored var chooseChatFolder: (_ from: String?) async -> String? = { _ in nil }
-    /// The place `chat` was built for.
-    @ObservationIgnored private var chatPlace: ChatPlace?
+    /// The Chat side's form, starting on `agent` when it is usable.
+    @ObservationIgnored var chatFor: (_ agent: String?) -> NewChatViewModel? = { _ in nil }
 
     /// The project picker's New Project.
     func newProject() { if !retired { onAction(.newProject) } }
@@ -64,18 +52,6 @@ import Observation
 
     var project: Project? { projects.first { $0.id == projectID } }
 
-    /// The Chat side's place: the folder picked with no project, else the picked project's. With no
-    /// project at all it is No Project… in a folder not yet picked (an empty one): the form shows,
-    /// and Start waits for the folder.
-    var place: ChatPlace? {
-        if let chatFolder { return .folder(chatFolder) }
-        if let projectID { return .project(projectID) }
-        return projects.isEmpty ? .folder("") : nil
-    }
-
-    /// Whether the Chat side waits for a folder: No Project…, none picked yet.
-    var needsChatFolder: Bool { place == .folder("") }
-
     /// The projects changed, or the backend came: the pick stays when it can, and its composer is
     /// asked for again, as a project's model is rebuilt on reconnect.
     func update(projects: [Project]) {
@@ -85,12 +61,12 @@ import Observation
         let next = [projectID, saved].compactMap { $0 }.first { id in self.projects.contains { $0.id == id } }
             ?? self.projects.first?.id
         show(next)
+        showChat()
     }
 
     func choose(_ id: String) {
         guard !retired, projects.contains(where: { $0.id == id }) else { return }
         UserDefaults.standard.set(id, forKey: Self.projectKey)
-        chatFolder = nil
         show(id)
     }
 
@@ -99,16 +75,6 @@ import Observation
         guard !retired else { return }
         UserDefaults.standard.set(next.rawValue, forKey: Self.modeKey)
         switchMode(next)
-    }
-
-    /// The project chip's No Project…: a chat in a folder picked now, belonging to no project.
-    /// Cancelled, the chat stays where it was.
-    func chooseNoProject() async {
-        guard !retired, mode == .chat, chat?.busy != true else { return }
-        let start = chatFolder ?? project?.workspace
-        guard let folder = await chooseChatFolder(start), !retired, !folder.isEmpty else { return }
-        chatFolder = folder
-        showChat()
     }
 
     /// Opened to start something: in `projectID` when one is given, with what Start is to hold.
@@ -120,13 +86,6 @@ import Observation
         composer?.prepare(text: text, jiraKey: jiraKey, agent: agent)
     }
 
-    /// A project's New Chat: the Chat side, in that project.
-    func startChat(in projectID: String) {
-        guard !retired else { return }
-        choose(projectID)
-        switchMode(.chat)
-    }
-
     /// The chat backend came or went: the Chat side's form is made again on the current one, keeping
     /// what was typed. A form busy starting its chat is left to finish.
     func chatServiceChanged() {
@@ -136,7 +95,7 @@ import Observation
 
     func retire() {
         retired = true; composer = nil; onAction = { _ in }; composerFor = { _ in nil }
-        chat?.retire(); chat = nil; chatFor = { _, _ in nil }; chooseChatFolder = { _ in nil }
+        chat?.retire(); chat = nil; chatFor = { _ in nil }
     }
 
     private func switchMode(_ next: Mode) {
@@ -148,32 +107,33 @@ import Observation
         projectID = id
         let next = id.flatMap(composerFor)
         if next !== composer { composer = next }
-        showChat()
     }
 
-    /// The Chat side's form, for its place: kept while the place is the same, made anew for another,
-    /// with what was typed and the agent picked carried over. Built only while the side is shown.
+    /// The Chat side's form: kept while it is there, made anew on reconnect with what was typed, the
+    /// folder picked and the agent carried over. Built only while the side is shown.
     private func showChat(again: Bool = false) {
         guard !retired, mode == .chat else { return }
-        let place = place
-        if !again, let chat, !chat.retired, place == chatPlace { return }
+        if !again, let chat, !chat.retired { return }
         let previous = chat
-        guard let place, let next = chatFor(place, previous?.agent) else {
-            previous?.retire(); chat = nil; chatPlace = nil
+        guard let next = chatFor(previous?.agent) else {
+            previous?.retire(); chat = nil
             return
         }
-        if let previous { next.prompt = previous.prompt; previous.retire() }
+        if let previous {
+            next.prompt = previous.prompt
+            next.carryFolder(from: previous)
+            previous.retire()
+        }
         next.onAction = { [weak self, weak next] action in
             guard let self, let next, !retired, chat === next else { return }
             switch action {
             case .created(let shell):
                 // The chat is made and its first message sent: a fresh form for the next one.
-                next.retire(); chat = nil; chatPlace = nil
+                next.retire(); chat = nil
                 showChat()
                 onAction(.chatCreated(shell))
             }
         }
         chat = next
-        chatPlace = place
     }
 }

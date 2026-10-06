@@ -52,6 +52,7 @@ use crate::{
         codex::CodexAdapter,
         process::Spawner,
     },
+    text_generation::TextGeneration,
 };
 
 use super::{
@@ -82,6 +83,9 @@ pub struct ChatEngineConfig {
     pub publish: Arc<dyn Fn(ChatEngineEvent) + Send + Sync>,
     /// How checkpoints run git; `None` is the `git` on `PATH`.
     pub git: Option<Arc<dyn GitRunner>>,
+    /// What generates a chat's title from its first message; `None` keeps the first-message
+    /// fallback title (`text_generation.rs`).
+    pub text_generation: Option<Arc<dyn TextGeneration>>,
 }
 
 impl ChatEngineConfig {
@@ -93,6 +97,7 @@ impl ChatEngineConfig {
             adapters: None,
             publish,
             git: None,
+            text_generation: None,
         }
     }
 }
@@ -207,6 +212,7 @@ impl ChatEngine {
             entries: HashMap::new(),
             sessions: HashMap::new(),
             generations: HashMap::new(),
+            text_generation: config.text_generation,
         };
         actor.settle_after_restart().await.context("settle the sessions of the last run")?;
         tokio::spawn(actor.run(inbox, internal_inbox, runtime));
@@ -365,6 +371,8 @@ pub(super) enum Internal {
     /// The edit's restore checkpoint was looked for in git before anything was reset.
     EditChecked { thread_id: ThreadId, restore: EditRestore, result: Result<(), String> },
     EditRestored { thread_id: ThreadId, edit: PendingEdit, result: Result<(), String> },
+    /// A first-turn title was generated (or not) for a thread whose title was `expected`.
+    TitleGenerated { thread_id: ThreadId, expected: String, result: Result<String, String> },
 }
 
 /// How a bounded provider call ended (Synara `runBoundedProviderCall`).
@@ -464,6 +472,9 @@ pub(super) struct Entry {
     pub edit_in_flight: bool,
     /// Turn starts that arrived while an edit was in flight, started when it ends.
     pub deferred_turn_starts: Vec<(OrchestrationEvent, ThreadTurnStartRequestedPayload)>,
+    /// A first-turn title being generated: the title it may replace. Any title set meanwhile
+    /// clears it, and the generated one is then dropped.
+    pub title_generation: Option<String>,
 }
 
 /// A provider session the engine started.
@@ -504,6 +515,7 @@ pub(super) struct Actor {
     /// The lifecycle generation of the session each thread last started: events of an older
     /// one are dropped (Synara's lifecycle-generation guard).
     pub generations: HashMap<ThreadId, String>,
+    pub text_generation: Option<Arc<dyn TextGeneration>>,
 }
 
 impl Actor {
@@ -800,6 +812,7 @@ impl Actor {
                 last_used: Instant::now(),
                 edit_in_flight: false,
                 deferred_turn_starts: Vec::new(),
+                title_generation: None,
             },
         );
         Ok(())
@@ -1084,7 +1097,8 @@ impl Actor {
             | Internal::Reverted { thread_id, .. }
             | Internal::FilesUndone { thread_id, .. }
             | Internal::EditChecked { thread_id, .. }
-            | Internal::EditRestored { thread_id, .. } => thread_id.clone(),
+            | Internal::EditRestored { thread_id, .. }
+            | Internal::TitleGenerated { thread_id, .. } => thread_id.clone(),
             Internal::CheckpointCaptured(captured) => captured.thread_id.clone(),
         };
         if self.load(&thread_id).await.is_err()

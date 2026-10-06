@@ -363,14 +363,12 @@ struct ProjectComposerView: View {
 }
 
 /// The project chip's popover: the projects, filtered by what is typed, and New Project under them.
-/// New Task's Chat side also offers No Project…, a chat in a folder picked for it.
 struct ProjectPicker: View {
     let projects: [Project]
     /// The project picked; nil when none is.
     let current: String?
     let choose: (String) -> Void
     let newProject: (() -> Void)?
-    var noProject: (() -> Void)? = nil
     let done: () -> Void
     @State private var query = ""
     @FocusState private var searching: Bool
@@ -405,21 +403,11 @@ struct ProjectPicker: View {
             .overlay {
                 if matches.isEmpty { Text("No project matches").font(.system(size: 12)).foregroundStyle(.secondary) }
             }
-            if newProject != nil || noProject != nil {
+            if let newProject {
                 Divider()
-                VStack(spacing: 1) {
-                    if let noProject {
-                        PickerRow(symbol: "questionmark.folder", title: String(localized: "No Project…"), selected: current == nil) {
-                            done(); noProject()
-                        }
-                        .accessibilityIdentifier("project-composer-no-project")
-                    }
-                    if let newProject {
-                        PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
-                            .accessibilityIdentifier("project-composer-new-project")
-                    }
-                }
-                .padding(8)
+                PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
+                    .accessibilityIdentifier("project-composer-new-project")
+                    .padding(8)
             }
         }
         .frame(width: 300)

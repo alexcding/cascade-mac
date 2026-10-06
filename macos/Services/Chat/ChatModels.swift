@@ -46,6 +46,14 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
     var cwd: String { workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? worktreePath ?? "" }
     var archived: Bool { archivedAt?.isEmpty == false }
     var standalone: Bool { projectId == ChatProject.standalone }
+    /// It works in the private folder the backend made for it (`<data>/chat/workspaces/<id>`), which
+    /// is nothing to show as a place.
+    var inScratchFolder: Bool {
+        let folder = URL(fileURLWithPath: cwd)
+        let parent = folder.deletingLastPathComponent()
+        return !cwd.isEmpty && folder.lastPathComponent == id && parent.lastPathComponent == "workspaces"
+            && parent.deletingLastPathComponent().lastPathComponent == "chat"
+    }
     /// A subagent's thread, which its parent's page opens.
     var subagent: Bool { parentThreadId?.isEmpty == false }
     /// The CLI that answers it, as the app's drivers know it.

@@ -20,7 +20,7 @@ struct SidebarView: View {
                          onReattachSession: viewModel.reattachSession,
                          onFocusSession: viewModel.focusSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient,
-                         onNewChat: viewModel.newChat(in:), onRenameChat: viewModel.renameChat(_:to:),
+                         onRenameChat: viewModel.renameChat(_:to:),
                          onArchiveChat: viewModel.archiveChat(_:archived:), onDeleteChat: viewModel.deleteChat(_:),
                          archivedChats: viewModel.archivedChats, onOpenArchivedChat: viewModel.openArchivedChat)
 

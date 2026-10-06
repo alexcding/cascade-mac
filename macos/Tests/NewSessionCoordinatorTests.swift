@@ -2,12 +2,14 @@ import Foundation
 import Testing
 @testable import Cascade
 
-/// A chat service whose dispatched commands are kept; `conversation` is what a knowledge check finds.
+/// A chat service whose dispatched commands are kept; a create with no folder is answered with the
+/// scratch folder the backend would make.
 private final class NewTaskChat: ChatServing, @unchecked Sendable {
     private let lock = NSLock()
     private var _commands: [JSONValue] = []
     var commands: [JSONValue] { lock.withLock { _commands } }
     var conversation: String?
+    static let scratch = "/data/chat/workspaces/"
 
     func rpc(_ method: String, params: JSONValue) async throws -> JSONValue {
         switch method {
@@ -15,7 +17,11 @@ private final class NewTaskChat: ChatServing, @unchecked Sendable {
             return [["provider": "claudeAgent", "available": true, "models": [["slug": "opus", "isDefault": true]]],
                     ["provider": "codex", "available": true, "models": [["slug": "gpt-5", "isDefault": true]]]]
         case "orchestration.dispatchCommand":
-            lock.withLock { _commands.append(params["command"] ?? .null) }
+            let command = params["command"] ?? .null
+            lock.withLock { _commands.append(command) }
+            if command["type"] == "thread.create", command["workingDirectory"] == .null {
+                return ["sequence": 1, "workingDirectory": .string(Self.scratch + (command["threadId"]?.string ?? ""))]
+            }
             return ["sequence": 1]
         case "chat.sessionKnowledge":
             return conversation.map { ["conversationId": .string($0)] } ?? .null
@@ -28,26 +34,17 @@ private final class NewTaskChat: ChatServing, @unchecked Sendable {
     var composers: [String] = []
     var newProjects = 0
     var created: [ChatThreadShell] = []
-    var chatPlaces: [NewSessionViewModel.ChatPlace] = []
+    var chatsMade = 0
     var connected = true
     var picked: String? = "/picked"
-    var sources: [NewChatViewModel.KnowledgeSource] = []
     let chat = NewTaskChat()
     func newSessionComposer(for projectID: String) -> ProjectComposerModel? { composers.append(projectID); return nil }
     func newSessionNewProject() { newProjects += 1 }
-    func newSessionChat(in place: NewSessionViewModel.ChatPlace, agent: String?) -> NewChatViewModel? {
+    func newSessionChat(agent: String?) -> NewChatViewModel? {
         guard connected else { return nil }
-        chatPlaces.append(place)
-        switch place {
-        case .project(let id):
-            let model = NewChatViewModel(projectID: id, projectName: "P", folder: "/tmp", service: chat, agent: agent)
-            model.knowledgeSourcesProvider = { [weak self] in self?.sources ?? [] }
-            return model
-        case .folder(let folder):
-            return NewChatViewModel(projectID: nil, projectName: nil, folder: folder, service: chat, agent: agent)
-        }
+        chatsMade += 1
+        return NativeChatFeatureFactory().newChat(agent: agent, service: chat, chooseFolder: { [weak self] _ in self?.picked })
     }
-    func newSessionChooseChatFolder(from start: String?) async -> String? { picked }
     func newSessionChatCreated(_ shell: ChatThreadShell) { created.append(shell) }
 }
 
@@ -96,9 +93,10 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
         #expect(model.mode == .task, "Task until Chat is chosen")
         model.update(projects: [local])
-        #expect(model.chat == nil && runtime.chatPlaces.isEmpty, "the Task side builds no chat")
+        #expect(model.chat == nil && runtime.chatsMade == 0, "the Task side builds no chat")
         model.setMode(.chat)
-        #expect(model.mode == .chat && model.chat?.projectID == "p" && runtime.chatPlaces == [.project("p")])
+        #expect(model.mode == .chat && runtime.chatsMade == 1)
+        #expect(model.chat?.projectID == nil && model.chat?.standalone == true, "a chat belongs to no project")
         #expect(NewSessionViewModel().mode == .chat, "the choice is kept for the next launch")
         model.setMode(.task)
         #expect(NewSessionViewModel().mode == .task)
@@ -110,7 +108,7 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
     }
 }
 
-@MainActor @Test func chatSideStartsTheChatSendsTheFirstMessageAndGoesToIt() async throws {
+@MainActor @Test func chatSideStartsAChatOfNoProjectInAScratchFolderAndGoesToIt() async throws {
     try await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
@@ -120,142 +118,87 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         let chat = try #require(model.chat)
         await chat.load()
         #expect(chat.agent == "claude" && chat.model == "opus" && !chat.canStart, "nothing typed yet")
-        #expect(chat.askPlaceholder == "Ask Claude about this project")
+        #expect(chat.folder.isEmpty && chat.askPlaceholder == "Ask Claude anything")
+        #expect(!chat.offersKnowledge, "the session knowledge is a pane chat's alone")
         chat.prompt = "What does the poller do?"
+        #expect(chat.canStart, "no folder is needed")
         await chat.start()
 
         let commands = runtime.chat.commands
         #expect(commands.map { $0["type"]?.string } == ["thread.create", "thread.turn.start"])
         let create = try #require(commands.first)
-        #expect(create["projectId"]?.string == "p" && create["workingDirectory"]?.string == "/tmp")
-        #expect(create["worktreePath"]?.string == nil && create["knowledgeSource"] == nil)
+        #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"] == .null)
+        #expect(create["worktreePath"] == .null && create["knowledgeSource"] == nil)
         let thread = try #require(create["threadId"]?.string)
         #expect(commands.last?["threadId"]?.string == thread)
         #expect(runtime.created.map(\.id) == [thread], "the list hears of it")
+        #expect(runtime.created.first?.cwd == NewTaskChat.scratch + thread, "in the folder the backend made")
         #expect(root.selection == .chat(thread), "the window goes to the chat")
         #expect(chat.retired && model.chat !== chat && model.chat?.prompt == "", "a fresh form for the next chat")
     }
 }
 
-@MainActor @Test func chatSideNoProjectStartsAStandaloneChatInThePickedFolder() async throws {
+/// The folder logic stands for a control to come: a picked folder is used instead of a scratch one.
+@MainActor @Test func chatSideWorksInAPickedFolderWhenOneIsChosen() async throws {
     try await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
         root.navigate(to: .newSession)
         model.update(projects: [local])
         model.setMode(.chat)
-        model.chat?.prompt = "carried over"
-        await model.chooseNoProject()
-        #expect(model.place == .folder("/picked"))
         let chat = try #require(model.chat)
-        #expect(chat.standalone && chat.folder == "/picked" && chat.prompt == "carried over" && !chat.offersKnowledgeSources)
         await chat.load()
-        await chat.start()
+        await chat.changeFolder()
+        #expect(chat.folder == "/picked" && chat.askPlaceholder == "Ask Claude about this folder")
+
+        // Cancelling the panel keeps the folder; clearing it goes back to a scratch folder.
+        runtime.picked = nil
+        await chat.changeFolder()
+        #expect(chat.folder == "/picked")
+        await chat.clearFolder()
+        #expect(chat.folder.isEmpty)
+        runtime.picked = "/picked"
+        await chat.changeFolder()
+
+        // A form made again on reconnect keeps the folder and what was typed.
+        chat.prompt = "carried over"
+        model.chatServiceChanged()
+        let again = try #require(model.chat)
+        #expect(again !== chat && again.folder == "/picked" && again.prompt == "carried over")
+        await again.load()
+        await again.start()
         let create = try #require(runtime.chat.commands.first)
         #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"]?.string == "/picked")
-
-        // Cancelling the panel keeps the place; picking a project goes back to it.
-        runtime.picked = nil
-        await model.chooseNoProject()
-        #expect(model.place == .folder("/picked"))
-        model.choose("p")
-        #expect(model.place == .project("p") && model.chat?.projectID == "p")
+        #expect(runtime.created.first?.cwd == "/picked")
     }
 }
 
-@MainActor @Test func withNoProjectsTheChatSideWaitsForAFolderThenStartsAStandaloneChat() async throws {
+@MainActor @Test func withNoProjectsTheChatSideStartsAChatWithoutAFolder() async throws {
     try await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
         root.navigate(to: .newSession)
         model.update(projects: [])
-        // Task keeps No Projects; the switch still goes to Chat.
-        #expect(model.mode == .task && model.chat == nil && model.place == .folder("") && model.needsChatFolder)
+        #expect(model.mode == .task && model.chat == nil)
         model.setMode(.chat)
-        #expect(model.mode == .chat && runtime.chatPlaces == [.folder("")], "No Project…, no folder picked yet")
-        let waiting = try #require(model.chat)
-        await waiting.load()
-        waiting.prompt = "What is in here?"
-        #expect(waiting.standalone && waiting.folder.isEmpty && !waiting.canStart, "Start waits for a folder")
-        await waiting.start()
-        #expect(runtime.chat.commands.isEmpty)
-
-        await model.chooseNoProject()
-        #expect(model.place == .folder("/picked") && !model.needsChatFolder)
         let chat = try #require(model.chat)
-        #expect(chat !== waiting && chat.prompt == "What is in here?", "what was typed is carried over")
         await chat.load()
-        #expect(chat.canStart, "a folder picked, Start is enabled")
+        chat.prompt = "What is 2+2?"
+        #expect(chat.standalone && chat.folder.isEmpty && chat.canStart)
         await chat.start()
         let create = try #require(runtime.chat.commands.first)
-        #expect(create["type"]?.string == "thread.create")
-        #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"]?.string == "/picked")
+        #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"] == .null)
         #expect(root.selection == .chat(try #require(create["threadId"]?.string)))
     }
 }
 
-@MainActor @Test func withProjectsTheChatSideIsNeverWaitingForAFolder() async {
+@MainActor @Test func theChatSideFollowsTheBackendAndARetiredNewTaskChangesNothing() async {
     await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
         model.update(projects: [local])
         model.setMode(.chat)
-        #expect(model.place == .project("p") && !model.needsChatFolder)
-    }
-}
-
-@MainActor @Test func chatSideKnowledgeIsASessionPickedAndTheChatWorksInItsWorktree() async throws {
-    try await withCleanNewTaskDefaults {
-        let root = root(), runtime = NewSessionRuntimeFixture()
-        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
-        root.navigate(to: .newSession)
-        model.update(projects: [local])
-        model.setMode(.chat)
-
-        // No session with an agent conversation: the chip is there, disabled with its reason.
-        let none = try #require(model.chat)
-        await none.load()
-        #expect(none.offersKnowledgeSources && !none.canChooseKnowledge)
-        #expect(none.knowledgeSourcesReason == "No session of this project has an agent conversation yet.")
-
-        runtime.sources = [.init(id: "s1", title: "feature", cli: "claude", conversationID: "c1", worktree: "/tmp/wt/s1")]
-        model.chatServiceChanged()
-        let chat = try #require(model.chat)
-        await chat.load()
-        #expect(chat.canChooseKnowledge && chat.knowledgeSourceID == nil && !chat.includeKnowledge, "off by default")
-
-        // A session whose agent has nothing on disk is not picked, and says so.
-        await chat.chooseKnowledge("s1")
-        #expect(chat.knowledgeSourceID == nil && chat.folder == "/tmp" && chat.knowledgeNote == "feature’s agent has no conversation to start from.")
-
-        runtime.chat.conversation = "c1"
-        await chat.chooseKnowledge("s1")
-        #expect(chat.chosenKnowledgeSource?.id == "s1" && chat.includeKnowledge && chat.folder == "/tmp/wt/s1" && chat.knowledgeNote == nil)
-        chat.prompt = "Pick up where it left off"
-        await chat.start()
-        let create = try #require(runtime.chat.commands.first)
-        #expect(create["workingDirectory"]?.string == "/tmp/wt/s1", "in the session's worktree, where the backend takes the knowledge")
-        #expect(create["worktreePath"]?.string == nil, "not a pane's chat: listed under its project")
-        #expect(create["knowledgeSource"] == ["provider": "claudeAgent", "conversationId": "c1"])
-
-        // Picking none again goes back to the project's folder.
-        let next = try #require(model.chat)
-        await next.load()
-        await next.chooseKnowledge("s1")
-        await next.chooseKnowledge(nil)
-        #expect(next.folder == "/tmp" && !next.includeKnowledge && next.knowledgeSourceID == nil)
-    }
-}
-
-@MainActor @Test func aProjectsNewChatOpensNewTaskOnTheChatSide() async {
-    await withCleanNewTaskDefaults {
-        let root = root(), runtime = NewSessionRuntimeFixture()
-        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
-        let other = Project(id: "q", name: "Q", repo: "", color: nil, workspace: "/other")
-        model.update(projects: [local, other])
-        model.startChat(in: "q")
-        #expect(model.mode == .chat && model.projectID == "q" && model.chat?.projectID == "q")
-        #expect(NewSessionViewModel().mode == .task, "an ask for a chat is not the person's choice of side")
+        #expect(model.chat != nil)
 
         // Not connected: no form, until the backend comes.
         runtime.connected = false
@@ -263,7 +206,7 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         #expect(model.chat == nil)
         runtime.connected = true
         model.chatServiceChanged()
-        #expect(model.chat?.projectID == "q")
+        #expect(model.chat?.standalone == true)
 
         model.retire()
         #expect(model.chat == nil)

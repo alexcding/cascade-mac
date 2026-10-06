@@ -8,9 +8,10 @@
 //! [`Entry`]. Provider calls and git run in tasks of their own and answer through
 //! [`Internal`] messages. Not ported: goals, sidechats, handoffs (but for the handoff-context
 //! bootstrap a chat started with a session's knowledge sends), the Claude cache, computer
-//! control, messaging a running subagent (`steerSubagent`), model-generated titles (the first-message fallback title is), the
-//! context-bootstrap recap after a lost history, worktree branch renames, background-task stop and
-//! backgrounding (no adapter supports them yet), and one-turn file undo.
+//! control, messaging a running subagent (`steerSubagent`), the conversation-context title
+//! regeneration (`regenerateThreadTitle`), the context-bootstrap recap after a lost history,
+//! worktree branch renames, background-task stop and backgrounding (no adapter supports them
+//! yet), and one-turn file undo.
 
 use std::{path::PathBuf, time::Duration};
 
@@ -30,6 +31,11 @@ use crate::{
     },
     persistence::store::ProviderSessionRecord,
     provider::adapter::ProviderSessionHandle,
+    text_generation::{
+        is_generic_chat_thread_title, is_usable_generated_thread_title,
+        sanitize_generated_thread_title, title_words, truncate_chat_thread_title, ThreadTitleGenerationInput,
+        GENERIC_CHAT_THREAD_TITLE, MAX_CHAT_THREAD_TITLE_WORDS,
+    },
 };
 
 use super::{
@@ -76,12 +82,6 @@ fn provider_display_name(provider: ProviderKind) -> &'static str {
 const PROVIDER_COMMAND_INTERRUPT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Synara `PROVIDER_COMMAND_STOP_TIMEOUT`
 const PROVIDER_COMMAND_STOP_TIMEOUT: Duration = Duration::from_secs(15);
-/// Synara `GENERIC_CHAT_THREAD_TITLE` (chatThreads.ts:6)
-const GENERIC_CHAT_THREAD_TITLE: &str = "New thread";
-/// Synara `MAX_CHAT_THREAD_TITLE_WORDS` (chatThreads.ts:25)
-const MAX_CHAT_THREAD_TITLE_WORDS: usize = 6;
-/// Synara `MAX_CHAT_THREAD_TITLE_LENGTH` (chatThreads.ts:7)
-const MAX_CHAT_THREAD_TITLE_LENGTH: usize = 60;
 
 /// What a turn asks of the session it runs in (Synara `ensureSessionForThread` options).
 #[derive(Default)]
@@ -122,6 +122,12 @@ impl Actor {
                 self.process_session_stop(ctx, &at);
             }
             E::ThreadMetaUpdated(payload) => {
+                // A title set after a generation started wins over the generated one.
+                if payload.title.is_some() {
+                    if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+                        entry.title_generation = None;
+                    }
+                }
                 if let Some(selection) = &payload.model_selection {
                     self.reconcile_idle_session(ctx, EnsureOptions { model_selection: Some(selection.clone()), ..Default::default() });
                 }
@@ -880,8 +886,13 @@ impl Actor {
         }
     }
 
-    /// Synara `maybeGenerateAndRenameThreadTitleForFirstTurn` (PCR:4026) without a text model:
-    /// the first user message names a thread that has the generic title.
+    /// Synara `maybeGenerateAndRenameThreadTitleForFirstTurn` (PCR:4026): the first user message
+    /// names a thread that has the generic title. The first-message fallback is the title at once
+    /// (Synara's, when it has no text model or generation fails); with a [`TextGeneration`] the
+    /// host's CLI is then asked for a better one, which `on_title_generated` applies unless a
+    /// title was set in between (Synara's `expectedTitleSequence`).
+    ///
+    /// [`TextGeneration`]: crate::text_generation::TextGeneration
     fn maybe_rename_thread_for_first_turn(&mut self, ctx: &mut Ctx, message: &OrchestrationMessage) {
         let Some(thread) = self.thread(&ctx.thread_id) else { return };
         let mut natives = thread.messages.iter().filter(|m| {
@@ -898,17 +909,61 @@ impl Actor {
         };
         let fallback = build_prompt_thread_title_fallback(&seed);
         let current = thread.title.trim().to_owned();
-        if normalize_title_whitespace(&current) != GENERIC_CHAT_THREAD_TITLE && current != fallback {
+        if !is_generic_chat_thread_title(&current) && current != fallback {
             return;
         }
-        if fallback == current {
+        let input = ThreadTitleGenerationInput {
+            cwd: resolve_cwd(thread).ok().map(PathBuf::from),
+            message: message.text.clone(),
+            attachments: message.attachments.clone().unwrap_or_default(),
+            model_selection: thread.model_selection.clone(),
+        };
+        if fallback != current {
+            self.rename_thread(ctx, "thread-title-fallback-rename", &fallback);
+        }
+        let Some(generator) = self.text_generation.clone() else { return };
+        // Set after the fallback's own rename: any title set from here on cancels it.
+        let Some(entry) = self.entry_mut(&ctx.thread_id) else { return };
+        entry.title_generation = Some(fallback.clone());
+        let internal = self.internal.clone();
+        let thread_id = ctx.thread_id.clone();
+        tokio::spawn(async move {
+            let result = generator.generate_thread_title(input).await;
+            let _ = internal.send(Internal::TitleGenerated { thread_id, expected: fallback, result });
+        });
+    }
+
+    /// The generated title came: it replaces the fallback only while the fallback still stands
+    /// and nothing renamed the thread meanwhile. A failure keeps the fallback, as Synara does.
+    fn on_title_generated(&mut self, ctx: &mut Ctx, expected: String, result: Result<String, String>) {
+        let Some(entry) = self.entry_mut(&ctx.thread_id) else { return };
+        if entry.title_generation.as_deref() != Some(expected.as_str()) {
             return;
         }
+        entry.title_generation = None;
+        let Some(current) = self.thread(&ctx.thread_id).map(|t| t.title.trim().to_owned()) else { return };
+        if current != expected {
+            return;
+        }
+        let title = match result {
+            Ok(raw) => sanitize_generated_thread_title(&raw),
+            Err(detail) => {
+                tracing::warn!(thread = %ctx.thread_id, %detail, "chat: the thread title was not generated");
+                return;
+            }
+        };
+        if !is_usable_generated_thread_title(&title) || title == current {
+            return;
+        }
+        self.rename_thread(ctx, "thread-title-rename", &title);
+    }
+
+    fn rename_thread(&mut self, ctx: &mut Ctx, kind: &str, title: &str) {
         let command: ClientThreadCommand = match serde_json::from_value(json!({
             "type": "thread.meta.update",
-            "commandId": server_command_id("thread-title-fallback-rename"),
+            "commandId": server_command_id(kind),
             "threadId": ctx.thread_id,
-            "title": fallback,
+            "title": title,
         })) {
             Ok(command) => command,
             Err(error) => {
@@ -1806,6 +1861,7 @@ impl Actor {
                 None,
             ),
             Internal::CheckpointCaptured(captured) => self.on_checkpoint_captured(ctx, captured),
+            Internal::TitleGenerated { expected, result, .. } => self.on_title_generated(ctx, expected, result),
             Internal::Reverted { turn_count, result, .. } => self.on_reverted(ctx, turn_count, result),
             Internal::FilesUndone { turn_count, result, .. } => self.on_files_undone(ctx, turn_count, result),
             Internal::EditChecked { restore, result, .. } => {
@@ -1928,34 +1984,6 @@ fn attachment_title_seed(attachment: &ChatAttachment) -> String {
         ChatAttachment::File(file) => file.name.clone(),
         ChatAttachment::AssistantSelection(selection) => selection.text.clone(),
     }
-}
-
-/// Synara `normalizeTitleWhitespace` (chatThreads.ts:27)
-fn normalize_title_whitespace(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Synara `titleWords` (chatThreads.ts:35)
-fn title_words(value: &str) -> Vec<String> {
-    normalize_title_whitespace(value)
-        .split(' ')
-        .map(|token| {
-            token
-                .trim_start_matches(|c: char| c.is_whitespace() || "\"'`([{".contains(c))
-                .trim_end_matches(|c: char| c.is_whitespace() || "\"'`)]}:;,.!?".contains(c))
-                .to_owned()
-        })
-        .filter(|token| !token.is_empty())
-        .collect()
-}
-
-/// Synara `truncateChatThreadTitle` (chatThreads.ts:141)
-fn truncate_chat_thread_title(text: &str) -> String {
-    let trimmed = normalize_title_whitespace(text);
-    if trimmed.chars().count() <= MAX_CHAT_THREAD_TITLE_LENGTH {
-        return trimmed;
-    }
-    format!("{}...", trimmed.chars().take(MAX_CHAT_THREAD_TITLE_LENGTH).collect::<String>())
 }
 
 /// Synara `buildPromptThreadTitleFallback` (chatThreads.ts:153)
