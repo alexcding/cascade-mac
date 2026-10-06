@@ -67,16 +67,3 @@ struct ChatUnarchiveButton: View {
         .accessibilityIdentifier("chat-unarchive")
     }
 }
-
-/// Opens the chat's working folder in Finder.
-struct ChatOpenFolderButton: View {
-    let model: ChatViewModel
-    var body: some View {
-        Button { model.openFolder() } label: {
-            Label(String(localized: "Open Folder"), systemImage: "folder")
-        }
-        .help(model.cwd)
-        .disabled(model.cwd.isEmpty)
-        .accessibilityIdentifier("chat-open-folder")
-    }
-}

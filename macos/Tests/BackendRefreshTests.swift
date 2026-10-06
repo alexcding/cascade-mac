@@ -458,7 +458,7 @@ private actor RefreshTransport: BackendTransport {
     #expect(model.selection == .chat("old"))
     let screen = try #require(model.coordinator.chatCoordinator)
     #expect(screen.threadID == "old" && screen.model.archived)
-    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive", "chat-open-folder"])
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive"])
 
     screen.model.unarchive()
     try await refreshEventually { model.chats.shell("old")?.archived == false }
@@ -467,7 +467,7 @@ private actor RefreshTransport: BackendTransport {
     #expect(model.root.archivedChats().items.map(\.id) == ["loose"])
     #expect(model.selection == .chat("old"), "it stays on screen")
     try await refreshEventually { !screen.model.archived }
-    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-open-folder"])
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.isEmpty)
     await model.stop()
 }
 

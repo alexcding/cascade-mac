@@ -9,8 +9,6 @@ import Observation
         case openLink(URL)
         case openFile(path: String, line: Int?)
         case revealFile(String)
-        /// The chat's working folder, in Finder.
-        case openFolder(String)
         /// "Review" on a turn's changed files.
         case openTurnDiff(threadID: String, turnID: String, filePath: String?)
         /// Synara's "Manage providers".
@@ -65,11 +63,6 @@ import Observation
     func unarchive() {
         guard !retired, archived else { return }
         onAction(.unarchive)
-    }
-
-    func openFolder() {
-        guard !retired, !cwd.isEmpty else { return }
-        onAction(.openFolder(cwd))
     }
 
     private func pageEvent(_ event: ChatPageEvent) {

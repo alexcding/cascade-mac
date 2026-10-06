@@ -102,9 +102,6 @@ extension AppViewModel: ChatCoordinating {
         case .revealFile(let path):
             guard let url = confined(path) else { return }
             desktop.reveal(url)
-        case .openFolder(let path):
-            guard path.hasPrefix("/") else { return }
-            desktop.openBrowser(URL(fileURLWithPath: path, isDirectory: true))
         case .openTurnDiff(_, _, let filePath):
             // The page draws a turn's diff itself. A chat working in a session's worktree can also
             // show that worktree's changes in the session's Diff, scrolled to the file asked for;

@@ -637,7 +637,7 @@ public final class AppViewModel {
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
         case .nextPage, .previousPage: (viewer.active?.tabs.count ?? 0) > 1
-        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
+        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn) || chatToZoom != nil
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
         case .toggleChat: coordinator.canPresent && coordinator.activeWorkspaceModel?.canShowChat == true
@@ -740,8 +740,10 @@ public final class AppViewModel {
         return zoom
     }
 
-    /// ⌘+ / ⌘− / ⌘0 in Chat size the conversation: the terminal they would reach is under it. A
-    /// browser tab beside it that has the keyboard keeps its own zoom.
+    /// ⌘+ / ⌘− / ⌘0 size the chat that has the keyboard, wherever it is: a Chat tab in the pane, a
+    /// chat of its own, or a session in Chat. A session in Chat takes them too while its terminal
+    /// would, as the terminal is under it; a browser tab beside it that has the keyboard keeps its
+    /// own zoom. Every chat shares the one size (`ChatPageZoom`).
     private func zoomChat(for command: ShellCommand) -> Bool {
         let delta: Double?
         switch command {
@@ -750,11 +752,22 @@ public final class AppViewModel {
         case .resetFont: delta = nil
         default: return false
         }
+        if let page = chatToZoom {
+            ChatPageZoom.step(delta, from: page)
+            return true
+        }
         guard let workspace = coordinator.activeWorkspaceModel, workspace.chatCoversTerminal, let chat = workspace.chat else { return false }
-        let inChat = chat.page?.hasFocus == true
-        guard inChat || (fontTarget == .term && !webPageFocused) else { return false }
+        guard fontTarget == .term, !webPageFocused else { return false }
         chat.zoom(delta)
         return true
+    }
+
+    /// The chat page ⌘+ / ⌘− / ⌘0 size: the one with the keyboard, or the chat screen on show while
+    /// nothing else that zooms has it.
+    private var chatToZoom: WKWebView? {
+        if let page = ChatPageZoom.focused { return page }
+        guard case .chat = selection, !coordinator.settingsFocused, !webPageFocused else { return nil }
+        return coordinator.chatCoordinator?.model.page.webView
     }
 
     private var webPageFocused: Bool {

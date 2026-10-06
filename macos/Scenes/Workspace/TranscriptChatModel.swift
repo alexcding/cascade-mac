@@ -313,7 +313,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     func requestFocus() { if !retired { focusRequest &+= 1 } }
     func zoom(_ delta: Double?) {
         guard !retired, let webView = page?.webView else { return }
-        TranscriptChatZoom.step(delta, from: webView)
+        ChatPageZoom.step(delta, from: webView)
     }
 
     /// Fork Session is offered once the agent has answered: there is a conversation to carry on.
@@ -337,7 +337,6 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
                 files: thread.files)
             let page = makePage(thread.context, backend)
             page.onEvent = { [weak self] event in self?.pageEvent(event) }
-            if let webView = page.webView { TranscriptChatZoom.attach(webView) }
             self.page = page
         }
         // Holds the model only while it polls, so a model nobody keeps ends its loop.

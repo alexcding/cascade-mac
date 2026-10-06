@@ -540,6 +540,7 @@ private actor CommandLog {
 @MainActor @Test func chatSelectionMakesItsScreenAndRetiresItOnLeaving() throws {
     let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
     let runtime = ChatRuntimeFixture()
+    runtime.archived = ["t1"]
     coordinator.chatRuntime = runtime
 
     coordinator.navigate(to: .chat("t1"))
@@ -551,8 +552,8 @@ private actor CommandLog {
     #expect(coordinator.chatCoordinator === first && runtime.made == ["t1"])
 
     // What the page asks for goes to the app while the chat is the one on screen.
-    first.model.openFolder()
-    #expect(runtime.performed == [.openFolder("/work")])
+    first.model.unarchive()
+    #expect(runtime.performed == [.unarchive])
 
     coordinator.navigate(to: .chat("t2"))
     #expect(first.retired && first.model.retired && first.model.page.retired)
@@ -569,7 +570,7 @@ private actor CommandLog {
     let third = try #require(coordinator.chatCoordinator)
     coordinator.chatRemoved("t1")
     #expect(coordinator.selection == .overview && third.retired && coordinator.chatCoordinator == nil)
-    third.model.openFolder()
+    third.model.unarchive()
     #expect(runtime.performed.count == 1)
 }
 
@@ -691,14 +692,14 @@ private func workspaceSessionForChats(_ id: String) -> WorkspaceSession {
     #expect(coordinator.selection == .chat("t1"))
     let screen = try #require(coordinator.chatCoordinator)
     #expect(screen.model.archived)
-    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive", "chat-open-folder"])
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive"])
     screen.model.unarchive()
     #expect(runtime.performed == [.unarchive])
 
     // A chat that is not archived offers no Unarchive, and asks none.
     coordinator.navigate(to: .chat("t2"))
     let other = try #require(coordinator.chatCoordinator)
-    #expect(!other.model.archived && Destination.chatCoordinator(other).windowToolbar.trailing.map(\.id) == ["chat-open-folder"])
+    #expect(!other.model.archived && Destination.chatCoordinator(other).windowToolbar.trailing.isEmpty)
     other.model.unarchive()
     #expect(runtime.performed == [.unarchive])
 }

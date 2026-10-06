@@ -138,6 +138,7 @@ enum ChatPageOutput: Equatable {
             })
             self.host = host
             webView = host.webView
+            ChatPageZoom.attach(host.webView)
             host.owner = self
             self.output = { [weak host] value in host?.send(value) }
             // AppKit changes a view's appearance on the main thread.
@@ -411,11 +412,6 @@ enum ChatPageOutput: Equatable {
         output(value)
     }
 
-    var hasFocus: Bool {
-        guard let webView, let responder = webView.window?.firstResponder as? NSView else { return false }
-        return responder.isDescendant(of: webView)
-    }
-
     func retire() {
         guard !retired else { return }
         retired = true
@@ -429,6 +425,31 @@ enum ChatPageOutput: Equatable {
         appearanceObservation?.invalidate(); appearanceObservation = nil
         host?.close(); host = nil
         webView = nil
+    }
+}
+
+/// One size for every chat page, kept across launches, as the terminal font is: a session's
+/// conversation, a Chat tab and a chat of its own alike. ⌘+ / ⌘− step it, ⌘0 goes back to actual
+/// size, and every open chat follows at once.
+@MainActor enum ChatPageZoom {
+    private static let key = "workspace.chatZoom"
+    private static let open = NSHashTable<WKWebView>.weakObjects()
+
+    static func attach(_ webView: WKWebView) {
+        if let zoom = UserDefaults.standard.object(forKey: key) as? Double { webView.pageZoom = zoom }
+        open.add(webView)
+    }
+
+    static func step(_ delta: Double?, from webView: WKWebView) {
+        let zoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
+        UserDefaults.standard.set(Double(zoom), forKey: key)
+        for view in open.allObjects { view.pageZoom = zoom }
+    }
+
+    /// The open chat page that has the key window's keyboard, if one does.
+    static var focused: WKWebView? {
+        guard let responder = NSApp.keyWindow?.firstResponder as? NSView else { return nil }
+        return open.allObjects.first { responder.isDescendant(of: $0) }
     }
 }
 

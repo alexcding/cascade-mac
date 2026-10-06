@@ -57,21 +57,3 @@ struct TranscriptPageBackend: ChatPageBackend {
     func providers() async throws -> JSONValue { [] }
     func snapshot(threadID: String) async throws -> JSONValue { try await read() }
 }
-
-/// One size for every terminal chat, kept across launches, as the terminal font is: ⌘+ / ⌘−
-/// step it, ⌘0 goes back to actual size, and every open chat follows at once.
-@MainActor enum TranscriptChatZoom {
-    private static let key = "workspace.chatZoom"
-    private static let open = NSHashTable<WKWebView>.weakObjects()
-
-    static func attach(_ webView: WKWebView) {
-        if let zoom = UserDefaults.standard.object(forKey: key) as? Double { webView.pageZoom = zoom }
-        open.add(webView)
-    }
-
-    static func step(_ delta: Double?, from webView: WKWebView) {
-        let zoom = delta.map { min(3, max(0.5, webView.pageZoom + $0)) } ?? 1
-        UserDefaults.standard.set(Double(zoom), forKey: key)
-        for view in open.allObjects { view.pageZoom = zoom }
-    }
-}
