@@ -343,20 +343,21 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
         let open = tools.filter { $0.tool == tool }
         // Of several tabs, the one shown, else the first.
         let existing = another && tool.unlimited ? nil : open.first { $0.id == activeID } ?? open.first
-        let edits = tabEdits
-        let tab = existing ?? {
+        // One already open is selected, and the blank closes as any tab does.
+        if let existing {
+            select(.tool(existing))
+            if let blank { close(blank) }
+            return
+        }
+        // A new tab takes the blank's place in place.
+        func add() {
             // The lowest number free: the first tab goes by the tool's name alone.
             let taken = Set(open.map(\.number))
             let tab = WorkspaceToolTab(tool, number: (1...).first { !taken.contains($0) }!)
             tools.append(tab); insert(tab.id)
-            return tab
-        }()
-        select(.tool(tab))
-        guard let blank else { return }
-        close(blank)
-        // A new tab took the blank's place: swapped in place. One already open was selected, and the
-        // blank closed as any tab does.
-        if existing == nil { tabEdits = edits }
+            select(.tool(tab))
+        }
+        if let blank { inPlace { add(); close(blank) } } else { add() }
     }
     /// The blank tab a pick from its start page replaces.
     var replaceableBlank: BrowserPage? { activePage.flatMap { $0.controls.isBlank ? $0 : nil } }
@@ -405,13 +406,13 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             if let blank { close(blank) }
             return file
         }
-        // A new file's tab takes the blank's place in place, as `inPlace`: not opened beside it and
-        // the blank then closed.
-        let edits = tabEdits
+        // A new file's tab takes the blank's place in place.
         let file = documentFactory.editor(record: .init(path: path))
-        documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
-        select(.file(file)); file.focus(line: line, column: column)
-        if let blank { close(blank); tabEdits = edits }
+        func add() {
+            documents.append(file); wire(file); insert(file.id); noteHistory(file.record)
+            select(.file(file)); file.focus(line: line, column: column)
+        }
+        if let blank { inPlace { add(); close(blank) } } else { add() }
         return file
     }
     private func insert(_ id: String, atEnd: Bool = false) {
