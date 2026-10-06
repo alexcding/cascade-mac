@@ -202,6 +202,8 @@ struct ProjectComposerView: View {
     var onChooseProject: ((String) -> Void)?
     /// New Project, offered under the projects when Start can switch between them.
     var onNewProject: (() -> Void)?
+    /// New Task's Task | Chat switch, leading the tray; nil on a project's own page.
+    var modeControl: AnyView?
     @FocusState private var focused: Bool
     @State private var choosingBranch = false
     @State private var choosingProject = false
@@ -247,6 +249,7 @@ struct ProjectComposerView: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Where the session starts sits on a tray along the card's top, as the card's own header.
                 ComposerTray {
+                    if let modeControl { modeControl }
                     projectChip
                     if !model.branches.isEmpty { baseMenu }
                     Spacer(minLength: 0)
@@ -360,11 +363,14 @@ struct ProjectComposerView: View {
 }
 
 /// The project chip's popover: the projects, filtered by what is typed, and New Project under them.
-private struct ProjectPicker: View {
+/// New Task's Chat side also offers No Project…, a chat in a folder picked for it.
+struct ProjectPicker: View {
     let projects: [Project]
-    let current: String
+    /// The project picked; nil when none is.
+    let current: String?
     let choose: (String) -> Void
     let newProject: (() -> Void)?
+    var noProject: (() -> Void)? = nil
     let done: () -> Void
     @State private var query = ""
     @FocusState private var searching: Bool
@@ -399,11 +405,21 @@ private struct ProjectPicker: View {
             .overlay {
                 if matches.isEmpty { Text("No project matches").font(.system(size: 12)).foregroundStyle(.secondary) }
             }
-            if let newProject {
+            if newProject != nil || noProject != nil {
                 Divider()
-                PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
-                    .padding(8)
-                    .accessibilityIdentifier("project-composer-new-project")
+                VStack(spacing: 1) {
+                    if let noProject {
+                        PickerRow(symbol: "questionmark.folder", title: String(localized: "No Project…"), selected: current == nil) {
+                            done(); noProject()
+                        }
+                        .accessibilityIdentifier("project-composer-no-project")
+                    }
+                    if let newProject {
+                        PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
+                            .accessibilityIdentifier("project-composer-new-project")
+                    }
+                }
+                .padding(8)
             }
         }
         .frame(width: 300)

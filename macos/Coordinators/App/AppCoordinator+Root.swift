@@ -21,12 +21,11 @@ import Foundation
     func openProjectSettings(_ projectID: String)
     /// A session, from Projects: shown, with the keyboard on its agent.
     func openSession(_ id: String)
-    /// New Chat in a project, or a standalone one for nil.
-    func newChat(in projectID: String?)
+    /// A project's New Chat: New Task, on its Chat side, in that project.
+    func newChat(in projectID: String)
     func renameChat(_ id: String, to name: String)
     func archiveChat(_ id: String, archived: Bool)
     func deleteChat(_ id: String)
-    func showArchivedChats(_ value: Bool)
 }
 
 extension RootCoordinating {
@@ -42,11 +41,10 @@ extension RootCoordinating {
     func newTask(in projectID: String) {}
     func openProjectSettings(_ projectID: String) {}
     func openSession(_ id: String) {}
-    func newChat(in projectID: String?) {}
+    func newChat(in projectID: String) {}
     func renameChat(_ id: String, to name: String) {}
     func archiveChat(_ id: String, archived: Bool) {}
     func deleteChat(_ id: String) {}
-    func showArchivedChats(_ value: Bool) {}
     func canPerform(_ command: ShellCommand) -> Bool { command == .newProject && rootState().canCreateProject }
 }
 
@@ -91,7 +89,6 @@ extension AppCoordinator {
         case .renameChat(let id, let name): rootRuntime?.renameChat(id, to: name)
         case .archiveChat(let id, let archived): rootRuntime?.archiveChat(id, archived: archived)
         case .deleteChat(let id): rootRuntime?.deleteChat(id)
-        case .showArchivedChats(let value): rootRuntime?.showArchivedChats(value)
         }
     }
 }

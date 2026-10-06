@@ -35,7 +35,7 @@ struct WorkspaceSession: Codable, Identifiable, Equatable, Sendable {
 
 enum SidebarDestination: Hashable, Codable {
     case newSession, overview, automation, terminal, project(String), session(String)
-    /// A chat session, by its thread id: in a project's folder or in the Chats section.
+    /// A chat session, by its thread id: in a project's folder or under Other Chats.
     case chat(String)
 
     /// True for destinations that exist only while the sidebar lists them. A chat is listed from
@@ -75,8 +75,8 @@ struct SidebarEntry: Equatable {
     var isHeading: Bool {
         switch role { case .label: true; default: false }
     }
-    /// A row with a destination, or a heading with a hover "+": other headings don't react to the pointer.
-    var hoverable: Bool { destination != nil || newChat }
+    /// A row with a destination: headings don't react to the pointer.
+    var hoverable: Bool { destination != nil }
     enum Role: Equatable {
         case nav                                  // Dashboard
         case label                                // "Pinned" and "Projects" headings
@@ -95,8 +95,6 @@ struct SidebarEntry: Equatable {
     var tooltip: String?
     /// A session made by forking another, marked after its name.
     var forked = false
-    /// The Chats heading: its hover "+" and its menu start a standalone chat.
-    var newChat = false
 
     /// Every destination this entry can take the selection to: a row is its own destination.
     var destinations: [SidebarDestination] { destination.map { [$0] } ?? [] }
@@ -108,8 +106,9 @@ struct SidebarEntry: Equatable {
     /// nested under it, then unpinned sessions whose project is gone (unlabeled). Headings are
     /// flat rows, not collapsible groups — only a project folder collapses.
     ///
-    /// Each project's chats follow its sessions in its folder. The Chats heading closes the list,
-    /// over the chats that belong to no project (standalone, or a project that is gone).
+    /// Each project's chats follow its sessions in its folder. The chats that belong to no project
+    /// (standalone, or a project that is gone) close the list under an Other Chats heading, which is
+    /// there only while there is one; a chat is started from New Task.
     static func make(projects: [Project], sessions: [WorkspaceSession],
                      status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init(),
                      chats: [ChatThreadShell] = []) -> [Self] {
@@ -160,10 +159,10 @@ struct SidebarEntry: Equatable {
                   role: .project)
         }
         result += ordered.filter { !projectIDs.contains($0.projectId) }.map { row($0) }
-        var chatsHeading = label("label:chats", String(localized: "Chats"))
-        chatsHeading.newChat = true
-        result.append(chatsHeading)
-        result += looseChats.map(chatRow)
+        if !looseChats.isEmpty {
+            result.append(label("label:other-chats", String(localized: "Other Chats")))
+            result += looseChats.map(chatRow)
+        }
         return result
     }
 

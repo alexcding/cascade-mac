@@ -20,7 +20,6 @@ import Observation
     /// Every chat the store holds, archived ones included, and whether it has been read yet.
     var chats: [ChatThreadShell] = []
     var chatsLoaded = false
-    var showsArchivedChats = false
 }
 
 @MainActor protocol RootServing: AnyObject { func rootState() -> RootState }
@@ -34,12 +33,11 @@ import Observation
         case reattachSession(String)
         /// A project row's hover New Task.
         case newTask(String)
-        /// New Chat in a project, or a standalone one (nil) from the Chats heading.
-        case newChat(String?)
+        /// A project's New Chat: New Task, on its Chat side, in that project.
+        case newChat(String)
         case renameChat(String, name: String)
         case archiveChat(String, archived: Bool)
         case deleteChat(String)
-        case showArchivedChats(Bool)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -115,14 +113,12 @@ import Observation
     /// A project row's hover pencil: New Task on that project, wherever the window is.
     func newTask(in projectID: String) { onAction(.newTask(projectID)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
-    /// New Chat on a project's row, or (nil) on the Chats heading.
-    func newChat(in projectID: String?) { onAction(.newChat(projectID)) }
+    /// New Chat on a project's row: New Task, on its Chat side, in that project.
+    func newChat(in projectID: String) { onAction(.newChat(projectID)) }
     /// A chat row's Rename…, with the title typed into the prompt.
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }
     func archiveChat(_ id: String, archived: Bool) { onAction(.archiveChat(id, archived: archived)) }
     /// A chat row's Delete…, once its confirmation was answered.
     func deleteChat(_ id: String) { onAction(.deleteChat(id)) }
-    var showsArchivedChats: Bool { state.showsArchivedChats }
-    func showArchivedChats(_ value: Bool) { onAction(.showArchivedChats(value)) }
     func openTerminal() { onAction(.openTerminal) }
 }

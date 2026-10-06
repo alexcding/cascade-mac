@@ -58,12 +58,6 @@ struct PaneChatComposer: View {
     @FocusState private var focused: Bool
 
     private var chosen: NewChatViewModel.Agent? { model.agents.first { $0.cli == model.agent } }
-    private var agentMark: SessionAgent { model.agent.flatMap(SessionAgent.init(rawValue:)) ?? .shell }
-    private var agentTitle: String {
-        guard let driver = AgentDrivers.of(model.agent) else { return String(localized: "Choose an agent") }
-        guard let name = model.models.first(where: { $0.slug == model.model })?.title else { return driver.shortName }
-        return name.localizedCaseInsensitiveContains(driver.shortName) ? name : "\(driver.shortName) \(name)"
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -88,7 +82,7 @@ struct PaneChatComposer: View {
                                           identifier: "pane-chat-prompt") { Task { await model.start() } }
                         HStack(spacing: 12) {
                             Spacer(minLength: 0)
-                            ComposerAgentButton(agent: agentMark, title: agentTitle,
+                            ComposerAgentButton(agent: model.agentMark, title: model.agentTitle,
                                                 help: String(localized: "The agent and model the chat starts with"),
                                                 identifier: "pane-chat-agent") { _ in
                                 PaneChatAgentChooser(model: model)
@@ -166,9 +160,9 @@ struct PaneChatComposer: View {
     }
 }
 
-/// The pane composer's agent menu: the chat agents as tabs along the top, and the chosen one's models
-/// under them. Picks keep it open; a click outside closes it.
-private struct PaneChatAgentChooser: View {
+/// A chat composer's agent menu, a pane's and New Task's: the chat agents as tabs along the top, and
+/// the chosen one's models under them. Picks keep it open; a click outside closes it.
+struct PaneChatAgentChooser: View {
     @Bindable var model: NewChatViewModel
 
     var body: some View {

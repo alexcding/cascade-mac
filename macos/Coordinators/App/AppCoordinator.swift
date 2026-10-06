@@ -14,7 +14,6 @@ import Observation
             case newProject(ProjectEditorViewModel)
             case build(BuildDestinationViewModel)
             case welcome(WelcomeViewModel)
-            case newChat(NewChatViewModel)
         }
         let id: UUID
         let destination: Destination
@@ -24,7 +23,6 @@ import Observation
             case .newProject(let model): model.retire()
             case .build(let model): model.retire()
             case .welcome(let model): model.retire()
-            case .newChat(let model): model.retire()
             }
         }
 
@@ -33,7 +31,6 @@ import Observation
             case .newProject(let model): !model.busy
             case .build(let model): !model.starting
             case .welcome(let model): !model.busy
-            case .newChat(let model): !model.busy
             }
         }
     }
@@ -285,18 +282,6 @@ import Observation
     }
     var welcomeModel: WelcomeViewModel? {
         if case .welcome(let model) = sheet?.destination { model } else { nil }
-    }
-
-    /// New Chat: the agent and model are chosen on the sheet; `didCreate` gets the chat it made.
-    func presentNewChat(_ makeModel: () -> NewChatViewModel?, didCreate: @escaping (ChatThreadShell) -> Void) {
-        guard canPresent, let model = makeModel() else { return }
-        cancelPageActions()
-        let id = UUID()
-        model.onAction = { [weak self] action in
-            guard case .created(let shell) = action, self?.complete(id) == true else { return }
-            didCreate(shell)
-        }
-        sheet = Sheet(id: id, destination: .newChat(model))
     }
 
     func dismissSheet(id: UUID) {

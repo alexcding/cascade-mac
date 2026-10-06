@@ -102,9 +102,9 @@ private actor RefreshTransport: BackendTransport {
             print("First sidebar layout: \(path.path)")
         }
     }
-    #expect(initial.map(\.id) == ["new-session", "overview", "automation", "label:projects", "label:chats"])
+    #expect(initial.map(\.id) == ["new-session", "overview", "automation", "label:projects"])
     #expect(model.root.entries == initial)
-    #expect(list.numberOfRows == 5)
+    #expect(list.numberOfRows == 4)
     #expect((list.item(atRow: 0) as? CocoaSidebar.Node)?.entry.id == "new-session")
 }
 
@@ -412,4 +412,21 @@ private actor RefreshTransport: BackendTransport {
     let child = try #require(model.makeChatModel(threadID: "subagent:parent:toolu_1"))
     #expect(child.page.context.readOnly && child.page.context.cwd == "/work")
     await model.stop()
+}
+
+/// A project's New Chat, from its sidebar row or Projects, is New Task on its Chat side, in that project.
+@MainActor @Test func aProjectsNewChatOpensNewTaskInChatMode() async throws {
+    let suite = "new-chat-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let savedProject = UserDefaults.standard.object(forKey: "newSessionProject")
+    defer { if let savedProject { UserDefaults.standard.set(savedProject, forKey: "newSessionProject") } else { UserDefaults.standard.removeObject(forKey: "newSessionProject") } }
+    let model = refreshApp(RefreshRuntime(), preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.projects.contains { $0.id == "p" } }
+    model.root.newChat(in: "p")
+    #expect(model.selection == .newSession)
+    let page = try #require(model.coordinator.newSession)
+    #expect(page.mode == .chat && page.projectID == "p")
+    #expect(page.chat?.projectID == "p" && page.chat?.folder == "/fixture")
 }

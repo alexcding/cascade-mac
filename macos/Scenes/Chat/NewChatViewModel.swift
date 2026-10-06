@@ -3,6 +3,9 @@ import Observation
 
 /// New Chat: which agent, which of its models, and where it works. A project's chat works in the
 /// project's folder; a standalone one in a folder the person picked, which they can change here.
+/// New Task's Chat side may start a project's chat with what one of its sessions' agents knows: the
+/// chat then works in that session's worktree, the one place the backend takes that knowledge for,
+/// and is listed under the project as any of its chats.
 /// The chat starts asking before every tool call (`approval-required`), and is titled "New Chat"
 /// until the backend titles it from the first message.
 @MainActor @Observable final class NewChatViewModel {
@@ -29,6 +32,17 @@ import Observation
         let conversationID: String?
     }
 
+    /// A session of the project a New Task chat may start knowing from: one running an agent the
+    /// app knows a conversation of, in a worktree of its own.
+    struct KnowledgeSource: Identifiable, Equatable {
+        /// The session's id.
+        let id: String
+        let title: String
+        let cli: String
+        let conversationID: String
+        let worktree: String
+    }
+
     /// Nil for a standalone chat.
     let projectID: String?
     /// The project's name, or nil for a standalone chat.
@@ -45,8 +59,21 @@ import Observation
     private(set) var busy = false
     private(set) var error: String?
     private(set) var retired = false
-    /// The session whose agent's knowledge the form offers to start with; nil outside a pane.
-    let knowledgeSession: SessionKnowledge?
+    /// The session whose agent's knowledge the form offers to start with: a pane's own, or the one
+    /// picked on New Task; nil otherwise.
+    private(set) var knowledgeSession: SessionKnowledge?
+    /// Whether this is a pane's form, which offers its own session's knowledge as a switch.
+    private let paneKnowledge: Bool
+    /// The project's folder, which a New Task chat goes back to when no session's knowledge is picked.
+    private let baseFolder: String
+    /// New Task's sessions to start knowing from, read as the form loads.
+    private(set) var knowledgeSources: [KnowledgeSource] = []
+    /// The session picked from them, by id; nil while the chat starts knowing nothing.
+    private(set) var knowledgeSourceID: String?
+    /// Why the session just picked could not be started from.
+    private(set) var knowledgeNote: String?
+    @ObservationIgnored var knowledgeSourcesProvider: () -> [KnowledgeSource] = { [] }
+    @ObservationIgnored private var knowledgeRequest = UUID()
     /// Start with what the session's agent knows. Off unless the person turns it on.
     var includeKnowledge = false
     /// The first message, in a pane's composer: sent as the chat's first turn once it exists.
@@ -69,8 +96,10 @@ import Observation
          worktreePath: String? = nil, agent: String? = nil, knowledgeSession: SessionKnowledge? = nil) {
         self.projectID = projectID
         self.knowledgeSession = knowledgeSession
+        self.paneKnowledge = knowledgeSession != nil
         self.projectName = projectName
         self.folder = folder
+        self.baseFolder = folder
         self.worktreePath = worktreePath
         self.agent = agent
         self.service = service
@@ -79,8 +108,65 @@ import Observation
 
     var standalone: Bool { projectID == nil }
 
-    /// Whether the form offers to start with the session agent's knowledge: in a pane only.
-    var offersKnowledge: Bool { knowledgeSession != nil }
+    /// Whether the form offers to start with the session agent's knowledge as a switch: in a pane only.
+    var offersKnowledge: Bool { paneKnowledge }
+    /// Whether the form offers the project's sessions to start knowing from: New Task's project chat.
+    var offersKnowledgeSources: Bool { !standalone && !paneKnowledge && worktreePath == nil }
+    var chosenKnowledgeSource: KnowledgeSource? { knowledgeSources.first { $0.id == knowledgeSourceID } }
+    /// Why no session can be picked, when none can.
+    var knowledgeSourcesReason: String? {
+        knowledgeSources.isEmpty ? String(localized: "No session of this project has an agent conversation yet.") : nil
+    }
+    var canChooseKnowledge: Bool { !retired && !busy && startedShell == nil && !knowledgeSources.isEmpty }
+
+    /// Picks the session whose agent's knowledge the chat starts with, or none. The chat then works
+    /// in that session's worktree, where the backend finds the conversation; a session whose agent
+    /// has none there is not picked, and says so.
+    func chooseKnowledge(_ id: String?) async {
+        guard !retired, !busy, offersKnowledgeSources, startedShell == nil else { return }
+        let request = UUID()
+        knowledgeRequest = request
+        knowledgeNote = nil
+        let before = folder
+        if let id, let source = knowledgeSources.first(where: { $0.id == id }) {
+            knowledgeSourceID = id
+            knowledgeSession = SessionKnowledge(cli: source.cli, conversationID: source.conversationID)
+            knowledgeConversation = nil; knowledgeChecked = false; includeKnowledge = false
+            folder = source.worktree
+            await checkKnowledge()
+            guard !retired, knowledgeRequest == request else { return }
+            if knowledgeConversation != nil {
+                includeKnowledge = true
+            } else {
+                clearKnowledge()
+                knowledgeNote = String(localized: "\(source.title)’s agent has no conversation to start from.")
+            }
+        } else {
+            clearKnowledge()
+        }
+        // A CLI may offer a folder models of its own.
+        if folder != before { await loadModels() }
+    }
+
+    private func clearKnowledge() {
+        knowledgeSourceID = nil; knowledgeSession = nil; knowledgeConversation = nil
+        knowledgeChecked = false; includeKnowledge = false
+        folder = baseFolder
+    }
+
+    /// The agent and model, as the composer's agent menu names them.
+    var agentTitle: String {
+        guard let driver = AgentDrivers.of(agent) else { return String(localized: "Choose an agent") }
+        guard let name = models.first(where: { $0.slug == model })?.title else { return driver.shortName }
+        return name.localizedCaseInsensitiveContains(driver.shortName) ? name : "\(driver.shortName) \(name)"
+    }
+    /// The agent's mark on that menu.
+    var agentMark: SessionAgent { agent.flatMap(SessionAgent.init(rawValue:)) ?? .shell }
+    /// New Task's field, before anything is typed.
+    var askPlaceholder: String {
+        guard let name = AgentDrivers.of(agent)?.shortName else { return String(localized: "Ask anything") }
+        return standalone ? String(localized: "Ask \(name) about this folder") : String(localized: "Ask \(name) about this project")
+    }
     /// The session's agent, as the form names it.
     var knowledgeAgentName: String { AgentDrivers.of(knowledgeSession?.cli)?.shortName ?? String(localized: "the session’s agent") }
     var canIncludeKnowledge: Bool { !retired && !busy && knowledgeConversation != nil }
@@ -103,7 +189,8 @@ import Observation
         }
         let found = try? await service.sessionKnowledge(provider: driver.chatProvider, worktree: folder,
                                                         conversationID: conversation)
-        guard !retired else { return }
+        // A session picked again while this was asked has its own answer coming.
+        guard !retired, knowledgeSession == session else { return }
         knowledgeConversation = found
         knowledgeChecked = true
         if knowledgeConversation == nil { includeKnowledge = false }
@@ -132,6 +219,7 @@ import Observation
     /// The providers, then the chosen agent's models.
     func load() async {
         guard !retired else { return }
+        if offersKnowledgeSources { knowledgeSources = knowledgeSourcesProvider() }
         loading = true
         defer { loading = false }
         do {
@@ -154,7 +242,9 @@ import Observation
             return Agent(cli: driver.cli, provider: driver.chatProvider, name: driver.shortName, usable: usable, note: note)
         }
         let chosen = agents.first { $0.cli == agent && $0.usable } ?? agents.first(where: \.usable)
-        if chosen?.cli != agent { agent = chosen?.cli } else { await loadModels() }
+        // A change of agent reads its models by itself, but the form waits for them here.
+        if chosen?.cli != agent { agent = chosen?.cli }
+        await loadModels()
         await checkKnowledge()
     }
 
@@ -178,7 +268,6 @@ import Observation
         if !list.contains(where: { $0.slug == model }) { model = (list.first { $0.isDefault == true } ?? list.first)?.slug }
     }
 
-    /// A standalone chat's folder, picked again.
     /// A standalone chat's folder, picked again; the models are read again for it, since a CLI may
     /// offer a folder its own.
     func changeFolder() async {

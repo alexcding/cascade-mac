@@ -35,10 +35,6 @@ public final class AppViewModel {
     @ObservationIgnored let chatFactory: any ChatFeatureFactory
     /// Picks a standalone chat's folder, starting from the one given; nil when cancelled.
     @ObservationIgnored var chooseChatFolder: @MainActor (String?) async -> String? = { AppViewModel.pickFolder(from: $0) }
-    /// Whether the sidebar lists archived chats, from the Chats heading's menu; kept across launches.
-    var showsArchivedChats = UserDefaults.standard.bool(forKey: "sidebar.showArchivedChats") {
-        didSet { UserDefaults.standard.set(showsArchivedChats, forKey: "sidebar.showArchivedChats") }
-    }
     /// The chat views on screen, by the terminal they sit over: an agent's approval request goes
     /// to its chat, and one with no chat watching goes straight back to the terminal.
     @ObservationIgnored private var permissionWatchers: [String: PermissionWatcher] = [:]
@@ -342,7 +338,7 @@ public final class AppViewModel {
                 cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
-                                 chats: chats.visible(includeArchived: showsArchivedChats, excludingWorktrees: sessionChatWorktrees))
+                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees))
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -1661,6 +1657,7 @@ public final class AppViewModel {
             if let api {
                 chatService = backendFactory.chat(api: api)
                 chats.connect(chatService)
+                coordinator.newSession?.chatServiceChanged()
                 coordinator.refreshRoot()
             }
             if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api)) } }
@@ -2036,6 +2033,7 @@ public final class AppViewModel {
         ideWarmup.connect(nil)
         chats.connect(nil)
         chatService = nil
+        coordinator.newSession?.chatServiceChanged()
         // A backend switch leaves no handle on this backend's streams, so they go with it. Only
         // when a panel asked for one: stopping runs serve-sim, which a Mac without it pays for.
         let streamed = buildModels.values.contains { $0.preview?.udid != nil }

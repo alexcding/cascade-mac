@@ -30,15 +30,12 @@ struct CocoaSidebar: NSViewRepresentable {
     var onFocusSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
-    /// New Chat: a project's (its id), or a standalone one (nil) from the Chats heading.
-    var onNewChat: (String?) -> Void = { _ in }
+    /// A project's New Chat: New Task, on its Chat side, in that project.
+    var onNewChat: (String) -> Void = { _ in }
     var onRenameChat: (String, String) -> Void = { _, _ in }
     var onArchiveChat: (String, Bool) -> Void = { _, _ in }
     /// Called once the deletion was confirmed.
     var onDeleteChat: (String) -> Void = { _ in }
-    /// Whether archived chats are listed, and the Chats heading's switch for it.
-    var showsArchivedChats = false
-    var onShowArchivedChats: (Bool) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -362,7 +359,6 @@ struct CocoaSidebar: NSViewRepresentable {
             let nested = outline.parent(forItem: node) != nil
             cell.onTogglePin = { [weak self] id in self?.parent.onTogglePin(id) }
             cell.onNewTask = { [weak self] id in self?.parent.onNewTask(id) }
-            cell.onNewChat = { [weak self] in self?.parent.onNewChat(nil) }
             cell.onToggleExpanded = { [weak self, weak node] in if let node { self?.reselected(node) } }
             cell.configure(node.entry, nested: nested,
                            shortcut: holdingCommand ? node.entry.sessionID.flatMap { parent.sessionShortcuts[$0] } : nil)
@@ -426,14 +422,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
-            // The Chats heading: a standalone chat, and whether archived ones are listed.
-            if node.entry.newChat {
-                add("New Chat…", action: #selector(newStandaloneChat(_:)))
-                menu.addItem(.separator())
-                add("Show Archived Chats", action: #selector(toggleArchivedChats(_:)))
-                menu.items.last?.state = parent.showsArchivedChats ? .on : .off
-                return menu
-            }
             guard let destination = node.entry.destination else { return nil }
             // A folder's hover New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project = destination {
@@ -472,8 +460,6 @@ struct CocoaSidebar: NSViewRepresentable {
             return menu.items.isEmpty ? nil : menu
         }
 
-        @objc private func newStandaloneChat(_ sender: NSMenuItem) { parent.onNewChat(nil) }
-        @objc private func toggleArchivedChats(_ sender: NSMenuItem) { parent.onShowArchivedChats(!parent.showsArchivedChats) }
         @objc private func newProjectChat(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, let id = node.entry.projectID else { return }
             parent.onNewChat(id)
@@ -801,8 +787,6 @@ enum SidebarMetrics {
 @MainActor final class SidebarCellView: NSTableCellView {
     var onTogglePin: (String) -> Void = { _ in }
     var onNewTask: (String) -> Void = { _ in }
-    /// The Chats heading's hover "+".
-    var onNewChat: () -> Void = {}
     /// Opens or closes the folder, as a click on it does.
     var onToggleExpanded: () -> Void = {}
     var hovered = false { didSet { if oldValue != hovered { applyState() } } }
@@ -895,11 +879,6 @@ enum SidebarMetrics {
         switch entry.role {
         case .label:
             icon.isHidden = true
-            if entry.newChat {
-                accessory.image = SidebarIcons.projectActionSymbol("plus")
-                accessory.toolTip = String(localized: "New Chat")
-                accessory.setAccessibilityLabel(accessory.toolTip)
-            }
         case .chat(let status):
             // Its bubble stands where a session's dot does, and gives way to the dot while the
             // agent works or waits on the person.
@@ -964,8 +943,6 @@ enum SidebarMetrics {
         case .chat:
             accessory.isHidden = true
             dot.isHidden = !chatActive; icon.isHidden = chatActive
-        case .label where entry.newChat:
-            accessory.isHidden = !hovered; dot.isHidden = true
         default: accessory.isHidden = true; dot.isHidden = true
         }
         if case .project = entry.role {} else { disclosure.isHidden = true }
@@ -973,8 +950,7 @@ enum SidebarMetrics {
     }
 
     @objc private func accessoryPressed() {
-        if entry.newChat { onNewChat() }
-        else if let id = entry.projectID { onNewTask(id) }
+        if let id = entry.projectID { onNewTask(id) }
         else if let id = entry.sessionID { onTogglePin(id) }
     }
 
@@ -1025,11 +1001,7 @@ enum SidebarMetrics {
         case .label:
             title.sizeToFit()
             let titleHeight = title.frame.height
-            // The Chats heading's "+" stands where a folder's New Task does, in line with it.
-            let plus: CGFloat = 18
-            if entry.newChat { accessory.frame = centered(bounds.width - plus, plus) }
-            let titleRight = entry.newChat && !accessory.isHidden ? bounds.width - plus - SidebarMetrics.gap : right
-            title.frame = NSRect(x: 0, y: ((height - titleHeight) / 2).rounded(), width: max(0, titleRight), height: titleHeight)
+            title.frame = NSRect(x: 0, y: ((height - titleHeight) / 2).rounded(), width: max(0, right), height: titleHeight)
             return
         case .nav, .project, .session, .chat:
             break

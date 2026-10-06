@@ -572,7 +572,7 @@ private actor CommandLog {
     #expect(runtime.performed.count == 1)
 }
 
-@MainActor @Test func sidebarListsChatsUnderProjectsAndInChats() {
+@MainActor @Test func sidebarListsChatsUnderProjectsAndOtherChats() {
     let project = Project(id: "p", name: "Project", repo: "o/r", color: nil, workspace: "/tmp")
     var working = shell("busy", project: "p", created: "2026-02-01")
     working.latestTurn = .init(state: "running")
@@ -582,9 +582,15 @@ private actor CommandLog {
     #expect(folder?.children.first?.destination == .chat("busy"))
     if case .chat(let status) = folder?.children.first?.role { #expect(status.working && status.cli == "claude") }
     else { Issue.record("not a chat row") }
-    #expect(Array(entries.map(\.id).suffix(2)) == ["label:chats", "chat:loose"])
-    #expect(entries.first { $0.id == "label:chats" }?.newChat == true)
-    #expect(entries.first { $0.id == "label:chats" }?.hoverable == true)
+    #expect(Array(entries.map(\.id).suffix(2)) == ["label:other-chats", "chat:loose"])
+    #expect(entries.first { $0.id == "label:other-chats" }?.title == "Other Chats")
+    #expect(entries.first { $0.id == "label:other-chats" }?.hoverable == false, "a heading with no New Chat")
+    #expect(!entries.contains { $0.id == "label:chats" }, "no Chats heading")
+
+    // Only project chats: no Other Chats group at all.
+    let projectOnly = SidebarEntry.make(projects: [project], sessions: [], chats: [working])
+    #expect(!projectOnly.contains { $0.role == .label && $0.id != "label:projects" })
+    #expect(projectOnly.last?.id == "project:p")
 }
 
 /// The page asks for another chat (a fork it made): the window goes to it, and the app hears of it

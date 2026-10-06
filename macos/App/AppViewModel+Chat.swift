@@ -2,8 +2,8 @@ import AppKit
 import Foundation
 import OSLog
 
-/// Chat sessions: the list's events, the chat screen's model and what its page asks for, and the
-/// sidebar's New Chat, Rename, Archive and Delete.
+/// Chat sessions: the list's events, the chat screen's model and what its page asks for, New Task's
+/// Chat side, and the sidebar's New Chat, Rename, Archive and Delete.
 extension AppViewModel: ChatCoordinating {
     // MARK: Events
 
@@ -174,33 +174,49 @@ extension AppViewModel: ChatCoordinating {
 
     // MARK: Sidebar and Projects
 
-    func newChat(in projectID: String?) {
-        guard let service = chatService else {
-            reportRootError(String(localized: "Connect to the backend to start a chat."))
+    /// A project's New Chat, from its sidebar row or Projects: New Task, on its Chat side, in that
+    /// project. A project with no folder has nowhere for a chat to work, so its Settings open instead.
+    func newChat(in projectID: String) {
+        guard coordinator.canPresent, let project = projects.first(where: { $0.id == projectID }) else { return }
+        guard !project.workspace.isEmpty else {
+            openProjectSettings(projectID)
+            projectModels[projectID]?.editor.explainMissingFolder()
             return
         }
-        if let projectID {
-            guard let project = projects.first(where: { $0.id == projectID }) else { return }
-            presentNewChat(projectID: projectID, projectName: project.name, folder: project.workspace, service: service)
-            return
-        }
-        Task { [weak self] in
-            // The connection may have changed while the panel was up: the chat goes to the current one.
-            guard let self, let folder = await chooseChatFolder(nil), let service = chatService else { return }
-            presentNewChat(projectID: nil, projectName: nil, folder: folder, service: service)
+        select(.newSession)
+        coordinator.newSession?.startChat(in: projectID)
+    }
+
+    // MARK: New Task's Chat side
+
+    func newSessionChat(in place: NewSessionViewModel.ChatPlace, agent: String?) -> NewChatViewModel? {
+        guard let service = chatService else { return nil }
+        let choose = chooseChatFolder
+        switch place {
+        case .project(let id):
+            guard let project = projects.first(where: { $0.id == id }), !project.workspace.isEmpty else { return nil }
+            let model = chatFactory.newChat(projectID: id, projectName: project.name, folder: project.workspace, agent: agent,
+                                            service: service, chooseFolder: { await choose($0) })
+            model.knowledgeSourcesProvider = { [weak self] in self?.knowledgeSources(in: id) ?? [] }
+            return model
+        case .folder(let folder):
+            return chatFactory.newChat(projectID: nil, projectName: nil, folder: folder, agent: agent,
+                                       service: service, chooseFolder: { await choose($0) })
         }
     }
 
-    private func presentNewChat(projectID: String?, projectName: String?, folder: String, service: any ChatServing) {
-        let choose = chooseChatFolder
-        coordinator.presentNewChat({
-            chatFactory.newChat(projectID: projectID, projectName: projectName, folder: folder, service: service,
-                                chooseFolder: { await choose($0) })
-        }, didCreate: { [weak self] shell in
-            guard let self else { return }
-            chats.receive(shell)
-            select(.chat(shell.id))
-        })
+    func newSessionChooseChatFolder(from start: String?) async -> String? { await chooseChatFolder(start) }
+
+    func newSessionChatCreated(_ shell: ChatThreadShell) { chats.receive(shell) }
+
+    /// The project's sessions a chat may start knowing from: those running an agent the app knows
+    /// a conversation of, in a worktree of their own.
+    func knowledgeSources(in projectID: String) -> [NewChatViewModel.KnowledgeSource] {
+        sessions.compactMap { session in
+            guard session.projectId == projectID, !session.worktree.isEmpty, let cli = session.cli,
+                  AgentDrivers.of(cli) != nil, let conversation = session.sessionId, !conversation.isEmpty else { return nil }
+            return .init(id: session.id, title: session.label, cli: cli, conversationID: conversation, worktree: session.worktree)
+        }
     }
 
     func renameChat(_ id: String, to name: String) {
@@ -225,8 +241,8 @@ extension AppViewModel: ChatCoordinating {
                 guard let self, var shell = chats.shell(id) else { return }
                 shell.archivedAt = archived ? ChatTimestamp.string() : nil
                 chats.receive(shell)
-                // An archived chat leaves the screen unless archived chats are listed.
-                if archived, !showsArchivedChats, selection == .chat(id) { select(.overview) }
+                // An archived chat is no longer listed: it leaves the screen.
+                if archived, selection == .chat(id) { select(.overview) }
             } catch { self?.reportRootError(String(localized: "Could not archive the chat: \(error.localizedDescription)")) }
         }
     }
@@ -243,11 +259,6 @@ extension AppViewModel: ChatCoordinating {
                 for context in viewer.contexts.values { context.workspaceViewModel?.paneChatRemoved(id) }
             } catch { self?.reportRootError(String(localized: "Could not delete the chat: \(error.localizedDescription)")) }
         }
-    }
-
-    func showArchivedChats(_ value: Bool) {
-        showsArchivedChats = value
-        if !value, case .chat(let id) = selection, chats.shell(id)?.archived == true { select(.overview) }
     }
 
     /// The system's folder picker, for a standalone chat's working folder.

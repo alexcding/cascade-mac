@@ -109,7 +109,7 @@ import Observation
     static func standardized(_ path: String) -> String { URL(fileURLWithPath: path).standardizedFileURL.path }
 
     /// The visible chats by where lists put them: each known project's under it, and every other —
-    /// standalone, or a project that is gone — in the Chats section.
+    /// standalone, or a project that is gone — under Other Chats.
     func grouped(projectIDs: Set<String>, includeArchived: Bool = false,
                  excludingWorktrees: Set<String> = []) -> (byProject: [String: [ChatThreadShell]], standalone: [ChatThreadShell]) {
         var byProject: [String: [ChatThreadShell]] = [:]
