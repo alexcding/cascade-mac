@@ -582,7 +582,12 @@ impl Actor {
         let idle = thread
             .session
             .as_ref()
-            .is_some_and(|s| s.status != OrchestrationSessionStatus::Stopped && s.active_turn_id.is_none());
+            .is_some_and(|s| {
+                // A session still starting may have a turn's send in flight: restarting it now
+                // would lose that turn to a generation whose events are dropped.
+                !matches!(s.status, OrchestrationSessionStatus::Stopped | OrchestrationSessionStatus::Starting)
+                    && s.active_turn_id.is_none()
+            });
         if !idle || self.live_session(&ctx.thread_id).is_none() {
             return;
         }
@@ -660,6 +665,13 @@ impl Actor {
                 json!({ "detail": format!("User message '{}' was not found for turn start request.", payload.message_id) }),
                 None,
             );
+            // A queued message since rolled back holds nothing: the queue moves on.
+            if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+                if entry.reservation.as_ref().is_some_and(|r| r.message_id == payload.message_id) {
+                    entry.reservation = None;
+                }
+            }
+            self.drain_queued_turns(ctx);
             return;
         };
         let live_turn = self.live_turn(&ctx.thread_id);
@@ -839,6 +851,29 @@ impl Actor {
         retried: bool,
         result: Result<crate::contracts::provider::ProviderTurnStartResult, String>,
     ) {
+        // A send answered by a session since replaced (a restart while it was in flight): its turn's
+        // events are dropped as stale, so it would never end here, and its failure is the old
+        // session's, not the new one's. The message goes back to the head of the queue, to be sent
+        // on the current session, and the queue moves on.
+        // A session taken out of `sessions` (a reset or a stop) without a new generation counts
+        // as let go too: its turn will not be heard to end either.
+        let replaced = self.generations.get(&ctx.thread_id).is_some_and(|current| *current != generation);
+        let taken = self.sessions.get(&ctx.thread_id).is_none_or(|live| live.generation != generation);
+        if replaced || (taken && result.is_ok()) {
+            // Only a message still holding the queue goes back: one the person stopped (which
+            // cleared the queue and its hold) is not sent again.
+            if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+                if entry.reservation.as_ref().is_some_and(|r| r.message_id == payload.message_id) {
+                    entry.reservation = None;
+                    entry.terminal_before_bind.clear();
+                    if !native_steer {
+                        entry.queue.push_front(payload.clone());
+                    }
+                }
+            }
+            self.drain_queued_turns(ctx);
+            return;
+        }
         match result {
             Ok(started) => {
                 // The turn carried the chat's pending knowledge, forked or recapped: the
@@ -1216,10 +1251,17 @@ impl Actor {
                 if ended {
                     self.sessions.remove(&ctx.thread_id);
                 }
+                // The session ended (the current one, or one a reset took, which a newer one would
+                // have made stale): a turn bound to it will not be heard to end, so its hold goes,
+                // and what waited behind it goes now, in order. A send still in flight keeps its
+                // hold, for its own answer to settle.
                 if let Some(entry) = self.entry_mut(&ctx.thread_id) {
-                    entry.reservation = None;
-                    entry.terminal_before_bind.clear();
+                    if ended || entry.reservation.as_ref().is_some_and(|r| r.turn_id.is_some()) {
+                        entry.reservation = None;
+                        entry.terminal_before_bind.clear();
+                    }
                 }
+                self.drain_queued_turns(ctx);
             }
             _ => {}
         }
@@ -1680,7 +1722,11 @@ impl Actor {
         }
         if let Some(entry) = self.entry_mut(&ctx.thread_id) {
             entry.queue.clear();
-            entry.reservation = None;
+            // A turn whose send is still in flight keeps holding the queue: the resend waits for
+            // it rather than going out beside it.
+            if entry.reservation.as_ref().is_some_and(|r| r.turn_id.is_some()) {
+                entry.reservation = None;
+            }
         }
         let Some(thread) = self.thread(&ctx.thread_id).cloned() else { return };
         let Some(original) = thread

@@ -943,3 +943,51 @@ async fn a_failed_claude_leaves_no_title() {
     let result = generator.generate_thread_title(input).await;
     assert!(result.unwrap_err().contains("timed out"));
 }
+
+#[tokio::test]
+async fn a_refused_create_leaves_no_scratch_folder_and_only_a_chats_own_folder_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    let router = build_app(app.clone());
+    let root = dir.path().join("chat").join("workspaces");
+
+    // A thread that exists already: the engine refuses the create, and the folder made for it goes.
+    let work = tempfile::tempdir().unwrap();
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", create("dup", work.path())).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", create_without_folder("dup")).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!root.join("dup").exists());
+
+    // A chat whose folder only sits under the root, by `..`, is deleted without touching the data.
+    let escape = root.join("..");
+    std::fs::create_dir_all(&root).unwrap();
+    let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", create("sneaky", &escape)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let delete = json!({ "command": { "type": "thread.delete", "commandId": "delete-sneaky", "threadId": "sneaky" } });
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", delete).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(dir.path().join("chat").join("chat.db").exists(), "the engine's data stays");
+    assert!(root.is_dir());
+    app.chat.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_scratch_folder_shared_with_a_fork_goes_with_the_last_of_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    let router = build_app(app.clone());
+    let (_, created) = rpc_call(&router, "orchestration.dispatchCommand", create_without_folder("source")).await;
+    let folder = std::path::PathBuf::from(created["result"]["workingDirectory"].as_str().unwrap());
+    // A chat in the same folder, as a fork is.
+    let (status, _) = rpc_call(&router, "orchestration.dispatchCommand", create("sharer", &folder)).await;
+    assert_eq!(status, StatusCode::OK);
+    let delete = |id: &str| json!({ "command": { "type": "thread.delete", "commandId": format!("delete-{id}"), "threadId": id } });
+    rpc_call(&router, "orchestration.dispatchCommand", delete("source")).await;
+    assert!(folder.is_dir(), "kept while another chat works there");
+    rpc_call(&router, "orchestration.dispatchCommand", delete("sharer")).await;
+    assert!(!folder.exists(), "removed with the last chat in it");
+    app.chat.shutdown().await;
+}

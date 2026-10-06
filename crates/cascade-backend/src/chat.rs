@@ -375,6 +375,7 @@ async fn run_command(app: &AppState, command: ClientThreadCommand) -> RpcResult 
 /// [`run_command`] with the home folder the agents' transcripts are under: a `thread.create`
 /// that starts with a session's knowledge has it made whole first (`knowledge::resolve`).
 async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: Option<PathBuf>) -> RpcResult {
+    let mut scratch: Option<PathBuf> = None;
     if let ClientThreadCommand::Create(create) = &mut command {
         if let Some(source) = create.knowledge_source.take() {
             let worktree = create
@@ -394,7 +395,7 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
                 .map_err(RpcError::invalid)?;
             create.knowledge_source = Some(resolved);
         }
-        give_scratch_folder(app, create).await?;
+        scratch = give_scratch_folder(app, create).await?;
     }
     let deleted = match &command {
         ClientThreadCommand::Delete(delete) => engine(app)?.thread(delete.thread_id.clone()).await.ok().flatten(),
@@ -416,8 +417,16 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
             }
             Ok(result)
         }
-        Err(ChatError::Invalid(detail)) => Err(RpcError::invalid(detail)),
-        Err(ChatError::Internal(error)) => Err(RpcError::internal(format!("{error:#}"))),
+        Err(error) => {
+            // A create the engine refused leaves no folder behind.
+            if let Some(folder) = scratch {
+                let _ = std::fs::remove_dir_all(folder);
+            }
+            match error {
+                ChatError::Invalid(detail) => Err(RpcError::invalid(detail)),
+                ChatError::Internal(error) => Err(RpcError::internal(format!("{error:#}"))),
+            }
+        }
     }
 }
 
@@ -428,10 +437,12 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
 /// folder kept in git) is not taken for that repository, whose checkpoint of every file it tracks
 /// held the first turn back for seconds. A failed `git init` leaves a plain folder, without
 /// checkpoints.
-async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -> Result<(), RpcError> {
+/// Answers the folder when it made one (it did not exist before), to be removed if the create
+/// is refused.
+async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -> Result<Option<PathBuf>, RpcError> {
     let named = |folder: &Option<String>| folder.as_deref().is_some_and(|folder| !folder.trim().is_empty());
     if named(&create.working_directory.clone().flatten()) || named(&create.worktree_path) {
-        return Ok(());
+        return Ok(None);
     }
     let root = app.chat.scratch.get().ok_or_else(|| RpcError::unavailable("chats are not available"))?;
     let id = create.thread_id.as_str();
@@ -439,19 +450,23 @@ async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -
         return Err(RpcError::invalid("A chat's id names no folder."));
     }
     let folder = root.join(id);
+    let existed = folder.exists();
     std::fs::create_dir_all(&folder).map_err(RpcError::internal)?;
     if let Err(error) = cli::run_in("git", ["init", "-q"], SCRATCH_INIT_TIMEOUT, Some(&folder)).await {
         tracing::warn!(folder = %folder.display(), error = %format!("{error:#}"), "chat: the scratch folder is not a repository");
     }
     create.working_directory = Some(Some(folder.to_string_lossy().into_owned()));
-    Ok(())
+    Ok((!existed).then_some(folder))
 }
 
 /// A deleted chat's scratch folder goes with it, unless another chat still works there (a fork).
 async fn remove_scratch_folder(app: &AppState, thread: &OrchestrationThread) {
     let (Some(root), Some(engine)) = (app.chat.scratch.get(), app.chat.engine()) else { return };
     let Some(folder) = folder_of(thread).map(PathBuf::from) else { return };
-    if folder.parent() != Some(root.as_path()) {
+    // Only a folder `give_scratch_folder` makes: one plain name right under the root (a fork's is
+    // its source's). A path that merely sits under it (`…/workspaces/..`) is never removed.
+    let mut components = folder.strip_prefix(root).map(|rest| rest.components().collect::<Vec<_>>()).unwrap_or_default();
+    if components.len() != 1 || !matches!(components.pop(), Some(std::path::Component::Normal(_))) {
         return;
     }
     let shells = engine.shells(None).await.unwrap_or_default();

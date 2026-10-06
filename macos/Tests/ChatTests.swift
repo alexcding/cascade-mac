@@ -604,6 +604,10 @@ private actor CommandLog {
     var scratch = shell("scratch", project: ChatProject.standalone, created: "2026-01-02")
     scratch.workingDirectory = "/Users/me/Library/Application Support/Cascade/chat/workspaces/scratch"
     #expect(scratch.inScratchFolder && !loose.inScratchFolder)
+    // A fork of it works in its source's folder, which is no place either.
+    var fork = shell("fork", project: ChatProject.standalone, created: "2026-01-03")
+    fork.workingDirectory = scratch.workingDirectory
+    #expect(fork.inScratchFolder)
     let scratchRow = SidebarEntry.make(projects: [project], sessions: [], chats: [scratch]).first { $0.id == "chat:scratch" }
     #expect(scratchRow?.subtitle == "")
     #expect(SidebarEntry.chatPlace(scratch, projects: [:]) == "No Project", "the archived list still groups it")

@@ -1189,6 +1189,7 @@ impl Actor {
                     && e.queue.is_empty()
                     && e.reservation.is_none()
                     && !e.edit_in_flight
+                    && e.title_generation.is_none()
                     && !e.dirty
                     && e.flush_at.is_none()
                     && Arc::strong_count(&e.lease) == 1

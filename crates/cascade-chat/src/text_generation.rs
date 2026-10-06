@@ -38,8 +38,8 @@ pub struct ThreadTitleGenerationInput {
 
 pub type TextGenerationFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 
-/// Synara `TextGenerationShape.generateThreadTitle`: a title for the first message, sanitized
-/// (`sanitize_generated_thread_title`), or why there is none.
+/// Synara `TextGenerationShape.generateThreadTitle`: a title for the first message as the model
+/// gave it (the engine sanitizes it, `sanitize_generated_thread_title`), or why there is none.
 pub trait TextGeneration: Send + Sync {
     fn generate_thread_title(&self, input: ThreadTitleGenerationInput) -> TextGenerationFuture;
 }

@@ -46,12 +46,11 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
     var cwd: String { workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? worktreePath ?? "" }
     var archived: Bool { archivedAt?.isEmpty == false }
     var standalone: Bool { projectId == ChatProject.standalone }
-    /// It works in the private folder the backend made for it (`<data>/chat/workspaces/<id>`), which
-    /// is nothing to show as a place.
+    /// It works in a private folder the backend made (`<data>/chat/workspaces/<id>`: its own, or its
+    /// fork source's), which is nothing to show as a place.
     var inScratchFolder: Bool {
-        let folder = URL(fileURLWithPath: cwd)
-        let parent = folder.deletingLastPathComponent()
-        return !cwd.isEmpty && folder.lastPathComponent == id && parent.lastPathComponent == "workspaces"
+        let parent = URL(fileURLWithPath: cwd).deletingLastPathComponent()
+        return !cwd.isEmpty && parent.lastPathComponent == "workspaces"
             && parent.deletingLastPathComponent().lastPathComponent == "chat"
     }
     /// A subagent's thread, which its parent's page opens.

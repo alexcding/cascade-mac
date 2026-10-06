@@ -14,7 +14,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use cascade_chat::{
     contracts::orchestration::ModelSelection,
     text_generation::{
-        build_thread_title_prompt, sanitize_generated_thread_title, TextGeneration, TextGenerationFuture,
+        build_thread_title_prompt, TextGeneration, TextGenerationFuture,
         ThreadTitleGenerationInput, MAX_CHAT_THREAD_TITLE_WORDS, THREAD_TITLE_OUTPUT_SCHEMA,
     },
 };
@@ -60,7 +60,8 @@ async fn generate(input: ThreadTitleGenerationInput) -> Result<String, String> {
         }
         _ => claude_title(&prompt, &folder.0).await?,
     };
-    Ok(sanitize_generated_thread_title(&raw))
+    // The engine sanitizes what it is handed (`on_title_generated`).
+    Ok(raw)
 }
 
 /// Synara `runClaudeJson`'s arguments, on `CLAUDE_TITLE_MODEL`.
