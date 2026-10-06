@@ -49,17 +49,6 @@ import AppKit
         return image
     }
 
-    /// A chat row's bubble, in a session's dot slot: a little larger than the pin, as it stands for
-    /// a row's icon rather than a hover button.
-    static let chatSymbolSize: CGFloat = 12
-    static var chatSymbol: NSImage? {
-        let key = "chat@row-slot"
-        if let hit = cache[key] { return hit }
-        let image = symbol("chat")?.withSymbolConfiguration(.init(pointSize: chatSymbolSize, weight: .regular))
-        cache[key] = image
-        return image
-    }
-
     /// A project row's hover buttons, Settings and New Task: a size up from the pin, as they stand
     /// beside a folder rather than in a status dot's place. New Task is its own drawn mark.
     static let projectActionSize: CGFloat = 13

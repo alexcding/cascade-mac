@@ -919,9 +919,9 @@ enum SidebarMetrics {
         case .label:
             icon.isHidden = true
         case .chat(let status):
-            // Its bubble stands where a session's dot does, and gives way to the dot while the
-            // agent works or waits on the person.
-            icon.image = SidebarIcons.chatSymbol
+            // Its bubble stands where a project's folder does, at a folder's size, and gives way to
+            // the dot while the agent works or waits on the person.
+            icon.image = SidebarIcons.rowSymbol(entry.symbol)
             dot.set(status.session)
             let named = entry.subtitle.isEmpty ? entry.title : "\(entry.title), \(entry.subtitle)"
             setAccessibilityLabel(status.working || status.needsInput ? "\(named), \(dot.statusLabel)" : named)
@@ -1061,12 +1061,17 @@ enum SidebarMetrics {
             break
         }
         let chat = if case .chat = entry.role { true } else { false }
-        // A chat sits where a session does: its bubble, or its dot, in the session's dot slot.
+        // A chat's name and dot are laid out as a session's; its bubble stands where a folder does.
         let session = chat || { if case .session = entry.role { true } else { false } }()
         let project = if case .project = entry.role { true } else { false }
         var titleX = left + slot + SidebarMetrics.iconGap
         var dotCenterX: CGFloat = 0
-        if session {
+        if chat {
+            // Under the Chats heading as a project under Projects: the bubble in the folder's slot,
+            // the name where a project's starts, and the dot in the bubble's place while it shows.
+            icon.frame = centered(left, slot)
+            dotCenterX = left + slot / 2
+        } else if session {
             // The dot is centred in a box about a glyph wide, and the name is as far from that box as a
             // project's name is from its folder. Under its project the dot sits on the edge between the
             // folder's glyph and the project's name; at the top level (Pinned, or a project that is gone)
@@ -1078,10 +1083,6 @@ enum SidebarMetrics {
             let x = nested ? (folderRight + titleX) / 2 - width / 2 : folderRight - width
             titleX = x + width + toName
             dotCenterX = x + width / 2
-            if chat {
-                let side = SidebarIcons.chatSymbolSize + 2
-                icon.frame = NSRect(x: ((dotCenterX - side / 2) * 2).rounded() / 2, y: ((height - side) / 2).rounded(), width: side, height: side)
-            }
         } else {
             icon.frame = centered(left, slot)
         }
