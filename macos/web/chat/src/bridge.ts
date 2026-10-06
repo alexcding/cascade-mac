@@ -36,11 +36,13 @@
 //       "providers"  ServerProviderStatus[] (Synara's, as server.getConfig carries them)
 //       "thread"     OrchestrationThreadStreamItem: { kind: "snapshot", snapshot: {
 //                    snapshotSequence, thread } } | { kind: "event", event }
-//       "paths"      { paths: string[] }  files and folders picked in the app's open panel that
-//                                         are not images: added to the composer as @path mentions
-//       "drag"       { files: [{ name, path, size?, directory? }] }  the files of a Finder drag
-//                                         entering the page, so a drop mentions their paths
-//                                         instead of uploading them (droppedPaths.ts)
+//       "files"      { paths: string[], images: [{ name, mimeType, dataBase64 }] }  for the
+//                                         composer: paths of files and folders, mentioned as
+//                                         @path, and images the agents take, attached as a pasted
+//                                         image is. From the app's open panel (paths only; its
+//                                         images go through the file input) and from a drop or
+//                                         paste of Finder files, which the app takes whole and
+//                                         WebKit never delivers (nativeFiles.ts)
 
 export interface ChatContext {
   /** The thread this page shows. A change replaces the conversation. */
@@ -61,7 +63,7 @@ export interface ChatContext {
 }
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: { message: string; code?: string } };
-type PushChannel = "context" | "providers" | "thread" | "paths" | "drag";
+type PushChannel = "context" | "providers" | "thread" | "files";
 
 declare global {
   interface Window {

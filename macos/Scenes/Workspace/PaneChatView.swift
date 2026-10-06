@@ -174,8 +174,8 @@ struct StartChatField: View {
     var body: some View {
         ChatComposerField(chat: model, text: model.prompt, files: model.attachments, caret: model.caret,
                           focusRequest: model.focusRequest, active: true, placeholder: placeholder,
-                          dropTargeted: $dropTargeted, fontSize: 15, editable: !model.busy, identifier: identifier)
-            .frame(minHeight: 44, alignment: .topLeading)
+                          dropTargeted: $dropTargeted, fontSize: 15, editable: !model.busy, identifier: identifier,
+                          minHeight: 44)
     }
 }
 
@@ -183,23 +183,11 @@ struct StartChatField: View {
 struct StartChatAttachButton: View {
     let model: NewChatViewModel
     let identifier: String
-    @State private var choosing = false
 
     var body: some View {
-        Button { choosing = true } label: {
-            Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
-                .frame(width: 24, height: 24).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.textSecondary)
-        .disabled(!model.canAttach)
-        .help(String(localized: "Attach files or folders. Images go with the message; other files are named by their path."))
-        .accessibilityLabel(String(localized: "Attach"))
-        .accessibilityIdentifier(identifier)
-        .fileImporter(isPresented: $choosing, allowedContentTypes: [.item, .folder], allowsMultipleSelection: true) { result in
-            if case .success(let urls) = result { model.attach(ChatAttachmentReader.files(urls)) }
-            model.requestFocus()
-        }
+        ChatAttachButton(chat: model,
+                         help: String(localized: "Attach files or folders. Images go with the message; other files are named by their path."),
+                         identifier: identifier)
     }
 }
 
@@ -209,9 +197,7 @@ extension View {
     func startChatDrop(model: NewChatViewModel, targeted: Binding<Bool>) -> some View {
         overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
             .strokeBorder(Theme.accent, lineWidth: 2).opacity(targeted.wrappedValue ? 1 : 0).allowsHitTesting(false))
-            .onDrop(of: ChatAttachmentReader.dropTypes, isTargeted: targeted) { providers in
-                model.canAttach && ChatAttachmentReader.drop(providers, into: model)
-            }
+            .chatAttachmentDrop(into: model, targeted: targeted)
     }
 }
 

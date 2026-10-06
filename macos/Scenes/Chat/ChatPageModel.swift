@@ -372,20 +372,18 @@ enum ChatPageOutput: Equatable {
         if stream != .down { send(.push(channel: "context", try! JSONValue.from(context))) }
     }
 
-    /// Files and folders picked in the page's open panel that are not images: the page mentions
-    /// them by path (`@/abs/path`), and never uploads them.
-    func receivePickedPaths(_ paths: [String]) {
-        guard !retired, stream != .down, !paths.isEmpty else { return }
-        send(.push(channel: "paths", ["paths": .array(paths.map(JSONValue.string))]))
+    /// Files and folders for the composer (`ChatPageFiles`): from the open panel, the paths of what
+    /// is not an image; from a drop or paste of Finder files, which the app takes whole, those
+    /// paths and the images read. The page mentions the paths (`@/abs/path`), never uploading them,
+    /// and attaches the images as it does a pasted one.
+    func receiveFiles(_ files: ChatPageFiles) {
+        guard !retired, stream != .down, !context.readOnly, !files.isEmpty else { return }
+        send(.push(channel: "files", files.json))
     }
 
-    /// The files of a Finder drag entering the page. WebKit gives a dropped file no path, so the
-    /// page matches what is dropped against these, by name and size, and mentions their paths.
-    /// Empty for a drag that carries no file URLs or has left: the page forgets the last one.
-    func receiveDraggedFiles(_ files: [ChatPageDraggedFile]) {
-        guard !retired, stream != .down else { return }
-        send(.push(channel: "drag", ["files": (try? JSONValue.from(files)) ?? .array([])]))
-    }
+    /// Whether the page takes files now: the app then handles a drop or paste of Finder files on it
+    /// instead of WebKit.
+    var takesFiles: Bool { !retired && !context.readOnly }
 
     /// The page's content process ended; it reloads and says `ready` again.
     fileprivate func pageWentAway() {
@@ -399,9 +397,10 @@ enum ChatPageOutput: Equatable {
         failure = message
     }
 
-    /// The page took a push: a failure shown before is over.
+    /// The page took a push: a failure shown before is over. Not for `files`, which the person's
+    /// own pick, drop or paste sends, and says nothing of whether the page recovered.
     fileprivate func delivered(_ value: ChatPageOutput) {
-        guard !retired, case .push = value, failure != nil else { return }
+        guard !retired, case .push(let channel, _) = value, channel != "files", failure != nil else { return }
         failure = nil
     }
 
@@ -431,56 +430,148 @@ enum ChatPageOutput: Equatable {
     }
 }
 
-/// A file or folder of a Finder drag, as the page's `drag` channel carries it.
-struct ChatPageDraggedFile: Encodable, Equatable, Sendable {
-    var name: String
-    var path: String
-    var size: Int?
-    var directory: Bool
+/// What the app adds to the composer, pushed on the page's `files` channel: the paths it mentions,
+/// and the images it attaches as it does a pasted one (prepared, then uploaded with the message).
+struct ChatPageFiles: Sendable, Equatable {
+    struct Image: Sendable, Equatable {
+        var name: String
+        var mimeType: String
+        var data: Data
+    }
+    var paths: [String] = []
+    var images: [Image] = []
 
-    init(url: URL) {
-        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
-        name = url.lastPathComponent
-        path = url.path
-        directory = values?.isDirectory ?? false
-        size = directory ? nil : values?.fileSize
+    var isEmpty: Bool { paths.isEmpty && images.isEmpty }
+
+    /// `{paths: string[], images: [{name, mimeType, dataBase64}]}`.
+    var json: JSONValue {
+        [
+            "paths": .array(paths.map(JSONValue.string)),
+            "images": .array(images.map {
+                ["name": .string($0.name), "mimeType": .string($0.mimeType), "dataBase64": .string($0.data.base64EncodedString())]
+            }),
+        ]
     }
 }
 
-/// How the page's attachments split: an image is handed to WebKit and uploaded as the page does;
-/// any other file, and every folder, goes to the agent by its path.
+/// How Finder files split, the same for the open panel, a drop and a paste: a regular file whose
+/// type is an image the agents take (`ChatImageTypes.sent`) is an image; any other file (RAW, SVG,
+/// HEIC included), every folder, and an image too large to import go to the agent by path. Each
+/// file is looked at once, on disk, links resolved, so a folder or a link to one named `x.png` is
+/// never taken for an image.
 enum ChatPagePick {
-    static func isImage(_ url: URL) -> Bool {
-        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true else { return false }
-        return UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) ?? false
+    /// Synara's `PROVIDER_SEND_TURN_MAX_IMAGE_IMPORT_BYTES`: the largest image it will prepare.
+    static let maxImageBytes = 32 * 1024 * 1024
+    /// Synara's `PROVIDER_SEND_TURN_MAX_ATTACHMENTS`, the images one message carries.
+    static let maxImages = 8
+
+    /// The MIME type `url` is attached as, or nil when it goes by its path.
+    static func imageType(of url: URL) -> String? {
+        let resolved = url.resolvingSymlinksInPath()
+        guard let values = try? resolved.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey, .contentTypeKey]),
+              values.isRegularFile == true, let size = values.fileSize, size <= maxImageBytes,
+              let type = (values.contentType ?? UTType(filenameExtension: resolved.pathExtension))?.preferredMIMEType?.lowercased(),
+              ChatImageTypes.sent.contains(type) else { return nil }
+        return type
+    }
+
+    /// What a drop or paste of `urls` adds. Reads the images, so it is run off the main actor. Past
+    /// one more image than a message carries none is read: the page refuses what is over the limit,
+    /// and says so, from the first one over it. An image that cannot be read goes by its path.
+    static func read(_ urls: [URL]) -> ChatPageFiles {
+        var files = ChatPageFiles()
+        for url in urls {
+            guard let type = imageType(of: url) else { files.paths.append(url.path); continue }
+            guard files.images.count <= maxImages else { continue }
+            guard let data = try? Data(contentsOf: url.resolvingSymlinksInPath(), options: .mappedIfSafe),
+                  data.count <= maxImageBytes else { files.paths.append(url.path); continue }
+            files.images.append(.init(name: url.lastPathComponent, mimeType: type, data: data))
+        }
+        return files
+    }
+
+    /// The Finder files a pasteboard carries.
+    static func fileURLs(on pasteboard: NSPasteboard) -> [URL] {
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
     }
 }
 
-/// The chat page's web view: it tells its host which files a Finder drag carries as the drag
-/// enters, and again as it drops (ahead of WebKit's own delivery of the drop), and that it carries
-/// none once it leaves, so a later drop with no file URLs (a file promise) never takes its paths.
+/// The chat page's web view. A drop or paste of Finder files is the app's, whole: WebKit would give
+/// the page those files with no path, so it never sees the gesture, and the app hands the files to
+/// its host to read and push on `files`. The page then shows no drop of its own (no drop target
+/// lights up), and the files are taken wherever on the page they land. A drop or paste with no
+/// Finder files in it (an image dragged from a web page, a screenshot on the clipboard) goes to
+/// WebKit as it is, and the page handles it as Synara does.
 private final class ChatPageWebView: WKWebView {
-    var onDragFiles: ([URL]) -> Void = { _ in }
+    var takesFiles: () -> Bool = { false }
+    var onFiles: ([URL]) -> Void = { _ in }
+
+    /// Whether the drag under way is the app's: it carries Finder files and the page takes them.
+    private var ownsDrag = false
+
+    private func finderFiles(_ pasteboard: NSPasteboard) -> [URL]? {
+        guard takesFiles() else { return nil }
+        let urls = ChatPagePick.fileURLs(on: pasteboard)
+        return urls.isEmpty ? nil : urls
+    }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        report(sender)
-        return super.draggingEntered(sender)
+        ownsDrag = finderFiles(sender.draggingPasteboard) != nil
+        return ownsDrag ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        ownsDrag ? .copy : super.draggingUpdated(sender)
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
-        onDragFiles([])
-        super.draggingExited(sender)
+        guard ownsDrag else { super.draggingExited(sender); return }
+        ownsDrag = false
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        ownsDrag || super.prepareForDragOperation(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        report(sender)
-        return super.performDragOperation(sender)
+        guard ownsDrag else { return super.performDragOperation(sender) }
+        guard let urls = finderFiles(sender.draggingPasteboard) else { return false }
+        onFiles(urls)
+        return true
     }
 
-    private func report(_ sender: any NSDraggingInfo) {
-        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        onDragFiles(urls)
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        guard ownsDrag else { super.concludeDragOperation(sender); return }
+        ownsDrag = false
+    }
+
+    /// WKWebView implements `paste:` without declaring it, so WebKit's is called through its
+    /// implementation rather than `super`, once WebKit is known to have one:
+    /// `class_getMethodImplementation` hands back a forwarding stub for a selector it lacks.
+    @objc func paste(_ sender: Any?) {
+        if let urls = finderFiles(.general) { onFiles(urls); return }
+        let selector = #selector(paste(_:))
+        guard WKWebView.instancesRespond(to: selector),
+              let implementation = class_getMethodImplementation(WKWebView.self, selector) else { return }
+        typealias Paste = @convention(c) (AnyObject, Selector, Any?) -> Void
+        unsafeBitCast(implementation, to: Paste.self)(self, selector, sender)
+    }
+
+    /// The context menu's Paste is WebKit's own command, which never reaches `paste:`: while the
+    /// pasteboard holds Finder files it is pointed at the app's handling instead. Found by WebKit's
+    /// identifier for it; a WebKit that names it otherwise leaves it WebKit's.
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        guard finderFiles(.general) != nil else { return }
+        for item in menu.items where item.identifier?.rawValue == "WKMenuItemIdentifierPaste" {
+            item.target = self
+            item.action = #selector(pasteFinderFiles(_:))
+            item.isEnabled = true
+        }
+    }
+
+    @objc private func pasteFinderFiles(_ sender: Any?) {
+        if let urls = finderFiles(.general) { onFiles(urls) }
     }
 }
 
@@ -509,8 +600,12 @@ private final class ChatPageWebView: WKWebView {
         config.userContentController.add(ChatPageMessageProxy(host: self), name: "chat")
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.onDragFiles = { [weak self] urls in
-            self?.owner?.receiveDraggedFiles(urls.map(ChatPageDraggedFile.init(url:)))
+        webView.takesFiles = { [weak self] in self?.owner?.takesFiles ?? false }
+        webView.onFiles = { [weak self] urls in
+            Task { [weak self] in
+                let files = await Task.detached(priority: .userInitiated) { ChatPagePick.read(urls) }.value
+                self?.owner?.receiveFiles(files)
+            }
         }
         // The page paints its own ground.
         webView.setValue(false, forKey: "drawsBackground")
@@ -534,7 +629,8 @@ private final class ChatPageWebView: WKWebView {
         let webView = webView
         webView.evaluateJavaScript("window.nativeChat?.flush?.()") { _, _ in _ = webView }
         webView.stopLoading(); webView.navigationDelegate = nil; webView.uiDelegate = nil
-        (webView as? ChatPageWebView)?.onDragFiles = { _ in }
+        (webView as? ChatPageWebView)?.takesFiles = { false }
+        (webView as? ChatPageWebView)?.onFiles = { _ in }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "chat")
         webView.removeFromSuperview()
     }
@@ -544,9 +640,10 @@ private final class ChatPageWebView: WKWebView {
         decisionHandler(action.targetFrame?.isMainFrame == true && action.request.url == ChatPageAssets.pageURL ? .allow : .cancel)
     }
 
-    /// The composer's "Files and folders": files and folders alike, several at once. The images
-    /// go back to WebKit, which hands them to the page's file input to upload; everything else
-    /// goes to the page as paths, which it mentions.
+    /// The composer's "Files and folders": files and folders alike, several at once when the input
+    /// allows it. Its input is the page's only one, and takes folders whatever it declares. The
+    /// images (`ChatPagePick.imageType`) go back to WebKit, which hands them to the page's file
+    /// input to upload; everything else goes to the page as paths, which it mentions.
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo,
                  completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void) {
@@ -554,15 +651,15 @@ private final class ChatPageWebView: WKWebView {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.resolvesAliases = true
         panel.prompt = String(localized: "Add")
         let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, !panel.urls.isEmpty else { completionHandler(nil); return }
-            let images = panel.urls.filter(ChatPagePick.isImage)
-            let paths = panel.urls.filter { !ChatPagePick.isImage($0) }.map(\.path)
+            let images = panel.urls.filter { ChatPagePick.imageType(of: $0) != nil }
+            let paths = panel.urls.filter { ChatPagePick.imageType(of: $0) == nil }.map(\.path)
             completionHandler(images.isEmpty ? nil : images)
-            self?.owner?.receivePickedPaths(paths)
+            self?.owner?.receiveFiles(ChatPageFiles(paths: paths))
         }
         if let window = webView.window {
             panel.beginSheetModal(for: window) { response in MainActor.assumeIsolated { finish(response) } }

@@ -76,6 +76,8 @@ import UniformTypeIdentifiers
     private(set) var staging = 0
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
+    /// The last request the field acted on (`ChatComposing.focusTaken`); not drawn.
+    @ObservationIgnored var focusTaken = 0
     /// The chat made for a Start whose first message then failed: Start again sends it there
     /// rather than making another chat.
     private(set) var startedShell: ChatThreadShell?
@@ -90,6 +92,8 @@ import UniformTypeIdentifiers
     /// Images already saved for `startedShell`, by attachment: a Start sent again after a failure
     /// does not save them twice.
     @ObservationIgnored private var saved: [ChatAttachment.ID: JSONValue] = [:]
+    /// The form made anew to take this one's place: files still staging here are placed there.
+    @ObservationIgnored private weak var successor: NewChatViewModel?
 
     /// `agent` is the CLI to offer first, when it is usable: a session's own, in its pane.
     init(projectID: String?, projectName: String?, folder: String, service: any ChatServing,
@@ -278,15 +282,30 @@ import UniformTypeIdentifiers
                                         runtimeMode: "approval-required",
                                         workingDirectory: created.workingDirectory ?? folder, worktreePath: worktreePath,
                                         createdAt: now, updatedAt: now)
-                startedShell = shell
+                // Kept by the form made anew meanwhile too, so its Start makes no second chat.
+                for form in heirs where form.startedShell == nil { form.startedShell = shell }
             }
             guard !retired else { return }
             var images: [JSONValue] = []
-            for case .image(let file, let name, let mimeType, let data) in parts {
-                if let done = saved[file.id] { images.append(done); continue }
-                let attachment = try await service.saveAttachment(threadID: shell.id, name: name, mimeType: mimeType, data: data)
+            for part in parts {
+                let file: ChatAttachment, name: String, mimeType: String, data: Data
+                switch part {
+                case .mention: continue
+                case .saved(let done):
+                    guard let attachment = saved[done.id] else { continue }
+                    images.append(attachment); continue
+                case .image(let picked, let pickedName, let pickedType, let pickedData):
+                    (file, name, mimeType, data) = (picked, pickedName, pickedType, pickedData)
+                }
+                // Off the main actor: the image is encoded as base64 for the call.
+                let service = service, threadID = shell.id
+                let attachment = try await Task.detached(priority: .userInitiated) {
+                    try await service.saveAttachment(threadID: threadID, name: name, mimeType: mimeType, data: data)
+                }.value
+                // Kept before anything else, by the form made anew meanwhile too, so its Start
+                // sends the saved copy rather than uploading the image again.
+                for form in heirs where form.startedShell?.id == shell.id { form.saved[file.id] = attachment }
                 guard !retired else { return }
-                saved[file.id] = attachment
                 images.append(attachment)
             }
             let text = ChatFirstMessage.text(draft, parts: parts)
@@ -303,17 +322,34 @@ import UniformTypeIdentifiers
         }
     }
 
+    /// This form and each made anew in turn to take its place.
+    private var heirs: [NewChatViewModel] {
+        var forms = [self]
+        while let next = forms.last?.successor, !forms.contains(where: { $0 === next }) { forms.append(next) }
+        return forms
+    }
+
     func retire() {
         retired = true
         onAction = { _ in }
     }
 
-    /// A form made anew (on reconnect) keeps what the one before had typed and attached.
+    /// A form made anew (on reconnect) keeps what the one before had typed and attached, the chat
+    /// a failed Start already made and the images it saved for it, so Start again sends there
+    /// without making or uploading anything twice. Files still staging there are placed here.
     func carryDraft(from previous: NewChatViewModel) {
-        guard !retired else { return }
+        guard !retired, previous !== self else { return }
         attachments = previous.attachments
         prompt = previous.prompt
         caret = previous.caret
+        if let shell = previous.startedShell {
+            startedShell = shell
+            saved = previous.saved
+            // The chat works where it was made.
+            if standalone, previous.standalone { folder = previous.folder }
+        }
+        staging += previous.staging
+        previous.successor = self
     }
 
     func requestFocus() { if !retired { focusRequest &+= 1 } }
@@ -322,9 +358,6 @@ import UniformTypeIdentifiers
 extension NewChatViewModel: ChatComposing {
     /// Files can be added until Start is under way.
     var canAttach: Bool { !retired && !busy }
-    /// Start's composers complete nothing.
-    var showsSuggestions: Bool { false }
-
     func edit(_ text: String, files: [ChatAttachment], caret: Int?) {
         guard !retired else { return }
         if attachments != files { attachments = files }
@@ -344,33 +377,43 @@ extension NewChatViewModel: ChatComposing {
     func attach(when files: @escaping @MainActor () async -> [ChatAttachment]) {
         guard canAttach else { return }
         staging += 1
-        Task { @MainActor [weak self] in
+        // Held until its files are ready, so a form retired meanwhile can still hand them on.
+        Task { @MainActor in
             let ready = await files()
-            guard let self else { return }
-            self.staging -= 1
-            self.attach(ready)
+            // A form retired for one made anew hands its files on: the count went with them.
+            var form = self
+            while form.retired, let next = form.successor { form = next }
+            form.staging -= 1
+            form.attach(ready)
         }
     }
 
+    /// Start's composers complete nothing: the suggestion keys and Escape take the protocol's
+    /// defaults, so Escape goes on to what holds them.
     func submit() async { await start() }
-    func moveHighlight(_ step: Int) {}
-    func dismissSuggestions() {}
-    func acceptHighlighted(run: Bool) async {}
 }
 
 /// How Start's first message carries its files: images as attachments, the rest as `@path` text.
 enum ChatFirstMessage {
-    /// Synara's limits on a turn (`PROVIDER_SEND_TURN_MAX_*`).
+    /// Synara's limits on a turn (`PROVIDER_SEND_TURN_MAX_*`): what a message may carry, and the
+    /// largest image read to be made small enough (`PROVIDER_SEND_TURN_MAX_IMAGE_IMPORT_BYTES`).
     static let maxImages = 8
     static let maxImageBytes = 10 * 1024 * 1024
+    static let maxImportBytes = 32 * 1024 * 1024
     /// The image types every chat agent takes; another image is sent as PNG when it can be read.
-    static let sentImageTypes: Set<String> = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+    static var sentImageTypes: Set<String> { ChatImageTypes.sent }
+    /// The sent types made smaller when too large, as Synara's `AUTOMATICALLY_OPTIMIZABLE_IMAGE_TYPES`;
+    /// an image converted first is made smaller too. A GIF, which would lose its frames, is not.
+    private static let optimizableTypes: Set<String> = ["image/jpeg", "image/png", "image/webp"]
 
     enum Part: Sendable {
         /// Saved and carried in `message.attachments`; its mark leaves the text.
         case image(ChatAttachment, name: String, mimeType: String, data: Data)
         /// Named in the text where its mark was; `path` is unescaped and absolute.
         case mention(ChatAttachment, path: String)
+        /// An image an earlier Start already saved for the chat: the saved copy goes, its mark
+        /// leaves the text, and the file is not read again.
+        case saved(ChatAttachment)
     }
 
     struct Failure: LocalizedError {
@@ -378,9 +421,10 @@ enum ChatFirstMessage {
         var errorDescription: String? { message }
     }
 
-    /// Each file's part, in order. An image already saved (`saved`) is not read again: its part
-    /// carries no data. Throws, naming the file, for an image too large, too many images, or a
-    /// file that cannot be read.
+    /// Each file's part, in order. An image already saved (`saved`) is not read again. Throws,
+    /// naming the file, for an image too large, too many images, or a file that cannot be read.
+    /// An image's size is checked, where a link to it leads, before it is read; one over
+    /// `maxImageBytes` is drawn smaller and sent as JPEG, as Synara's composer does.
     static func read(_ files: [ChatAttachment], saved: Set<ChatAttachment.ID> = []) async throws -> [Part] {
         try await Task.detached(priority: .userInitiated) {
             var parts: [Part] = []
@@ -390,7 +434,7 @@ enum ChatFirstMessage {
                 if saved.contains(file.id) {
                     // Uploaded by an earlier Start: what is sent is the saved copy, not the file.
                     images += 1
-                    parts.append(.image(file, name: file.name, mimeType: "", data: Data()))
+                    parts.append(.saved(file))
                     continue
                 }
                 var isFolder: ObjCBool = false
@@ -401,30 +445,76 @@ enum ChatFirstMessage {
                 guard !isFolder.boolValue, let type, type.conforms(to: .image) else {
                     parts.append(.mention(file, path: path)); continue
                 }
-                guard let data = FileManager.default.contents(atPath: path) else {
-                    throw Failure(message: String(localized: "‘\(file.name)’ could not be read."))
-                }
-                var name = file.name, mimeType = type.preferredMIMEType ?? "", bytes = data
-                if !sentImageTypes.contains(mimeType) {
-                    // TIFF, HEIC and the like go as PNG; one that is no bitmap (SVG) is a path.
-                    guard let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else {
-                        parts.append(.mention(file, path: path)); continue
-                    }
-                    name = ((name as NSString).deletingPathExtension as NSString).appendingPathExtension("png") ?? name
-                    mimeType = "image/png"
-                    bytes = png
-                }
-                guard bytes.count <= maxImageBytes else {
-                    throw Failure(message: String(localized: "‘\(file.name)’ is larger than the \(maxImageBytes / (1024 * 1024)) MB an image may be."))
+                guard let image = try image(file, path: path, mimeType: type.preferredMIMEType ?? "") else {
+                    // An image that is no bitmap (SVG): the agent reads it by its path.
+                    parts.append(.mention(file, path: path)); continue
                 }
                 images += 1
                 guard images <= maxImages else {
                     throw Failure(message: String(localized: "A message can carry up to \(maxImages) images."))
                 }
-                parts.append(.image(file, name: name, mimeType: mimeType, data: bytes))
+                parts.append(.image(file, name: image.name, mimeType: image.mimeType, data: image.data))
             }
             return parts
         }.value
+    }
+
+    /// The image as it is sent: as it is when an agent takes its type and it is small enough;
+    /// else converted to PNG, and drawn smaller as a JPEG when that is still too large. Nil for
+    /// an image of another type that holds no bitmap.
+    private static func image(_ file: ChatAttachment, path: String,
+                              mimeType: String) throws -> (name: String, mimeType: String, data: Data)? {
+        let converted = !sentImageTypes.contains(mimeType)
+        let data = try boundedContents(of: file, at: path)
+        var name = file.name, type = mimeType, bytes = data
+        if converted, data.count <= maxImageBytes {
+            // TIFF, HEIC and the like go as PNG.
+            guard let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:]) else { return nil }
+            name = renamed(name, to: "png")
+            type = "image/png"
+            bytes = png
+        }
+        guard bytes.count > maxImageBytes else { return (name, type, bytes) }
+        guard converted || optimizableTypes.contains(mimeType) else { throw tooLarge(file, limit: maxImageBytes) }
+        let optimized: Data
+        do {
+            // From the file's own bytes: a converted copy would only be decoded again.
+            optimized = try ChatImageOptimizer.optimize(data).data
+        } catch ChatImageOptimizer.Failure.tooManyPixels {
+            throw Failure(message: String(localized: "‘\(file.name)’ has too many pixels to be made small enough to send."))
+        } catch {
+            if converted { return nil }
+            throw unreadable(file)
+        }
+        guard optimized.count <= maxImageBytes else { throw tooLarge(file, limit: maxImageBytes) }
+        return (renamed(file.name, to: "jpg"), "image/jpeg", optimized)
+    }
+
+    /// The file's bytes, measured first where a link to it leads, and read no further than
+    /// `maxImportBytes`: a file larger, or one that grew past it since, is refused.
+    private static func boundedContents(of file: ChatAttachment, at path: String) throws -> Data {
+        let target = (path as NSString).resolvingSymlinksInPath
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: target)[.size] as? NSNumber)?.intValue else {
+            throw unreadable(file)
+        }
+        guard size <= maxImportBytes else { throw tooLarge(file, limit: maxImportBytes) }
+        guard let handle = FileHandle(forReadingAtPath: target) else { throw unreadable(file) }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: maxImportBytes + 1) else { throw unreadable(file) }
+        guard data.count <= maxImportBytes else { throw tooLarge(file, limit: maxImportBytes) }
+        return data
+    }
+
+    private static func renamed(_ name: String, to pathExtension: String) -> String {
+        ((name as NSString).deletingPathExtension as NSString).appendingPathExtension(pathExtension) ?? name
+    }
+
+    private static func unreadable(_ file: ChatAttachment) -> Failure {
+        Failure(message: String(localized: "‘\(file.name)’ could not be read."))
+    }
+
+    private static func tooLarge(_ file: ChatAttachment, limit: Int) -> Failure {
+        Failure(message: String(localized: "‘\(file.name)’ is larger than the \(limit / (1024 * 1024)) MB an image may be."))
     }
 
     /// The message's text: `draft` with each mention's mark replaced by its `@path`, set off by

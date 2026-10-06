@@ -149,6 +149,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var profile: AgentProfile?
     /// Bumped to hand the keyboard to the message field.
     private(set) var focusRequest = 0
+    /// The last request the field acted on (`ChatComposing.focusTaken`); not drawn.
+    @ObservationIgnored var focusTaken = 0
     /// The message being written. Each attached file sits in it as one `ChatCompletion.fileMark`,
     /// which the field draws as a chip: deleting that character in any way (Backspace, Cut, Select
     /// All then Delete) drops the file, and Undo brings it back.

@@ -22,7 +22,6 @@ struct TranscriptChatOverlay: View {
     let active: Bool
     /// What the empty message field reads.
     let placeholder: String
-    @State private var choosingFiles = false
     @State private var dropTargeted = false
 
     private static let column: CGFloat = 740
@@ -106,17 +105,13 @@ struct TranscriptChatOverlay: View {
                 // switched to by its shortcut asks for it: the terminal stays in the window
                 // underneath and would otherwise keep it.
                 ChatComposerField(chat: chat, text: chat.draft, files: chat.attachments, caret: chat.caret,
-                                  focusRequest: chat.focusRequest, active: active,
+                                  focusRequest: chat.focusRequest, active: active, focusOnAppear: true,
                                   placeholder: placeholder,
                                   dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
-                    Button { choosingFiles = true } label: {
-                        Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textSecondary)
-                    .disabled(!chat.canAttach)
-                    .help("Attach files to your message. Remove a file’s chip to detach it.")
+                    ChatAttachButton(chat: chat,
+                                     help: String(localized: "Attach files to your message. Remove a file’s chip to detach it."),
+                                     identifier: "transcript-chat-attach")
                     Button { chat.fork() } label: {
                         Image(systemName: "arrow.triangle.branch").font(.system(size: 14, weight: .medium))
                     }
@@ -148,12 +143,7 @@ struct TranscriptChatOverlay: View {
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20)
                 .stroke(dropTargeted ? Theme.accent : Theme.border, lineWidth: dropTargeted ? 2 : Theme.Size.hairline))
-            .onDrop(of: ChatAttachmentReader.dropTypes, isTargeted: $dropTargeted) { providers in
-                chat.canAttach && ChatAttachmentReader.drop(providers, into: chat)
-            }
-            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result { chat.attach(ChatAttachmentReader.files(urls)) }
-            }
+            .chatAttachmentDrop(into: chat, targeted: $dropTargeted)
             .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         }
         .padding(.horizontal, 24)

@@ -299,8 +299,9 @@ their own, and report back through one message handler.
   `macos/web/chat/SYNARA.md`). It asks native for what it needs and is pushed the rest: requests
   (`{kind:"request", method, params}`) are answered through `window.nativeChat.reply`, and
   `window.nativeChat.push` delivers the `context`, `providers` and `thread` channels, plus
-  `paths` and `drag`, the absolute paths of files picked or dragged in from Finder: an image is
-  uploaded, any other file or folder becomes an `@path` mention.
+  `files`, what Finder files picked, dropped or pasted in add to the composer: a drop or paste of
+  Finder files is the app's whole (WebKit never delivers it), an image the agents take (PNG, JPEG,
+  GIF, WebP) is read and sent to be uploaded, any other file or folder becomes an `@path` mention.
   `ChatPageModel` hosts it, `ChatPageAssets` serves it on `cascade-chat://`, and a
   `ChatPageBackend` answers it: the chat RPC for a chat session, the terminal transcript (read
   only) for a terminal session. Only native reaches the backend; the page never does. The app

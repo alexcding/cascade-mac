@@ -45,6 +45,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type DragEvent,
   type FormEvent,
 } from "react";
@@ -187,7 +188,7 @@ import { createProjectSelector, createThreadSelector } from "~/storeSelectors";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatMessage } from "~/types";
 
 import { emit, onPush, request, type ChatContext } from "./bridge";
-import { droppedFilePaths, forgetDrag } from "./droppedPaths";
+import { readNativeFiles } from "./nativeFiles";
 import { containedPath } from "./filePaths";
 import { setRouteThreadId } from "./shims/npm/@tanstack__react-router";
 import { readNativeApi } from "./shims/web/nativeApi";
@@ -743,6 +744,20 @@ export function ChatController({ context }: { context: ChatContext }) {
     commitImages: commitPreparedComposerImages,
     onError: setComposerImagePreparationError,
   });
+  // Any file but an image goes to the agent by its path, as an `@path` mention, never uploaded:
+  // the agent reads it where it is. A drop or paste of Finder files is the app's whole: WebKit would
+  // give the page those files with no path, so the app takes the gesture, reads its images and
+  // pushes them with the other files' paths on "files" (below), and the page never sees it. What
+  // still reaches the page is a drop or paste with no Finder files in it: an image goes Synara's
+  // way, prepared and uploaded, and a file with no path cannot be mentioned and is refused.
+  const addComposerPathMentions = useCallback(
+    (paths: readonly string[]) => {
+      for (const absolutePath of paths) {
+        appendComposerPromptText(threadId, formatComposerMentionToken(absolutePath));
+      }
+    },
+    [threadId],
+  );
   const addComposerImages = useCallback(
     (files: readonly File[]) => {
       if (files.length === 0) return;
@@ -754,18 +769,6 @@ export function ChatController({ context }: { context: ChatContext }) {
     },
     [enqueueComposerImages, pendingUserInputs.length],
   );
-  // Any file but an image goes to the agent by its path, as an `@path` mention, never uploaded:
-  // the agent reads it where it is. A Finder drop's paths come from the app (droppedPaths.ts); a
-  // file whose path the page cannot learn (pasted) is refused rather than uploaded.
-  const droppingRef = useRef(false);
-  const addComposerPathMentions = useCallback(
-    (paths: readonly string[]) => {
-      for (const absolutePath of paths) {
-        appendComposerPromptText(threadId, formatComposerMentionToken(absolutePath));
-      }
-    },
-    [threadId],
-  );
   const addComposerFiles = useCallback(
     (files: readonly File[]) => {
       if (files.length === 0) return;
@@ -773,24 +776,22 @@ export function ChatController({ context }: { context: ChatContext }) {
         toastManager.add({ type: "error", title: "Attach files after answering plan questions." });
         return;
       }
-      const paths = droppingRef.current ? droppedFilePaths(files) : files.map(() => null);
-      const known = paths.filter((path): path is string => path !== null);
-      addComposerPathMentions(known);
-      const unknown = files.filter((_, index) => paths[index] === null);
+      const names = files.map((file) => file.name || "the file").join(", ");
+      const one = files.length === 1;
       setThreadError(
         threadId,
-        unknown.length > 0
-          ? `Couldn't tell where ${unknown.map((file) => file.name).join(", ")} ${unknown.length === 1 ? "is" : "are"} on disk. Drag ${unknown.length === 1 ? "it" : "them"} from Finder or pick ${unknown.length === 1 ? "it" : "them"} with + to mention ${unknown.length === 1 ? "its path" : "their paths"}.`
-          : null,
+        `Couldn't tell where ${names} ${one ? "is" : "are"} on disk, so ${one ? "it" : "they"} can't be mentioned by path. Save ${one ? "it" : "them"} to a folder and add ${one ? "it" : "them"} from there.`,
       );
     },
-    [addComposerPathMentions, pendingUserInputs.length, setThreadError, threadId],
+    [pendingUserInputs.length, setThreadError, threadId],
   );
+  // The open panel's files ("+" → Files and folders): the app hands back only images, and pushes
+  // the rest as paths.
   const addComposerAttachments = useCallback(
     (files: readonly File[]) => {
       const { imageFiles, genericFiles } = splitComposerDropzoneFiles(files);
-      if (imageFiles.length > 0) addComposerImages(imageFiles);
-      if (genericFiles.length > 0) addComposerFiles(genericFiles);
+      addComposerImages(imageFiles);
+      addComposerFiles(genericFiles);
     },
     [addComposerFiles, addComposerImages],
   );
@@ -798,13 +799,8 @@ export function ChatController({ context }: { context: ChatContext }) {
     discardPromptHistoryNavigationForComposerMutation();
     removeComposerDraftFile(threadId, fileId);
   };
-  const {
-    onComposerPaste,
-    onComposerDragEnter,
-    onComposerDragOver,
-    onComposerDragLeave,
-    onComposerDrop: onComposerDropFiles,
-  } = useComposerDropzone({
+  const { onComposerPaste, onComposerDragEnter, onComposerDragOver, onComposerDragLeave, onComposerDrop } =
+    useComposerDropzone({
       disabled: false,
       addImages: addComposerImages,
       fileSupport: { genericFiles: "accept", addFiles: addComposerFiles },
@@ -816,32 +812,24 @@ export function ChatController({ context }: { context: ChatContext }) {
       focusComposer: () => window.requestAnimationFrame(() => focusComposer()),
       setIsDragOverComposer,
     });
-  // Synara handles the drop synchronously; the files it hands on during it are the drag's.
-  const onComposerDrop = (event: DragEvent<HTMLDivElement>) => {
-    droppingRef.current = true;
-    try {
-      onComposerDropFiles(event);
-    } finally {
-      droppingRef.current = false;
-      if (event.dataTransfer.types.includes("Files")) forgetDrag();
-    }
-  };
-  // Picked in the app's open panel ("+" → Files and folders): what is not an image comes as paths.
+  // Files from the app (nativeFiles.ts): picked in its open panel ("+" → Files and folders), or
+  // dropped or pasted from Finder. Paths are mentioned; images, only the types the agents take,
+  // go into Synara's intake as a pasted image does, which prepares them and holds them to the
+  // limit of attachments a message carries.
   useEffect(() => {
     if (readOnly) return;
-    return onPush<{ paths?: unknown }>("paths", (payload) => {
-      const paths = Array.isArray(payload?.paths)
-        ? payload.paths.filter((path): path is string => typeof path === "string" && path.startsWith("/"))
-        : [];
-      if (paths.length === 0) return;
+    return onPush<unknown>("files", (payload) => {
+      const { paths, images } = readNativeFiles(payload);
+      if (paths.length === 0 && images.length === 0) return;
       setIsComposerExtrasPanelOpen(false);
       if (pendingUserInputs.length > 0) {
         toastManager.add({ type: "error", title: "Attach files after answering plan questions." });
         return;
       }
       addComposerPathMentions(paths);
+      if (images.length > 0) enqueueComposerImages(images);
     });
-  }, [addComposerPathMentions, pendingUserInputs.length, readOnly]);
+  }, [addComposerPathMentions, enqueueComposerImages, pendingUserInputs.length, readOnly]);
   const addPastedTextToDraft = useCallback(
     (text: string) => {
       discardPromptHistoryNavigationForComposerMutation();
