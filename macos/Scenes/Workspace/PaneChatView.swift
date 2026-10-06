@@ -55,7 +55,7 @@ struct PaneChatComposer: View {
     @Bindable var model: NewChatViewModel
     var existing: [ChatThreadShell] = []
     var open: (String) -> Void = { _ in }
-    @FocusState private var focused: Bool
+    @State private var dropTargeted = false
 
     private var chosen: NewChatViewModel.Agent? { model.agents.first { $0.cli == model.agent } }
 
@@ -77,10 +77,11 @@ struct PaneChatComposer: View {
                     }
                 } card: {
                     ComposerCard {
-                        ComposerTextField(placeholder: AgentDrivers.of(model.agent)?.chatPlaceholder ?? String(localized: "Ask anything"),
-                                          text: $model.prompt, focused: $focused, disabled: model.busy,
-                                          identifier: "pane-chat-prompt") { Task { await model.start() } }
+                        StartChatField(model: model,
+                                       placeholder: AgentDrivers.of(model.agent)?.chatPlaceholder ?? String(localized: "Ask anything"),
+                                       identifier: "pane-chat-prompt", dropTargeted: $dropTargeted)
                         HStack(spacing: 12) {
+                            StartChatAttachButton(model: model, identifier: "pane-chat-attach")
                             Spacer(minLength: 0)
                             ComposerAgentButton(agent: model.agentMark, title: model.agentTitle,
                                                 help: String(localized: "The agent and model the chat starts with"),
@@ -92,6 +93,7 @@ struct PaneChatComposer: View {
                         }
                         .frame(minHeight: 32)
                     }
+                    .startChatDrop(model: model, targeted: $dropTargeted)
                 }
                 ComposerMessageLine {
                     if let error = model.error {
@@ -109,7 +111,7 @@ struct PaneChatComposer: View {
         }
         .padding(.horizontal, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { focused = true }
+        .onAppear { model.requestFocus() }
         .task { await model.load() }
     }
 
@@ -124,7 +126,7 @@ struct PaneChatComposer: View {
         .buttonStyle(.plain)
         .disabled(!model.canIncludeKnowledge)
         .opacity(model.canIncludeKnowledge ? 1 : 0.5)
-        .onChange(of: model.includeKnowledge) { _, _ in focused = true }
+        .onChange(of: model.includeKnowledge) { _, _ in model.requestFocus() }
         .help(model.knowledgeUnavailableReason
               ?? String(localized: "The chat starts knowing what \(model.knowledgeAgentName) knows in the terminal, without showing its messages. The session is not changed."))
         .accessibilityAddTraits(model.includeKnowledge ? .isSelected : [])
@@ -157,6 +159,59 @@ struct PaneChatComposer: View {
             return AnyView(Text(String(localized: "Needs input")).font(.system(size: 11)).foregroundStyle(Theme.warn))
         }
         return shell.working ? AnyView(ProgressView().controlSize(.mini)) : nil
+    }
+}
+
+/// Start's chat field, New Task's and a pane's: the message with its files as chips, as the terminal
+/// chat's overlay writes one. Files paste and drop into it; Return starts, Shift- or Option-Return
+/// starts a new line.
+struct StartChatField: View {
+    let model: NewChatViewModel
+    let placeholder: String
+    let identifier: String
+    @Binding var dropTargeted: Bool
+
+    var body: some View {
+        ChatComposerField(chat: model, text: model.prompt, files: model.attachments, caret: model.caret,
+                          focusRequest: model.focusRequest, active: true, placeholder: placeholder,
+                          dropTargeted: $dropTargeted, fontSize: 15, editable: !model.busy, identifier: identifier)
+            .frame(minHeight: 44, alignment: .topLeading)
+    }
+}
+
+/// Start's paperclip: picks files and folders for the first message, placed as chips at the caret.
+struct StartChatAttachButton: View {
+    let model: NewChatViewModel
+    let identifier: String
+    @State private var choosing = false
+
+    var body: some View {
+        Button { choosing = true } label: {
+            Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
+                .frame(width: 24, height: 24).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.textSecondary)
+        .disabled(!model.canAttach)
+        .help(String(localized: "Attach files or folders. Images go with the message; other files are named by their path."))
+        .accessibilityLabel(String(localized: "Attach"))
+        .accessibilityIdentifier(identifier)
+        .fileImporter(isPresented: $choosing, allowedContentTypes: [.item, .folder], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { model.attach(ChatAttachmentReader.files(urls)) }
+            model.requestFocus()
+        }
+    }
+}
+
+extension View {
+    /// Files and images dropped anywhere on Start's card land in its message, the card ringed while
+    /// they are over it.
+    func startChatDrop(model: NewChatViewModel, targeted: Binding<Bool>) -> some View {
+        overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .strokeBorder(Theme.accent, lineWidth: 2).opacity(targeted.wrappedValue ? 1 : 0).allowsHitTesting(false))
+            .onDrop(of: ChatAttachmentReader.dropTypes, isTargeted: targeted) { providers in
+                model.canAttach && ChatAttachmentReader.drop(providers, into: model)
+            }
     }
 }
 

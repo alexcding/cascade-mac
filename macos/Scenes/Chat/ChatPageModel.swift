@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import OSLog
+import UniformTypeIdentifiers
 import WebKit
 
 /// What the chat page shows and how it resolves file references: `ChatContext` in
@@ -371,6 +372,20 @@ enum ChatPageOutput: Equatable {
         if stream != .down { send(.push(channel: "context", try! JSONValue.from(context))) }
     }
 
+    /// Files and folders picked in the page's open panel that are not images: the page mentions
+    /// them by path (`@/abs/path`), and never uploads them.
+    func receivePickedPaths(_ paths: [String]) {
+        guard !retired, stream != .down, !paths.isEmpty else { return }
+        send(.push(channel: "paths", ["paths": .array(paths.map(JSONValue.string))]))
+    }
+
+    /// The files of a Finder drag entering the page. WebKit gives a dropped file no path, so the
+    /// page matches what is dropped against these, by name and size, and mentions their paths.
+    func receiveDraggedFiles(_ files: [ChatPageDraggedFile]) {
+        guard !retired, stream != .down, !files.isEmpty else { return }
+        send(.push(channel: "drag", ["files": (try? JSONValue.from(files)) ?? .array([])]))
+    }
+
     /// The page's content process ended; it reloads and says `ready` again.
     fileprivate func pageWentAway() {
         guard !retired else { return }
@@ -415,9 +430,56 @@ enum ChatPageOutput: Equatable {
     }
 }
 
-/// The WebKit side of a chat page: the web view, its scheme, its navigation policy and its message
-/// handler. Held by its `ChatPageModel`, never by a view.
-@MainActor private final class ChatPageHost: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+/// A file or folder of a Finder drag, as the page's `drag` channel carries it.
+struct ChatPageDraggedFile: Encodable, Equatable, Sendable {
+    var name: String
+    var path: String
+    var size: Int?
+    var directory: Bool
+
+    init(url: URL) {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
+        name = url.lastPathComponent
+        path = url.path
+        directory = values?.isDirectory ?? false
+        size = directory ? nil : values?.fileSize
+    }
+}
+
+/// How the page's attachments split: an image is handed to WebKit and uploaded as the page does;
+/// any other file, and every folder, goes to the agent by its path.
+enum ChatPagePick {
+    static func isImage(_ url: URL) -> Bool {
+        guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true else { return false }
+        return UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) ?? false
+    }
+}
+
+/// The chat page's web view: it tells its host which files a Finder drag carries as the drag
+/// enters, and again as it drops (ahead of WebKit's own delivery of the drop).
+private final class ChatPageWebView: WKWebView {
+    var onDragFiles: ([URL]) -> Void = { _ in }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        report(sender)
+        return super.draggingEntered(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        report(sender)
+        return super.performDragOperation(sender)
+    }
+
+    private func report(_ sender: any NSDraggingInfo) {
+        let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
+                                                         options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        if !urls.isEmpty { onDragFiles(urls) }
+    }
+}
+
+/// The WebKit side of a chat page: the web view, its scheme, its navigation policy, its open panel
+/// and its message handler. Held by its `ChatPageModel`, never by a view.
+@MainActor private final class ChatPageHost: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let webView: WKWebView
     weak var owner: ChatPageModel?
 
@@ -433,11 +495,16 @@ enum ChatPageOutput: Equatable {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = Self.dataStore
         config.setURLSchemeHandler(ChatPageAssets(readAttachment: readAttachment), forURLScheme: ChatPageAssets.scheme)
-        webView = WKWebView(frame: .zero, configuration: config)
+        let webView = ChatPageWebView(frame: .zero, configuration: config)
+        self.webView = webView
         super.init()
         // Through a weak proxy: the controller holds its handlers strongly.
         config.userContentController.add(ChatPageMessageProxy(host: self), name: "chat")
         webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.onDragFiles = { [weak self] urls in
+            self?.owner?.receiveDraggedFiles(urls.map(ChatPageDraggedFile.init(url:)))
+        }
         // The page paints its own ground.
         webView.setValue(false, forKey: "drawsBackground")
         webView.setAccessibilityIdentifier("chat-page")
@@ -459,7 +526,8 @@ enum ChatPageOutput: Equatable {
         // completion holds the web view until the page has.
         let webView = webView
         webView.evaluateJavaScript("window.nativeChat?.flush?.()") { _, _ in _ = webView }
-        webView.stopLoading(); webView.navigationDelegate = nil
+        webView.stopLoading(); webView.navigationDelegate = nil; webView.uiDelegate = nil
+        (webView as? ChatPageWebView)?.onDragFiles = { _ in }
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "chat")
         webView.removeFromSuperview()
     }
@@ -467,6 +535,33 @@ enum ChatPageOutput: Equatable {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
         decisionHandler(action.targetFrame?.isMainFrame == true && action.request.url == ChatPageAssets.pageURL ? .allow : .cancel)
+    }
+
+    /// The composer's "Files and folders": files and folders alike, several at once. The images
+    /// go back to WebKit, which hands them to the page's file input to upload; everything else
+    /// goes to the page as paths, which it mentions.
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping @MainActor @Sendable ([URL]?) -> Void) {
+        guard frame.isMainFrame, owner?.retired == false else { completionHandler(nil); return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.resolvesAliases = true
+        panel.prompt = String(localized: "Add")
+        let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, !panel.urls.isEmpty else { completionHandler(nil); return }
+            let images = panel.urls.filter(ChatPagePick.isImage)
+            let paths = panel.urls.filter { !ChatPagePick.isImage($0) }.map(\.path)
+            completionHandler(images.isEmpty ? nil : images)
+            self?.owner?.receivePickedPaths(paths)
+        }
+        if let window = webView.window {
+            panel.beginSheetModal(for: window) { response in MainActor.assumeIsolated { finish(response) } }
+        } else {
+            finish(panel.runModal())
+        }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

@@ -105,7 +105,7 @@ private struct NewTaskModeButton: View {
 private struct NewTaskChatComposer: View {
     let page: NewSessionViewModel
     @Bindable var model: NewChatViewModel
-    @FocusState private var focused: Bool
+    @State private var dropTargeted = false
 
     private var chosen: NewChatViewModel.Agent? { model.agents.first { $0.cli == model.agent } }
 
@@ -125,9 +125,10 @@ private struct NewTaskChatComposer: View {
                     }
                 } card: {
                     ComposerCard {
-                        ComposerTextField(placeholder: model.askPlaceholder, text: $model.prompt, focused: $focused,
-                                          disabled: model.busy, identifier: "new-task-chat-prompt") { Task { await model.start() } }
+                        StartChatField(model: model, placeholder: model.askPlaceholder, identifier: "new-task-chat-prompt",
+                                       dropTargeted: $dropTargeted)
                         HStack(spacing: 12) {
+                            StartChatAttachButton(model: model, identifier: "new-task-chat-attach")
                             Spacer(minLength: 0)
                             ComposerAgentButton(agent: model.agentMark, title: model.agentTitle,
                                                 help: String(localized: "The agent and model the chat starts with"),
@@ -139,6 +140,7 @@ private struct NewTaskChatComposer: View {
                         }
                         .frame(minHeight: 32)
                     }
+                    .startChatDrop(model: model, targeted: $dropTargeted)
                 }
                 ComposerMessageLine {
                     if let error = model.error {
@@ -154,7 +156,7 @@ private struct NewTaskChatComposer: View {
         }
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { focused = true }
+        .onAppear { model.requestFocus() }
         .task { await model.load() }
     }
 }

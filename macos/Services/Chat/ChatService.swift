@@ -97,20 +97,33 @@ extension ChatServing {
     }
 
     /// Sends `text` as the person's next message in chat `threadID`: Synara's `thread.turn.start`,
-    /// on `provider`'s `model`, with no attachments, as the page sends one.
-    func startTurn(threadID: String, text: String, provider: String, model: String,
+    /// on `provider`'s `model`, as the page sends one. `attachments` are what `saveAttachment`
+    /// answered, each a Synara `ChatAttachment`.
+    func startTurn(threadID: String, text: String, provider: String, model: String, attachments: [JSONValue] = [],
                    runtimeMode: String = "approval-required", messageID: String = UUID().uuidString.lowercased(),
                    now: Date = Date()) async throws {
         try await dispatch([
             "type": "thread.turn.start",
             "commandId": .string(Self.commandID()),
             "threadId": .string(threadID),
-            "message": ["messageId": .string(messageID), "role": "user", "text": .string(text), "attachments": []],
+            "message": ["messageId": .string(messageID), "role": "user", "text": .string(text),
+                        "attachments": .array(attachments)],
             "modelSelection": ["provider": .string(provider), "model": .string(model)],
             "runtimeMode": .string(runtimeMode),
             "interactionMode": "default",
             "createdAt": .string(ChatTimestamp.string(now)),
         ])
+    }
+
+    /// Saves a file for chat `threadID`'s next message (`attachments.save`), answering the Synara
+    /// `ChatAttachment` (`{type, id, name, mimeType, sizeBytes}`) a message carries.
+    func saveAttachment(threadID: String, name: String, mimeType: String, data: Data) async throws -> JSONValue {
+        let result = try await rpc("attachments.save", params: [
+            "threadId": .string(threadID), "name": .string(name), "mimeType": .string(mimeType),
+            "dataBase64": .string(data.base64EncodedString()),
+        ])
+        guard result["id"]?.string != nil else { throw BackendError.incompatible }
+        return result
     }
 
     /// The conversation of a session's agent a chat can start knowing (`chat.sessionKnowledge`):

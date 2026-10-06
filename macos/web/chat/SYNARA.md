@@ -128,6 +128,8 @@ window.nativeChat.flush()   // the page is about to close: Synara's stores write
 | `context` | `ChatContext` (below). Push before anything else and again whenever it changes; a new `threadId` replaces the conversation. |
 | `providers` | `ServerProviderStatus[]`, Synara's (`contracts/server.ts`), as its `server.getConfig` carries them: `{ provider, instanceId?, driver?, displayName?, enabled?, status: "ready"\|"warning"\|"error", available, authStatus: "authenticated"\|"unauthenticated"\|"unknown", checkedAt, message?, … }`. The page answers `server.getConfig` from it. |
 | `thread` | `OrchestrationThreadStreamItem`: `{ kind: "snapshot", snapshot: { snapshotSequence, thread: OrchestrationThread } }` or `{ kind: "event", event: OrchestrationEvent }`. |
+| `paths` | `{ paths: string[] }`: files and folders picked in the app's open panel ("+" → Files and folders) that are not images. The page adds each as an `@path` mention; only images go back to the file input, to be uploaded. |
+| `drag` | `{ files: [{ name, path, size?, directory? }] }`: the files of a Finder drag as it enters the web view (and again as it drops). WebKit gives a dropped `File` no path, so the page matches a drop against these by name and size (`src/droppedPaths.ts`) and mentions what is not an image by its path; a file it cannot match is refused, never uploaded. |
 
 ```ts
 interface ChatContext {

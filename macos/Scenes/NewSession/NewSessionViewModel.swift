@@ -120,7 +120,7 @@ import Observation
             return
         }
         if let previous {
-            next.prompt = previous.prompt
+            next.carryDraft(from: previous)
             next.carryFolder(from: previous)
             previous.retire()
         }

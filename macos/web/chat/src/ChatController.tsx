@@ -21,7 +21,6 @@
 import {
   MessageId,
   PROVIDER_DISPLAY_NAMES,
-  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ThreadId,
   type ChatFileAttachment,
   type TurnId,
@@ -46,6 +45,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type FormEvent,
 } from "react";
 
@@ -151,7 +151,6 @@ import { FORK_THREAD_TARGET_LABELS } from "~/lib/threadFork";
 import { filterPromptProviderMentionReferences, filterPromptSkillReferences } from "~/lib/composerMentions";
 import { appendPastedTextsToPrompt, createPastedTextDraft } from "~/lib/composerPastedText";
 import {
-  buildComposerFileAttachmentsFromFiles,
   effectiveComposerAttachmentCount,
   formatOutgoingComposerPrompt,
   readFileAsDataUrl,
@@ -187,7 +186,8 @@ import { useStore } from "~/store";
 import { createProjectSelector, createThreadSelector } from "~/storeSelectors";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatMessage } from "~/types";
 
-import { emit, request, type ChatContext } from "./bridge";
+import { emit, onPush, request, type ChatContext } from "./bridge";
+import { droppedFilePaths, forgetDrag } from "./droppedPaths";
 import { containedPath } from "./filePaths";
 import { setRouteThreadId } from "./shims/npm/@tanstack__react-router";
 import { readNativeApi } from "./shims/web/nativeApi";
@@ -754,6 +754,18 @@ export function ChatController({ context }: { context: ChatContext }) {
     },
     [enqueueComposerImages, pendingUserInputs.length],
   );
+  // Any file but an image goes to the agent by its path, as an `@path` mention, never uploaded:
+  // the agent reads it where it is. A Finder drop's paths come from the app (droppedPaths.ts); a
+  // file whose path the page cannot learn (pasted) is refused rather than uploaded.
+  const droppingRef = useRef(false);
+  const addComposerPathMentions = useCallback(
+    (paths: readonly string[]) => {
+      for (const absolutePath of paths) {
+        appendComposerPromptText(threadId, formatComposerMentionToken(absolutePath));
+      }
+    },
+    [threadId],
+  );
   const addComposerFiles = useCallback(
     (files: readonly File[]) => {
       if (files.length === 0) return;
@@ -761,21 +773,18 @@ export function ChatController({ context }: { context: ChatContext }) {
         toastManager.add({ type: "error", title: "Attach files after answering plan questions." });
         return;
       }
-      const { files: nextFiles, error } = buildComposerFileAttachmentsFromFiles({
-        files,
-        existingAttachmentCount: effectiveComposerAttachmentCount(
-          useComposerDraftStore.getState().draftsByThreadId[threadId],
-        ),
-      });
-      const insertedCount = nextFiles.length > 0 ? addComposerFilesToDraft(nextFiles) : 0;
+      const paths = droppingRef.current ? droppedFilePaths(files) : files.map(() => null);
+      const known = paths.filter((path): path is string => path !== null);
+      addComposerPathMentions(known);
+      const unknown = files.filter((_, index) => paths[index] === null);
       setThreadError(
         threadId,
-        insertedCount < nextFiles.length
-          ? `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`
-          : error,
+        unknown.length > 0
+          ? `Couldn't tell where ${unknown.map((file) => file.name).join(", ")} ${unknown.length === 1 ? "is" : "are"} on disk. Drag ${unknown.length === 1 ? "it" : "them"} from Finder or pick ${unknown.length === 1 ? "it" : "them"} with + to mention ${unknown.length === 1 ? "its path" : "their paths"}.`
+          : null,
       );
     },
-    [addComposerFilesToDraft, pendingUserInputs.length, setThreadError, threadId],
+    [addComposerPathMentions, pendingUserInputs.length, setThreadError, threadId],
   );
   const addComposerAttachments = useCallback(
     (files: readonly File[]) => {
@@ -789,21 +798,50 @@ export function ChatController({ context }: { context: ChatContext }) {
     discardPromptHistoryNavigationForComposerMutation();
     removeComposerDraftFile(threadId, fileId);
   };
-  const { onComposerPaste, onComposerDragEnter, onComposerDragOver, onComposerDragLeave, onComposerDrop } =
-    useComposerDropzone({
+  const {
+    onComposerPaste,
+    onComposerDragEnter,
+    onComposerDragOver,
+    onComposerDragLeave,
+    onComposerDrop: onComposerDropFiles,
+  } = useComposerDropzone({
       disabled: false,
       addImages: addComposerImages,
       fileSupport: { genericFiles: "accept", addFiles: addComposerFiles },
       appendReferenceText: (referenceText) => appendComposerPromptText(threadId, referenceText),
-      appendPathMentions: (paths) => {
-        for (const absolutePath of paths) {
-          appendComposerPromptText(threadId, formatComposerMentionToken(absolutePath));
-        }
-      },
+      appendPathMentions: addComposerPathMentions,
       dragDepthRef,
-      focusComposer,
+      // After the drop: focused during it, the editor writes back the prompt it holds, from
+      // before the drop's mentions reach it, over them.
+      focusComposer: () => window.requestAnimationFrame(() => focusComposer()),
       setIsDragOverComposer,
     });
+  // Synara handles the drop synchronously; the files it hands on during it are the drag's.
+  const onComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    droppingRef.current = true;
+    try {
+      onComposerDropFiles(event);
+    } finally {
+      droppingRef.current = false;
+      if (event.dataTransfer.types.includes("Files")) forgetDrag();
+    }
+  };
+  // Picked in the app's open panel ("+" → Files and folders): what is not an image comes as paths.
+  useEffect(() => {
+    if (readOnly) return;
+    return onPush<{ paths?: unknown }>("paths", (payload) => {
+      const paths = Array.isArray(payload?.paths)
+        ? payload.paths.filter((path): path is string => typeof path === "string" && path.startsWith("/"))
+        : [];
+      if (paths.length === 0) return;
+      setIsComposerExtrasPanelOpen(false);
+      if (pendingUserInputs.length > 0) {
+        toastManager.add({ type: "error", title: "Attach files after answering plan questions." });
+        return;
+      }
+      addComposerPathMentions(paths);
+    });
+  }, [addComposerPathMentions, pendingUserInputs.length, readOnly]);
   const addPastedTextToDraft = useCallback(
     (text: string) => {
       discardPromptHistoryNavigationForComposerMutation();

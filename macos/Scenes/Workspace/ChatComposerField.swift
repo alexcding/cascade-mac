@@ -2,6 +2,33 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// What `ChatComposerField` writes into: a message with one `ChatCompletion.fileMark` per attached
+/// file, the files in order, and what Return and the suggestion keys do.
+@MainActor protocol ChatComposing: AnyObject {
+    /// Files can be added now.
+    var canAttach: Bool { get }
+    /// A suggestion list is up, which takes the arrows, Tab, Return and Escape.
+    var showsSuggestions: Bool { get }
+    /// The field changed: its text with a mark for each file, the files in order, and its caret.
+    func edit(_ text: String, files: [ChatAttachment], caret: Int?)
+    /// Places files at the caret.
+    func attach(_ files: [ChatAttachment])
+    /// Places what `files` produces once it is ready (a staged screenshot, a dropped file).
+    func attach(when files: @escaping @MainActor () async -> [ChatAttachment])
+    /// Return: sends the message.
+    func submit() async
+    func moveHighlight(_ step: Int)
+    func dismissSuggestions()
+    /// Takes the highlighted suggestion; `run` for Return, which also runs a command.
+    func acceptHighlighted(run: Bool) async
+}
+
+extension TranscriptChatModel: ChatComposing {
+    var showsSuggestions: Bool { !suggestions.isEmpty }
+    func submit() async { await send() }
+    func acceptHighlighted(run: Bool) async { await acceptSuggestion(run: run) }
+}
+
 /// The chat's message field: text with each attached file placed in it as a chip. It is AppKit
 /// because SwiftUI's field has no caret to complete at, no say over the keys a suggestion list
 /// takes, and no paste or drop of its own; this one handles all three itself, so nothing listens
@@ -10,8 +37,11 @@ import UniformTypeIdentifiers
 /// The model holds the message; the field shows it and reports every edit back. A chip is one
 /// character, so Backspace, Cut, or Select All then Delete take its file out of the message, and
 /// Undo puts it back.
+///
+/// It serves any `ChatComposing` model: the terminal chat's overlay, which also completes `/` and
+/// `@`, and Start's chat composers, which complete nothing.
 struct ChatComposerField: NSViewRepresentable {
-    let chat: TranscriptChatModel
+    let chat: any ChatComposing
     // Passed in, not read off `chat` here, so the view that owns this one updates it when they change.
     let text: String
     let files: [ChatAttachment]
@@ -21,6 +51,10 @@ struct ChatComposerField: NSViewRepresentable {
     let active: Bool
     let placeholder: String
     @Binding var dropTargeted: Bool
+    var fontSize: CGFloat = 14
+    /// Off while the message is being sent: the field shows it but takes no edits.
+    var editable = true
+    var identifier = "transcript-chat-message"
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -36,6 +70,9 @@ struct ChatComposerField: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.parent = self
         view.textView.placeholder = placeholder
+        view.textView.setTextFont(.systemFont(ofSize: fontSize))
+        if view.textView.isEditable != editable { view.textView.isEditable = editable }
+        if view.textView.accessibilityIdentifier() != identifier { view.textView.setAccessibilityIdentifier(identifier) }
         coordinator.show(text: text, files: files, caret: caret)
         if active, focusRequest != coordinator.focusHandled {
             coordinator.focusHandled = focusRequest
@@ -56,7 +93,7 @@ struct ChatComposerField: NSViewRepresentable {
         /// Set while the model's message is being put in the field, which is not an edit to report.
         private var applying = false
 
-        private var chat: TranscriptChatModel? { parent?.chat }
+        private var chat: (any ChatComposing)? { parent?.chat }
 
         /// Puts the model's message in the field when it is not what the field holds: after a
         /// send, a completion, or files placed from outside the field. As one undoable change.
@@ -66,14 +103,14 @@ struct ChatComposerField: NSViewRepresentable {
             guard current.text != text || current.files.map(\.id) != files.map(\.id) else { return }
             applying = true
             defer { applying = false }
-            let replacement = ChatComposerField.attributed(text, files: files)
+            let replacement = ChatComposerField.attributed(text, files: files, attributes: textView.textAttributes)
             let whole = NSRange(location: 0, length: storage.length)
             if textView.shouldChangeText(in: whole, replacementString: replacement.string) {
                 storage.replaceCharacters(in: whole, with: replacement)
                 textView.didChangeText()
             }
             textView.setSelectedRange(NSRange(location: min(caret ?? storage.length, storage.length), length: 0))
-            textView.typingAttributes = ComposerTextView.attributes
+            textView.typingAttributes = textView.textAttributes
             (textView.enclosingScrollView as? ComposerScrollView)?.textChanged()
         }
 
@@ -96,7 +133,7 @@ struct ChatComposerField: NSViewRepresentable {
         /// is up, the arrows move in it, Tab and Return take a row, and Escape closes it.
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             guard let chat else { return false }
-            let listed = !chat.suggestions.isEmpty
+            let listed = chat.showsSuggestions
             switch selector {
             case #selector(NSResponder.moveUp(_:)) where listed:
                 chat.moveHighlight(-1)
@@ -104,18 +141,18 @@ struct ChatComposerField: NSViewRepresentable {
                 chat.moveHighlight(1)
             case #selector(NSResponder.insertTab(_:)):
                 // A tab typed into the terminal would ask the agent to complete, so it never goes in the text.
-                if listed { Task { await chat.acceptSuggestion() } } else { textView.window?.selectNextKeyView(nil) }
+                if listed { Task { await chat.acceptHighlighted(run: false) } } else { textView.window?.selectNextKeyView(nil) }
             case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)):
                 // Never the system's word completion, which Escape opens in a text view. Closed
                 // even before its rows arrive, so a list still loading does not open after all.
                 chat.dismissSuggestions()
             case #selector(NSResponder.insertNewline(_:)):
                 if listed {
-                    Task { await chat.acceptSuggestion(run: true) }
+                    Task { await chat.acceptHighlighted(run: true) }
                 } else if !(NSApp.currentEvent?.modifierFlags.intersection([.shift, .option]).isEmpty ?? true) {
                     insertNewline(in: textView)
                 } else {
-                    Task { await chat.send() }
+                    Task { await chat.submit() }
                 }
             case #selector(NSResponder.insertLineBreak(_:)), #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
                 insertNewline(in: textView)
@@ -170,20 +207,21 @@ extension ChatComposerField {
         return (text, files)
     }
 
-    static func attributed(_ text: String, files: [ChatAttachment]) -> NSAttributedString {
+    static func attributed(_ text: String, files: [ChatAttachment],
+                           attributes: [NSAttributedString.Key: Any] = ComposerTextView.attributes) -> NSAttributedString {
         let result = NSMutableAttributedString()
         var run = ""
         var next = 0
         for character in text {
             guard character == ChatCompletion.fileMark else { run.append(character); continue }
-            if !run.isEmpty { result.append(NSAttributedString(string: run, attributes: ComposerTextView.attributes)); run = "" }
+            if !run.isEmpty { result.append(NSAttributedString(string: run, attributes: attributes)); run = "" }
             guard next < files.count else { continue }
             let chip = NSMutableAttributedString(attachment: ChatFileAttachment(file: files[next]))
-            chip.addAttributes(ComposerTextView.attributes, range: NSRange(location: 0, length: chip.length))
+            chip.addAttributes(attributes, range: NSRange(location: 0, length: chip.length))
             result.append(chip)
             next += 1
         }
-        if !run.isEmpty { result.append(NSAttributedString(string: run, attributes: ComposerTextView.attributes)) }
+        if !run.isEmpty { result.append(NSAttributedString(string: run, attributes: attributes)) }
         return result
     }
 }
@@ -227,7 +265,7 @@ final class ComposerScrollView: NSScrollView {
     }
 
     private var lineHeight: CGFloat {
-        ceil(textView.layoutManager?.defaultLineHeight(for: ComposerTextView.font) ?? 17)
+        ceil(textView.layoutManager?.defaultLineHeight(for: textView.textFont) ?? 17)
     }
 
     private var textHeight: CGFloat {
@@ -264,6 +302,22 @@ final class ComposerTextView: NSTextView {
 
     static let font = NSFont.systemFont(ofSize: 14)
     static var attributes: [NSAttributedString.Key: Any] { [.font: font, .foregroundColor: NSColor.labelColor] }
+    /// The text's font: the overlay's 14 points unless the field asks for another size.
+    private(set) var textFont = ComposerTextView.font
+    var textAttributes: [NSAttributedString.Key: Any] { [.font: textFont, .foregroundColor: NSColor.labelColor] }
+
+    /// A new size restyles what is typed, the next text and the placeholder.
+    func setTextFont(_ value: NSFont) {
+        guard value.pointSize != textFont.pointSize else { return }
+        textFont = value
+        font = value
+        if let storage = textStorage, storage.length > 0 {
+            storage.addAttribute(.font, value: value, range: NSRange(location: 0, length: storage.length))
+        }
+        typingAttributes = textAttributes
+        (enclosingScrollView as? ComposerScrollView)?.textChanged()
+        needsDisplay = true
+    }
 
     func configure() {
         // Rich only for its chips: pasted text arrives plain.
@@ -278,9 +332,9 @@ final class ComposerTextView: NSTextView {
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textContainerInset = .zero
         drawsBackground = false
-        font = Self.font
+        font = textFont
         textColor = .labelColor
-        typingAttributes = Self.attributes
+        typingAttributes = textAttributes
         smartInsertDeleteEnabled = false
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled = false
@@ -295,7 +349,7 @@ final class ComposerTextView: NSTextView {
         super.draw(dirtyRect)
         guard string.isEmpty, !hasMarkedText(), !placeholder.isEmpty else { return }
         (placeholder as NSString).draw(at: NSPoint(x: textContainerInset.width, y: textContainerInset.height),
-                                       withAttributes: [.font: Self.font, .foregroundColor: NSColor.placeholderTextColor])
+                                       withAttributes: [.font: textFont, .foregroundColor: NSColor.placeholderTextColor])
     }
 
     override func didChangeText() {
