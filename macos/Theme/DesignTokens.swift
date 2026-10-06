@@ -42,6 +42,9 @@ extension NSColor {
 struct ThemePalette: Sendable {
     let surfaceHover: ThemeColor
     let border: ThemeColor
+    /// The chosen segment of a segmented switch over a `border` track: white, and in dark an
+    /// elevated control's grey.
+    let segmentSelected: ThemeColor
     let textSecondary, textTertiary: ThemeColor
     let accent, accentBackground: ThemeColor
     let success, successBackground: ThemeColor
@@ -56,6 +59,7 @@ extension ThemePalette {
     static let cascade = ThemePalette(
         surfaceHover: .init(light: 0xF1F3F5, dark: 0x2A2A2A),
         border: .init(light: 0xE7E9EE, dark: 0x323232),
+        segmentSelected: .init(light: 0xFFFFFF, dark: 0x5A5A5E),
         textSecondary: .init(light: 0x565D68, dark: 0xA2A2A2),
         textTertiary: .init(light: 0x9298A3, dark: 0x6E6E6E),
         accent: .init(light: 0x2563EB, dark: 0x4B86F0),
@@ -83,6 +87,7 @@ enum Theme {
     // Computed, not stored, so the dynamic NSColor underneath re-resolves on an appearance change.
     static var surfaceHover: Color { palette.surfaceHover.color }
     static var border: Color { palette.border.color }
+    static var segmentSelected: Color { palette.segmentSelected.color }
     static var textSecondary: Color { palette.textSecondary.color }
     static var textTertiary: Color { palette.textTertiary.color }
     static var accent: Color { palette.accent.color }

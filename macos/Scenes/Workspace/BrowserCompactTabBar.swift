@@ -137,6 +137,11 @@ struct BrowserCompactTabBar: View {
                 CompactToolTab(title: model.shellTitle(shell), symbol: WorkspaceTool.terminal.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
                                select: { model.selectTab(.tool(shell)) }, close: { model.closeTab(.tool(shell)) })
+            } else if let chat = WorkspaceToolTab(id: id), chat.tool == .chat {
+                // Each Chat tab: its chat's title, live, after its agent's glyph.
+                CompactChatTab(title: model.paneChatTitle(chat), cli: model.paneChatCLI(chat),
+                               active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
+                               select: { model.selectTab(.tool(chat)) }, close: { model.closeTab(.tool(chat)) })
             } else if id == WorkspaceTool.simulator.id {
                 CompactToolTab(title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol,
                                active: id == context.activeID, iconOnly: iconOnly, editing: $editingAddress,
@@ -455,6 +460,26 @@ private struct CompactToolTab: View {
                         closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
                         moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
             Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(Theme.textTertiary)
+        } accessories: { _ in EmptyView() }
+    }
+}
+
+/// A Chat tab: its chat's title after the glyph of the agent answering it.
+private struct CompactChatTab: View {
+    let title: String
+    let cli: String?
+    let active: Bool
+    let iconOnly: Bool
+    @FocusState.Binding var editing: Bool
+    let select: () -> Void
+    let close: () -> Void
+    var body: some View {
+        CompactTabShell(label: title, placeholder: "", closeTitle: String(localized: "Close \(title)"), help: title,
+                        active: active,
+                        closable: true, iconOnly: iconOnly, editable: false, text: .constant(""), editing: $editing,
+                        moveHighlight: { _ in false }, submit: { false }, select: select, close: close) {
+            if let cli { AgentMark(key: cli, size: 13) }
+            else { Image(systemName: WorkspaceTool.chat.symbol).font(.system(size: 13)).foregroundStyle(Theme.textTertiary) }
         } accessories: { _ in EmptyView() }
     }
 }

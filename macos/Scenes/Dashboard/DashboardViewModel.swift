@@ -34,6 +34,8 @@ import Observation
     /// Every session and its agent's state, from the app as its terminals change: Overview's lanes.
     /// Kept while Projects is off screen, laid out again only when it is on.
     var sessions: [DashboardSession] = [] { didSet { if sessions != oldValue, onScreen { updateLanes() } } }
+    /// Every chat session that is not archived, from the app's chat list: listed in its project's lane.
+    var chats: [DashboardChat] = [] { didSet { if chats != oldValue, onScreen { updateLanes() } } }
     /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
     /// counts change rather than on every redraw.
     private(set) var projectSummaries: [DashboardProjectSummary] = []
@@ -123,6 +125,8 @@ extension DashboardViewModel {
         case openProject(String)
         /// A session, from its row or card on Overview.
         case openSession(String)
+        /// A chat session, from its row in its project's lane.
+        case openChat(String)
         /// A card on the Board tab.
         case board(WebBoardViewModel.Action)
     }
@@ -182,6 +186,11 @@ extension DashboardViewModel {
     func openSession(_ id: String) {
         guard !retired, sessions.contains(where: { $0.id == id }) else { return }
         onAction(.openSession(id))
+    }
+
+    func openChat(_ id: String) {
+        guard !retired, chats.contains(where: { $0.id == id }) else { return }
+        onAction(.openChat(id))
     }
 
     /// The project every tab is narrowed to, from the menu at the tab bar's end; nil is every project.

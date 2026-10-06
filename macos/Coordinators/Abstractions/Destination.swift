@@ -9,6 +9,7 @@ enum Destination: Hashable {
     case automationCoordinator(AutomationCoordinator)
     case projectCoordinator(ProjectCoordinator)
     case sessionWorkspaceCoordinator(SessionWorkspaceCoordinator)
+    case chatCoordinator(ChatCoordinator)
 
     // MARK: Screen destinations (view models)
 
@@ -18,6 +19,7 @@ enum Destination: Hashable {
     case logs(LogsViewModel)
     case project(ProjectPageViewModel)
     case sessionWorkspace(SessionWorkspaceViewModel, WorkspaceContext)
+    case chat(ChatViewModel)
 
     // MARK: Root placeholders; the root model resolves their live state
 
@@ -36,6 +38,7 @@ enum Destination: Hashable {
         case .automationCoordinator(let child): child.visibleDestination
         case .projectCoordinator(let child): child.visibleDestination
         case .sessionWorkspaceCoordinator(let child): child.visibleDestination
+        case .chatCoordinator(let child): child.visibleDestination
         default: self
         }
     }
@@ -57,6 +60,8 @@ extension Destination {
             ProjectCoordinatorView(coordinator: coordinator).id(coordinator.model.project.id)
         case .sessionWorkspaceCoordinator(let coordinator):
             SessionWorkspaceCoordinatorView(coordinator: coordinator)
+        case .chatCoordinator(let coordinator):
+            ChatCoordinatorView(coordinator: coordinator).id(coordinator.threadID)
 
         // Screens
         case .dashboard(let viewModel, let shell):
@@ -71,6 +76,8 @@ extension Destination {
             ProjectPageView(model: viewModel)
         case .sessionWorkspace(let viewModel, let context):
             SessionWorkspaceView(context: context, model: viewModel)
+        case .chat(let viewModel):
+            ChatView(model: viewModel)
 
         // Root placeholders
         case .terminal(let root):
@@ -128,13 +135,21 @@ extension Destination {
             return WindowToolbar(leading: [.title(coordinator.model.project.name)])
         case .sessionWorkspaceCoordinator(let coordinator):
             return SessionWorkspaceToolbar(context: coordinator.context, model: coordinator.model).toolbar
+        case .chatCoordinator(let coordinator):
+            // The agent's mark and the chat's title lead; Unarchive trails on an archived chat (one
+            // opened from a sidebar menu's Archived Chats).
+            let model = coordinator.model
+            let unarchive: [WindowToolbarItem] = model.archived ? [.init("chat-unarchive") { ChatUnarchiveButton(model: model) }] : []
+            return WindowToolbar(
+                leading: [.init("title", style: .plain, priority: .high) { ChatToolbarTitle(model: model) }],
+                trailing: unarchive)
         case .terminal(let root), .session(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):
             return WindowToolbar(leading: [.title(title)])
         case .newSession:
             return WindowToolbar(leading: [.title(String(localized: "New Task"))])
-        case .dashboard, .logs, .project, .sessionWorkspace, .none:
+        case .dashboard, .logs, .project, .sessionWorkspace, .chat, .none:
             return .empty
         }
     }
@@ -149,6 +164,7 @@ extension NewSessionViewModel: HashableObject {}
 extension LogsViewModel: HashableObject {}
 extension ProjectPageViewModel: HashableObject {}
 extension SessionWorkspaceViewModel: HashableObject {}
+extension ChatViewModel: HashableObject {}
 extension RootViewModel: HashableObject {}
 extension ShellStore: Hashable {
     nonisolated public static func == (lhs: ShellStore, rhs: ShellStore) -> Bool { lhs === rhs }

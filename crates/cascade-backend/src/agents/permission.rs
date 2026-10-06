@@ -46,8 +46,31 @@ pub struct Permissions {
     tx: mpsc::UnboundedSender<PermissionMsg>,
 }
 
+/// A request waiting on the app, as a thread shows it (`chat::transcript`).
+#[derive(Clone, Debug)]
+pub struct Waiting {
+    /// The offer's id: what `POST /api/agent/permission` answers.
+    pub id: String,
+    pub cli: String,
+    /// The tool's name and input as the CLI's hook sent them.
+    pub tool: String,
+    pub input: Value,
+    /// What the app's card shows (`describe`).
+    pub request: Value,
+    /// When it was offered.
+    pub at: chrono::DateTime<chrono::Utc>,
+}
+
+struct Pending {
+    sender: oneshot::Sender<Answer>,
+    run_id: String,
+    waiting: Waiting,
+}
+
 enum PermissionMsg {
-    Offer(String, oneshot::Sender<Answer>),
+    Offer(String, Pending),
+    /// The requests a terminal waits on, oldest first, and when the offers last changed.
+    Waiting(String, oneshot::Sender<(Vec<Waiting>, chrono::DateTime<chrono::Utc>)>),
     /// Hands an answer to an offer; replies whether one was waiting and took it.
     Answer(String, Answer, oneshot::Sender<bool>),
     Forget(String),
@@ -63,20 +86,34 @@ impl Permissions {
     pub fn new() -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel();
         tokio::spawn(async move {
-            let mut pending: HashMap<String, oneshot::Sender<Answer>> = HashMap::new();
+            let mut pending: HashMap<String, Pending> = HashMap::new();
+            let mut changed = chrono::Utc::now();
             while let Some(message) = rx.recv().await {
                 match message {
-                    PermissionMsg::Offer(id, sender) => {
-                        pending.insert(id, sender);
+                    PermissionMsg::Offer(id, offer) => {
+                        pending.insert(id, offer);
+                        changed = chrono::Utc::now();
+                    }
+                    PermissionMsg::Waiting(run_id, reply) => {
+                        let mut waiting: Vec<Waiting> = pending
+                            .values()
+                            .filter(|offer| offer.run_id == run_id)
+                            .map(|offer| offer.waiting.clone())
+                            .collect();
+                        waiting.sort_by_key(|offer| offer.at);
+                        let _ = reply.send((waiting, changed));
                     }
                     PermissionMsg::Answer(id, answer, reply) => {
                         let taken = pending
                             .remove(&id)
-                            .is_some_and(|sender| sender.send(answer).is_ok());
+                            .is_some_and(|offer| offer.sender.send(answer).is_ok());
+                        changed = chrono::Utc::now();
                         let _ = reply.send(taken);
                     }
                     PermissionMsg::Forget(id) => {
-                        pending.remove(&id);
+                        if pending.remove(&id).is_some() {
+                            changed = chrono::Utc::now();
+                        }
                     }
                 }
             }
@@ -84,8 +121,19 @@ impl Permissions {
         Self { tx }
     }
 
-    fn offer(&self, id: &str, sender: oneshot::Sender<Answer>) {
-        let _ = self.tx.send(PermissionMsg::Offer(id.to_owned(), sender));
+    fn offer(&self, id: &str, run_id: &str, waiting: Waiting, sender: oneshot::Sender<Answer>) {
+        let offer = Pending { sender, run_id: run_id.to_owned(), waiting };
+        let _ = self.tx.send(PermissionMsg::Offer(id.to_owned(), offer));
+    }
+
+    /// The requests terminal `run_id` waits on, oldest first, and when any offer last came or
+    /// went (a thread's snapshot moves on with it).
+    pub async fn waiting(&self, run_id: &str) -> (Vec<Waiting>, chrono::DateTime<chrono::Utc>) {
+        let (reply, answer) = oneshot::channel();
+        if self.tx.send(PermissionMsg::Waiting(run_id.to_owned(), reply)).is_err() {
+            return (Vec::new(), chrono::Utc::now());
+        }
+        answer.await.unwrap_or_else(|_| (Vec::new(), chrono::Utc::now()))
     }
 
     /// `true` when an offer was waiting for the answer and took it; `false` when none was, or
@@ -217,15 +265,19 @@ pub async fn request(
         events: app.events.clone(),
         outcome: "cancelled",
     };
-    app.permissions.offer(&offer.id, sender);
+    let request = describe(&payload, query.cli.as_deref().and_then(Agent::of));
+    let cli = query.cli.unwrap_or_default();
+    let waiting = Waiting {
+        id: offer.id.clone(),
+        cli: cli.clone(),
+        tool: payload["tool_name"].as_str().unwrap_or("Tool").to_owned(),
+        input: payload["tool_input"].clone(),
+        request: request.clone(),
+        at: chrono::Utc::now(),
+    };
+    app.permissions.offer(&offer.id, &offer.run_id, waiting, sender);
     let offered = app.events.send(
-        crate::Event::AgentPermission {
-            id: offer.id.clone(),
-            run_id: offer.run_id.clone(),
-            request: describe(&payload, query.cli.as_deref().and_then(Agent::of)),
-            cli: query.cli.unwrap_or_default(),
-        }
-        .into(),
+        crate::Event::AgentPermission { id: offer.id.clone(), run_id: offer.run_id.clone(), request, cli }.into(),
     );
     let answer = if offered.is_ok() {
         tokio::time::timeout(WAIT, receiver).await.ok().and_then(Result::ok)
@@ -312,12 +364,37 @@ mod tests {
         assert!(decision(Answer::Pass).is_none());
     }
 
+    fn waiting(id: &str) -> Waiting {
+        Waiting {
+            id: id.into(),
+            cli: "claude".into(),
+            tool: "Bash".into(),
+            input: json!({"command": "ls"}),
+            request: json!({}),
+            at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_terminal_lists_only_its_own_waiting_requests() {
+        let permissions = Permissions::new();
+        let (first, _keep_first) = oneshot::channel();
+        let (other, _keep_other) = oneshot::channel();
+        permissions.offer("a", "run", waiting("a"), first);
+        permissions.offer("b", "elsewhere", waiting("b"), other);
+        let (listed, before) = permissions.waiting("run").await;
+        assert_eq!(listed.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a"]);
+        assert!(permissions.answer("a", Answer::Allow).await);
+        let (listed, after) = permissions.waiting("run").await;
+        assert!(listed.is_empty() && after >= before, "an answer takes it, and moves the time on");
+    }
+
     #[tokio::test]
     async fn an_abandoned_offer_is_removed_and_reported() {
         let permissions = Permissions::new();
         let (events, mut heard) = broadcast::channel(4);
         let (sender, receiver) = oneshot::channel();
-        permissions.offer("abandoned", sender);
+        permissions.offer("abandoned", "run", waiting("abandoned"), sender);
         drop(Offer {
             id: "abandoned".into(),
             run_id: "run".into(),
@@ -335,12 +412,12 @@ mod tests {
     async fn an_answer_reaches_the_hook_that_is_waiting_once() {
         let permissions = Permissions::new();
         let (sender, receiver) = oneshot::channel();
-        permissions.offer("asked", sender);
+        permissions.offer("asked", "run", waiting("asked"), sender);
         assert!(permissions.answer("asked", Answer::Deny).await);
         assert_eq!(receiver.await.unwrap(), Answer::Deny);
         assert!(!permissions.answer("asked", Answer::Allow).await, "taken already");
         let (sender, receiver) = oneshot::channel();
-        permissions.offer("gone", sender);
+        permissions.offer("gone", "run", waiting("gone"), sender);
         drop(receiver);
         assert!(!permissions.answer("gone", Answer::Allow).await, "the hook stopped waiting");
     }

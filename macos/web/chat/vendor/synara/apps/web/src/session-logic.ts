@@ -1,0 +1,606 @@
+import {
+  type OrchestrationLatestTurn,
+  type OrchestrationProposedPlanId,
+  type OrchestrationThreadActivity,
+  type ProviderKind,
+  type ThreadId,
+  type TurnId,
+} from "@synara/contracts";
+import { VISIBLE_PROVIDER_DESCRIPTORS } from "./betaFeatures";
+
+import { orderedActivities, parseTaskListTasks } from "./workLog";
+
+import type {
+  ChatMessage,
+  ProposedPlan,
+  SessionPhase,
+  Thread,
+  ThreadSession,
+  TurnDiffSummary,
+} from "./types";
+
+export {
+  derivePendingApprovals,
+  derivePendingUserInputs,
+  type PendingApproval,
+  type PendingUserInput,
+} from "./pendingInteractionDerivation";
+export {
+  deriveTimelineEntries,
+  deriveWorkLogEntries,
+  isFileChangeWorkLogEntry,
+  isProviderFileEditWorkLogEntry,
+  isRoutedSubagentWorkEntry,
+  omitRoutedSubagentWorkEntries,
+  orderedActivities,
+  type TimelineEntry,
+  type WorkLogAutomation,
+  type WorkLogEntry,
+  type WorkLogLiveActivity,
+  type WorkLogLiveActivityState,
+  type WorkLogSubagent,
+  type WorkLogSubagentAction,
+  type WorkLogSynaraCreatedThread,
+  type WorkLogSynaraThreadCreation,
+} from "./workLog";
+
+export type ProviderPickerKind = ProviderKind;
+
+export const PROVIDER_OPTIONS: Array<{
+  value: ProviderPickerKind;
+  label: string;
+  available: boolean;
+}> = VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => ({
+  value: descriptor.kind,
+  label: descriptor.displayName,
+  available: descriptor.available,
+}));
+
+export interface ActiveTaskListState {
+  createdAt: string;
+  turnId: TurnId | null;
+  explanation?: string | null;
+  tasks: Array<{
+    task: string;
+    status: "pending" | "inProgress" | "completed";
+  }>;
+}
+
+export interface ActiveBackgroundTasksState {
+  activeCount: number;
+  taskIds: string[];
+}
+
+export interface LatestProposedPlanState {
+  id: OrchestrationProposedPlanId;
+  createdAt: string;
+  updatedAt: string;
+  turnId: TurnId | null;
+  planMarkdown: string;
+  implementedAt: string | null;
+  implementationThreadId: ThreadId | null;
+}
+
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms";
+  if (durationMs < 1_000) return `${Math.max(1, Math.round(durationMs))}ms`;
+  if (durationMs < 10_000) return `${(durationMs / 1_000).toFixed(1)}s`;
+  if (durationMs < 60_000) return `${Math.round(durationMs / 1_000)}s`;
+  // Keep settled-time rounding while sharing larger units with live clocks.
+  return formatClockDuration(Math.round(durationMs / 1_000) * 1_000);
+}
+
+// Keep long-running timers compact with days/hours, hours/minutes, or minutes/seconds.
+export function formatClockDuration(durationMs: number): string {
+  const elapsedSeconds = Math.max(0, Math.floor(durationMs / 1_000));
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
+
+  const days = Math.floor(elapsedSeconds / 86_400);
+  const hours = Math.floor((elapsedSeconds % 86_400) / 3_600);
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+
+  const minutes = Math.floor((elapsedSeconds % 3_600) / 60);
+  const seconds = elapsedSeconds % 60;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+export function formatClockElapsed(startIso: string, endIso: string | undefined): string | null {
+  if (!endIso) return null;
+  const startedAt = Date.parse(startIso);
+  const endedAt = Date.parse(endIso);
+  if (Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt) {
+    return null;
+  }
+  return formatClockDuration(endedAt - startedAt);
+}
+
+export function formatElapsed(startIso: string, endIso: string | undefined): string | null {
+  if (!endIso) return null;
+  const startedAt = Date.parse(startIso);
+  const endedAt = Date.parse(endIso);
+  if (Number.isNaN(startedAt) || Number.isNaN(endedAt) || endedAt < startedAt) {
+    return null;
+  }
+  return formatDuration(endedAt - startedAt);
+}
+
+type LatestTurnTiming = Pick<
+  OrchestrationLatestTurn,
+  "turnId" | "state" | "startedAt" | "completedAt"
+>;
+type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
+
+export function isLatestTurnSettled(
+  latestTurn: LatestTurnTiming | null,
+  session: SessionActivityState | null,
+): boolean {
+  if (!latestTurn?.startedAt) return false;
+  if (!latestTurn.completedAt) return false;
+  if (latestTurn.state === "interrupted" || latestTurn.state === "error") {
+    return true;
+  }
+  if (!session) return true;
+  if (session.orchestrationStatus === "running") return false;
+  return true;
+}
+
+export function hasLiveLatestTurn(
+  latestTurn: LatestTurnTiming | null,
+  session: SessionActivityState | null,
+): boolean {
+  if (!latestTurn?.startedAt) {
+    return false;
+  }
+  return !isLatestTurnSettled(latestTurn, session);
+}
+
+/**
+ * Pending approval / user-input requests are only actionable while the session
+ * that raised them can still receive the answer. Once the session is closed or
+ * errored the request is dead — status surfaces (sidebar pill, kanban column)
+ * must not present the thread as awaiting action forever after a provider
+ * crash. A thread with no session yet keeps the request actionable: the flag
+ * can arrive ahead of the session snapshot.
+ */
+export function canSessionAnswerPendingRequests(
+  session: Pick<ThreadSession, "status"> | null | undefined,
+): boolean {
+  if (!session) {
+    return true;
+  }
+  return session.status !== "closed" && session.status !== "error";
+}
+
+/**
+ * Minimal view a session needs to expose to answer "is a turn live?": its status
+ * label and its in-flight turn id. Kept structural (not `Pick<ThreadSession>`) so
+ * the predicate also accepts the orchestration read-model session, whose status is
+ * a wider union and whose `activeTurnId` is `TurnId | null` rather than
+ * `TurnId | undefined`. Both shapes satisfy this.
+ */
+type RunningTurnSessionView = {
+  status: string;
+  activeTurnId?: TurnId | null | undefined;
+};
+
+/**
+ * A session is actively running a turn: it reports the `running` status and still
+ * has an in-flight `activeTurnId`. This is the single rule for "there is live work
+ * on this session right now" during read-model reconciliation. Thread lifecycle
+ * cleanup is server-owned and intentionally does not use this predicate as a UI
+ * gate.
+ */
+export function isSessionRunningTurn<T extends RunningTurnSessionView>(
+  session: T | null | undefined,
+): session is T & { activeTurnId: TurnId } {
+  return session != null && session.status === "running" && session.activeTurnId != null;
+}
+
+export function deriveActiveWorkStartedAt(
+  latestTurn: LatestTurnTiming | null,
+  session: SessionActivityState | null,
+  sendStartedAt: string | null,
+): string | null {
+  const runningTurnId =
+    session?.orchestrationStatus === "running" ? (session.activeTurnId ?? null) : null;
+  if (runningTurnId !== null && runningTurnId === latestTurn?.turnId) {
+    return latestTurn?.startedAt ?? sendStartedAt;
+  }
+  if (runningTurnId !== null) {
+    return sendStartedAt;
+  }
+  if (!isLatestTurnSettled(latestTurn, session)) {
+    return latestTurn?.startedAt ?? sendStartedAt;
+  }
+  return sendStartedAt;
+}
+
+function toActiveTaskListState(activity: OrchestrationThreadActivity): ActiveTaskListState | null {
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const tasks = parseTaskListTasks(payload);
+  if (!tasks) {
+    return null;
+  }
+  return {
+    createdAt: activity.createdAt,
+    turnId: activity.turnId,
+    ...(payload && "explanation" in payload
+      ? { explanation: payload.explanation as string | null }
+      : {}),
+    tasks,
+  };
+}
+
+export function deriveActiveTaskListState(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | undefined,
+): ActiveTaskListState | null {
+  const ordered = orderedActivities(activities);
+  const allTaskListActivities = ordered.filter(
+    (activity) => activity.kind === "turn.tasks.updated",
+  );
+
+  const currentTurnTaskList = latestTurnId
+    ? (allTaskListActivities
+        .filter((activity) => activity.turnId === latestTurnId)
+        .map(toActiveTaskListState)
+        .findLast((taskList) => taskList !== null) ?? null)
+    : null;
+  if (currentTurnTaskList) {
+    return currentTurnTaskList.tasks.length > 0 ? currentTurnTaskList : null;
+  }
+
+  // Task lists describe work state beyond the lifetime of one provider turn. Keep the
+  // latest unfinished list visible after completion, abort, reload, and follow-up turns
+  // until the provider completes every task or sends an explicit empty snapshot.
+  const latestPriorTaskList =
+    allTaskListActivities.map(toActiveTaskListState).findLast((taskList) => taskList !== null) ??
+    null;
+  if (!latestPriorTaskList) {
+    return null;
+  }
+
+  if (latestPriorTaskList.tasks.length === 0) {
+    return null;
+  }
+
+  return latestPriorTaskList.tasks.some((task) => task.status !== "completed")
+    ? latestPriorTaskList
+    : null;
+}
+
+interface FoldedActiveTask {
+  taskType?: string | undefined;
+  isBackgrounded: boolean;
+}
+
+// Folds task.* activities into the set of still-running tasks. Pass a turnId to
+// scope task creation to that turn (terminal events always apply across turns).
+function foldActiveTasks(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | undefined,
+): Map<string, FoldedActiveTask> {
+  const ordered = orderedActivities(activities);
+  const activeTasks = new Map<string, FoldedActiveTask>();
+
+  for (const activity of ordered) {
+    if (
+      latestTurnId &&
+      activity.turnId &&
+      activity.turnId !== latestTurnId &&
+      activity.kind !== "task.completed" &&
+      activity.kind !== "task.updated"
+    ) {
+      continue;
+    }
+
+    if (
+      activity.kind !== "task.started" &&
+      activity.kind !== "task.progress" &&
+      activity.kind !== "task.updated" &&
+      activity.kind !== "task.completed"
+    ) {
+      continue;
+    }
+
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const taskId = payload && typeof payload.taskId === "string" ? payload.taskId : null;
+    if (!taskId) {
+      continue;
+    }
+
+    if (activity.kind === "task.completed") {
+      activeTasks.delete(taskId);
+      continue;
+    }
+
+    // Status patches can end a task (killed/completed/failed) without a
+    // task.completed notification following on the same turn.
+    if (activity.kind === "task.updated") {
+      const status = payload && typeof payload.status === "string" ? payload.status : undefined;
+      if (
+        status === "completed" ||
+        status === "failed" ||
+        status === "killed" ||
+        status === "paused"
+      ) {
+        activeTasks.delete(taskId);
+        continue;
+      }
+      const previous = activeTasks.get(taskId);
+      const isBackgrounded =
+        payload && typeof payload.isBackgrounded === "boolean"
+          ? payload.isBackgrounded
+          : (previous?.isBackgrounded ?? false);
+      const inTurn = !latestTurnId || !activity.turnId || activity.turnId === latestTurnId;
+      if (previous !== undefined || (isBackgrounded && inTurn)) {
+        activeTasks.set(taskId, { taskType: previous?.taskType, isBackgrounded });
+      }
+      continue;
+    }
+
+    const previous = activeTasks.get(taskId);
+    const taskType = payload && typeof payload.taskType === "string" ? payload.taskType : undefined;
+    activeTasks.set(taskId, {
+      taskType: taskType ?? previous?.taskType,
+      isBackgrounded: previous?.isBackgrounded ?? false,
+    });
+  }
+
+  return activeTasks;
+}
+
+// Counts still-running background work for the active turn so compact UI can surface agent activity.
+export function deriveActiveBackgroundTasksState(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | undefined,
+): ActiveBackgroundTasksState | null {
+  const activeTaskIds = [...foldActiveTasks(activities, latestTurnId).entries()]
+    .filter(([, task]) => task.taskType !== "plan")
+    .map(([taskId]) => taskId);
+  return activeTaskIds.length > 0
+    ? { activeCount: activeTaskIds.length, taskIds: activeTaskIds }
+    : null;
+}
+
+/**
+ * Background tasks (task.updated with isBackgrounded) started by the latest
+ * turn that have not reached a terminal state. Used after the latest turn
+ * settles to keep the thread visibly "waiting on background work". Returns
+ * null without a latest turn or a live session: stale isBackgrounded rows from
+ * older turns or a dead session must not pin the thread forever.
+ */
+export function derivePendingBackgroundWork(input: {
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+  latestTurn: Pick<OrchestrationLatestTurn, "turnId"> | null | undefined;
+  session: Pick<ThreadSession, "orchestrationStatus"> | null | undefined;
+}): { count: number; taskIds: string[] } | null {
+  const latestTurnId = input.latestTurn?.turnId;
+  if (!latestTurnId) {
+    return null;
+  }
+  const sessionStatus = input.session?.orchestrationStatus;
+  if (sessionStatus === undefined || sessionStatus === "stopped" || sessionStatus === "error") {
+    return null;
+  }
+  const taskIds = [...foldActiveTasks(input.activities, latestTurnId).entries()]
+    .filter(([, task]) => task.isBackgrounded)
+    .map(([taskId]) => taskId);
+  return taskIds.length > 0 ? { count: taskIds.length, taskIds } : null;
+}
+
+// Background tasks still running anywhere in the thread. Unlike
+// derivePendingBackgroundWork this is not scoped to the latest turn: once a
+// finished subagent wakes the agent into a new turn, the subagents launched by
+// the earlier turn are still outstanding. Claude announces backgrounded work
+// with a "Moved to background" notice, so both that notice and an
+// isBackgrounded patch count.
+export function deriveOutstandingBackgroundTaskIds(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): string[] {
+  const outstanding = new Set<string>();
+  for (const activity of orderedActivities(activities)) {
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    if (activity.kind === "runtime.warning") {
+      if (payload?.nativeEventType !== "background_tasks_changed") continue;
+      const data =
+        payload.data && typeof payload.data === "object"
+          ? (payload.data as Record<string, unknown>)
+          : null;
+      if (!Array.isArray(data?.tasks)) continue;
+      for (const task of data.tasks) {
+        const taskId =
+          task && typeof task === "object" ? (task as Record<string, unknown>).task_id : null;
+        if (typeof taskId === "string") outstanding.add(taskId);
+      }
+      continue;
+    }
+    const taskId = payload && typeof payload.taskId === "string" ? payload.taskId : null;
+    if (!taskId) continue;
+    if (activity.kind === "task.completed") {
+      outstanding.delete(taskId);
+    } else if (activity.kind === "task.updated") {
+      const status = typeof payload?.status === "string" ? payload.status : undefined;
+      if (
+        status === "completed" ||
+        status === "failed" ||
+        status === "killed" ||
+        status === "paused" ||
+        payload?.isBackgrounded === false
+      ) {
+        outstanding.delete(taskId);
+      } else if (payload?.isBackgrounded === true) {
+        outstanding.add(taskId);
+      }
+    }
+  }
+  return [...outstanding];
+}
+
+// Thread-wide count of background tasks still running while their session is
+// alive. A stopped or failed session cannot finish them, so they stop counting.
+export function countOutstandingBackgroundWork(input: {
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+  session: Pick<ThreadSession, "orchestrationStatus"> | null | undefined;
+}): number {
+  const sessionStatus = input.session?.orchestrationStatus;
+  if (sessionStatus === undefined || sessionStatus === "stopped" || sessionStatus === "error") {
+    return 0;
+  }
+  return deriveOutstandingBackgroundTaskIds(input.activities).length;
+}
+
+// Keeps the UI "working" while the provider still has visible assistant text or
+// background-task updates to finish for the latest turn.
+export function hasLiveTurnTailWork(input: {
+  latestTurn: Pick<OrchestrationLatestTurn, "turnId" | "completedAt"> | null;
+  messages: ReadonlyArray<Pick<ChatMessage, "role" | "streaming" | "turnId">>;
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+  session?: Pick<ThreadSession, "orchestrationStatus"> | null;
+}): boolean {
+  const latestTurnId = input.latestTurn?.turnId;
+  if (!latestTurnId) {
+    return false;
+  }
+
+  const hasStreamingAssistantText = input.messages.some(
+    (message) =>
+      message.role === "assistant" && message.turnId === latestTurnId && message.streaming,
+  );
+  if (hasStreamingAssistantText) {
+    // Once the turn is terminal, a stale `streaming` flag should not keep the
+    // stop button/timer alive indefinitely.
+    return input.latestTurn?.completedAt == null;
+  }
+
+  // Some providers can leave task lifecycle bookkeeping behind after the turn
+  // has already closed. Once the session is no longer running, those stale
+  // task rows should not keep the whole chat in a live state.
+  if (input.session?.orchestrationStatus !== "running") {
+    return false;
+  }
+
+  if (deriveActiveBackgroundTasksState(input.activities, latestTurnId) !== null) {
+    return true;
+  }
+
+  return false;
+}
+
+export function findLatestProposedPlan(
+  proposedPlans: ReadonlyArray<ProposedPlan>,
+  latestTurnId: TurnId | string | null | undefined,
+): LatestProposedPlanState | null {
+  if (latestTurnId) {
+    const matchingTurnPlan = [...proposedPlans]
+      .filter((proposedPlan) => proposedPlan.turnId === latestTurnId)
+      .toSorted(
+        (left, right) =>
+          left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+      )
+      .at(-1);
+    if (matchingTurnPlan) {
+      return toLatestProposedPlanState(matchingTurnPlan);
+    }
+  }
+
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  if (!latestPlan) {
+    return null;
+  }
+
+  return toLatestProposedPlanState(latestPlan);
+}
+
+export function findSidebarProposedPlan(input: {
+  threads: ReadonlyArray<Pick<Thread, "id" | "proposedPlans">>;
+  latestTurn: Pick<OrchestrationLatestTurn, "turnId" | "sourceProposedPlan"> | null;
+  latestTurnSettled: boolean;
+  threadId: ThreadId | string | null | undefined;
+}): LatestProposedPlanState | null {
+  const activeThreadPlans =
+    input.threads.find((thread) => thread.id === input.threadId)?.proposedPlans ?? [];
+
+  if (!input.latestTurnSettled) {
+    const sourceProposedPlan = input.latestTurn?.sourceProposedPlan;
+    if (sourceProposedPlan) {
+      const sourcePlan = input.threads
+        .find((thread) => thread.id === sourceProposedPlan.threadId)
+        ?.proposedPlans.find((plan) => plan.id === sourceProposedPlan.planId);
+      if (sourcePlan) {
+        return toLatestProposedPlanState(sourcePlan);
+      }
+    }
+  }
+
+  return findLatestProposedPlan(
+    activeThreadPlans.filter((plan) => plan.implementedAt === null),
+    input.latestTurn?.turnId ?? null,
+  );
+}
+
+export function hasActionableProposedPlan(
+  proposedPlan: LatestProposedPlanState | Pick<ProposedPlan, "implementedAt"> | null,
+): boolean {
+  return proposedPlan !== null && proposedPlan.implementedAt === null;
+}
+
+export function buildSourceProposedPlanReference(input: {
+  threadId: ThreadId;
+  proposedPlan: Pick<ProposedPlan, "id"> | null | undefined;
+}): OrchestrationLatestTurn["sourceProposedPlan"] | undefined {
+  if (!input.proposedPlan) {
+    return undefined;
+  }
+  return {
+    threadId: input.threadId,
+    planId: input.proposedPlan.id,
+  };
+}
+
+function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
+  return {
+    id: proposedPlan.id,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+    turnId: proposedPlan.turnId,
+    planMarkdown: proposedPlan.planMarkdown,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+  };
+}
+
+export function inferCheckpointTurnCountByTurnId(
+  summaries: TurnDiffSummary[],
+): Record<TurnId, number> {
+  const sorted = [...summaries].toSorted((a, b) => a.completedAt.localeCompare(b.completedAt));
+  const result: Record<TurnId, number> = {};
+  for (let index = 0; index < sorted.length; index += 1) {
+    const summary = sorted[index];
+    if (!summary) continue;
+    result[summary.turnId] = index + 1;
+  }
+  return result;
+}
+
+export function derivePhase(session: ThreadSession | null): SessionPhase {
+  if (!session || session.status === "closed") return "disconnected";
+  if (session.status === "connecting") return "connecting";
+  if (session.status === "running") return "running";
+  return "ready";
+}

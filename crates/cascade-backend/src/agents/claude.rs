@@ -15,7 +15,11 @@ const STATUS_DIR: &str = "Library/Application Support/Cascade/statusline";
 impl AgentProbe for Claude {
     /// Claude Code keeps what is typed while it works (`queue-operation` in its transcript) and
     /// takes it in mid-turn, as a `queued_command` attachment, or when the turn ends.
-    const PROFILE: Profile = Profile { id: "claude", command: "claude", queues_mid_turn: true };
+    const PROFILE: Profile = Profile {
+        id: "claude", command: "claude", queues_mid_turn: true, chat_provider: "claudeAgent",
+        display_name: "Claude Code",
+        compact_prompt: Some("/compact"),
+    };
     /// Checked against Claude Code 2.1.278: it reports `SessionStart` at launch, `/resume` and
     /// `/clear`, and a nested `claude -p` fires the session's hooks from outside the terminal's
     /// foreground job.
@@ -47,6 +51,12 @@ impl AgentProbe for Claude {
             None => newest_transcript(home, worktree),
         }?;
         Some(file.to_string_lossy().into_owned())
+    }
+
+    /// Only under the worktree's own project folder, where `--resume <id>` run in the worktree
+    /// finds it.
+    fn conversation_in_worktree(home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+        conversation_file(home, worktree, id)
     }
 
     fn has_conversation(home: &Path, id: &str) -> Option<bool> {

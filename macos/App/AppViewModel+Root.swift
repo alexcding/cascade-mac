@@ -6,7 +6,8 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating, NewSessionCoordin
                   projectModels: projectModels, dashboard: dashboard, logs: logs, todayActivity: todayActivity, settings: settings, error: coordinator.routingError ?? error,
                   canCreateProject: canPerform(.newProject),
                   canCreateSession: canPerform(.newSession), canRefresh: canPerform(.refresh),
-                  gitClientLabel: workspaceLaunch.gitClientLabel(shell.gitClient))
+                  gitClientLabel: workspaceLaunch.gitClientLabel(shell.gitClient),
+                  chats: chats.visible(includeArchived: true, includeSubagents: true), chatsLoaded: chats.loaded)
     }
     func performRootCommand(_ command: ShellCommand) { perform(command) }
 

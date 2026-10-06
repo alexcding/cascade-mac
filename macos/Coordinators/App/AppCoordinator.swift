@@ -91,6 +91,9 @@ import Observation
     var windowBackdrop = WindowBackdrop()
     var dashboardCoordinator: DashboardCoordinator?
     var automationCoordinator: AutomationCoordinator?
+    /// The chat on screen, while one is selected (`syncChatCoordinator`).
+    var chatCoordinator: ChatCoordinator?
+    @ObservationIgnored weak var chatRuntime: (any ChatCoordinating)?
     /// New Task, at the top of the sidebar: a project's own Start, on the project picked there.
     var newSessionCoordinator: NewSessionCoordinator? { didSet { refreshRoot() } }
     var newSession: NewSessionViewModel? { newSessionCoordinator?.model }
@@ -197,6 +200,9 @@ import Observation
             return automationCoordinator.map(Destination.automationCoordinator) ?? .unavailable(title: String(localized: "Automation"), message: String(localized: "Connect to load automations."))
         case .project(let id):
             return projectCoordinators[id].map(Destination.projectCoordinator) ?? .unavailable(title: rootModel?.title ?? String(localized: "Project"), message: String(localized: "Connect to load this project."))
+        case .chat(let id):
+            if let chat = chatCoordinator, chat.threadID == id { return .chatCoordinator(chat) }
+            return .unavailable(title: rootModel?.title ?? String(localized: "Chat"), message: String(localized: "Connect to load this chat."))
         // A workspace selection shows its coordinator once the viewer has activated the
         // context and a coordinator is bound to it; until then, the root placeholder.
         case .terminal:
@@ -225,6 +231,7 @@ import Observation
     /// selection or the set of children changes.
     func refreshRoot() {
         pruneWorkspaces()
+        syncChatCoordinator()
         let next = makeDestination(for: .destination(selection))
         if root != next { root = next }
     }

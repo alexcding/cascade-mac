@@ -322,6 +322,9 @@ struct SessionWorkspaceContextBody: View {
             .task(id: ShellRequest(tab: tab, missing: model.shell(for: tab) == nil, removing: model.removingSession)) {
                 await model.prepareShell(tab)
             }
+        } else if context.activeTool == .chat, let tab = context.activeID.flatMap(WorkspaceToolTab.init(id:)) {
+            // Keyed by tab: each Chat tab shows its own chat.
+            PaneChatView(tab: tab, workspace: model).id(context.activeID)
         } else if context.activeTool == .live {
             Group {
                 if let live = model.live { LivePanelView(live: live, workspace: model) }

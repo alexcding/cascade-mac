@@ -1,5 +1,6 @@
 mod agents;
 mod automation;
+pub mod chat;
 pub mod cli;
 mod db;
 mod domain;
@@ -53,11 +54,19 @@ pub struct AppState {
     pub usage: Arc<usage::Usage>,
     pub warmup: Arc<warmup::Warmup>,
     pub kept: Arc<kept::Kept>,
+    /// The chat engine, once `chat::start` has started it.
+    pub chat: Arc<chat::Chat>,
 }
+
+/// How many events the broadcast keeps for a subscriber that has not read them yet. A chat thread
+/// streams its turn as `chat-thread` events, a delta at a time, so a long answer or a few chats at
+/// once publish hundreds in a burst; a subscriber that falls this far behind is sent `reload`
+/// (`ffi.rs`, the SSE route) and reads everything again, which a deep buffer keeps rare.
+const EVENTS_CAPACITY: usize = 4096;
 
 impl AppState {
     pub fn new(db: Database, instance_id: Option<String>) -> Self {
-        let (events, _) = broadcast::channel(256);
+        let (events, _) = broadcast::channel(EVENTS_CAPACITY);
         Self {
             db: Arc::new(db),
             events,
@@ -69,6 +78,7 @@ impl AppState {
             usage: Arc::new(usage::Usage::default()),
             warmup: Arc::new(warmup::Warmup::default()),
             kept: Arc::new(kept::Kept::default()),
+            chat: Arc::new(chat::Chat::default()),
         }
     }
 
@@ -193,6 +203,8 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/status", get(agents::status))
         .route("/api/agent/conversation", get(agents::conversation))
         .route("/api/agent/transcript", get(routes::agent_transcript))
+        // Its own limit, past the router's: an attachment comes as base64 (`chat::RPC_BODY_LIMIT`).
+        .route("/api/chat/rpc", post(chat::rpc).layer(DefaultBodyLimit::max(chat::RPC_BODY_LIMIT)))
         .route("/api/agent/commands", get(agents::commands))
         .route("/api/agent/last-hook", get(integrations::last_hook))
         .route("/api/agent/permission", post(agents::permission::answer))

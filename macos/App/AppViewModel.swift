@@ -14,7 +14,7 @@ public final class AppViewModel {
     @ObservationIgnored private let creationFactory: any CreationFlowFactory
     @ObservationIgnored private let welcomeFactory: any WelcomeFeatureFactory
     @ObservationIgnored private let welcomeStore: any WelcomePersisting
-    @ObservationIgnored private let desktop: any DesktopActions
+    @ObservationIgnored let desktop: any DesktopActions
     @ObservationIgnored private let workspaceFactory: any WorkspaceFeatureFactory
     @ObservationIgnored private let projectFactory: any ProjectFeatureFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
@@ -28,6 +28,13 @@ public final class AppViewModel {
     /// What each worktree's IDE is still preparing. Fed by `ide-warmup` events, read by every
     /// session workspace.
     let ideWarmup = IDEWarmupStore()
+    /// Every chat session, for the sidebar and Projects; kept by `chat-shell` and `chat-removed`.
+    let chats = ChatListStore()
+    /// The chat backend while connected; a chat page looks it up for each request.
+    @ObservationIgnored private(set) var chatService: (any ChatServing)?
+    @ObservationIgnored let chatFactory: any ChatFeatureFactory
+    /// Picks a standalone chat's folder, starting from the one given; nil when cancelled.
+    @ObservationIgnored var chooseChatFolder: @MainActor (String?) async -> String? = { AppViewModel.pickFolder(from: $0) }
     /// The chat views on screen, by the terminal they sit over: an agent's approval request goes
     /// to its chat, and one with no chat watching goes straight back to the terminal.
     @ObservationIgnored private var permissionWatchers: [String: PermissionWatcher] = [:]
@@ -143,7 +150,9 @@ public final class AppViewModel {
          orderStore: any SidebarOrderPersisting = UserDefaultsSidebarOrderStore(),
          router: any DeepLinkRouting = CascadeRouter(),
          projectFactory: (any ProjectFeatureFactory)? = nil,
+         chatFactory: any ChatFeatureFactory = NativeChatFeatureFactory(),
          copy: @escaping (String) -> Void = { NativeClipboard.copy($0) }) {
+        self.chatFactory = chatFactory
         self.creationFactory = creationFactory
         self.welcomeFactory = welcomeFactory ?? NativeWelcomeFeatureFactory(desktop: desktop, copy: copy)
         self.welcomeStore = welcomeStore
@@ -223,6 +232,8 @@ public final class AppViewModel {
             }
             if let model = context.workspaceViewModel { coordinator.bindWorkspace(model, context: context, runtime: self) }
         }
+        coordinator.chatRuntime = self
+        chats.onLoad = { [weak self] in self?.chatsLoaded() }
         root = coordinator.makeRoot(factory: rootFactory, runtime: self, shell: shell, viewer: viewer)
         coordinator.installNotifications(shell.notifications, runtime: self)
         todayActivity.openPage = { [weak self] entry in
@@ -231,6 +242,7 @@ public final class AppViewModel {
         }
         scheduleSidebarLoad()
         followDashboardSessions()
+        followDashboardChats()
     }
 
     private func scheduleSidebarLoad() {
@@ -279,6 +291,19 @@ public final class AppViewModel {
         if let dashboard, dashboard.sessions != value { dashboard.sessions = value }
     }
 
+    /// Projects' chat rows follow the chat list, in a loop of their own as the sessions' is.
+    private func followDashboardChats() {
+        let chats = withObservationTracking { makeDashboardChats() } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followDashboardChats() }
+        }
+        if let dashboard, dashboard.chats != chats { dashboard.chats = chats }
+    }
+
+    private func makeDashboardChats() -> [DashboardChat] {
+        chats.visible(excludingWorktrees: sessionChatWorktrees).map { DashboardChat(id: $0.id, projectID: $0.projectId, title: $0.label, cli: $0.cli,
+                                            working: $0.working, needsInput: $0.needsInput) }
+    }
+
     /// Every session as Projects shows it: its agent's state as the sidebar's dot tells it, and the
     /// agent's latest call as its hooks reported it. Nothing here asks the backend.
     private func makeDashboardSessions() -> [DashboardSession] {
@@ -315,7 +340,9 @@ public final class AppViewModel {
                 needsInput: turns?.needsInput == true, done: turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id),
                 cli: turns?.cli ?? session.cli)
         }
-        return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder)
+        return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
+                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
+                                 hasArchivedChats: chats.shells.values.contains { $0.archived && !$0.subagent })
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -358,6 +385,16 @@ public final class AppViewModel {
         return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, query))
     }
 
+    func agentTranscriptThread(_ query: TranscriptThreadQuery, since: String?) async throws -> JSONValue {
+        guard let api else { throw BackendError.operation(String(localized: "Connect to the backend to read the conversation.")) }
+        var params = ["cli": query.cli, "worktree": query.worktree, "format": "thread",
+                      "threadId": query.threadID, "projectId": query.projectID]
+        if let since { params["since"] = since }
+        if let conversation = query.conversation { params["session"] = conversation }
+        if let run = query.runID { params["runId"] = run }
+        return try await api.get(APIClient.query(Routes.AGENT_TRANSCRIPT, params))
+    }
+
     func agentCommands(cli: String, worktree: String) async -> [AgentCommand] {
         struct Listed: Decodable { let commands: [AgentCommand] }
         guard let api else { return [] }
@@ -389,6 +426,12 @@ public final class AppViewModel {
     }
 
     private func pass(_ id: String) { Task { try? await answerPermission(id, decision: "pass") } }
+
+    func chatFolderRead(_ method: String, params: JSONValue) async throws -> JSONValue {
+        guard ChatFileAccess.folderMethods.contains(method) else { throw TranscriptPageBackend.unavailable }
+        guard let chatService else { throw ChatRPCError(message: String(localized: "Not connected to the backend.")) }
+        return try await chatService.rpc(method, params: params)
+    }
 
     /// Takes a request off its terminal's queue and shows the next one; whether it was queued.
     @discardableResult private func withdrawPermission(_ id: String) -> Bool {
@@ -594,7 +637,7 @@ public final class AppViewModel {
         case .findPage: activeHistory != nil || hasActivePage
         case .zoomIn, .zoomOut, .resetZoom: coordinator.canPresent && viewer.active?.activePage?.controls.active == true
         case .nextPage, .previousPage: (viewer.active?.tabs.count ?? 0) > 1
-        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn)
+        case .biggerFont, .smallerFont, .resetFont: fontTarget != nil || canPerform(.zoomIn) || chatToZoom != nil
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
         case .toggleChat: coordinator.canPresent && coordinator.activeWorkspaceModel?.canShowChat == true
@@ -697,8 +740,10 @@ public final class AppViewModel {
         return zoom
     }
 
-    /// ⌘+ / ⌘− / ⌘0 in Chat size the conversation: the terminal they would reach is under it. A
-    /// browser tab beside it that has the keyboard keeps its own zoom.
+    /// ⌘+ / ⌘− / ⌘0 size the chat that has the keyboard, wherever it is: a Chat tab in the pane, a
+    /// chat of its own, or a session in Chat. A session in Chat takes them too while its terminal
+    /// would, as the terminal is under it; a browser tab beside it that has the keyboard keeps its
+    /// own zoom. Every chat shares the one size (`ChatPageZoom`).
     private func zoomChat(for command: ShellCommand) -> Bool {
         let delta: Double?
         switch command {
@@ -707,11 +752,22 @@ public final class AppViewModel {
         case .resetFont: delta = nil
         default: return false
         }
+        if let page = chatToZoom {
+            ChatPageZoom.step(delta, from: page)
+            return true
+        }
         guard let workspace = coordinator.activeWorkspaceModel, workspace.chatCoversTerminal, let chat = workspace.chat else { return false }
-        let inChat = chat.page?.hasFocus == true
-        guard inChat || (fontTarget == .term && !webPageFocused) else { return false }
+        guard fontTarget == .term, !webPageFocused else { return false }
         chat.zoom(delta)
         return true
+    }
+
+    /// The chat page ⌘+ / ⌘− / ⌘0 size: the one with the keyboard, or the chat screen on show while
+    /// nothing else that zooms has it.
+    private var chatToZoom: WKWebView? {
+        if let page = ChatPageZoom.focused { return page }
+        guard case .chat = selection, !coordinator.settingsFocused, !webPageFocused else { return nil }
+        return coordinator.chatCoordinator?.model.page.webView
     }
 
     private var webPageFocused: Bool {
@@ -1677,6 +1733,12 @@ public final class AppViewModel {
                 loadRefreshInterval()
             }
             if let api { ideWarmup.connect(backendFactory.ideWarmup(api: api)) }
+            if let api {
+                chatService = backendFactory.chat(api: api)
+                chats.connect(chatService)
+                coordinator.newSession?.chatServiceChanged()
+                coordinator.refreshRoot()
+            }
             if let api { for model in projectModels.values { model.connect(backendFactory.projects(api: api), sessions: backendFactory.sessions(api: api)) } }
             if api != nil, selection == .newSession { coordinator.newSession?.update(projects: projects) }
             if let api { automation?.connect(backendFactory.automation(api: api)) }
@@ -1712,6 +1774,11 @@ public final class AppViewModel {
         case .overview:
             dashboard?.prs.refresh(quiet: true, look: true)
             if dashboard?.tab == .board { dashboard?.board?.attend() }
+        case .chat:
+            // A CLI may have been installed or signed in to while the app was away.
+            coordinator.chatCoordinator?.model.page.refreshProviders()
+        case .session:
+            viewer.active?.workspaceViewModel?.refreshPaneChatProviders()
         default: break
         }
     }
@@ -1825,7 +1892,10 @@ public final class AppViewModel {
     private func refreshSnapshots(for events: [ServerEvent]) async {
         // Project edits and legacy backends do not distinguish snapshot and inventory changes.
         let edited = events.contains { $0.type == "sync" && !["prs", "usage", "tickets"].contains($0.scope ?? "") }
-        if edited || events.contains(where: { $0.type == "reload" }) {
+        let reload = events.contains(where: { $0.type == "reload" })
+        // Chat events were missed too: their lists and the chat on screen read again.
+        if reload { resyncChats() }
+        if edited || reload {
             // A project edit is someone's doing, and its snapshots want syncing again. A
             // `reload` alone only says events were missed: nobody is looking.
             refresh(look: edited)
@@ -1882,6 +1952,16 @@ public final class AppViewModel {
         // Now that it can say so: the agent hooks the person installed are brought up to date, and
         // each update comes back as a toast, since the CLI may ask them to allow it.
         if let api { Task { try? await api.updateAgentHooks() } }
+        // Chat events missed while the stream was down: the lists and the chat on screen read again.
+        resyncChats()
+    }
+
+    /// Chat events were missed (a reconnect, or the backend's `reload`): the list is read again,
+    /// even one whose first listing failed, and the chat on screen reads its thread again.
+    private func resyncChats() {
+        chats.reload()
+        coordinator.chatCoordinator?.model.page.resync()
+        for context in viewer.contexts.values { context.workspaceViewModel?.resyncPaneChats() }
     }
 
     private struct LastHook: Decodable { let event: ServerEvent? }
@@ -1965,6 +2045,7 @@ public final class AppViewModel {
             todayActivity.activityReceived()
         }
         ideWarmup.receive(event)
+        receiveChat(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
         if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt,
            let automationID = event.automationId, let key = event.key {
@@ -2029,6 +2110,9 @@ public final class AppViewModel {
         }
         await viewer.stop()
         ideWarmup.connect(nil)
+        chats.connect(nil)
+        chatService = nil
+        coordinator.newSession?.chatServiceChanged()
         // A backend switch leaves no handle on this backend's streams, so they go with it. Only
         // when a panel asked for one: stopping runs serve-sim, which a Mac without it pays for.
         let streamed = buildModels.values.contains { $0.preview?.udid != nil }

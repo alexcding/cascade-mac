@@ -1,0 +1,1471 @@
+{
+  "atApproval": {
+    "snapshotSequence": 15,
+    "thread": {
+      "activities": [
+        {
+          "createdAt": "2026-10-05T17:48:37.234Z",
+          "id": "584a75eb-6288-4682-a659-5ba990a4096f",
+          "kind": "context-window.configured",
+          "payload": {
+            "cleared": true
+          },
+          "sequence": 6,
+          "summary": "Context window configured",
+          "tone": "info",
+          "turnId": null
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "06452cd4-2fb7-4d7d-bbd4-bd9742538aca",
+          "kind": "account.rate-limits.updated",
+          "payload": {
+            "provider": "claudeAgent",
+            "rate_limit_info": {
+              "isUsingOverage": false,
+              "overageDisabledReason": "org_level_disabled",
+              "overageStatus": "rejected",
+              "rateLimitType": "five_hour",
+              "resetsAt": 1791231600,
+              "status": "allowed",
+              "unifiedWindows": {
+                "five_hour": {
+                  "resetsAt": 1791231600,
+                  "utilization": 0.01
+                },
+                "seven_day": {
+                  "resetsAt": 1791687600,
+                  "utilization": 0.18
+                }
+              }
+            },
+            "session_id": "f17ee499-d743-47c0-965c-a383d97a0b55",
+            "type": "rate_limit_event",
+            "uuid": "29f74265-db9f-4aa3-9584-8b2f9cba7128"
+          },
+          "sequence": 18,
+          "summary": "Rate limits updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "6cf0353c-dffd-4898-9400-67b45dbb2dd3",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 24282,
+            "lastUsedTokens": 24285,
+            "outputTokens": 3,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 24285,
+            "usedTokens": 24285
+          },
+          "sequence": 19,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "3667548d-b47d-48da-84e7-92fa5ca21bba",
+          "kind": "tool.started",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {},
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: {}",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 20,
+          "summary": "Command run started",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "58e1465a-36de-4f5d-9e53-0ddc165de038",
+          "kind": "tool.updated",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 21,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.346Z",
+          "id": "c292e504-7ad6-4cb3-913c-178f2b2ef669",
+          "kind": "approval.requested",
+          "payload": {
+            "detail": "Bash: echo hi > probe.txt",
+            "lifecycleGeneration": "39902a73-ef99-448e-a56c-c9334009141f",
+            "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+            "requestKind": "command",
+            "requestType": "command_execution_approval",
+            "sessionApprovalAvailable": true
+          },
+          "sequence": 23,
+          "summary": "Command approval requested",
+          "tone": "approval",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        }
+      ],
+      "archivedAt": null,
+      "associatedWorktreeBranch": null,
+      "associatedWorktreePath": "/Users/me/project",
+      "associatedWorktreeRef": null,
+      "branch": null,
+      "checkpoints": [],
+      "createBranchFlowCompleted": false,
+      "createdAt": "2026-10-05T10:00:00.000Z",
+      "creationSource": null,
+      "deletedAt": null,
+      "envMode": "local",
+      "forkSourceThreadId": null,
+      "gatewayOperationId": null,
+      "gatewayOperationIndex": null,
+      "id": "thread-claude",
+      "interactionMode": "default",
+      "isPinned": false,
+      "latestTurn": {
+        "assistantMessageId": null,
+        "completedAt": null,
+        "requestedAt": "2026-10-05T17:48:37.343Z",
+        "startedAt": "2026-10-05T17:48:37.343Z",
+        "state": "running",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+      },
+      "latestUserMessageAt": "2026-10-05T10:00:00.000Z",
+      "messages": [
+        {
+          "attachments": [],
+          "createdAt": "2026-10-05T10:00:00.000Z",
+          "dispatchMode": "queue",
+          "dispatchOrigin": "user",
+          "id": "msg-1",
+          "role": "user",
+          "source": "native",
+          "startsNewTurn": true,
+          "streaming": false,
+          "text": "Run the shell command `echo hi > probe.txt` with Bash, then reply with one word.",
+          "turnId": null,
+          "updatedAt": "2026-10-05T10:00:00.000Z"
+        }
+      ],
+      "modelSelection": {
+        "model": "haiku",
+        "provider": "claudeAgent"
+      },
+      "parentThreadId": null,
+      "projectId": "project-1",
+      "proposedPlans": [],
+      "runtimeMode": "approval-required",
+      "session": {
+        "activeTurnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+        "lastError": null,
+        "providerInstanceId": "claudeAgent",
+        "providerName": "claudeAgent",
+        "runtimeMode": "approval-required",
+        "status": "running",
+        "threadId": "thread-claude",
+        "updatedAt": "2026-10-05T17:48:37.345Z"
+      },
+      "settledAt": null,
+      "snoozeReminderAt": null,
+      "snoozedUntil": null,
+      "sourceThreadId": null,
+      "sourceTurnId": null,
+      "subagentAgentId": null,
+      "subagentNickname": null,
+      "subagentRole": null,
+      "title": "Run the shell command echo hi",
+      "updatedAt": "2026-10-05T17:48:37.346Z",
+      "workingDirectory": null,
+      "worktreePath": "/Users/me/project"
+    }
+  },
+  "done": {
+    "snapshotSequence": 29,
+    "thread": {
+      "activities": [
+        {
+          "createdAt": "2026-10-05T17:48:37.234Z",
+          "id": "584a75eb-6288-4682-a659-5ba990a4096f",
+          "kind": "context-window.configured",
+          "payload": {
+            "cleared": true
+          },
+          "sequence": 6,
+          "summary": "Context window configured",
+          "tone": "info",
+          "turnId": null
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "06452cd4-2fb7-4d7d-bbd4-bd9742538aca",
+          "kind": "account.rate-limits.updated",
+          "payload": {
+            "provider": "claudeAgent",
+            "rate_limit_info": {
+              "isUsingOverage": false,
+              "overageDisabledReason": "org_level_disabled",
+              "overageStatus": "rejected",
+              "rateLimitType": "five_hour",
+              "resetsAt": 1791231600,
+              "status": "allowed",
+              "unifiedWindows": {
+                "five_hour": {
+                  "resetsAt": 1791231600,
+                  "utilization": 0.01
+                },
+                "seven_day": {
+                  "resetsAt": 1791687600,
+                  "utilization": 0.18
+                }
+              }
+            },
+            "session_id": "f17ee499-d743-47c0-965c-a383d97a0b55",
+            "type": "rate_limit_event",
+            "uuid": "29f74265-db9f-4aa3-9584-8b2f9cba7128"
+          },
+          "sequence": 18,
+          "summary": "Rate limits updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "6cf0353c-dffd-4898-9400-67b45dbb2dd3",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 24282,
+            "lastUsedTokens": 24285,
+            "outputTokens": 3,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 24285,
+            "usedTokens": 24285
+          },
+          "sequence": 19,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "3667548d-b47d-48da-84e7-92fa5ca21bba",
+          "kind": "tool.started",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {},
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: {}",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 20,
+          "summary": "Command run started",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "58e1465a-36de-4f5d-9e53-0ddc165de038",
+          "kind": "tool.updated",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 21,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.346Z",
+          "id": "c292e504-7ad6-4cb3-913c-178f2b2ef669",
+          "kind": "approval.requested",
+          "payload": {
+            "detail": "Bash: echo hi > probe.txt",
+            "lifecycleGeneration": "39902a73-ef99-448e-a56c-c9334009141f",
+            "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+            "requestKind": "command",
+            "requestType": "command_execution_approval",
+            "sessionApprovalAvailable": true
+          },
+          "sequence": 23,
+          "summary": "Command approval requested",
+          "tone": "approval",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.573Z",
+          "id": "5731e7ac-25c7-405d-b9b1-bb619c14463a",
+          "kind": "approval.resolved",
+          "payload": {
+            "decision": "accept",
+            "lifecycleGeneration": "39902a73-ef99-448e-a56c-c9334009141f",
+            "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+            "requestKind": "command",
+            "requestType": "command_execution_approval"
+          },
+          "sequence": 24,
+          "summary": "Approval resolved",
+          "tone": "approval",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.576Z",
+          "id": "fdd4ec03-22f2-4697-b360-ebbd8272cc0d",
+          "kind": "tool.updated",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "result": {
+                "content": "(Bash completed with no output)",
+                "is_error": false,
+                "tool_use_id": "toolu_011XF8vFptD8bLpupaPJKjkX",
+                "type": "tool_result"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 25,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.576Z",
+          "id": "63138cd1-8adf-4955-ad3a-66ce8bcce9d5",
+          "kind": "tool.completed",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "rawOutput": {
+                "output": "(Bash completed with no output)"
+              },
+              "result": {
+                "content": "(Bash completed with no output)",
+                "is_error": false,
+                "tool_use_id": "toolu_011XF8vFptD8bLpupaPJKjkX",
+                "type": "tool_result"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "completed",
+            "title": "Command run"
+          },
+          "sequence": 27,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.577Z",
+          "id": "296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 25231,
+            "lastUsedTokens": 25232,
+            "outputTokens": 1,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 49517,
+            "usedTokens": 25232
+          },
+          "sequence": 29,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.688Z",
+          "id": "62d64ccb-44b7-46ac-ab59-f00ab7c749fe",
+          "kind": "checkpoint.captured",
+          "payload": {
+            "status": "ready",
+            "turnCount": 1
+          },
+          "sequence": 29,
+          "summary": "Checkpoint captured",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.578Z",
+          "id": "daae8b2b-3905-4266-bc23-89cb65736858",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 25231,
+            "lastUsedTokens": 25232,
+            "maxTokens": 200000,
+            "outputTokens": 1,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 49703,
+            "usedTokens": 25232
+          },
+          "sequence": 34,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.578Z",
+          "id": "1cca1ed5-da61-4e37-aae0-ee6fc1fb285c",
+          "kind": "turn.completed",
+          "payload": {
+            "mainLoopTokens": 49703,
+            "modelUsage": {
+              "claude-haiku-4-5-20251001": {
+                "cacheCreationInputTokens": 10405,
+                "cacheReadInputTokens": 39090,
+                "inputTokens": 50427,
+                "outputTokens": 203,
+                "totalTokens": 50630
+              }
+            },
+            "provider": "claudeAgent",
+            "state": "completed",
+            "tokenAccountingVersion": 1,
+            "totalCostUsd": 0.026666
+          },
+          "sequence": 35,
+          "summary": "Turn completed",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        }
+      ],
+      "archivedAt": null,
+      "associatedWorktreeBranch": null,
+      "associatedWorktreePath": "/Users/me/project",
+      "associatedWorktreeRef": null,
+      "branch": null,
+      "checkpoints": [
+        {
+          "assistantMessageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+          "checkpointRef": "refs/cascade/checkpoints/dGhyZWFkLWNsYXVkZQ/turn/1",
+          "checkpointTurnCount": 1,
+          "completedAt": "2026-10-05T17:48:37.578Z",
+          "files": [
+            {
+              "additions": 1,
+              "deletions": 0,
+              "kind": "added",
+              "path": "probe.txt"
+            }
+          ],
+          "status": "ready",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        }
+      ],
+      "createBranchFlowCompleted": false,
+      "createdAt": "2026-10-05T10:00:00.000Z",
+      "creationSource": null,
+      "deletedAt": null,
+      "envMode": "local",
+      "forkSourceThreadId": null,
+      "gatewayOperationId": null,
+      "gatewayOperationIndex": null,
+      "id": "thread-claude",
+      "interactionMode": "default",
+      "isPinned": false,
+      "latestTurn": {
+        "assistantMessageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+        "completedAt": "2026-10-05T17:48:37.578Z",
+        "requestedAt": "2026-10-05T17:48:37.343Z",
+        "startedAt": "2026-10-05T17:48:37.343Z",
+        "state": "completed",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+      },
+      "latestUserMessageAt": "2026-10-05T10:00:00.000Z",
+      "messages": [
+        {
+          "attachments": [],
+          "createdAt": "2026-10-05T10:00:00.000Z",
+          "dispatchMode": "queue",
+          "dispatchOrigin": "user",
+          "id": "msg-1",
+          "role": "user",
+          "source": "native",
+          "startsNewTurn": true,
+          "streaming": false,
+          "text": "Run the shell command `echo hi > probe.txt` with Bash, then reply with one word.",
+          "turnId": null,
+          "updatedAt": "2026-10-05T10:00:00.000Z"
+        },
+        {
+          "createdAt": "2026-10-05T17:48:37.577Z",
+          "id": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+          "role": "assistant",
+          "source": "native",
+          "streaming": false,
+          "text": "Done.",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+          "updatedAt": "2026-10-05T17:48:37.577Z"
+        }
+      ],
+      "modelSelection": {
+        "model": "haiku",
+        "provider": "claudeAgent"
+      },
+      "parentThreadId": null,
+      "projectId": "project-1",
+      "proposedPlans": [],
+      "runtimeMode": "approval-required",
+      "session": {
+        "activeTurnId": null,
+        "lastError": null,
+        "providerInstanceId": "claudeAgent",
+        "providerName": "claudeAgent",
+        "runtimeMode": "approval-required",
+        "status": "ready",
+        "threadId": "thread-claude",
+        "updatedAt": "2026-10-05T17:48:37.578Z"
+      },
+      "settledAt": null,
+      "snoozeReminderAt": null,
+      "snoozedUntil": null,
+      "sourceThreadId": null,
+      "sourceTurnId": null,
+      "subagentAgentId": null,
+      "subagentNickname": null,
+      "subagentRole": null,
+      "title": "Run the shell command echo hi",
+      "updatedAt": "2026-10-05T17:48:37.688Z",
+      "workingDirectory": null,
+      "worktreePath": "/Users/me/project"
+    }
+  },
+  "events": [
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "create",
+      "correlationId": "create",
+      "eventId": "d7441ee2-20b5-47f1-8ace-8ecb0f35d993",
+      "metadata": {},
+      "occurredAt": "2026-10-05T10:00:00.000Z",
+      "payload": {
+        "associatedWorktreeBranch": null,
+        "associatedWorktreePath": "/Users/me/project",
+        "associatedWorktreeRef": null,
+        "branch": null,
+        "createBranchFlowCompleted": false,
+        "createdAt": "2026-10-05T10:00:00.000Z",
+        "envMode": "local",
+        "forkSourceThreadId": null,
+        "interactionMode": "default",
+        "isPinned": false,
+        "modelSelection": {
+          "model": "haiku",
+          "provider": "claudeAgent"
+        },
+        "parentThreadId": null,
+        "projectId": "project-1",
+        "runtimeMode": "approval-required",
+        "subagentAgentId": null,
+        "subagentNickname": null,
+        "subagentRole": null,
+        "threadId": "thread-claude",
+        "title": "New thread",
+        "updatedAt": "2026-10-05T10:00:00.000Z",
+        "workingDirectory": null,
+        "worktreePath": "/Users/me/project"
+      },
+      "sequence": 1,
+      "type": "thread.created"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "turn-1",
+      "correlationId": "turn-1",
+      "eventId": "697e0c45-7c7c-4013-98ad-0fd1b3784e5f",
+      "metadata": {},
+      "occurredAt": "2026-10-05T10:00:00.000Z",
+      "payload": {
+        "attachments": [],
+        "createdAt": "2026-10-05T10:00:00.000Z",
+        "dispatchMode": "queue",
+        "dispatchOrigin": "user",
+        "messageId": "msg-1",
+        "role": "user",
+        "source": "native",
+        "startsNewTurn": true,
+        "streaming": false,
+        "text": "Run the shell command `echo hi > probe.txt` with Bash, then reply with one word.",
+        "threadId": "thread-claude",
+        "turnId": null,
+        "updatedAt": "2026-10-05T10:00:00.000Z"
+      },
+      "sequence": 2,
+      "type": "thread.message-sent"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": "697e0c45-7c7c-4013-98ad-0fd1b3784e5f",
+      "commandId": "turn-1",
+      "correlationId": "turn-1",
+      "eventId": "6cf19d2a-c9d5-4535-a4e3-51a52b51f3c1",
+      "metadata": {},
+      "occurredAt": "2026-10-05T10:00:00.000Z",
+      "payload": {
+        "assistantDeliveryMode": "streaming",
+        "createdAt": "2026-10-05T10:00:00.000Z",
+        "dispatchMode": "queue",
+        "dispatchOrigin": "user",
+        "interactionMode": "default",
+        "messageId": "msg-1",
+        "runtimeMode": "approval-required",
+        "threadId": "thread-claude"
+      },
+      "sequence": 3,
+      "type": "thread.turn-start-requested"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "server:thread-title-fallback-rename:3936bb79-90d7-4427-aa11-612a4c65e732",
+      "correlationId": "server:thread-title-fallback-rename:3936bb79-90d7-4427-aa11-612a4c65e732",
+      "eventId": "3c8ef4f1-1198-4ac9-88a3-a98e71f5ad74",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.234Z",
+      "payload": {
+        "threadId": "thread-claude",
+        "title": "Run the shell command echo hi",
+        "updatedAt": "2026-10-05T17:48:37.234Z"
+      },
+      "sequence": 4,
+      "type": "thread.meta-updated"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:fe3a6af4-20c1-423e-9fcd-e397c13a86fa:thread-session-set:thread-claude",
+      "correlationId": "provider:fe3a6af4-20c1-423e-9fcd-e397c13a86fa:thread-session-set:thread-claude",
+      "eventId": "6f2d58a2-41a2-4108-98d8-e1d0fb87f0aa",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.234Z",
+      "payload": {
+        "session": {
+          "activeTurnId": null,
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "ready",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.234Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 5,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:584a75eb-6288-4682-a659-5ba990a4096f:thread-activity-append:thread-claude:context-window.configured:584a75eb-6288-4682-a659-5ba990a4096f",
+      "correlationId": "provider:584a75eb-6288-4682-a659-5ba990a4096f:thread-activity-append:thread-claude:context-window.configured:584a75eb-6288-4682-a659-5ba990a4096f",
+      "eventId": "033306fc-e2c6-4eec-80e8-92a3c10ea68b",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.234Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.234Z",
+          "id": "584a75eb-6288-4682-a659-5ba990a4096f",
+          "kind": "context-window.configured",
+          "payload": {
+            "cleared": true
+          },
+          "sequence": 6,
+          "summary": "Context window configured",
+          "tone": "info",
+          "turnId": null
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 6,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:79e4ef56-8178-43e9-b1f3-9ea7873400de:thread-session-set:thread-claude",
+      "correlationId": "provider:79e4ef56-8178-43e9-b1f3-9ea7873400de:thread-session-set:thread-claude",
+      "eventId": "1a724d1b-ac6a-473e-804e-33d83037b0b1",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.234Z",
+      "payload": {
+        "session": {
+          "activeTurnId": null,
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "ready",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.234Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 7,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:30bc75b6-894f-4d60-9b5d-0fbca4c9ee9c:thread-session-set:thread-claude",
+      "correlationId": "provider:30bc75b6-894f-4d60-9b5d-0fbca4c9ee9c:thread-session-set:thread-claude",
+      "eventId": "3633bed4-0833-4e7c-b247-a23d93a09d08",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.343Z",
+      "payload": {
+        "session": {
+          "activeTurnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "running",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.343Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 8,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:48082c68-f7f6-4af1-b7b6-c8b14b10f136:thread-session-set:thread-claude",
+      "correlationId": "provider:48082c68-f7f6-4af1-b7b6-c8b14b10f136:thread-session-set:thread-claude",
+      "eventId": "609c0872-d3f3-45c0-9600-62494db8e5ff",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "session": {
+          "activeTurnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "running",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.345Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 9,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:3f8fc7d5-c2bd-44cc-830d-5c6cb73b937b:thread-session-set:thread-claude",
+      "correlationId": "provider:3f8fc7d5-c2bd-44cc-830d-5c6cb73b937b:thread-session-set:thread-claude",
+      "eventId": "ba5af56b-46db-4616-94e1-221af7fb96f1",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "session": {
+          "activeTurnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "running",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.345Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 10,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:06452cd4-2fb7-4d7d-bbd4-bd9742538aca:thread-activity-append:thread-claude:account.rate-limits.updated:06452cd4-2fb7-4d7d-bbd4-bd9742538aca",
+      "correlationId": "provider:06452cd4-2fb7-4d7d-bbd4-bd9742538aca:thread-activity-append:thread-claude:account.rate-limits.updated:06452cd4-2fb7-4d7d-bbd4-bd9742538aca",
+      "eventId": "ae2e3990-6536-45ca-8338-e5227e920cca",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "06452cd4-2fb7-4d7d-bbd4-bd9742538aca",
+          "kind": "account.rate-limits.updated",
+          "payload": {
+            "provider": "claudeAgent",
+            "rate_limit_info": {
+              "isUsingOverage": false,
+              "overageDisabledReason": "org_level_disabled",
+              "overageStatus": "rejected",
+              "rateLimitType": "five_hour",
+              "resetsAt": 1791231600,
+              "status": "allowed",
+              "unifiedWindows": {
+                "five_hour": {
+                  "resetsAt": 1791231600,
+                  "utilization": 0.01
+                },
+                "seven_day": {
+                  "resetsAt": 1791687600,
+                  "utilization": 0.18
+                }
+              }
+            },
+            "session_id": "f17ee499-d743-47c0-965c-a383d97a0b55",
+            "type": "rate_limit_event",
+            "uuid": "29f74265-db9f-4aa3-9584-8b2f9cba7128"
+          },
+          "sequence": 18,
+          "summary": "Rate limits updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 11,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:6cf0353c-dffd-4898-9400-67b45dbb2dd3:thread-activity-append:thread-claude:context-window.updated:6cf0353c-dffd-4898-9400-67b45dbb2dd3",
+      "correlationId": "provider:6cf0353c-dffd-4898-9400-67b45dbb2dd3:thread-activity-append:thread-claude:context-window.updated:6cf0353c-dffd-4898-9400-67b45dbb2dd3",
+      "eventId": "ef4ae306-3d4b-4b26-ac50-fd5814f9ac6f",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "6cf0353c-dffd-4898-9400-67b45dbb2dd3",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 24282,
+            "lastUsedTokens": 24285,
+            "outputTokens": 3,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 24285,
+            "usedTokens": 24285
+          },
+          "sequence": 19,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 12,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:3667548d-b47d-48da-84e7-92fa5ca21bba:thread-activity-append:thread-claude:tool.started:3667548d-b47d-48da-84e7-92fa5ca21bba",
+      "correlationId": "provider:3667548d-b47d-48da-84e7-92fa5ca21bba:thread-activity-append:thread-claude:tool.started:3667548d-b47d-48da-84e7-92fa5ca21bba",
+      "eventId": "7613fcca-a332-4288-9148-6585d2c008e0",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "3667548d-b47d-48da-84e7-92fa5ca21bba",
+          "kind": "tool.started",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {},
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: {}",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 20,
+          "summary": "Command run started",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 13,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:58e1465a-36de-4f5d-9e53-0ddc165de038:thread-activity-append:thread-claude:tool.updated:58e1465a-36de-4f5d-9e53-0ddc165de038",
+      "correlationId": "provider:58e1465a-36de-4f5d-9e53-0ddc165de038:thread-activity-append:thread-claude:tool.updated:58e1465a-36de-4f5d-9e53-0ddc165de038",
+      "eventId": "eccf281c-f32f-454f-8472-20800b0c3d8d",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.345Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.345Z",
+          "id": "58e1465a-36de-4f5d-9e53-0ddc165de038",
+          "kind": "tool.updated",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 21,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 14,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:c292e504-7ad6-4cb3-913c-178f2b2ef669:thread-activity-append:thread-claude:approval.requested:c292e504-7ad6-4cb3-913c-178f2b2ef669",
+      "correlationId": "provider:c292e504-7ad6-4cb3-913c-178f2b2ef669:thread-activity-append:thread-claude:approval.requested:c292e504-7ad6-4cb3-913c-178f2b2ef669",
+      "eventId": "e8721031-b52b-40fe-acec-0185e26dc2bf",
+      "metadata": {
+        "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232"
+      },
+      "occurredAt": "2026-10-05T17:48:37.346Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.346Z",
+          "id": "c292e504-7ad6-4cb3-913c-178f2b2ef669",
+          "kind": "approval.requested",
+          "payload": {
+            "detail": "Bash: echo hi > probe.txt",
+            "lifecycleGeneration": "39902a73-ef99-448e-a56c-c9334009141f",
+            "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+            "requestKind": "command",
+            "requestType": "command_execution_approval",
+            "sessionApprovalAvailable": true
+          },
+          "sequence": 23,
+          "summary": "Command approval requested",
+          "tone": "approval",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 15,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "approve",
+      "correlationId": "approve",
+      "eventId": "4c117e91-e794-4829-bbce-61f2e6d1f60b",
+      "metadata": {
+        "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232"
+      },
+      "occurredAt": "2026-10-05T10:00:00.000Z",
+      "payload": {
+        "createdAt": "2026-10-05T10:00:00.000Z",
+        "decision": "accept",
+        "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+        "threadId": "thread-claude"
+      },
+      "sequence": 16,
+      "type": "thread.approval-response-requested"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:5731e7ac-25c7-405d-b9b1-bb619c14463a:thread-activity-append:thread-claude:approval.resolved:5731e7ac-25c7-405d-b9b1-bb619c14463a",
+      "correlationId": "provider:5731e7ac-25c7-405d-b9b1-bb619c14463a:thread-activity-append:thread-claude:approval.resolved:5731e7ac-25c7-405d-b9b1-bb619c14463a",
+      "eventId": "4772f405-5009-4c7a-a310-ab94c06ee73a",
+      "metadata": {
+        "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232"
+      },
+      "occurredAt": "2026-10-05T17:48:37.573Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.573Z",
+          "id": "5731e7ac-25c7-405d-b9b1-bb619c14463a",
+          "kind": "approval.resolved",
+          "payload": {
+            "decision": "accept",
+            "lifecycleGeneration": "39902a73-ef99-448e-a56c-c9334009141f",
+            "requestId": "db1d35f9-8c3f-49b4-8652-fe096682f232",
+            "requestKind": "command",
+            "requestType": "command_execution_approval"
+          },
+          "sequence": 24,
+          "summary": "Approval resolved",
+          "tone": "approval",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 17,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:fdd4ec03-22f2-4697-b360-ebbd8272cc0d:thread-activity-append:thread-claude:tool.updated:fdd4ec03-22f2-4697-b360-ebbd8272cc0d",
+      "correlationId": "provider:fdd4ec03-22f2-4697-b360-ebbd8272cc0d:thread-activity-append:thread-claude:tool.updated:fdd4ec03-22f2-4697-b360-ebbd8272cc0d",
+      "eventId": "8e8f3e57-66aa-4d8a-908c-c9426138d56b",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.576Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.576Z",
+          "id": "fdd4ec03-22f2-4697-b360-ebbd8272cc0d",
+          "kind": "tool.updated",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "result": {
+                "content": "(Bash completed with no output)",
+                "is_error": false,
+                "tool_use_id": "toolu_011XF8vFptD8bLpupaPJKjkX",
+                "type": "tool_result"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "inProgress",
+            "title": "Command run"
+          },
+          "sequence": 25,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 18,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:63138cd1-8adf-4955-ad3a-66ce8bcce9d5:thread-activity-append:thread-claude:tool.completed:63138cd1-8adf-4955-ad3a-66ce8bcce9d5",
+      "correlationId": "provider:63138cd1-8adf-4955-ad3a-66ce8bcce9d5:thread-activity-append:thread-claude:tool.completed:63138cd1-8adf-4955-ad3a-66ce8bcce9d5",
+      "eventId": "da18a3eb-fa1d-4a4d-be92-50df8e0749fa",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.576Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.576Z",
+          "id": "63138cd1-8adf-4955-ad3a-66ce8bcce9d5",
+          "kind": "tool.completed",
+          "payload": {
+            "data": {
+              "callId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "input": {
+                "command": "echo hi > probe.txt",
+                "description": "Write \"hi\" to probe.txt"
+              },
+              "rawOutput": {
+                "output": "(Bash completed with no output)"
+              },
+              "result": {
+                "content": "(Bash completed with no output)",
+                "is_error": false,
+                "tool_use_id": "toolu_011XF8vFptD8bLpupaPJKjkX",
+                "type": "tool_result"
+              },
+              "toolCallId": "toolu_011XF8vFptD8bLpupaPJKjkX",
+              "toolName": "Bash"
+            },
+            "detail": "Bash: echo hi > probe.txt",
+            "itemType": "command_execution",
+            "status": "completed",
+            "title": "Command run"
+          },
+          "sequence": 27,
+          "summary": "Command run",
+          "tone": "tool",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 19,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:8ba5fb1c-a08a-491b-98a5-950c4ec63d5b:thread-session-set:thread-claude",
+      "correlationId": "provider:8ba5fb1c-a08a-491b-98a5-950c4ec63d5b:thread-session-set:thread-claude",
+      "eventId": "f5d71259-a62b-4ea8-82e9-52db970f7caa",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.576Z",
+      "payload": {
+        "session": {
+          "activeTurnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "running",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.576Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 20,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7:thread-activity-append:thread-claude:context-window.updated:296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7",
+      "correlationId": "provider:296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7:thread-activity-append:thread-claude:context-window.updated:296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7",
+      "eventId": "feb931b9-95b2-4db1-b5d5-38ce97b3641e",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.577Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.577Z",
+          "id": "296b1171-4dcc-4ff8-99bd-5f2c8c1a6ed7",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 25231,
+            "lastUsedTokens": 25232,
+            "outputTokens": 1,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 49517,
+            "usedTokens": 25232
+          },
+          "sequence": 29,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 21,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:a8c0f096-c35a-43e0-9b57-48facef78d10:assistant-delta:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "correlationId": "provider:a8c0f096-c35a-43e0-9b57-48facef78d10:assistant-delta:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "eventId": "40603685-583f-44d1-9780-9fabf0769740",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.577Z",
+      "payload": {
+        "createdAt": "2026-10-05T17:48:37.577Z",
+        "messageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+        "role": "assistant",
+        "segmentSequence": 30,
+        "segmentStartedAt": "2026-10-05T17:48:37.577Z",
+        "source": "native",
+        "streaming": true,
+        "text": "Done",
+        "threadId": "thread-claude",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+        "updatedAt": "2026-10-05T17:48:37.577Z"
+      },
+      "sequence": 22,
+      "type": "thread.message-sent"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:9995e021-46d8-44f6-9ac1-28ae345ed7fd:assistant-delta:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "correlationId": "provider:9995e021-46d8-44f6-9ac1-28ae345ed7fd:assistant-delta:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "eventId": "27f02f24-2d44-44de-864c-0a3908a4f300",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.577Z",
+      "payload": {
+        "createdAt": "2026-10-05T17:48:37.577Z",
+        "messageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+        "role": "assistant",
+        "source": "native",
+        "streaming": true,
+        "text": ".",
+        "threadId": "thread-claude",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+        "updatedAt": "2026-10-05T17:48:37.577Z"
+      },
+      "sequence": 23,
+      "type": "thread.message-sent"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:0220259b-8aef-4584-ad15-29cf9eab3656:assistant-complete:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "correlationId": "provider:0220259b-8aef-4584-ad15-29cf9eab3656:assistant-complete:assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+      "eventId": "be0adf49-5adc-4a9d-a124-b4f91ec96382",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.577Z",
+      "payload": {
+        "createdAt": "2026-10-05T17:48:37.577Z",
+        "messageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+        "role": "assistant",
+        "source": "native",
+        "streaming": false,
+        "text": "Done.",
+        "threadId": "thread-claude",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38",
+        "updatedAt": "2026-10-05T17:48:37.577Z"
+      },
+      "sequence": 24,
+      "type": "thread.message-sent"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:daae8b2b-3905-4266-bc23-89cb65736858:thread-activity-append:thread-claude:context-window.updated:daae8b2b-3905-4266-bc23-89cb65736858",
+      "correlationId": "provider:daae8b2b-3905-4266-bc23-89cb65736858:thread-activity-append:thread-claude:context-window.updated:daae8b2b-3905-4266-bc23-89cb65736858",
+      "eventId": "65e742b7-ab86-42d2-9fd6-5d404acaf38f",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.578Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.578Z",
+          "id": "daae8b2b-3905-4266-bc23-89cb65736858",
+          "kind": "context-window.updated",
+          "payload": {
+            "inputTokens": 25231,
+            "lastUsedTokens": 25232,
+            "maxTokens": 200000,
+            "outputTokens": 1,
+            "provider": "claudeAgent",
+            "tokenAccountingVersion": 1,
+            "totalProcessedTokens": 49703,
+            "usedTokens": 25232
+          },
+          "sequence": 34,
+          "summary": "Context window updated",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 25,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c:thread-session-set:thread-claude",
+      "correlationId": "provider:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c:thread-session-set:thread-claude",
+      "eventId": "0444464b-6836-4721-8c02-fd6d5954bd77",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.578Z",
+      "payload": {
+        "session": {
+          "activeTurnId": null,
+          "lastError": null,
+          "providerInstanceId": "claudeAgent",
+          "providerName": "claudeAgent",
+          "runtimeMode": "approval-required",
+          "status": "ready",
+          "threadId": "thread-claude",
+          "updatedAt": "2026-10-05T17:48:37.578Z"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 26,
+      "type": "thread.session-set"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "provider:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c:thread-activity-append:thread-claude:turn.completed:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c",
+      "correlationId": "provider:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c:thread-activity-append:thread-claude:turn.completed:1cca1ed5-da61-4e37-aae0-ee6fc1fb285c",
+      "eventId": "72a2293f-7e99-4d6e-bb8d-bdfc383e85e2",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.578Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.578Z",
+          "id": "1cca1ed5-da61-4e37-aae0-ee6fc1fb285c",
+          "kind": "turn.completed",
+          "payload": {
+            "mainLoopTokens": 49703,
+            "modelUsage": {
+              "claude-haiku-4-5-20251001": {
+                "cacheCreationInputTokens": 10405,
+                "cacheReadInputTokens": 39090,
+                "inputTokens": 50427,
+                "outputTokens": 203,
+                "totalTokens": 50630
+              }
+            },
+            "provider": "claudeAgent",
+            "state": "completed",
+            "tokenAccountingVersion": 1,
+            "totalCostUsd": 0.026666
+          },
+          "sequence": 35,
+          "summary": "Turn completed",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 27,
+      "type": "thread.activity-appended"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "server:checkpoint-turn-diff-complete:4f5bc219-d4da-432f-9d0e-5ae299034487",
+      "correlationId": "server:checkpoint-turn-diff-complete:4f5bc219-d4da-432f-9d0e-5ae299034487",
+      "eventId": "fe7015dd-90cd-4fc8-85e9-48b3164fa639",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.688Z",
+      "payload": {
+        "assistantMessageId": "assistant:201a0df2-24d8-4abb-beaa-d835129d3a5b",
+        "checkpointRef": "refs/cascade/checkpoints/dGhyZWFkLWNsYXVkZQ/turn/1",
+        "checkpointTurnCount": 1,
+        "completedAt": "2026-10-05T17:48:37.578Z",
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 0,
+            "kind": "added",
+            "path": "probe.txt"
+          }
+        ],
+        "status": "ready",
+        "threadId": "thread-claude",
+        "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+      },
+      "sequence": 28,
+      "type": "thread.turn-diff-completed"
+    },
+    {
+      "aggregateId": "thread-claude",
+      "aggregateKind": "thread",
+      "causationEventId": null,
+      "commandId": "server:checkpoint.captured:d9ebbe11-9bd4-4bed-b181-ee7a684d4d86",
+      "correlationId": "server:checkpoint.captured:d9ebbe11-9bd4-4bed-b181-ee7a684d4d86",
+      "eventId": "49924b34-b1fd-40bb-aef2-467fbcbb919d",
+      "metadata": {},
+      "occurredAt": "2026-10-05T17:48:37.688Z",
+      "payload": {
+        "activity": {
+          "createdAt": "2026-10-05T17:48:37.688Z",
+          "id": "62d64ccb-44b7-46ac-ab59-f00ab7c749fe",
+          "kind": "checkpoint.captured",
+          "payload": {
+            "status": "ready",
+            "turnCount": 1
+          },
+          "summary": "Checkpoint captured",
+          "tone": "info",
+          "turnId": "00cefd99-d346-4b48-807a-dea77dc18a38"
+        },
+        "threadId": "thread-claude"
+      },
+      "sequence": 29,
+      "type": "thread.activity-appended"
+    }
+  ],
+  "workspace": "/Users/me/project"
+}

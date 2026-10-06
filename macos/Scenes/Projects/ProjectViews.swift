@@ -186,6 +186,8 @@ struct ProjectComposerView: View {
     var onChooseProject: ((String) -> Void)?
     /// New Project, offered under the projects when Start can switch between them.
     var onNewProject: (() -> Void)?
+    /// New Task's Task | Chat switch, leading the tray; nil on a project's own page.
+    var modeControl: AnyView?
     @FocusState private var focused: Bool
     @State private var choosingBranch = false
     @State private var choosingProject = false
@@ -230,29 +232,23 @@ struct ProjectComposerView: View {
             Spacer(minLength: 24)
             VStack(alignment: .leading, spacing: 6) {
                 // Where the session starts sits on a tray along the card's top, as the card's own header.
-                VStack(spacing: 0) {
-                    HStack(spacing: 2) {
-                        projectChip
-                        if !model.branches.isEmpty { baseMenu }
-                        Spacer(minLength: 0)
-                        if model.busy { ProgressView().controlSize(.small).padding(.trailing, 8) }
-                        if !model.branches.isEmpty { newBranchToggle }
-                    }
-                    .padding(.horizontal, 8).padding(.vertical, 5)
+                ComposerTray {
+                    if let modeControl { modeControl }
+                    projectChip
+                    if !model.branches.isEmpty { baseMenu }
+                    Spacer(minLength: 0)
+                    if model.busy { ProgressView().controlSize(.small).padding(.trailing, 8) }
+                    if !model.branches.isEmpty { newBranchToggle }
+                } card: {
                     card
                 }
-                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surfaceHover))
-                // The message's line is always there, so the page never moves as one comes and goes.
-                ZStack(alignment: .leading) {
+                ComposerMessageLine {
                     if let error = model.error ?? model.referenceError {
                         Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
                     } else if project.workspace.isEmpty {
                         Text("Choose the project folder in Settings to start sessions.").foregroundStyle(.secondary)
                     }
                 }
-                .font(.system(size: 12)).lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
-                .padding(.horizontal, 10)
             }
             .frame(maxWidth: 766)
         }
@@ -264,20 +260,9 @@ struct ProjectComposerView: View {
     }
 
     private var card: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField(model.placeholderText, text: $model.text, axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: 15)).lineLimit(2...10)
-                .frame(minHeight: 44, alignment: .topLeading)
-                .focused($focused).disabled(model.creating)
-                .onSubmit { Task { await model.submit() } }
-                // Return alone creates the session; with any modifier held — Shift, Option,
-                // Control or Command — it is a new line: the field editor's own, at the cursor.
-                .onKeyPress(.return, phases: .down) { press in
-                    guard !press.modifiers.subtracting([.capsLock, .numericPad]).isEmpty else { return .ignored }
-                    NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
-                    return .handled
-                }
-                .accessibilityIdentifier("project-composer")
+        ComposerCard {
+            ComposerTextField(placeholder: model.placeholderText, text: $model.text, focused: $focused,
+                              disabled: model.creating, identifier: "project-composer") { Task { await model.submit() } }
             if model.showsPullRequestBranch {
                 TextField(String(localized: "Branch for that pull request"), text: $model.pullRequestBranch)
                     .textFieldStyle(.roundedBorder).font(.system(size: 13))
@@ -294,31 +279,12 @@ struct ProjectComposerView: View {
                 }
                 Spacer(minLength: 0)
                 ComposerAgentMenu(model: model)
-                createButton
+                // Creates the session and sends the field as its first message.
+                ComposerStartButton(enabled: model.canStart, label: String(localized: "Create Session"),
+                                    identifier: "project-composer-create") { Task { await model.submit() } }
             }
             .frame(minHeight: 32)
         }
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 12)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color(nsColor: .controlBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.border))
-        .shadow(color: .black.opacity(0.06), radius: 12, y: 3)
-    }
-
-    /// Creates the session and sends the field as its first message.
-    private var createButton: some View {
-        Button { Task { await model.submit() } } label: {
-            // Start's own colour is the text's, not the accent: black on a light page, white on a dark one.
-            Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Theme.onProminent)
-                .frame(width: 32, height: 32)
-                .background(Circle().fill(model.canStart ? Theme.prominent : Color(nsColor: .tertiaryLabelColor)))
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!model.canStart)
-        .help(String(localized: "Create Session"))
-        .accessibilityLabel(String(localized: "Create Session"))
-        .accessibilityIdentifier("project-composer-create")
     }
 
     /// The project the session starts in; where Start can switch, it opens the projects to pick from.
@@ -380,50 +346,11 @@ struct ProjectComposerView: View {
     }
 }
 
-/// One of the quiet controls over Start's field: a symbol and a name, on a soft fill under the
-/// pointer or while what it opens is open.
-private struct ComposerChip: View {
-    let symbol: String
-    let title: String
-    var chevron = false
-    var active = false
-    var interactive = true
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: symbol).font(.system(size: 13))
-            // Capped, not framed: a `.frame(maxWidth:)` takes the whole 220 whenever it is offered it.
-            WidthCap(limit: 220) { Text(title).lineLimit(1).truncationMode(.middle) }
-            if chevron { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary) }
-        }
-        .font(.system(size: 14))
-        .foregroundStyle(Color.primary.opacity(0.85))
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(interactive && (active || hovering) ? Theme.border : .clear))
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
-    }
-}
-
-/// Its one view at its own width, but never wider than `limit`: a longer one is offered `limit` and truncates.
-private struct WidthCap: Layout {
-    let limit: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        subviews.first?.sizeThatFits(ProposedViewSize(width: min(proposal.width ?? .infinity, limit), height: proposal.height)) ?? .zero
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
-    }
-}
-
 /// The project chip's popover: the projects, filtered by what is typed, and New Project under them.
-private struct ProjectPicker: View {
+struct ProjectPicker: View {
     let projects: [Project]
-    let current: String
+    /// The project picked; nil when none is.
+    let current: String?
     let choose: (String) -> Void
     let newProject: (() -> Void)?
     let done: () -> Void
@@ -463,8 +390,8 @@ private struct ProjectPicker: View {
             if let newProject {
                 Divider()
                 PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
-                    .padding(8)
                     .accessibilityIdentifier("project-composer-new-project")
+                    .padding(8)
             }
         }
         .frame(width: 300)
@@ -476,61 +403,9 @@ private struct ProjectPicker: View {
     }
 }
 
-/// A row of Start's pickers: an icon and a name, filled under the pointer and when it is the one picked.
-private struct PickerRow<Icon: View>: View {
-    let title: String
-    var selected = false
-    let icon: Icon
-    let action: () -> Void
-    @State private var hovering = false
-
-    init(title: String, selected: Bool = false, @ViewBuilder icon: () -> Icon, action: @escaping () -> Void) {
-        self.title = title; self.selected = selected; self.icon = icon(); self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                icon.frame(width: 18)
-                Text(title).font(.system(size: 14)).lineLimit(1).truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10).frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(selected || hovering ? Theme.surfaceHover : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-extension PickerRow where Icon == AnyView {
-    init(symbol: String, title: String, selected: Bool = false, action: @escaping () -> Void) {
-        self.init(title: title, selected: selected, icon: {
-            AnyView(Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(.secondary))
-        }, action: action)
-    }
-}
-
-/// An agent's own mark, in its colour; a shell's is the terminal symbol.
-private struct StartAgentMark: View {
-    let agent: SessionAgent
-    var body: some View {
-        if agent == .shell {
-            Image(systemName: "terminal").font(.system(size: 13)).foregroundStyle(.secondary)
-        } else {
-            AgentMark(key: agent.rawValue, size: 16)
-        }
-    }
-}
-
 /// The agent the session starts, and — from its CLI's catalog — the model and effort it starts on.
 private struct ComposerAgentMenu: View {
     let model: ProjectComposerModel
-    @State private var open = false
-    @State private var hovering = false
 
     private var title: String {
         guard let driver = model.agent.driver else { return SessionAgent.shell.label }
@@ -543,23 +418,11 @@ private struct ComposerAgentMenu: View {
     }
 
     var body: some View {
-        Button { open.toggle() } label: {
-            HStack(spacing: 6) {
-                StartAgentMark(agent: model.agent)
-                Text(title).foregroundStyle(.primary).lineLimit(1)
-                if let effortName { Text(effortName).foregroundStyle(.secondary).lineLimit(1) }
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-            }
-            .font(.system(size: 14))
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(open || hovering ? Theme.surfaceHover : .clear))
-            .contentShape(Rectangle())
+        ComposerAgentButton(agent: model.agent, title: title, detail: effortName,
+                            help: String(localized: "The agent, model and effort the session starts with"),
+                            identifier: "project-composer-agent") { close in
+            AgentChooser(model: model, done: close)
         }
-        .buttonStyle(.plain).fixedSize()
-        .onHover { hovering = $0 }
-        .popover(isPresented: $open, arrowEdge: .bottom) { AgentChooser(model: model) { open = false } }
-        .help(String(localized: "The agent, model and effort the session starts with"))
-        .accessibilityIdentifier("project-composer-agent")
     }
 }
 
@@ -634,58 +497,6 @@ private struct AgentChooser: View {
         }
         .padding(.horizontal, 6).padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-}
-
-/// One of the chooser's agent tabs: its mark and name, filled while chosen or under the pointer.
-private struct AgentTab: View {
-    let agent: SessionAgent
-    let selected: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                StartAgentMark(agent: agent)
-                Text(agent == .shell ? SessionAgent.shell.label : agent.driver?.shortName ?? agent.label)
-                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular)).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity).frame(height: 34)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(selected ? Theme.surfaceHover : hovering ? Theme.surfaceHover.opacity(0.5) : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// A model or an effort: its full name, and a check on the one chosen.
-private struct ChoiceRow: View {
-    let title: String
-    let selected: Bool
-    let action: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Text(title).font(.system(size: 14)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 4)
-                Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary).opacity(selected ? 1 : 0)
-            }
-            .padding(.horizontal, 10).frame(minHeight: 32)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(selected || hovering ? Theme.surfaceHover : .clear))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-        .help(title)
-        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

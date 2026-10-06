@@ -32,7 +32,7 @@ protocol DeepLinkRouteHandling {
 /// One origin and one path grammar, with injected handlers tried in order.
 struct CascadeRouter: DeepLinkRouting {
     let handlers: [any DeepLinkRouteHandling]
-    init(handlers: [any DeepLinkRouteHandling] = [RootRouteHandler(), ProjectRouteHandler(), SessionRouteHandler()]) {
+    init(handlers: [any DeepLinkRouteHandling] = [RootRouteHandler(), ProjectRouteHandler(), SessionRouteHandler(), ChatRouteHandler()]) {
         self.handlers = handlers
     }
 
@@ -106,5 +106,17 @@ struct SessionRouteHandler: DeepLinkRouteHandling {
     func print(_ deepLink: DeepLink) -> [String]? {
         guard deepLink.routes.count == 1, case .session(let id) = deepLink.destination else { return nil }
         return ["sessions", id]
+    }
+}
+
+/// `cascade://app/chats/<thread id>`: a chat session, in its project or in Chats.
+struct ChatRouteHandler: DeepLinkRouteHandling {
+    func parse(_ components: [String]) -> DeepLink? {
+        guard components.count == 2, components[0] == "chats" else { return nil }
+        return DeepLink(.destination(.chat(components[1])))
+    }
+    func print(_ deepLink: DeepLink) -> [String]? {
+        guard deepLink.routes.count == 1, case .chat(let id) = deepLink.destination else { return nil }
+        return ["chats", id]
     }
 }

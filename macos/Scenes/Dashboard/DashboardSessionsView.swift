@@ -236,6 +236,19 @@ private struct DashboardSessionList: View {
                     DashboardSessionRowView(row: row) { model.openSession(row.id) }
                 }
             }
+            if !lane.chats.isEmpty {
+                Divider().overlay(DashboardPalette.hairline)
+                Text("Chats").textCase(.uppercase)
+                    .font(.system(size: 10.5, weight: .medium)).tracking(0.5).foregroundStyle(DashboardPalette.ink3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, SessionColumn.inset).frame(height: 36)
+                    .background(Color.primary.opacity(0.025))
+                    .accessibilityHidden(true)
+                ForEach(lane.chats) { chat in
+                    Divider().overlay(DashboardPalette.hairline)
+                    DashboardChatRowView(chat: chat) { model.openChat(chat.id) }
+                }
+            }
         }
         .background(Color.primary.opacity(0.015), in: RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: SessionCorner.box, style: .continuous))
@@ -317,6 +330,38 @@ private struct DashboardSessionRowView: View {
         let parts = row.activityParts
         return parts.rest.isEmpty ? Text(parts.lead).fontWeight(.medium)
             : Text("\(Text(parts.lead).fontWeight(.medium)) \(parts.rest)")
+    }
+}
+
+/// A chat session's row in its project's lane, in the session rows' columns: its state, its title,
+/// its agent. The whole row opens the chat.
+private struct DashboardChatRowView: View {
+    let chat: DashboardChat
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: SessionColumn.spacing) {
+                DashboardStageChip(stage: chat.stage, title: chat.stateLabel)
+                    .frame(width: SessionColumn.status, alignment: .leading)
+                HStack(spacing: 6) {
+                    Image(systemName: "bubble.left").font(.system(size: 11)).foregroundStyle(DashboardPalette.ink3)
+                    Text(chat.title).font(.system(size: 13, weight: .medium))
+                }
+                .lineLimit(1).truncationMode(.tail)
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                DashboardSessionAgent(cli: chat.cli).frame(width: SessionColumn.agent, alignment: .leading)
+            }
+            .padding(.horizontal, SessionColumn.inset).padding(.vertical, 6)
+            .frame(minHeight: 44)
+            .background(hovering ? Color.primary.opacity(0.04) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(String(localized: "Show \(chat.title)"))
+        .accessibilityIdentifier("dashboard-chat-\(chat.id)")
     }
 }
 

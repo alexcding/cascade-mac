@@ -286,22 +286,68 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
 
 The app is SwiftUI + AppKit over a Rust backend linked into the same process.
 Remote context pages use WebKit. **There are two bundled app pages**, each HTML + JS in a
-`WKWebView`, and they share one shape: push-only, native code hands the page its whole state
-through one `render` call; no network access (CSP `connect-src 'none'`); served on a scheme
-of its own; and reports back through one message handler.
+`WKWebView`. Both have no network access (CSP `connect-src 'none'`), are served on a scheme of
+their own, and report back through one message handler.
 
-- **Working-changes diff** (`macos/Resources/DiffPage/`, hand-written). `DiffViewModel` loads
-  the snapshot through `APIClient` and hands it to `window.nativeDiff.render`;
-  `DiffPageAssets` serves it on `cascade-diff://`; it reports `ready`/`files`/`open`/`discard`, and
-  `window.nativeDiff.reveal` scrolls it to a file of the changed-files list beside it.
-- **Agent chat** (`macos/Resources/ChatPage/`, built). `TranscriptChatPage` replaces the
-  whole conversation (`ChatPageState`) through `window.nativeChat.render` on every push;
-  `ChatPageAssets` serves it on `cascade-chat://`; it reports
-  `ready`/`copy`/`open`/`download`/`permission`/`error`. Its source is the React app in
-  `macos/web/chat/`, and the app ships only the built files: run `npm run build` there after
-  changing it, and commit the output.
+- **Working-changes diff** (`macos/Resources/DiffPage/`, hand-written). Push-only:
+  `DiffViewModel` loads the snapshot through `APIClient` and hands it to
+  `window.nativeDiff.render`; `DiffPageAssets` serves it on `cascade-diff://`; it reports
+  `ready`/`files`/`open`/`discard`, and `window.nativeDiff.reveal` scrolls it to a file of the
+  changed-files list beside it.
+- **Agent chat** (`macos/Resources/ChatPage/`, built). Synara's own web client
+  (`macos/web/chat/`, its files vendored verbatim under `vendor/synara` and never edited; see
+  `macos/web/chat/SYNARA.md`). It asks native for what it needs and is pushed the rest: requests
+  (`{kind:"request", method, params}`) are answered through `window.nativeChat.reply`, and
+  `window.nativeChat.push` delivers the `context`, `providers` and `thread` channels, plus
+  `files`, what Finder files picked, dropped or pasted in add to the composer: a drop or paste of
+  Finder files is the app's whole (WebKit never delivers it), an image the agents take (PNG, JPEG,
+  GIF, WebP) is read and sent to be uploaded, any other file or folder becomes an `@path` mention.
+  `ChatPageModel` hosts it, `ChatPageAssets` serves it on `cascade-chat://`, and a
+  `ChatPageBackend` answers it: the chat RPC for a chat session, the terminal transcript (read
+  only) for a terminal session. Only native reaches the backend; the page never does. The app
+  ships only the built files: run `npm run build` there after changing it, and commit the output.
 
 Do not add a third page, and do not give either page a way to reach the backend.
+
+## Chat sessions
+
+A chat is an agent CLI driven headlessly over its JSON protocol: `claude` over stream-json,
+`codex app-server` over JSON-RPC. The engine is `crates/cascade-chat`, a port of Synara's
+provider layer kept file for file like its TypeScript (`crates/cascade-chat/SYNARA.md` maps
+each file and pins the upstream commit). It owns `chat.db` under `<data>/chat` and starts its
+CLIs through the backend's process seam (`chat.rs` `CliSpawner`: login PATH, own process
+group, no terminal hook variables). The backend serves it on one route, `POST /api/chat/rpc`
+(`chat.rs`), and tells the app what changed as `chat-thread`/`chat-shell`/`chat-removed`
+events. A chat belongs to a project (it works in the project's folder) or to none
+(`cascade-standalone`, in a folder the person picked); either way it is a thread in `chat.db`,
+not a task record, and has no worktree of its own. A subagent the agent runs (Claude's Task tool,
+a Codex child conversation) gets a thread of its own, `subagent:<parent>:<id>`, whose shell names
+its `parentThreadId`: lists leave it out (`ChatListStore.visible`), the parent's page opens it, and
+it shows read-only. To take Synara's newer code, re-vendor the page and port the mapped Rust
+files' upstream diffs by hand.
+
+A session's pane has Chat tabs too (`PaneChatModel`, `PaneChatView`): each starts a chat from its
+own new-chat form (`PaneNewChatForm`), a regular chat with a history of its own that works in the
+session's worktree and is tagged with it (`worktreePath`), which keeps it, and the forks made from
+it, out of the lists (`ChatListStore.visible`); it is reached from its tab, and once its tab is
+closed from any Chat tab's form, which lists the worktree's chats no tab shows
+(`ChatListStore.inWorktree`) and opens one in its tab. That form alone offers
+"Include what the session's agent knows", off by default and disabled with its reason when the
+session runs no agent or the app knows no conversation of it (`chat.sessionKnowledge`). Turned on,
+`thread.create` carries Cascade's `knowledgeSource` (`{provider, conversationId}`, the session's
+agent and conversation): the backend takes it only for a session's worktree, for that exact
+conversation held there (Claude's transcript in the worktree's own project folder, Codex's session
+file whose `session_meta` names that id and worktree) and held by no chat — never the worktree's
+newest — and reads its transcript (`chat/knowledge.rs`). The engine keeps it until a turn of the
+chat completes — the same provider forks the conversation natively (Claude `--resume
+--fork-session`, Codex `thread/fork`), another gets Synara's handoff recap of the transcript as
+hidden context — and takes it again if the chat's conversation is reset before that.
+A chat's revert and edit take back only its own turns' changes, never the whole folder the
+terminal agent or the person also works in (`crates/cascade-chat/SYNARA.md`). The chat
+shows none of the session's messages, only one `provider.handoff` divider saying it started with
+that agent's knowledge, and the terminal session and its conversation are not touched. A Claude
+fork takes the transcript as it stands on disk, so a turn the terminal is still in is cut where
+it was written.
 
 ## The layers, and who owns what
 
@@ -386,7 +432,8 @@ user collapses from the divider is told back to the workspace.
   hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).
   Every tab is in the one strip and the one order (`WorkspaceContext.tabs`): web pages, open
   files, and the tools (`WorkspaceTool`) — Diff, the Simulator, Files (which browses the worktree
-  as a tree) and Live Monitor (the agent drawn live, `LivePanelView`). The active tab decides what
+  as a tree), Live Monitor (the agent drawn live, `LivePanelView`), Terminal (a shell of its own in the
+  worktree) and Chat (a headless chat of its own in the session's worktree, `PaneChatView`; see "Chat sessions"). The active tab decides what
   the pane shows; closing a tab selects its nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
   the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
   changed files' toggle); over a web page that row is its navigation and address (`.address`),
@@ -394,8 +441,8 @@ user collapses from the divider is told back to the workspace.
   the preview ends. A blank page is a New Tab in the strip, and its start page offers the tools; the
   one the pane opens for itself when it has no tab is its empty state, not a tab
   (`WorkspaceContext.stripTabs`) — no tab and no New Tab button — until something is typed in it; the Files explorer is a Files tab that stays
-  open, and each file picked there opens in a tab of its own. Files is the one tool with as many
-  tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip shows its New Tab button once it has a tab, and New Tab takes
+  open, and each file picked there opens in a tab of its own. Files, Terminal and Chat are the tools
+  with as many tabs as are opened, as pages are (`WorkspaceToolTab`); the others have one each. The strip shows its New Tab button once it has a tab, and New Tab takes
   the pane's own blank page rather than opening a second one. Closing the strip's last tab leaves
   the pane open on that empty state. When a screen's items do change,
   `MainToolbarController` edits the toolbar in place, taking out and putting in only the items

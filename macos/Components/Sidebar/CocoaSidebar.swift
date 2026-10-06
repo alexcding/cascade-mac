@@ -30,6 +30,14 @@ struct CocoaSidebar: NSViewRepresentable {
     var onFocusSession: (String) -> Void = { _ in }
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
+    var onRenameChat: (String, String) -> Void = { _, _ in }
+    var onArchiveChat: (String, Bool) -> Void = { _, _ in }
+    /// Called once the deletion was confirmed.
+    var onDeleteChat: (String) -> Void = { _ in }
+    /// The archived chats, for the Chats heading's menu: read when it opens.
+    var archivedChats: () -> SidebarArchivedChats = { .empty }
+    /// One chosen from a menu's Archived Chats.
+    var onOpenArchivedChat: (String) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -407,13 +415,18 @@ struct CocoaSidebar: NSViewRepresentable {
         }
 
         func menu(for node: Node) -> NSMenu? {
-            guard let destination = node.entry.destination else { return nil }
             let menu = NSMenu()
             func add(_ title: String, action: Selector) {
                 let item = NSMenuItem(title: Bundle.main.localizedString(forKey: title, value: title, table: nil), action: action, keyEquivalent: "")
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
+            // The Chats heading reaches the archived chats, which no row lists.
+            if node.entry.id == SidebarEntry.chatsID {
+                menu.addItem(archivedChatsItem(parent.archivedChats()))
+                return menu
+            }
+            guard let destination = node.entry.destination else { return nil }
             // A folder's hover gear and New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project = destination {
                 add("Project Settings", action: #selector(projectSettings(_:)))
@@ -442,7 +455,92 @@ struct CocoaSidebar: NSViewRepresentable {
                     add("Fork", action: #selector(forkSession(_:)))
                 }
             }
+            if case .chat = destination, case .chat(let status) = node.entry.role {
+                menu.addItem(.separator())
+                add("Rename…", action: #selector(renameChat(_:)))
+                add(status.archived ? "Unarchive" : "Archive", action: #selector(archiveChat(_:)))
+                add("Delete…", action: #selector(deleteChat(_:)))
+            }
             return menu.items.isEmpty ? nil : menu
+        }
+
+        /// Archived Chats: a submenu of them under a header per place (project or folder), newest first,
+        /// with how many more there are; greyed when there are none.
+        func archivedChatsItem(_ archived: SidebarArchivedChats) -> NSMenuItem {
+            let item = NSMenuItem(title: String(localized: "Archived Chats"), action: nil, keyEquivalent: "")
+            item.identifier = .init("sidebar-archived-chats")
+            guard !archived.items.isEmpty else { return item }
+            let submenu = NSMenu(title: item.title)
+            for (index, group) in archived.byPlace.enumerated() {
+                if index > 0 { submenu.addItem(.separator()) }
+                submenu.addItem(.sectionHeader(title: group.place))
+                for chat in group.items {
+                    let entry = NSMenuItem(title: chat.title, action: #selector(openArchivedChat(_:)), keyEquivalent: "")
+                    entry.target = self; entry.representedObject = chat.id
+                    entry.toolTip = chat.place
+                    submenu.addItem(entry)
+                }
+            }
+            if archived.more > 0 {
+                submenu.addItem(.separator())
+                submenu.addItem(NSMenuItem(title: String(localized: "\(archived.more) more not shown"), action: nil, keyEquivalent: ""))
+            }
+            item.submenu = submenu
+            return item
+        }
+        @objc private func openArchivedChat(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            parent.onOpenArchivedChat(id)
+        }
+        @objc private func archiveChat(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, let id = node.entry.chatID,
+                  case .chat(let status) = node.entry.role else { return }
+            parent.onArchiveChat(id, !status.archived)
+        }
+        /// The system's own text prompt, as Rename Task's is.
+        @objc private func renameChat(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, let id = node.entry.chatID else { return }
+            let alert = NSAlert()
+            alert.window.setAccessibilityIdentifier("rename-chat-dialog")
+            alert.messageText = String(localized: "Rename Chat")
+            alert.addButton(withTitle: String(localized: "Rename"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            let field = NSTextField(string: node.entry.title)
+            field.placeholderString = String(localized: "Chat name")
+            field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+            field.setAccessibilityIdentifier("rename-chat-input")
+            field.setAccessibilityLabel(String(localized: "Chat name"))
+            alert.accessoryView = field
+            let rename = { [weak self] (response: NSApplication.ModalResponse) in
+                let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard response == .alertFirstButtonReturn, !name.isEmpty else { return }
+                self?.parent.onRenameChat(id, name)
+            }
+            if let window = outline?.window {
+                alert.beginSheetModal(for: window, completionHandler: rename)
+                alert.window.makeFirstResponder(field)
+            } else {
+                alert.window.initialFirstResponder = field
+                rename(alert.runModal())
+            }
+        }
+        /// Asks first: the conversation goes for good.
+        @objc private func deleteChat(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, let id = node.entry.chatID else { return }
+            let alert = NSAlert()
+            alert.window.setAccessibilityIdentifier("delete-chat-dialog")
+            alert.messageText = String(localized: "Delete “\(node.entry.title)”?")
+            alert.informativeText = String(localized: "The conversation is deleted for good. Files the agent changed stay as they are.")
+            alert.alertStyle = .warning
+            let delete = alert.addButton(withTitle: String(localized: "Delete"))
+            delete.hasDestructiveAction = true
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            let answer = { [weak self] (response: NSApplication.ModalResponse) in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.parent.onDeleteChat(id)
+            }
+            if let window = outline?.window { alert.beginSheetModal(for: window, completionHandler: answer) }
+            else { answer(alert.runModal()) }
         }
 
         @objc private func togglePin(_ sender: NSMenuItem) {
@@ -736,6 +834,8 @@ enum SidebarMetrics {
     /// The ⌘-held hint, in the status dot's trailing slot.
     private let shortcut = NSTextField(labelWithString: "")
     private let title = NSTextField(labelWithString: "")
+    /// After a chat's title: its project, or its folder, in the secondary label colour.
+    private let subtitle = NSTextField(labelWithString: "")
     /// After a forked session's name.
     private let forkMark = NSImageView()
     private let accessory = SidebarAccessoryButton()
@@ -764,7 +864,12 @@ enum SidebarMetrics {
         settings.setAccessibilityLabel(settings.toolTip)
         forkMark.image = SidebarIcons.mark("fork", size: Self.forkMarkSize)
         forkMark.setAccessibilityLabel(String(localized: "Forked session"))
-        [icon, dot, title, forkMark, accessory, settings, shortcut].forEach(addSubview)
+        subtitle.lineBreakMode = .byTruncatingTail
+        subtitle.maximumNumberOfLines = 1
+        subtitle.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        subtitle.textColor = .secondaryLabelColor
+        subtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        [icon, dot, title, subtitle, forkMark, accessory, settings, shortcut].forEach(addSubview)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -801,12 +906,14 @@ enum SidebarMetrics {
         shortcut.isHidden = hint == nil
         self.nested = nested
         title.stringValue = entry.title
+        subtitle.stringValue = entry.subtitle
+        subtitle.isHidden = entry.subtitle.isEmpty
         // Every label is the cell's own to style. On macOS 27 the table turns a selected row's label
         // semibold, which makes the title jump as the selection moves, and would set a heading in its
         // small group font; a heading is set in `headingFont`.
         textField = nil
         title.font = entry.isHeading ? SidebarMetrics.headingFont : .systemFont(ofSize: NSFont.systemFontSize)
-        setAccessibilityLabel(entry.title)
+        setAccessibilityLabel(entry.subtitle.isEmpty ? entry.title : "\(entry.title), \(entry.subtitle)")
         toolTip = entry.tooltip ?? (entry.detail.isEmpty ? entry.title : entry.detail)
         setAccessibilityIdentifier(entry.id)
         // The dot is shown or hidden once, in `applyState`: hiding it here and showing it again there
@@ -818,6 +925,14 @@ enum SidebarMetrics {
         switch entry.role {
         case .label:
             icon.isHidden = true
+        case .chat(let status):
+            // Its bubble stands where a project's folder does, at a folder's size, and gives way to
+            // the dot while the agent works or waits on the person.
+            icon.image = SidebarIcons.rowSymbol(entry.symbol)
+            dot.set(status.session)
+            let named = entry.subtitle.isEmpty ? entry.title : "\(entry.title), \(entry.subtitle)"
+            setAccessibilityLabel(status.working || status.needsInput ? "\(named), \(dot.statusLabel)" : named)
+            alphaValue = status.archived ? 0.6 : 1
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project:
@@ -839,11 +954,31 @@ enum SidebarMetrics {
     }
 
     private static let forkMarkSize: CGFloat = 12
+    static let subtitleGap: CGFloat = 6
+    /// The narrowest a subtitle is shown at: less is an ellipsis and a letter, which says nothing.
+    static let subtitleMinimum: CGFloat = 28
+
+    /// A row's title and subtitle in `available` points: the title first, whole when it fits and cut
+    /// only when it alone does not; the subtitle takes what is left after the gap, truncating, and is
+    /// dropped (zero) when less than `subtitleMinimum` is left for it.
+    static func titleAndSubtitle(available: CGFloat, title: CGFloat, subtitle: CGFloat) -> (title: CGFloat, subtitle: CGFloat) {
+        let titleShown = max(0, min(title, available))
+        let left = available - titleShown - subtitleGap
+        let subtitleShown = min(subtitle, left)
+        guard subtitleShown > 0, subtitleShown >= min(subtitle, subtitleMinimum) else { return (titleShown, 0) }
+        return (titleShown, subtitleShown)
+    }
     /// The box a session's status dot is centred in, before its name: about as wide as a row symbol's glyph.
     static let statusSlot: CGFloat = 15
 
     private var stopped: Bool {
         if case .session(let status, _) = entry.role { return !status.live && !status.busy }
+        return false
+    }
+
+    /// A chat whose agent works or waits shows the status dot instead of its bubble.
+    private var chatActive: Bool {
+        if case .chat(let status) = entry.role { return status.working || status.needsInput }
         return false
     }
 
@@ -864,6 +999,9 @@ enum SidebarMetrics {
         case .session:
             accessory.isHidden = !hovered || !shortcut.isHidden
             dot.isHidden = false
+        case .chat:
+            accessory.isHidden = true
+            dot.isHidden = !chatActive; icon.isHidden = chatActive
         default: accessory.isHidden = true; dot.isHidden = true
         }
         if case .project = entry.role {} else { settings.isHidden = true }
@@ -920,14 +1058,21 @@ enum SidebarMetrics {
             let titleHeight = title.frame.height
             title.frame = NSRect(x: 0, y: ((height - titleHeight) / 2).rounded(), width: max(0, right), height: titleHeight)
             return
-        case .nav, .project, .session:
+        case .nav, .project, .session, .chat:
             break
         }
-        let session = if case .session = entry.role { true } else { false }
+        let chat = if case .chat = entry.role { true } else { false }
+        // A chat's name and dot are laid out as a session's; its bubble stands where a folder does.
+        let session = chat || { if case .session = entry.role { true } else { false } }()
         let project = if case .project = entry.role { true } else { false }
         var titleX = left + slot + SidebarMetrics.iconGap
         var dotCenterX: CGFloat = 0
-        if session {
+        if chat {
+            // Under the Chats heading as a project under Projects: the bubble in the folder's slot,
+            // the name where a project's starts, and the dot in the bubble's place while it shows.
+            icon.frame = centered(left, slot)
+            dotCenterX = left + slot / 2
+        } else if session {
             // The dot is centred in a box about a glyph wide, and the name is as far from that box as a
             // project's name is from its folder. Under its project the dot sits on the edge between the
             // folder's glyph and the project's name; at the top level (Pinned, or a project that is gone)
@@ -989,6 +1134,20 @@ enum SidebarMetrics {
                 ?? title.intrinsicContentSize.width).rounded(.up)
             titleWidth = min(natural, max(0, titleWidth - size - gap))
             forkMark.frame = centered(titleX + titleWidth + gap, size)
+        }
+        // A subtitle follows the title on its baseline and takes only the room the title leaves:
+        // the title is never cut for it, and a subtitle with too little room is not shown.
+        if !subtitle.isHidden {
+            subtitle.sizeToFit()
+            let gap = Self.subtitleGap
+            let widths = Self.titleAndSubtitle(available: titleWidth, title: title.intrinsicContentSize.width.rounded(.up),
+                                               subtitle: subtitle.frame.width.rounded(.up))
+            let subtitleWidth = widths.subtitle
+            if subtitleWidth > 0 { titleWidth = widths.title }
+            let font = title.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            let baseline = titleY + font.ascender
+            let subtitleY = (baseline - (subtitle.font?.ascender ?? font.ascender)).rounded()
+            subtitle.frame = NSRect(x: titleX + titleWidth + gap, y: subtitleY, width: subtitleWidth, height: subtitle.frame.height)
         }
         title.frame = NSRect(x: titleX, y: titleY, width: titleWidth, height: titleHeight)
     }

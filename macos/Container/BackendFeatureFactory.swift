@@ -18,6 +18,8 @@ import Foundation
     /// Projects' Board tab's backend.
     func boards(api: APIClient) -> any BoardService
     func ideWarmup(api: APIClient) -> any IDEWarmupServing
+    /// The chat sessions' backend (`/api/chat/rpc`).
+    func chat(api: APIClient) -> any ChatServing
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving
 }
 
@@ -38,6 +40,7 @@ extension BackendFeatureFactory {
     func boards(api: APIClient) -> any BoardService { APIBoardService(api: api) }
     func sessions(api: APIClient) -> any SessionServing { SessionOperations(api: api) }
     func ideWarmup(api: APIClient) -> any IDEWarmupServing { APIIDEWarmupService(api: api) }
+    func chat(api: APIClient) -> any ChatServing { APIChatService(api: api) }
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }

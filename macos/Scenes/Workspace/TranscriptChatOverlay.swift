@@ -22,7 +22,6 @@ struct TranscriptChatOverlay: View {
     let active: Bool
     /// What the empty message field reads.
     let placeholder: String
-    @State private var choosingFiles = false
     @State private var dropTargeted = false
 
     private static let column: CGFloat = 740
@@ -51,11 +50,11 @@ struct TranscriptChatOverlay: View {
         .background(Theme.paneBackground)
     }
 
-    /// The conversation itself is the bundled chat page (`TranscriptChatPage`); only the composer
-    /// is native, so typing never waits on the page.
+    /// The conversation itself is the bundled chat page, read-only (`ChatPageModel`); only the
+    /// composer is native, so typing never waits on the page.
     @ViewBuilder private var transcript: some View {
-        if let page = chat.page {
-            BrowserSurface(webView: page.webView)
+        if let webView = chat.page?.webView {
+            ChatPageSurface(webView: webView)
         } else {
             Spacer()
         }
@@ -65,23 +64,33 @@ struct TranscriptChatOverlay: View {
         chat.turns.last { $0.model != nil }?.model ?? chat.agentName
     }
 
+    /// Take a held message back, or push it on.
+    @ViewBuilder private var queuedControls: some View {
+        Button(String(localized: "Cancel"), action: chat.cancelQueued).buttonStyle(.link).font(.caption)
+            .disabled(chat.sending && !chat.paused)
+        Button(String(localized: "Send Now")) { Task { await chat.sendQueuedNow() } }
+            .buttonStyle(.link).font(.caption)
+            .disabled(!chat.canSendQueuedNow)
+            .help(String(localized: "Types it into the terminal now. If the agent is asking something there, this answers it."))
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
             if let error = chat.error {
                 Text(error).font(.caption).foregroundStyle(Theme.danger).lineLimit(2).padding(.horizontal, 4)
             }
-            // The conversation shows a held message as waiting; these take it back or push it on.
-            if chat.queuedPrompt != nil {
+            // The page shows the approval waiting (`TranscriptPageBackend` answers it), but not what
+            // this chat holds or has just typed, which the transcript has only once the agent takes it.
+            if let waiting = chat.queuedPrompt.map({ TranscriptChatModel.shown($0, with: chat.queuedAttachments) }) ?? chat.pendingPrompt {
                 HStack(spacing: 10) {
+                    Text(chat.queuedPrompt != nil ? String(localized: "Waiting to send") : String(localized: "Sent"))
+                        .font(.caption.weight(.medium)).foregroundStyle(Theme.textSecondary)
+                    Text(waiting).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(1).truncationMode(.tail)
                     Spacer(minLength: 0)
-                    Button(String(localized: "Cancel"), action: chat.cancelQueued).buttonStyle(.link).font(.caption)
-                        .disabled(chat.sending && !chat.paused)
-                    Button(String(localized: "Send Now")) { Task { await chat.sendQueuedNow() } }
-                        .buttonStyle(.link).font(.caption)
-                        .disabled(!chat.canSendQueuedNow)
-                        .help(String(localized: "Types it into the terminal now. If the agent is asking something there, this answers it."))
+                    if chat.queuedPrompt != nil { queuedControls }
                 }
                 .padding(.horizontal, 4)
+                .accessibilityIdentifier("transcript-chat-waiting")
             }
             // A card of its own just above the field, as wide as it: the conversation makes room.
             if !chat.suggestions.isEmpty {
@@ -96,17 +105,22 @@ struct TranscriptChatOverlay: View {
                 // switched to by its shortcut asks for it: the terminal stays in the window
                 // underneath and would otherwise keep it.
                 ChatComposerField(chat: chat, text: chat.draft, files: chat.attachments, caret: chat.caret,
-                                  focusRequest: chat.focusRequest, active: active,
+                                  focusRequest: chat.focusRequest, active: active, focusOnAppear: true,
                                   placeholder: placeholder,
                                   dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
-                    Button { choosingFiles = true } label: {
-                        Image(systemName: "paperclip").font(.system(size: 14, weight: .medium))
+                    ChatAttachButton(chat: chat,
+                                     help: String(localized: "Attach files to your message. Remove a file’s chip to detach it."),
+                                     identifier: "transcript-chat-attach")
+                    Button { chat.fork() } label: {
+                        Image(systemName: "arrow.triangle.branch").font(.system(size: 14, weight: .medium))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Theme.textSecondary)
-                    .disabled(!chat.canAttach)
-                    .help("Attach files to your message. Remove a file’s chip to detach it.")
+                    .disabled(!chat.canFork)
+                    .help(String(localized: "Fork Session: a new session that carries this conversation on"))
+                    .accessibilityLabel(String(localized: "Fork Session"))
+                    .accessibilityIdentifier("transcript-chat-fork")
                     Spacer()
                     Text(modelName).font(.callout).foregroundStyle(Theme.textSecondary).lineLimit(1)
                     Button {
@@ -129,12 +143,7 @@ struct TranscriptChatOverlay: View {
             .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20)
                 .stroke(dropTargeted ? Theme.accent : Theme.border, lineWidth: dropTargeted ? 2 : Theme.Size.hairline))
-            .onDrop(of: ChatAttachmentReader.dropTypes, isTargeted: $dropTargeted) { providers in
-                chat.canAttach && ChatAttachmentReader.drop(providers, into: chat)
-            }
-            .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-                if case .success(let urls) = result { chat.attach(ChatAttachmentReader.files(urls)) }
-            }
+            .chatAttachmentDrop(into: chat, targeted: $dropTargeted)
             .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         }
         .padding(.horizontal, 24)
@@ -252,4 +261,3 @@ private struct EscapeCatcher: NSViewRepresentable {
         }
     }
 }
-

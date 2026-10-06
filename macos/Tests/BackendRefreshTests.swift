@@ -8,6 +8,16 @@ private actor RefreshTransport: BackendTransport {
     var includesProject = true
     private var includesSession = false
     func addSession() { includesSession = true }
+    /// The chats the chat engine lists, as JSON; nil while the engine is down.
+    var chatThreads: String?
+    func chatsUp(_ threads: String) { chatThreads = threads }
+    /// The chat commands dispatched, by type.
+    var chatCommands: [String] {
+        requests.filter { $0.url?.path == Routes.CHAT_RPC }.compactMap { request in
+            let body = try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data())
+            return body?["method"]?.string == "orchestration.dispatchCommand" ? body?["params"]?["command"]?["type"]?.string : nil
+        }
+    }
     func removeProject() { includesProject = false }
     func reset() { requests.removeAll() }
     var paths: [String] { requests.compactMap { $0.url?.path } }
@@ -23,6 +33,7 @@ private actor RefreshTransport: BackendTransport {
         requests.append(request)
         let url = request.url!
         let body: String
+        var status = 200
         switch url.path {
         case Routes.PROJECTS:
             body = includesProject ? #"[{"id":"p","name":"Project","repo":"example/repo","workspace":"/fixture","jiraProjectKey":"REC","boardEnabled":true}]"# : "[]"
@@ -33,9 +44,19 @@ private actor RefreshTransport: BackendTransport {
         case Routes.PRS_TRAY: body = "[]"
         case Routes.projectBoard("p"): body = #"{"items":[]}"#
         case Routes.JIRA_SITE: body = #"{"baseUrl":"https://jira.example.test"}"#
+        // The chat engine is down: every chat listing fails.
+        case Routes.CHAT_RPC:
+            if let chatThreads {
+                let method = (try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data()))?["method"]?.string
+                switch method {
+                case "chat.listThreads": body = #"{"result":\#(chatThreads)}"#
+                case "orchestration.dispatchCommand": body = #"{"result":{"sequence":1}}"#
+                default: body = #"{"result":null}"#
+                }
+            } else { body = #"{"error":{"message":"chats are not available"}}"#; status = 503 }
         default: body = "{}"
         }
-        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
 
@@ -173,6 +194,29 @@ private actor RefreshTransport: BackendTransport {
     try await refreshEventually { model.projects.isEmpty && model.projectModels["p"] == nil }
     let paths = await transport.paths
     #expect(paths.contains(Routes.PROJECTS) && paths.contains(Routes.TASKS))
+    await model.stop()
+}
+
+/// Chat events missed (the backend's `reload`, or a reconnect) have the chat list read again,
+/// even when its first listing failed and there is nothing loaded to bring up to date.
+@MainActor @Test func missedEventsReadTheChatsAgainEvenAfterAFailedListing() async throws {
+    let suite = "refresh-chats-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime(), transport = runtime.transport
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.error != nil }
+    #expect(!model.chats.loaded)
+    await transport.reset()
+
+    runtime.emit("reload")
+    try await refreshEventually { await transport.paths.contains(Routes.CHAT_RPC) }
+    try await refreshEventually { model.dashboard?.prs.loading == false && !model.shell.trayLoading }
+    await transport.reset()
+
+    runtime.onEvent(.connected)
+    try await refreshEventually { await transport.paths.contains(Routes.CHAT_RPC) }
     await model.stop()
 }
 
@@ -359,5 +403,125 @@ private actor RefreshTransport: BackendTransport {
     logs.navigation.open(OpenPageRequest(url: "https://github.com/someone/else/pull/3", kind: "github", title: "PR #3"))
     await logs.navigation.waitForOpen()
     #expect(windows == 1 && logs.navigation.error != nil)
+    await model.stop()
+}
+
+/// A subagent's thread is not a row of the sidebar or of Projects, but the app can go to it from
+/// its parent's page, where it opens read-only: it follows its parent's agent.
+@MainActor @Test func aSubagentThreadOpensReadOnlyAndStaysOutOfTheLists() async throws {
+    let suite = "refresh-subagent-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.error != nil }
+    let selection = ChatThreadShell.ModelSelection(provider: "claudeAgent", model: "haiku")
+    model.chats.receive(ChatThreadShell(id: "parent", projectId: ChatProject.standalone, title: "Parent", modelSelection: selection,
+                                        workingDirectory: "/work", createdAt: "2026-10-05T10:00:00.000Z"))
+    model.chats.receive(ChatThreadShell(id: "subagent:parent:toolu_1", projectId: ChatProject.standalone, title: "List files",
+                                        modelSelection: selection, workingDirectory: "/work", createdAt: "2026-10-05T10:00:01.000Z",
+                                        parentThreadId: "parent"))
+    try await refreshEventually { model.root.entries.contains { $0.chatID == "parent" || $0.children.contains { $0.chatID == "parent" } } }
+    let chatIDs = model.root.entries.flatMap { [$0] + $0.children }.compactMap(\.chatID)
+    #expect(chatIDs == ["parent"])
+    #expect(model.rootState().chats.contains { $0.id == "subagent:parent:toolu_1" })
+    #expect(model.makeChatModel(threadID: "parent")?.page.context.readOnly == false)
+    let child = try #require(model.makeChatModel(threadID: "subagent:parent:toolu_1"))
+    #expect(child.page.context.readOnly && child.page.context.cwd == "/work")
+    await model.stop()
+}
+
+/// An archived chat is listed nowhere: the Chats heading's Archived Chats opens it, and its toolbar's
+/// Unarchive lists it again.
+@MainActor @Test func anArchivedChatOpensFromTheChatsMenuAndUnarchivesFromItsToolbar() async throws {
+    let suite = "refresh-archived-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.chatsUp(#"""
+        [{"id":"old","projectId":"p","title":"Old","workingDirectory":"/fixture","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-02T10:00:00.000Z"},
+         {"id":"live","projectId":"p","title":"Live","workingDirectory":"/fixture","createdAt":"2026-10-03T10:00:00.000Z"},
+         {"id":"loose","projectId":"cascade-standalone","title":"Loose","workingDirectory":"/elsewhere","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-04T10:00:00.000Z"}]
+        """#)
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.loaded && model.projects.contains { $0.id == "p" } }
+    try await refreshEventually { model.root.entries.contains { $0.chatID == "live" } }
+    let listed = model.root.entries.flatMap(\.descendants).compactMap(\.chatID)
+    #expect(listed == ["live"], "archived chats are listed nowhere")
+    #expect(model.root.entries.contains { $0.id == SidebarEntry.chatsID })
+    #expect(model.root.archivedChats().items.map(\.id) == ["loose", "old"], "newest archived first")
+    #expect(model.root.archivedChats().items.map(\.place) == ["elsewhere", "Project"])
+
+    model.root.openArchivedChat("old")
+    #expect(model.selection == .chat("old"))
+    let screen = try #require(model.coordinator.chatCoordinator)
+    #expect(screen.threadID == "old" && screen.model.archived)
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive"])
+
+    screen.model.unarchive()
+    try await refreshEventually { model.chats.shell("old")?.archived == false }
+    #expect(await runtime.transport.chatCommands == ["thread.unarchive"])
+    try await refreshEventually { model.root.entries.flatMap(\.descendants).contains { $0.chatID == "old" } }
+    #expect(model.root.archivedChats().items.map(\.id) == ["loose"])
+    #expect(model.selection == .chat("old"), "it stays on screen")
+    try await refreshEventually { !screen.model.archived }
+    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.isEmpty)
+    await model.stop()
+}
+
+/// A new chat is titled twice as its first turn runs (the first message, then the generated title),
+/// each a `chat-shell` event for the chat on screen: the title changes and nothing else. The screen,
+/// its page model and its web view are the ones New Task opened, so the page is not loaded again
+/// mid-turn.
+@MainActor @Test func aNewChatsTitlesChangeOnlyItsTitleNotItsPage() async throws {
+    let suite = "refresh-chat-titles-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.chatsUp("[]")
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.chats.loaded }
+
+    // New Task made the chat and sent its first message: the app hears of it, then goes to it.
+    let selection = ChatThreadShell.ModelSelection(provider: "claudeAgent", model: "default")
+    model.newSessionChatCreated(ChatThreadShell(id: "new", projectId: ChatProject.standalone, title: ChatProject.untitled,
+                                                modelSelection: selection, workingDirectory: "/scratch/new"))
+    model.coordinator.navigate(to: .chat("new"))
+    let screen = try #require(model.coordinator.chatCoordinator)
+    let page = screen.model.page
+    let view = try #require(page.webView)
+    // The real main window draws it, so a screen SwiftUI made again would put the page in a new host.
+    let window = MainWindowController(model: model)
+    window.window?.orderBack(nil)
+    defer { window.window?.orderOut(nil) }
+    try await refreshEventually { view.window === window.window }
+    let host = try #require(view.superview)
+    var moves = 0
+    let observer = view.observe(\.superview, options: [.new]) { _, _ in MainActor.assumeIsolated { moves += 1 } }
+    defer { observer.invalidate() }
+
+    func shellEvent(_ title: String, updated: String) throws -> ServerEvent {
+        try JSONDecoder().decode(ServerEvent.self, from: Data(#"""
+            {"type":"chat-shell","shell":{"id":"new","projectId":"cascade-standalone","title":"\#(title)",
+             "modelSelection":{"provider":"claudeAgent","model":"default"},"workingDirectory":"/scratch/new",
+             "createdAt":"2026-10-05T10:00:00.000Z","updatedAt":"\#(updated)"}}
+            """#.utf8))
+    }
+    runtime.onEvent(.message(try shellEvent("Reply with exactly the word PONG", updated: "2026-10-05T10:00:01.000Z")))
+    try await refreshEventually { screen.model.title == "Reply with exactly the word PONG" }
+    runtime.onEvent(.message(try shellEvent("PONG reply test", updated: "2026-10-05T10:00:05.000Z")))
+    try await refreshEventually { screen.model.title == "PONG reply test" }
+
+    #expect(model.selection == .chat("new"))
+    #expect(model.coordinator.chatCoordinator === screen && !screen.retired)
+    #expect(screen.model.page === page && !page.retired)
+    #expect(page.webView === view)
+    try await Task.sleep(for: .milliseconds(300))
+    #expect(view.superview === host && view.window === window.window, "the page was put in another host")
+    #expect(moves == 0, "the page left its host \(moves) times")
+    if case .chatCoordinator(let shown) = model.coordinator.root { #expect(shown === screen) } else { Issue.record("no chat screen") }
     await model.stop()
 }

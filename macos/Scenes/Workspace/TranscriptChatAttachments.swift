@@ -46,7 +46,7 @@ enum ChatAttachmentReader {
 
     /// A paste or a drop onto the message field: copied files, or a screenshot staged as one.
     /// Nothing for text, which the field inserts itself.
-    @MainActor static func paste(from pasteboard: NSPasteboard, into chat: TranscriptChatModel) -> Bool {
+    @MainActor static func paste(from pasteboard: NSPasteboard, into chat: any ChatComposing) -> Bool {
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
         if !urls.isEmpty {
             chat.attach(files(urls))
@@ -62,7 +62,7 @@ enum ChatAttachmentReader {
 
     /// A drop onto the composer: files by path, and an image with no file of its own (one dragged
     /// off a web page, or the screenshot thumbnail) staged first, as the terminal stages it.
-    @MainActor static func drop(_ providers: [NSItemProvider], into chat: TranscriptChatModel) -> Bool {
+    @MainActor static func drop(_ providers: [NSItemProvider], into chat: any ChatComposing) -> Bool {
         var accepted = false
         for provider in providers {
             // A file first: an image dragged off a web page also offers its web address.

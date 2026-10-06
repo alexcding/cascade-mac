@@ -58,15 +58,38 @@ fn line_id(line: &str) -> String {
     format!("line-{:016x}", hasher.finish())
 }
 
+/// `read_with`, without detail.
+#[cfg(test)]
+pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
+    read_with(home, agent, worktree, since, conversation, false)
+}
+
 /// `{"revision","turns":[{"id","role","timestamp","model","blocks":[…]}],"atPrompt"}`, oldest
 /// first. The revision is the file's size and modification time: when the caller already has it,
 /// `turns` and `atPrompt` are left out. `atPrompt` is when the transcript last showed the agent
 /// back at its prompt with no turn begun since, or null: both mark every turn's end, an
 /// interrupt's included, which no hook reports.
-pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conversation: Option<&str>) -> Value {
+///
+/// With `detailed` each block also carries what the chat engine's thread needs to
+/// show it as its own chats show theirs: the line's time (`at`), a tool call's whole `input`, and
+/// when its result came (`endedAt`).
+pub fn read_with(
+    home: &Path,
+    agent: Agent,
+    worktree: &str,
+    since: Option<&str>,
+    conversation: Option<&str>,
+    detailed: bool,
+) -> Value {
     let Some(path) = locate(home, agent, worktree, conversation) else {
         return json!({"revision": "", "turns": []});
     };
+    read_file(&path, agent, worktree, since, detailed)
+}
+
+/// [`read_with`] of the transcript at `path`, found by the caller.
+pub fn read_file(path: &Path, agent: Agent, worktree: &str, since: Option<&str>, detailed: bool) -> Value {
+    let path = path.to_path_buf();
     let revision = fs::metadata(&path)
         .ok()
         .map(|meta| {
@@ -81,6 +104,7 @@ pub fn read(home: &Path, agent: Agent, worktree: &str, since: Option<&str>, conv
         return json!({"revision": revision, "turns": []});
     };
     let mut builder = Builder::new(worktree);
+    builder.detailed = detailed;
     // A window that starts mid-file starts mid-line; that fragment fails to parse and is skipped.
     for line in text.lines() {
         if let Ok(value) = serde_json::from_str::<Value>(line) {
@@ -120,11 +144,13 @@ struct Builder<'a> {
     calls: HashMap<String, (usize, usize)>,
     /// The time of the last line that left the agent at its prompt, cleared by any later work.
     at_prompt: Value,
+    /// Blocks carry their time and a tool's input (`read_with`).
+    detailed: bool,
 }
 
 impl<'a> Builder<'a> {
     fn new(worktree: &'a str) -> Self {
-        Self { worktree, turns: Vec::new(), calls: HashMap::new(), at_prompt: Value::Null }
+        Self { worktree, turns: Vec::new(), calls: HashMap::new(), at_prompt: Value::Null, detailed: false }
     }
 
     fn user(&mut self, id: String, timestamp: &Value, text: &str) {
@@ -157,10 +183,19 @@ impl<'a> Builder<'a> {
         if text.trim().is_empty() {
             return;
         }
-        self.assistant(id, timestamp, model).push(json!({"type": kind, "text": text.trim()}));
+        let mut block = json!({"type": kind, "text": text.trim()});
+        if self.detailed {
+            block["at"] = timestamp.clone();
+        }
+        self.assistant(id, timestamp, model).push(block);
     }
 
-    fn push_tool(&mut self, id: &str, timestamp: &Value, tool: Map<String, Value>) {
+    fn push_tool(&mut self, id: &str, timestamp: &Value, mut tool: Map<String, Value>) {
+        if self.detailed {
+            tool.insert("at".into(), timestamp.clone());
+        } else {
+            tool.remove("input");
+        }
         let call = tool.get("id").and_then(Value::as_str).map(str::to_string);
         let blocks = self.assistant(id, timestamp, &Value::Null);
         blocks.push(Value::Object(tool));
@@ -180,6 +215,9 @@ impl<'a> Builder<'a> {
         if let Some(tool) = turn["blocks"].get_mut(block) {
             tool["output"] = json!(clip(output.trim(), MAX_OUTPUT));
             tool["isError"] = json!(error);
+            if self.detailed {
+                tool["endedAt"] = timestamp.clone();
+            }
         }
     }
 
@@ -311,6 +349,7 @@ impl<'a> Builder<'a> {
         tool.insert("name".into(), json!(name));
         tool.insert("kind".into(), json!(Agent::Claude.tool_kind(name)));
         tool.insert("summary".into(), json!(first_line(&summary)));
+        tool.insert("input".into(), input.clone());
         if name == "Bash" {
             tool.insert("command".into(), json!(text("command").unwrap_or("")));
         }
@@ -381,6 +420,7 @@ impl<'a> Builder<'a> {
                 tool.insert("kind".into(), json!(Agent::Codex.tool_kind(name)));
                 tool.insert("summary".into(), json!(first_line(&summary)));
                 tool.insert("command".into(), json!(command.unwrap_or_else(|| raw.to_string())));
+                tool.insert("input".into(), if parsed.is_object() { parsed.clone() } else { json!({"input": raw}) });
                 self.push_tool(&id, timestamp, tool);
             }
             Some("function_call_output") | Some("custom_tool_call_output") => {

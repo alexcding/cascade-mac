@@ -165,6 +165,18 @@ public actor APIClient {
         return try JSONDecoder().decode(Response.self, from: data)
     }
 
+    /// A JSON body posted as it is, answered with the body and status as they came: for a route
+    /// whose failures carry a body of their own (`/api/chat/rpc`'s `{error:{message, code}}`).
+    func post(_ path: String, json body: Data, timeout: TimeInterval = 120) async throws -> (Data, Int) {
+        var request = URLRequest(url: try url(path))
+        request.httpMethod = "POST"; request.timeoutInterval = timeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let (data, response) = try await transport.perform(request)
+        guard let http = response as? HTTPURLResponse else { throw BackendError.incompatible }
+        return (data, http.statusCode)
+    }
+
     nonisolated static func query(_ path: String, _ values: [String: String]) -> String {
         var components = URLComponents()
         components.path = path

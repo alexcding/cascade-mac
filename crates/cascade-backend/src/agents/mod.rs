@@ -8,7 +8,7 @@ mod codex;
 mod commands;
 pub mod permission;
 pub mod statusline;
-mod transcript;
+pub(crate) mod transcript;
 pub(crate) mod usage;
 
 use axum::{extract::Query, Json};
@@ -47,6 +47,10 @@ pub trait AgentProbe {
     /// hands the CLI: `conversation`, when the app knows it, or the worktree's newest. None when
     /// there is nothing on disk to fork, and the fork starts a new conversation.
     fn fork_source(home: &Path, worktree: &str, conversation: Option<&str>) -> Option<String>;
+    /// Conversation `id`'s own transcript, held for `worktree` exactly: none when it is not on
+    /// disk there (filed for another folder, or only the worktree's newest). What a chat that
+    /// starts with a session's knowledge reads and forks (`chat::knowledge`).
+    fn conversation_in_worktree(home: &Path, worktree: &str, id: &str) -> Option<PathBuf>;
     /// The slash commands the CLI reports itself, ahead of those found on disk.
     async fn reported_commands() -> Value {
         Value::Null
@@ -86,6 +90,16 @@ pub struct Profile {
     /// It keeps a message typed while it works and takes it in, mid-turn or after, so the chat may
     /// type one then.
     pub queues_mid_turn: bool,
+    /// The provider the chat engine (`cascade-chat`, Synara's `ProviderKind`) drives it as. The
+    /// backend's own: the terminal's chat does not need it.
+    #[serde(skip)]
+    pub chat_provider: &'static str,
+    /// What the chat's provider list calls it.
+    #[serde(skip)]
+    pub display_name: &'static str,
+    /// The prompt that compacts its conversation, when a prompt can (`provider.compactThread`).
+    #[serde(skip)]
+    pub compact_prompt: Option<&'static str>,
 }
 
 /// How a CLI takes Cascade's hooks (`integrations`).
@@ -123,6 +137,11 @@ impl Agent {
         Self::ALL.into_iter().find(|agent| agent.profile().id == cli)
     }
 
+    /// The CLI the chat engine drives as `provider` (Synara's `ProviderKind`, `claudeAgent`).
+    pub fn of_chat_provider(provider: &str) -> Option<Agent> {
+        Self::ALL.into_iter().find(|agent| agent.profile().chat_provider == provider)
+    }
+
     /// Whether a session may name `cli`: no agent at all, a plain shell, or one the registry
     /// knows. Creating a session and patching one apply the same rule.
     pub fn allowed_cli(cli: &str) -> bool {
@@ -136,7 +155,7 @@ impl Agent {
         }
     }
 
-    async fn catalog(self, home: &Path) -> Value {
+    pub(crate) async fn catalog(self, home: &Path) -> Value {
         match self {
             Agent::Claude => claude::Claude::catalog(home).await,
             Agent::Codex => codex::Codex::catalog(home).await,
@@ -182,6 +201,13 @@ impl Agent {
         match self {
             Agent::Claude => claude::Claude::fork_source(home, worktree, conversation),
             Agent::Codex => codex::Codex::fork_source(home, worktree, conversation),
+        }
+    }
+
+    fn conversation_in_worktree(self, home: &Path, worktree: &str, id: &str) -> Option<PathBuf> {
+        match self {
+            Agent::Claude => claude::Claude::conversation_in_worktree(home, worktree, id),
+            Agent::Codex => codex::Codex::conversation_in_worktree(home, worktree, id),
         }
     }
 
@@ -292,24 +318,62 @@ pub async fn status(Query(query): Query<StatusQuery>) -> Json<Value> {
 pub struct TranscriptQuery {
     cli: String,
     worktree: String,
+    /// The revision the caller has: the turns are left out when it is still current. With
+    /// `format=thread` it is the thread's revision, `{transcript revision}:{approvals changed}`.
     #[serde(default)]
     since: Option<String>,
     /// The conversation the agent is in, when the app knows it.
     #[serde(default)]
     session: Option<String>,
+    /// `thread`: the conversation as a read-only chat-engine thread (`chat::transcript`).
+    #[serde(default)]
+    pub format: Option<String>,
+    /// The terminal the agent runs in: a tool approval it waits on shows in the thread.
+    #[serde(default, rename = "runId")]
+    pub run_id: Option<String>,
+    /// The thread id the page shows the conversation under; one of its own when absent.
+    #[serde(default, rename = "threadId")]
+    pub thread_id: Option<String>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
+}
+
+impl TranscriptQuery {
+    pub fn worktree(&self) -> &str {
+        &self.worktree
+    }
+
+    /// The transcript revision in a thread's `since`, when the approvals have not changed since
+    /// (`changed`, the milliseconds the thread revision ends with): only then may the transcript
+    /// alone decide that nothing did.
+    fn thread_since(&self, changed: i64) -> Option<&str> {
+        let (revision, at) = self.since.as_deref()?.rsplit_once(':')?;
+        (at == changed.to_string() && !revision.is_empty()).then_some(revision)
+    }
 }
 
 /// The session's conversation as chat turns, for the chat view over its terminal, and which
 /// agent it is. `agent` in the value is the CLI's `Profile`, which the chat goes by instead of
 /// the CLI's name. Reads the CLI's files: call it off the runtime.
 pub fn transcript(query: &TranscriptQuery) -> Option<(Agent, Value)> {
-    let home = home()?;
+    transcript_in(&home()?, query, None)
+}
+
+/// `transcript` under `home`. With `format=thread`, `changed` is when the terminal's waiting
+/// approvals last changed: a `since` naming it and the transcript's current revision answers
+/// `{"revision"}` alone, as an unchanged plain read does.
+pub(crate) fn transcript_in(home: &Path, query: &TranscriptQuery, changed: Option<i64>) -> Option<(Agent, Value)> {
     if !query.worktree.starts_with('/') {
         return None;
     }
     let agent = Agent::of(&query.cli)?;
     let conversation = query.session.as_deref().filter(|id| !id.is_empty() && is_name(id));
-    let mut found = transcript::read(&home, agent, &query.worktree, query.since.as_deref(), conversation);
+    let detailed = query.format.as_deref() == Some("thread");
+    let since = match detailed {
+        true => changed.and_then(|changed| query.thread_since(changed)),
+        false => query.since.as_deref(),
+    };
+    let mut found = transcript::read_with(home, agent, &query.worktree, since, conversation, detailed);
     found["agent"] = json!(agent.profile());
     Some((agent, found))
 }
@@ -325,21 +389,27 @@ pub async fn commands(Query(query): Query<CommandsQuery>) -> Json<Value> {
     let Some(agent) = Agent::of(&query.cli) else {
         return Json(json!({"commands": []}));
     };
+    Json(commands_in(agent, PathBuf::from(query.worktree)).await)
+}
+
+/// `{"commands":[…]}` the CLI offers in `worktree`, which must be absolute: what the terminal's
+/// chat and the chat engine's composer both suggest after `/`.
+pub(crate) async fn commands_in(agent: Agent, worktree: PathBuf) -> Value {
     let reported = agent.reported_commands().await;
     let found = tokio::task::spawn_blocking(move || {
         let home = home()?;
-        if !query.worktree.starts_with('/') {
+        if !worktree.is_absolute() {
             return None;
         }
-        Some(commands::list(&home, agent, Path::new(&query.worktree), &reported))
+        Some(commands::list(&home, agent, &worktree, &reported))
     })
     .await
     .ok()
     .flatten();
-    Json(found.unwrap_or_else(|| json!({"commands": []})))
+    found.unwrap_or_else(|| json!({"commands": []}))
 }
 
-fn home() -> Option<PathBuf> {
+pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }
 
@@ -351,6 +421,17 @@ pub(crate) fn fork_source(cli: &str, worktree: &str, conversation: &str) -> Opti
     }
     let conversation = Some(conversation).filter(|id| !id.is_empty() && is_name(id));
     agent.fork_source(&home, worktree, conversation)
+}
+
+/// The transcript of conversation `conversation`, which `agent` holds in `worktree` exactly
+/// (`AgentProbe::conversation_in_worktree`), that a new chat can start from (`chat::knowledge`).
+/// None for an id that is not a name, a worktree that is not absolute, or a conversation not on
+/// disk there: no other conversation stands in for it.
+pub(crate) fn conversation_in(home: &Path, agent: Agent, worktree: &str, conversation: &str) -> Option<PathBuf> {
+    if !worktree.starts_with('/') || conversation.is_empty() || !is_name(conversation) {
+        return None;
+    }
+    agent.conversation_in_worktree(home, worktree, conversation)
 }
 
 fn is_name(value: &str) -> bool {

@@ -80,7 +80,7 @@ pub async fn get_file(headers: HeaderMap, Query(query): Query<LocalQuery>) -> Ap
 /// How well a worktree-relative path answers a typed query; lower is better, None is no match.
 /// A hit in the file name beats one in its folders, a prefix beats a substring, and a scattered
 /// subsequence ("swvm" for SessionWorkspaceViewModel) comes last.
-fn file_match_rank(rel: &str, needle: &str) -> Option<u8> {
+pub(crate) fn file_match_rank(rel: &str, needle: &str) -> Option<u8> {
     let path = rel.to_lowercase();
     let name = path.rsplit('/').next().unwrap_or_default();
     if name.starts_with(needle) {

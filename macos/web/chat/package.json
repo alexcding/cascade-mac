@@ -1,22 +1,52 @@
 {
   "name": "cascade-chat-page",
   "private": true,
-  "description": "Source of the bundled chat page (macos/Resources/ChatPage). Run `npm run build` after changing it; the app ships only the built files.",
+  "description": "Source of the bundled chat page (macos/Resources/ChatPage): Synara's chat client, vendored verbatim, behind Cascade's native bridge. Run `npm run build` after changing it; the app ships only the built files. See SYNARA.md.",
   "type": "module",
   "scripts": {
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "vendor": "node scripts/vendor-synara.mjs",
+    "vendor:check": "node scripts/vendor-synara.mjs --check",
+    "test": "node build.mjs && node --test --test-force-exit test/smoke.test.mjs test/queue-restore.test.mjs test/storage-merge.test.mjs test/subagents.test.mjs test/layout.test.mjs test/attach-paths.test.mjs",
+    "dev:fixture": "node build.mjs && node test/render-fixture.mjs",
+    "typecheck": "node scripts/typecheck.mjs"
   },
   "dependencies": {
-    "@shikijs/langs": "3.23.0",
-    "@shikijs/themes": "3.23.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "shiki": "3.23.0",
-    "streamdown": "2.6.0"
+    "@base-ui/react": "1.7.0",
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
+    "@legendapp/list": "3.3.3",
+    "@lexical/react": "0.41.0",
+    "@pierre/diffs": "1.3.5",
+    "@tabler/icons-react": "3.44.0",
+    "@tanstack/react-pacer": "0.19.4",
+    "@tanstack/react-query": "5.90.21",
+    "@tanstack/react-virtual": "3.13.23",
+    "class-variance-authority": "0.7.1",
+    "effect": "https://pkg.pr.new/Effect-TS/effect-smol/effect@8881a9b",
+    "katex": "0.16.45",
+    "lexical": "0.41.0",
+    "micromark-util-decode-string": "2.0.1",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-icons": "5.6.0",
+    "react-markdown": "10.1.0",
+    "rehype-katex": "7.0.1",
+    "remark-breaks": "4.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "tailwind-merge": "3.6.0",
+    "zustand": "5.0.12"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "4.3.3",
-    "esbuild": "0.28.2",
-    "tailwindcss": "4.3.3"
+    "@happy-dom/global-registrator": "20.0.10",
+    "@tailwindcss/cli": "4.2.2",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.28.1",
+    "happy-dom": "20.0.10",
+    "tailwindcss": "4.2.2",
+    "typescript": "5.9.3"
   }
 }

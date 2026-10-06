@@ -127,6 +127,7 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
     std::fs::write(&port_file, port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
     runtime.block_on(crate::start_background(&state, port));
+    runtime.block_on(crate::chat::start(&state, &data_dir));
     let router = build_app(state.clone());
     let (shutdown, stopped) = oneshot::channel::<()>();
     let served = router.clone();
@@ -419,6 +420,7 @@ pub unsafe extern "C" fn cascade_backend_stop(backend: *mut CascadeBackend) {
                 let _ = task.await;
             }
             state.forwarders.stop().await;
+            state.chat.shutdown().await;
             if let Some(server) = server {
                 let _ = tokio::time::timeout(Duration::from_secs(2), server).await;
             }
