@@ -133,6 +133,22 @@ enum ChatCompletion {
 
     static func markCount(in draft: String) -> Int { draft.reduce(0) { $0 + ($1 == fileMark ? 1 : 0) } }
 
+    /// `files` placed at `caret` (the end with no caret) in a message of `text` holding `held`:
+    /// the new text, files and caret, or nil when every file is already in it. Shared by the
+    /// composers `ChatComposerField` writes into.
+    static func placing(_ files: [ChatAttachment], in text: String, files held: [ChatAttachment],
+                        caret: Int?) -> (text: String, files: [ChatAttachment], caret: Int)? {
+        var added: [ChatAttachment] = []
+        for file in files where !(held + added).contains(where: { $0.path == file.path }) { added.append(file) }
+        guard !added.isEmpty else { return nil }
+        let string = text as NSString
+        let at = min(caret ?? string.length, string.length)
+        let marks = String(repeating: fileMark, count: added.count)
+        var placed = held
+        placed.insert(contentsOf: added, at: markCount(in: string.substring(to: at)))
+        return (string.replacingCharacters(in: NSRange(location: at, length: 0), with: marks), placed, at + marks.utf16.count)
+    }
+
     /// The UTF-16 offset of each file's mark, in order.
     static func markOffsets(in draft: String) -> [Int] {
         let units = Array(draft.utf16)

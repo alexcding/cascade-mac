@@ -265,17 +265,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     /// Places files at the caret, or at the end with no caret; a file already in the message is
     /// not placed twice.
     func attach(_ files: [ChatAttachment]) {
-        guard canAttach else { return }
-        var added: [ChatAttachment] = []
-        for file in files where !(attachments + added).contains(where: { $0.path == file.path }) { added.append(file) }
-        guard !added.isEmpty else { return }
-        let text = draft as NSString
-        let at = min(caret ?? text.length, text.length)
-        let before = ChatCompletion.markCount(in: text.substring(to: at))
-        let marks = String(repeating: ChatCompletion.fileMark, count: added.count)
-        attachments.insert(contentsOf: added, at: before)
-        draft = text.replacingCharacters(in: NSRange(location: at, length: 0), with: marks)
-        caret = at + marks.utf16.count
+        guard canAttach, let placed = ChatCompletion.placing(files, in: draft, files: attachments, caret: caret) else { return }
+        attachments = placed.files
+        draft = placed.text
+        caret = placed.caret
     }
 
     /// The field changed: its text with a mark for each file, the files in order, and its caret.

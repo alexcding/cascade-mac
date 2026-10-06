@@ -317,15 +317,6 @@ import UniformTypeIdentifiers
     }
 
     func requestFocus() { if !retired { focusRequest &+= 1 } }
-
-    func removeAttachment(_ id: ChatAttachment.ID) {
-        guard canAttach, let index = attachments.firstIndex(where: { $0.id == id }) else { return }
-        let offsets = ChatCompletion.markOffsets(in: prompt)
-        attachments.remove(at: index)
-        guard offsets.indices.contains(index) else { return }
-        prompt = (prompt as NSString).replacingCharacters(in: NSRange(location: offsets[index], length: 1), with: "")
-        if let caret, caret > offsets[index] { self.caret = caret - 1 }
-    }
 }
 
 extension NewChatViewModel: ChatComposing {
@@ -344,17 +335,10 @@ extension NewChatViewModel: ChatComposing {
     /// Places files at the caret, or at the end with no caret; a file already in the message is
     /// not placed twice.
     func attach(_ files: [ChatAttachment]) {
-        guard canAttach else { return }
-        var added: [ChatAttachment] = []
-        for file in files where !(attachments + added).contains(where: { $0.path == file.path }) { added.append(file) }
-        guard !added.isEmpty else { return }
-        let text = prompt as NSString
-        let at = min(caret ?? text.length, text.length)
-        let before = ChatCompletion.markCount(in: text.substring(to: at))
-        let marks = String(repeating: ChatCompletion.fileMark, count: added.count)
-        attachments.insert(contentsOf: added, at: before)
-        prompt = text.replacingCharacters(in: NSRange(location: at, length: 0), with: marks)
-        caret = at + marks.utf16.count
+        guard canAttach, let placed = ChatCompletion.placing(files, in: prompt, files: attachments, caret: caret) else { return }
+        attachments = placed.files
+        prompt = placed.text
+        caret = placed.caret
     }
 
     func attach(when files: @escaping @MainActor () async -> [ChatAttachment]) {
@@ -444,7 +428,8 @@ enum ChatFirstMessage {
     }
 
     /// The message's text: `draft` with each mention's mark replaced by its `@path`, set off by
-    /// spaces from the words beside it, and each image's mark taken out.
+    /// spaces from the words beside it, and each image's mark taken out, leaving a space where
+    /// it parted two words.
     static func text(_ draft: String, parts: [Part]) -> String {
         var result = ""
         var next = 0
@@ -457,7 +442,10 @@ enum ChatFirstMessage {
                 continue
             }
             defer { next += 1 }
-            guard next < parts.count, case .mention(_, let path) = parts[next] else { continue }
+            guard next < parts.count, case .mention(_, let path) = parts[next] else {
+                if let last = result.last, !last.isWhitespace { spaceBefore = true }
+                continue
+            }
             if let last = result.last, !last.isWhitespace { result.append(" ") }
             result += mention(path)
             spaceBefore = true

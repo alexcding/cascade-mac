@@ -27,6 +27,12 @@ onPush<{ files?: unknown }>("drag", (payload) => {
   );
 });
 
+// A drop anywhere on the page ends the drag, not only one the composer takes: forgotten once the
+// drop's handlers have all run (a timer from the capture phase, which no handler can stop).
+if (typeof window !== "undefined") {
+  window.addEventListener("drop", () => setTimeout(forgetDrag, 0), true);
+}
+
 /**
  * The absolute paths of `files`, dropped from the drag the app last pushed, in order; null for a
  * file the drag does not name. Each pushed entry is used once.

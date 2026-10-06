@@ -381,8 +381,9 @@ enum ChatPageOutput: Equatable {
 
     /// The files of a Finder drag entering the page. WebKit gives a dropped file no path, so the
     /// page matches what is dropped against these, by name and size, and mentions their paths.
+    /// Empty for a drag that carries no file URLs or has left: the page forgets the last one.
     func receiveDraggedFiles(_ files: [ChatPageDraggedFile]) {
-        guard !retired, stream != .down, !files.isEmpty else { return }
+        guard !retired, stream != .down else { return }
         send(.push(channel: "drag", ["files": (try? JSONValue.from(files)) ?? .array([])]))
     }
 
@@ -456,13 +457,19 @@ enum ChatPagePick {
 }
 
 /// The chat page's web view: it tells its host which files a Finder drag carries as the drag
-/// enters, and again as it drops (ahead of WebKit's own delivery of the drop).
+/// enters, and again as it drops (ahead of WebKit's own delivery of the drop), and that it carries
+/// none once it leaves, so a later drop with no file URLs (a file promise) never takes its paths.
 private final class ChatPageWebView: WKWebView {
     var onDragFiles: ([URL]) -> Void = { _ in }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         report(sender)
         return super.draggingEntered(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        onDragFiles([])
+        super.draggingExited(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -473,7 +480,7 @@ private final class ChatPageWebView: WKWebView {
     private func report(_ sender: any NSDraggingInfo) {
         let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self],
                                                          options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        if !urls.isEmpty { onDragFiles(urls) }
+        onDragFiles(urls)
     }
 }
 

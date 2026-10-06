@@ -172,6 +172,9 @@ private final class Scratch {
         let mark = String(ChatCompletion.fileMark)
         #expect(ChatFirstMessage.text("see\(mark)now", parts: [.mention(file, path: "/a.txt")]) == "see @/a.txt now")
         #expect(ChatFirstMessage.text("\(mark) see", parts: [.image(file, name: "a.png", mimeType: "image/png", data: Data())]) == "see")
+        let image = ChatFirstMessage.Part.image(file, name: "a.png", mimeType: "image/png", data: Data())
+        #expect(ChatFirstMessage.text("look\(mark)here", parts: [image]) == "look here", "an image's chip still parts two words")
+        #expect(ChatFirstMessage.text("look \(mark) here", parts: [image]) == "look  here", "spaces typed are kept as typed")
     }
 
     @Test func aFormMadeAnewKeepsTheFiles() async throws {
