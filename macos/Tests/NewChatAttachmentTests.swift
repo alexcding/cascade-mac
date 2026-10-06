@@ -263,11 +263,23 @@ private func noisePNG(width: Int, height: Int) throws -> Data {
         }
     }
 
+    @Test func aLinkNamedLikeAnImageGoesByWhatItLeadsTo() async throws {
+        let scratch = try Scratch()
+        let target = try scratch.file("notes.txt")
+        let link = scratch.root.appendingPathComponent("x.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let file = try #require(ChatAttachmentReader.files([link]).first)
+        let parts = try await ChatFirstMessage.read([file])
+        guard case .mention = try #require(parts.first) else {
+            Issue.record("a link to a text file was sent as an image"); return
+        }
+    }
+
     @Test func aLinkToAnImageIsMeasuredWhereItLeads() async throws {
         let scratch = try Scratch()
         // The link itself is a few bytes; what it leads to is too large, and unreadable, so only
         // its size can refuse it.
-        let target = try scratch.file("huge.bin", Data(count: ChatFirstMessage.maxImportBytes + 1))
+        let target = try scratch.file("huge.png", Data(count: ChatFirstMessage.maxImportBytes + 1))
         try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: target.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: target.path) }
         let link = scratch.root.appendingPathComponent("link.png")

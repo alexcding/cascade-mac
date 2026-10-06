@@ -441,7 +441,10 @@ enum ChatFirstMessage {
                 guard FileManager.default.fileExists(atPath: path, isDirectory: &isFolder) else {
                     throw Failure(message: String(localized: "‘\(file.name)’ can no longer be found."))
                 }
-                let type = UTType(filenameExtension: (path as NSString).pathExtension)
+                // The type of the file a link leads to, as the chat page takes it (`ChatPagePick`).
+                let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+                let type = (try? resolved.resourceValues(forKeys: [.contentTypeKey]))?.contentType
+                    ?? UTType(filenameExtension: resolved.pathExtension)
                 guard !isFolder.boolValue, let type, type.conforms(to: .image) else {
                     parts.append(.mention(file, path: path)); continue
                 }

@@ -383,7 +383,9 @@ enum ChatPageOutput: Equatable {
 
     /// Whether the page takes files now: the app then handles a drop or paste of Finder files on it
     /// instead of WebKit.
-    var takesFiles: Bool { !retired && !context.readOnly }
+    /// Not while the page is down (loading, or reloading after its process ended): the files
+    /// could not reach it, so WebKit keeps the gesture as it would with no app in between.
+    var takesFiles: Bool { !retired && stream != .down && !context.readOnly }
 
     /// The page's content process ended; it reloads and says `ready` again.
     fileprivate func pageWentAway() {
@@ -464,6 +466,9 @@ enum ChatPagePick {
     static let maxImageBytes = 32 * 1024 * 1024
     /// Synara's `PROVIDER_SEND_TURN_MAX_ATTACHMENTS`, the images one message carries.
     static let maxImages = 8
+    /// The image bytes one drop or paste pushes to the page, which go over as base64 in a script:
+    /// images past it go by their path rather than stalling the app and the page.
+    static let maxPushedBytes = 64 * 1024 * 1024
 
     /// The MIME type `url` is attached as, or nil when it goes by its path.
     static func imageType(of url: URL) -> String? {
@@ -480,11 +485,13 @@ enum ChatPagePick {
     /// and says so, from the first one over it. An image that cannot be read goes by its path.
     static func read(_ urls: [URL]) -> ChatPageFiles {
         var files = ChatPageFiles()
+        var pushed = 0
         for url in urls {
             guard let type = imageType(of: url) else { files.paths.append(url.path); continue }
             guard files.images.count <= maxImages else { continue }
             guard let data = try? Data(contentsOf: url.resolvingSymlinksInPath(), options: .mappedIfSafe),
-                  data.count <= maxImageBytes else { files.paths.append(url.path); continue }
+                  data.count <= maxImageBytes, pushed + data.count <= maxPushedBytes else { files.paths.append(url.path); continue }
+            pushed += data.count
             files.images.append(.init(name: url.lastPathComponent, mimeType: type, data: data))
         }
         return files
