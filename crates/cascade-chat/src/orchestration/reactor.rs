@@ -686,15 +686,30 @@ impl Actor {
                 }),
             );
         }
-        if !native_steer && live_turn.is_some() {
+        // Cascade: a turn whose send has not come back yet (a CLI still starting, which may take
+        // seconds) is as busy as a live one. Without this a second message went out beside it, and
+        // the Claude adapter closed the first turn empty to start the second ("auto-close a stale
+        // synthetic turn"), so the first message's reply landed on the second.
+        let in_flight = self
+            .entries
+            .get(&ctx.thread_id)
+            .and_then(|e| e.reservation.as_ref())
+            .is_some_and(|r| r.message_id != payload.message_id);
+        if !native_steer && (live_turn.is_some() || in_flight) {
             // Steer by interrupt, then queue: the turn runs when the live one ends.
             if let Some(entry) = self.entry_mut(&ctx.thread_id) {
                 entry.queue.push_back(payload.clone());
             }
-            if steer {
+            if steer && live_turn.is_some() {
                 self.interrupt_provider_turn(ctx, live_turn, &payload.created_at);
             }
             return;
+        }
+        if !native_steer {
+            // Held as a queued turn's is, until the turn it starts ends (or fails to start).
+            if let Some(entry) = self.entry_mut(&ctx.thread_id) {
+                entry.reservation.get_or_insert_with(|| Reservation { message_id: payload.message_id.clone(), turn_id: None });
+            }
         }
         self.maybe_rename_thread_for_first_turn(ctx, &message);
         self.dispatch_turn(ctx, payload.clone(), message, native_steer, false);

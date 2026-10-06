@@ -74,6 +74,8 @@ pub const RPC_BODY_LIMIT: usize = 36 * 1024 * 1024;
 
 /// The folder, in the engine's, that holds the scratch folders of chats created with none.
 const SCRATCH_FOLDER: &str = "workspaces";
+/// How long a scratch folder's `git init` may take.
+const SCRATCH_INIT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How long a provider's installed version stands before it is asked again.
 const STATUS_TTL: Duration = Duration::from_secs(120);
@@ -420,8 +422,12 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
 }
 
 /// A chat created with no folder and no worktree (New Task's, which belongs to no project) works
-/// in a private folder of its own, `<data>/chat/workspaces/<thread id>`, made here. It is not a
-/// git repository, so the engine takes no checkpoints in it.
+/// in a private folder of its own, `<data>/chat/workspaces/<thread id>`, made here as a git
+/// repository of its own: the engine checkpoints a turn's changes there (the diff, revert), and a
+/// data folder that happens to sit inside another repository (a development build's, or a home
+/// folder kept in git) is not taken for that repository, whose checkpoint of every file it tracks
+/// held the first turn back for seconds. A failed `git init` leaves a plain folder, without
+/// checkpoints.
 async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -> Result<(), RpcError> {
     let named = |folder: &Option<String>| folder.as_deref().is_some_and(|folder| !folder.trim().is_empty());
     if named(&create.working_directory.clone().flatten()) || named(&create.worktree_path) {
@@ -434,6 +440,9 @@ async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -
     }
     let folder = root.join(id);
     std::fs::create_dir_all(&folder).map_err(RpcError::internal)?;
+    if let Err(error) = cli::run_in("git", ["init", "-q"], SCRATCH_INIT_TIMEOUT, Some(&folder)).await {
+        tracing::warn!(folder = %folder.display(), error = %format!("{error:#}"), "chat: the scratch folder is not a repository");
+    }
     create.working_directory = Some(Some(folder.to_string_lossy().into_owned()));
     Ok(())
 }

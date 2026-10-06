@@ -145,6 +145,10 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
   (`steerSubagent`, which needs the SDK's PreToolUse hook), so the engine refuses a send to a child
   thread and the app shows it read-only; per-task token meters (`emitTaskUsageSnapshot`); the
   workflow runtime.
+- **A turn still being sent holds the queue.** A turn start that goes straight to the provider
+  takes the same reservation a queued one does, until its turn ends or fails to start, so a
+  message sent meanwhile (while the CLI starts, or a checkpoint is taken) is queued behind it
+  rather than sent beside it, which made the Claude adapter close the first turn empty.
 - **Generated titles.** As `maybeGenerateAndRenameThreadTitleForFirstTurn`, the first user
   message of a thread with the generic title names it, but the first-message fallback is applied at
   once and the generated title replaces it when it comes (Synara applies the fallback only without a

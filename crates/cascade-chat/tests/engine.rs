@@ -2165,3 +2165,70 @@ async fn a_failed_or_generic_generation_keeps_the_fallback() {
     assert_eq!(title_of(&engine, "generic").await, "Fix the flaky build");
     engine.shutdown().await;
 }
+
+// --- a second message while the first is still being sent ---
+
+/// Git that holds its first command until the test lets it go, and answers every command as
+/// outside a repository: the first turn's send waits behind it, as it does behind a slow
+/// checkpoint.
+#[derive(Clone)]
+struct HeldGit {
+    release: Arc<tokio::sync::Semaphore>,
+}
+
+impl cascade_chat::checkpointing::GitRunner for HeldGit {
+    fn run(&self, _cwd: &Path, _args: &[String], _env: &[(String, String)]) -> cascade_chat::checkpointing::git::GitFuture {
+        let release = self.release.clone();
+        Box::pin(async move {
+            release.acquire().await.unwrap().forget();
+            Ok(cascade_chat::checkpointing::GitOutput { code: Some(128), stdout: String::new(), stderr: "not a git repository".into() })
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_message_sent_while_the_first_turn_is_still_starting_waits_for_it() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let git = HeldGit { release: Arc::new(tokio::sync::Semaphore::new(0)) };
+    let published: Published = Arc::default();
+    let sink = published.clone();
+    let engine = ChatEngine::start(ChatEngineConfig {
+        data_dir: data.path().to_path_buf(),
+        spawner: Arc::new(spawner.clone()),
+        adapters: None,
+        publish: Arc::new(move |event| sink.lock().unwrap().push(event)),
+        git: Some(Arc::new(git.clone())),
+        text_generation: None,
+    })
+    .await
+    .unwrap();
+    let thread = "thread-starting";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "hello world", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    // The first turn's send is held: no turn is live yet when the second message comes.
+    engine.dispatch(turn_start(thread, "msg-2", "hello", "queue")).await.unwrap();
+
+    git.release.add_permits(1_000);
+    let first = cli.read_user_message().await;
+    assert_eq!(first["message"]["content"][0]["text"], "hello world");
+    let running = wait_for(&engine, thread, "the first turn to run", running).await;
+    let first_turn = running.session.unwrap().active_turn_id.unwrap();
+    // Nothing more goes to the CLI while the first turn runs.
+    assert!(timeout(Duration::from_millis(300), cli.read_user_message()).await.is_err(), "the second message went out beside the first");
+
+    cli.write_line(&claude_result("result-first", "success")).await;
+    let second = cli.read_user_message().await;
+    assert_eq!(second["message"]["content"][0]["text"], "hello");
+    cli.write_line(&claude_result("result-second", "success")).await;
+    let done = wait_for(&engine, thread, "the second turn's end", |t| {
+        turn_completed(t) && t.latest_turn.as_ref().is_some_and(|l| l.turn_id != first_turn)
+    })
+    .await;
+    let completed: Vec<_> = done.activities.iter().filter(|a| a.kind == "turn.completed").map(|a| a.turn_id.clone()).collect();
+    assert_eq!(completed.len(), 2, "one turn per message, none closed empty: {completed:?}");
+    assert_eq!(completed[0].as_ref(), Some(&first_turn));
+    engine.shutdown().await;
+}

@@ -819,6 +819,8 @@ async fn a_chat_created_with_no_folder_works_in_a_scratch_folder_of_its_own() {
     let folder = dir.path().join("chat").join("workspaces").join("loose-1");
     assert_eq!(created["result"]["workingDirectory"], folder.to_string_lossy().as_ref());
     assert!(folder.is_dir());
+    // A repository of its own, so its checkpoints never reach a repository the data folder is in.
+    assert!(folder.join(".git").is_dir());
     let (_, snapshot) = rpc_call(&router, "orchestration.getThreadDetailSnapshot", json!({ "threadId": "loose-1" })).await;
     assert_eq!(snapshot["result"]["thread"]["workingDirectory"], folder.to_string_lossy().as_ref());
     assert_eq!(snapshot["result"]["thread"]["projectId"], STANDALONE_PROJECT_ID);

@@ -19536,9 +19536,6 @@
         }
       }
     },
-    "Choose a folder for the chat's agent to work in" : {
-
-    },
     "Choose a project" : {
 
     },
@@ -22247,9 +22244,6 @@
           }
         }
       }
-    },
-    "Clear Folder" : {
-
     },
     "Clear History" : {
       "extractionState" : "manual",
@@ -40167,9 +40161,6 @@
           }
         }
       }
-    },
-    "Folder…" : {
-
     },
     "Font" : {
       "extractionState" : "manual",
@@ -95477,9 +95468,6 @@
     "The agent starts with this, as if typed at its prompt: skills, file paths and slash commands work." : {
 
     },
-    "The agent works in %@. It asks before running tools." : {
-
-    },
     "The agent works in a folder of the chat's own. It asks before running tools." : {
 
     },
@@ -113860,9 +113848,6 @@
     "What %@ knows" : {
 
     },
-    "What should we ask about %@?" : {
-
-    },
     "What should we ask?" : {
 
     },
@@ -114256,9 +114241,6 @@
           }
         }
       }
-    },
-    "Work in a folder of the chat's own" : {
-
     },
     "Work on %@" : {
 
