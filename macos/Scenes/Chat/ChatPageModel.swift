@@ -102,8 +102,10 @@ enum ChatPageOutput: Equatable {
     @ObservationIgnored private let copy: (String) -> Void
     @ObservationIgnored private var output: (ChatPageOutput) -> Void = { _ in }
     @ObservationIgnored private var host: ChatPageHost?
+    /// Whether the page is this chat's alone, closed with it, rather than kept for the next chat.
+    @ObservationIgnored private var ownsPage = false
     @ObservationIgnored private var appearanceObservation: NSKeyValueObservation?
-    @ObservationIgnored private static let log = Logger(subsystem: "com.cascade.app", category: "chat-page")
+    @ObservationIgnored fileprivate static let log = Logger(subsystem: "com.cascade.app", category: "chat-page")
 
     private enum Stream: Equatable {
         /// The page is not up: nothing goes to it.
@@ -120,7 +122,11 @@ enum ChatPageOutput: Equatable {
     @ObservationIgnored private var requests: [String: Task<Void, Never>] = [:]
 
     /// `output` takes what would go to a web view, and no web view is made: for tests.
-    init(context: ChatPageContext, backend: any ChatPageBackend, copy: @escaping (String) -> Void = { NativeClipboard.copy($0) },
+    /// A chat in `page`, when one is given: the page is kept by whoever gave it, for the chats after
+    /// this one (the chat screen's, `ChatFeatureFactory.chatPage`), and this chat leaves it on
+    /// retire. With none, the chat has a page of its own, closed when it retires.
+    init(context: ChatPageContext, backend: any ChatPageBackend, page: ChatPageHost? = nil,
+         copy: @escaping (String) -> Void = { NativeClipboard.copy($0) },
          output: ((ChatPageOutput) -> Void)? = nil) {
         self.context = context
         self.backend = backend
@@ -132,14 +138,15 @@ enum ChatPageOutput: Equatable {
                 self?.delivered(value)
             }
         } else {
-            // The page's attachment images are read through the same backend as its requests.
-            let host = ChatPageHost(readAttachment: { id in
-                try await backend.call("attachments.read", params: ["attachmentId": .string(id)])
-            })
+            let host = page ?? ChatPageHost()
+            ownsPage = page == nil
             self.host = host
             webView = host.webView
             ChatPageZoom.attach(host.webView)
-            host.owner = self
+            // The page's attachment images are read through the same backend as its requests.
+            host.attach(self, readingAttachments: { id in
+                try await backend.call("attachments.read", params: ["attachmentId": .string(id)])
+            })
             self.output = { [weak host] value in host?.send(value) }
             // AppKit changes a view's appearance on the main thread.
             appearanceObservation = host.webView.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] view, _ in
@@ -148,7 +155,15 @@ enum ChatPageOutput: Equatable {
                     self?.setAppearance(dark ? .dark : .light)
                 }
             }
-            host.load()
+            // A page given is up already, or on its way: it only waits for this chat's context, so
+            // the chat shows at once rather than after a page boots. One that failed to come up
+            // with no chat to tell is told to this one, and loaded again.
+            if host.pageReady {
+                ready()
+            } else {
+                if let failure = host.takeBootFailure() { pageFailed(failure) }
+                host.load()
+            }
         }
     }
 
@@ -182,6 +197,10 @@ enum ChatPageOutput: Equatable {
             params = .object(object)
         }
         requests[id]?.cancel()
+        // Answered through the page, whichever chat is in it by then: the page waits by the
+        // request's id, and a chat that left the page (`ChatPageHost.detach`) is owed its replies
+        // still, for what it sent before leaving to settle as sent. Dropped only with the page.
+        let deliver: (ChatPageOutput) -> Void = host.map { host in { host.send($0) } } ?? output
         requests[id] = Task { [weak self] in
             let reply: JSONValue
             do {
@@ -192,9 +211,9 @@ enum ChatPageOutput: Equatable {
             } catch {
                 reply = ChatRPCError(message: error.localizedDescription).reply
             }
-            guard let self, !retired, !Task.isCancelled else { return }
-            requests[id] = nil
-            send(.reply(id: id, reply))
+            guard !Task.isCancelled else { return }
+            self?.requests[id] = nil
+            deliver(.reply(id: id, reply))
         }
     }
 
@@ -264,12 +283,15 @@ enum ChatPageOutput: Equatable {
         send(.push(channel: "context", try! JSONValue.from(context)))
         let backend = backend, threadID = context.threadId
         Task { [weak self] in
-            if let providers = try? await backend.providers() {
-                guard let self, self.delivery == delivery, !retired else { return }
+            // Asked for together, pushed in the order they were: the providers, then the thread.
+            async let providers: JSONValue? = try? await backend.providers()
+            let read = Task { try await backend.snapshot(threadID: threadID) }
+            if let providers = await providers {
+                guard let self, self.delivery == delivery, !retired else { read.cancel(); return }
                 send(.push(channel: "providers", providers))
             }
             let snapshot: JSONValue?
-            do { snapshot = try await backend.snapshot(threadID: threadID) }
+            do { snapshot = try await read.value }
             catch {
                 guard let self, self.delivery == delivery, !retired else { return }
                 snapshotFailed(error)
@@ -400,6 +422,10 @@ enum ChatPageOutput: Equatable {
         failure = message
     }
 
+    /// The page went to another chat before this one retired (`ChatPageHost.attach`): this chat
+    /// is off it from here, as a retired one is.
+    fileprivate func pageTaken() { leavePage() }
+
     /// The page took a push: a failure shown before is over. Not for `files`, which the person's
     /// own pick, drop or paste sends, and says nothing of whether the page recovered.
     fileprivate func delivered(_ value: ChatPageOutput) {
@@ -415,15 +441,23 @@ enum ChatPageOutput: Equatable {
     func retire() {
         guard !retired else { return }
         retired = true
+        leavePage()
+    }
+
+    /// The chat is off the page from here: nothing more is sent to it or taken from it, and what
+    /// was on its way to it is dropped. The replies it is owed still reach the page (`request`),
+    /// unless the page is its own and closes with it.
+    private func leavePage() {
         delivery = UUID()
         stream = .down
         held = []
-        for task in requests.values { task.cancel() }
+        if ownsPage || host == nil { for task in requests.values { task.cancel() } }
         requests = [:]
         onEvent = { _ in }
         output = { _ in }
         appearanceObservation?.invalidate(); appearanceObservation = nil
-        host?.close(); host = nil
+        if ownsPage { host?.close() } else { host?.detach(self) }
+        host = nil
         webView = nil
     }
 }
@@ -604,10 +638,29 @@ private final class ChatPageWebView: WKWebView {
 }
 
 /// The WebKit side of a chat page: the web view, its scheme, its navigation policy, its open panel
-/// and its message handler. Held by its `ChatPageModel`, never by a view.
-@MainActor private final class ChatPageHost: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+/// and its message handler. Held by its `ChatPageModel`, or by the screen that keeps it across the
+/// chats it shows (`ChatFeatureFactory.chatPage`); never by a view. Synara's client takes a few
+/// hundred milliseconds to boot, so a page kept shows its next chat far sooner than a page made
+/// for it would.
+@MainActor final class ChatPageHost: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let webView: WKWebView
-    weak var owner: ChatPageModel?
+    fileprivate let assets: ChatPageAssets
+    /// The model whose chat is in the page, if one is.
+    private(set) weak var owner: ChatPageModel?
+    /// Where the page's load stands: not loaded (or failed), loading, loaded and booting Synara's
+    /// client, or up (it said `ready`, and has not gone away since). A model that attaches to a
+    /// page that is up hands it its context at once, as the page will not say `ready` again; to
+    /// one loading or booting, it waits for that; to one not loaded, it loads it.
+    private enum Load { case none, loading, booting, up }
+    private var state = Load.none
+    /// The page's own load, told apart from any other navigation the delegate hears of.
+    private var navigation: WKNavigation?
+    /// What went wrong while no chat was in the page (loaded ahead of its first): kept for the
+    /// first chat to show, as the page is loaded again for it.
+    private var bootFailure: String?
+    private var closed = false
+
+    var pageReady: Bool { state == .up }
 
     /// One persistent store for every chat page, a chat's and a terminal transcript's alike: the
     /// page keeps each thread's composer draft and queued follow-ups in its localStorage, and they
@@ -617,10 +670,12 @@ private final class ChatPageWebView: WKWebView {
     /// (`macos/web/chat/src/storage.ts`).
     static let dataStore = WKWebsiteDataStore(forIdentifier: ChatPageModel.dataStoreIdentifier)
 
-    init(readAttachment: @escaping ChatPageAssets.AttachmentReader) {
+    override init() {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = Self.dataStore
-        config.setURLSchemeHandler(ChatPageAssets(readAttachment: readAttachment), forURLScheme: ChatPageAssets.scheme)
+        let assets = ChatPageAssets()
+        self.assets = assets
+        config.setURLSchemeHandler(assets, forURLScheme: ChatPageAssets.scheme)
         let webView = ChatPageWebView(frame: .zero, configuration: config)
         self.webView = webView
         super.init()
@@ -629,10 +684,13 @@ private final class ChatPageWebView: WKWebView {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.takesFiles = { [weak self] in self?.owner?.takesFiles ?? false }
+        // To the chat the files were dropped on, if it is still in the page once they are read.
         webView.onFiles = { [weak self] urls in
+            guard let self, let model = owner else { return }
             Task { [weak self] in
                 let files = await Task.detached(priority: .userInitiated) { ChatPagePick.read(urls) }.value
-                self?.owner?.receiveFiles(files)
+                guard let self, owner === model else { return }
+                model.receiveFiles(files)
             }
         }
         // The page paints its own ground.
@@ -640,18 +698,64 @@ private final class ChatPageWebView: WKWebView {
         webView.setAccessibilityIdentifier("chat-page")
     }
 
-    func load() { webView.load(URLRequest(url: ChatPageAssets.pageURL)) }
+    /// Loads the page, unless it is loaded or on its way.
+    func load() {
+        guard state == .none, !closed else { return }
+        state = .loading
+        navigation = webView.load(URLRequest(url: ChatPageAssets.pageURL))
+    }
 
-    func send(_ value: ChatPageOutput) {
-        webView.evaluateJavaScript(value.script) { [weak self] _, error in
-            guard let self else { return }
-            guard let error else { owner?.delivered(value); return }
+    /// What went wrong with no chat in the page, once, for the chat that attaches next.
+    fileprivate func takeBootFailure() -> String? {
+        defer { bootFailure = nil }
+        return bootFailure
+    }
+
+    /// The page's load or boot failed: told to the chat in the page, or kept for the next.
+    private func failed(_ message: String) {
+        state = .none
+        navigation = nil
+        if let owner { owner.pageFailed(message); return }
+        ChatPageModel.log.error("chat page failed with no chat in it: \(message, privacy: .public)")
+        bootFailure = message
+    }
+
+    /// Shows `model`'s chat, whose attachments `reader` reads. One chat is in the page at a
+    /// time: the one before has left it (`detach`) or closed it with itself; one still in it is
+    /// taken off and cut off from the page (`ChatPageModel.pageTaken`).
+    fileprivate func attach(_ model: ChatPageModel, readingAttachments reader: @escaping ChatPageAssets.AttachmentReader) {
+        if let previous = owner { detach(previous); previous.pageTaken() }
+        owner = model
+        assets.readAttachment = reader
+    }
+
+    /// `model`'s chat leaves the page, which stays for the next chat: its drafts are written now,
+    /// as on a close, and the chat is taken off the page, so the next one never sees it. The view
+    /// stays where it is, for the screen that shows the page next to take. A page that is not up
+    /// has no chat in it to take off.
+    fileprivate func detach(_ model: ChatPageModel) {
+        guard owner === model else { return }
+        owner = nil
+        assets.readAttachment = nil
+        guard pageReady else { return }
+        webView.evaluateJavaScript("window.nativeChat?.flush?.()")
+        send(.push(channel: "context", .null))
+    }
+
+    /// Answered to the model that sent it: by the time the page has run it, the page may be
+    /// another chat's.
+    fileprivate func send(_ value: ChatPageOutput) {
+        guard !closed else { return }
+        let sender = owner
+        webView.evaluateJavaScript(value.script) { _, error in
+            guard let error else { sender?.delivered(value); return }
             let message = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
-            owner?.pageFailed(message)
+            sender?.pageFailed(message)
         }
     }
 
     func close() {
+        closed = true
         // Synara writes drafts on a debounce; have it write them now, before the page goes. The
         // completion holds the web view until the page has.
         let webView = webView
@@ -682,12 +786,14 @@ private final class ChatPageWebView: WKWebView {
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.resolvesAliases = true
         panel.prompt = String(localized: "Add")
+        // To the chat that opened the panel, if it is still in the page when it closes.
+        let model = owner
         let finish: @MainActor (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard response == .OK, !panel.urls.isEmpty else { completionHandler(nil); return }
+            guard response == .OK, !panel.urls.isEmpty, let model, self?.owner === model else { completionHandler(nil); return }
             let images = panel.urls.filter { ChatPagePick.imageType(of: $0) != nil }
             let paths = panel.urls.filter { ChatPagePick.imageType(of: $0) == nil }.map(\.path)
             completionHandler(images.isEmpty ? nil : images)
-            self?.owner?.receiveFiles(ChatPageFiles(paths: paths))
+            model.receiveFiles(ChatPageFiles(paths: paths))
         }
         if let window = webView.window {
             panel.beginSheetModal(for: window) { response in MainActor.assumeIsolated { finish(response) } }
@@ -697,14 +803,52 @@ private final class ChatPageWebView: WKWebView {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        state = .none
+        navigation = nil
         owner?.pageWentAway()
         load()
     }
 
+    // The page's own load, and no other navigation: loaded, Synara's client boots and says
+    // `ready`; failed, the next `load` tries again, and the chat hears of it, unless the load was
+    // stopped on purpose (the page's close).
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard navigation == self.navigation, state == .loading else { return }
+        state = .booting
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        loadFailed(navigation, error)
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        loadFailed(navigation, error)
+    }
+    private func loadFailed(_ navigation: WKNavigation?, _ error: any Error) {
+        guard navigation == self.navigation else { return }
+        let error = error as NSError
+        if error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled {
+            state = .none; self.navigation = nil
+        } else {
+            failed(error.localizedDescription)
+        }
+    }
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.webView === webView, message.frameInfo.isMainFrame,
-              message.frameInfo.request.url == ChatPageAssets.pageURL else { return }
-        owner?.receive(message.body)
+              message.frameInfo.request.url == ChatPageAssets.pageURL,
+              let value = JSONValue(foundation: message.body) else { return }
+        // The page's state is noted here, not by the chat: a page loaded ahead of its first chat
+        // says `ready` to no one, and an error while it boots means `ready` is not coming.
+        if value["kind"]?.string == "event" {
+            switch value["name"]?.string {
+            case "ready":
+                state = .up
+                bootFailure = nil
+            case "error" where state == .booting:
+                failed(String((value["payload"]?["message"]?.string ?? "").prefix(4096)))
+            default: break
+            }
+        }
+        owner?.receive(message: value)
     }
 }
 

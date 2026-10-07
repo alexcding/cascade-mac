@@ -32,7 +32,8 @@
 //   nativeChat.push(channel, payload)
 //   nativeChat.flush()                         the page is about to close: write what Synara
 //                                              holds back for storage (drafts, queued follow-ups)
-//       "context"    ChatContext (below)
+//       "context"    ChatContext (below); null takes the chat off the page, which shows
+//                    nothing until the next context (the app keeps a page across chats)
 //       "providers"  ServerProviderStatus[] (Synara's, as server.getConfig carries them)
 //       "thread"     OrchestrationThreadStreamItem: { kind: "snapshot", snapshot: {
 //                    snapshotSequence, thread } } | { kind: "event", event }
@@ -159,7 +160,9 @@ export function request<T = unknown>(method: string, params: unknown = {}): Prom
 
 /**
  * Rejects the requests of `method` still waiting for the app, coded "cancelled" (their replies
- * are then ignored): a read made for a thread the page no longer shows.
+ * are then ignored): a read made for a thread the page no longer shows. Anything else a chat
+ * that left the page asked for is still answered (ChatPageModel.request), so what it sent
+ * settles as sent.
  */
 export function cancelPending(method: string): void {
   for (const [id, entry] of pending) {

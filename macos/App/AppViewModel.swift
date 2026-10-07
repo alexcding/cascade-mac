@@ -33,6 +33,9 @@ public final class AppViewModel {
     /// The chat backend while connected; a chat page looks it up for each request.
     @ObservationIgnored private(set) var chatService: (any ChatServing)?
     @ObservationIgnored let chatFactory: any ChatFeatureFactory
+    /// The chat screen's page, kept across the chats it shows (`ChatFeatureFactory.chatPage`):
+    /// made for the first chat, or ahead of it (`loadChatPage`).
+    @ObservationIgnored var chatPage: ChatPageHost?
     /// Picks a standalone chat's folder, starting from the one given; nil when cancelled.
     @ObservationIgnored var chooseChatFolder: @MainActor (String?) async -> String? = { AppViewModel.pickFolder(from: $0) }
     /// The chat views on screen, by the terminal they sit over: an agent's approval request goes

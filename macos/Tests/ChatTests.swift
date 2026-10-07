@@ -770,9 +770,7 @@ private actor AttachmentReads {
 /// loads the built page through `ChatPageAssets` in a real web view, checks the origin and that
 /// resolution, and loads an image at such a URL from the scheme, past the page's CSP.
 @MainActor @Test func chatPageResolvesAttachmentURLsOnItsScheme() async throws {
-    ChatPageAssets.directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
-    defer { ChatPageAssets.directoryOverride = nil }
+    ChatPageAssets.useBuiltPage()
     // A 1x1 PNG.
     let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
     let reads = AttachmentReads()
@@ -809,9 +807,7 @@ private actor AttachmentReads {
 /// (Synara's drafts and queued follow-ups) is there for the page made when the chat comes back;
 /// and a page that is retired writes what it holds back first (`nativeChat.flush`).
 @MainActor @Test func chatPagesShareOnePersistentStoreAndFlushWhenRetired() async throws {
-    ChatPageAssets.directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
-    defer { ChatPageAssets.directoryOverride = nil }
+    ChatPageAssets.useBuiltPage()
     func loaded() async throws -> (ChatPageModel, WKWebView) {
         let page = ChatPageModel(context: pageContext(), backend: PageBackend())
         let view = try #require(page.webView)
@@ -844,6 +840,67 @@ private actor AttachmentReads {
     }
     #expect(flushed == "yes", "the retired page did not flush")
     _ = try await secondView.evaluateJavaScript("localStorage.removeItem('\(key)'); localStorage.removeItem('\(key)-flushed'); 0")
+}
+
+/// The chat screen's page is kept across its chats: a chat leaves it on retire, its drafts written
+/// and the chat taken off the page, and the next chat shows in the same page. A chat given no page
+/// has one of its own, closed when it retires.
+@MainActor @Test func aChatScreenPageIsKeptAcrossItsChats() async throws {
+    ChatPageAssets.useBuiltPage()
+    let page = ChatPageHost()
+    defer { page.close() }
+    let first = ChatPageModel(context: pageContext(), backend: PageBackend(), page: page)
+    defer { first.retire() }
+    let view = try #require(first.webView)
+    #expect(view === page.webView)
+    // The page draws once it has its context, which the model pushes on the page's `ready`.
+    var drawn = false
+    for _ in 0..<400 {
+        drawn = try await view.evaluateJavaScript("(document.getElementById('chat')?.childElementCount ?? 0) > 0") as? Bool ?? false
+        if drawn { break }
+        try await Task.sleep(for: .milliseconds(25))
+    }
+    #expect(drawn, "the page did not draw")
+    let key = "cascade-test-\(UUID().uuidString)"
+    _ = try await view.evaluateJavaScript("""
+        document.getElementById('chat').firstElementChild.dataset.chat = 'first';
+        window.__cascadeTestFlushed = () => localStorage.setItem('\(key)', 'written');
+        window.addEventListener('pagehide', window.__cascadeTestFlushed); 0
+        """)
+    first.retire()
+    #expect(first.webView == nil)
+    let second = ChatPageModel(context: pageContext("t2"), backend: PageBackend(), page: page)
+    defer { second.retire() }
+    #expect(second.webView === view, "the next chat did not show in the page")
+    // The first chat's drawing is gone and the second's is drawn in its place.
+    var shown = ""
+    for _ in 0..<400 {
+        shown = try await view.evaluateJavaScript("""
+            (() => { const chat = document.getElementById('chat');
+                     return (chat.childElementCount > 0 && chat.firstElementChild.dataset.chat !== 'first' ? 'second' : 'not yet')
+                            + ':' + (localStorage.getItem('\(key)') ?? ''); })()
+            """) as? String ?? ""
+        if shown == "second:written" { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(shown == "second:written", "expected the second chat drawn and the first's drafts written, got \(shown)")
+    #expect(second.failure == nil)
+    // Taken out before the later flushes, which would write it again.
+    _ = try await view.evaluateJavaScript("window.removeEventListener('pagehide', window.__cascadeTestFlushed); localStorage.removeItem('\(key)'); 0")
+    second.retire()
+    let own = ChatPageModel(context: pageContext(), backend: PageBackend())
+    defer { own.retire() }
+    #expect(own.webView !== view, "a chat given no page has one of its own")
+}
+
+extension ChatPageAssets {
+    /// Serves the page built in the repository (`macos/Resources/ChatPage`), which the test bundle
+    /// does not carry. Set once and left: tests run together, and one clearing it when done would
+    /// stop another's page from loading.
+    static func useBuiltPage() {
+        directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+    }
 }
 
 // MARK: - Sidebar row layout

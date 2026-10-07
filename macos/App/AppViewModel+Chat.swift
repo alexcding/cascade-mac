@@ -67,10 +67,11 @@ extension AppViewModel: ChatCoordinating {
 
     func makeChatModel(threadID: String) -> ChatViewModel? {
         guard chatService != nil, let shell = chats.shell(threadID) else { return nil }
-        return chatModel(for: shell)
+        return chatModel(for: shell, page: chatScreenPage())
     }
 
-    private func chatModel(for shell: ChatThreadShell) -> ChatViewModel {
+    /// The chat's model, in `page` (the chat screen's) or in a page of its own.
+    private func chatModel(for shell: ChatThreadShell, page: ChatPageHost?) -> ChatViewModel {
         let threadID = shell.id
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         // A subagent's thread follows its parent's agent: the page shows it without a composer.
@@ -78,8 +79,19 @@ extension AppViewModel: ChatCoordinating {
                                       projectName: chatPlaceName(shell), appearance: dark ? .dark : .light,
                                       readOnly: shell.subagent)
         return chatFactory.chat(threadID: threadID, shell: shell, context: context,
-                                backend: ChatServiceBackend(service: { [weak self] in self?.chatService }))
+                                backend: ChatServiceBackend(service: { [weak self] in self?.chatService }),
+                                page: page)
     }
+
+    /// The chat screen's page (`chatPage`), made when first wanted.
+    private func chatScreenPage() -> ChatPageHost? {
+        if chatPage == nil { chatPage = chatFactory.chatPage() }
+        return chatPage
+    }
+
+    /// Loads the chat screen's page before a chat is opened in it, so the first chat shows as fast
+    /// as the next. The app calls it once it is up; tests, which do not, load it with their first chat.
+    func loadChatPage() { chatScreenPage()?.load() }
 
     /// The folder a chat works in: its own, or its project's when it names none.
     func chatFolder(_ shell: ChatThreadShell) -> String {
@@ -137,7 +149,8 @@ extension AppViewModel: ChatCoordinating {
 
     func makePaneChat(threadID: String, in context: WorkspaceContext) -> ChatViewModel? {
         guard viewer.contexts[context.id] === context, chatService != nil, let shell = chats.shell(threadID) else { return nil }
-        return chatModel(for: shell)
+        // A tab's page is its own: its chat stays while the chat screen shows others.
+        return chatModel(for: shell, page: nil)
     }
 
     func makePaneNewChat(in context: WorkspaceContext) -> NewChatViewModel? {

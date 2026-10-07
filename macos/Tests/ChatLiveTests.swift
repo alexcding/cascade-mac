@@ -41,8 +41,7 @@ final class ChatLiveTests: XCTestCase {
     init(shots: URL?) {
         self.shots = shots
         if let shots { try? FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true) }
-        ChatPageAssets.directoryOverride = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Resources/ChatPage")
+        ChatPageAssets.useBuiltPage()
     }
 
     func stop() async {
@@ -50,7 +49,6 @@ final class ChatLiveTests: XCTestCase {
         window.orderOut(nil)
         consumer?.cancel()
         await backend?.stop()
-        ChatPageAssets.directoryOverride = nil
         try? FileManager.default.removeItem(at: directory)
     }
 

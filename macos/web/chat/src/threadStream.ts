@@ -214,14 +214,14 @@ export function setStreamThread(threadId: string | null): void {
 
 export function installThreadStream(client: QueryClient): void {
   queryClient = client;
-  // The context names the thread. It is switched here, as the push lands, not when React next
-  // renders: the app pushes the new thread's snapshot right behind its context, in the same
-  // turn, and it must find the stream already on that thread.
-  const followContext = (context: ChatContext | undefined) => {
-    if (context?.threadId) setStreamThread(context.threadId);
+  // The context names the thread, or none (null: the chat left the page). It is switched here, as
+  // the push lands, not when React next renders: the app pushes the new thread's snapshot right
+  // behind its context, in the same turn, and it must find the stream already on that thread.
+  const followContext = (context: ChatContext | null | undefined) => {
+    setStreamThread(context?.threadId ?? null);
   };
-  followContext(latestPush<ChatContext>("context"));
-  onPush<ChatContext>("context", followContext);
+  followContext(latestPush<ChatContext | null>("context"));
+  onPush<ChatContext | null>("context", followContext);
   onPush<StreamItem>("thread", (item) => {
     if (!item || typeof item !== "object") return;
     if (item.kind === "snapshot") {

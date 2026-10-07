@@ -66,6 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let mainWindow = MainWindowController(model: model)
         self.mainWindow = mainWindow
         mainWindow.window?.makeKeyAndOrderFront(nil)
+        // The chat screen's page boots now, so the first chat opens as fast as the next.
+        model.loadChatPage()
         NotificationCenter.default.addObserver(self, selector: #selector(sheetDidEnd),
             name: NSWindow.didEndSheetNotification, object: nil)
         // The terminal surface binds ⌘T, ⌘1–9 and the tab-cycling keys itself and would consume

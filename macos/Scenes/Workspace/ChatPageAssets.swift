@@ -13,7 +13,8 @@ import WebKit
     /// Reads one saved attachment: `attachments.read`'s `{mimeType, dataBase64}`.
     typealias AttachmentReader = @Sendable (String) async throws -> JSONValue
 
-    private let readAttachment: AttachmentReader?
+    /// The chat's in the page (`ChatPageHost.attach`), none while no chat is in it.
+    var readAttachment: AttachmentReader?
     /// Tasks answered later (an attachment) that WebKit has not stopped.
     private var pending: Set<ObjectIdentifier> = []
 

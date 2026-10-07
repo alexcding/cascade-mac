@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 
 import { AnchoredToastProvider, ToastProvider } from "~/components/ui/toast";
 import { useAppSettings } from "~/appSettings";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { useAppDensity } from "~/hooks/useAppDensity";
 import { useAppTypography } from "~/hooks/useAppTypography";
 import { useChatWidth } from "~/hooks/useChatWidth";
@@ -34,6 +35,16 @@ installThreadStream(queryClient);
 // new push refreshes it.
 onPush("providers", () => {
   queryClient.setQueryData(serverQueryKeys.config(), currentServerConfig());
+});
+
+// The app keeps a page across the chats it shows, and loads it before its first chat: another
+// page may have written a chat's drafts since this one read them. On each thread, before anything
+// renders, the page reads them again.
+let drawnThread: string | undefined;
+onPush<ChatContext | null>("context", (context) => {
+  if (context?.threadId === drawnThread) return;
+  drawnThread = context?.threadId;
+  if (context) void useComposerDraftStore.persist.rehydrate();
 });
 
 function subscribeContext(listener: () => void) {

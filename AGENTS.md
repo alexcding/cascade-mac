@@ -19,8 +19,9 @@ The app and backend have two main languages:
 
 There is no Node or Tauri app host. The only bundled application JavaScript is two
 network-less pages, the working-changes diff (`macos/Resources/DiffPage/`) and the agent
-chat (`macos/Resources/ChatPage/`, built from `macos/web/chat/`); WebKit also hosts
-remote context pages. GitHub uses `gh`, Git uses `git`, and most Jira operations use
+chat (`macos/Resources/ChatPage/`, built from `macos/web/chat/`), plus one script built
+beside the chat page that the app runs in JavaScriptCore for the chat's model list
+(`ChatModelCatalog`); WebKit also hosts remote context pages. GitHub uses `gh`, Git uses `git`, and most Jira operations use
 `acli`. Optional Jira REST features, including board columns and Fix Versions, use
 `jira_api_token` from settings. Build tooling and terminal bridges also use shell,
 Python, and C.
@@ -304,7 +305,10 @@ their own, and report back through one message handler.
   GIF, WebP) is read and sent to be uploaded, any other file or folder becomes an `@path` mention.
   `ChatPageModel` hosts it, `ChatPageAssets` serves it on `cascade-chat://`, and a
   `ChatPageBackend` answers it: the chat RPC for a chat session, the terminal transcript (read
-  only) for a terminal session. Only native reaches the backend; the page never does. The app
+  only) for a terminal session. The chat screen keeps one page across the chats it shows
+  (`ChatFeatureFactory.chatPage`), switched from chat to chat as Synara's own client switches
+  threads, rather than booting a page per chat; a pane's Chat tab and a session's conversation
+  have a page each. Only native reaches the backend; the page never does. The app
   ships only the built files: run `npm run build` there after changing it, and commit the output.
 
 Do not add a third page, and do not give either page a way to reach the backend.

@@ -3,7 +3,13 @@ import Observation
 
 /// Builds a chat screen's model, so tests can stand in a page that makes no web view.
 @MainActor protocol ChatFeatureFactory {
-    func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend) -> ChatViewModel
+    /// The page the chat screen shows its chats in, kept across them: a chat is switched in the
+    /// page, as Synara's own client switches threads, far quicker than booting a page for each.
+    /// Nil from a factory whose chats make no web view.
+    func chatPage() -> ChatPageHost?
+    /// A chat's model, in `page` when one is given (the chat screen's), in a page of its own otherwise.
+    func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend,
+              page: ChatPageHost?) -> ChatViewModel
     /// New Task's Chat side: a chat of no project, in a scratch folder the backend makes unless
     /// `chooseFolder` picks one, on `agent` when it is usable.
     func newChat(agent: String?, service: any ChatServing, chooseFolder: @escaping (String) async -> String?) -> NewChatViewModel
@@ -15,6 +21,7 @@ import Observation
 }
 
 extension ChatFeatureFactory {
+    func chatPage() -> ChatPageHost? { nil }
     func paneChat(projectID: String, projectName: String, worktree: String, agent: String?, conversation: String?,
                   service: any ChatServing) -> NewChatViewModel {
         NewChatViewModel(projectID: projectID, projectName: projectName, folder: worktree, service: service,
@@ -24,9 +31,11 @@ extension ChatFeatureFactory {
 }
 
 @MainActor struct NativeChatFeatureFactory: ChatFeatureFactory {
-    func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend) -> ChatViewModel {
+    func chatPage() -> ChatPageHost? { ChatPageHost() }
+    func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend,
+              page: ChatPageHost?) -> ChatViewModel {
         ChatViewModel(threadID: threadID, shell: shell, projectName: context.projectName,
-                      page: ChatPageModel(context: context, backend: backend))
+                      page: ChatPageModel(context: context, backend: backend, page: page))
     }
     func newChat(agent: String?, service: any ChatServing, chooseFolder: @escaping (String) async -> String? = { _ in nil }) -> NewChatViewModel {
         NewChatViewModel(projectID: nil, projectName: nil, folder: "", service: service, chooseFolder: chooseFolder, agent: agent)
