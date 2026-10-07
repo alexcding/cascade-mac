@@ -15,6 +15,8 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
     struct ModelSelection: Decodable, Equatable, Sendable {
         let provider: String
         let model: String
+        /// The provider's model options (effort, speed, the context window), as the page sends them.
+        var options: JSONValue? = nil
     }
     struct LatestTurn: Decodable, Equatable, Sendable {
         let state: String
@@ -92,6 +94,9 @@ struct ChatModelOption: Decodable, Equatable, Hashable, Identifiable, Sendable {
     let slug: String
     var name: String?
     var isDefault: Bool?
+    /// The CLI's whole descriptor (Synara's `ProviderModelDescriptor`), when the CLI gave one: the
+    /// model catalogue reads its efforts and capabilities from it.
+    var descriptor: JSONValue?
     var id: String { slug }
     var title: String { name.flatMap { $0.isEmpty ? nil : $0 } ?? slug }
 }

@@ -53,7 +53,18 @@ extension ChatServing {
         var params: [String: JSONValue] = ["provider": .string(provider)]
         if let cwd, !cwd.isEmpty { params["cwd"] = .string(cwd) }
         let result = try await rpc("provider.listModels", params: .object(params))
-        return (result["models"]?.array ?? []).compactMap { try? $0.decode(ChatModelOption.self) }
+        return (result["models"]?.array ?? []).compactMap { raw in
+            guard var option = try? raw.decode(ChatModelOption.self) else { return nil }
+            option.descriptor = raw
+            return option
+        }
+    }
+
+    /// Synara's `modelSelection`: the provider's model, and its options when there are any.
+    private static func modelSelection(provider: String, model: String, options: JSONValue?) -> JSONValue {
+        var selection: [String: JSONValue] = ["provider": .string(provider), "model": .string(model)]
+        if let options, options != .null { selection["options"] = options }
+        return .object(selection)
     }
 
     /// A Synara `ClientOrchestrationCommand`; answers the sequence of the last event it produced.
@@ -70,7 +81,7 @@ extension ChatServing {
     /// how lists know it is reached from the session. `knowledge` starts it with what that session's
     /// agent knows (Cascade's `knowledgeSource`): the backend finds the conversation and the engine
     /// forks it, or recaps it for another provider; the chat shows none of its messages.
-    func createThread(projectID: String, cwd: String?, provider: String, model: String, worktreePath: String? = nil,
+    func createThread(projectID: String, cwd: String?, provider: String, model: String, options: JSONValue? = nil, worktreePath: String? = nil,
                       knowledge: ChatKnowledgeSource? = nil,
                       title: String = ChatProject.untitled, runtimeMode: String = "approval-required",
                       id: String = UUID().uuidString.lowercased(), now: Date = Date()) async throws -> ChatCreated {
@@ -80,7 +91,7 @@ extension ChatServing {
             "threadId": .string(id),
             "projectId": .string(projectID),
             "title": .string(title),
-            "modelSelection": ["provider": .string(provider), "model": .string(model)],
+            "modelSelection": Self.modelSelection(provider: provider, model: model, options: options),
             "runtimeMode": .string(runtimeMode),
             "interactionMode": "default",
             "envMode": "local",
@@ -99,7 +110,7 @@ extension ChatServing {
     /// Sends `text` as the person's next message in chat `threadID`: Synara's `thread.turn.start`,
     /// on `provider`'s `model`, as the page sends one. `attachments` are what `saveAttachment`
     /// answered, each a Synara `ChatAttachment`.
-    func startTurn(threadID: String, text: String, provider: String, model: String, attachments: [JSONValue] = [],
+    func startTurn(threadID: String, text: String, provider: String, model: String, options: JSONValue? = nil, attachments: [JSONValue] = [],
                    runtimeMode: String = "approval-required", messageID: String = UUID().uuidString.lowercased(),
                    now: Date = Date()) async throws {
         try await dispatch([
@@ -108,7 +119,7 @@ extension ChatServing {
             "threadId": .string(threadID),
             "message": ["messageId": .string(messageID), "role": "user", "text": .string(text),
                         "attachments": .array(attachments)],
-            "modelSelection": ["provider": .string(provider), "model": .string(model)],
+            "modelSelection": Self.modelSelection(provider: provider, model: model, options: options),
             "runtimeMode": .string(runtimeMode),
             "interactionMode": "default",
             "createdAt": .string(ChatTimestamp.string(now)),

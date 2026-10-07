@@ -48,9 +48,21 @@ import UniformTypeIdentifiers
     /// The session worktree a chat started in a session's pane is tagged with; nil elsewhere.
     let worktreePath: String?
     private(set) var agents: [Agent] = []
-    var agent: String? { didSet { if oldValue != agent { Task { await loadModels() } } } }
+    var agent: String? { didSet { if oldValue != agent { modelsLoad = Task { await loadModels() } } } }
+    /// The models' read a change of agent started, for `load` to wait on rather than start another.
+    @ObservationIgnored private var modelsLoad: Task<Void, Never>?
     private(set) var models: [ChatModelOption] = []
-    var model: String?
+    var model: String? { didSet { if oldValue != model { Task { await refreshTraits() } } } }
+    /// The chosen model's traits, as the chat page's picker footer draws them (`ChatModelCatalog`).
+    private(set) var traits: ChatModelTraits?
+    /// The models the CLI reported, with their descriptors, for the catalogue to read traits from.
+    @ObservationIgnored private var reported: [ChatModelOption] = []
+    /// Each listed model's effort ladder, for the picker to know which have one and what a preset's
+    /// effort is called.
+    private(set) var ladders: [String: ChatModelLadder] = [:]
+    /// Each provider's model options as set here (effort, speed, the context window), sent with
+    /// the chat; a provider's stay while another's are set, as the page's sticky selection does.
+    @ObservationIgnored private var optionsByProvider: [String: JSONValue] = [:]
     private(set) var loading = false
     private(set) var loadingModels = false
     private(set) var busy = false
@@ -202,30 +214,91 @@ import UniformTypeIdentifiers
             return Agent(cli: driver.cli, provider: driver.chatProvider, name: driver.shortName, usable: usable, note: note)
         }
         let chosen = agents.first { $0.cli == agent && $0.usable } ?? agents.first(where: \.usable)
-        // A change of agent reads its models by itself, but the form waits for them here.
-        if chosen?.cli != agent { agent = chosen?.cli }
-        await loadModels()
+        // A change of agent reads its models by itself; the form waits for that read here.
+        if chosen?.cli != agent {
+            agent = chosen?.cli
+            await modelsLoad?.value
+        } else {
+            await loadModels()
+        }
         await checkKnowledge()
     }
 
-    /// The chosen agent's models: the ones its status lists, else what `provider.listModels` says.
+    /// The chosen agent's models, as the chat page lists them: Synara's catalogue merged with what
+    /// the CLI reports (`provider.listModels`, through `ChatModelCatalog`), Synara's default
+    /// chosen until another is. With the catalogue out of reach, the CLI's list as it is; with no
+    /// CLI list, the ones the agent's status names.
     func loadModels() async {
         guard !retired, let agent = agents.first(where: { $0.cli == self.agent }) else { models = []; model = nil; return }
         let request = UUID()
         modelsRequest = request
         loadingModels = true
         defer { if modelsRequest == request { loadingModels = false } }
-        var list = statuses[agent.provider]?.models ?? []
-        if list.isEmpty {
-            do { list = try await service.listModels(provider: agent.provider, cwd: folder.isEmpty ? nil : folder) }
-            catch {
-                guard !retired, modelsRequest == request else { return }
-                self.error = error.localizedDescription
-            }
-        }
+        var reported: [ChatModelOption] = []
+        var failure: String?
+        do { reported = try await service.listModels(provider: agent.provider, cwd: folder.isEmpty ? nil : folder) }
+        catch { failure = error.localizedDescription }
         guard !retired, modelsRequest == request else { return }
+        if reported.isEmpty { reported = statuses[agent.provider]?.models ?? [] }
+        // The CLI's list failing is told only when it leaves nothing to list.
+        if reported.isEmpty, let failure { self.error = failure }
+        let list = await ChatModelCatalog.shared.list(provider: agent.provider, runtime: reported) ?? reported
+        guard !retired, modelsRequest == request else { return }
+        self.reported = reported
         models = list
         if !list.contains(where: { $0.slug == model }) { model = (list.first { $0.isDefault == true } ?? list.first)?.slug }
+        let ladders = await ChatModelCatalog.shared.ladders(provider: agent.provider, runtime: reported) ?? [:]
+        guard !retired, modelsRequest == request else { return }
+        self.ladders = ladders
+        await refreshTraits()
+    }
+
+    // MARK: The model's traits
+
+    private var provider: String? { agents.first { $0.cli == agent }?.provider }
+    /// The chosen provider's model options, sent with the chat.
+    var options: JSONValue? { provider.flatMap { optionsByProvider[$0] } }
+
+    /// The chosen model's traits, read again: after the model, its options, or the list changed.
+    func refreshTraits() async {
+        guard !retired, let provider, let model else { traits = nil; return }
+        let value = await ChatModelCatalog.shared.traits(provider: provider, model: model, runtime: reported, options: optionsByProvider[provider] ?? [:])
+        guard !retired, self.model == model, self.provider == provider else { return }
+        traits = value
+    }
+
+    /// The effort the chat runs at; a level the page sets through the prompt (Ultrathink) is not one.
+    func setEffort(_ value: String) async {
+        guard !retired, let provider, let model else { return }
+        guard let next = await ChatModelCatalog.shared.setEffort(provider: provider, model: model, runtime: reported,
+                                                                 options: optionsByProvider[provider] ?? [:], value: value) else { return }
+        await apply(next, to: provider)
+    }
+
+    /// Speed, thinking, the context window: one option laid over the chosen provider's.
+    func setTrait(_ patch: JSONValue) async {
+        guard !retired, let provider else { return }
+        guard let next = await ChatModelCatalog.shared.setTrait(provider: provider, options: optionsByProvider[provider] ?? [:], patch: patch) else { return }
+        await apply(next, to: provider)
+    }
+
+    /// The context window option, under the id the model's descriptor gives it.
+    func setContext(_ value: String) async {
+        await setTrait([(traits?.contextId ?? "contextWindow"): .string(value)])
+    }
+
+    /// Back at the model's default effort and standard speed.
+    func resetTraits() async {
+        guard !retired, let provider, let model else { return }
+        guard let next = await ChatModelCatalog.shared.resetTraits(provider: provider, model: model, runtime: reported,
+                                                                    options: optionsByProvider[provider] ?? [:]) else { return }
+        await apply(next, to: provider)
+    }
+
+    private func apply(_ options: JSONValue, to provider: String) async {
+        guard !retired else { return }
+        optionsByProvider[provider] = options
+        await refreshTraits()
     }
 
     /// A standalone chat's folder, picked; the models are read again for it, since a CLI may offer
@@ -264,6 +337,7 @@ import UniformTypeIdentifiers
         let title = ChatProject.untitled
         let draft = prompt
         let files = attachments
+        let options = options
         do {
             // Read before the chat is made: an image too large, or one gone, makes no chat.
             let parts = try await ChatFirstMessage.read(files, saved: Set(saved.keys))
@@ -274,11 +348,11 @@ import UniformTypeIdentifiers
             } else {
                 // No folder: the backend makes the chat a scratch folder of its own, and says which.
                 let created = try await service.createThread(projectID: project, cwd: folder.isEmpty ? nil : folder,
-                                                             provider: agent.provider, model: model,
+                                                             provider: agent.provider, model: model, options: options,
                                                              worktreePath: worktreePath, knowledge: knowledge, title: title)
                 let now = ChatTimestamp.string()
                 shell = ChatThreadShell(id: created.id, projectId: project, title: title,
-                                        modelSelection: .init(provider: agent.provider, model: model),
+                                        modelSelection: .init(provider: agent.provider, model: model, options: options),
                                         runtimeMode: "approval-required",
                                         workingDirectory: created.workingDirectory ?? folder, worktreePath: worktreePath,
                                         createdAt: now, updatedAt: now)
@@ -312,7 +386,7 @@ import UniformTypeIdentifiers
             if !text.isEmpty || !images.isEmpty {
                 let selection = shell.modelSelection
                 try await service.startTurn(threadID: shell.id, text: text, provider: selection?.provider ?? agent.provider,
-                                            model: selection?.model ?? model, attachments: images)
+                                            model: selection?.model ?? model, options: selection?.options ?? options, attachments: images)
                 guard !retired else { return }
             }
             onAction(.created(shell))

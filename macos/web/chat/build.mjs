@@ -153,6 +153,10 @@ for (const [source, name] of workers) {
   await build({ ...common, entryPoints: [source], outfile: join(out, name), format: "esm" });
 }
 
+// The page's model catalogue and merge as one script the app runs in JavaScriptCore
+// (ChatModelCatalog in the app; src/modelCatalog.ts): no page loads it.
+await build({ ...common, entryPoints: [join(here, "src/modelCatalog.ts")], outfile: join(out, "ChatModelCatalog.js"), format: "iife" });
+
 // Tailwind compiles Synara's theme and utilities; the CSS the bundle imports (KaTeX) follows.
 const tailwindOut = join(temp, "tailwind.css");
 execFileSync(join(here, "node_modules/.bin/tailwindcss"), ["-i", join(here, "src/styles.css"), "-o", tailwindOut, "--minify"], {

@@ -60,6 +60,14 @@ The closure is computed from what `src/` imports, so using another Synara module
 importing it and re-running the script; the build stops with "Synara module not vendored" until
 then.
 
+## The model catalogue, for the app
+
+`src/modelCatalog.ts` is built beside the page as `ChatModelCatalog.js`: Synara's catalogue
+(`MODEL_OPTIONS_BY_PROVIDER`), its default per provider, and the merge the page's picker runs over
+what the CLI reported (`mergeDynamicModelOptions`), behind one global, `cascadeModelCatalog`. The
+app runs it in JavaScriptCore (`Services/Chat/ChatModelCatalog.swift`) so a new chat's form lists
+models as the chat's composer does; no page loads it, and it reaches nothing.
+
 ## Shims
 
 A shim lives at `src/shims/<area>/<path>` and replaces `<area>`'s module at that path wherever
@@ -70,6 +78,8 @@ it is imported (`web` = `apps/web/src`, `shared` = `packages/shared/src`, `contr
 |---|---|
 | `web/nativeApi.ts` | Synara's `NativeApi` is a WebSocket RPC client (`wsNativeApi.ts`, `wsTransport.ts`) or Electron's preload. Here it is a proxy over the bridge: the methods listed below are forwarded as RPCs, a few are answered in the page, everything else rejects as unavailable. Cuts the whole transport out of the bundle. |
 | `web/lib/central-icons.tsx` | Synara serves its icons as files under `/central-icons-*`; the app's scheme serves only flat html/css/js. The build inlines the vendored SVGs and the shim hands them out as `data:` URLs. Same exports. |
+| `web/lib/icons.tsx` | Synara draws a fork with its branch glyph, which in Cascade is the session's branch. `GitForkIcon` is Cascade's own fork mark; same exports otherwise. |
+| `web/components/chat/ComposerModelPicker.logic.ts` | The model picker takes ⌘1…⌘9 for its rows while open and labels them so; in Cascade those chords are the sidebar's. No row answers a chord and none is labelled with one; same exports otherwise. |
 | `npm/@tanstack/react-router` | No router: one thread per page. `useParams` answers the page's thread (toasts scope by it), `useSearch` answers no search, the history goes nowhere (a push to `/settings` is told to the app as `openSettings`). |
 
 Build-level adaptations (no file changed): `import.meta.env.*` is defined (production, no
@@ -125,7 +135,7 @@ window.nativeChat.flush()   // the page is about to close: Synara's stores write
 
 | channel | payload |
 |---|---|
-| `context` | `ChatContext` (below). Push before anything else and again whenever it changes; a new `threadId` replaces the conversation. |
+| `context` | `ChatContext` (below). Push before anything else and again whenever it changes; a new `threadId` replaces the conversation. `null` takes the chat off the page, which shows nothing until the next context: the app keeps a page across the chats it shows. |
 | `providers` | `ServerProviderStatus[]`, Synara's (`contracts/server.ts`), as its `server.getConfig` carries them: `{ provider, instanceId?, driver?, displayName?, enabled?, status: "ready"\|"warning"\|"error", available, authStatus: "authenticated"\|"unauthenticated"\|"unknown", checkedAt, message?, … }`. The page answers `server.getConfig` from it. |
 | `thread` | `OrchestrationThreadStreamItem`: `{ kind: "snapshot", snapshot: { snapshotSequence, thread: OrchestrationThread } }` or `{ kind: "event", event: OrchestrationEvent }`. |
 | `files` | `{ paths: string[], images: [{ name, mimeType, dataBase64 }] }`, for the composer: each path (absolute, of a file or folder) becomes an `@path` mention, never uploaded; each image goes into Synara's image intake as a pasted one does (prepared, held to `PROVIDER_SEND_TURN_MAX_ATTACHMENTS`, uploaded with the message). Refused whole, with a toast, while a plan question waits. Sent for the app's open panel ("+" → Files and folders: paths only, its images go back through the file input) and for a drop or paste of Finder files, which the app takes whole so WebKit never delivers it: WebKit would give those `File`s no path. The app sorts each file once, on disk with links resolved (`ChatPagePick`): a regular file of an image type the agents take (PNG, JPEG, GIF, WebP) and at most 32 MB is read and sent as an image; anything else, a folder named like an image included, goes by path (`src/nativeFiles.ts`). A drop or paste with no Finder files (an image dragged from a web page, a screenshot on the clipboard) reaches the page as it is: any `image/*` file is uploaded as Synara does, a file with no path is refused. |
