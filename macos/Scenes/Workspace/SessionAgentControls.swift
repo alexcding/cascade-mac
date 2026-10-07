@@ -14,6 +14,9 @@ struct AgentPreset: Codable, Equatable, Identifiable, Sendable {
 struct AgentPresetList: RawRepresentable, Equatable {
     var presets: [AgentPreset] = []
 
+    /// The preference a CLI's presets are kept under, read wherever the panel opens (`AgentPresetStore`).
+    static func key(for cli: String) -> String { "workspace.agentPresetList.\(cli)" }
+
     init() {}
     init?(rawValue: String) {
         guard let data = rawValue.data(using: .utf8),
@@ -49,7 +52,7 @@ struct SessionAgentControlsView: View {
     let model: SessionWorkspaceViewModel
     let driver: any AgentDriver
     @AppStorage private var list: AgentPresetList
-    @State private var configuring = false
+    @State private var picking = false
     @State private var confirmingClear = false
     @State private var hoveringModel = false
     @State private var hoveringContext = false
@@ -58,7 +61,7 @@ struct SessionAgentControlsView: View {
 
     init(model: SessionWorkspaceViewModel, driver: any AgentDriver) {
         self.model = model; self.driver = driver
-        _list = AppStorage(wrappedValue: AgentPresetList(), "workspace.agentPresetList.\(driver.cli)")
+        _list = AppStorage(wrappedValue: AgentPresetList(), AgentPresetList.key(for: driver.cli))
     }
 
     private var presets: [AgentPreset] { list.resolved(in: model.agentCatalog) }
@@ -93,37 +96,25 @@ struct SessionAgentControlsView: View {
         return (listed?.name ?? selection.model, listed?.efforts.first { $0.id == selection.effort }?.name)
     }
 
-    private func isActive(_ selection: AgentSelection) -> Bool { model.isRunning(selection) }
-
+    /// The button names what the agent is really running; the panel it opens is the chat
+    /// page's model picker, native (`AgentModelPanel`).
     private var modelMenu: some View {
-        Menu {
-            // The button always names what the agent is really running. When that is none of the
-            // presets, say so here too, so an unticked list is not a puzzle.
-            if let running = model.agentSelection, !presets.contains(where: { isActive($0.selection) }) {
-                let name = title(running)
-                Text(String(localized: "Running \([name.model, name.effort].compactMap { $0 }.joined(separator: " · ")), not a preset"))
-                Divider()
-            }
-            ForEach(presets) { preset in
-                let name = title(preset.selection)
-                let label = [name.model, name.effort].compactMap { $0 }.joined(separator: " · ")
-                Toggle(preset.shortcut.map { "\(label)    \($0.title)" } ?? label,
-                       isOn: Binding(get: { isActive(preset.selection) }, set: { _ in model.switchAgent(to: preset.selection) }))
-                    .disabled(!model.canSendAgentCommand)
-            }
-            Divider()
-            Button(String(localized: "Edit Presets…")) { configuring = true }
-        } label: {
+        Button { picking.toggle() } label: {
             let running = model.agentSelection.map(title)
             // The model is what you read; its effort is a badge beside it, not a second word.
             HStack(spacing: 6) {
-                Text(running?.model ?? String(localized: "Model")).fontWeight(.medium)
-                if let effort = running?.effort {
-                    Text(effort)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Theme.surfaceHover, in: Capsule())
+                if picking {
+                    // Frozen while the panel is open, as the page's trigger is: the pick is made there.
+                    Text(String(localized: "Select effort")).fontWeight(.medium).foregroundStyle(Theme.textSecondary)
+                } else {
+                    Text(running?.model ?? String(localized: "Model")).fontWeight(.medium)
+                    if let effort = running?.effort {
+                        Text(effort)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.textSecondary)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Theme.surfaceHover, in: Capsule())
+                    }
                 }
             }
             .padding(.horizontal, 10)
@@ -131,12 +122,21 @@ struct SessionAgentControlsView: View {
             .background(hoveringModel ? Theme.surfaceHover.opacity(0.6) : .clear, in: Capsule())
             .contentShape(Capsule())
         }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .onHover { hoveringModel = $0 }
         .help(String(localized: "Switch the agent’s model and effort"))
-        .popover(isPresented: $configuring, arrowEdge: .bottom) {
-            AgentPresetEditor(catalog: model.agentCatalog, presets: Binding(get: { presets }, set: { list.presets = $0 }))
+        .accessibilityIdentifier("agent-model-button")
+        .floatingPanel(isPresented: $picking) {
+            let agent = SessionAgent(rawValue: driver.cli) ?? .shell
+            let running = model.agentSelection
+            let listed = running.flatMap { model.agentCatalog.model($0.model) }
+            AgentModelPanel(agents: [.init(agent: agent, catalog: model.agentCatalog)], currentAgent: agent, current: running,
+                            canChoose: model.canSendAgentCommand, offersDefault: false, editsShortcuts: true,
+                            isCurrent: { _, selection in model.isRunning(selection) }, chooseAgent: { _ in },
+                            choose: { _, selection in if let selection { model.switchAgent(to: selection) } }, dismiss: { picking = false },
+                            traits: listed.map { AgentModelTraits(model: $0, effort: running?.effort) },
+                            onEffort: { level in if let listed { model.switchAgent(to: AgentSelection(model: listed.id, effort: level)) } },
+                            onReset: { if let listed { model.switchAgent(to: AgentSelection(model: listed.id, effort: listed.defaultEffort)) } })
         }
     }
 
@@ -262,7 +262,8 @@ private struct ContextRing: View {
 }
 
 /// Any number of presets: a model, its effort, and the shortcut that switches to it.
-private struct AgentPresetEditor: View {
+/// The presets as a table: model, effort, shortcut; reached from the model panel's ★ tab.
+struct AgentPresetEditor: View {
     let catalog: AgentCatalog
     @Binding var presets: [AgentPreset]
     @State private var rejection: String?

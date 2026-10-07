@@ -226,7 +226,7 @@ struct SessionWorkspaceView: View {
                 .allowsHitTesting(!model.chatCoversTerminal)
                 .overlay(alignment: .top) {
                     if model.showsChat, let chat = model.chat {
-                        TranscriptChatOverlay(chat: chat, busy: terminal.agentBusy, idle: terminal.agentTurns.idle,
+                        TranscriptChatOverlay(chat: chat, workspace: model, busy: terminal.agentBusy, idle: terminal.agentTurns.idle,
                                               asking: terminal.agentTurns.mayBeAsking,
                                               startedAt: terminal.agentStartedAt, active: model.isActive,
                                               placeholder: model.session?.agent.chatPlaceholder ?? "")

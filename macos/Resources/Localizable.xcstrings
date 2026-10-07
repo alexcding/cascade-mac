@@ -1047,6 +1047,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ (default)" : {
+
+    },
     "%@ (not available here)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4806,6 +4809,16 @@
     },
     "%lld more not shown" : {
 
+    },
+    "%lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld"
+          }
+        }
+      }
     },
     "%lld opened" : {
       "extractionState" : "manual",
@@ -39771,6 +39784,9 @@
         }
       }
     },
+    "Fast mode" : {
+
+    },
     "Fetch before creating" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43877,6 +43893,9 @@
           }
         }
       }
+    },
+    "Give the presets keyboard shortcuts" : {
+
     },
     "Glass (default)" : {
       "extractionState" : "manual",
@@ -60915,6 +60934,9 @@
         }
       }
     },
+    "No matches" : {
+
+    },
     "No matching entries." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -60991,6 +61013,9 @@
           }
         }
       }
+    },
+    "No models found" : {
+
     },
     "No models to choose from: the agent starts on its default." : {
       "extractionState" : "manual",
@@ -61070,6 +61095,7 @@
       }
     },
     "No models to choose from." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -76283,6 +76309,9 @@
         }
       }
     },
+    "Reasoning effort" : {
+
+    },
     "Reattach" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -78213,6 +78242,9 @@
         }
       }
     },
+    "Remove %@ from starred" : {
+
+    },
     "Remove all visited pages from history and address suggestions." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -79599,6 +79631,9 @@
         }
       }
     },
+    "Remove Ultrathink from the prompt to change effort." : {
+
+    },
     "Remove…" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -80679,6 +80714,9 @@
           }
         }
       }
+    },
+    "Reset to defaults" : {
+
     },
     "Reset to Defaults" : {
       "extractionState" : "manual",
@@ -86422,6 +86460,9 @@
         }
       }
     },
+    "Search models…" : {
+
+    },
     "Search or enter website name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -86652,6 +86693,9 @@
           }
         }
       }
+    },
+    "Search starred…" : {
+
     },
     "Search this worktree from the tab above, or use the folder to browse it." : {
       "extractionState" : "manual",
@@ -87117,6 +87161,9 @@
           }
         }
       }
+    },
+    "Select effort" : {
+
     },
     "Select tab" : {
       "extractionState" : "manual",
@@ -89272,6 +89319,9 @@
           }
         }
       }
+    },
+    "Shortcuts…" : {
+
     },
     "Show %@" : {
 
@@ -91977,6 +92027,18 @@
           }
         }
       }
+    },
+    "Standard speed" : {
+
+    },
+    "Star %@ with its current effort" : {
+
+    },
+    "Star a model to pin it here together with its effort, then pick it in one click." : {
+
+    },
+    "Starred" : {
+
     },
     "Start" : {
       "localizations" : {
@@ -111162,6 +111224,9 @@
           }
         }
       }
+    },
+    "Unavailable" : {
+
     },
     "Unavailable (%@)" : {
       "extractionState" : "manual",

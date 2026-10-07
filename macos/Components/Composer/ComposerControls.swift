@@ -102,7 +102,10 @@ struct ComposerAgentButton<Chooser: View>: View {
     var detail: String?
     let help: String
     let identifier: String
-    /// The popover; it is handed what closes it.
+    /// Read in place of the title while the panel is open, as the page's trigger reads "Select
+    /// effort" while its picker is: the label does not change width under the panel.
+    var openLabel: String? = nil
+    /// The panel that hangs under the button; it is handed what closes it.
     @ViewBuilder let chooser: (_ close: @escaping () -> Void) -> Chooser
     @State private var open = false
     @State private var hovering = false
@@ -112,8 +115,12 @@ struct ComposerAgentButton<Chooser: View>: View {
         Button { open.wrappedValue.toggle() } label: {
             HStack(spacing: 6) {
                 StartAgentMark(agent: agent)
-                Text(title).foregroundStyle(.primary).lineLimit(1)
-                if let detail { Text(detail).foregroundStyle(.secondary).lineLimit(1) }
+                if open.wrappedValue, let openLabel {
+                    Text(openLabel).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Text(title).foregroundStyle(.primary).lineLimit(1)
+                    if let detail { Text(detail).foregroundStyle(.secondary).lineLimit(1) }
+                }
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
             }
             .font(.system(size: 14))
@@ -123,7 +130,7 @@ struct ComposerAgentButton<Chooser: View>: View {
         }
         .buttonStyle(.plain).fixedSize()
         .onHover { hovering = $0 }
-        .popover(isPresented: open, arrowEdge: .bottom) { chooser { open.wrappedValue = false } }
+        .floatingPanel(isPresented: open) { chooser { open.wrappedValue = false } }
         .help(help)
         .accessibilityIdentifier(identifier)
     }

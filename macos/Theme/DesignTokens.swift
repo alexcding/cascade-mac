@@ -52,6 +52,11 @@ struct ThemePalette: Sendable {
     let danger, dangerBackground: ThemeColor
     let merged, mergedBackground: ThemeColor
     let syntaxKeyword, syntaxString, syntaxComment, syntaxNumber, syntaxFunction: ThemeColor
+    /// The chat page's picker panel (Synara's, on its default theme), for the app's own pickers
+    /// to read as the same: its fill, text, muted text, hairline, the fill under the pointer and
+    /// under the pick, its accent, its star, and its shadow.
+    let chatPanel, chatPanelText, chatPanelMuted, chatPanelBorder, chatPanelHover, chatPanelSelected: ThemeColor
+    let chatPanelAccent, chatPanelStar, chatPanelShadow: ThemeColor
 }
 
 extension ThemePalette {
@@ -76,7 +81,20 @@ extension ThemePalette {
         syntaxString: .init(light: 0x0A3069, dark: 0xA5D6FF),
         syntaxComment: .init(light: 0x6E7781, dark: 0x8B949E),
         syntaxNumber: .init(light: 0x0550AE, dark: 0x79C0FF),
-        syntaxFunction: .init(light: 0x8250DF, dark: 0xD2A8FF)
+        syntaxFunction: .init(light: 0x8250DF, dark: 0xD2A8FF),
+        // As the built chat page resolves them (`--popover`, `--color-text-foreground`,
+        // `--muted-foreground`, `--border`, `--color-background-button-secondary-hover`,
+        // `--color-background-elevated-secondary`, `--color-text-accent`, Tailwind's amber-400,
+        // and the picker's own shadow) in light and dark.
+        chatPanel: .init(light: 0xFFFFFF, dark: 0x171717),
+        chatPanelText: .init(light: 0x0D0D0D, dark: 0xFCFCFC),
+        chatPanelMuted: .init(light: 0x0D0D0D, dark: 0xFCFCFC, lightAlpha: 0.596, darkAlpha: 0.58),
+        chatPanelBorder: .init(light: 0x0D0D0D, dark: 0xFCFCFC, lightAlpha: 0.07, darkAlpha: 0.07),
+        chatPanelHover: .init(light: 0x0D0D0D, dark: 0xFCFCFC, lightAlpha: 0.03, darkAlpha: 0.04),
+        chatPanelSelected: .init(light: 0x0D0D0D, dark: 0xFCFCFC, lightAlpha: 0.04, darkAlpha: 0.008),
+        chatPanelAccent: .init(light: 0x0169CC, dark: 0x3386D6),
+        chatPanelStar: .init(light: 0xFBBF24, dark: 0xFBBF24),
+        chatPanelShadow: .init(light: 0x0D0D0D, dark: 0x000000, lightAlpha: 0.07, darkAlpha: 0.30)
     )
 }
 
@@ -100,6 +118,15 @@ enum Theme {
     static var dangerBackground: Color { palette.dangerBackground.color }
     static var merged: Color { palette.merged.color }
     static var mergedBackground: Color { palette.mergedBackground.color }
+    static var chatPanel: Color { palette.chatPanel.color }
+    static var chatPanelText: Color { palette.chatPanelText.color }
+    static var chatPanelMuted: Color { palette.chatPanelMuted.color }
+    static var chatPanelBorder: Color { palette.chatPanelBorder.color }
+    static var chatPanelHover: Color { palette.chatPanelHover.color }
+    static var chatPanelSelected: Color { palette.chatPanelSelected.color }
+    static var chatPanelAccent: Color { palette.chatPanelAccent.color }
+    static var chatPanelStar: Color { palette.chatPanelStar.color }
+    static var chatPanelShadow: Color { palette.chatPanelShadow.color }
 
     enum Typography {
         /// 11.5 — `.hook-pill`.

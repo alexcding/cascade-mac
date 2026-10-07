@@ -10,6 +10,9 @@ import UniformTypeIdentifiers
 /// so it cannot answer a question the agent asks first in the terminal.
 struct TranscriptChatOverlay: View {
     @Bindable var chat: TranscriptChatModel
+    /// The session, for its agent's model: the composer's model button opens the model panel on
+    /// it, as the chat page's composer does.
+    let workspace: SessionWorkspaceViewModel
     let busy: Bool
     /// Known to be at its prompt, where typing is safe.
     let idle: Bool
@@ -62,6 +65,26 @@ struct TranscriptChatOverlay: View {
 
     private var modelName: String {
         chat.turns.last { $0.model != nil }?.model ?? chat.agentName
+    }
+
+    /// The model as the page's composer has it: the agent's mark, the model and its effort, a
+    /// button that opens the model panel on the session's agent, the same panel as the toolbar's.
+    @ViewBuilder private var modelButton: some View {
+        let agent = workspace.session?.agent ?? .shell
+        let running = workspace.agentSelection
+        let listed = running.flatMap { workspace.agentCatalog.model($0.model) }
+        let effortName = running?.effort.flatMap { effort in listed?.efforts.first { $0.id == effort }?.name }
+        ComposerAgentButton(agent: agent, title: listed?.name ?? running?.model ?? modelName, detail: effortName,
+                            help: String(localized: "Switch the agent’s model and effort"),
+                            identifier: "transcript-chat-agent", openLabel: String(localized: "Select effort")) { close in
+            AgentModelPanel(agents: [.init(agent: agent, catalog: workspace.agentCatalog)], currentAgent: agent, current: running,
+                            canChoose: workspace.canSendAgentCommand, offersDefault: false, editsShortcuts: true,
+                            isCurrent: { _, selection in workspace.isRunning(selection) }, chooseAgent: { _ in },
+                            choose: { _, selection in if let selection { workspace.switchAgent(to: selection) } }, dismiss: close,
+                            traits: listed.map { AgentModelTraits(model: $0, effort: running?.effort) },
+                            onEffort: { level in if let listed { workspace.switchAgent(to: AgentSelection(model: listed.id, effort: level)) } },
+                            onReset: { if let listed { workspace.switchAgent(to: AgentSelection(model: listed.id, effort: listed.defaultEffort)) } })
+        }
     }
 
     /// Take a held message back, or push it on.
@@ -122,7 +145,7 @@ struct TranscriptChatOverlay: View {
                     .accessibilityLabel(String(localized: "Fork Session"))
                     .accessibilityIdentifier("transcript-chat-fork")
                     Spacer()
-                    Text(modelName).font(.callout).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    modelButton
                     Button {
                         Task { await chat.send() }
                     } label: {

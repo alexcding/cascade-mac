@@ -85,8 +85,8 @@ struct PaneChatComposer: View {
                             Spacer(minLength: 0)
                             ComposerAgentButton(agent: model.agentMark, title: model.agentTitle,
                                                 help: String(localized: "The agent and model the chat starts with"),
-                                                identifier: "pane-chat-agent") { _ in
-                                PaneChatAgentChooser(model: model)
+                                                identifier: "pane-chat-agent", openLabel: String(localized: "Select effort")) { close in
+                                PaneChatAgentChooser(model: model, done: close)
                             }
                             ComposerStartButton(enabled: model.canStart, label: String(localized: "Start Chat"),
                                                 identifier: "pane-chat-create") { Task { await model.start() } }
@@ -201,42 +201,53 @@ extension View {
     }
 }
 
-/// A chat composer's agent menu, a pane's and New Task's: the chat agents as tabs along the top, and
-/// the chosen one's models under them. Picks keep it open; a click outside closes it.
+/// A chat composer's agent menu, a pane's and New Task's: the model panel (`AgentModelPanel`) with
+/// a tab per chat agent and the chosen one's models under its tab, the ones the chat page would
+/// list (`NewChatViewModel.loadModels`). A tab click picks that agent; a pick closes it.
 struct PaneChatAgentChooser: View {
-    @Bindable var model: NewChatViewModel
+    let model: NewChatViewModel
+    let done: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                ForEach(model.agents) { agent in
-                    if let mark = SessionAgent(rawValue: agent.cli) {
-                        AgentTab(agent: mark, selected: model.agent == agent.cli,
-                                 unavailable: agent.usable ? nil : agent.note ?? String(localized: "Not available")) {
-                            model.agent = agent.cli
-                        }
-                    }
+        let agents = model.agents.compactMap { agent -> AgentModelPanel.Agent? in
+            guard let mark = SessionAgent(rawValue: agent.cli) else { return nil }
+            let chosen = agent.cli == model.agent
+            var catalog: AgentCatalog?
+            if chosen, !model.models.isEmpty {
+                var listed = AgentCatalog()
+                listed.models = model.models.map { option in
+                    let ladder = model.ladders[option.slug]
+                    return AgentCatalog.Model(id: option.slug, alias: option.slug, name: option.title,
+                                              efforts: ladder?.levels.map { .init(id: $0.value, name: $0.label) } ?? [],
+                                              defaultEffort: ladder?.defaultEffort)
                 }
+                catalog = listed
             }
-            .padding(8)
-            Divider()
-            if model.models.isEmpty {
-                Text(model.loadingModels ? String(localized: "Loading models…") : String(localized: "No models to choose from."))
-                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 14)
-            } else {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Model").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                        .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
-                    ForEach(model.models) { option in
-                        ChoiceRow(title: option.title, selected: model.model == option.slug) { model.model = option.slug }
-                    }
-                }
-                .padding(.horizontal, 6).padding(.bottom, 8)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
+            // Another agent's models are read once it is picked; its tab says so until then.
+            return .init(agent: mark, catalog: catalog, loading: chosen ? model.loadingModels : agent.usable,
+                         unavailable: agent.usable ? nil : agent.note ?? String(localized: "Not available"))
         }
-        .frame(width: 320)
+        AgentModelPanel(agents: agents,
+                        currentAgent: SessionAgent(rawValue: model.agent ?? "") ?? agents.first?.agent ?? .shell,
+                        current: model.model.map { AgentSelection(model: $0, effort: nil) },
+                        canChoose: true, offersDefault: false, editsShortcuts: false,
+                        isCurrent: { agent, selection in
+                            agent.rawValue == model.agent && selection.model == model.model
+                                && (selection.effort == nil || selection.effort == model.traits?.effort)
+                        },
+                        chooseAgent: { model.agent = $0.rawValue },
+                        choose: { agent, selection in
+                            model.agent = agent.rawValue
+                            model.model = selection?.model
+                            // A preset's effort comes with it; a model row's is the one carried.
+                            if let effort = selection?.effort { Task { await model.setEffort(effort) } }
+                        },
+                        dismiss: done,
+                        traits: model.traits.map(AgentModelTraits.init),
+                        onEffort: { value in Task { await model.setEffort(value) } },
+                        onFastMode: { on in Task { await model.setTrait(["fastMode": .bool(on)]) } },
+                        onThinking: { on in Task { await model.setTrait(["thinking": .bool(on)]) } },
+                        onContext: { value in Task { await model.setContext(value) } },
+                        onReset: { Task { await model.resetTraits() } })
     }
 }

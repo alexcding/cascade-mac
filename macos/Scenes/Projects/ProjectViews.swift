@@ -420,83 +420,40 @@ private struct ComposerAgentMenu: View {
     var body: some View {
         ComposerAgentButton(agent: model.agent, title: title, detail: effortName,
                             help: String(localized: "The agent, model and effort the session starts with"),
-                            identifier: "project-composer-agent") { close in
+                            identifier: "project-composer-agent", openLabel: String(localized: "Select effort")) { close in
             AgentChooser(model: model, done: close)
         }
     }
 }
 
-/// The agent menu's popover: the agent as tabs along the top, and under them the chosen agent's
-/// models and that model's efforts side by side, so a model and its effort are picked together.
-/// Picks keep it open; a click outside closes it.
+/// The agent menu's panel: the model panel (`AgentModelPanel`) with a tab per agent and a plain
+/// shell, the chosen agent's models under its tab, and the CLI's own default on offer. A tab click
+/// picks that agent; a pick closes it.
 private struct AgentChooser: View {
     let model: ProjectComposerModel
     let done: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 4) {
-                // Every agent the app has a driver for, then a plain shell.
-                ForEach(SessionAgent.allCases.filter { $0 != .shell } + [.shell]) { agent in
-                    AgentTab(agent: agent, selected: model.agent == agent) { model.select(agent) }
-                }
-            }
-            .padding(8)
-            Divider()
-            if model.agent == .shell {
-                note(String(localized: "A shell has no model to choose."))
-            } else if let catalog = model.catalog {
-                HStack(alignment: .top, spacing: 0) {
-                    column(String(localized: "Model")) {
-                        ChoiceRow(title: String(localized: "Default"), selected: model.model == nil) { model.chooseModel(nil) }
-                        ForEach(catalog.models) { option in
-                            ChoiceRow(title: option.name, selected: model.model?.id == option.id) { model.chooseModel(option.id) }
-                        }
-                    }
-                    .frame(width: 270)
-                    Divider()
-                    column(String(localized: "Effort")) {
-                        if let chosen = model.model, !chosen.efforts.isEmpty {
-                            ChoiceRow(title: String(localized: "Default"), selected: model.effort == nil) { model.chooseEffort(nil) }
-                            ForEach(chosen.efforts) { option in
-                                ChoiceRow(title: option.name, selected: model.effort == option.id) { model.chooseEffort(option.id) }
-                            }
-                        } else {
-                            Text(model.model == nil ? String(localized: "The default model picks its own effort.")
-                                                    : String(localized: "This model has no effort levels."))
-                                .font(.system(size: 12.5)).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                        }
-                    }
-                    .frame(width: 190)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-            } else if model.loadingCatalogs.contains(model.agent.rawValue) {
-                note(String(localized: "Loading models…"))
-            } else {
-                note(String(localized: "No models to choose from: the agent starts on its default."))
-            }
+        // Every agent the app has a driver for, then a plain shell.
+        let agents = (SessionAgent.allCases.filter { $0 != .shell } + [.shell]).map {
+            AgentModelPanel.Agent(agent: $0, catalog: model.catalogs[$0.rawValue], loading: model.loadingCatalogs.contains($0.rawValue))
         }
-        .frame(width: 461)
-        // A read that failed is tried again when the chooser opens.
-        .onAppear { model.loadCatalog() }
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text).font(.system(size: 12.5)).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16).padding(.vertical, 14)
-    }
-
-    private func column(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 10).padding(.top, 10).padding(.bottom, 4)
-            content()
-        }
-        .padding(.horizontal, 6).padding(.bottom, 8)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        AgentModelPanel(agents: agents, currentAgent: model.agent,
+                        current: model.model.map { AgentSelection(model: $0.id, effort: model.effort) },
+                        canChoose: true, offersDefault: true, editsShortcuts: false,
+                        isCurrent: { agent, selection in
+                            agent == model.agent && model.model?.id == model.catalog?.model(selection.model)?.id && model.effort == selection.effort
+                        },
+                        chooseAgent: { model.select($0) },
+                        choose: { agent, selection in
+                            model.select(agent)
+                            if let selection { model.chooseModel(selection.model); model.chooseEffort(selection.effort) } else { model.chooseModel(nil) }
+                        },
+                        dismiss: done,
+                        traits: model.model.map { AgentModelTraits(model: $0, effort: model.effort) },
+                        onEffort: { model.chooseEffort($0) }, onReset: { model.chooseEffort(nil) })
+            // A read that failed is tried again when the chooser opens.
+            .onAppear { model.loadCatalog() }
     }
 }
 

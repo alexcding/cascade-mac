@@ -132,8 +132,8 @@ private struct NewTaskChatComposer: View {
                             Spacer(minLength: 0)
                             ComposerAgentButton(agent: model.agentMark, title: model.agentTitle,
                                                 help: String(localized: "The agent and model the chat starts with"),
-                                                identifier: "new-task-chat-agent") { _ in
-                                PaneChatAgentChooser(model: model)
+                                                identifier: "new-task-chat-agent", openLabel: String(localized: "Select effort")) { close in
+                                PaneChatAgentChooser(model: model, done: close)
                             }
                             ComposerStartButton(enabled: model.canStart, label: String(localized: "Start Chat"),
                                                 identifier: "new-task-chat-create") { Task { await model.start() } }
