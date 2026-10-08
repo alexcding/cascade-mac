@@ -170,6 +170,60 @@ impl CommandRunner for ScriptedRunner {
     }
 }
 
+/// The runtime the backend runs on, embedded (`ffi.rs`) or as its own process (`main.rs`). Each
+/// of its threads, the blocking pool's included, spawns children, so each starts with no signal
+/// blocked (`SignalsUnblocked`).
+pub fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name("cascade-backend")
+        .on_thread_start(|| std::mem::forget(SignalsUnblocked::new()))
+        .build()
+}
+
+/// Every signal unblocked on the calling thread until this is dropped, which puts its mask back.
+///
+/// A child starts with the signal mask of the thread that spawned it: std's `posix_spawn` hands it
+/// on as it is, and so does a thread to the threads it makes. The host app starts and stops the
+/// backend from a Swift concurrency thread, which blocks SIGCHLD with most other asynchronous
+/// signals, so every CLI the backend started had them blocked too. Codex never unblocks them: it
+/// never heard its hooks or its shell snapshot exit, and a chat turn waited on its
+/// `UserPromptSubmit` hook for ever. Hold one wherever the host's thread runs the backend
+/// (`ffi.rs`); the runtime's own threads keep one for good (`runtime`).
+///
+/// Those threads can then be handed a signal sent to the process — SIGTERM, SIGINT, SIGWINCH, a
+/// child's SIGCHLD — that only the host's threads took before. That is intended: a handler runs
+/// wherever the signal lands, and every wait the backend makes outside tokio (`run_briefly`)
+/// takes an interrupted call as one cut short.
+pub struct SignalsUnblocked(libc::sigset_t);
+
+impl SignalsUnblocked {
+    pub fn new() -> Self {
+        // SAFETY: each pointer is to a live `sigset_t`, as `sigemptyset` and `pthread_sigmask`
+        // take them.
+        unsafe {
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            let mut before: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            libc::pthread_sigmask(libc::SIG_SETMASK, &none, &mut before);
+            Self(before)
+        }
+    }
+}
+
+impl Default for SignalsUnblocked {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for SignalsUnblocked {
+    fn drop(&mut self) {
+        // SAFETY: the mask this thread had, saved by `new`.
+        unsafe { libc::pthread_sigmask(libc::SIG_SETMASK, &self.0, std::ptr::null_mut()) };
+    }
+}
+
 /// A command for an external CLI (`gh`, `acli`, `git`, agent CLIs). Finder and Xcode
 /// launches hand the app a minimal PATH, and the backend runs inside the app, so the
 /// child gets the usual install locations too. Set per command: mutating the process
@@ -900,6 +954,45 @@ async fn spawn_output(invocation: Invocation) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The signals blocked on the calling thread, by number.
+    fn blocked_here() -> Vec<i32> {
+        // SAFETY: a null set leaves the mask as it is and only reads it into `mask`.
+        let mut mask: libc::sigset_t = unsafe { std::mem::zeroed() };
+        unsafe { libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut mask) };
+        (1..32).filter(|signal| unsafe { libc::sigismember(&mask, *signal) } == 1).collect()
+    }
+
+    /// The host app runs the backend from a thread with SIGCHLD blocked, and a child starts with
+    /// its spawner's mask: Codex, started so, never heard its hooks exit and a chat turn hung. A
+    /// child of the backend starts with nothing blocked, spawned on the runtime or on the host's
+    /// thread, which gets its own mask back afterwards.
+    #[test]
+    fn a_child_starts_with_no_signal_blocked_whatever_the_host_blocked() {
+        // Perl prints its own blocked signals; `ps -o sigmask` reads 0 whatever the thread's.
+        const BLOCKED: &str = "use POSIX; my $m = POSIX::SigSet->new; sigprocmask(SIG_BLOCK, POSIX::SigSet->new, $m); print join(',', grep { $m->ismember($_) } 1..31)";
+        std::thread::spawn(|| {
+            // SAFETY: a live set, as `sigaddset` and `pthread_sigmask` take it.
+            unsafe {
+                let mut chld: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut chld);
+                libc::sigaddset(&mut chld, libc::SIGCHLD);
+                libc::pthread_sigmask(libc::SIG_BLOCK, &chld, std::ptr::null_mut());
+            }
+            let unblocked = SignalsUnblocked::new();
+            let runtime = runtime().unwrap();
+            let on_runtime = runtime
+                .block_on(async { tokio::spawn(run("perl", ["-e", BLOCKED], Duration::from_secs(10))).await.unwrap() })
+                .unwrap();
+            assert_eq!(on_runtime, "", "a child spawned on the runtime's threads");
+            let on_host = runtime.block_on(run("perl", ["-e", BLOCKED], Duration::from_secs(10))).unwrap();
+            assert_eq!(on_host, "", "a child spawned on the host's thread");
+            drop(unblocked);
+            assert_eq!(blocked_here(), vec![libc::SIGCHLD], "the host's thread has its mask back");
+        })
+        .join()
+        .unwrap();
+    }
 
     /// A failed command says how it failed, apart from its text: a caller tells a service that
     /// did not answer from a request that was refused without reading the message.

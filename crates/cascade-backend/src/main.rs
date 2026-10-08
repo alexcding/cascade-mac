@@ -1,11 +1,16 @@
 use std::{env, net::Ipv4Addr, path::PathBuf};
 
 use anyhow::{Context, Result};
-use cascade_backend::{build_app, recovery, shutdown_signal, AppState, Database};
+use cascade_backend::{build_app, cli, recovery, shutdown_signal, AppState, Database};
 use tokio::net::TcpListener;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // `serve` runs on this thread, which keeps whatever mask the launcher left, as the app's does.
+    let _unblocked = cli::SignalsUnblocked::new();
+    cli::runtime().context("start the backend runtime")?.block_on(serve())
+}
+
+async fn serve() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_target(false)
@@ -36,7 +41,7 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("bind 127.0.0.1:{port}"))?;
     let database = Database::open(&data_dir)?;
-    cascade_backend::cli::prime_shell_environment();
+    cli::prime_shell_environment();
     let state = AppState::new(database, env::var("CASCADE_INSTANCE_ID").ok());
     let bound_port = listener.local_addr()?.port();
     let port_file = data_dir.join(".server-port");

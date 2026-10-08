@@ -108,11 +108,10 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("create data directory {}", data_dir.display()))?;
     let lease = if packaged { Some(recovery::prepare_packaged(&data_dir)?) } else { None };
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("cascade-backend")
-        .build()
-        .context("start the backend runtime")?;
+    // The host's thread runs what the `block_on`s below run and makes the threads started here
+    // (the stores, the shell probe): none may hand the host's signal mask on to a child.
+    let _unblocked = cli::SignalsUnblocked::new();
+    let runtime = cli::runtime().context("start the backend runtime")?;
     // Pollers and forwarders spawn onto the ambient runtime, as they do under main.rs.
     let _entered = runtime.enter();
     let listener = runtime
@@ -404,6 +403,8 @@ pub unsafe extern "C" fn cascade_backend_stop(backend: *mut CascadeBackend) {
     }
     let backend = Box::from_raw(backend);
     let _ = catch_unwind(AssertUnwindSafe(|| {
+        // The shutdown below runs on the host's thread, as `start` does.
+        let _unblocked = cli::SignalsUnblocked::new();
         let subscriptions: Vec<_> = backend.subscriptions.lock().unwrap().drain().map(|(_, task)| task).collect();
         for task in &subscriptions {
             task.abort();
