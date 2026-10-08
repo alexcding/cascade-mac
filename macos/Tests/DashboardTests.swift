@@ -140,7 +140,7 @@ func dashboardPendingOpenCancelsWhenItsOwnerOrSelectionChanges(change: String) a
     let gate = ProjectPageGate(); actions.gate = gate
     model.open(row); model.open(row); await gate.waitForStart()
     #expect(actions.opened.count == 1)
-    root.presentRemoval { nil }; root.presentBuild { nil }
+    root.presentRemoval { nil }; root.runBuild { nil }
     #expect(model.navigation.opening != nil) // Rejected presentations are not new navigation intents.
     switch change {
     case "leave": root.navigate(to: .terminal)

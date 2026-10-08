@@ -134,10 +134,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     var factories = 0
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         terminalFactory: { factories += 1; return build })
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    coordinator.presentBuild { model }
-    let presentation = try #require(coordinator.sheet)
-    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    let destination = BuildDestinationViewModel(runtime: model)
     await destination.load()
     #expect(destination.canRun && destination.scheme == "Fixture")
     async let first: Void = destination.run()
@@ -147,12 +144,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(model.starting)
-    coordinator.dismissSheet(id: presentation.id)
-    #expect(coordinator.sheet?.id == presentation.id)
     build.releaseReady()
     _ = await (first, second)
     #expect(model.running && build.commands.count == 1 && factories == 1)
-    #expect(coordinator.sheet == nil)
     #expect(destination.retired && !destination.canRun)
     await destination.run()
     #expect(build.commands.count == 1 && model.running)
@@ -173,7 +167,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     #expect(!model.canRun)
 }
 
-@MainActor @Test func buildCoordinatorRetainsDestinationWhenInjectedTerminalFactoryFails() async throws {
+@MainActor @Test func buildRunRetainsDestinationWhenInjectedTerminalFactoryFails() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BuildHTTPFixture.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
@@ -181,15 +175,13 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "", createdAt: nil, pinned: false)
     let model = NativeWorkspaceFeatureFactory().build(api: api, project: project, session: session,
         terminalFactory: { throw BackendError.operation("Runtime closed") })
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    coordinator.presentBuild { model }
-    let sheet = try #require(coordinator.sheet)
-    guard case .build(let destination) = sheet.destination else { Issue.record("Wrong destination"); return }
+    let destination = BuildDestinationViewModel(runtime: model)
     await destination.load(); await destination.run()
     #expect(model.error == "Runtime closed" && !model.running && model.canRun)
-    #expect(coordinator.sheet?.id == sheet.id && sheet.canDismiss)
-    coordinator.dismissSheet(id: sheet.id)
-    #expect(coordinator.sheet == nil)
+    // The run keeps its destination and its error, which the toolbar shows, for another try.
+    #expect(!destination.retired)
+    destination.retire()
+    #expect(model.error == "Runtime closed" && model.canRun)
 }
 
 @MainActor @Test func buildRunOnSimulatorPlatformShowsPreviewAndFiresCallback() async throws {
@@ -204,10 +196,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    coordinator.presentBuild { model }
-    let presentation = try #require(coordinator.sheet)
-    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    let destination = BuildDestinationViewModel(runtime: model)
     await destination.load()
     #expect(destination.canRun)
     await destination.run()
@@ -231,10 +220,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    coordinator.presentBuild { model }
-    let presentation = try #require(coordinator.sheet)
-    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    let destination = BuildDestinationViewModel(runtime: model)
     await destination.load()
     await destination.run()
     #expect(build.commands.isEmpty, "the running build is adopted, not joined by a second command")
@@ -255,10 +241,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
-    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-    coordinator.presentBuild { model }
-    let presentation = try #require(coordinator.sheet)
-    guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return }
+    let destination = BuildDestinationViewModel(runtime: model)
     await destination.load()
     #expect(destination.canRun)
     await destination.run()
@@ -279,10 +262,7 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
         let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: worktree, title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
         let build = BuildTerminalRecorder()
         let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session, terminalFactory: { build })
-        let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
-        coordinator.presentBuild { model }
-        let presentation = try #require(coordinator.sheet)
-        guard case .build(let destination) = presentation.destination else { Issue.record("Wrong destination"); return "" }
+        let destination = BuildDestinationViewModel(runtime: model)
         await destination.load()
         await destination.run()
         defer { model.disconnect() }

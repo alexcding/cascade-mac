@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or the run
-/// button and build title, flat at the leading edge; Terminal / Chat at the trailing edge, and
+/// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or
+/// Run with the run destination and the build title, flat at the leading edge; Terminal / Chat at the trailing edge, and
 /// nothing in the middle: the agent shows its model and context itself. Beside a terminal the
 /// pane's own section is the system's inspector toggle alone, at the window's edge,
 /// which shows and hides the pane; the pane draws its tabs itself, under the toolbar

@@ -143,7 +143,7 @@ enum Theme {
     /// What sits on `prominent`: the window's own colour, white in light and dark in dark.
     static var onProminent: Color { Color(nsColor: .windowBackgroundColor) }
 
-    /// `--bg`: the surface a content pane sits on. Follows the window appearance.
+    /// The surface a content pane sits on, and the chat page's (`ChatPageContext.surface`). Follows the window appearance.
     static var paneBackground: Color { Color(nsColor: .windowBackgroundColor) }
     /// Behind text typed into a multi-line field: the system's text background.
     static var fieldBackground: Color { Color(nsColor: .textBackgroundColor) }

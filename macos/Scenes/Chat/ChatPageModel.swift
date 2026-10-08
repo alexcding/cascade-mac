@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Observation
 import OSLog
+import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
@@ -20,6 +21,22 @@ struct ChatPageContext: Encodable, Equatable, Sendable {
     var readOnly = false
     var chatFontSizePx: Int? = nil
     var homeDir: String? = FileManager.default.homeDirectoryForCurrentUser.path
+
+    /// The pane's colour in the page's appearance (`Theme.paneBackground`), `#rrggbb`. The page takes
+    /// it as its theme's surface and draws no ground of its own, so it reads as the native surface it
+    /// stands on — the pane, or the session chat's composer under it — rather than Synara's darker one.
+    var surface: String? = nil
+
+    static func surface(in appearance: NSAppearance) -> String {
+        // sRGB either way: a component read off a catalog or grey colour throws.
+        let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        var color = NSColor(srgbRed: dark ? 0 : 1, green: dark ? 0 : 1, blue: dark ? 0 : 1, alpha: 1)
+        appearance.performAsCurrentDrawingAppearance {
+            if let resolved = NSColor(Theme.paneBackground).usingColorSpace(.sRGB) { color = resolved }
+        }
+        let channel = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
+        return String(format: "#%02x%02x%02x", channel(color.redComponent), channel(color.greenComponent), channel(color.blueComponent))
+    }
 }
 
 /// Where a chat page's requests go, and where its snapshot and providers come from. A live chat
@@ -152,7 +169,7 @@ enum ChatPageOutput: Equatable {
             appearanceObservation = host.webView.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] view, _ in
                 MainActor.assumeIsolated {
                     let dark = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                    self?.setAppearance(dark ? .dark : .light)
+                    self?.setAppearance(dark ? .dark : .light, surface: ChatPageContext.surface(in: view.effectiveAppearance))
                 }
             }
             // A page given is up already, or on its way: it only waits for this chat's context, so
@@ -378,9 +395,11 @@ enum ChatPageOutput: Equatable {
         }
     }
 
-    func setAppearance(_ appearance: ChatPageContext.Appearance) {
-        guard !retired, context.appearance != appearance else { return }
-        context.appearance = appearance
+    /// Without a surface, the pane's colour in the plain light or dark appearance.
+    func setAppearance(_ appearance: ChatPageContext.Appearance, surface: String? = nil) {
+        let surface = surface ?? NSAppearance(named: appearance == .dark ? .darkAqua : .aqua).map(ChatPageContext.surface(in:))
+        guard !retired, context.appearance != appearance || context.surface != surface else { return }
+        context.appearance = appearance; context.surface = surface
         if stream != .down { send(.push(channel: "context", try! JSONValue.from(context))) }
     }
 
@@ -693,7 +712,7 @@ private final class ChatPageWebView: WKWebView {
                 model.receiveFiles(files)
             }
         }
-        // The page paints its own ground.
+        // Neither the page nor the view draws a ground: the native surface behind shows (styles.css).
         webView.setValue(false, forKey: "drawsBackground")
         webView.setAccessibilityIdentifier("chat-page")
     }

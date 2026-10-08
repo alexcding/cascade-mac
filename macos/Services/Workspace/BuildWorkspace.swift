@@ -109,11 +109,14 @@ protocol BuildServing: Sendable {
     /// Once a session has chosen, the project's default no longer moves it.
     private var ownsDestination: Bool
     var canRun: Bool { valid && !loading && !starting && !running && schemes.contains(scheme) && simulators.contains { $0.udid == simulator } }
-    /// The project already names a destination, so Run needs no sheet.
+    /// The session or its project names a destination, so Run needs no lists to start.
     var hasSavedDestination: Bool { !saved.scheme.isEmpty && !saved.simulator.isEmpty }
+    /// What is chosen is what is saved, so Run can go without the lists. Otherwise the lists moved
+    /// the choice (a saved destination gone) or a pick is still being saved, and Run saves it.
+    var choosesSaved: Bool { hasSavedDestination && scheme == saved.scheme && simulator == saved.simulator }
     /// The saved pair is trusted until the lists say otherwise; xcodebuild rejects a stale one.
     private var canRunSaved: Bool {
-        guard hasSavedDestination, scheme == saved.scheme, simulator == saved.simulator else { return false }
+        guard choosesSaved else { return false }
         return schemes.isEmpty || simulators.isEmpty ? valid && !loading && !starting && !running : canRun
     }
     func adopt(_ project: Project) {
@@ -140,33 +143,38 @@ protocol BuildServing: Sendable {
     /// Destinations differ by scheme, so the cache is per project and scheme.
     static var cachedDestinations: [String: (BuildSchemes, [BuildSimulator])] = [:]
     private func cacheKey(_ scheme: String) -> String { "\(project.id)\n\(scheme)" }
+    fileprivate func load(presentation id: UUID, fresh: Bool) async { await load(fresh: fresh) { isCurrent(id) } }
+    /// The schemes and destinations for the run destination menu, which is no presentation: a run
+    /// in flight has one, and its load and choice come first. Not `fresh`, only what the backend
+    /// keeps: the menu's Refresh is what asks again, for a device plugged in since.
+    func loadDestinations(fresh: Bool = true) async { await load(fresh: fresh) { valid && presentationID == nil } }
     /// Also how a scheme change reloads: a newer load supersedes the one in flight.
-    fileprivate func load(presentation id: UUID) async {
-        guard isCurrent(id), !Task.isCancelled, !starting else { return }
+    private func load(fresh: Bool, while current: () -> Bool) async {
+        guard current(), !Task.isCancelled, !starting else { return }
         let wanted = scheme, cached = Self.cachedDestinations[cacheKey(wanted)]
         // Another scheme's destinations must not stay selectable while this one loads.
         if let cached { apply(cached) } else { simulators = [] }
         let generation = UUID(); loadGeneration = generation
-        // A failed direct run hands its error to the sheet, so loading keeps that one and
+        // A failed run's error stays on the toolbar, so loading keeps that one and
         // clears only what an earlier load left behind.
         if loadFailed { error = nil; loadFailed = false }
         loading = cached == nil
         defer { if loadGeneration == generation { loading = false } }
-        // With nothing on screen, the list the backend keeps comes first, so the sheet is usable
-        // at once. Then one fresh look, since the sheet is where a destination is chosen and a
+        // With nothing on screen, the list the backend keeps comes first, so the menu is usable
+        // at once. Then one fresh look, when asked for, since the menu is where a destination is chosen and a
         // device plugged in since is not in the kept list; it only updates what is shown.
-        for refresh in cached == nil ? [false, true] : [true] {
+        for refresh in (cached == nil ? [false] : []) + (fresh ? [true] : []) {
             do {
                 let values = try await service.destinations(project: project, session: session, scheme: wanted, refresh: refresh)
                 try Task.checkCancellation()
-                guard isCurrent(id), loadGeneration == generation else { return }
+                guard current(), loadGeneration == generation else { return }
                 // Under the asked-for scheme too, or a session with none saved never hits the cache.
                 for key in [wanted, values.0.resolve(wanted, project: project)] { Self.cachedDestinations[cacheKey(key)] = values }
                 // A run already on its way keeps the destination it was started with.
                 if !starting { apply(values) }
                 loading = false
             } catch {
-                if isCurrent(id) && loadGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription; loadFailed = true }
+                if current() && loadGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription; loadFailed = true }
                 return
             }
         }
@@ -247,17 +255,36 @@ protocol BuildServing: Sendable {
         } catch { if isCurrent(id) && !Task.isCancelled { self.error = error.localizedDescription } }
         return false
     }
-    fileprivate func save(presentation id: UUID) async -> Bool {
-        guard isCurrent(id), canRun, !Task.isCancelled else { return false }
+    /// The saved scheme or destination is not in the lists any more, which moved the choice: Run says
+    /// so rather than building somewhere else and saving that over it.
+    func reportMovedDestination() {
+        guard valid else { return }
+        error = String(localized: "The saved scheme or destination is not available. Choose one in the run destination menu.")
+    }
+    /// A scheme picked in the run destination menu, saved at once with the destination it runs on.
+    func choose(scheme: String) async {
+        guard valid, presentationID == nil, !starting else { return }
+        if scheme != self.scheme {
+            self.scheme = scheme
+            // Another scheme runs on other destinations; the list it loads picks one if this one is not there.
+            await loadDestinations()
+        }
+        await saveChoice()
+    }
+    /// A destination picked in the run destination menu, saved at once.
+    func choose(simulator: String) async {
+        guard valid, presentationID == nil, !starting else { return }
+        self.simulator = simulator
+        await saveChoice()
+    }
+    /// Also when the pick is what was already on screen: the lists may have put it there unsaved.
+    private func saveChoice() async {
         let scheme = scheme, simulator = simulator
-        starting = true; error = nil
-        defer { starting = false }
-        do {
-            try await saveDestination(scheme: scheme, simulator: simulator)
-            try Task.checkCancellation()
-            return isCurrent(id)
-        } catch { if isCurrent(id) && !Task.isCancelled { self.error = error.localizedDescription } }
-        return false
+        guard valid, presentationID == nil, !choosesSaved, schemes.contains(scheme),
+              simulators.contains(where: { $0.udid == simulator }) else { return }
+        error = nil
+        do { try await saveDestination(scheme: scheme, simulator: simulator) }
+        catch { if valid { self.error = error.localizedDescription } }
     }
     func stop() async {
         guard valid, running else { return }
@@ -271,89 +298,38 @@ protocol BuildServing: Sendable {
     }
 }
 
-/// One model per sheet; retiring it leaves the cached build and its PTY running.
+/// One model per Run; retiring it leaves the cached build and its PTY running. While it lives the
+/// build is its presentation: the run destination menu neither loads nor picks over it.
 @MainActor @Observable final class BuildDestinationViewModel {
-    enum Action { case started, saved }
-    enum Purpose { case run, configure }
-    @ObservationIgnored var onAction: (Action) -> Void = { _ in }
-    let purpose: Purpose
     private let runtime: BuildWorkspaceViewModel
     private let id = UUID()
     private(set) var retired = false
 
-    init(runtime: BuildWorkspaceViewModel, purpose: Purpose = .run) {
-        self.runtime = runtime; self.purpose = purpose
+    init(runtime: BuildWorkspaceViewModel) {
+        self.runtime = runtime
         retired = !runtime.beginPresentation(id)
     }
     private var active: Bool { !retired && runtime.isCurrent(id) }
-    var scheme: String {
-        get { runtime.scheme }
-        set {
-            guard active, !runtime.starting, newValue != runtime.scheme else { return }
-            runtime.scheme = newValue
-            // Another scheme runs on other destinations.
-            Task { await load() }
-        }
-    }
-    var simulator: String {
-        get { runtime.simulator }
-        set { if active && !runtime.starting { runtime.simulator = newValue } }
-    }
+    var scheme: String { runtime.scheme }
+    var simulator: String { runtime.simulator }
     var schemes: [String] { runtime.schemes }
     var simulators: [BuildSimulator] { runtime.simulators }
     var loading: Bool { active && runtime.loading }
     var starting: Bool { active && runtime.starting }
     var error: String? { runtime.error }
     var canRun: Bool { active && runtime.canRun }
-    func load() async { if active { await runtime.load(presentation: id) } }
-    /// Still the runtime's presentation, so it may go on screen.
-    var presentable: Bool { active }
+    func load(fresh: Bool = true) async { if active { await runtime.load(presentation: id, fresh: fresh) } }
+    /// Runs what is chosen, the lists' first scheme and destination when nothing was, and saves it.
     func run() async { await run(direct: false) }
-    /// Runs the session's saved destination without a sheet; false means the sheet is needed.
+    /// Runs the session's saved destination as it is; false when it did not start.
     func runSaved() async -> Bool { await run(direct: true) }
     @discardableResult private func run(direct: Bool) async -> Bool {
         guard active, await runtime.run(presentation: id, direct: direct), active else { return false }
-        let action = onAction
         retire()
-        action(.started)
         return true
     }
-    func save() async {
-        guard active, await runtime.save(presentation: id), active else { return }
-        let action = onAction
-        retire()
-        action(.saved)
-    }
-    func confirm() async { if purpose == .run { await run() } else { await save() } }
     func retire() {
-        retired = true; onAction = { _ in }
+        retired = true
         runtime.endPresentation(id)
-    }
-}
-
-struct BuildDestinationView: View {
-    @Bindable var model: BuildDestinationViewModel
-    let cancel: () -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(model.purpose == .run ? String(localized: "Run Destination") : String(localized: "Build Destination")).font(.title2.weight(.semibold))
-            Picker(String(localized: "Scheme"), selection: $model.scheme) {
-                ForEach(model.schemes, id: \.self) { Text($0).tag($0) }
-            }.disabled(model.starting).accessibilityIdentifier("build-scheme")
-            Picker(String(localized: "Destination"), selection: $model.simulator) {
-                ForEach(model.simulators) { Text($0.label).tag($0.udid) }
-            }.disabled(model.starting).accessibilityIdentifier("build-simulator")
-            if model.loading { ProgressView(String(localized: "Loading destinations…")) }
-            if let error = model.error { Text(error).foregroundStyle(.orange).textSelection(.enabled) }
-            HStack {
-                Button(String(localized: "Cancel"), role: .cancel, action: cancel).keyboardShortcut(.cancelAction)
-                Spacer()
-                if model.starting { ProgressView().controlSize(.small) }
-                Button(model.purpose == .run ? String(localized: "Run") : String(localized: "Save")) { Task { await model.confirm() } }
-                    .keyboardShortcut(.defaultAction).disabled(!model.canRun)
-            }.disabled(model.starting)
-        }.padding(24).frame(width: 480)
-        .interactiveDismissDisabled(model.starting)
-        .task { await model.load() }
     }
 }

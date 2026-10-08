@@ -151,9 +151,9 @@ struct TranscriptChatOverlay: View {
                     } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(nsColor: .textBackgroundColor))
+                            .foregroundStyle(Theme.onProminent)
                             .frame(width: 30, height: 30)
-                            .background(chat.canSend ? Color.primary : Theme.textTertiary, in: Circle())
+                            .background(chat.canSend ? Theme.prominent : Theme.textTertiary, in: Circle())
                     }
                     .buttonStyle(.plain)
                     .disabled(!chat.canSend)
@@ -163,7 +163,7 @@ struct TranscriptChatOverlay: View {
             .padding(.horizontal, 16)
             .padding(.top, 14)
             .padding(.bottom, 10)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
+            .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20)
                 .stroke(dropTargeted ? Theme.accent : Theme.border, lineWidth: dropTargeted ? 2 : Theme.Size.hairline))
             .chatAttachmentDrop(into: chat, targeted: $dropTargeted)
@@ -208,7 +208,7 @@ struct ChatSuggestionList: View {
                 if suggestions.indices.contains(index) { proxy.scrollTo(suggestions[index].id) }
             }
         }
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 20))
+        .background(Theme.fieldBackground, in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.border, lineWidth: Theme.Size.hairline))
         .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         .background(EscapeCatcher(action: dismiss))

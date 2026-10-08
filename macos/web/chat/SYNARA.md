@@ -79,6 +79,7 @@ it is imported (`web` = `apps/web/src`, `shared` = `packages/shared/src`, `contr
 | `web/nativeApi.ts` | Synara's `NativeApi` is a WebSocket RPC client (`wsNativeApi.ts`, `wsTransport.ts`) or Electron's preload. Here it is a proxy over the bridge: the methods listed below are forwarded as RPCs, a few are answered in the page, everything else rejects as unavailable. Cuts the whole transport out of the bundle. |
 | `web/lib/central-icons.tsx` | Synara serves its icons as files under `/central-icons-*`; the app's scheme serves only flat html/css/js. The build inlines the vendored SVGs and the shim hands them out as `data:` URLs. Same exports. |
 | `web/lib/icons.tsx` | Synara draws a fork with its branch glyph, which in Cascade is the session's branch. `GitForkIcon` is Cascade's own fork mark; same exports otherwise. |
+| `web/components/chat/ChatEmptyStateHero.tsx` | A blank chat is headed by Synara's logo, which in Cascade stands for nothing. The words stay without it; same exports. |
 | `web/components/chat/ComposerModelPicker.logic.ts` | The model picker takes ⌘1…⌘9 for its rows while open and labels them so; in Cascade those chords are the sidebar's. No row answers a chord and none is labelled with one; same exports otherwise. |
 | `npm/@tanstack/react-router` | No router: one thread per page. `useParams` answers the page's thread (toasts scope by it), `useSearch` answers no search, the history goes nowhere (a push to `/settings` is told to the app as `openSettings`). |
 

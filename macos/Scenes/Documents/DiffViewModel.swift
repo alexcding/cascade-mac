@@ -128,7 +128,7 @@ struct APIDiffService: DiffService {
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
             let view = WKWebView(frame: .zero, configuration: config)
             view.navigationDelegate = self
-            // The page paints its own themed ground; a white flash before it loads is not ours.
+            // The pane under the page draws its ground, so no white flash before it loads either.
             view.setValue(false, forKey: "drawsBackground")
             view.setAccessibilityIdentifier("working-diff-webview")
             webView = view

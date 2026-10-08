@@ -56,7 +56,7 @@ function readContext() {
 
 /** What Synara's root route sets up for every screen: theme, type scale, density, width. */
 function Appearance({ context }: { context: ChatContext }) {
-  const { setTheme } = useTheme();
+  const { setTheme, themeState, updateThemePack } = useTheme();
   const { settings, updateSettings } = useAppSettings();
   useAppTypography();
   useAppDensity();
@@ -67,9 +67,18 @@ function Appearance({ context }: { context: ChatContext }) {
       updateSettings({ chatFontSizePx: context.chatFontSizePx });
     }
   }, [context.chatFontSizePx, settings.chatFontSizePx, updateSettings]);
+  const variant = context.appearance === "dark" ? "dark" : "light";
   useEffect(() => {
-    setTheme(context.appearance === "dark" ? "dark" : "light");
-  }, [context.appearance, setTheme]);
+    setTheme(variant);
+  }, [variant, setTheme]);
+  // The app's pane colour is the surface everything else is mixed from (composer, bubbles, menus),
+  // so the page matches the native surface around it; styles.css lets that surface show through.
+  const surface = themeState.chromeThemes[variant].surface;
+  useEffect(() => {
+    if (context.surface && context.surface.toLowerCase() !== surface) {
+      updateThemePack(variant, { surface: context.surface });
+    }
+  }, [context.surface, surface, variant, updateThemePack]);
   useEffect(() => {
     if (context.locale) document.documentElement.lang = context.locale;
   }, [context.locale]);

@@ -291,6 +291,10 @@ private struct Encoded: Encodable {
     // The window's appearance goes to the page as a new context.
     page.setAppearance(.dark)
     #expect(outputs.pushes.last?.0 == "context" && outputs.pushes.last?.1["appearance"] == "dark")
+    // With the pane's colour in that appearance, which the page takes as its surface.
+    let surface = ChatPageContext.surface(in: NSAppearance(named: .darkAqua)!)
+    #expect(outputs.pushes.last?.1["surface"] == .string(surface))
+    #expect(surface != ChatPageContext.surface(in: NSAppearance(named: .aqua)!) && surface.wholeMatch(of: /#[0-9a-f]{6}/) != nil)
 }
 
 /// A folder with a file in it, a file beside it and a link out of it, for the confinement tests.

@@ -26,8 +26,8 @@ import Testing
                terminalFactory: @escaping () throws -> any BuildTerminal) -> BuildWorkspaceViewModel {
         native.build(api: api, project: project, session: session, terminalFactory: terminalFactory)
     }
-    func buildDestination(runtime: BuildWorkspaceViewModel, purpose: BuildDestinationViewModel.Purpose) -> BuildDestinationViewModel {
-        native.buildDestination(runtime: runtime, purpose: purpose)
+    func buildDestination(runtime: BuildWorkspaceViewModel) -> BuildDestinationViewModel {
+        native.buildDestination(runtime: runtime)
     }
 }
 

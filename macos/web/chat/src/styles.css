@@ -36,6 +36,14 @@ body,
   margin: 0;
 }
 
+/* No ground of the page's own: Synara paints the body its darker "under" surface, a band apart
+   from the native surface the page stands on (the pane, the session chat's composer, the window's
+   backdrop while it is translucent). The web view draws no background either (ChatPageModel), so
+   that surface shows through; the theme's surface is the app's pane colour (`context.surface`). */
+body {
+  background: transparent;
+}
+
 #chat {
   display: flex;
   flex-direction: column;

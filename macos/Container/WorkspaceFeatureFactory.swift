@@ -6,7 +6,7 @@ import Foundation
                  didRemove: @escaping ([WorkspaceSession]) async -> Void, finished: @escaping () -> Void) -> SessionRemovalViewModel
     func build(api: APIClient, project: Project, session: WorkspaceSession,
                terminalFactory: @escaping () throws -> any BuildTerminal) -> BuildWorkspaceViewModel
-    func buildDestination(runtime: BuildWorkspaceViewModel, purpose: BuildDestinationViewModel.Purpose) -> BuildDestinationViewModel
+    func buildDestination(runtime: BuildWorkspaceViewModel) -> BuildDestinationViewModel
     /// The simulator streams: the one each build's panel starts, and the one Quit stops.
     func simulatorPreview(api: APIClient) -> any SimulatorPreviewing
 }
@@ -28,7 +28,7 @@ extension WorkspaceFeatureFactory {
         BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
             preview: SimulatorPreviewModel(service: simulatorPreview(api: api)), terminalFactory: terminalFactory)
     }
-    func buildDestination(runtime: BuildWorkspaceViewModel, purpose: BuildDestinationViewModel.Purpose) -> BuildDestinationViewModel {
-        BuildDestinationViewModel(runtime: runtime, purpose: purpose)
+    func buildDestination(runtime: BuildWorkspaceViewModel) -> BuildDestinationViewModel {
+        BuildDestinationViewModel(runtime: runtime)
     }
 }

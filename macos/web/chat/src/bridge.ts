@@ -54,6 +54,9 @@ export interface ChatContext {
   cwd: string;
   projectName: string;
   appearance: "light" | "dark";
+  /** The app's pane colour in this appearance, `#rrggbb`: the theme's surface, so the page reads
+   *  as the native surface it stands on. */
+  surface?: string;
   /** BCP 47, for dates and numbers. */
   locale: string;
   /** Hides the composer: a transcript to read, not a conversation to continue. */

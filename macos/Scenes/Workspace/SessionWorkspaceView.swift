@@ -5,6 +5,7 @@ import WebKit
 private struct FallbackToolbarIcon: View {
     enum Kind { case code, split, branch }
     let kind: Kind
+    var side: CGFloat = 18
 
     var body: some View {
         Canvas { context, size in
@@ -26,7 +27,7 @@ private struct FallbackToolbarIcon: View {
             }
             context.stroke(path, with: .foreground, style: .init(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
         }
-        .frame(width: 18, height: 18)
+        .frame(width: side, height: side)
     }
 }
 
@@ -60,8 +61,16 @@ private struct ToolbarBrandIcon: View {
                 .scaledToFit()
                 .frame(height: height)
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else if let name, let image = InstalledAppIcon.image(forEditor: name) {
+            // No artwork of ours: the installed app's own icon.
+            Image(nsImage: image)
+                .renderingMode(.original)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: height, height: height)
         } else {
-            FallbackToolbarIcon(kind: fallback)
+            FallbackToolbarIcon(kind: fallback, side: height)
         }
     }
 
@@ -82,6 +91,29 @@ private struct ToolbarBrandIcon: View {
             if let image = NSImage(contentsOf: candidate) { return image }
         }
         return nil
+    }
+}
+
+/// The installed IDE's own icon, as Finder and the Dock draw it, for an IDE with no artwork of ours:
+/// looked up by the application name `open -a` opens it by (`ExternalTool.editors`).
+@MainActor private enum InstalledAppIcon {
+    private static var found: [String: NSImage?] = [:]
+
+    static func image(forEditor id: String) -> NSImage? {
+        if let image = found[id] { return image }
+        let image = ExternalTool.editors.first { $0.id == id }
+            .flatMap { location(of: $0.application) }
+            .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        found[id] = image
+        return image
+    }
+
+    private static func location(of application: String) -> URL? {
+        let folders = [URL(fileURLWithPath: "/Applications"),
+                       FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications"),
+                       URL(fileURLWithPath: "/System/Applications")]
+        return folders.map { $0.appendingPathComponent("\(application).app") }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
     }
 }
 
@@ -440,8 +472,9 @@ struct SessionWorkspaceEditorButton: View {
     }
 }
 
-/// Xcode's Run | Stop pair in one capsule, ahead of the IDE tile. Both are always there: Run
-/// greys out while a build is going, Stop while none is.
+/// Run and the run destination in one capsule. Run turns into Stop while a build holds the
+/// terminal, as Xcode's does, so one place both starts and stops it; the gear's menu picks the
+/// scheme and the destination, each saved as it is picked.
 struct SessionWorkspaceRunButton: View {
     let model: SessionWorkspaceViewModel
 
@@ -452,20 +485,57 @@ struct SessionWorkspaceRunButton: View {
         // The stock navigation style is what draws one capsule with the system's divider; the
         // automatic style splits the pair into two glass circles.
         ControlGroup {
-            Button(String(localized: "Run \(model.runScheme)"), systemImage: "play.fill", action: model.run)
-                .help(String(localized: "Build and run \(model.runScheme)"))
-                .disabled(running || starting || !model.canRun)
-            Button(String(localized: "Stop"), systemImage: "stop.fill") { Task { await model.stopBuild() } }
-                .help(String(localized: "Stop the build"))
-                .disabled(!running)
+            if running {
+                Button(String(localized: "Stop"), systemImage: "stop.fill") { Task { await model.stopBuild() } }
+                    .help(String(localized: "Stop the build"))
+            } else {
+                Button(String(localized: "Run \(model.runScheme)"), systemImage: "play.fill", action: model.run)
+                    .help(String(localized: "Build and run \(model.runScheme)"))
+                    .disabled(starting || !model.canRun)
+            }
+            Menu {
+                SessionWorkspaceRunDestinationMenu(model: model)
+            } label: {
+                Label(String(localized: "Run Destination"), systemImage: "gear")
+            }
+            .menuIndicator(.hidden)
+            .help(String(localized: "Choose the scheme and the run destination"))
+            .disabled(!model.canRun || starting || running)
         }
         .controlGroupStyle(.navigation)
         .labelStyle(.iconOnly)
+        .task(id: model.canRun) { model.prepareRun() }
     }
 }
 
-/// Xcode's activity view for a buildable session: the IDE tile beside the scheme over the
-/// session title. The text is one button that opens the current build settings.
+/// The gear's menu: the scheme and the destination, a check on each chosen one. A pick is saved
+/// at once; there is nothing to confirm.
+private struct SessionWorkspaceRunDestinationMenu: View {
+    let model: SessionWorkspaceViewModel
+
+    var body: some View {
+        if let build = model.build {
+            if let error = build.error { Text(error) }
+            Picker(String(localized: "Scheme"), selection: Binding(get: { build.scheme }, set: model.chooseScheme)) {
+                ForEach(build.schemes, id: \.self) { Text($0).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Picker(String(localized: "Destination"), selection: Binding(get: { build.simulator }, set: model.chooseDestination)) {
+                ForEach(build.simulators) { Text($0.label).tag($0.udid) }
+            }
+            .pickerStyle(.inline)
+            if build.loading || (build.schemes.isEmpty && build.error == nil) { Text(String(localized: "Loading destinations…")) }
+            Divider()
+            Button(String(localized: "Refresh Destinations"), action: model.refreshRunDestinations)
+                .disabled(build.loading)
+        } else {
+            Text(String(localized: "Loading destinations…"))
+        }
+    }
+}
+
+/// Xcode's activity view for a buildable session: the IDE icon beside the scheme over the session
+/// title. The icon and the text both open the worktree in the IDE.
 struct SessionWorkspaceBuildTitle: View {
     let model: SessionWorkspaceViewModel
     @Environment(ToolbarRoom.self) private var room: ToolbarRoom?
@@ -473,17 +543,13 @@ struct SessionWorkspaceBuildTitle: View {
     var body: some View {
         HStack(spacing: 8) {
             SessionWorkspaceEditorButton(model: model, height: 22)
-            Button(action: model.configureRun) {
+            Button(action: model.openEditor) {
                 // Measured as wide as the scheme and no wider, so a long session title neither moves
                 // the agent's controls nor widens the button. The line itself is drawn over its
                 // place, running on into the free toolbar after the title and not clickable there.
                 SchemeWidthStack {
-                    HStack(spacing: 4) {
-                        Text(model.runScheme).font(.headline).lineLimit(1)
-                        Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.textSecondary)
-                    }
-                    .frame(maxWidth: 320, alignment: .leading)
+                    Text(model.runScheme).font(.headline).lineLimit(1)
+                        .frame(maxWidth: 320, alignment: .leading)
                     // The line's height, held by text that draws nothing: the line itself may animate.
                     Text(verbatim: " ").font(.subheadline).lineLimit(1).hidden()
                 }
@@ -499,10 +565,10 @@ struct SessionWorkspaceBuildTitle: View {
             }
             .buttonStyle(.plain)
             // The line is drawn where the pointer never reaches it, so its explanation is the button's.
+            // Not disabled without an IDE: the scheme and title would grey out. `openEditor` refuses.
             .help(model.warmup.running || model.warmup.failed
                 ? SessionWorkspaceWarmupLine.help(model.warmup)
-                : String(localized: "Show the build settings: scheme and simulator"))
-            .disabled(!model.canRun)
+                : model.build?.error ?? model.editorLabel ?? "")
             SessionWorkspaceBuildLogButton(model: model)
         }
         .padding(.leading, 8)
@@ -513,6 +579,12 @@ struct SessionWorkspaceBuildTitle: View {
     @ViewBuilder private var subtitle: some View {
         if model.warmup.running || model.warmup.failed {
             SessionWorkspaceWarmupLine(state: model.warmup)
+        } else if let error = model.build?.error {
+            // Why the last run did not start: nothing else shows it, and the gear's menu is where
+            // another scheme or destination is picked.
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+                .font(.subheadline).foregroundStyle(Theme.danger)
+                .lineLimit(1).truncationMode(.tail)
         } else {
             Text(model.title).font(.subheadline).foregroundStyle(Theme.textSecondary)
                 .lineLimit(1).truncationMode(.tail)

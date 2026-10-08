@@ -131,7 +131,7 @@ extension WorkspaceServing {
 
 @MainActor @Observable final class SessionWorkspaceViewModel {
     enum Action: Equatable {
-        case operation(WorkspaceOperation), run, configureRun, remove, restart, selectTab(String), closeTab(String), reopen(String)
+        case operation(WorkspaceOperation), run, prepareRun, remove, restart, selectTab(String), closeTab(String), reopen(String)
         case newTab, moveTab(String, before: String?), fork
     }
     struct ReviewInputs: Equatable {
@@ -440,7 +440,22 @@ extension WorkspaceServing {
         context.setPane(.term)
     }
     func run() { if canRun { onAction(.run) } }
-    func configureRun() { if canRun { onAction(.configureRun) } }
+    /// The run destination menu's lists, loaded when the Run capsule appears so the menu opens on them.
+    func prepareRun() { if canRun { onAction(.prepareRun) } }
+    /// A pick in the run destination menu, saved at once.
+    func chooseScheme(_ scheme: String) {
+        guard canRun, let build else { return }
+        Task { await build.choose(scheme: scheme) }
+    }
+    func chooseDestination(_ simulator: String) {
+        guard canRun, let build else { return }
+        Task { await build.choose(simulator: simulator) }
+    }
+    /// Asks for the destinations afresh: a device plugged in since is not in the kept list.
+    func refreshRunDestinations() {
+        guard canRun, let build else { return }
+        Task { await build.loadDestinations() }
+    }
     func remove() { if canRemove { onAction(.remove) } }
     func restart() { if canRestart { onAction(.restart) } }
     /// The chat's Fork Session: a new session carrying this one's conversation on.

@@ -12,7 +12,6 @@ import Observation
     struct Sheet: Identifiable {
         enum Destination {
             case newProject(ProjectEditorViewModel)
-            case build(BuildDestinationViewModel)
             case welcome(WelcomeViewModel)
         }
         let id: UUID
@@ -21,7 +20,6 @@ import Observation
         @MainActor func retire() {
             switch destination {
             case .newProject(let model): model.retire()
-            case .build(let model): model.retire()
             case .welcome(let model): model.retire()
             }
         }
@@ -29,7 +27,6 @@ import Observation
         @MainActor var canDismiss: Bool {
             switch destination {
             case .newProject(let model): !model.busy
-            case .build(let model): !model.starting
             case .welcome(let model): !model.busy
             }
         }
@@ -338,34 +335,30 @@ import Observation
         if let failure { removalFailure = RemovalFailure(message: failure) } else { schedulePendingDeepLink() }
     }
 
-    func presentBuild(purpose: BuildDestinationViewModel.Purpose = .run, _ makeModel: () -> BuildWorkspaceViewModel?) {
-        guard canPresent, let runtime = makeModel() else { return }
-        let model = workspaceFactory.buildDestination(runtime: runtime, purpose: purpose)
-        guard !model.retired else { return }
-        present(model)
-    }
-
-    /// Run goes straight to the saved destination; the sheet is for a project that has
-    /// none, or for a run that failed and needs another choice.
+    /// Run goes straight to the saved destination, or, when the session has none, runs the lists'
+    /// first scheme and destination and saves them. A pick is saved as it is made, so a choice that
+    /// differs from the saved one was moved by the lists, and Run says so instead. A run that fails says why under the scheme, and the
+    /// run destination menu is where another is picked.
     func runBuild(_ makeModel: () -> BuildWorkspaceViewModel?) {
         guard canPresent, let runtime = makeModel() else { return }
-        guard runtime.hasSavedDestination else { return presentBuild { runtime } }
-        let model = workspaceFactory.buildDestination(runtime: runtime, purpose: .run)
+        let model = workspaceFactory.buildDestination(runtime: runtime)
         guard !model.retired else { return }
-        Task { [weak self] in
-            if await model.runSaved() { return }
-            guard let self, canPresent, model.presentable else { return model.retire() }
-            present(model)
+        Task {
+            if runtime.choosesSaved { _ = await model.runSaved() }
+            else if runtime.hasSavedDestination { runtime.reportMovedDestination() }
+            else {
+                if runtime.schemes.isEmpty || runtime.simulators.isEmpty { await model.load(fresh: false) }
+                await model.run()
+            }
+            model.retire()
         }
     }
 
-    private func present(_ model: BuildDestinationViewModel) {
-        cancelPageActions()
-        let id = UUID()
-        model.onAction = { [weak self] action in
-            switch action { case .started, .saved: _ = self?.complete(id) }
-        }
-        sheet = Sheet(id: id, destination: .build(model))
+    /// The run destination menu's lists, from the session's build, made for it if Run has not yet.
+    /// Once: the menu's Refresh asks again, for a device plugged in since.
+    func prepareRunDestinations(_ makeModel: () -> BuildWorkspaceViewModel?) {
+        guard canPresent, let runtime = makeModel(), runtime.schemes.isEmpty, !runtime.loading else { return }
+        Task { await runtime.loadDestinations(fresh: false) }
     }
 
     func presentRestart(perform: @escaping () -> Void) {

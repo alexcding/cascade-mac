@@ -57,7 +57,7 @@ import Testing
     let first = try #require(coordinator.restartConfirmation)
     #expect(!coordinator.canPresent)
     coordinator.presentRemoval { factories += 1; return nil }
-    coordinator.presentBuild { factories += 1; return nil }
+    coordinator.runBuild { factories += 1; return nil }
     #expect(factories == 0 && coordinator.sheet == nil)
     coordinator.confirmRestart(id: UUID())
     #expect(restarts == 0 && coordinator.restartConfirmation?.id == first.id)
