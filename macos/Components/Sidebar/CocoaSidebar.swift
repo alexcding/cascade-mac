@@ -31,13 +31,8 @@ struct CocoaSidebar: NSViewRepresentable {
     var gitClientLabel: String?
     var onOpenGitClient: (String) -> Void = { _ in }
     var onRenameChat: (String, String) -> Void = { _, _ in }
-    var onArchiveChat: (String, Bool) -> Void = { _, _ in }
     /// Called once the deletion was confirmed.
     var onDeleteChat: (String) -> Void = { _ in }
-    /// The archived chats, for the Chats heading's menu: read when it opens.
-    var archivedChats: () -> SidebarArchivedChats = { .empty }
-    /// One chosen from a menu's Archived Chats.
-    var onOpenArchivedChat: (String) -> Void = { _ in }
     static let dragType = NSPasteboard.PasteboardType("com.cascade.sidebar-row")
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -421,11 +416,6 @@ struct CocoaSidebar: NSViewRepresentable {
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
-            // The Chats heading reaches the archived chats, which no row lists.
-            if node.entry.id == SidebarEntry.chatsID {
-                menu.addItem(archivedChatsItem(parent.archivedChats()))
-                return menu
-            }
             guard let destination = node.entry.destination else { return nil }
             // A folder's hover gear and New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project = destination {
@@ -455,48 +445,14 @@ struct CocoaSidebar: NSViewRepresentable {
                     add("Fork", action: #selector(forkSession(_:)))
                 }
             }
-            if case .chat = destination, case .chat(let status) = node.entry.role {
+            if case .chat = destination {
                 menu.addItem(.separator())
                 add("Rename…", action: #selector(renameChat(_:)))
-                add(status.archived ? "Unarchive" : "Archive", action: #selector(archiveChat(_:)))
                 add("Delete…", action: #selector(deleteChat(_:)))
             }
             return menu.items.isEmpty ? nil : menu
         }
 
-        /// Archived Chats: a submenu of them under a header per place (project or folder), newest first,
-        /// with how many more there are; greyed when there are none.
-        func archivedChatsItem(_ archived: SidebarArchivedChats) -> NSMenuItem {
-            let item = NSMenuItem(title: String(localized: "Archived Chats"), action: nil, keyEquivalent: "")
-            item.identifier = .init("sidebar-archived-chats")
-            guard !archived.items.isEmpty else { return item }
-            let submenu = NSMenu(title: item.title)
-            for (index, group) in archived.byPlace.enumerated() {
-                if index > 0 { submenu.addItem(.separator()) }
-                submenu.addItem(.sectionHeader(title: group.place))
-                for chat in group.items {
-                    let entry = NSMenuItem(title: chat.title, action: #selector(openArchivedChat(_:)), keyEquivalent: "")
-                    entry.target = self; entry.representedObject = chat.id
-                    entry.toolTip = chat.place
-                    submenu.addItem(entry)
-                }
-            }
-            if archived.more > 0 {
-                submenu.addItem(.separator())
-                submenu.addItem(NSMenuItem(title: String(localized: "\(archived.more) more not shown"), action: nil, keyEquivalent: ""))
-            }
-            item.submenu = submenu
-            return item
-        }
-        @objc private func openArchivedChat(_ sender: NSMenuItem) {
-            guard let id = sender.representedObject as? String else { return }
-            parent.onOpenArchivedChat(id)
-        }
-        @objc private func archiveChat(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, let id = node.entry.chatID,
-                  case .chat(let status) = node.entry.role else { return }
-            parent.onArchiveChat(id, !status.archived)
-        }
         /// The system's own text prompt, as Rename Task's is.
         @objc private func renameChat(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, let id = node.entry.chatID else { return }
@@ -932,7 +888,6 @@ enum SidebarMetrics {
             dot.set(status.session)
             let named = entry.subtitle.isEmpty ? entry.title : "\(entry.title), \(entry.subtitle)"
             setAccessibilityLabel(status.working || status.needsInput ? "\(named), \(dot.statusLabel)" : named)
-            alphaValue = status.archived ? 0.6 : 1
         case .nav:
             icon.image = SidebarIcons.rowSymbol(entry.symbol)
         case .project:

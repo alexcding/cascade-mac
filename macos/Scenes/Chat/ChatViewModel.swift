@@ -15,8 +15,6 @@ import Observation
         case openSettings
         /// Another chat, which the page made (a fork, a review): shown in place of this one.
         case openThread(String)
-        /// The toolbar's Unarchive, on an archived chat opened from a sidebar menu's Archived Chats.
-        case unarchive
     }
 
     let threadID: String
@@ -55,14 +53,6 @@ import Observation
     func receive(events: [JSONValue]) {
         guard !retired else { return }
         page.receiveThreadEvents(events)
-    }
-
-    /// Archived: listed nowhere, reached from Archived Chats; its toolbar offers Unarchive.
-    var archived: Bool { shell?.archived ?? false }
-
-    func unarchive() {
-        guard !retired, archived else { return }
-        onAction(.unarchive)
     }
 
     private func pageEvent(_ event: ChatPageEvent) {

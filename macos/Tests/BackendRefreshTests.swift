@@ -432,45 +432,6 @@ private actor RefreshTransport: BackendTransport {
     await model.stop()
 }
 
-/// An archived chat is listed nowhere: the Chats heading's Archived Chats opens it, and its toolbar's
-/// Unarchive lists it again.
-@MainActor @Test func anArchivedChatOpensFromTheChatsMenuAndUnarchivesFromItsToolbar() async throws {
-    let suite = "refresh-archived-\(UUID().uuidString)"
-    let preferences = try #require(UserDefaults(suiteName: suite))
-    defer { preferences.removePersistentDomain(forName: suite) }
-    let runtime = RefreshRuntime()
-    await runtime.transport.chatsUp(#"""
-        [{"id":"old","projectId":"p","title":"Old","workingDirectory":"/fixture","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-02T10:00:00.000Z"},
-         {"id":"live","projectId":"p","title":"Live","workingDirectory":"/fixture","createdAt":"2026-10-03T10:00:00.000Z"},
-         {"id":"loose","projectId":"cascade-standalone","title":"Loose","workingDirectory":"/elsewhere","createdAt":"2026-10-01T10:00:00.000Z","archivedAt":"2026-10-04T10:00:00.000Z"}]
-        """#)
-    let model = refreshApp(runtime, preferences: preferences)
-    await model.start()
-    try await refreshEventually { model.chats.loaded && model.projects.contains { $0.id == "p" } }
-    try await refreshEventually { model.root.entries.contains { $0.chatID == "live" } }
-    let listed = model.root.entries.flatMap(\.descendants).compactMap(\.chatID)
-    #expect(listed == ["live"], "archived chats are listed nowhere")
-    #expect(model.root.entries.contains { $0.id == SidebarEntry.chatsID })
-    #expect(model.root.archivedChats().items.map(\.id) == ["loose", "old"], "newest archived first")
-    #expect(model.root.archivedChats().items.map(\.place) == ["elsewhere", "Project"])
-
-    model.root.openArchivedChat("old")
-    #expect(model.selection == .chat("old"))
-    let screen = try #require(model.coordinator.chatCoordinator)
-    #expect(screen.threadID == "old" && screen.model.archived)
-    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.map(\.id) == ["chat-unarchive"])
-
-    screen.model.unarchive()
-    try await refreshEventually { model.chats.shell("old")?.archived == false }
-    #expect(await runtime.transport.chatCommands == ["thread.unarchive"])
-    try await refreshEventually { model.root.entries.flatMap(\.descendants).contains { $0.chatID == "old" } }
-    #expect(model.root.archivedChats().items.map(\.id) == ["loose"])
-    #expect(model.selection == .chat("old"), "it stays on screen")
-    try await refreshEventually { !screen.model.archived }
-    #expect(Destination.chatCoordinator(screen).windowToolbar.trailing.isEmpty)
-    await model.stop()
-}
-
 /// A new chat is titled twice as its first turn runs (the first message, then the generated title),
 /// each a `chat-shell` event for the chat on screen: the title changes and nothing else. The screen,
 /// its page model and its web view are the ones New Task opened, so the page is not loaded again

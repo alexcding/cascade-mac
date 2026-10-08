@@ -34,7 +34,7 @@ import Observation
     /// Every session and its agent's state, from the app as its terminals change: Overview's lanes.
     /// Kept while Projects is off screen, laid out again only when it is on.
     var sessions: [DashboardSession] = [] { didSet { if sessions != oldValue, onScreen { updateLanes() } } }
-    /// Every chat session that is not archived, from the app's chat list: listed in its project's lane.
+    /// Every chat session, from the app's chat list: listed in its project's lane.
     var chats: [DashboardChat] = [] { didSet { if chats != oldValue, onScreen { updateLanes() } } }
     /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
     /// counts change rather than on every redraw.

@@ -16,6 +16,7 @@ mod transcript;
 mod workspace;
 
 use std::{
+    collections::{HashMap, HashSet},
     io,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
@@ -32,9 +33,10 @@ use cascade_chat::{
     checkpointing::{git::GitFuture, GitOutput, GitRunner},
     checkpointing::diff_query::CheckpointDiffError,
     contracts::{
-        base::{now_iso, ThreadId},
+        base::{now_iso, CommandId, ThreadId},
         orchestration::{
-            ClientThreadCommand, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput, OrchestrationThread, ThreadCreateCommand,
+            ClientThreadCommand, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput, OrchestrationThread, OrchestrationThreadShell, ThreadCreateCommand,
+            ThreadDeleteCommand,
             ThreadTurnDiff, PROVIDER_SEND_TURN_MAX_FILE_BYTES, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
         },
     },
@@ -408,7 +410,7 @@ async fn run_command_in(app: &AppState, mut command: ClientThreadCommand, home: 
     match engine(app)?.dispatch(command).await {
         Ok(result) => {
             if let Some(thread) = deleted {
-                remove_scratch_folder(app, &thread).await;
+                remove_scratch_folders(app, folder_of(&thread)).await;
             }
             let mut result = json!(result);
             // The folder the chat works in, which the app shows before the chat's shell comes.
@@ -459,23 +461,152 @@ async fn give_scratch_folder(app: &AppState, create: &mut ThreadCreateCommand) -
     Ok((!existed).then_some(folder))
 }
 
-/// A deleted chat's scratch folder goes with it, unless another chat still works there (a fork).
-async fn remove_scratch_folder(app: &AppState, thread: &OrchestrationThread) {
+/// A deleted project's chats go with it, its subagents' threads included: a chat is the project's, and left
+/// behind it would list under its folder's name with no project to open it in. A chat started in the
+/// pane of a session that outlives the project stays with that session.
+pub async fn delete_project_chats(app: &AppState, project_id: &str) {
+    let Some(engine) = app.chat.engine() else { return };
+    let shells = match engine.shells(Some(project_id.to_owned())).await {
+        Ok(shells) => shells,
+        Err(error) => return tracing::warn!(project = project_id, error = %format!("{error:#}"), "chat: a deleted project's chats were not listed"),
+    };
+    if shells.iter().all(|shell| pane_of(shell).is_none()) {
+        return delete_chats(app, shells).await;
+    }
+    // Unread, every worktree counts as held: a chat is never deleted on a guess.
+    let Ok(tasks) = app.db.tasks().await else {
+        return delete_chats(app, shells.into_iter().filter(|shell| pane_of(shell).is_none()).collect()).await;
+    };
+    let worktrees: Vec<&str> = tasks.iter().map(|task| task.worktree.as_str()).filter(|path| !path.is_empty()).collect();
+    let keys = folder_keys(worktrees.iter().copied().chain(shells.iter().filter_map(pane_of))).await;
+    let held: HashSet<&PathBuf> = worktrees.iter().filter_map(|path| keys.get(*path)).collect();
+    let owned = shells.into_iter().filter(|shell| pane_of(shell).is_none_or(|path| !keys.get(path).is_some_and(|key| held.contains(key)))).collect();
+    delete_chats(app, owned).await;
+}
+
+/// The chats started in a session's pane go with the last session on its worktree: they were
+/// reached only from that pane. Nothing goes while a session still works there, or when the
+/// sessions cannot be read.
+pub async fn delete_worktree_chats(app: &AppState, worktree: &str) {
+    let Some(engine) = app.chat.engine() else { return };
+    let shells = match engine.shells(None).await {
+        Ok(shells) => shells,
+        Err(error) => return tracing::warn!(worktree, error = %format!("{error:#}"), "chat: a removed session's chats were not listed"),
+    };
+    // No chat was started in a pane: no folder needs reading.
+    if shells.iter().all(|shell| pane_of(shell).is_none()) {
+        return;
+    }
+    let Ok(tasks) = app.db.tasks().await else { return };
+    let others: Vec<&str> = tasks.iter().map(|task| task.worktree.as_str()).filter(|path| !path.is_empty()).collect();
+    let keys = folder_keys([worktree].into_iter().chain(others.iter().copied()).chain(shells.iter().filter_map(pane_of))).await;
+    let Some(target) = keys.get(worktree) else { return };
+    if others.iter().any(|path| keys.get(*path) == Some(target)) {
+        return;
+    }
+    let held = shells.iter().filter(|shell| pane_of(shell).and_then(|path| keys.get(path)) == Some(target)).cloned().collect();
+    delete_chats(app, held).await;
+}
+
+/// The worktree a chat was started in the pane of, if it was.
+fn pane_of(shell: &OrchestrationThreadShell) -> Option<&str> {
+    shell.worktree_path.as_deref().filter(|path| !path.is_empty())
+}
+
+/// Each path's folder, as `folder_key` names it, read once a path and off the runtime's workers.
+async fn folder_keys<'a>(paths: impl IntoIterator<Item = &'a str>) -> HashMap<String, PathBuf> {
+    let paths: HashSet<String> = paths.into_iter().map(str::to_owned).collect();
+    tokio::task::spawn_blocking(move || paths.into_iter().map(|path| { let key = folder_key(&path); (path, key) }).collect())
+        .await
+        .unwrap_or_default()
+}
+
+/// One folder however it is written: a trailing slash or a symbolic link (`/var` and `/private/var`)
+/// makes no other folder. A folder already removed (Remove Task deletes the worktree first) is
+/// named by its parent's real path, which still exists.
+fn folder_key(path: &str) -> PathBuf {
+    let trimmed = Path::new(path.trim_end_matches('/'));
+    if let Ok(real) = std::fs::canonicalize(trimmed) {
+        return real;
+    }
+    match (trimmed.parent().map(std::fs::canonicalize), trimmed.file_name()) {
+        (Some(Ok(parent)), Some(name)) => parent.join(name),
+        _ => trimmed.to_path_buf(),
+    }
+}
+
+async fn delete_chats(app: &AppState, shells: Vec<OrchestrationThreadShell>) {
+    let Some(engine) = app.chat.engine() else { return };
+    let ids: HashSet<ThreadId> = shells.iter().map(|shell| shell.id.clone()).collect();
+    let (mut deleted, mut failed) = (HashSet::new(), HashSet::new());
+    let mut folders = Vec::new();
+    // A subagent's thread whose parent goes too is the parent's to take; one whose parent could not
+    // be deleted is tried on its own. Parents first, so each child knows how its parent fared.
+    let mut pending: Vec<&OrchestrationThreadShell> = shells.iter().collect();
+    loop {
+        let before = pending.len();
+        let mut waiting = Vec::new();
+        for shell in pending {
+            match shell.parent_thread_id.as_ref().filter(|parent| ids.contains(*parent)) {
+                Some(parent) if deleted.contains(parent) => {
+                    deleted.insert(shell.id.clone());
+                }
+                Some(parent) if !failed.contains(parent) => waiting.push(shell),
+                _ => {
+                    let command = ClientThreadCommand::Delete(ThreadDeleteCommand {
+                        command_id: CommandId::new(format!("server:owner-delete:{}", uuid::Uuid::new_v4())),
+                        thread_id: shell.id.clone(),
+                    });
+                    match engine.dispatch(command).await {
+                        Ok(_) => {
+                            deleted.insert(shell.id.clone());
+                            folders.extend(folder_in(&shell.working_directory, &shell.worktree_path));
+                        }
+                        Err(error) => {
+                            tracing::warn!(thread = %shell.id, ?error, "chat: a chat was not deleted with its owner");
+                            failed.insert(shell.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        // A parent the batch does not reach (a cycle) leaves its children where they are.
+        if waiting.is_empty() || waiting.len() == before {
+            break;
+        }
+        pending = waiting;
+    }
+    remove_scratch_folders(app, folders).await;
+}
+
+/// The folder a chat works in: the one it was created with, else its worktree.
+fn folder_in(working_directory: &Option<String>, worktree_path: &Option<String>) -> Option<String> {
+    [working_directory, worktree_path].into_iter().flatten().find(|folder| !folder.trim().is_empty()).cloned()
+}
+
+/// Deleted chats' scratch folders go with them, unless a chat still works there (a fork).
+async fn remove_scratch_folders(app: &AppState, folders: impl IntoIterator<Item = String>) {
     let (Some(root), Some(engine)) = (app.chat.scratch.get(), app.chat.engine()) else { return };
-    let Some(folder) = folder_of(thread).map(PathBuf::from) else { return };
     // Only a folder `give_scratch_folder` makes: one plain name right under the root (a fork's is
     // its source's). A path that merely sits under it (`…/workspaces/..`) is never removed.
-    let mut components = folder.strip_prefix(root).map(|rest| rest.components().collect::<Vec<_>>()).unwrap_or_default();
-    if components.len() != 1 || !matches!(components.pop(), Some(std::path::Component::Normal(_))) {
+    let scratch: HashSet<PathBuf> = folders
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|folder| {
+            let mut components = folder.strip_prefix(root).map(|rest| rest.components().collect::<Vec<_>>()).unwrap_or_default();
+            components.len() == 1 && matches!(components.pop(), Some(std::path::Component::Normal(_)))
+        })
+        .collect();
+    if scratch.is_empty() {
         return;
     }
     let shells = engine.shells(None).await.unwrap_or_default();
-    let shared = shells.iter().any(|shell| {
-        shell.id != thread.id && [&shell.working_directory, &shell.worktree_path].into_iter().flatten().any(|f| PathBuf::from(f) == folder)
-    });
-    if !shared {
-        if let Err(error) = std::fs::remove_dir_all(&folder) {
-            tracing::warn!(folder = %folder.display(), %error, "chat: a scratch folder was not removed");
+    for folder in scratch {
+        let shared = shells.iter().any(|shell| [&shell.working_directory, &shell.worktree_path].into_iter().flatten().any(|f| PathBuf::from(f) == folder));
+        if !shared {
+            if let Err(error) = std::fs::remove_dir_all(&folder) {
+                tracing::warn!(folder = %folder.display(), %error, "chat: a scratch folder was not removed");
+            }
         }
     }
 }
@@ -492,9 +623,10 @@ struct SessionKnowledgeParams {
 /// Whether `worktree` is a Cascade session's: the only folder whose agent a chat may start
 /// knowing.
 async fn is_session_worktree(app: &AppState, worktree: &str) -> Result<bool, RpcError> {
-    let trimmed = |path: &str| path.trim_end_matches('/').to_owned();
     let sessions = app.db.tasks().await.map_err(RpcError::internal)?;
-    Ok(sessions.iter().any(|session| !session.worktree.is_empty() && trimmed(&session.worktree) == trimmed(worktree)))
+    let worktrees: Vec<&str> = sessions.iter().map(|session| session.worktree.as_str()).filter(|path| !path.is_empty()).collect();
+    let keys = folder_keys(worktrees.iter().copied().chain([worktree])).await;
+    Ok(worktrees.iter().any(|path| keys.get(*path).is_some() && keys.get(*path) == keys.get(worktree)))
 }
 
 /// `chat.sessionKnowledge`: whether a chat started in a session's pane can start with what the
@@ -626,11 +758,7 @@ async fn folder_of_call(app: &AppState, raw: &Value) -> Result<String, RpcError>
 }
 
 fn folder_of(thread: &OrchestrationThread) -> Option<String> {
-    [&thread.working_directory, &thread.worktree_path]
-        .into_iter()
-        .flatten()
-        .find(|folder| !folder.trim().is_empty())
-        .cloned()
+    folder_in(&thread.working_directory, &thread.worktree_path)
 }
 
 async fn list_commands(app: &AppState, raw: Value) -> RpcResult {

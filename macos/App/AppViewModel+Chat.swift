@@ -3,7 +3,7 @@ import Foundation
 import OSLog
 
 /// Chat sessions: the list's events, the chat screen's model and what its page asks for, New Task's
-/// Chat side, and the sidebar's Rename, Archive and Delete.
+/// Chat side, and the sidebar's Rename and Delete.
 extension AppViewModel: ChatCoordinating {
     // MARK: Events
 
@@ -136,8 +136,6 @@ extension AppViewModel: ChatCoordinating {
             if chats.shell(id) == nil { chats.reload() }
         case .openSettings:
             coordinator.presentSettingsWindow()
-        case .unarchive:
-            archiveChat(threadID, archived: false)
         }
     }
 
@@ -210,22 +208,6 @@ extension AppViewModel: ChatCoordinating {
                 chats.receive(shell)
                 updateChatScreen(id)
             } catch { self?.reportRootError(String(localized: "Could not rename the chat: \(error.localizedDescription)")) }
-        }
-    }
-
-    func archiveChat(_ id: String, archived: Bool) {
-        guard let service = chatService, let current = chats.shell(id), current.archived != archived else { return }
-        Task { [weak self] in
-            do {
-                if archived { try await service.archiveThread(id) } else { try await service.unarchiveThread(id) }
-                guard let self, var shell = chats.shell(id) else { return }
-                shell.archivedAt = archived ? ChatTimestamp.string() : nil
-                chats.receive(shell)
-                // Unarchived on its own screen (opened from Archived Chats), its toolbar drops Unarchive.
-                updateChatScreen(id)
-                // An archived chat is no longer listed: it leaves the screen.
-                if archived, selection == .chat(id) { select(.overview) }
-            } catch { self?.reportRootError(String(localized: "Could not archive the chat: \(error.localizedDescription)")) }
         }
     }
 

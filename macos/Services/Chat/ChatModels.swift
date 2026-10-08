@@ -35,7 +35,6 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
     var worktreePath: String? = nil
     var createdAt: String? = nil
     var updatedAt: String? = nil
-    var archivedAt: String? = nil
     var latestTurn: LatestTurn? = nil
     var session: Session? = nil
     var hasPendingApprovals: Bool? = nil
@@ -46,7 +45,6 @@ struct ChatThreadShell: Decodable, Equatable, Identifiable, Sendable {
 
     /// The folder the agent works in: the one it was created with, else its worktree.
     var cwd: String { workingDirectory.flatMap { $0.isEmpty ? nil : $0 } ?? worktreePath ?? "" }
-    var archived: Bool { archivedAt?.isEmpty == false }
     var standalone: Bool { projectId == ChatProject.standalone }
     /// It works in a private folder the backend made (`<data>/chat/workspaces/<id>`: its own, or its
     /// fork source's), which is nothing to show as a place.

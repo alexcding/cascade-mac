@@ -21,8 +21,7 @@ struct SidebarView: View {
                          onFocusSession: viewModel.focusSession,
                          gitClientLabel: viewModel.gitClientLabel, onOpenGitClient: viewModel.openGitClient,
                          onRenameChat: viewModel.renameChat(_:to:),
-                         onArchiveChat: viewModel.archiveChat(_:archived:), onDeleteChat: viewModel.deleteChat(_:),
-                         archivedChats: viewModel.archivedChats, onOpenArchivedChat: viewModel.openArchivedChat)
+                         onDeleteChat: viewModel.deleteChat(_:))
 
             HStack(spacing: 6) {
                 SidebarAppButton(icon: "bell", label: String(localized: "Today's activity"), help: String(localized: "Today's activity")) { showingActivity.toggle() }

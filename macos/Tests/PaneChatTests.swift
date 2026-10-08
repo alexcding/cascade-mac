@@ -215,16 +215,15 @@ private struct QuietPageBackend: ChatPageBackend {
         let context = WorkspaceContext(id: "task:s1", sourceURL: "session:s1", title: "")
         let service = PaneChatFixture(), model = SessionWorkspaceViewModel(context: context, service: service)
         service.state.session = session()
-        var archived = shell("dddd"); archived.archivedAt = "2026-10-05T00:00:00.000Z"
         var working = shell("bb"); working.session = .init(status: "running")
         var asking = shell("a"); asking.hasPendingApprovals = true
-        service.shells = ["a": asking, "bb": working, "ccc": shell("ccc", worktree: "/elsewhere"), "dddd": archived,
+        service.shells = ["a": asking, "bb": working, "ccc": shell("ccc", worktree: "/elsewhere"),
                           "eeeee": shell("eeeee", parent: "a"), "ffffff": shell("ffffff")]
         let shown = context.openChat(thread: "ffffff")
         let tab = context.openChat()
         model.preparePaneChat(tab)
         #expect(model.paneChat(for: tab)?.form != nil)
-        // Newest first; another worktree's, an archived one, a subagent's and the one a tab shows left out.
+        // Newest first; another worktree's, a subagent's and the one a tab shows left out.
         #expect(model.paneExistingChats(tab).map(\.id) == ["bb", "a"])
         #expect(model.paneExistingChats(tab).first?.working == true && model.paneExistingChats(tab).last?.needsInput == true)
         context.close(.tool(shown))

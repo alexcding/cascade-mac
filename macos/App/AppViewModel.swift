@@ -344,8 +344,7 @@ public final class AppViewModel {
                 cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
-                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
-                                 hasArchivedChats: chats.shells.values.contains { $0.archived && !$0.subagent })
+                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees))
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -980,7 +979,7 @@ public final class AppViewModel {
             guard let self else { throw BackendError.operation(String(localized: "The workspace closed before removal.")) }
             try await self.stopForRemoval(keys, operationID: operationID)
         })
-        return workspaceFactory.removal(service: service, record: record, projects: projects, sessions: sessions,
+        let model = workspaceFactory.removal(service: service, record: record, projects: projects, sessions: sessions,
             didRemove: { [weak self] removed in
                 guard let self else { return }
                 for record in removed {
@@ -1005,6 +1004,10 @@ public final class AppViewModel {
                 openTerminal()
                 refresh()
             })
+        // Matched as the plan matches folders, symbolic links resolved, as the backend's delete does.
+        let folder = SessionRemovalPlan.path(record.worktree)
+        model.paneChats = chats.visible().filter { $0.worktreePath.map { !$0.isEmpty && SessionRemovalPlan.path($0) == folder } ?? false }.count
+        return model
     }
 
     func buildModel(for record: WorkspaceSession, context: WorkspaceContext) -> BuildWorkspaceViewModel? {

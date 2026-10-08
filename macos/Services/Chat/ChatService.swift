@@ -35,7 +35,7 @@ struct ChatCreated: Equatable, Sendable {
 }
 
 extension ChatServing {
-    /// Every chat of a project, or of every project for nil, newest first; archived ones included.
+    /// Every chat of a project, or of every project for nil, newest first.
     func listThreads(projectID: String? = nil) async throws -> [ChatThreadShell] {
         let params: JSONValue = projectID.map { ["projectId": .string($0)] } ?? [:]
         let result = try await rpc("chat.listThreads", params: params)
@@ -152,8 +152,6 @@ extension ChatServing {
                             "threadId": .string(id), "title": .string(title)])
     }
 
-    func archiveThread(_ id: String) async throws { try await simple("thread.archive", id) }
-    func unarchiveThread(_ id: String) async throws { try await simple("thread.unarchive", id) }
     func deleteThread(_ id: String) async throws { try await simple("thread.delete", id) }
 
     private func simple(_ type: String, _ id: String) async throws {

@@ -70,6 +70,9 @@ struct SessionRemovalService: SessionRemoving {
     private(set) var completed = false
     private(set) var retired = false
     private(set) var error: String?
+    /// The chats started in the pane of a session on this worktree, which the backend deletes with
+    /// the last session there. Set by the app, from its chat list.
+    var paneChats = 0
     private var service: (any SessionRemoving)?
     private var loadGeneration = UUID()
     private var preparing = false
@@ -101,6 +104,14 @@ struct SessionRemovalService: SessionRemoving {
             }
         } else {
             lines.append(String(localized: "No project here owns this folder. The terminal stops and Cascade forgets the task — the folder itself stays."))
+        }
+        // The backend deletes them with the last task on the folder: all of a removed worktree's go,
+        // and a forgotten task's only when no other works there.
+        let last = plan.removesWorktree
+            || !sessions.contains { $0.id != plan.record.id && SessionRemovalPlan.path($0.worktree) == SessionRemovalPlan.path(plan.record.worktree) }
+        if paneChats > 0, last {
+            lines.append(paneChats == 1 ? String(localized: "The chat started in its pane is deleted too.")
+                         : String(localized: "The \(paneChats) chats started in its pane are deleted too."))
         }
         return lines.joined(separator: "\n\n")
     }

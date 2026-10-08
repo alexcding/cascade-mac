@@ -95,8 +95,8 @@ struct TranscriptThreadQuery: Equatable, Sendable {
     func makePaneNewChat(in context: WorkspaceContext) -> NewChatViewModel?
     /// A chat a tab's form just started, for the list to have before the backend's word arrives.
     func paneChatStarted(_ shell: ChatThreadShell)
-    /// The chats started in the panes of the session working in `worktree` (and their forks), not
-    /// archived, newest first: lists leave them out, so a tab's form is where a closed one is found.
+    /// The chats started in the panes of the session working in `worktree` (and their forks),
+    /// newest first: lists leave them out, so a tab's form is where a closed one is found.
     func paneWorktreeChats(_ worktree: String) -> [ChatThreadShell]
     /// What a tab's page asks of the app beyond the pane: a link, a reveal, a turn's diff, Settings,
     /// another chat the list must read again for.

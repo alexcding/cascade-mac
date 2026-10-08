@@ -118,7 +118,13 @@ pub async fn delete_task(
     Query(query): Query<DeleteTaskQuery>,
 ) -> ApiResult<Value> {
     if let Some(id) = query.id {
+        // Read before it goes; a read that fails only keeps the chats.
+        let worktree = state.db.task(&id).await.ok().flatten().map(|task| task.worktree).filter(|path| !path.is_empty());
         state.db.delete_task(&id).await?;
+        // A pane's chats are the worktree's, so they go once no session works there.
+        if let Some(worktree) = worktree {
+            crate::chat::delete_worktree_chats(&state, &worktree).await;
+        }
     }
     state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
@@ -268,6 +274,7 @@ pub async fn delete_project(
 ) -> ApiResult<Value> {
     state.poller.invalidate(&id).await;
     state.db.delete_project(&id).await?;
+    crate::chat::delete_project_chats(&state, &id).await;
     state.publish(crate::Event::Sync { scope: None, project_id: Some(id.to_string()) });
     Ok(Json(json!({ "ok": true })))
 }

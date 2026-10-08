@@ -17,7 +17,7 @@ import Observation
     var canCreateSession = false
     var canRefresh = false
     var gitClientLabel: String?
-    /// Every chat the store holds, archived ones included, and whether it has been read yet.
+    /// Every chat the store holds, and whether it has been read yet.
     var chats: [ChatThreadShell] = []
     var chatsLoaded = false
 }
@@ -34,7 +34,6 @@ import Observation
         /// A project row's hover New Task.
         case newTask(String)
         case renameChat(String, name: String)
-        case archiveChat(String, archived: Bool)
         case deleteChat(String)
     }
     let shell: ShellStore
@@ -62,7 +61,7 @@ import Observation
     var error: String? {
         let state = self.state
         switch state.selection {
-        // A chat's rename, archive or delete is reported where its row was used from, or on its screen.
+        // A chat's rename or delete is reported where its row was used from, or on its screen.
         case .overview, .project, .chat: return state.error
         default: return nil
         }
@@ -113,14 +112,6 @@ import Observation
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     /// A chat row's Rename…, with the title typed into the prompt.
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }
-    func archiveChat(_ id: String, archived: Bool) { onAction(.archiveChat(id, archived: archived)) }
-    /// The archived chats, by place, for the Chats heading's Archived Chats.
-    func archivedChats() -> SidebarArchivedChats {
-        let state = self.state
-        return SidebarArchivedChats.of(state.chats, projects: state.projects)
-    }
-    /// One chosen from Archived Chats: its screen shows it, and its toolbar offers Unarchive.
-    func openArchivedChat(_ id: String) { select(.chat(id)) }
     /// A chat row's Delete…, once its confirmation was answered.
     func deleteChat(_ id: String) { onAction(.deleteChat(id)) }
     func openTerminal() { onAction(.openTerminal) }

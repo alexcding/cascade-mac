@@ -22,7 +22,6 @@ import Foundation
     /// A session, from Projects: shown, with the keyboard on its agent.
     func openSession(_ id: String)
     func renameChat(_ id: String, to name: String)
-    func archiveChat(_ id: String, archived: Bool)
     func deleteChat(_ id: String)
 }
 
@@ -40,7 +39,6 @@ extension RootCoordinating {
     func openProjectSettings(_ projectID: String) {}
     func openSession(_ id: String) {}
     func renameChat(_ id: String, to name: String) {}
-    func archiveChat(_ id: String, archived: Bool) {}
     func deleteChat(_ id: String) {}
     func canPerform(_ command: ShellCommand) -> Bool { command == .newProject && rootState().canCreateProject }
 }
@@ -83,7 +81,6 @@ extension AppCoordinator {
         case .focusSession(let id): rootRuntime?.focusSession(id)
         case .newTask(let id): rootRuntime?.newTask(in: id)
         case .renameChat(let id, let name): rootRuntime?.renameChat(id, to: name)
-        case .archiveChat(let id, let archived): rootRuntime?.archiveChat(id, archived: archived)
         case .deleteChat(let id): rootRuntime?.deleteChat(id)
         }
     }

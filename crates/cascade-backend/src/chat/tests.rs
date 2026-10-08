@@ -991,3 +991,80 @@ async fn a_scratch_folder_shared_with_a_fork_goes_with_the_last_of_them() {
     assert!(!folder.exists(), "removed with the last chat in it");
     app.chat.shutdown().await;
 }
+
+#[tokio::test]
+async fn a_deleted_projects_chats_go_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    let router = build_app(app.clone());
+    let work = tempfile::tempdir().unwrap();
+    let in_project = |thread: &str, project: &str| {
+        let mut command = create(thread, work.path());
+        command["command"]["projectId"] = json!(project);
+        command
+    };
+    for (thread, project) in [("kept", "other"), ("first", "gone"), ("second", "gone")] {
+        let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", in_project(thread, project)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+    // A pane chat of the project's whose session outlives the project stays with the session.
+    let worktree = tempfile::tempdir().unwrap();
+    let session = crate::domain::Session {
+        id: "survivor".into(), project_id: "gone".into(), workspace: "/w".into(),
+        worktree: worktree.path().to_string_lossy().into_owned(), cli: "claude".into(), ..Default::default()
+    };
+    assert!(app.db.upsert_task(&session).await.unwrap());
+    let mut pane = in_project("pane", "gone");
+    pane["command"]["workingDirectory"] = json!(worktree.path().to_string_lossy());
+    pane["command"]["worktreePath"] = json!(worktree.path().to_string_lossy());
+    let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", pane).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let request = Request::delete("/api/projects/gone").body(Body::empty()).unwrap();
+    assert_eq!(router.clone().oneshot(request).await.unwrap().status(), StatusCode::OK);
+
+    let mut left: Vec<String> = app.chat.engine().unwrap().shells(None).await.unwrap().into_iter().map(|shell| shell.id.to_string()).collect();
+    left.sort();
+    assert_eq!(left, ["kept", "pane"]);
+    assert!(work.path().is_dir(), "a project's own folder is never removed");
+    app.chat.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_panes_chats_go_with_the_last_session_on_its_worktree() {
+    let dir = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let app = app_with_engine(dir.path(), &spawner).await;
+    let router = build_app(app.clone());
+    let worktree = tempfile::tempdir().unwrap();
+    let path = worktree.path().to_string_lossy().into_owned();
+    // The same folder written two ways: one session's has a trailing slash.
+    for (id, worktree) in [("first", path.clone()), ("second", format!("{path}/"))] {
+        let session = crate::domain::Session {
+            id: id.into(), project_id: "project-1".into(), workspace: "/w".into(), worktree,
+            cli: "claude".into(), ..Default::default()
+        };
+        assert!(app.db.upsert_task(&session).await.unwrap());
+    }
+    // The chat names the folder by its real path (`/private/var/…`), the sessions as made (`/var/…`).
+    let mut pane = create("pane", worktree.path());
+    pane["command"]["worktreePath"] = json!(std::fs::canonicalize(worktree.path()).unwrap().to_string_lossy());
+    let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", pane).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, body) = rpc_call(&router, "orchestration.dispatchCommand", create("loose", worktree.path())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let ids = || async { app.chat.engine().unwrap().shells(None).await.unwrap().into_iter().map(|shell| shell.id.to_string()).collect::<Vec<_>>() };
+    let delete = |id: &str| Request::delete(format!("/api/tasks?id={id}")).body(Body::empty()).unwrap();
+
+    assert_eq!(router.clone().oneshot(delete("first")).await.unwrap().status(), StatusCode::OK);
+    let mut left = ids().await;
+    left.sort();
+    assert_eq!(left, ["loose", "pane"], "kept while another session works there");
+
+    // Remove Task deletes the worktree before the task.
+    std::fs::remove_dir_all(worktree.path()).unwrap();
+    assert_eq!(router.clone().oneshot(delete("second")).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(ids().await, ["loose"], "a chat merely working in the folder is no pane's");
+    app.chat.shutdown().await;
+}
