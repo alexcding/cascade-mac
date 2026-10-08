@@ -56,8 +56,7 @@ struct AutomationEditorView: View {
             .layoutPriority(1)
             Spacer(minLength: 12)
             HStack(spacing: 8) {
-                Text(model.draft?.mode == .live ? String(localized: "On") : String(localized: "Off")).font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(model.draft?.mode == .live ? Theme.success : DashboardPalette.ink3)
+                AutomationModeLabel(live: model.draft?.mode == .live)
                 Toggle(String(localized: "On"), isOn: Binding(
                     get: { model.draft?.mode == .live },
                     set: { on in Task { await model.setMode(on ? .live : .off) } }))
@@ -276,19 +275,11 @@ private struct TriggerCard: View {
             ForEach(AutomationCatalog.visible(params, values: draft.trigger.params)) { param in
                 ParamField(param: param, value: draft.trigger.params[param.key]) { model.setTriggerParam(param.key, $0) }
             }
-            Menu {
-                ForEach(AutomationCatalog.grouped(catalog.triggers), id: \.group) { group in
-                    Section(group.group) {
-                        ForEach(group.nodes) { node in
-                            Toggle(node.localizedLabel, isOn: Binding(get: { draft.trigger.types.contains(node.type) },
-                                                             set: { _ in model.toggleTrigger(node.type) }))
-                        }
-                    }
-                }
-            } label: {
+            ThemedAddMenu(groups: AddNodeMenu.groups(catalog.triggers), checked: Set(draft.trigger.types), staysOpen: true,
+                          choose: { model.toggleTrigger($0) }) {
                 OutlinedButtonLabel(title: String(localized: "Add Trigger"), symbol: "plus")
             }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .fixedSize()
             .accessibilityIdentifier("automation-add-trigger")
             if !jira { ProjectScope(model: model, draft: draft) }
         }
@@ -382,16 +373,17 @@ private struct AddNodeMenu: View {
     let nodes: [AutomationCatalog.Node]
     let add: (String) -> Void
     var body: some View {
-        Menu {
-            ForEach(AutomationCatalog.grouped(nodes), id: \.group) { group in
-                Section(group.group) {
-                    ForEach(group.nodes) { node in Button(node.localizedLabel) { add(node.type) } }
-                }
-            }
-        } label: {
+        ThemedAddMenu(groups: Self.groups(nodes), choose: add) {
             OutlinedButtonLabel(title: title, symbol: "plus")
         }
-        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .fixedSize()
+    }
+
+    /// The catalogue's nodes under a header per group, for the add list.
+    static func groups(_ nodes: [AutomationCatalog.Node]) -> [ThemedAddGroup] {
+        AutomationCatalog.grouped(nodes).map { group in
+            .init(title: group.group, items: group.nodes.map { .init(id: $0.type, title: $0.localizedLabel) })
+        }
     }
 }
 
@@ -435,28 +427,28 @@ private struct ParamField: View {
                 .toggleStyle(.switch).controlSize(.mini)
             case "enum":
                 FieldLabel(text: param.localizedLabel)
-                Picker(param.localizedLabel, selection: Binding(get: { value?.text ?? param.default?.text ?? param.options?.first?.value ?? "" },
-                                                       set: { set(.text($0)) })) {
-                    ForEach(param.options ?? [], id: \.value) { Text($0.localizedLabel).tag($0.value) }
-                }
-                .labelsHidden().fixedSize()
+                ThemedChoice(title: param.localizedLabel,
+                             options: (param.options ?? []).map { ThemedOption($0.value, $0.localizedLabel) },
+                             selection: Binding(get: { value?.text ?? param.default?.text ?? param.options?.first?.value ?? "" },
+                                                set: { set(.text($0)) }))
+                    .frame(maxWidth: 280)
             case "number":
                 FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: Binding(
                     get: { value?.text ?? "" },
                     set: { set(Double($0).map(ParamValue.number) ?? ($0.isEmpty ? .null : .text($0))) }))
-                    .textFieldStyle(.roundedBorder).frame(width: 110)
+                    .font(.system(size: 13)).themedField().frame(width: 110)
             case "template", "script":
                 FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: text, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
                     .lineLimit(param.kind == "script" ? 3...10 : 1...5)
                     .font(param.kind == "script" ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                    .themedField()
             default:
                 FieldLabel(text: param.localizedLabel)
                 TextField(param.placeholder ?? "", text: text)
-                    .textFieldStyle(.roundedBorder)
                     .font(param.kind == "jql" ? .system(size: 12, design: .monospaced) : .system(size: 13))
+                    .themedField()
             }
             if let help = param.localizedHelp {
                 Text(help).font(.system(size: 11.5)).foregroundStyle(DashboardPalette.ink3)

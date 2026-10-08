@@ -401,8 +401,12 @@ private func fixtureAutomation(id: String, name: String) -> Automation {
     weekly.repeat = .weekly; weekly.days = [1, 3]; weekly.time = "18:30"
     let names = Calendar.current.shortWeekdaySymbols
     #expect(weekly.summary.hasPrefix("\(names[1]), \(names[3]) at "))
-    weekly.timeOfDay = Calendar.current.date(bySettingHour: 7, minute: 5, second: 0, of: Date())!
+    weekly.hour = 7; weekly.minute = 5
     #expect(weekly.time == "07:05")
+    var unpadded = Automation.Schedule(); unpadded.time = "9:5"
+    #expect(unpadded.hour == 9 && unpadded.minute == 5)
+    unpadded.minute = 30
+    #expect(unpadded.time == "09:30", "written back as HH:MM")
     var cron = Automation.Schedule()
     cron.repeat = .cron; cron.cron = "0 9 * * 1-5"
     #expect(cron.summary.contains("0 9 * * 1-5"))

@@ -34,17 +34,19 @@ extension Automation.Schedule {
         }
     }
 
-    /// The time of day as a date today, for a time picker.
-    var timeOfDay: Date {
-        get {
-            let parts = time.split(separator: ":").compactMap { Int($0) }
-            let hour = parts.first ?? 9, minute = parts.count > 1 ? parts[1] : 0
-            return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
-        }
-        set {
-            let parts = Calendar.current.dateComponents([.hour, .minute], from: newValue)
-            time = String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
-        }
+    /// The hour of `time` (9 when it names none), written back as `HH:MM`.
+    var hour: Int {
+        get { clockParts.hour }
+        set { time = String(format: "%02d:%02d", newValue, clockParts.minute) }
+    }
+    /// The minute of `time` (0 when it names none), written back as `HH:MM`.
+    var minute: Int {
+        get { clockParts.minute }
+        set { time = String(format: "%02d:%02d", clockParts.hour, newValue) }
+    }
+    private var clockParts: (hour: Int, minute: Int) {
+        let numbers = time.split(separator: ":").compactMap { Int($0) }
+        return (numbers.first ?? 9, numbers.count > 1 ? numbers[1] : 0)
     }
 
     /// `HH:MM` as the user's clock writes it.

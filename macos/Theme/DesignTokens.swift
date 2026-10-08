@@ -159,6 +159,9 @@ enum Theme {
     enum Size {
         /// 1 — a hairline rule.
         static let hairline: CGFloat = 1
+        /// 30 — a field on a page (`themedField`, `fieldFace`), and its corner.
+        static let field: CGFloat = 30
+        static let fieldRadius: CGFloat = 8
         /// 32 — a large round toolbar button, and the fields that sit beside one.
         static let largeControl: CGFloat = 32
         /// 36 — the window toolbar's own controls (extra large, as AppKit sizes a segmented control

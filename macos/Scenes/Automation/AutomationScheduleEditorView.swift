@@ -21,8 +21,9 @@ struct AutomationScheduleEditorView: View {
                 }
                 .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // No rule beside the column: the toolbar draws none over it, so one would start
+                // from nowhere. Its own fill sets it apart.
                 if model.panel == .editor {
-                    Divider()
                     ScrollView { AutomationScheduleSettings(model: model).padding(20) }
                         .frame(width: 320)
                         .background(Color.primary.opacity(0.015))
@@ -45,8 +46,7 @@ struct AutomationScheduleEditorView: View {
                 .accessibilityIdentifier("automation-name")
                 .layoutPriority(1)
             Spacer(minLength: 12)
-            Text(model.draft?.mode == .live ? String(localized: "On") : String(localized: "Off")).font(.system(size: 13, weight: .medium))
-                .foregroundStyle(model.draft?.mode == .live ? Theme.success : DashboardPalette.ink3)
+            AutomationModeLabel(live: model.draft?.mode == .live)
             Toggle(String(localized: "On"), isOn: Binding(
                 get: { model.draft?.mode == .live },
                 set: { on in Task { await model.setMode(on ? .live : .off) } }))
@@ -138,62 +138,41 @@ private struct AutomationScheduleSettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             section(String(localized: "Agent")) {
-                Picker("Agent", selection: value(\.cli)) {
-                    ForEach(SessionAgent.allCases.filter { $0.driver != nil }) { agent in
-                        Text(agent.label).tag(agent.rawValue)
-                    }
-                }
-                .labelsHidden()
+                ThemedChoice(title: String(localized: "Agent"),
+                             options: SessionAgent.allCases.filter { $0.driver != nil }.map { ThemedOption($0.rawValue, $0.label) },
+                             selection: value(\.cli))
             }
             section(String(localized: "Project")) {
-                Picker("Project", selection: value(\.project)) {
-                    if !model.projects.contains(where: { $0.id == schedule.project }) {
-                        Text("Choose a project").tag(schedule.project)
-                    }
-                    ForEach(model.projects) { project in Text(project.name).tag(project.id) }
-                }
-                .labelsHidden()
+                ThemedChoice(title: String(localized: "Project"), options: model.projects.map { ThemedOption($0.id, $0.name) },
+                             selection: value(\.project), placeholder: String(localized: "Choose a project"))
             }
             section(String(localized: "Workspace"),
                     help: String(localized: "New run: a new branch and worktree for every run. Worktree: every run works in the worktree of the branch you name.")) {
-                Picker("Workspace", selection: value(\.workspace)) {
-                    Text("New run").tag(Automation.Schedule.Workspace.new)
-                    Text("Worktree").tag(Automation.Schedule.Workspace.worktree)
-                }
-                .pickerStyle(.segmented).labelsHidden()
+                ThemedSegments(options: [ThemedOption(Automation.Schedule.Workspace.new, String(localized: "New run")),
+                                         ThemedOption(Automation.Schedule.Workspace.worktree, String(localized: "Worktree"))],
+                               selection: value(\.workspace), id: "automation-workspace")
                 if schedule.workspace == .worktree {
                     TextField("Branch", text: value(\.branch), prompt: Text("main"))
-                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 13)).themedField()
                         .accessibilityIdentifier("automation-branch")
                 }
             }
             section(String(localized: "Session"),
                     help: String(localized: "Fresh: each run starts a new conversation. Reuse: each run continues the last run’s session and conversation.")) {
-                Picker("Session", selection: value(\.session)) {
-                    Text("Fresh").tag(Automation.Schedule.Session.fresh)
-                    Text("Reuse").tag(Automation.Schedule.Session.reuse)
-                }
-                .pickerStyle(.segmented).labelsHidden()
+                ThemedSegments(options: [ThemedOption(Automation.Schedule.Session.fresh, String(localized: "Fresh")),
+                                         ThemedOption(Automation.Schedule.Session.reuse, String(localized: "Reuse"))],
+                               selection: value(\.session), id: "automation-session")
             }
             section(String(localized: "Schedule")) {
-                Picker("Schedule", selection: value(\.repeat)) {
-                    ForEach(Automation.Schedule.Repeat.allCases, id: \.self) { item in
-                        Text(Automation.Schedule.label(item)).tag(item)
-                    }
-                }
-                .labelsHidden()
-                .accessibilityIdentifier("automation-repeat")
+                ThemedChoice(title: String(localized: "Schedule"),
+                             options: Automation.Schedule.Repeat.allCases.map { ThemedOption($0, Automation.Schedule.label($0)) },
+                             selection: value(\.repeat))
+                    .accessibilityIdentifier("automation-repeat")
                 times
             }
             section(String(localized: "Grace"),
                     help: String(localized: "A run missed while the Mac slept or Cascade was closed still starts if it is no later than this. Only the latest missed run starts.")) {
-                Picker("Grace", selection: value(\.graceMinutes)) {
-                    if !Automation.Schedule.graceChoices.contains(where: { $0.minutes == schedule.graceMinutes }) {
-                        Text("\(schedule.graceMinutes) minutes").tag(schedule.graceMinutes)
-                    }
-                    ForEach(Automation.Schedule.graceChoices, id: \.minutes) { choice in Text(choice.label).tag(choice.minutes) }
-                }
-                .labelsHidden()
+                ThemedChoice(title: String(localized: "Grace"), options: graceOptions, selection: value(\.graceMinutes))
             }
             precheck
         }
@@ -203,25 +182,29 @@ private struct AutomationScheduleSettings: View {
         switch schedule.repeat {
         case .cron:
             TextField("Cron", text: value(\.cron), prompt: Text("0 9 * * 1-5"))
-                .textFieldStyle(.roundedBorder).font(.system(size: 12.5, design: .monospaced))
+                .font(.system(size: 12.5, design: .monospaced)).themedField()
                 .accessibilityIdentifier("automation-cron")
             Text("Minute, hour, day, month, weekday, in local time.")
                 .font(.system(size: 11)).foregroundStyle(DashboardPalette.ink3)
         default:
             if schedule.repeat == .weekly { AutomationWeekdays(days: value(\.days)) }
             if schedule.repeat == .hours {
-                Stepper(value: value(\.everyHours), in: 1...24) {
-                    Text(schedule.everyHours == 1 ? String(localized: "Every hour") : String(localized: "Every \(schedule.everyHours) hours"))
-                        .font(.system(size: 12.5))
-                }
+                ThemedChoice(title: String(localized: "Every"),
+                             options: everyHoursOptions, selection: value(\.everyHours))
+                    .accessibilityIdentifier("automation-every-hours")
             }
             HStack {
                 Text(schedule.repeat == .hours ? String(localized: "Starting at") : String(localized: "Time"))
                     .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink2)
                 Spacer()
-                DatePicker("Time", selection: value(\.timeOfDay), displayedComponents: .hourAndMinute)
-                    .labelsHidden().datePickerStyle(.field)
-                    .accessibilityIdentifier("automation-time")
+                HStack(spacing: 4) {
+                    ThemedChoice(title: String(localized: "Hour"), options: Self.hourOptions, selection: value(\.hour))
+                        .frame(width: 92)
+                        .accessibilityIdentifier("automation-time")
+                    ThemedChoice(title: String(localized: "Minute"), options: Self.minuteOptions, selection: value(\.minute))
+                        .frame(width: 64)
+                        .accessibilityIdentifier("automation-minute")
+                }
             }
         }
     }
@@ -234,13 +217,8 @@ private struct AutomationScheduleSettings: View {
                 Spacer()
                 Text("Timeout").font(.system(size: 10.5, weight: .medium)).textCase(.uppercase).tracking(0.5)
                     .foregroundStyle(DashboardPalette.ink3)
-                Picker("Timeout", selection: value(\.precheckTimeout)) {
-                    if !Automation.Schedule.timeoutChoices.contains(where: { $0.seconds == schedule.precheckTimeout }) {
-                        Text("\(schedule.precheckTimeout) sec").tag(schedule.precheckTimeout)
-                    }
-                    ForEach(Automation.Schedule.timeoutChoices, id: \.seconds) { choice in Text(choice.label).tag(choice.seconds) }
-                }
-                .labelsHidden().fixedSize()
+                ThemedChoice(title: String(localized: "Timeout"), options: timeoutOptions, selection: value(\.precheckTimeout))
+                    .frame(width: 110)
             }
             PlainTextEditor(text: value(\.precheck), font: .monospacedSystemFont(ofSize: 12, weight: .regular))
                 .frame(height: 84)
@@ -256,6 +234,42 @@ private struct AutomationScheduleSettings: View {
                 .accessibilityIdentifier("automation-precheck")
         }
     }
+
+    /// Every 1 to 24 hours, and the schedule's own interval when it is none of them.
+    private var everyHoursOptions: [ThemedOption<Int>] {
+        let label = { (hours: Int) in hours == 1 ? String(localized: "Every hour") : String(localized: "Every \(hours) hours") }
+        let choices = (1...24).map { ThemedOption($0, label($0)) }
+        return (1...24).contains(schedule.everyHours) ? choices : [ThemedOption(schedule.everyHours, label(schedule.everyHours))] + choices
+    }
+
+    /// The grace choices, and the schedule's own when it is none of them.
+    private var graceOptions: [ThemedOption<Int>] {
+        let choices = Automation.Schedule.graceChoices.map { ThemedOption($0.minutes, $0.label) }
+        return choices.contains { $0.value == schedule.graceMinutes } ? choices
+            : [ThemedOption(schedule.graceMinutes, String(localized: "\(schedule.graceMinutes) minutes"))] + choices
+    }
+
+    /// The timeout choices, and the schedule's own when it is none of them.
+    private var timeoutOptions: [ThemedOption<Int>] {
+        let choices = Automation.Schedule.timeoutChoices.map { ThemedOption($0.seconds, $0.label) }
+        return choices.contains { $0.value == schedule.precheckTimeout } ? choices
+            : [ThemedOption(schedule.precheckTimeout, String(localized: "\(schedule.precheckTimeout) sec"))] + choices
+    }
+
+    /// Every hour of the day, as the user's clock writes it (9 AM, or 09): each formatted on a
+    /// fixed day in GMT, which no daylight-saving change skips, and again whenever it is drawn, so a
+    /// change of locale or of 12- or 24-hour time shows.
+    private static var hourOptions: [ThemedOption<Int>] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let style = Date.FormatStyle(timeZone: .gmt).hour()
+        return (0..<24).map { hour in
+            let date = calendar.date(from: DateComponents(year: 2001, month: 1, day: 1, hour: hour)) ?? Date()
+            return ThemedOption(hour, date.formatted(style))
+        }
+    }
+
+    private static let minuteOptions: [ThemedOption<Int>] = (0..<60).map { ThemedOption($0, String(format: "%02d", $0)) }
 
     private func section<Content: View>(_ title: String, help: String? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {

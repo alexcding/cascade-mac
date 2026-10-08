@@ -4807,9 +4807,6 @@
     "%lld minutes" : {
 
     },
-    "%lld more not shown" : {
-
-    },
     "%lld of %lld" : {
       "localizations" : {
         "en" : {
@@ -12621,12 +12618,6 @@
           }
         }
       }
-    },
-    "Archived" : {
-
-    },
-    "Archived Chats" : {
-
     },
     "As if" : {
       "extractionState" : "manual",
@@ -20520,6 +20511,9 @@
         }
       }
     },
+    "Choose a pull request" : {
+
+    },
     "Choose a sample and run." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -20750,6 +20744,9 @@
           }
         }
       }
+    },
+    "Choose a ticket" : {
+
     },
     "Choose an absolute file path." : {
       "extractionState" : "manual",
@@ -29922,9 +29919,6 @@
         }
       }
     },
-    "Could not archive the chat: %@" : {
-
-    },
     "Could not close tab: %@" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -38678,6 +38672,9 @@
     "Events" : {
 
     },
+    "Every" : {
+
+    },
     "Every %lld hours" : {
 
     },
@@ -45906,6 +45903,9 @@
           }
         }
       }
+    },
+    "Hour" : {
+
     },
     "Hourly from %@" : {
 
@@ -55258,6 +55258,9 @@
         }
       }
     },
+    "Minute" : {
+
+    },
     "Minute, hour, day, month, weekday, in local time." : {
 
     },
@@ -61247,9 +61250,6 @@
           }
         }
       }
-    },
-    "No Project" : {
-
     },
     "No project has a GitHub repository yet." : {
       "extractionState" : "manual",
@@ -97059,6 +97059,9 @@
         }
       }
     },
+    "The %lld chats started in its pane are deleted too." : {
+
+    },
     "The agent and model the chat starts with" : {
       "localizations" : {
         "bn" : {
@@ -98523,6 +98526,9 @@
           }
         }
       }
+    },
+    "The chat started in its pane is deleted too." : {
+
     },
     "The chat starts knowing what %@ knows in the terminal, without showing its messages. The session is not changed." : {
       "localizations" : {
@@ -105419,9 +105425,6 @@
         }
       }
     },
-    "This chat is archived. Unarchive it to list it in the sidebar again." : {
-
-    },
     "This chat was deleted." : {
       "localizations" : {
         "bn" : {
@@ -111144,9 +111147,6 @@
           }
         }
       }
-    },
-    "Unarchive" : {
-
     },
     "Unassigned" : {
       "extractionState" : "manual",

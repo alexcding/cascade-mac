@@ -33,6 +33,23 @@ extension View {
             .background(Theme.surfaceHover, in: Capsule())
             .overlay(Capsule().strokeBorder(Theme.border, lineWidth: Theme.Size.hairline))
     }
+
+    /// A plain text field on a field's face (`fieldFace`), at least `Theme.Size.field` tall.
+    func themedField(active: Bool = false) -> some View {
+        textFieldStyle(.plain)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: Theme.Size.field)
+            .fieldFace(active: active)
+    }
+
+    /// A field's face, for a text field or a control that stands as one: the text background
+    /// (`surfaceHover` under the pointer) and a hairline edge, darker while what it opens is open.
+    func fieldFace(active: Bool = false, hovering: Bool = false) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Size.fieldRadius, style: .continuous)
+        return background(hovering && !active ? Theme.surfaceHover : Theme.fieldBackground, in: shape)
+            .overlay(shape.strokeBorder(active ? Theme.textTertiary : Theme.border, lineWidth: Theme.Size.hairline))
+            .contentShape(shape)
+    }
 }
 
 /// Just the icon, centred in a fixed square, so glyphs of different widths make equal buttons.

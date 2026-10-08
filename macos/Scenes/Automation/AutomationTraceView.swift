@@ -16,21 +16,30 @@ struct AutomationDryRunSheet: View {
             }
             .padding(.bottom, 18)
             HStack(spacing: 10) {
-                Picker(model.sampleKind == "jira" ? String(localized: "Ticket") : String(localized: "Pull request"), selection: $model.sample) {
-                    if model.samples.isEmpty { Text(model.samplesLoading ? String(localized: "Loading…") : String(localized: "None synced")).tag(AutomationSample?.none) }
-                    ForEach(model.samples) { sample in
-                        Text(sample.detail.map { "\(sample.label) — \($0)" } ?? sample.label).tag(Optional(sample))
-                    }
-                }
-                .frame(maxWidth: 440)
-                .accessibilityIdentifier("automation-sample")
+                let sampleTitle = model.sampleKind == "jira" ? String(localized: "Ticket") : String(localized: "Pull request")
+                Text(sampleTitle).font(.system(size: 12, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
+                // By id: a sample kept across a reload may carry an older title than the listed one.
+                ThemedChoice(title: sampleTitle,
+                             options: model.samples.map { sample in
+                                 ThemedOption(Optional(sample.id), sample.detail.map { "\(sample.label) — \($0)" } ?? sample.label)
+                             },
+                             selection: Binding(get: { model.sample?.id },
+                                                set: { id in model.sample = model.samples.first { $0.id == id } }),
+                             placeholder: model.samples.isEmpty
+                                ? (model.samplesLoading ? String(localized: "Loading…") : String(localized: "None synced"))
+                                : (model.sampleKind == "jira" ? String(localized: "Choose a ticket") : String(localized: "Choose a pull request")))
+                    .frame(maxWidth: 440)
+                    .accessibilityIdentifier("automation-sample")
                 DashboardRefreshButton(name: String(localized: "samples"), id: "automation-samples", busy: model.samplesLoading) { model.loadSamples() }
             }
             if let types = model.draft?.trigger.types, types.count > 1 {
-                Picker("As if", selection: Binding(get: { model.sampleEvent ?? types.first ?? "" }, set: { model.sampleEvent = $0 })) {
-                    ForEach(types, id: \.self) { Text(model.catalog?.trigger($0)?.localizedLabel ?? $0).tag($0) }
+                HStack(spacing: 10) {
+                    Text("As if").font(.system(size: 12, weight: .medium)).foregroundStyle(DashboardPalette.ink2)
+                    ThemedChoice(title: String(localized: "As if"),
+                                 options: types.map { ThemedOption($0, model.catalog?.trigger($0)?.localizedLabel ?? $0) },
+                                 selection: Binding(get: { model.sampleEvent ?? types.first ?? "" }, set: { model.sampleEvent = $0 }))
+                        .frame(maxWidth: 320)
                 }
-                .frame(maxWidth: 320)
                 .padding(.top, 10)
             }
             if let error = model.samplesError {
