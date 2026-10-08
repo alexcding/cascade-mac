@@ -429,8 +429,13 @@ user collapses from the divider is told back to the workspace.
   must not reach into that zone: a background drawn into the top safe area, or a SwiftUI
   `ScrollView` (which stretches itself up under the title bar), covers the strip and takes its
   clicks — use `.paneSurface(ignoresSafeAreaEdges: [])`.
-  The session toolbar is the run button and build title leading and the agent's controls in the
-  middle; the pane section is the system's inspector toggle alone (`.toggleInspector`, the
+  The session toolbar is the run button and build title leading and Terminal / Chat trailing, with
+  nothing in the middle: the agent's model and context are its own to show, in its status line in
+  the terminal (Cascade's `cascade-statusline.sh` draws one for Claude when the person has none) and
+  in the composer in Chat; Compact and Clear are in the Product menu. Next Model (⌘D) and a preset's own key go
+  through the app's key monitor ahead of the terminal; over the terminal they move a pick in the
+  switcher at its foot (`AgentSwitchNoticeView`), which switches when the modifiers are let go, as
+  ⌘Tab does, and in Chat they switch at once. The presets are edited in Settings → Shortcuts. The pane section is the system's inspector toggle alone (`.toggleInspector`, the
   `sidebar.right` symbol), at the window's edge, which the strip keeps clear of
   (`SessionWorkspacePane.toggleInset`). It collapses the inspector column, and the workspace
   hears of it as of a collapse from the divider (`MainSplitViewController.paneCollapsedChanged`).

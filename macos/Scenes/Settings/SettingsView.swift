@@ -47,7 +47,7 @@ struct SettingsView: View {
             case .terminal: TerminalSettingsView(fonts: model.fonts, shell: shell)
             case .editor: EditorSettingsView(fonts: model.fonts, icons: model.fileIcons, shell: shell)
             case .worktrees: WorktreeSettingsView(model: model) { saveRow }
-            case .shortcuts: ShortcutsSettingsView(registry: .shared)
+            case .shortcuts: ShortcutsSettingsView(registry: .shared, catalogs: model.agentCatalogs)
             case .clis: clis
             case .system: system
             case .activity: EmptyView() // Not a form; `detail` shows it.

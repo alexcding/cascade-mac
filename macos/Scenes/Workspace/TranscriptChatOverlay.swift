@@ -68,7 +68,7 @@ struct TranscriptChatOverlay: View {
     }
 
     /// The model as the page's composer has it: the agent's mark, the model and its effort, a
-    /// button that opens the model panel on the session's agent, the same panel as the toolbar's.
+    /// button that opens the model panel on the session's agent, the same panel as the chat page's.
     @ViewBuilder private var modelButton: some View {
         let agent = workspace.session?.agent ?? .shell
         let running = workspace.agentSelection

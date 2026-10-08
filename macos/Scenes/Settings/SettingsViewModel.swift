@@ -43,12 +43,15 @@ import Observation
     private(set) var saveError: String?
     var error: String? { saveError ?? loadError }
     private(set) var sounds: [ReviewSound] = []
+    /// Each agent's models, for the model presets under Shortcuts; read when that section shows.
+    private(set) var agentCatalogs: [SessionAgent: AgentCatalog] = [:]
     /// The scope a clear is in flight for, and the confirmation shown once it lands.
     private(set) var clearingBrowsingData: BrowsingDataScope?
     private(set) var browsingDataNotice: String?
     private var baseline = AppConfigDraft()
     @ObservationIgnored private var service: (any SettingsService)?
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var catalogRead: Task<Void, Never>?
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var connection = UUID()
     @ObservationIgnored private var readGeneration = UUID()
@@ -98,6 +101,25 @@ import Observation
         if active && section == .browser { adBlock.refresh() }
         if active && section == .editor { Task { await fileIcons.refresh() } }
         if active && section == .clis { clis.refresh(); webhooks.refresh() } else { clis.cancelReads() }
+        if active && section == .shortcuts { refreshAgentCatalogs() }
+    }
+    /// A CLI's models change with its version, so they are read each time Shortcuts shows.
+    private func refreshAgentCatalogs() {
+        guard let service else { return }
+        // A newer read replaces one still running, so an older answer never lands last.
+        catalogRead?.cancel()
+        catalogRead = Task { [weak self] in
+            let read = await withTaskGroup(of: (SessionAgent, AgentCatalog?).self) { group in
+                for agent in SessionAgent.allCases where agent.driver != nil {
+                    group.addTask { (agent, await service.agentCatalog(cli: agent.rawValue)) }
+                }
+                var read: [SessionAgent: AgentCatalog] = [:]
+                for await (agent, catalog) in group where catalog?.models.isEmpty == false { read[agent] = catalog }
+                return read
+            }
+            guard let self, !self.retired, !Task.isCancelled else { return }
+            self.agentCatalogs.merge(read) { $1 }
+        }
     }
     func applicationActiveChanged(_ value: Bool) {
         guard !retired else { return }

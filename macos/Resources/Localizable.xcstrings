@@ -2302,16 +2302,6 @@
         }
       }
     },
-    "%@ in use, %@ of the context" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$@ in use, %2$@ of the context"
-          }
-        }
-      }
-    },
     "%@ is already assigned to %@." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2385,6 +2375,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 已指派給「%@」。"
+          }
+        }
+      }
+    },
+    "%@ is already assigned to the %@ preset %@." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ is already assigned to the %2$@ preset %3$@."
           }
         }
       }
@@ -2927,6 +2927,9 @@
           }
         }
       }
+    },
+    "%@ Models" : {
+
     },
     "%@ must include ⌘ to avoid interfering with terminal commands." : {
       "extractionState" : "manual",
@@ -58683,6 +58686,9 @@
         }
       }
     },
+    "Next Model steps through these in order. A preset’s own shortcut picks it. Over the terminal, hold the modifiers to keep choosing and let go to switch; in Chat the switch is immediate." : {
+
+    },
     "Next Run" : {
 
     },
@@ -64499,6 +64505,9 @@
           }
         }
       }
+    },
+    "Not sent: the agent is busy." : {
+
     },
     "Not signed in" : {
       "extractionState" : "manual",
@@ -94071,6 +94080,9 @@
         }
       }
     },
+    "Switching to %@" : {
+
+    },
     "Sync failed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -94766,6 +94778,9 @@
           }
         }
       }
+    },
+    "Terminal / Chat" : {
+
     },
     "Terminal attachment exceeded its buffer limit." : {
       "localizations" : {
@@ -100679,6 +100694,9 @@
           }
         }
       }
+    },
+    "The model was not switched: the agent is busy." : {
+
     },
     "The native terminal could not provide its configured colors." : {
       "localizations" : {

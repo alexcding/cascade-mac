@@ -44,224 +44,33 @@ struct AgentPresetList: RawRepresentable, Equatable {
     }
 }
 
-/// The agent's controls, one group in the middle of a session's toolbar: what it is running, as a
-/// menu of presets to switch to, then the context readout with its conversation actions. The
-/// toolbar gives the item its glass, so everything inside is flat and shares the one capsule. It
-/// holds a driver and a catalog, and never asks which CLI they belong to.
-struct SessionAgentControlsView: View {
+/// What a session's agent needs while its workspace is shown, with nothing to see: its presets,
+/// and the status the Chat composer and the model panel read. The toolbar shows only
+/// Terminal / Chat; the model and the context are the agent's own to show, in its status line
+/// in the terminal and in the composer in Chat. It holds a driver and a catalog, and never asks
+/// which CLI they belong to.
+struct SessionAgentKeeper: View {
     let model: SessionWorkspaceViewModel
-    let driver: any AgentDriver
     @AppStorage private var list: AgentPresetList
-    @State private var picking = false
-    @State private var confirmingClear = false
-    @State private var hoveringModel = false
-    @State private var hoveringContext = false
-    @State private var hoveringMode = false
-    private let rowHeight: CGFloat = 26
 
     init(model: SessionWorkspaceViewModel, driver: any AgentDriver) {
-        self.model = model; self.driver = driver
+        self.model = model
         _list = AppStorage(wrappedValue: AgentPresetList(), AgentPresetList.key(for: driver.cli))
     }
 
     private var presets: [AgentPreset] { list.resolved(in: model.agentCatalog) }
 
+    /// Hands the presets to the model, whose shortcuts the app takes ahead of the terminal
+    /// (`AppViewModel.choosePreset(for:)`), and watches the agent's status.
     var body: some View {
-        HStack(spacing: 3) {
-            if model.canShowChat {
-                modeButton
-                Rectangle().fill(Theme.border).frame(width: 1, height: 14)
-            }
-            modelMenu
-            // A hairline, not a `Divider`: the two halves are one control, not two sections.
-            Rectangle().fill(Theme.border).frame(width: 1, height: 14)
-            contextButton
-            if let error = model.agentCommandError {
-                // No room for a sentence in the toolbar: the mark says something failed, the tip says what.
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.danger)
-                    .padding(.trailing, 6).help(error).accessibilityLabel(error)
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 4)
-        .fixedSize()
-        .background { shortcuts }
-        .task(id: model.agentStatusTrigger) { await model.watchAgentStatus() }
-        .onChange(of: presets, initial: true) { model.agentPresets = presets }
-        .accessibilityIdentifier("workspace-agent-controls")
-    }
-
-    private func title(_ selection: AgentSelection) -> (model: String, effort: String?) {
-        let listed = model.agentCatalog.model(selection.model)
-        return (listed?.name ?? selection.model, listed?.efforts.first { $0.id == selection.effort }?.name)
-    }
-
-    /// The button names what the agent is really running; the panel it opens is the chat
-    /// page's model picker, native (`AgentModelPanel`).
-    private var modelMenu: some View {
-        Button { picking.toggle() } label: {
-            let running = model.agentSelection.map(title)
-            // The model is what you read; its effort is a badge beside it, not a second word.
-            HStack(spacing: 6) {
-                if picking {
-                    // Frozen while the panel is open, as the page's trigger is: the pick is made there.
-                    Text(String(localized: "Select effort")).fontWeight(.medium).foregroundStyle(Theme.textSecondary)
-                } else {
-                    Text(running?.model ?? String(localized: "Model")).fontWeight(.medium)
-                    if let effort = running?.effort {
-                        Text(effort)
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Theme.textSecondary)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Theme.surfaceHover, in: Capsule())
-                    }
-                }
-            }
-            .padding(.horizontal, 10)
-            .frame(height: rowHeight)
-            .background(hoveringModel ? Theme.surfaceHover.opacity(0.6) : .clear, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hoveringModel = $0 }
-        .help(String(localized: "Switch the agent’s model and effort"))
-        .accessibilityIdentifier("agent-model-button")
-        .floatingPanel(isPresented: $picking) {
-            let agent = SessionAgent(rawValue: driver.cli) ?? .shell
-            let running = model.agentSelection
-            let listed = running.flatMap { model.agentCatalog.model($0.model) }
-            AgentModelPanel(agents: [.init(agent: agent, catalog: model.agentCatalog)], currentAgent: agent, current: running,
-                            canChoose: model.canSendAgentCommand, offersDefault: false, editsShortcuts: true,
-                            isCurrent: { _, selection in model.isRunning(selection) }, chooseAgent: { _ in },
-                            choose: { _, selection in if let selection { model.switchAgent(to: selection) } }, dismiss: { picking = false },
-                            traits: listed.map { AgentModelTraits(model: $0, effort: running?.effort) },
-                            onEffort: { level in if let listed { model.switchAgent(to: AgentSelection(model: listed.id, effort: level)) } },
-                            onReset: { if let listed { model.switchAgent(to: AgentSelection(model: listed.id, effort: listed.defaultEffort)) } })
-        }
-    }
-
-    /// Terminal (the default) or Chat (prototype). The icon names the mode a click goes to; the
-    /// chat draws over the terminal, which keeps running behind it.
-    private var modeButton: some View {
-        Button { model.toggleChat() } label: {
-            Image(systemName: model.showsChat ? "terminal" : "bubble.left.and.bubble.right")
-                .font(.system(size: 15, weight: .medium))
-                .frame(width: 22, height: 18)
-                .padding(.horizontal, 10)
-                .frame(height: rowHeight)
-                .background(hoveringMode ? Theme.surfaceHover.opacity(0.6) : .clear, in: Capsule())
-                .contentShape(Capsule())
-        }
-        .onHover { hoveringMode = $0 }
-        .help(model.showsChat ? String(localized: "Switch to Terminal") : String(localized: "Switch to Chat"))
-        .accessibilityIdentifier("workspace-mode-toggle")
-    }
-
-    /// The presets' shortcuts, as buttons nobody sees: a menu's items only answer their keys
-    /// while the menu is open, and these answer whenever the window is in front.
-    private var shortcuts: some View {
-        ZStack {
-            ForEach(presets) { preset in
-                if let shortcut = preset.shortcut?.keyboardShortcut {
-                    Button("") { model.switchAgent(to: preset.selection) }.keyboardShortcut(shortcut)
-                }
-            }
-        }
-        .opacity(0)
-        .frame(width: 0, height: 0)
-        .disabled(!model.canSendAgentCommand)
-        .accessibilityHidden(true)
-    }
-
-    /// The same kind of menu as the model beside it: the readout is the button, and what can be
-    /// done about a full context drops down from it.
-    private var contextButton: some View {
-        Menu {
-            Text(contextHelp)
-            Divider()
-            Button(String(localized: "Compact Conversation"), systemImage: "arrow.down.right.and.arrow.up.left", action: model.compactAgent)
-            Button(String(localized: "Clear Conversation…"), systemImage: "eraser", role: .destructive) { confirmingClear = true }
-        } label: {
-            HStack(spacing: 6) {
-                if let fraction = model.agentStatus?.fraction { ContextRing(fraction: fraction, brand: driver.tint) }
-                // Quieter than the model: it is a gauge to glance at, not the control's name.
-                Text(contextTitle).font(.callout).monospacedDigit().foregroundStyle(Theme.textSecondary)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: rowHeight)
-            .background(hoveringContext && model.canSendAgentCommand ? Theme.surfaceHover.opacity(0.6) : .clear, in: Capsule())
-            .contentShape(Capsule())
-        }
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        .onHover { hoveringContext = $0 }
-        .disabled(!model.canSendAgentCommand)
-        .opacity(model.canSendAgentCommand ? 1 : 0.5)
-        .help(contextHelp)
-        .confirmationDialog(String(localized: "Clear this conversation?"), isPresented: $confirmingClear) {
-            Button(String(localized: "Clear"), role: .destructive, action: model.clearAgent)
-        } message: {
-            Text(String(localized: "The agent forgets everything said so far. The worktree is not touched."))
-        }
-    }
-
-    private var contextTitle: String {
-        model.agentStatus?.contextTitle ?? String(localized: "Context")
-    }
-
-    private var contextHelp: String {
-        model.agentStatus?.contextHelp ?? String(localized: "Compact or clear the conversation")
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .task(id: model.agentStatusTrigger) { await model.watchAgentStatus() }
+            .onChange(of: presets, initial: true) { model.agentPresets = presets }
     }
 }
 
-extension AgentStatus {
-    /// How full the context is, as a percentage; the size, for an agent that has not reported a
-    /// percentage, since there is nothing else to show.
-    var contextTitle: String {
-        fraction.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? tokensText
-    }
-
-    /// The sizes behind the title's percentage, or why there is none.
-    var contextHelp: String {
-        guard let fraction else {
-            return String(localized: "The agent has not reported its context window, so there is no percentage")
-        }
-        guard let window else {
-            let percent = fraction.formatted(.percent.precision(.fractionLength(0)))
-            return String(localized: "\(tokensText) in use, \(percent) of the context")
-        }
-        return String(localized: "\(tokensText) of a \(window.formatted(.number.notation(.compactName))) context in use")
-    }
-
-    private var tokensText: String {
-        tokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
-    }
-}
-
-/// How full the context is: a full ring, the used part in the agent's brand colour and the rest a
-/// lighter shade of it.
-private struct ContextRing: View {
-    let fraction: Double
-    let brand: Color
-
-    var body: some View {
-        ZStack {
-            // The whole circle, in a lighter shade of the used part: what is left, not a gap.
-            Circle().stroke(tint.opacity(0.28), lineWidth: 3)
-            Circle().trim(from: 0, to: fraction)
-                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .frame(width: 15, height: 15)
-        .accessibilityHidden(true)
-    }
-
-    /// The agent's own colour for what it has used, until it is nearly out: then the warning
-    /// matters more than whose context it is.
-    private var tint: Color { fraction > 0.9 ? Theme.danger : brand }
-}
-
-/// Any number of presets: a model, its effort, and the shortcut that switches to it.
 /// The presets as a table: model, effort, shortcut; reached from the model panel's ★ tab.
 struct AgentPresetEditor: View {
     let catalog: AgentCatalog

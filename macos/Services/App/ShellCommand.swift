@@ -5,7 +5,7 @@ public enum ShellCommand: String, Sendable, CaseIterable {
     case newProject, newSession, newTab, openFile, saveFile, closePage, findPage, back, forward, nextPage, previousPage, zoomIn, zoomOut, resetZoom
     case reloadPage
     case runProject, stopBuild
-    case nextModel, previousModel, toggleChat
+    case nextModel, previousModel, toggleChat, compactConversation, clearConversation
     case nextSession, previousSession
     case session1, session2, session3, session4, session5, session6, session7, session8, session9, session10
 

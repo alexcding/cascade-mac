@@ -369,8 +369,7 @@ public final class AppViewModel {
 
     /// Here rather than beside the other `WorkspaceServing` members because `api` is private.
     func agentCatalog(cli: String) async -> AgentCatalog? {
-        guard let api else { return nil }
-        return try? await api.get(APIClient.query(Routes.AGENT_CATALOG, ["cli": cli]))
+        await api?.agentCatalog(cli: cli)
     }
 
     func agentStatus(cli: String, worktree: String, task: String) async -> AgentStatus? {
@@ -626,6 +625,15 @@ public final class AppViewModel {
         existingSession(for: request).map(PageSessionMark.init)
     }
 
+    /// A model preset's own shortcut, for the session on screen: nil when no preset holds it, false
+    /// when its agent cannot be told now.
+    func choosePreset(for shortcut: KeyShortcut) -> Bool? {
+        guard coordinator.canPresent, let workspace = coordinator.activeWorkspaceModel,
+              let preset = workspace.agentPresets.first(where: { $0.shortcut == shortcut }) else { return nil }
+        guard workspace.canSendAgentCommand else { return false }
+        workspace.choosePreset(preset)
+        return true
+    }
     public func canPerform(_ command: ShellCommand) -> Bool {
         switch command {
         case .newProject: connection == "Connected" && coordinator.canPresent
@@ -643,6 +651,8 @@ public final class AppViewModel {
         case .reloadPage: canPerform(.zoomIn)
         case .nextModel, .previousModel: coordinator.canPresent && coordinator.activeWorkspaceModel?.canCycleAgentPreset == true
         case .toggleChat: coordinator.canPresent && coordinator.activeWorkspaceModel?.canShowChat == true
+        case .compactConversation, .clearConversation:
+            coordinator.canPresent && coordinator.activeWorkspaceModel.map { $0.agentDriver != nil && $0.canSendAgentCommand } == true
         case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10:
             sidebarSessions.count > command.sessionIndex ?? 0
         case .nextSession, .previousSession: !sidebarSessions.isEmpty
@@ -650,6 +660,22 @@ public final class AppViewModel {
         case .runProject: coordinator.activeWorkspaceModel.map { $0.canRun && $0.build?.running != true } ?? false
         case .stopBuild: coordinator.canPresent && coordinator.activeWorkspaceModel?.build?.running == true
         default: true
+        }
+    }
+
+    /// Clearing forgets the whole conversation, so the menu item asks first, as the toolbar's did.
+    private func confirmClear(_ model: SessionWorkspaceViewModel) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Clear this conversation?")
+        alert.informativeText = String(localized: "The agent forgets everything said so far. The worktree is not touched.")
+        alert.addButton(withTitle: String(localized: "Clear")).hasDestructiveAction = true
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        // On the session's window, never Settings'; while it already asks something, not again.
+        let window = NSApp.windows.first { $0.windowController is MainWindowController }
+        if window?.attachedSheet != nil { return }
+        Task {
+            let answer = if let window { await alert.beginSheetModal(for: window) } else { alert.runModal() }
+            if answer == .alertFirstButtonReturn { model.clearAgent() }
         }
     }
 
@@ -693,6 +719,8 @@ public final class AppViewModel {
         case .nextModel, .previousModel:
             if canPerform(command) { coordinator.activeWorkspaceModel?.cycleAgentPreset(command == .nextModel ? 1 : -1) }
         case .toggleChat: if canPerform(.toggleChat) { coordinator.activeWorkspaceModel?.toggleChat() }
+        case .compactConversation: if canPerform(command) { coordinator.activeWorkspaceModel?.compactAgent() }
+        case .clearConversation: if canPerform(command), let model = coordinator.activeWorkspaceModel { confirmClear(model) }
         case .reloadPage: if canPerform(.reloadPage) { viewer.active?.activePage?.controls.reload() }
         case .newProject:
             guard canPerform(.newProject), let api else { return }

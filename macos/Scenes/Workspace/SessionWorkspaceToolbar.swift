@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// The toolbar of a workspace, a session's or the scratch terminal's: the IDE icon and title, or the run
-/// button and build title, flat at the leading edge; the agent's controls in the middle. Beside a
-/// terminal the pane's own section is the system's inspector toggle alone, at the window's edge,
+/// button and build title, flat at the leading edge; Terminal / Chat at the trailing edge, and
+/// nothing in the middle: the agent shows its model and context itself. Beside a terminal the
+/// pane's own section is the system's inspector toggle alone, at the window's edge,
 /// which shows and hides the pane; the pane draws its tabs itself, under the toolbar
 /// (`SessionWorkspacePane`).
 @MainActor struct SessionWorkspaceToolbar {
@@ -11,8 +12,12 @@ import SwiftUI
 
     var toolbar: WindowToolbar {
         var toolbar = WindowToolbar(leading: leading)
-        if let driver = model.agentDriver {
-            toolbar.center = [item("agent") { SessionAgentControlsView(model: model, driver: driver) }]
+        // Only a session that runs an agent has a conversation to show; a shell has none.
+        if model.canShowChat, model.agentDriver != nil {
+            toolbar.trailing = [.picker("agent-mode", label: String(localized: "Terminal / Chat"), choices: [
+                .init(title: String(localized: "Terminal"), symbol: "terminal"),
+                .init(title: String(localized: "Chat"), symbol: "bubble.left.and.bubble.right"),
+            ], selected: model.showsChat ? 1 : 0) { model.setChatShown($0 == 1) }]
         }
         if model.showsTerminal {
             // The toggle alone, pane open or shut: the pane draws its tabs in its own title-bar zone

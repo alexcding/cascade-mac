@@ -81,6 +81,12 @@ protocol SettingsService: Sendable {
     func config() async throws -> [String: String]
     func save(_ patch: [String: String]) async throws
     func sounds() async throws -> [ReviewSound]
+    /// The models a CLI lists, for Shortcuts' model presets.
+    func agentCatalog(cli: String) async -> AgentCatalog?
+}
+
+extension SettingsService {
+    func agentCatalog(cli: String) async -> AgentCatalog? { nil }
 }
 
 struct APISettingsService: SettingsService {
@@ -90,6 +96,7 @@ struct APISettingsService: SettingsService {
         let _: OperationOK = try await api.request(Routes.CONFIG, method: "POST", body: patch)
     }
     func sounds() async throws -> [ReviewSound] { try await api.get(Routes.SOUNDS) }
+    func agentCatalog(cli: String) async -> AgentCatalog? { await api.agentCatalog(cli: cli) }
 }
 
 /// General holds the app appearance, startup and behaviour preferences; Browser is the embedded

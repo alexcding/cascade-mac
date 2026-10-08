@@ -124,4 +124,30 @@ mod tests {
         assert_eq!(read_json(&file).unwrap(), json!({"model":"fable"}));
         fs::remove_dir_all(&home).unwrap();
     }
+
+    /// With no status line of the user's, the script draws the model and the context itself:
+    /// the session toolbar shows neither.
+    #[test]
+    fn with_none_of_the_users_the_script_names_the_model_and_the_context() {
+        use std::{io::Write, process::{Command, Stdio}};
+        let home = std::env::temp_dir().join(format!("cascade-statusline-line-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&home);
+        fs::create_dir_all(&home).unwrap();
+        let script = home.join(SCRIPT_NAME);
+        fs::write(&script, SCRIPT).unwrap();
+        let draw = |input: Value| {
+            let mut child = Command::new("/bin/sh").arg(&script).arg("task-1").env("HOME", &home)
+                .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+            child.stdin.take().unwrap().write_all(input.to_string().as_bytes()).unwrap();
+            String::from_utf8(child.wait_with_output().unwrap().stdout).unwrap()
+        };
+        let full = json!({"model":{"id":"claude-opus-4-7","display_name":"Opus 4.7"},"effort":{"level":"high"},
+            "context_window":{"context_window_size":200_000,
+                "current_usage":{"input_tokens":2,"cache_creation_input_tokens":1_000,"cache_read_input_tokens":83_000}}});
+        assert_eq!(draw(full), "Opus 4.7 · high · 84k / 200k (42%)\n");
+        assert!(support(&home).join("statusline/task-1.json").is_file(), "the app's copy is still kept");
+        let fresh = json!({"model":{"id":"claude-fable-5-1"},"context_window":{"context_window_size":1_000_000,"current_usage":null}});
+        assert_eq!(draw(fresh), "claude-fable-5-1\n");
+        fs::remove_dir_all(&home).unwrap();
+    }
 }

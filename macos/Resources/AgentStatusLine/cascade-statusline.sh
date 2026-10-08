@@ -24,6 +24,32 @@ own=$(/usr/bin/plutil -extract command raw -o - "$dir/original.json" 2>/dev/null
 [ -z "$own" ] && own=$(/usr/bin/plutil -extract statusLine.command raw -o - "$HOME/.claude/settings.json" 2>/dev/null)
 case "$own" in
     "" | *cascade-statusline*) ;;
-    *) printf '%s' "$input" | /bin/sh -c "$own" ;;
+    *) printf '%s' "$input" | /bin/sh -c "$own"; exit 0 ;;
 esac
+
+# With none of their own, the model and how full the context is: the toolbar shows neither, so
+# this line is where a terminal session reads them.
+field() { printf '%s' "$input" | /usr/bin/plutil -extract "$1" raw -o - - 2>/dev/null; }
+number() { case "$1" in "" | *[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
+short() {
+    if [ "$1" -ge 1000000 ] && [ $(($1 % 1000000)) -eq 0 ]; then echo "$(($1 / 1000000))M"
+    elif [ "$1" -ge 1000 ]; then echo "$((($1 + 500) / 1000))k"
+    else echo "$1"; fi
+}
+line=$(field model.display_name)
+[ -z "$line" ] && line=$(field model.id)
+effort=$(field effort.level)
+[ -n "$effort" ] && line="$line · $effort"
+size=$(number "$(field context_window.context_window_size)")
+used=0
+for kind in input_tokens cache_creation_input_tokens cache_read_input_tokens; do
+    used=$((used + $(number "$(field "context_window.current_usage.$kind")")))
+done
+if [ "$used" -gt 0 ] && [ "$size" -gt 0 ]; then
+    line="$line · $(short "$used") / $(short "$size") ($((used * 100 / size))%)"
+elif [ "$used" -gt 0 ]; then
+    line="$line · $(short "$used")"
+fi
+line=${line# · }
+[ -n "$line" ] && printf '%s\n' "$line"
 exit 0

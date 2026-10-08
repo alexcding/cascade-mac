@@ -53,6 +53,9 @@ struct CascadeCommands: Commands {
             command(.nextModel)
             command(.previousModel)
             command(.toggleChat)
+            Divider()
+            command(.compactConversation)
+            command(.clearConversation)
         }
         CommandMenu("Go") {
             command(.overview)

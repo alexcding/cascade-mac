@@ -264,3 +264,10 @@ struct CodexDriver: AgentDriver {
         return inputs
     }
 }
+
+extension APIClient {
+    /// A CLI's catalog, or nil when the backend could not read it.
+    func agentCatalog(cli: String) async -> AgentCatalog? {
+        try? await get(APIClient.query(Routes.AGENT_CATALOG, ["cli": cli]))
+    }
+}

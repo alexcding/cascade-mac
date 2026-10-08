@@ -228,6 +228,13 @@ extension WorkspaceServing {
     @ObservationIgnored private var reportedWhenSwitched: AgentSelection?
     @ObservationIgnored private var switchedAt = Date.distantPast
     private(set) var pendingSelection: AgentSelection?
+    /// The preset the keyboard is choosing, shown over the terminal until it is switched to
+    /// (`AgentSwitchNoticeView`). The serial tells each press from the last.
+    struct SwitchNotice: Equatable {
+        let preset: AgentPreset
+        let serial: Int
+    }
+    private(set) var switchNotice: SwitchNotice?
     /// What the agent's own status says it is running.
     private var reportedSelection: AgentSelection? {
         agentStatus.flatMap { status in status.model.map { AgentSelection(model: $0, effort: status.effort) } }
@@ -274,7 +281,11 @@ extension WorkspaceServing {
         .init(pane: context?.pane, section: context?.reviewSection, connected: state.connected, base: state.reviewBase, sessionID: state.session?.id)
     }
 
-    func setActive(_ value: Bool) { active = value }
+    func setActive(_ value: Bool) {
+        active = value
+        // Leaving the session dismisses the switcher, and a dismissed switcher switches.
+        if !value { commitPresetChoice() }
+    }
     /// Diff's tab goes through the app, which loads the changes before showing them; with no
     /// backend to load them from it is selected as any tab is, and shows why it is empty.
     func selectTab(_ tab: WorkspaceTab) {
@@ -443,21 +454,52 @@ extension WorkspaceServing {
         guard let running = agentSelection else { return false }
         return agentCatalog.selection(selection, isRunning: running, among: agentPresets)
     }
-    /// The model menu's presets, in menu order. The toolbar owns their storage and hands the
-    /// resolved list over, so the Next Model command and the menu cannot disagree.
+    /// The presets, in Next Model's order. `SessionAgentKeeper` reads their storage and hands the
+    /// resolved list over, so Next Model and the switcher cannot disagree.
     var agentPresets: [AgentPreset] = []
     var canCycleAgentPreset: Bool { context != nil && canSendAgentCommand && agentPresets.count > 1 }
-    /// The next or previous preset in menu order, wrapping. From a model no preset names, the first.
+    /// The next or previous preset in menu order, wrapping. From a model no preset names, the
+    /// first. Over the terminal each press only moves the choice, as ⌘Tab does, so a model passed
+    /// on the way is never typed to the agent; it switches when the switcher goes.
     func cycleAgentPreset(_ direction: Int) {
         guard canCycleAgentPreset else { return }
         let presets = agentPresets
-        let next = presets.firstIndex { isRunning($0.selection) }.map { ($0 + direction + presets.count) % presets.count } ?? 0
-        switchAgent(to: presets[next].selection)
+        let from = switchNotice?.preset.selection ?? agentSelection
+        let current = from.flatMap { from in presets.firstIndex { agentCatalog.selection($0.selection, isRunning: from, among: presets) } }
+        choosePreset(presets[current.map { ($0 + direction + presets.count) % presets.count } ?? 0])
     }
+    /// A preset chosen from the keyboard. Over the terminal it is shown in the switcher, which goes
+    /// and switches when the shortcut's modifiers are let go (`AgentSwitchKeys`); in Chat, whose
+    /// composer names the model, it switches at once.
+    func choosePreset(_ preset: AgentPreset) {
+        guard context != nil, canSendAgentCommand else { return }
+        if showsChat {
+            if !isRunning(preset.selection) { switchAgent(to: preset.selection) }
+            return
+        }
+        agentCommandError = nil
+        switchNotice = SwitchNotice(preset: preset, serial: (switchNotice?.serial ?? 0) + 1)
+    }
+    /// The switcher goes and the agent switches to its pick: the modifiers let go, the app, the
+    /// session or the terminal left. One back where it started types nothing.
+    func commitPresetChoice() {
+        guard let chosen = switchNotice?.preset else { return }
+        switchNotice = nil
+        guard !isRunning(chosen.selection) else { return }
+        // The agent may have taken a turn while the keys were held; say so rather than drop it.
+        guard canSendAgentCommand else {
+            agentCommandError = String(localized: "The model was not switched: the agent is busy."); return
+        }
+        switchAgent(to: chosen.selection)
+    }
+    /// Escape over the switcher: it goes, and the agent keeps its model.
+    func cancelPresetChoice() { switchNotice = nil }
     /// Switches the agent inside its running conversation. The driver knows what its CLI wants
     /// typed; this only carries it out.
     func switchAgent(to selection: AgentSelection) {
         guard context != nil, canSendAgentCommand, let driver = agentDriver else { return }
+        // A pick in the panel overrides a choice the keyboard is still making.
+        switchNotice = nil
         guard let model = agentCatalog.model(selection.model) else {
             agentCommandError = String(localized: "\(selection.model) is not a model this CLI lists."); return
         }
@@ -470,15 +512,41 @@ extension WorkspaceServing {
             typeToAgent(inputs)
         } catch { agentCommandError = error.localizedDescription }
     }
+    /// The commands typed to the agent, one after another: a switch, Compact or Clear asked for
+    /// while another is still being typed (Codex's picker takes a second to walk) waits its turn
+    /// rather than typing into it.
+    @ObservationIgnored private var commandTail: Task<Void, Never>?
+    @ObservationIgnored private var commandsTyping = 0
     private func typeToAgent(_ inputs: [AgentInput]) {
         guard context != nil, canSendAgentCommand, let terminal else { return }
         agentCommandError = nil
-        Task { [weak self] in
+        let previous = commandsTyping > 0 ? commandTail : nil
+        commandsTyping += 1
+        commandTail = Task { [weak self] in
+            if let previous {
+                await previous.value
+                // The agent redraws after a command; one typed into the redraw drops keys.
+                try? await Task.sleep(for: .milliseconds(700))
+            }
+            guard let self else { return }
+            defer { self.commandsTyping -= 1 }
+            guard self.context != nil else { return }
+            // The one before may have started a turn, as Compact does.
+            guard self.canSendAgentCommand else {
+                self.agentCommandError = String(localized: "Not sent: the agent is busy.")
+                self.pendingSelection = nil
+                return
+            }
             do { try await terminal.submitToAgent(inputs) } catch {
-                self?.agentCommandError = error.localizedDescription
-                self?.pendingSelection = nil
+                self.agentCommandError = error.localizedDescription
+                self.pendingSelection = nil
             }
         }
+    }
+    /// The error is shown for a while and then goes, unless a newer one has taken its place.
+    func dismissAgentCommandError(_ error: String) {
+        guard context != nil, agentCommandError == error else { return }
+        agentCommandError = nil
     }
     func openHookSettings() { perform(.hookSettings) }
     func stopBuild() async { await build?.stop() }
@@ -560,6 +628,8 @@ extension WorkspaceServing {
 
     func setChatShown(_ shown: Bool) {
         guard canShowChat, let session, let cli = session.cli else { return }
+        // The switcher is the terminal's; leaving it dismisses it, and a dismissed switcher switches.
+        commitPresetChoice()
         UserDefaults.standard.set(shown, forKey: Self.chatModeKey(session.id))
         if shown, chat == nil {
             let worktree = session.worktree

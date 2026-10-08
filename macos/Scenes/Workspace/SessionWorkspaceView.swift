@@ -204,7 +204,10 @@ struct SessionWorkspaceView: View {
                     .accessibilityIdentifier("workspace-launch-error")
             }
             primaryContent
+                // In Chat the composer is at the foot, so the error goes to the top.
+                .overlay(alignment: model.showsChat ? .top : .bottom) { AgentCommandErrorView(model: model) }
         }
+        .background { if let driver = model.agentDriver { SessionAgentKeeper(model: model, driver: driver).id("\(context.id)|\(driver.cli)") } }
     }
 
     /// Beside a terminal, the context pane is not drawn here: it is the window's inspector column
@@ -231,6 +234,10 @@ struct SessionWorkspaceView: View {
                                               startedAt: terminal.agentStartedAt, active: model.isActive,
                                               placeholder: model.session?.agent.chatPlaceholder ?? "")
                     }
+                }
+                .overlay(alignment: .bottom) {
+                    // In Chat the composer names the model; over the terminal, nothing else does.
+                    if !model.showsChat, model.agentDriver != nil { AgentSwitchNoticeView(model: model) }
                 }
                 .task(id: terminal.id) { model.restoreChatMode() }
         } else if model.removingSession {

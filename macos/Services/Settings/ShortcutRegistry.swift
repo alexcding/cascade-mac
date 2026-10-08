@@ -103,6 +103,8 @@ extension ShellCommand {
         case .nextModel: String(localized: "Next Model")
         case .previousModel: String(localized: "Previous Model")
         case .toggleChat: String(localized: "Switch Terminal / Chat")
+        case .compactConversation: String(localized: "Compact Conversation")
+        case .clearConversation: String(localized: "Clear Conversation…")
         case .runProject: String(localized: "Run")
         case .stopBuild: String(localized: "Stop")
         case .nextSession: String(localized: "Next Session")
@@ -123,7 +125,7 @@ extension ShellCommand {
         case .overview, .terminal, .sidebar, .activity: .go
         case .nextSession, .previousSession: .go
         case .session1, .session2, .session3, .session4, .session5, .session6, .session7, .session8, .session9, .session10: .go
-        case .runProject, .stopBuild, .nextModel, .previousModel, .toggleChat: .product
+        case .runProject, .stopBuild, .nextModel, .previousModel, .toggleChat, .compactConversation, .clearConversation: .product
         case .refresh, .tray, .biggerFont, .smallerFont, .resetFont: .view
         }
     }
@@ -163,5 +165,5 @@ extension ShellCommand {
 
     /// The terminal surface binds these itself and would consume them before the menu, so the
     /// app claims them ahead of the responder chain.
-    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .nextPage, .previousPage, .nextModel, .previousModel, .toggleChat].contains(self) }
+    var claimedAheadOfResponders: Bool { sessionIndex != nil || [.nextSession, .previousSession, .newTab, .nextPage, .previousPage, .nextModel, .previousModel, .toggleChat, .compactConversation, .clearConversation].contains(self) }
 }

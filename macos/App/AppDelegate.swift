@@ -75,10 +75,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Settings → Shortcuts gives them. Every one carries ⌘, so nothing the CLI reads is taken.
         // A claimed key that cannot run right now is dropped, as a disabled menu item's is, rather
         // than passed on for the terminal surface to read as a binding of its own.
+        // A model preset's own shortcut is claimed the same way.
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, !ShortcutRecorder.recording, window?.isKeyWindow == true, window?.attachedSheet == nil,
-                  let command = ShortcutRegistry.shared.command(for: event), command.claimedAheadOfResponders else { return event }
-            if model.canPerform(command) { perform(command) } else { NSSound.beep() }
+            guard let self, !ShortcutRecorder.recording, window?.isKeyWindow == true, window?.attachedSheet == nil else { return event }
+            if let command = ShortcutRegistry.shared.command(for: event), command.claimedAheadOfResponders {
+                if model.canPerform(command) { perform(command) } else { NSSound.beep() }
+                return nil
+            }
+            guard let shortcut = KeyShortcut(event: event), let chosen = model.choosePreset(for: shortcut) else { return event }
+            if !chosen { NSSound.beep() }
             return nil
         }
         model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },
