@@ -134,21 +134,22 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     var factories = 0
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         terminalFactory: { factories += 1; return build })
+    await model.loadDestinations()
+    #expect(model.canRun && model.scheme == "Fixture")
     let destination = BuildDestinationViewModel(runtime: model)
-    await destination.load()
-    #expect(destination.canRun && destination.scheme == "Fixture")
-    async let first: Void = destination.run()
-    async let second: Void = destination.run()
+    async let first = destination.start()
+    async let second = destination.start()
     for _ in 0..<100 {
         if model.starting { break }
         try await Task.sleep(for: .milliseconds(10))
     }
     #expect(model.starting)
     build.releaseReady()
-    _ = await (first, second)
+    let started = await [first, second]
+    #expect(started.filter { $0 }.count == 1, "the second Run is the first one's")
     #expect(model.running && build.commands.count == 1 && factories == 1)
-    #expect(destination.retired && !destination.canRun)
-    await destination.run()
+    #expect(destination.retired && !model.canRun)
+    #expect(await destination.start() == false)
     #expect(build.commands.count == 1 && model.running)
     // The subshell running the chain is still the build; the exec'd launch is the app.
     try await Task.sleep(for: .milliseconds(1500))
@@ -175,8 +176,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "", createdAt: nil, pinned: false)
     let model = NativeWorkspaceFeatureFactory().build(api: api, project: project, session: session,
         terminalFactory: { throw BackendError.operation("Runtime closed") })
+    await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
-    await destination.load(); await destination.run()
+    #expect(await destination.start() == false)
     #expect(model.error == "Runtime closed" && !model.running && model.canRun)
     // The run keeps its destination and its error, which the toolbar shows, for another try.
     #expect(!destination.retired)
@@ -196,10 +198,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
+    await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
-    await destination.load()
-    #expect(destination.canRun)
-    await destination.run()
+    #expect(await destination.start())
     #expect(simulatorRuns == 1)
     #expect(preview.udid == "12345678-1234-1234-1234-123456789abc")
     model.disconnect()
@@ -220,9 +221,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
+    await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
-    await destination.load()
-    await destination.run()
+    await destination.start()
     #expect(build.commands.isEmpty, "the running build is adopted, not joined by a second command")
     #expect(simulatorRuns == 0)
     #expect(preview.state == .idle && preview.udid == nil)
@@ -241,10 +242,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
         preview: preview, terminalFactory: { build })
     model.onSimulatorRun = { simulatorRuns += 1 }
+    await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
-    await destination.load()
-    #expect(destination.canRun)
-    await destination.run()
+    await destination.start()
     #expect(simulatorRuns == 0)
     #expect(preview.state == .idle && preview.udid == nil)
     model.disconnect()
@@ -262,9 +262,9 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
         let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: worktree, title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
         let build = BuildTerminalRecorder()
         let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session, terminalFactory: { build })
+        await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
         let destination = BuildDestinationViewModel(runtime: model)
-        await destination.load()
-        await destination.run()
+        await destination.start()
         defer { model.disconnect() }
         #expect(build.commands.count == 1, "\(model.error ?? "no command")")
         return build.commands.first ?? ""

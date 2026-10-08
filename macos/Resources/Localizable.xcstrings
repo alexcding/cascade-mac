@@ -1764,6 +1764,9 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "%@ has no run destination." : {
+
+    },
     "%@ held back" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17627,83 +17630,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "建置並執行 %@"
-          }
-        }
-      }
-    },
-    "Build Destination" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "বিল্ড গন্তব্য"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Destino de compilación"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Destination de compilation"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "बिल्ड गंतव्य"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Destinazione di compilazione"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ビルド先"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "빌드 대상"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Destino de compilação"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Цель сборки"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Byggmål"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "构建目标"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "建置目標"
           }
         }
       }
@@ -77628,6 +77554,9 @@
         }
       }
     },
+    "Refresh to list the schemes and destinations." : {
+
+    },
     "Refusing an unowned or non-socket terminal endpoint." : {
       "localizations" : {
         "bn" : {
@@ -90490,83 +90419,6 @@
         }
       }
     },
-    "Show the build settings: scheme and simulator" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "বিল্ড সেটিং দেখান: স্কিম ও সিমুলেটর"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar ajustes de compilación: esquema y simulador"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher les réglages de compilation : schéma et simulateur"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "बिल्ड सेटिंग दिखाएँ: स्कीम और सिम्युलेटर"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostra impostazioni di compilazione: schema e simulatore"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ビルド設定を表示：スキームとシミュレータ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "빌드 설정 표시: 스킴 및 시뮬레이터"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar ajustes de compilação: esquema e simulador"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Показать настройки сборки: схему и симулятор"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Visa bygginställningar: schema och simulator"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "显示构建设置：方案和模拟器"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "顯示建置設定：配置與模擬器"
-          }
-        }
-      }
-    },
     "Show the files" : {
 
     },
@@ -101615,6 +101467,9 @@
         }
       }
     },
+    "The project has no scheme to run." : {
+
+    },
     "The project or backend connection changed. Cancel and reopen deletion to review the current project." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -102074,6 +101929,9 @@
         }
       }
     },
+    "The run destination is not available. Connect it and refresh, or choose another in the run destination menu." : {
+
+    },
     "The Rust backend executable is missing. Build cascade-backend, pass --backend-path, or use --backend-url." : {
       "localizations" : {
         "bn" : {
@@ -102382,6 +102240,7 @@
       }
     },
     "The saved scheme or destination is not available. Choose one in the run destination menu." : {
+      "extractionState" : "stale",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
@@ -102456,6 +102315,9 @@
           }
         }
       }
+    },
+    "The scheme %@ is not in the project. Choose one in the run destination menu." : {
+
     },
     "The session could not be removed" : {
       "extractionState" : "manual",
@@ -105903,6 +105765,9 @@
           }
         }
       }
+    },
+    "This destination is not connected. Refresh, or choose another." : {
+
     },
     "This extension has no file icon theme." : {
       "extractionState" : "manual",

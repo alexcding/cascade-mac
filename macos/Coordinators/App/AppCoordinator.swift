@@ -335,21 +335,15 @@ import Observation
         if let failure { removalFailure = RemovalFailure(message: failure) } else { schedulePendingDeepLink() }
     }
 
-    /// Run goes straight to the saved destination, or, when the session has none, runs the lists'
-    /// first scheme and destination and saves them. A pick is saved as it is made, so a choice that
-    /// differs from the saved one was moved by the lists, and Run says so instead. A run that fails says why under the scheme, and the
-    /// run destination menu is where another is picked.
+    /// Run is the build's to decide (`BuildWorkspaceViewModel.runRequested`): the saved destination,
+    /// a pick not saved yet, or the lists' first. A Run that does not start says why under the
+    /// scheme, and the run destination menu is where another is picked.
     func runBuild(_ makeModel: () -> BuildWorkspaceViewModel?) {
         guard canPresent, let runtime = makeModel() else { return }
         let model = workspaceFactory.buildDestination(runtime: runtime)
         guard !model.retired else { return }
         Task {
-            if runtime.choosesSaved { _ = await model.runSaved() }
-            else if runtime.hasSavedDestination { runtime.reportMovedDestination() }
-            else {
-                if runtime.schemes.isEmpty || runtime.simulators.isEmpty { await model.load(fresh: false) }
-                await model.run()
-            }
+            await model.start()
             model.retire()
         }
     }

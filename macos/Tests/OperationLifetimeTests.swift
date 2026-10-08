@@ -35,7 +35,10 @@ private actor OperationBuildService: BuildServing {
     /// Holds only a fresh look, so a test can see what the menu shows meanwhile.
     var freshGate: OperationGate<(BuildSchemes, [BuildSimulator])>?
     let settingsGate: OperationGate<BuildSettings>?
-    let answer: (BuildSchemes, [BuildSimulator])
+    var answer: (BuildSchemes, [BuildSimulator])
+    func answer(with values: (BuildSchemes, [BuildSimulator])) { answer = values }
+    var failsSaves = false
+    func failSaves(_ fails: Bool) { failsSaves = fails }
     init(destinations: OperationGate<(BuildSchemes, [BuildSimulator])>? = nil, fresh: OperationGate<(BuildSchemes, [BuildSimulator])>? = nil,
          settings: OperationGate<BuildSettings>? = nil, answer: (BuildSchemes, [BuildSimulator]) = operationDestinations) {
         destinationsGate = destinations; freshGate = fresh; settingsGate = settings; self.answer = answer
@@ -53,9 +56,12 @@ private actor OperationBuildService: BuildServing {
         if let settingsGate { return try await settingsGate.value() }
         return operationSettings
     }
-    var savedSessions: [String] = [], seededProject: [Bool] = []
-    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) {
-        saves += 1; savedSessions.append(session.id); seededProject.append(seedingProject)
+    var savedSessions: [String] = [], seededProject: [Bool] = [], savedSimulators: [String] = []
+    struct SaveFailed: LocalizedError { var errorDescription: String? { "could not save" } }
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) throws {
+        saves += 1
+        if failsSaves { throw SaveFailed() }
+        savedSessions.append(session.id); seededProject.append(seedingProject); savedSimulators.append(simulator)
     }
 }
 
@@ -83,20 +89,20 @@ private actor OperationBuildService: BuildServing {
     let runtime = BuildWorkspaceViewModel(service: service, project: project, session: operationSession,
         terminalFactory: { factories += 1; return OperationBuildTerminal() })
     let old = BuildDestinationViewModel(runtime: runtime)
-    let loading = Task { await old.load() }
+    let starting = Task { await old.start() }
     await gate.waitForStart()
+    #expect(runtime.preparing)
     old.retire()
+    // Retiring a Run frees the button at once, though its load has not answered.
+    #expect(!runtime.preparing)
+    #expect(await old.start() == false)
     let current = BuildDestinationViewModel(runtime: runtime)
-    await current.load()
-    #expect(current.canRun && current.scheme == "Fixture")
-    await old.load(); await old.run(); old.retire()
+    #expect(!current.retired)
     await gate.finish(.success((BuildSchemes(target: "old", schemes: ["Obsolete"]), [])))
-    await loading.value
-    #expect(old.retired && !old.canRun && !old.loading && current.canRun && current.scheme == "Fixture")
+    #expect(await starting.value == false)
+    #expect(old.retired && runtime.schemes.isEmpty && runtime.error == nil, "the retired Run's answer is dropped, and it says nothing")
     #expect(factories == 0)
-    // The old run's one load, held until it no longer counted; the new one's kept list and its
-    // fresh look. Nothing from the retired run after that.
-    #expect(await service.loads == 3)
+    #expect(await service.loads == 1)
     #expect(await service.settingsReads == 0)
     current.retire(); runtime.disconnect()
 }
@@ -107,13 +113,14 @@ private actor OperationBuildService: BuildServing {
     let runtime = BuildWorkspaceViewModel(service: service, project: operationProject, session: operationSession,
         terminalFactory: { factories += 1; return OperationBuildTerminal() })
     let destination = BuildDestinationViewModel(runtime: runtime)
-    await destination.load()
-    let run = Task { await destination.run() }
+    let run = Task { await destination.start() }
     await gate.waitForStart()
     runtime.disconnect()
-    await gate.finish(.success(operationSettings)); await run.value
-    await destination.load(); await destination.run(); await runtime.stop()
-    #expect(!destination.canRun && !destination.retired && !runtime.running && factories == 0)
+    await gate.finish(.success(operationSettings))
+    #expect(await run.value == false)
+    #expect(await destination.start() == false)
+    await runtime.stop()
+    #expect(!runtime.canRun && !destination.retired && !runtime.running && factories == 0)
     #expect(await service.saves == 0)
     #expect(await service.settingsReads == 1)
 }
@@ -124,11 +131,10 @@ private actor OperationBuildService: BuildServing {
     let runtime = BuildWorkspaceViewModel(service: service, project: operationProject, session: operationSession,
         terminalFactory: { terminal })
     let destination = BuildDestinationViewModel(runtime: runtime)
-    await destination.load()
-    let run = Task { await destination.run() }
+    let run = Task { await destination.start() }
     await gate.waitForStart()
     runtime.disconnect()
-    await gate.finish(.success(true)); await run.value
+    await gate.finish(.success(true)); _ = await run.value
     await runtime.stop()
     #expect(terminal.commands.isEmpty && terminal.interrupts == 0 && !runtime.running)
     #expect(await service.saves == 1)
@@ -511,7 +517,101 @@ private func operationSession(_ id: String, scheme: String? = nil, simulator: St
     await gate.finish(.failure(Unlisted()))
     await loading.value
     #expect(runtime.error == "xcodebuild -list failed" && runtime.quietError)
-    runtime.reportMovedDestination()
-    #expect(runtime.error != nil && !runtime.quietError)
+    runtime.disconnect()
+}
+
+/// Selecting a session warms the menu's lists; when that fails the menu says why instead of
+/// saying it is loading with nothing loading.
+@MainActor @Test(.timeLimit(.minutes(1))) func aFailedWarmSaysWhyInTheMenu() async throws {
+    struct Unlisted: LocalizedError { var errorDescription: String? { "xcodebuild -list failed" } }
+    let gate = OperationGate<(BuildSchemes, [BuildSimulator])>(), service = OperationBuildService(destinations: gate)
+    let project = Project(id: "operation-warm-failed", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project, session: operationSession("warm-failed"),
+        terminalFactory: { OperationBuildTerminal() })
+    runtime.warmDestinations()
+    await gate.waitForStart()
+    await gate.finish(.failure(Unlisted()))
+    while runtime.error == nil { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runtime.error == "xcodebuild -list failed" && runtime.quietError && runtime.schemes.isEmpty)
+    runtime.disconnect()
+}
+
+/// The list the backend keeps can predate a device plugged in since. The saved destination stays
+/// chosen; Run looks afresh, and says it is not available rather than building elsewhere.
+@MainActor @Test(.timeLimit(.minutes(1))) func aSavedDestinationTheKeptListLacksStaysChosen() async throws {
+    let service = OperationBuildService()
+    let project = Project(id: "operation-unplugged", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("unplugged", scheme: "Fixture", simulator: "device"), terminalFactory: { OperationBuildTerminal() })
+    runtime.warmDestinations()
+    while runtime.schemes.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runtime.simulator == "device" && runtime.destinationUnavailable)
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.runBuild { runtime }
+    while runtime.error == nil { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(!runtime.running && !runtime.quietError && runtime.simulator == "device")
+    #expect(await service.refreshes.last == true, "Run looked afresh before saying so")
+    #expect(await service.settingsReads == 0)
+    #expect(await service.saves == 0)
+    // Plugged in: the next list has it again, and picking it answers what Run said.
+    await service.answer(with: (operationDestinations.0, operationDestinations.1 + [BuildSimulator(udid: "device", name: "Device", runtime: "Fixture OS")]))
+    await runtime.loadDestinations()
+    #expect(runtime.simulator == "device" && !runtime.destinationUnavailable && runtime.canRun)
+    await runtime.choose(simulator: "device")
+    #expect(runtime.error == nil)
+    #expect(await service.saves == 0, "it was already saved")
+    runtime.disconnect()
+}
+
+/// A pick is saved as it is made; one whose save failed is still what Run runs, and Run saves it.
+@MainActor @Test(.timeLimit(.minutes(1))) func aPickWhoseSaveFailedIsWhatRunRuns() async throws {
+    let service = OperationBuildService(answer: twoDestinations)
+    let project = Project(id: "operation-unsaved", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("unsaved", scheme: "Fixture", simulator: "fixture-simulator"), terminalFactory: { OperationBuildTerminal() })
+    await runtime.loadDestinations()
+    await service.failSaves(true)
+    await runtime.choose(simulator: "second-simulator")
+    #expect(runtime.error == "could not save" && runtime.simulator == "second-simulator")
+    await service.failSaves(false)
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.runBuild { runtime }
+    while !runtime.running { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runtime.error == nil && runtime.simulator == "second-simulator")
+    #expect(await service.saves == 2)
+    #expect(await service.savedSessions == ["unsaved"])
+    runtime.disconnect()
+}
+
+/// Two quick picks: the saves go in order, and the last pick is the saved one, so Run takes it as is.
+@MainActor @Test(.timeLimit(.minutes(1))) func twoQuickPicksLeaveTheLastOneSaved() async throws {
+    let service = OperationBuildService(answer: twoDestinations)
+    let project = Project(id: "operation-quick", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("quick", scheme: "Fixture", simulator: "fixture-simulator"), terminalFactory: { OperationBuildTerminal() })
+    await runtime.loadDestinations()
+    async let first: Void = runtime.choose(simulator: "second-simulator")
+    async let second: Void = runtime.choose(simulator: "fixture-simulator")
+    _ = await (first, second)
+    #expect(await service.savedSimulators == ["second-simulator", "fixture-simulator"])
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.runBuild { runtime }
+    while !runtime.running && runtime.error == nil { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runtime.running && runtime.error == nil)
+    #expect(await service.saves == 2, "the last pick was saved, so Run saves nothing")
+    runtime.disconnect()
+}
+
+/// A Run that cannot start says why, under the scheme.
+@MainActor @Test(.timeLimit(.minutes(1))) func runWithNothingToRunSaysWhy() async throws {
+    let service = OperationBuildService(answer: (BuildSchemes(target: "/tmp/Fixture.xcodeproj", schemes: []), []))
+    let project = Project(id: "operation-empty", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project, session: operationSession("empty"),
+        terminalFactory: { OperationBuildTerminal() })
+    let coordinator = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    coordinator.runBuild { runtime }
+    while runtime.error == nil { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(runtime.error == "The project has no scheme to run." && !runtime.quietError && !runtime.running)
+    #expect(await service.settingsReads == 0)
     runtime.disconnect()
 }

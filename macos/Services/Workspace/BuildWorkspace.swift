@@ -73,6 +73,13 @@ protocol BuildServing: Sendable {
     private(set) var schemes: [String] = []
     private(set) var simulators: [BuildSimulator] = []
     private(set) var loading = false
+    /// A Run is finding its lists before it starts: the Run button shows it, and the menu waits.
+    var preparing: Bool { preparingID != nil }
+    private var preparingID: UUID?
+    /// Selecting the session is asking for the kept lists.
+    private(set) var warmingLists = false
+    /// Some list has been answered, so empty lists mean the project has none.
+    private(set) var listsLoaded = false
     private(set) var starting = false
     private(set) var running = false
     /// The build is over and what holds the terminal is the app it launched. Still `running`,
@@ -114,9 +121,12 @@ protocol BuildServing: Sendable {
     var canRun: Bool { valid && !loading && !starting && !running && schemes.contains(scheme) && simulators.contains { $0.udid == simulator } }
     /// The session or its project names a destination, so Run needs no lists to start.
     var hasSavedDestination: Bool { !saved.scheme.isEmpty && !saved.simulator.isEmpty }
-    /// What is chosen is what is saved, so Run can go without the lists. Otherwise the lists moved
-    /// the choice (a saved destination gone) or a pick is still being saved, and Run saves it.
-    var choosesSaved: Bool { hasSavedDestination && scheme == saved.scheme && simulator == saved.simulator }
+    /// What is chosen is what is saved, so Run can go without the lists. Otherwise a pick is still
+    /// being saved or failed to, and Run saves it, or the saved scheme is gone from the project.
+    private var choosesSaved: Bool { hasSavedDestination && scheme == saved.scheme && simulator == saved.simulator }
+    /// The choice is one made in the run destination menu and not saved yet, rather than one the
+    /// lists put there because the saved scheme is gone.
+    private var picked = false
     /// The saved pair is trusted until the lists say otherwise; xcodebuild rejects a stale one.
     private var canRunSaved: Bool {
         guard choosesSaved else { return false }
@@ -128,25 +138,41 @@ protocol BuildServing: Sendable {
         if let scheme = project.runScheme, !scheme.isEmpty { self.scheme = scheme; saved.scheme = scheme }
         if let simulator = project.runSim, !simulator.isEmpty { self.simulator = simulator; saved.simulator = simulator }
     }
+    /// Saves go one at a time, so the backend keeps the last pick, and only the newest says what is
+    /// saved: two quick picks must not leave the first one as the saved pair.
     private func saveDestination(scheme: String, simulator: String) async throws {
-        try await service.saveDestination(session: session, seedingProject: (project.runScheme ?? "").isEmpty || (project.runSim ?? "").isEmpty,
-            scheme: scheme, simulator: simulator)
+        let previous = savingTail, generation = UUID(); saveGeneration = generation
+        savesInFlight += 1
+        defer { savesInFlight -= 1 }
+        let seeding = (project.runScheme ?? "").isEmpty || (project.runSim ?? "").isEmpty
+        let save = Task { [service, session] in
+            await previous?.value
+            try await service.saveDestination(session: session, seedingProject: seeding, scheme: scheme, simulator: simulator)
+        }
+        savingTail = Task { _ = try? await save.value }
+        try await save.value
+        guard saveGeneration == generation else { return }
         saved = (scheme, simulator); ownsDestination = true
+        if self.scheme == scheme && self.simulator == simulator { picked = false }
     }
+    @ObservationIgnored private var savingTail: Task<Void, Never>?
+    @ObservationIgnored private var saveGeneration = UUID()
+    @ObservationIgnored private var savesInFlight = 0
     fileprivate func beginPresentation(_ id: UUID) -> Bool {
-        guard valid, !starting else { return false }
-        presentationID = id; loadGeneration = UUID(); loading = false; error = nil
+        guard valid, !starting, !preparing else { return false }
+        presentationID = id; loadGeneration = UUID(); loading = false; error = nil; loadFailed = false
         return true
     }
     fileprivate func endPresentation(_ id: UUID) {
         guard presentationID == id else { return }
         presentationID = nil; loadGeneration = UUID(); loading = false
+        if preparingID == id { preparingID = nil }
     }
     fileprivate func isCurrent(_ id: UUID) -> Bool { valid && presentationID == id }
     /// Destinations differ by scheme, so the cache is per project and scheme.
     static var cachedDestinations: [String: (BuildSchemes, [BuildSimulator])] = [:]
     private func cacheKey(_ scheme: String) -> String { "\(project.id)\n\(scheme)" }
-    fileprivate func load(presentation id: UUID, fresh: Bool) async { await load(fresh: fresh) { isCurrent(id) } }
+    private func load(presentation id: UUID, fresh: Bool) async { await load(fresh: fresh) { isCurrent(id) } }
     /// The schemes and destinations for the run destination menu, which is no presentation: a run
     /// in flight has one, and its load and choice come first. A fresh look too, for a device plugged
     /// in since: the menu's Refresh and a scheme picked there.
@@ -192,9 +218,19 @@ protocol BuildServing: Sendable {
         guard valid else { return }
         if let cached = Self.cachedDestinations[cacheKey(wanted)] { return showKept(cached) }
         guard warming == nil else { return }
+        warmingLists = true
         warming = Task { [service, project, session] in
-            defer { warming = nil }
-            guard let values = try? await service.destinations(project: project, session: session, scheme: wanted, refresh: false), valid else { return }
+            defer { warming = nil; warmingLists = false }
+            let values: (BuildSchemes, [BuildSimulator])
+            do { values = try await service.destinations(project: project, session: session, scheme: wanted, refresh: false) }
+            catch {
+                // Said in the menu, which would otherwise say it is loading with nothing loading.
+                if valid, presentationID == nil, schemes.isEmpty, self.error == nil {
+                    self.error = error.localizedDescription; loadFailed = true; quietError = true
+                }
+                return
+            }
+            guard valid else { return }
             for key in [wanted, values.0.resolve(wanted, project: project)].map(cacheKey) where Self.cachedDestinations[key] == nil {
                 Self.cachedDestinations[key] = values
             }
@@ -203,17 +239,21 @@ protocol BuildServing: Sendable {
     }
     /// Fills the menu's lists while they are empty; never under a run.
     private func showKept(_ values: (BuildSchemes, [BuildSimulator])) {
-        if valid, presentationID == nil, !starting, schemes.isEmpty { apply(values) }
+        if valid, presentationID == nil, !starting, !running, schemes.isEmpty { apply(values) }
     }
     @ObservationIgnored private var warming: Task<Void, Never>?
     private func apply(_ values: (BuildSchemes, [BuildSimulator])) {
-        schemes = values.0.schemes; simulators = values.1
+        schemes = values.0.schemes; simulators = values.1; listsLoaded = true
         if !schemes.contains(scheme) { scheme = values.0.resolve(scheme, project: project) }
-        if !simulators.contains(where: { $0.udid == simulator }) { simulator = simulators.first?.udid ?? "" }
+        // The saved destination stays chosen though a list lacks it: the list the backend keeps
+        // predates a device plugged in since, and a later one has it again. Run says it is not
+        // available rather than building elsewhere and saving that over it.
+        let keepsSaved = !saved.simulator.isEmpty && scheme == saved.scheme && simulator == saved.simulator
+        if !keepsSaved, !simulators.contains(where: { $0.udid == simulator }) { simulator = simulators.first?.udid ?? "" }
     }
     /// Only for a daemon too old to say whether the leader is a subshell.
     private static let shells: Set<String> = ["zsh", "bash", "sh", "dash", "ksh", "fish"]
-    fileprivate func run(presentation id: UUID, direct: Bool = false) async -> Bool {
+    private func run(presentation id: UUID, direct: Bool) async -> Bool {
         if direct, schemes.isEmpty, let cached = Self.cachedDestinations[cacheKey(scheme)] { apply(cached) }
         guard isCurrent(id), direct ? canRunSaved : canRun, !Task.isCancelled else { return false }
         let scheme = scheme, simulator = simulator
@@ -269,17 +309,46 @@ protocol BuildServing: Sendable {
         } catch { if isCurrent(id) && !Task.isCancelled { self.error = error.localizedDescription } }
         return false
     }
-    /// The saved scheme or destination is not in the lists any more, which moved the choice: Run says
-    /// so rather than building somewhere else and saving that over it.
-    func reportMovedDestination() {
-        guard valid else { return }
-        error = String(localized: "The saved scheme or destination is not available. Choose one in the run destination menu.")
+    /// Run, all of it: the saved destination as it is, a pick not saved yet (still being saved, or its
+    /// save failed) saved as it starts, and with nothing saved the lists' first. A Run that does not
+    /// start says why under the scheme.
+    fileprivate func runRequested(presentation id: UUID) async -> Bool {
+        guard isCurrent(id), !starting, !running, !preparing else { return false }
+        preparingID = id
+        defer { if preparingID == id { preparingID = nil } }
+        if choosesSaved {
+            if canRunSaved { return await run(presentation: id, direct: true) }
+            // The lists lack it. The kept one may predate a device plugged in since: one fresh look.
+            await load(presentation: id, fresh: true)
+            if isCurrent(id), canRun { return await run(presentation: id, direct: true) }
+        } else if !hasSavedDestination || picked {
+            if schemes.isEmpty || simulators.isEmpty { await load(presentation: id, fresh: false) }
+            if isCurrent(id), canRun { return await run(presentation: id, direct: false) }
+        }
+        // A failed load has said why already.
+        if isCurrent(id), error == nil { error = notRunnable }
+        return false
+    }
+    private var notRunnable: String {
+        if schemes.isEmpty { return String(localized: "The project has no scheme to run.") }
+        if hasSavedDestination, !picked, scheme != saved.scheme || !schemes.contains(scheme) {
+            return String(localized: "The scheme \(saved.scheme) is not in the project. Choose one in the run destination menu.")
+        }
+        if simulators.isEmpty { return String(localized: "\(scheme) has no run destination.") }
+        return String(localized: "The run destination is not available. Connect it and refresh, or choose another in the run destination menu.")
+    }
+    /// The chosen destination is not in the lists: the saved one, kept until it is back or another is picked.
+    var destinationUnavailable: Bool {
+        !simulators.isEmpty && !simulator.isEmpty && !simulators.contains { $0.udid == simulator }
     }
     /// A scheme picked in the run destination menu, saved at once with the destination it runs on.
     func choose(scheme: String) async {
         guard valid, presentationID == nil, !starting else { return }
+        picked = true
         if scheme != self.scheme {
             self.scheme = scheme
+            // Saved at once on the lists already known; the fresh look below only corrects it.
+            if let cached = Self.cachedDestinations[cacheKey(scheme)] { apply(cached); await saveChoice() }
             // Another scheme runs on other destinations; the list it loads picks one if this one is not there.
             await loadDestinations()
         }
@@ -288,15 +357,19 @@ protocol BuildServing: Sendable {
     /// A destination picked in the run destination menu, saved at once.
     func choose(simulator: String) async {
         guard valid, presentationID == nil, !starting else { return }
-        self.simulator = simulator
+        self.simulator = simulator; picked = true
         await saveChoice()
     }
     /// Also when the pick is what was already on screen: the lists may have put it there unsaved.
     private func saveChoice() async {
         let scheme = scheme, simulator = simulator
-        guard valid, presentationID == nil, !choosesSaved, schemes.contains(scheme),
+        guard valid, presentationID == nil, schemes.contains(scheme),
               simulators.contains(where: { $0.udid == simulator }) else { return }
+        // A valid pick answers what the last Run said, the saved one included.
         error = nil
+        // Back to the saved pair while another pick is still being saved: that save would win, so
+        // this one is saved too.
+        guard !choosesSaved || savesInFlight > 0 else { picked = false; return }
         do { try await saveDestination(scheme: scheme, simulator: simulator) }
         catch { if valid { self.error = error.localizedDescription } }
     }
@@ -306,7 +379,7 @@ protocol BuildServing: Sendable {
         catch { if valid { self.error = error.localizedDescription } }
     }
     func disconnect() {
-        valid = false; presentationID = nil; loadGeneration = UUID(); monitorGeneration = UUID()
+        valid = false; presentationID = nil; preparingID = nil; loadGeneration = UUID(); monitorGeneration = UUID()
         monitor = nil; terminal?.close(); terminal = nil; running = false; launched = false; loading = false
         preview?.retire(); onSimulatorRun = nil
     }
@@ -314,7 +387,7 @@ protocol BuildServing: Sendable {
 
 /// One model per Run; retiring it leaves the cached build and its PTY running. While it lives the
 /// build is its presentation: the run destination menu neither loads nor picks over it.
-@MainActor @Observable final class BuildDestinationViewModel {
+@MainActor final class BuildDestinationViewModel {
     private let runtime: BuildWorkspaceViewModel
     private let id = UUID()
     private(set) var retired = false
@@ -324,21 +397,9 @@ protocol BuildServing: Sendable {
         retired = !runtime.beginPresentation(id)
     }
     private var active: Bool { !retired && runtime.isCurrent(id) }
-    var scheme: String { runtime.scheme }
-    var simulator: String { runtime.simulator }
-    var schemes: [String] { runtime.schemes }
-    var simulators: [BuildSimulator] { runtime.simulators }
-    var loading: Bool { active && runtime.loading }
-    var starting: Bool { active && runtime.starting }
-    var error: String? { runtime.error }
-    var canRun: Bool { active && runtime.canRun }
-    func load(fresh: Bool = true) async { if active { await runtime.load(presentation: id, fresh: fresh) } }
-    /// Runs what is chosen, the lists' first scheme and destination when nothing was, and saves it.
-    func run() async { await run(direct: false) }
-    /// Runs the session's saved destination as it is; false when it did not start.
-    func runSaved() async -> Bool { await run(direct: true) }
-    @discardableResult private func run(direct: Bool) async -> Bool {
-        guard active, await runtime.run(presentation: id, direct: direct), active else { return false }
+    /// What Run does: see `BuildWorkspaceViewModel.runRequested`. False when it did not start.
+    @discardableResult func start() async -> Bool {
+        guard active, await runtime.runRequested(presentation: id), active else { return false }
         retire()
         return true
     }

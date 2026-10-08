@@ -74,7 +74,17 @@ private struct ToolbarBrandIcon: View {
         }
     }
 
-    private static func load(_ name: String) -> NSImage? {
+    /// Read once per name, a miss too: the artwork is the app's own and does not change while it runs.
+    @MainActor private static var loaded: [String: NSImage?] = [:]
+
+    @MainActor private static func load(_ name: String) -> NSImage? {
+        if let image = loaded[name] { return image }
+        let image = read(name)
+        loaded[name] = image
+        return image
+    }
+
+    private static func read(_ name: String) -> NSImage? {
         let filename = "\(name).png"
         let bundled = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/CascadeImages")
@@ -96,15 +106,19 @@ private struct ToolbarBrandIcon: View {
 
 /// The installed IDE's own icon, as Finder and the Dock draw it, for an IDE with no artwork of ours:
 /// found by its bundle ID wherever LaunchServices knows it, else by the name `open -a` opens it by
-/// (`ExternalTool.editors`). A miss is not kept, so an IDE installed later is found then.
+/// (`ExternalTool.editors`). A miss is kept for a minute, so the toolbar's redraws do not look
+/// again each time and an IDE installed later is still found.
 @MainActor private enum InstalledAppIcon {
     private static var found: [String: NSImage] = [:]
+    private static var missed: [String: Date] = [:]
 
     static func image(forEditor id: String) -> NSImage? {
         if let image = found[id] { return image }
+        if let missed = missed[id], Date().timeIntervalSince(missed) < 60 { return nil }
         guard let tool = ExternalTool.editors.first(where: { $0.id == id }),
               let url = tool.bundleID.flatMap(NSWorkspace.shared.urlForApplication(withBundleIdentifier:))
-                ?? location(of: tool.application) else { return nil }
+                ?? location(of: tool.application) else { missed[id] = Date(); return nil }
+        missed[id] = nil
         let image = NSWorkspace.shared.icon(forFile: url.path)
         found[id] = image
         return image
@@ -482,8 +496,9 @@ struct SessionWorkspaceRunButton: View {
 
     var body: some View {
         let running = model.build?.running == true
-        // A direct run has no sheet, so the button is what shows it has started.
-        let starting = model.build?.starting == true
+        // A direct run has no sheet, so the button is what shows it has started, or is still
+        // finding its lists.
+        let starting = model.build?.starting == true || model.build?.preparing == true
         // The stock navigation style is what draws one capsule with the system's divider; the
         // automatic style splits the pair into two glass circles.
         ControlGroup {
@@ -529,7 +544,15 @@ private struct SessionWorkspaceRunDestinationMenu: View {
                 ForEach(build.simulators) { Text($0.label).tag($0.udid) }
             }
             .pickerStyle(.inline)
-            if build.loading || (build.schemes.isEmpty && build.error == nil) { Text(String(localized: "Loading destinations…")) }
+            // Run's own error says this already.
+            if build.destinationUnavailable, build.error == nil {
+                Text(String(localized: "This destination is not connected. Refresh, or choose another."))
+            }
+            if build.loading || build.warmingLists { Text(String(localized: "Loading destinations…")) }
+            else if build.schemes.isEmpty, build.error == nil {
+                Text(build.listsLoaded ? String(localized: "The project has no scheme to run.")
+                    : String(localized: "Refresh to list the schemes and destinations."))
+            }
             Divider()
             Button(String(localized: "Refresh Destinations"), action: model.refreshRunDestinations)
                 .disabled(build.loading)
@@ -665,7 +688,8 @@ private struct SessionWorkspaceBuildLogButton: View {
 
     /// Once the app is launched the build is over; it still holds the terminal, so Stop stays.
     static func busy(_ model: SessionWorkspaceViewModel) -> Bool {
-        model.build?.starting == true || (model.build?.running == true && model.build?.launched != true)
+        model.build?.starting == true || model.build?.preparing == true
+            || (model.build?.running == true && model.build?.launched != true)
     }
 
     static func shows(_ model: SessionWorkspaceViewModel) -> Bool { busy(model) || model.buildTerminal != nil }
