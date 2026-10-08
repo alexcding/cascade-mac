@@ -4,10 +4,12 @@
 //! used, so a change applies to the next worktree without a restart.
 
 use std::{
+    collections::HashMap,
     fs, io,
     os::unix::ffi::OsStringExt,
     path::{Path, PathBuf},
-    time::Duration,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use serde_json::json;
@@ -32,6 +34,11 @@ const SETUP_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 /// The most an opted-in fetch may add to New Session. A fetch from the app (a GUI credential
 /// helper, a slow remote) can take far longer than from a shell; past this the local ref is used.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(8);
+/// How long the branch picker's fetch may take. Longer than `FETCH_TIMEOUT`, since nothing waits
+/// on it: the picker shows what the checkout has and reads again when the fetch lands.
+const PICKER_FETCH_TIMEOUT: Duration = Duration::from_secs(20);
+/// A picker opened again within this of the last fetch of its checkout fetches nothing.
+const PICKER_FETCH_INTERVAL: Duration = Duration::from_secs(60);
 /// The part of a failed setup's output worth keeping in Activity.
 const OUTPUT_TAIL: usize = 2000;
 
@@ -346,19 +353,84 @@ pub(crate) async fn fetch_base(app: &AppState, dir: &str, base: &str) {
     if !matches!(config(app, FETCH).await.as_deref(), Some("true" | "1")) {
         return;
     }
-    if let Err(error) = cli::run(
-        "git",
-        ["-C", dir, "fetch", "--no-tags", "origin", "--", base],
-        FETCH_TIMEOUT,
-    )
-    .await
-    {
+    if let Err(reason) = fetch(dir, Some(base), false, FETCH_TIMEOUT).await {
         let _ = app.db.add_log(
             "worktree",
             "info",
             "worktree_fetch_skipped",
-            &json!({"base":base,"reason":crate::local::error_line(&error.to_string())}),
+            &json!({"base":base,"reason":reason}),
         ).await;
+    }
+}
+
+/// The one way the app fetches from origin: one branch or all of them, with or without pruning
+/// what origin no longer has, never tags, within `timeout`. A failure is the line git gave.
+pub(crate) async fn fetch(
+    dir: &str,
+    branch: Option<&str>,
+    prune: bool,
+    timeout: Duration,
+) -> Result<(), String> {
+    let mut args = vec!["-C", dir, "fetch", "--no-tags"];
+    if prune {
+        args.push("--prune");
+    }
+    args.push("origin");
+    if let Some(branch) = branch {
+        args.extend(["--", branch]);
+    }
+    cli::run("git", args, timeout)
+        .await
+        .map(|_| ())
+        .map_err(|e| crate::local::error_line(&e.to_string()))
+}
+
+/// What a picker's fetch of origin came to.
+#[derive(Debug, PartialEq)]
+pub(crate) enum Fetched {
+    /// Origin was fetched now.
+    Fresh,
+    /// A fetch within the interval stands; nothing was run.
+    Recent,
+    /// The fetch failed for this reason; what the checkout has stands.
+    Failed(String),
+}
+
+/// The pickers' fetches of origin, paced and run one at a time per checkout, so two composers on
+/// one checkout share one fetch and the app keeps no timer of its own. Only pickers go through
+/// here: a worktree being added never waits on a picker's fetch (git's own ref locks keep the
+/// two apart, and a fetch that loses to one is a failed fetch, tried again after the interval).
+#[derive(Default)]
+pub struct Fetches {
+    checkouts: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Option<Instant>>>>>,
+}
+
+impl Fetches {
+    fn checkout(&self, dir: &str) -> Arc<tokio::sync::Mutex<Option<Instant>>> {
+        Arc::clone(
+            self.checkouts
+                .lock()
+                .unwrap()
+                .entry(dir.to_owned())
+                .or_default(),
+        )
+    }
+
+    /// Fetches origin for a picker opened on `dir`, unless one was tried within the interval. A
+    /// failure counts as tried: an origin that is unreachable, missing or too big for the timeout
+    /// is not asked again on every open.
+    pub(crate) async fn origin(&self, dir: &str) -> Fetched {
+        let checkout = self.checkout(dir);
+        let mut last = checkout.lock().await;
+        if last.is_some_and(|at| at.elapsed() < PICKER_FETCH_INTERVAL) {
+            return Fetched::Recent;
+        }
+        let result = fetch(dir, None, true, PICKER_FETCH_TIMEOUT).await;
+        *last = Some(Instant::now());
+        match result {
+            Ok(()) => Fetched::Fresh,
+            Err(reason) => Fetched::Failed(reason),
+        }
     }
 }
 
@@ -476,5 +548,40 @@ mod tests {
         let kept = tail(&text);
         assert!(kept.len() <= OUTPUT_TAIL);
         assert!(kept.ends_with('b'));
+    }
+}
+
+#[cfg(test)]
+mod fetch_tests {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+
+    use super::{Fetched, Fetches};
+    use crate::cli;
+
+    /// A picker's fetch runs once for a checkout and stands for the interval, failed or not. The
+    /// arguments are the one fetch shape: no tags, pruned, all of origin.
+    #[tokio::test]
+    async fn a_pickers_fetch_is_paced_per_checkout_and_retried_after_a_failure() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&runs);
+        let runner = Arc::new(cli::ScriptedRunner::new().on("git", move |args| {
+            let args = args.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
+            assert_eq!(&args[2..], ["fetch", "--no-tags", "--prune", "origin"], "{args:?}");
+            let run = counted.fetch_add(1, Ordering::SeqCst);
+            // The first fetch of `/down` is the second run (`/up`'s second open runs none); it fails.
+            Some(if args[1] == "/down" && run == 1 { Err("fatal: unable to access origin".to_string().into()) } else { Ok(Vec::new()) })
+        }));
+        let fetches = Fetches::default();
+        cli::scoped(runner, async {
+            assert_eq!(fetches.origin("/up").await, Fetched::Fresh);
+            assert_eq!(fetches.origin("/up").await, Fetched::Recent);
+            assert_eq!(fetches.origin("/down").await, Fetched::Failed("fatal: unable to access origin".into()));
+            assert_eq!(fetches.origin("/down").await, Fetched::Recent, "A failure is not tried again on every open");
+        })
+        .await;
+        assert_eq!(runs.load(Ordering::SeqCst), 2, "one for /up, one for /down");
     }
 }

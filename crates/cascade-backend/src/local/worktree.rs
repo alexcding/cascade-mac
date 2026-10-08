@@ -195,12 +195,7 @@ pub(crate) async fn create_worktree_value(app: &AppState, body: &Value) -> ApiRe
     // from the app (Xcode's git, a GUI process resolving credentials) is far slower than from a
     // shell, and on the create path the ref being fetched provably does not exist yet.
     if missing_ref(&failure) && !create {
-        let _ = git(
-            dir,
-            vec!["fetch".into(), "origin".into(), branch.into()],
-            10,
-        )
-        .await;
+        let _ = worktrees::fetch(dir, Some(branch), false, Duration::from_secs(10)).await;
         match git(dir, add, 90).await {
             Ok(_) => return Ok(Json(prepared(&app, dir, &destination, branch).await)),
             Err(error) => failure = error.to_string(),
@@ -476,12 +471,18 @@ pub(crate) async fn git_switch_value(body: &Value) -> ApiResult<Value> {
             "{main} has uncommitted changes. Commit or stash them before moving it to \"{branch}\"."
         )));
     }
-    // A local branch only: `switch` would otherwise create a tracking branch from origin, which
-    // is a different act than the one the app asked for.
-    if !ref_exists(&main, &format!("refs/heads/{branch}")).await {
+    // A branch the checkout has: local, or origin's, which the picker offers too and which
+    // `switch --track` makes local on the way. Anything else is refused rather than guessed at.
+    let local = ref_exists(&main, &format!("refs/heads/{branch}")).await;
+    if !local && !ref_exists(&main, &format!("refs/remotes/origin/{branch}")).await {
         return Err(unprocessable(format!("Branch \"{branch}\" was not found in {main}")));
     }
-    match git(&main, vec!["switch".into(), branch.into()], 60).await {
+    let args = if local {
+        vec!["switch".into(), branch.into()]
+    } else {
+        vec!["switch".into(), "--track".into(), format!("origin/{branch}")]
+    };
+    match git(&main, args, 60).await {
         Ok(_) => Ok(Json(json!({"ok":true}))),
         Err(e) => Err(unprocessable(error_line(&e.to_string()))),
     }

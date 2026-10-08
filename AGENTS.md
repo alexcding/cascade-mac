@@ -199,7 +199,14 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   cannot succeed and once froze New Session for a minute. The one opt-in exception is
   Settings → Worktrees → "Always fetch before creating worktrees" (`worktree_fetch`, off by
   default): it fetches only the base branch, capped at 8 seconds, and falls back to the local
-  ref (`worktrees.rs` `fetch_base`).
+  ref (`worktrees.rs` `fetch_base`). The branch picker is the other place origin is fetched
+  (`GET /api/git/refs?fetch=1`): opening it shows the checkout's branches at once, local and
+  origin's (`git.rs` `fold_refs`), and fetches behind them. Both fetches go through
+  `worktrees::fetch`, and the picker's through `worktrees::Fetches` on `AppState`: capped at 20
+  seconds, tried at most once a minute per checkout however many composers show it, failed or not,
+  and one at a time. Only when origin was fetched does the answer carry the references; otherwise
+  the list shown stands and nothing is read. A failure is logged, and creating a worktree never
+  waits on a picker's fetch.
 - **Child processes get their own process group** (`cli.rs`). The backend runs inside the
   app, so a child left in the app's group can take the app down with it, and a timeout
   kills the whole group rather than leaving a helper holding the output pipe.

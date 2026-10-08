@@ -53,6 +53,7 @@ pub struct AppState {
     pub limits: Arc<automation::Limits>,
     pub usage: Arc<usage::Usage>,
     pub warmup: Arc<warmup::Warmup>,
+    pub fetches: Arc<worktrees::Fetches>,
     pub kept: Arc<kept::Kept>,
     /// The chat engine, once `chat::start` has started it.
     pub chat: Arc<chat::Chat>,
@@ -77,6 +78,7 @@ impl AppState {
             limits: Arc::new(automation::Limits::default()),
             usage: Arc::new(usage::Usage::default()),
             warmup: Arc::new(warmup::Warmup::default()),
+            fetches: Arc::new(worktrees::Fetches::default()),
             kept: Arc::new(kept::Kept::default()),
             chat: Arc::new(chat::Chat::default()),
         }

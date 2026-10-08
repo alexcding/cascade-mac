@@ -15,6 +15,15 @@ private actor StartOperations: SessionCreating {
         GitReferences(branches: branches.map { .init(name: $0) }, defaultBranch: "main",
                       worktrees: worktrees.map { .init(branch: $0) })
     }
+    /// What a fetch of origin adds, and how many times the picker asked for one.
+    var onOrigin: [String] = []
+    private(set) var fetches = 0
+    func push(_ branch: String) { onOrigin.append(branch) }
+    func fetchedReferences(_ project: Project) -> GitReferences? {
+        fetches += 1
+        return GitReferences(branches: branches.map { .init(name: $0) } + onOrigin.map { .init(name: $0, remote: true) },
+                             defaultBranch: "main", worktrees: worktrees.map { .init(branch: $0) })
+    }
     func resolvePage(_ raw: String, project: Project, draft: SessionDraft) throws -> SessionDraft {
         guard let branch = pullRequestBranch else { throw PullRequestBranchUnknown() }
         var result = draft
@@ -221,3 +230,18 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
                                 composer: ProjectComposerModel(project: homeProject, agent: .claude, operations: nil))
 }
 
+
+@MainActor @Test func openingTheBranchPickerFetchesOriginAndOffersWhatItBrought() async throws {
+    let operations = StartOperations()
+    let (model, _) = await composer(operations)
+    #expect(!model.branches.contains("from-origin"))
+    await operations.push("from-origin")
+    model.pickerOpened()
+    #expect(model.fetching, "The list stays while origin is fetched behind it")
+    model.pickerOpened()
+    for _ in 0..<200 where model.fetching { try await Task.sleep(for: .milliseconds(5)) }
+    #expect(!model.fetching)
+    #expect(model.branches.contains("from-origin") && model.remoteBranches.contains("from-origin"))
+    #expect(!model.remoteBranches.contains("main"))
+    #expect(await operations.fetches == 1, "Opened again while the fetch runs, the picker starts no second one")
+}

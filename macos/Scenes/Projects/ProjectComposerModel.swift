@@ -34,11 +34,15 @@ import Observation
     /// with: recorded on the session created from that same text when its lookup names none.
     private(set) var linkedKey: (text: String, key: String)?
     private(set) var branches: [String] = []
+    /// The branches only origin has: offered like any other, and said to be origin's in the picker.
+    private(set) var remoteBranches: Set<String> = []
     /// The typed address, resolved: its title, branch, and an existing checkout to reuse.
     private(set) var resolved: SessionDraft?
     /// A pasted PR whose lookup failed — the page then asks for its branch.
     private(set) var unresolvedPullRequest = false
     private(set) var loading = false
+    /// Origin is being fetched for the branch picker; the list shown meanwhile is the checkout's.
+    private(set) var fetching = false
     private(set) var resolving = false
     private(set) var creating = false
     /// A lookup or create failure — cleared when the field changes.
@@ -66,6 +70,7 @@ import Observation
     private var generation = UUID()
     private var inputGeneration = UUID()
     @ObservationIgnored private var referenceTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
+    @ObservationIgnored private var fetchTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private var lookup: Task<SessionDraft?, Never>? { didSet { oldValue?.cancel() } }
 
     init(project: Project, agent: SessionAgent, operations: (any SessionCreating)?) {
@@ -268,6 +273,7 @@ import Observation
 
     private func cancel() {
         referenceTask = nil; generation = UUID(); loading = false
+        fetchTask = nil; fetching = false
         inputGeneration = UUID(); resolving = false; lookup = nil
     }
 
@@ -291,18 +297,51 @@ import Observation
             let refs = try await operations.references(project)
             try Task.checkCancellation()
             guard !retired, self.generation == generation else { return }
-            var names = refs.branches.map(\.name)
-            let sessionBase = refs.sessionBase
-            if !names.contains(sessionBase) { names.insert(sessionBase, at: 0) }
-            branches = names
-            checkouts = Dictionary((refs.worktrees ?? []).compactMap { tree in
-                tree.branch.map { ($0, (tree.path ?? "", tree.isMain == true)) }
-            }, uniquingKeysWith: { first, _ in first })
-            if base.isEmpty || !names.contains(base) { base = sessionBase }
-            if !names.contains(workBranch) { workBranch = "" }
+            apply(refs)
         } catch {
             if !retired && !Task.isCancelled && self.generation == generation { referenceError = error.localizedDescription }
         }
+    }
+
+    /// The branch picker opened: origin is fetched behind the list it shows, and the list is read
+    /// again when the fetch lands, so a branch pushed from elsewhere is offered without a fetch in a
+    /// shell. Nothing waits on it. The backend paces the fetch, once a minute per checkout, and
+    /// answers nothing when it fetched nothing: the list shown already stands. A read that fails
+    /// is told as the plain read's failure is.
+    func pickerOpened() {
+        guard !retired, operations != nil, !fetching else { return }
+        let workspace = project.workspace
+        fetching = true
+        fetchTask = Task { [weak self] in
+            defer { if let self, !Task.isCancelled { self.fetching = false } }
+            guard let self, let operations else { return }
+            do {
+                let refs = try await operations.fetchedReferences(project)
+                guard !Task.isCancelled, !retired, project.workspace == workspace, let refs else { return }
+                // A plain read started before the fetch wrote the refs may still be in flight; it
+                // would put the old list back over this one, so it is told to stand down.
+                generation = UUID(); loading = false
+                apply(refs)
+            } catch {
+                guard !Task.isCancelled, !retired, project.workspace == workspace else { return }
+                referenceError = error.localizedDescription
+            }
+        }
+    }
+
+    /// What a read of the references changes: the branches offered, which are origin's alone, the
+    /// checkouts holding them, and the base and work branch when the branch they named is gone.
+    private func apply(_ refs: GitReferences) {
+        var names = refs.branches.map(\.name)
+        let sessionBase = refs.sessionBase
+        if !names.contains(sessionBase) { names.insert(sessionBase, at: 0) }
+        branches = names
+        remoteBranches = Set(refs.branches.filter { $0.remote == true }.map(\.name))
+        checkouts = Dictionary((refs.worktrees ?? []).compactMap { tree in
+            tree.branch.map { ($0, (tree.path ?? "", tree.isMain == true)) }
+        }, uniquingKeysWith: { first, _ in first })
+        if base.isEmpty || !names.contains(base) { base = sessionBase }
+        if !names.contains(workBranch) { workBranch = "" }
     }
 
     /// Resolve the typed address now (or wait for the lookup already running).

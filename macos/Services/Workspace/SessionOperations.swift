@@ -79,7 +79,8 @@ struct PullRequestBranchUnknown: LocalizedError, Sendable {
 }
 
 struct GitReferences: Decodable, Sendable {
-    struct Branch: Decodable, Sendable { let name: String; var current: Bool? = nil }
+    /// `remote`: the branch is origin's and not checked out here yet; a session adopts it.
+    struct Branch: Decodable, Sendable { let name: String; var current: Bool? = nil; var remote: Bool? = nil }
     struct Worktree: Decodable, Sendable { let branch: String?; var isMain: Bool? = nil; var path: String? = nil }
     let branches: [Branch]
     let defaultBranch: String
@@ -109,6 +110,10 @@ struct SessionDraft: Equatable, Sendable {
 // record write reports the created checkout so it is recoverable, never deleted.
 protocol SessionCreating: Sendable {
     func references(_ project: Project) async throws -> GitReferences
+    /// The references after origin is fetched, for the branch picker opening, so a branch pushed
+    /// from elsewhere is offered: nil when nothing was fetched (fetched within the last minute, or
+    /// the fetch failed), since the list shown then already stands.
+    func fetchedReferences(_ project: Project) async throws -> GitReferences?
     func resolvePage(_ raw: String, project: Project, draft: SessionDraft) async throws -> SessionDraft
     func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession
     /// Moves `project`'s main checkout onto `branch`, freeing the one it holds for a worktree.
@@ -130,10 +135,21 @@ struct ForkedSession: Decodable, Sendable {
     let warning: String?
 }
 
+extension SessionCreating {
+    func fetchedReferences(_ project: Project) async throws -> GitReferences? { try await references(project) }
+}
+
 struct SessionOperations: SessionServing {
     let api: APIClient
     func references(_ project: Project) async throws -> GitReferences {
         try await api.get(APIClient.query(Routes.GIT_REFS, ["path": project.workspace]))
+    }
+    func fetchedReferences(_ project: Project) async throws -> GitReferences? {
+        struct Fetched: Decodable, Sendable { let fetched: Bool; var references: GitReferences? = nil }
+        // The backend's fetch is capped at 20 seconds, and may wait for a picker's fetch of the
+        // same checkout before it; the listing's own git calls follow.
+        let answer: Fetched = try await api.get(APIClient.query(Routes.GIT_REFS, ["path": project.workspace, "fetch": "1"]), timeout: 75)
+        return answer.fetched ? answer.references : nil
     }
     func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession {
         let branch = draft.branch.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -1,5 +1,7 @@
 //! Git state and history: the diff, commits, pushes, refs, log and show.
 
+use std::collections::HashSet;
+
 use super::*;
 
 async fn git_meta(dir: &str) -> (String, Option<i64>, Option<i64>) {
@@ -158,6 +160,41 @@ fn default_branch_from_refs(branches: &[Value]) -> String {
     String::new()
 }
 
+/// `for-each-ref` lines over `refs/heads` and `refs/remotes/origin`, folded into one list of
+/// branches in the order git gave them: a local branch as itself, and an origin branch with no
+/// local one under its name, `remote`. The rows carry full ref names: `%(refname:short)` would
+/// print `origin/HEAD`, origin's pointer and not a branch, as a local branch called `origin`.
+fn fold_refs(raw: &str) -> Vec<Value> {
+    let rows = raw
+        .lines()
+        .map(|line| line.split('\x1f').collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    let local = rows
+        .iter()
+        .filter_map(|p| p.get(1).copied())
+        .filter_map(|name| name.strip_prefix("refs/heads/"))
+        .collect::<HashSet<_>>();
+    rows.iter()
+        .filter_map(|p| {
+            let name = p.get(1).copied().unwrap_or("");
+            let short = p.get(3).copied().unwrap_or("");
+            if let Some(local) = name.strip_prefix("refs/heads/") {
+                return Some(json!({
+                    "name":local,
+                    "current":p.first().copied()==Some("*"),
+                    "upstream":p.get(2).copied().filter(|v|!v.is_empty()),
+                    "short":short,
+                }));
+            }
+            match name.strip_prefix("refs/remotes/origin/") {
+                Some("HEAD") | None => None,
+                Some(remote) if local.contains(remote) => None,
+                Some(remote) => Some(json!({"name":remote,"current":false,"upstream":null,"short":short,"remote":true})),
+            }
+        })
+        .collect()
+}
+
 /// What git records for one file: whether it is tracked, and whether its recorded mode is
 /// executable. A new worktree is checked out from exactly this, so it, not the file's state in
 /// the project folder, says whether the file will be there and whether `./file` can run.
@@ -173,18 +210,45 @@ pub async fn git_tracked(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
     Ok(Json(json!({"tracked": !mode.is_empty(), "executable": mode == "100755"})))
 }
 
-pub async fn git_refs(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
+pub async fn git_refs(
+    State(app): State<AppState>,
+    Query(query): Query<LocalQuery>,
+) -> ApiResult<Value> {
     let dir = query
         .path
         .ok_or_else(|| ApiError::bad_request("path required"))?;
+    // The one read that fetches: a person opened the branch picker, and a branch pushed from
+    // elsewhere is otherwise unseen until a fetch in a shell. The fetch is paced and run one at
+    // a time per checkout by `Fetches`. The answer is then whether origin was fetched and, only
+    // when it was, the references: a picker that opened again within the interval, or whose
+    // fetch failed (logged, once per interval), has nothing new to show and reads nothing.
+    if matches!(query.fetch.as_deref(), Some("1" | "true")) {
+        return match app.fetches.origin(&dir).await {
+            worktrees::Fetched::Fresh => {
+                let Json(references) = git_refs_value(&dir).await?;
+                Ok(Json(json!({"fetched":true,"references":references})))
+            }
+            worktrees::Fetched::Recent => Ok(Json(json!({"fetched":false}))),
+            worktrees::Fetched::Failed(reason) => {
+                let _ = app
+                    .db
+                    .add_log("worktree", "info", "branches_fetch_failed", &json!({"path":dir,"reason":reason}))
+                    .await;
+                Ok(Json(json!({"fetched":false})))
+            }
+        };
+    }
     git_refs_value(&dir).await
 }
 
-/// `git_refs`'s work: every local branch, the worktrees and the default branch, for the app's
-/// branch pickers. A new session's base is not read from here; `sessions` asks git directly.
+/// `git_refs`'s work: every branch the checkout knows, the worktrees and the default branch, for
+/// the app's branch pickers. A branch fetched from origin and never checked out is listed too,
+/// marked `remote`: a session adopts it the same way (`create_worktree_value` lets `worktree add`
+/// make the local branch from `origin/<name>`), so the picker must offer it. A new session's base
+/// is not read from here; `sessions` asks git directly.
 async fn git_refs_value(dir: &str) -> ApiResult<Value> {
     let format = format!(
-        "%(HEAD){}%(refname:short){}%(upstream:short){}%(objectname:short)",
+        "%(HEAD){}%(refname){}%(upstream:short){}%(objectname:short)",
         '\x1f', '\x1f', '\x1f'
     );
     let raw = git(
@@ -194,12 +258,13 @@ async fn git_refs_value(dir: &str) -> ApiResult<Value> {
             "--sort=-committerdate".into(),
             format!("--format={format}"),
             "refs/heads".into(),
+            "refs/remotes/origin".into(),
         ],
         20,
     )
     .await
     .unwrap_or_default();
-    let branches=raw.lines().map(|line|{let p=line.split('\x1f').collect::<Vec<_>>();json!({"name":p.get(1).copied().unwrap_or(""),"current":p.first().copied()==Some("*"),"upstream":p.get(2).copied().filter(|v|!v.is_empty()),"short":p.get(3).copied().unwrap_or("")})}).collect::<Vec<_>>();
+    let branches = fold_refs(&raw);
     let worktrees = list_worktrees(&dir)
         .await
         .into_iter()
@@ -400,4 +465,31 @@ pub async fn commit_avatars(Query(query): Query<LocalQuery>) -> ApiResult<Value>
         }
     }
     Ok(Json(Value::Object(map)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fold_refs;
+
+    #[test]
+    fn origin_branches_are_listed_once_and_marked() {
+        let raw = [
+            "*\x1frefs/heads/main\x1forigin/main\x1faaa1",
+            " \x1frefs/remotes/origin/HEAD\x1f\x1faaa1",
+            " \x1frefs/remotes/origin/feature\x1f\x1fbbb2",
+            " \x1frefs/remotes/origin/main\x1f\x1faaa1",
+            " \x1frefs/heads/old\x1f\x1fccc3",
+        ]
+        .join("\n");
+        let branches = fold_refs(&raw);
+        let names = branches.iter().map(|b| b["name"].as_str().unwrap()).collect::<Vec<_>>();
+        assert_eq!(names, ["main", "feature", "old"]);
+        assert_eq!(branches[0]["current"], true);
+        assert_eq!(branches[0]["upstream"], "origin/main");
+        assert!(branches[0].get("remote").is_none());
+        assert_eq!(branches[1]["remote"], true);
+        assert!(branches[1]["upstream"].is_null(), "No local branch, so nothing tracks origin's");
+        assert_eq!(branches[1]["short"], "bbb2");
+        assert!(branches[2].get("remote").is_none());
+    }
 }

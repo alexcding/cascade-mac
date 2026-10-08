@@ -478,6 +478,10 @@ private struct BranchChooser: View {
                 TextField(String(localized: "Filter branches"), text: $query)
                     .textFieldStyle(.plain).focused($searching)
                     .onSubmit { if let first = matches.first(where: { model.owner(of: $0) == nil }) { pick(first) } }
+                if model.fetching {
+                    ProgressView().controlSize(.small)
+                        .help(String(localized: "Fetching branches from origin"))
+                }
             }
             .font(.system(size: 14))
             .padding(.horizontal, 10).padding(.vertical, 8)
@@ -487,7 +491,7 @@ private struct BranchChooser: View {
                 LazyVStack(spacing: 1) {
                     ForEach(matches, id: \.self) { branch in
                         BranchRow(name: branch, checkout: model.checkouts[branch], selected: branch == model.chosenBranch,
-                                  owner: model.owner(of: branch)) { pick(branch) }
+                                  owner: model.owner(of: branch), remote: model.remoteBranches.contains(branch)) { pick(branch) }
                     }
                 }
             }
@@ -501,7 +505,7 @@ private struct BranchChooser: View {
         }
         .padding(14)
         .frame(width: 380)
-        .onAppear { searching = true }
+        .onAppear { searching = true; model.pickerOpened() }
     }
 
     private func pick(_ branch: String) {
@@ -515,6 +519,8 @@ private struct BranchRow: View {
     let selected: Bool
     /// The session already on this branch, in Existing branch: the row can't be picked.
     var owner: WorkspaceSession?
+    /// Origin has the branch and this checkout does not yet: the session fetches and adopts it.
+    var remote = false
     let action: () -> Void
     @State private var hovering = false
 
@@ -535,6 +541,11 @@ private struct BranchRow: View {
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Capsule().fill(Theme.surfaceHover))
                         .help(checkout.main ? String(localized: "Checked out in the project folder") : checkout.path)
+                } else if remote {
+                    Text("on origin").font(.system(size: 10.5, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.surfaceHover))
+                        .help(String(localized: "Not checked out here yet; the session takes it from origin"))
                 }
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.primary).opacity(selected ? 1 : 0)
