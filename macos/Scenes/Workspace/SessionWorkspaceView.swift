@@ -95,15 +95,17 @@ private struct ToolbarBrandIcon: View {
 }
 
 /// The installed IDE's own icon, as Finder and the Dock draw it, for an IDE with no artwork of ours:
-/// looked up by the application name `open -a` opens it by (`ExternalTool.editors`).
+/// found by its bundle ID wherever LaunchServices knows it, else by the name `open -a` opens it by
+/// (`ExternalTool.editors`). A miss is not kept, so an IDE installed later is found then.
 @MainActor private enum InstalledAppIcon {
-    private static var found: [String: NSImage?] = [:]
+    private static var found: [String: NSImage] = [:]
 
     static func image(forEditor id: String) -> NSImage? {
         if let image = found[id] { return image }
-        let image = ExternalTool.editors.first { $0.id == id }
-            .flatMap { location(of: $0.application) }
-            .map { NSWorkspace.shared.icon(forFile: $0.path) }
+        guard let tool = ExternalTool.editors.first(where: { $0.id == id }),
+              let url = tool.bundleID.flatMap(NSWorkspace.shared.urlForApplication(withBundleIdentifier:))
+                ?? location(of: tool.application) else { return nil }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
         found[id] = image
         return image
     }
@@ -488,10 +490,12 @@ struct SessionWorkspaceRunButton: View {
             if running {
                 Button(String(localized: "Stop"), systemImage: "stop.fill") { Task { await model.stopBuild() } }
                     .help(String(localized: "Stop the build"))
+                    .accessibilityIdentifier("build-stop")
             } else {
                 Button(String(localized: "Run \(model.runScheme)"), systemImage: "play.fill", action: model.run)
                     .help(String(localized: "Build and run \(model.runScheme)"))
                     .disabled(starting || !model.canRun)
+                    .accessibilityIdentifier("build-run")
             }
             Menu {
                 SessionWorkspaceRunDestinationMenu(model: model)
@@ -499,6 +503,7 @@ struct SessionWorkspaceRunButton: View {
                 Label(String(localized: "Run Destination"), systemImage: "gear")
             }
             .menuIndicator(.hidden)
+            .accessibilityIdentifier("build-destination")
             .help(String(localized: "Choose the scheme and the run destination"))
             .disabled(!model.canRun || starting || running)
         }
@@ -568,7 +573,7 @@ struct SessionWorkspaceBuildTitle: View {
             // Not disabled without an IDE: the scheme and title would grey out. `openEditor` refuses.
             .help(model.warmup.running || model.warmup.failed
                 ? SessionWorkspaceWarmupLine.help(model.warmup)
-                : model.build?.error ?? model.editorLabel ?? "")
+                : model.build.flatMap { $0.quietError ? nil : $0.error } ?? model.editorLabel ?? "")
             SessionWorkspaceBuildLogButton(model: model)
         }
         .padding(.leading, 8)
@@ -579,7 +584,7 @@ struct SessionWorkspaceBuildTitle: View {
     @ViewBuilder private var subtitle: some View {
         if model.warmup.running || model.warmup.failed {
             SessionWorkspaceWarmupLine(state: model.warmup)
-        } else if let error = model.build?.error {
+        } else if let error = model.build?.error, model.build?.quietError == false {
             // Why the last run did not start: nothing else shows it, and the gear's menu is where
             // another scheme or destination is picked.
             Label(error, systemImage: "exclamationmark.triangle.fill")

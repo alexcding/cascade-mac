@@ -650,11 +650,10 @@ final class CascadeUITests: XCTestCase {
         var previousAppPID: Int?
         for attempt in 0..<2 {
             app.activate()
-            XCTAssertTrue(app.buttons["Run…"].waitForExistence(timeout: 10)); app.buttons["Run…"].click()
-            let run = app.sheets.buttons["Run"]
+            // No destination saved: Run takes the lists' first scheme and destination, and saves them.
+            let run = app.buttons["build-run"]
             let ready = expectation(for: NSPredicate(format: "exists == true AND enabled == true"), evaluatedWith: run)
             await fulfillment(of: [ready], timeout: 100)
-            XCTAssertEqual(app.sheets.popUpButtons["build-scheme"].value as? String, "CascadeBuildProbe")
             run.click()
             let deadline = ContinuousClock.now + .seconds(240)
             var launched: [String: Any] = [:]
@@ -671,7 +670,7 @@ final class CascadeUITests: XCTestCase {
             XCTAssertTrue(terms.contains { $0["pairKey"] as? String == "sidebar-2" && $0["pid"] as? Int == shellPID && $0["alive"] as? Bool == true })
             XCTAssertTrue(terms.contains { ($0["pairKey"] as? String)?.hasPrefix("build:") == true && $0["pid"] as? Int != shellPID })
             app.activate() // Simulator opening must not prevent Stop in Cascade.
-            XCTAssertTrue(app.buttons["Stop Build"].waitForExistence(timeout: 10)); app.buttons["Stop Build"].click()
+            XCTAssertTrue(app.buttons["build-stop"].waitForExistence(timeout: 10)); app.buttons["build-stop"].click()
             let stopped = ContinuousClock.now + .seconds(15)
             var after = try await state()
             while after["alive"] as? Bool == true && ContinuousClock.now < stopped {
@@ -688,7 +687,7 @@ final class CascadeUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeBuildDestinationRetainsSelectionAndKeepsFailureForRetry() async throws {
+    func testNativeBuildDestinationMenuSavesPicksAndKeepsFailureForRetry() async throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
               let path = environment["CASCADE_UI_DATA_DIR"], let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
@@ -699,34 +698,25 @@ final class CascadeUITests: XCTestCase {
         app.launch()
         let session = app.outlines["workspace-sidebar"].staticTexts["sidebar-2"].firstMatch
         XCTAssertTrue(session.waitForExistence(timeout: 10)); session.click()
-        let open = app.buttons["Run…"]
-        XCTAssertTrue(open.waitForExistence(timeout: 5)); open.click()
-        let scheme = app.sheets.popUpButtons["build-scheme"]
-        let simulator = app.sheets.popUpButtons["build-simulator"]
-        XCTAssertTrue(scheme.waitForExistence(timeout: 5))
-        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: app.sheets.buttons["Run"])
+        // The gear's menu saves each pick as it is made; Run then builds what was picked.
+        let menu = app.menuButtons["build-destination"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 5))
+        let enabled = expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: menu)
         await fulfillment(of: [enabled], timeout: 10)
-        scheme.click(); app.menuItems["Fixture Beta"].click()
-        simulator.click(); app.menuItems["Fixture B · Fixture OS"].click()
-        app.sheets.buttons["Cancel"].click()
-        let dismissed = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.sheets.firstMatch)
-        await fulfillment(of: [dismissed], timeout: 5)
-        open.click()
-        XCTAssertTrue(scheme.waitForExistence(timeout: 5))
-        XCTAssertEqual(scheme.value as? String, "Fixture Beta")
-        XCTAssertEqual(simulator.value as? String, "Fixture B · Fixture OS")
-        app.sheets.buttons["Run"].click()
-        XCTAssertTrue(app.sheets.staticTexts["Fixture build preparation rejected"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.sheets.buttons["Run"].isEnabled)
-        XCTAssertEqual(scheme.value as? String, "Fixture Beta")
-        app.sheets.buttons["Cancel"].click()
-        XCTAssertTrue(app.buttons["Open Terminal"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["Stop Build"].exists)
+        menu.click(); app.menuItems["Fixture Beta"].click()
+        let run = app.buttons["build-run"]
+        let picked = expectation(for: NSPredicate(format: "label == %@", "Run Fixture Beta"), evaluatedWith: run)
+        await fulfillment(of: [picked], timeout: 10)
+        menu.click(); app.menuItems["Fixture B · Fixture OS"].click()
+        run.click()
+        // A run that fails says why under the scheme, keeps the picks, and can be run again.
+        XCTAssertTrue(app.staticTexts["Fixture build preparation rejected"].waitForExistence(timeout: 10))
+        XCTAssertTrue(run.isEnabled)
+        XCTAssertEqual(run.label, "Run Fixture Beta")
+        XCTAssertFalse(app.buttons["build-stop"].exists)
         let (data, _) = try await URLSession.shared.data(from: URL(string: base + "/fixture/build-requests")!)
         let requests = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Int])
         XCTAssertEqual(requests["settings"], 1)
-        XCTAssertEqual(requests["schemes"], 2)
-        XCTAssertEqual(requests["simulators"], 2)
     }
 
     @MainActor

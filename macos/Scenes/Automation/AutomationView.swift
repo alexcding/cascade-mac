@@ -21,7 +21,7 @@ struct AutomationView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .paneSurface()
+        // No ground of its own: it stands on the screen column's, as New Session and a project do.
         .accessibilityIdentifier("automation-screen")
         .onAppear { model.setVisible(true) }
         .onDisappear { model.setVisible(false) }

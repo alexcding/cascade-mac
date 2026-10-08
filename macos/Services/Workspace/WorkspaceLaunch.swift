@@ -5,6 +5,8 @@ struct ExternalTool: Identifiable, Sendable {
     let id: String
     let name: String
     let application: String
+    /// How LaunchServices knows the app wherever it is installed: where the toolbar finds its icon.
+    var bundleID: String? = nil
     static let gitClients: [Self] = [
         .init(id: "fork", name: "Fork", application: "Fork"),
         .init(id: "tower", name: "Tower", application: "Tower"),
@@ -12,14 +14,14 @@ struct ExternalTool: Identifiable, Sendable {
         .init(id: "github", name: "GitHub Desktop", application: "GitHub Desktop")
     ]
     static let editors: [Self] = [
-        .init(id: "vscode", name: "VS Code", application: "Visual Studio Code"),
-        .init(id: "cursor", name: "Cursor", application: "Cursor"),
-        .init(id: "windsurf", name: "Windsurf", application: "Windsurf"),
-        .init(id: "zed", name: "Zed", application: "Zed"),
-        .init(id: "xcode", name: "Xcode", application: "Xcode"),
-        .init(id: "intellij", name: "IntelliJ IDEA", application: "IntelliJ IDEA"),
-        .init(id: "webstorm", name: "WebStorm", application: "WebStorm"),
-        .init(id: "android", name: "Android Studio", application: "Android Studio")
+        .init(id: "vscode", name: "VS Code", application: "Visual Studio Code", bundleID: "com.microsoft.VSCode"),
+        .init(id: "cursor", name: "Cursor", application: "Cursor", bundleID: "com.todesktop.230313mzl4w4u92"),
+        .init(id: "windsurf", name: "Windsurf", application: "Windsurf", bundleID: "com.exafunction.windsurf"),
+        .init(id: "zed", name: "Zed", application: "Zed", bundleID: "dev.zed.Zed"),
+        .init(id: "xcode", name: "Xcode", application: "Xcode", bundleID: "com.apple.dt.Xcode"),
+        .init(id: "intellij", name: "IntelliJ IDEA", application: "IntelliJ IDEA", bundleID: "com.jetbrains.intellij"),
+        .init(id: "webstorm", name: "WebStorm", application: "WebStorm", bundleID: "com.jetbrains.WebStorm"),
+        .init(id: "android", name: "Android Studio", application: "Android Studio", bundleID: "com.google.android.studio")
     ]
 }
 

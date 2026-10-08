@@ -354,11 +354,12 @@ import Observation
         }
     }
 
-    /// The run destination menu's lists, from the session's build, made for it if Run has not yet.
-    /// Once: the menu's Refresh asks again, for a device plugged in since.
+    /// The run destination menu's lists, from the session's build, made for it if Run has not yet:
+    /// what the backend keeps, asked for once with selecting the session. The menu's Refresh asks
+    /// again, for a device plugged in since.
     func prepareRunDestinations(_ makeModel: () -> BuildWorkspaceViewModel?) {
-        guard canPresent, let runtime = makeModel(), runtime.schemes.isEmpty, !runtime.loading else { return }
-        Task { await runtime.loadDestinations(fresh: false) }
+        guard canPresent, let runtime = makeModel() else { return }
+        runtime.warmDestinations()
     }
 
     func presentRestart(perform: @escaping () -> Void) {

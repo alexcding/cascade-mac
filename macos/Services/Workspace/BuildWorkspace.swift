@@ -78,7 +78,10 @@ protocol BuildServing: Sendable {
     /// The build is over and what holds the terminal is the app it launched. Still `running`,
     /// so Stop reaches it; only the spinner ends.
     private(set) var launched = false
-    private(set) var error: String?
+    private(set) var error: String? { didSet { quietError = false } }
+    /// The error is a load's that nobody asked for (the menu's lists, behind the toolbar): the menu
+    /// shows it, the toolbar's line is for a Run that failed.
+    private(set) var quietError = false
     /// The session's Simulator panel; a run on a simulator points it at that device.
     let preview: SimulatorPreviewModel?
     /// A run on a simulator started: the workspace brings its Simulator panel forward.
@@ -145,9 +148,9 @@ protocol BuildServing: Sendable {
     private func cacheKey(_ scheme: String) -> String { "\(project.id)\n\(scheme)" }
     fileprivate func load(presentation id: UUID, fresh: Bool) async { await load(fresh: fresh) { isCurrent(id) } }
     /// The schemes and destinations for the run destination menu, which is no presentation: a run
-    /// in flight has one, and its load and choice come first. Not `fresh`, only what the backend
-    /// keeps: the menu's Refresh is what asks again, for a device plugged in since.
-    func loadDestinations(fresh: Bool = true) async { await load(fresh: fresh) { valid && presentationID == nil } }
+    /// in flight has one, and its load and choice come first. A fresh look too, for a device plugged
+    /// in since: the menu's Refresh and a scheme picked there.
+    func loadDestinations() async { await load(fresh: true) { valid && presentationID == nil } }
     /// Also how a scheme change reloads: a newer load supersedes the one in flight.
     private func load(fresh: Bool, while current: () -> Bool) async {
         guard current(), !Task.isCancelled, !starting else { return }
@@ -174,22 +177,33 @@ protocol BuildServing: Sendable {
                 if !starting { apply(values) }
                 loading = false
             } catch {
-                if current() && loadGeneration == generation && !Task.isCancelled { self.error = error.localizedDescription; loadFailed = true }
+                if current() && loadGeneration == generation && !Task.isCancelled {
+                    self.error = error.localizedDescription; loadFailed = true; quietError = presentationID == nil
+                }
                 return
             }
         }
     }
     private var loadFailed = false
+    /// What the backend keeps, cached for the next Run and put in the run destination menu: one
+    /// request however often it is asked for (selecting the session, its toolbar), none once cached.
     func warmDestinations() {
         let wanted = scheme
-        guard valid, Self.cachedDestinations[cacheKey(wanted)] == nil, warming == nil else { return }
+        guard valid else { return }
+        if let cached = Self.cachedDestinations[cacheKey(wanted)] { return showKept(cached) }
+        guard warming == nil else { return }
         warming = Task { [service, project, session] in
             defer { warming = nil }
             guard let values = try? await service.destinations(project: project, session: session, scheme: wanted, refresh: false), valid else { return }
             for key in [wanted, values.0.resolve(wanted, project: project)].map(cacheKey) where Self.cachedDestinations[key] == nil {
                 Self.cachedDestinations[key] = values
             }
+            showKept(values)
         }
+    }
+    /// Fills the menu's lists while they are empty; never under a run.
+    private func showKept(_ values: (BuildSchemes, [BuildSimulator])) {
+        if valid, presentationID == nil, !starting, schemes.isEmpty { apply(values) }
     }
     @ObservationIgnored private var warming: Task<Void, Never>?
     private func apply(_ values: (BuildSchemes, [BuildSimulator])) {

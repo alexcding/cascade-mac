@@ -482,3 +482,36 @@ private func operationSession(_ id: String, scheme: String? = nil, simulator: St
     #expect(runtime.scheme == "Fixture" && runtime.canRun, "an unknown scheme resolves back to a real one")
     runtime.disconnect()
 }
+
+/// Selecting a session and its toolbar both ask for the kept lists: one request, and the menu
+/// shows what it answered.
+@MainActor @Test(.timeLimit(.minutes(1))) func warmingTwiceAsksOnceAndFillsTheMenu() async throws {
+    let gate = OperationGate<(BuildSchemes, [BuildSimulator])>(), service = OperationBuildService(destinations: gate)
+    let project = Project(id: "operation-warm", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project, session: operationSession("warm"),
+        terminalFactory: { OperationBuildTerminal() })
+    runtime.warmDestinations(); runtime.warmDestinations()
+    await gate.waitForStart()
+    await gate.finish(.success(operationDestinations))
+    while runtime.schemes.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+    runtime.warmDestinations()
+    #expect(await service.loads == 1 && runtime.simulators.count == 1 && runtime.canRun)
+    runtime.disconnect()
+}
+
+/// A load nobody asked for fails quietly: the menu shows why, the toolbar's line is for a Run.
+@MainActor @Test(.timeLimit(.minutes(1))) func aBackgroundLoadFailsQuietly() async throws {
+    struct Unlisted: LocalizedError { var errorDescription: String? { "xcodebuild -list failed" } }
+    let gate = OperationGate<(BuildSchemes, [BuildSimulator])>(), service = OperationBuildService(destinations: gate)
+    let project = Project(id: "operation-quiet", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("quiet", scheme: "Fixture", simulator: "fixture-simulator"), terminalFactory: { OperationBuildTerminal() })
+    let loading = Task { await runtime.loadDestinations() }
+    await gate.waitForStart()
+    await gate.finish(.failure(Unlisted()))
+    await loading.value
+    #expect(runtime.error == "xcodebuild -list failed" && runtime.quietError)
+    runtime.reportMovedDestination()
+    #expect(runtime.error != nil && !runtime.quietError)
+    runtime.disconnect()
+}
