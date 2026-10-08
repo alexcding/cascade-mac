@@ -106,12 +106,10 @@ struct DashboardRefreshButton: View {
 struct AgentMark: View {
     let key: String
     var size: CGFloat = 14
-    /// A colour in place of the agent's own, where the mark must not outshine what it sits by.
-    var tint: Color?
     var body: some View {
         if let asset = PageSessionMark(cli: key).asset {
             Image(asset).renderingMode(.template).resizable().scaledToFit()
-                .frame(width: size, height: size).foregroundStyle(tint ?? AgentDrivers.driver(for: key).tint).accessibilityHidden(true)
+                .frame(width: size, height: size).foregroundStyle(AgentDrivers.driver(for: key).tint).accessibilityHidden(true)
         }
     }
 }

@@ -432,12 +432,12 @@ private struct DashboardSessionTiming: View {
     }
 }
 
-/// The agent's mark, in the page's grey rather than its own colour, and its short name.
+/// The agent's mark, in its own colour, and its short name.
 private struct DashboardSessionAgent: View {
     let cli: String?
     var body: some View {
         HStack(spacing: 5) {
-            if let cli { AgentMark(key: cli, size: 12, tint: DashboardPalette.ink3) }
+            if let cli { AgentMark(key: cli, size: 12) }
             Text(cli.flatMap { AgentDrivers.of($0)?.shortName } ?? String(localized: "Agent"))
                 .font(.system(size: 12)).foregroundStyle(DashboardPalette.ink2).lineLimit(1)
         }
