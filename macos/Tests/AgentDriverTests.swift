@@ -44,9 +44,11 @@ import Testing
         // Undo the shell quoting: what Claude receives must be the JSON naming the wrapper and task.
         let quoted = String(command.dropFirst("claude --session-id 'new' --settings ".count))
         let json = String(quoted.dropFirst().dropLast()).replacingOccurrences(of: "'\"'\"'", with: "'")
-        let value = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: [String: String]])
-        #expect(value["statusLine"]?["type"] == "command")
-        #expect(value["statusLine"]?["command"] == "/bin/sh '/Apps/Cascade Dev.app/it'\"'\"'s.sh' 'task-1'")
+        let value = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: [String: Any]])
+        #expect(value["statusLine"]?["type"] as? String == "command")
+        #expect(value["statusLine"]?["command"] as? String == "/bin/sh '/Apps/Cascade Dev.app/it'\"'\"'s.sh' 'task-1'")
+        // Laid out to the terminal's width, and Claude Code does not rerun it on a resize.
+        #expect(value["statusLine"]?["refreshInterval"] as? Int == AgentStatusLine.refreshInterval)
     }
 
     /// A fork's first launch copies the source's conversation under the fork's own id, and still

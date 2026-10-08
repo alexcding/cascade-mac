@@ -731,6 +731,7 @@ pub(crate) async fn ensure_hooks(app: &AppState) {
     // The settings files are read and written off the runtime; only the events await.
     let files = app.clone();
     let outcomes: Vec<(&'static str, Value)> = tokio::task::spawn_blocking(move || {
+        crate::agents::statusline::refresh(&files.db.data_dir);
         let mut outcomes = Vec::new();
         for agent in Agent::ALL {
             let profile = agent.profile();

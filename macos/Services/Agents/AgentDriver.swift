@@ -68,6 +68,8 @@ enum AgentInput: Equatable, Sendable {
 struct AgentStatusLine: Equatable, Sendable {
     let script: String
     let taskID: String
+    /// Seconds between runs besides Claude Code's own; the backend installs the same.
+    static let refreshInterval = 2
 }
 
 /// One per agent CLI. Everything the app does differently between CLIs is behind this: how a
@@ -198,7 +200,10 @@ struct ClaudeDriver: AgentDriver {
     /// Settings for this launch only: the user's own settings file is never written.
     private static func settings(_ line: AgentStatusLine) -> String? {
         let command = "/bin/sh \(AgentDrivers.quote(line.script)) \(AgentDrivers.quote(line.taskID))"
-        let value = ["statusLine": ["type": "command", "command": command]]
+        // Run again every couple of seconds as well: Claude Code does not rerun it when the terminal
+        // is resized, and the line is laid out to the width it is given.
+        let value: [String: Any] = ["statusLine": ["type": "command", "command": command,
+                                                   "refreshInterval": AgentStatusLine.refreshInterval]]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys, .withoutEscapingSlashes]) else { return nil }
         return String(data: data, encoding: .utf8)
     }
