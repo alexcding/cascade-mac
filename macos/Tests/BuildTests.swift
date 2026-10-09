@@ -302,3 +302,19 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
             .command(scheme: "Library", simulator: "destination")
     }
 }
+
+/// A kind this app does not know stays apart from the simulators, and an answer kept from before
+/// the backend said is all simulators.
+@Test func destinationKindsDecodeAndOnlySimulatorsListAsSimulators() throws {
+    let json = #"""
+    [{"udid":"a","name":"My Mac","runtime":"macOS","kind":"mac"},
+     {"udid":"b","name":"iPhone","runtime":"iOS","kind":"device"},
+     {"udid":"c","name":"iPhone","runtime":"iOS 27.0","kind":"simulator"},
+     {"udid":"d","name":"My Mac (Designed for iPad)","runtime":"macOS","kind":"designed-for-ipad"},
+     {"udid":"e","name":"iPhone","runtime":"iOS 26.0"}]
+    """#
+    let list = try JSONDecoder().decode([BuildSimulator].self, from: Data(json.utf8))
+    #expect(list.map(\.kind) == [.mac, .device, .simulator, .other("designed-for-ipad"), .simulator])
+    #expect(list.filter(\.isHardware).map(\.udid) == ["a", "b", "d"])
+    #expect(list[0].label == "My Mac" && list[1].label == "iPhone · iOS")
+}

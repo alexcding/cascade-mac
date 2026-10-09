@@ -533,6 +533,20 @@ struct SessionWorkspaceRunButton: View {
 private struct SessionWorkspaceRunDestinationMenu: View {
     let model: SessionWorkspaceViewModel
 
+    /// One heading's destinations, the chosen one checked. Not a picker: two pickers on one
+    /// choice leave the other holding a selection none of its rows has.
+    @ViewBuilder private func destinations(_ title: String, _ list: [BuildSimulator]) -> some View {
+        if !list.isEmpty, let build = model.build {
+            Section(title) {
+                ForEach(list) { destination in
+                    Toggle(destination.label, isOn: Binding(
+                        get: { build.simulator == destination.udid },
+                        set: { if $0 { model.chooseDestination(destination.udid) } }))
+                }
+            }
+        }
+    }
+
     var body: some View {
         if let build = model.build {
             if let error = build.error { Text(error) }
@@ -540,10 +554,9 @@ private struct SessionWorkspaceRunDestinationMenu: View {
                 ForEach(build.schemes, id: \.self) { Text($0).tag($0) }
             }
             .pickerStyle(.inline)
-            Picker(String(localized: "Destination"), selection: Binding(get: { build.simulator }, set: model.chooseDestination)) {
-                ForEach(build.simulators) { Text($0.label).tag($0.udid) }
-            }
-            .pickerStyle(.inline)
+            // Apart, as Xcode lists them: a device and its namesake simulator read alike.
+            destinations(String(localized: "Devices"), build.hardware)
+            destinations(String(localized: "Simulators"), build.simulatorsOnly)
             // Run's own error says this already.
             if build.destinationUnavailable, build.error == nil {
                 Text(String(localized: "This destination is not connected. Refresh, or choose another."))

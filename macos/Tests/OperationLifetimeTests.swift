@@ -307,6 +307,22 @@ func operationLifetimeRemovalRetriesOnceAndCoordinatorPreservesUnrelatedNavigati
     runtime.disconnect()
 }
 
+/// With nothing saved, the destination is a simulator though a device is plugged in and listed
+/// first; a device is chosen only when it is the one destination.
+@MainActor @Test(.timeLimit(.minutes(1)), arguments: [false, true])
+func aPluggedInDeviceIsNeverTheDefaultDestination(alone: Bool) async throws {
+    let device = BuildSimulator(udid: "fixture-device", name: "Fixture", runtime: "Fixture OS", kind: .device)
+    let simulator = BuildSimulator(udid: "fixture-simulator", name: "Fixture", runtime: "Fixture OS 1.0", kind: .simulator)
+    let service = OperationBuildService(answer: (operationDestinations.0, alone ? [device] : [device, simulator]))
+    let project = Project(id: "operation-default-\(alone)", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    let runtime = BuildWorkspaceViewModel(service: service, project: project,
+        session: operationSession("default-\(alone)", scheme: "Fixture"), terminalFactory: { OperationBuildTerminal() })
+    await runtime.loadDestinations()
+    #expect(runtime.simulator == (alone ? "fixture-device" : "fixture-simulator"))
+    #expect(runtime.hardware.map(\.udid) == ["fixture-device"])
+    runtime.disconnect()
+}
+
 @MainActor @Test func idleBuildModelAdoptsProjectDestinationButABusyOneKeepsItsOwn() async {
     let service = OperationBuildService()
     let runtime = BuildWorkspaceViewModel(service: service, project: operationProject, session: operationSession,

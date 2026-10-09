@@ -38,9 +38,42 @@ struct BuildSimulator: Decodable, Sendable, Identifiable {
     let udid: String
     let name: String
     let runtime: String
-    var kind: String? = nil
+    /// What the backend calls the destination. An answer kept from before it said lists only
+    /// simulators.
+    var kind: Kind = .simulator
     var id: String { udid }
-    var label: String { kind == "mac" ? name : "\(name) · \(runtime)" }
+    var label: String { kind == .mac ? name : "\(name) · \(runtime)" }
+    /// This Mac or a connected device, which the menu lists apart from the simulators: a device
+    /// often shares its name with one.
+    var isHardware: Bool { kind != .simulator }
+
+    enum Kind: Decodable, Equatable, Sendable {
+        case mac, device, simulator
+        /// One this app does not know yet. Never taken for a simulator, which would list a
+        /// destination that runs on hardware among them.
+        case other(String)
+
+        init(from decoder: any Decoder) throws {
+            switch try decoder.singleValueContainer().decode(String.self) {
+            case "mac": self = .mac
+            case "device": self = .device
+            case "simulator": self = .simulator
+            case let other: self = .other(other)
+            }
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey { case udid, name, runtime, kind }
+    init(udid: String, name: String, runtime: String, kind: Kind = .simulator) {
+        self.udid = udid; self.name = name; self.runtime = runtime; self.kind = kind
+    }
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        udid = try values.decode(String.self, forKey: .udid)
+        name = try values.decode(String.self, forKey: .name)
+        runtime = try values.decode(String.self, forKey: .runtime)
+        kind = try values.decodeIfPresent(Kind.self, forKey: .kind) ?? .simulator
+    }
 }
 struct BuildSettings: Decodable, Sendable {
     let appPath: String
@@ -72,6 +105,9 @@ protocol BuildServing: Sendable {
     var simulator: String
     private(set) var schemes: [String] = []
     private(set) var simulators: [BuildSimulator] = []
+    /// This Mac and connected devices, then the simulators: the menu lists them apart.
+    var hardware: [BuildSimulator] { simulators.filter(\.isHardware) }
+    var simulatorsOnly: [BuildSimulator] { simulators.filter { !$0.isHardware } }
     private(set) var loading = false
     /// A Run is finding its lists before it starts: the Run button shows it, and the menu waits.
     var preparing: Bool { preparingID != nil }
@@ -249,7 +285,11 @@ protocol BuildServing: Sendable {
         // predates a device plugged in since, and a later one has it again. Run says it is not
         // available rather than building elsewhere and saving that over it.
         let keepsSaved = !saved.simulator.isEmpty && scheme == saved.scheme && simulator == saved.simulator
-        if !keepsSaved, !simulators.contains(where: { $0.udid == simulator }) { simulator = simulators.first?.udid ?? "" }
+        if !keepsSaved, !simulators.contains(where: { $0.udid == simulator }) {
+            // Never a plugged-in device by default, as Xcode does not: a Run there installs on
+            // someone's phone. This Mac or a simulator first, a device only when it is all.
+            simulator = (simulators.first { $0.kind != .device } ?? simulators.first)?.udid ?? ""
+        }
     }
     /// Only for a daemon too old to say whether the leader is a subshell.
     private static let shells: Set<String> = ["zsh", "bash", "sh", "dash", "ksh", "fish"]
