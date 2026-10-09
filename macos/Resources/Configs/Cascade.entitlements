@@ -2,5 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Release builds run under the hardened runtime, which refuses audio input outright without
+         this: no prompt, and Cascade never appears under Privacy & Security › Microphone. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Web pages in the browser panel, and programs run in a terminal session, take the camera
+         under Cascade's grant. -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
+    <!-- Scripts and agents in a terminal session send Apple Events as Cascade (osascript scripting
+         another app); without this the hardened runtime denies them without asking. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
 </dict>
 </plist>

@@ -31,11 +31,21 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
-    <!-- Terminal sessions and the agents they run inherit Cascade's microphone grant: macOS
-         attributes a child process's audio input to the responsible app, and without this key
-         the request is refused outright instead of prompting. -->
+    <!-- Web pages in the browser panel, terminal sessions and the agents they run use the
+         microphone and camera under Cascade's grant: macOS attributes a child process's capture
+         to the responsible app, and without these keys the request is refused outright instead
+         of prompting. -->
     <key>NSMicrophoneUsageDescription</key>
-    <string>Cascade needs the microphone so voice input works in terminal sessions and agents you run here.</string>
+    <string>Cascade needs the microphone so web pages, terminal sessions and agents you run here can use it.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Cascade needs the camera so web pages, terminal sessions and agents you run here can use it.</string>
+    <!-- Scripts and agents in a terminal session send Apple Events as Cascade; web pages cannot. -->
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Cascade needs to control other apps when scripts or agents you run in its terminal sessions ask to.</string>
+    <!-- Since macOS 15, reaching a device on the local network (a dev server on another Mac, a
+         phone) asks first; the prompt shows this text. -->
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Cascade needs the local network to reach dev servers and devices from the browser panel and terminal sessions.</string>
     <!-- Empty values leave Sparkle inactive. Release builds supply the real feed
          and public key through build settings; private keys never enter the app. -->
     <key>SUFeedURL</key>

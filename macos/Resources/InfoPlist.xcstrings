@@ -27,86 +27,338 @@
       },
       "shouldTranslate" : false
     },
-    "NSMicrophoneUsageDescription" : {
-      "comment" : "Explains the microphone request for terminal sessions and agents launched by Cascade. Do not imply that permission is already granted.",
+    "NSAppleEventsUsageDescription" : {
+      "comment" : "Explains the Automation (Apple Events) request when a script or agent run in a Cascade terminal session controls another app. Do not imply that permission is already granted.",
       "extractionState" : "manual",
       "localizations" : {
         "bn" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "এখানে চালানো টার্মিনাল সেশন ও এজেন্টে ভয়েস ইনপুট ব্যবহারের জন্য Cascade-এর মাইক্রোফোনের অনুমতি দরকার।"
+            "value" : "আপনি Cascade-এর টার্মিনাল সেশনে যে স্ক্রিপ্ট বা এজেন্ট চালান সেগুলো অনুরোধ করলে Cascade-কে অন্য অ্যাপ নিয়ন্ত্রণ করতে হয়।"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade needs the microphone so voice input works in terminal sessions and agents you run here."
+            "value" : "Cascade needs to control other apps when scripts or agents you run in its terminal sessions ask to."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade necesita el micrófono para usar la entrada de voz en las sesiones de terminal y los agentes que ejecutes aquí."
+            "value" : "Cascade necesita controlar otras apps cuando lo piden los scripts o agentes que ejecutas en sus sesiones de terminal."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade a besoin du microphone pour la saisie vocale dans les sessions de terminal et les agents que vous exécutez ici."
+            "value" : "Cascade doit contrôler d’autres apps lorsque les scripts ou agents que vous exécutez dans ses sessions de terminal le demandent."
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade को माइक्रोफ़ोन की अनुमति चाहिए ताकि यहाँ चलाए गए टर्मिनल सत्रों और एजेंट में आवाज़ से इनपुट काम कर सके।"
+            "value" : "जब आपके Cascade टर्मिनल सेशन में चलाए गए स्क्रिप्ट या एजेंट कहें, तब Cascade को दूसरे ऐप्स नियंत्रित करने की ज़रूरत होती है।"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade ha bisogno del microfono per l’input vocale nelle sessioni di terminale e negli agenti che esegui qui."
+            "value" : "Cascade deve controllare altre app quando lo richiedono gli script o gli agenti che esegui nelle sue sessioni di terminale."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade で実行するターミナルセッションやエージェントで音声入力を使うため、マイクへのアクセスが必要です。"
+            "value" : "Cascade のターミナルセッションで実行するスクリプトやエージェントが求めたとき、Cascade は他の App を制御する必要があります。"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade에서 실행하는 터미널 세션과 에이전트에서 음성 입력을 사용하려면 마이크 접근이 필요합니다."
+            "value" : "Cascade의 터미널 세션에서 실행하는 스크립트나 에이전트가 요청하면 Cascade가 다른 앱을 제어해야 합니다."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O Cascade precisa do microfone para permitir a entrada de voz nas sessões de terminal e nos agentes que você executa aqui."
+            "value" : "O Cascade precisa controlar outros apps quando scripts ou agentes que você executa nas sessões de terminal dele pedirem."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade нужен микрофон для голосового ввода в сессиях терминала и агентах, которые вы запускаете здесь."
+            "value" : "Cascade нужно управлять другими приложениями, когда этого просят скрипты или агенты, запущенные вами в его сеансах терминала."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade behöver mikrofonen för röstinmatning i terminalsessioner och agenter som du kör här."
+            "value" : "Cascade behöver styra andra appar när skript eller agenter du kör i dess terminalsessioner ber om det."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade 需要使用麦克风，以便在你运行的终端会话和代理中提供语音输入。"
+            "value" : "当你在 Cascade 终端会话中运行的脚本或代理请求时，Cascade 需要控制其他 App。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cascade 需要使用麥克風，讓你執行的終端機工作階段與代理程式能使用語音輸入。"
+            "value" : "當你在 Cascade 終端機工作階段中執行的腳本或代理程式要求時，Cascade 需要控制其他 App。"
+          }
+        }
+      }
+    },
+    "NSCameraUsageDescription" : {
+      "comment" : "Explains the camera request for web pages in the browser panel and for terminal sessions and agents launched by Cascade. Do not imply that permission is already granted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এখানে চালানো ওয়েব পেজ, টার্মিনাল সেশন ও এজেন্ট যাতে ক্যামেরা ব্যবহার করতে পারে, সেজন্য Cascade-এর ক্যামেরা প্রয়োজন।"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade needs the camera so web pages, terminal sessions and agents you run here can use it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade necesita la cámara para que las páginas web, las sesiones de terminal y los agentes que ejecutas aquí puedan usarla."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade a besoin de la caméra pour que les pages web, les sessions de terminal et les agents que vous exécutez ici puissent l’utiliser."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade को कैमरे की ज़रूरत है ताकि यहाँ चलाए गए वेब पेज, टर्मिनल सेशन और एजेंट उसका उपयोग कर सकें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade ha bisogno della fotocamera perché le pagine web, le sessioni di terminale e gli agenti che esegui qui possano usarla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで実行する Web ページ、ターミナルセッション、エージェントがカメラを使えるよう、Cascade はカメラへのアクセスを必要とします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "여기에서 실행하는 웹 페이지, 터미널 세션 및 에이전트가 카메라를 사용할 수 있도록 Cascade에 카메라 접근 권한이 필요합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cascade precisa da câmera para que páginas web, sessões de terminal e agentes que você executa aqui possam usá-la."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade нужна камера, чтобы веб-страницы, сеансы терминала и агенты, которые вы здесь запускаете, могли её использовать."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade behöver kameran så att webbsidor, terminalsessioner och agenter du kör här kan använda den."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要使用摄像头，以便你在此运行的网页、终端会话和代理可以使用它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要使用相機，以便你在此執行的網頁、終端機工作階段和代理程式可以使用它。"
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "comment" : "Explains the Local Network request for dev servers and devices reached from the browser panel or terminal sessions. Do not imply that permission is already granted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ব্রাউজার প্যানেল ও টার্মিনাল সেশন থেকে ডেভ সার্ভার ও ডিভাইসে পৌঁছাতে Cascade-এর লোকাল নেটওয়ার্ক প্রয়োজন।"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade needs the local network to reach dev servers and devices from the browser panel and terminal sessions."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade necesita la red local para acceder a servidores de desarrollo y dispositivos desde el panel del navegador y las sesiones de terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade a besoin du réseau local pour joindre les serveurs de développement et les appareils depuis le panneau du navigateur et les sessions de terminal."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ब्राउज़र पैनल और टर्मिनल सेशन से डेव सर्वर और डिवाइस तक पहुँचने के लिए Cascade को लोकल नेटवर्क की ज़रूरत है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade ha bisogno della rete locale per raggiungere server di sviluppo e dispositivi dal pannello del browser e dalle sessioni di terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブラウザパネルやターミナルセッションから開発サーバやデバイスに接続するため、Cascade はローカルネットワークへのアクセスを必要とします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "브라우저 패널과 터미널 세션에서 개발 서버와 기기에 연결하려면 Cascade에 로컬 네트워크 접근 권한이 필요합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cascade precisa da rede local para acessar servidores de desenvolvimento e dispositivos pelo painel do navegador e pelas sessões de terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade нужна локальная сеть, чтобы обращаться к серверам разработки и устройствам из панели браузера и сеансов терминала."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade behöver det lokala nätverket för att nå utvecklingsservrar och enheter från webbläsarpanelen och terminalsessioner."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要访问本地网络，以便从浏览器面板和终端会话连接开发服务器和设备。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要存取區域網路，以便從瀏覽器面板和終端機工作階段連接開發伺服器和裝置。"
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription" : {
+      "comment" : "Explains the microphone request for web pages in the browser panel and for terminal sessions and agents launched by Cascade. Do not imply that permission is already granted.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এখানে চালানো ওয়েব পেজ, টার্মিনাল সেশন ও এজেন্ট যাতে মাইক্রোফোন ব্যবহার করতে পারে, সেজন্য Cascade-এর মাইক্রোফোন প্রয়োজন।"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade needs the microphone so web pages, terminal sessions and agents you run here can use it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade necesita el micrófono para que las páginas web, las sesiones de terminal y los agentes que ejecutas aquí puedan usarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade a besoin du microphone pour que les pages web, les sessions de terminal et les agents que vous exécutez ici puissent l’utiliser."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade को माइक्रोफ़ोन की ज़रूरत है ताकि यहाँ चलाए गए वेब पेज, टर्मिनल सेशन और एजेंट उसका उपयोग कर सकें।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade ha bisogno del microfono perché le pagine web, le sessioni di terminale e gli agenti che esegui qui possano usarlo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで実行する Web ページ、ターミナルセッション、エージェントがマイクを使えるよう、Cascade はマイクへのアクセスを必要とします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "여기에서 실행하는 웹 페이지, 터미널 세션 및 에이전트가 마이크를 사용할 수 있도록 Cascade에 마이크 접근 권한이 필요합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cascade precisa do microfone para que páginas web, sessões de terminal e agentes que você executa aqui possam usá-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade нужен микрофон, чтобы веб-страницы, сеансы терминала и агенты, которые вы здесь запускаете, могли его использовать."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade behöver mikrofonen så att webbsidor, terminalsessioner och agenter du kör här kan använda den."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要使用麦克风，以便你在此运行的网页、终端会话和代理可以使用它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 需要使用麥克風，以便你在此執行的網頁、終端機工作階段和代理程式可以使用它。"
           }
         }
       }
