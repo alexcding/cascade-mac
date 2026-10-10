@@ -11,18 +11,16 @@ struct SettingsView: View {
     @State private var confirmingClear: BrowsingDataScope?
 
     var body: some View {
-        // A fixed-width list beside the detail rather than a NavigationSplitView: the section list
-        // is the window's only navigation, and a split view's sidebar can always be dragged shut.
-        HStack(spacing: 0) {
-            List(SettingsSection.allCases, selection: $model.section) { section in
-                Label(LocalizedStringKey(section.rawValue), systemImage: section.symbol).tag(section)
-            }
-            .listStyle(.sidebar)
-            .frame(minWidth: 170, idealWidth: 210, maxWidth: 240)
-            Divider()
-            detail.frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The system's split view, its sidebar drawn as the main window's (`SettingsSidebar`). The
+        // list is the window's only navigation, so the sidebar toggle stays: whatever hides the
+        // list, the toggle brings it back.
+        NavigationSplitView {
+            SettingsSidebar(selection: $model.section, washOpacity: shell.windowBackdrop.opacity)
+                .ignoresSafeArea(.container, edges: .top)
+                .navigationSplitViewColumnWidth(min: 170, ideal: 200, max: 240)
+        } detail: {
+            detail.navigationTitle(Text(LocalizedStringKey(model.section.rawValue)))
         }
-        .navigationTitle(Text(LocalizedStringKey(model.section.rawValue)))
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.applicationActiveChanged(true) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in model.applicationActiveChanged(false) }
     }
@@ -213,22 +211,6 @@ struct SettingsView: View {
             Button("Save") { Task { await model.save() } }
                 .disabled(!model.canSave).buttonStyle(.borderedProminent)
                 .accessibilityIdentifier("settings-save")
-        }
-    }
-}
-
-private extension SettingsSection {
-    var symbol: String {
-        switch self {
-        case .general: "gearshape"
-        case .browser: "globe"
-        case .terminal: "terminal"
-        case .editor: "doc.plaintext"
-        case .worktrees: "arrow.triangle.branch"
-        case .shortcuts: "keyboard"
-        case .clis: "puzzlepiece.extension"
-        case .system: "cpu"
-        case .activity: "clock"
         }
     }
 }

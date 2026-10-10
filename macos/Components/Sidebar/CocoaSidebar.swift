@@ -42,22 +42,12 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.identifier = .init("workspace-sidebar")
         outline.setAccessibilityIdentifier("workspace-sidebar")
         outline.setAccessibilityLabel(String(localized: "Workspace sidebar"))
-        let column = NSTableColumn(identifier: .init("name"))
-        column.resizingMask = .autoresizingMask
-        outline.addTableColumn(column)
-        outline.outlineTableColumn = column
-        outline.headerView = nil
-        outline.style = .sourceList
-        outline.rowSizeStyle = .medium
+        outline.outlineTableColumn = SidebarList.configure(outline)
         outline.floatsGroupRows = false
         // Nesting is laid out by the cell, so a session's name lines up under its project's.
         outline.indentationPerLevel = 0
         outline.indentationMarkerFollowsCell = false
         outline.allowsEmptySelection = true
-        outline.allowsMultipleSelection = false
-        // Typing a letter here must not jump to the row it starts: "a" landed on Automation.
-        outline.allowsTypeSelect = false
-        outline.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
         outline.registerForDraggedTypes([Self.dragType])
@@ -67,13 +57,7 @@ struct CocoaSidebar: NSViewRepresentable {
         outline.onReselect = { [weak coordinator = context.coordinator] item in coordinator?.reselected(item) }
         outline.onClick = { [weak coordinator = context.coordinator] item in coordinator?.clicked(item) }
         outline.canDrag = { [weak coordinator = context.coordinator] item in coordinator?.canDrag(item) ?? false }
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
-        scroll.drawsBackground = false
-        scroll.automaticallyAdjustsContentInsets = false
-        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
-        scroll.documentView = outline
+        let scroll = SidebarList.scrollView(outline)
         context.coordinator.outline = outline
         context.coordinator.update(self)
         return scroll
@@ -596,6 +580,37 @@ enum SidebarPalette {
     /// A session waiting on a person: yellow in Display P3, well clear of Claude's terracotta beside it.
     static let waiting = NSColor(displayP3Red: 0.904, green: 0.703, blue: 0.075, alpha: 1)
     static let danger = dynamic(0xdc2626, 0xf87171)
+}
+
+/// The source list both sidebars are, the main window's (`CocoaSidebar`) and Settings'
+/// (`SettingsSidebar`): set up in one place so the two cannot drift apart.
+@MainActor enum SidebarList {
+    /// Gives the table its one column and the sidebar's list style, and returns the column.
+    @discardableResult static func configure(_ table: NSTableView) -> NSTableColumn {
+        let column = NSTableColumn(identifier: .init("name"))
+        column.resizingMask = .autoresizingMask
+        table.addTableColumn(column)
+        table.headerView = nil
+        table.style = .sourceList
+        table.rowSizeStyle = .medium
+        table.allowsMultipleSelection = false
+        // Typing a letter here must not jump to the row it starts: "a" landed on Automation.
+        table.allowsTypeSelect = false
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        return column
+    }
+
+    /// The list's scroll view: no ground of its own, so the backdrop shows through.
+    static func scrollView(_ table: NSTableView) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 8, right: 0)
+        scroll.documentView = table
+        return scroll
+    }
 }
 
 /// A medium source list's own measures, and the few the cell adds inside it.
