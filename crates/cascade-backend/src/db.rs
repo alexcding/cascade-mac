@@ -375,6 +375,7 @@ impl Database {
             ("sessionId", "session_id"),
             ("runScheme", "run_scheme"),
             ("runSim", "run_sim"),
+            ("madeSim", "made_sim"),
             ("name", "name"),
             ("forkFrom", "fork_from"),
             ("forkedFrom", "forked_from"),
@@ -972,6 +973,8 @@ fn initialize_durable(conn: &Connection) -> rusqlite::Result<()> {
         "ALTER TABLE tasks ADD COLUMN fork_from TEXT NOT NULL DEFAULT ''",
         // The session a fork was made from, kept for good so the sidebar can mark it.
         "ALTER TABLE tasks ADD COLUMN forked_from TEXT NOT NULL DEFAULT ''",
+        // The simulator made for the session, deleted with it.
+        "ALTER TABLE tasks ADD COLUMN made_sim TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN issues_enabled INTEGER NOT NULL DEFAULT 1",
         // Whether the project page shows its Jira sprint board as a tab.
         "ALTER TABLE projects ADD COLUMN board_enabled INTEGER NOT NULL DEFAULT 0",
@@ -1083,6 +1086,7 @@ fn task_row(row: &Row<'_>) -> rusqlite::Result<Session> {
         pinned: row.get::<_, i64>("pinned")? != 0,
         run_scheme: text(row, "run_scheme")?,
         run_sim: text(row, "run_sim")?,
+        made_sim: text(row, "made_sim")?,
         name: text(row, "name")?,
         fork_from: text(row, "fork_from")?,
         forked_from: text(row, "forked_from")?,

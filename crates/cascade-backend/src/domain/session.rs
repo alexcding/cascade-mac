@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// was started from. Serializes to the JSON `GET /api/tasks` has always answered with. Every
 /// field has a default, so the app's own partial records and older rows still read.
 ///
-/// `name`, `run_scheme`, `run_sim`, `fork_from` and `forked_from` are set through a patch, never
+/// `name`, `run_scheme`, `run_sim`, `made_sim`, `fork_from` and `forked_from` are set through a patch, never
 /// an upsert: the app re-saves the whole record on other changes, and that must not drop a name
 /// it never knew.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -26,6 +26,8 @@ pub struct Session {
     pub pinned: bool,
     pub run_scheme: String,
     pub run_sim: String,
+    /// The simulator made for this session (`xcode::session_simulator`), deleted with it.
+    pub made_sim: String,
     pub name: String,
     pub fork_from: String,
     pub forked_from: String,
@@ -89,6 +91,7 @@ mod tests {
             pinned: true,
             run_scheme: "App".into(),
             run_sim: "iPhone".into(),
+            made_sim: "".into(),
             name: "Mine".into(),
             fork_from: "".into(),
             forked_from: "s".into(),
@@ -101,11 +104,11 @@ mod tests {
                 "branch": "fix", "title": "Page", "kind": "pr", "url": "https://github.com/o/r/pull/1",
                 "jiraKey": "ABC-1", "cli": "claude", "sessionId": "conv",
                 "createdAt": "2026-01-01T00:00:00Z", "pinned": true,
-                "runScheme": "App", "runSim": "iPhone", "name": "Mine", "forkFrom": "",
+                "runScheme": "App", "runSim": "iPhone", "madeSim": "", "name": "Mine", "forkFrom": "",
                 "forkedFrom": "s",
             })
         );
-        assert_eq!(value.as_object().unwrap().len(), 18);
+        assert_eq!(value.as_object().unwrap().len(), 19);
     }
 
     #[test]

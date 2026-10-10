@@ -80,8 +80,11 @@ pub async fn fork_task(State(app): State<AppState>, Path(id): Path<String>) -> A
     // The fork's own fields are patch-only, so an upsert of the record never clears them.
     let mut extra = Map::new();
     extra.insert("name".into(), json!(format!("{base} ({})", forked.number)));
+    // Not the source's own simulator: the fork gets one of its own on its first Run. Its scheme is
+    // the source's either way.
+    let own = !source.made_sim.is_empty() && source.run_sim == source.made_sim;
     extra.insert("runScheme".into(), json!(source.run_scheme));
-    extra.insert("runSim".into(), json!(source.run_sim));
+    extra.insert("runSim".into(), json!(if own { "" } else { source.run_sim.as_str() }));
     extra.insert("forkFrom".into(), json!(from.unwrap_or_default()));
     extra.insert("forkedFrom".into(), json!(id));
     let saved = match app.db.upsert_task(&record).await {

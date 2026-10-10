@@ -10,6 +10,8 @@ private final class BuildHTTPFixture: URLProtocol, @unchecked Sendable {
         switch path {
         case Routes.XCODE_SCHEMES: body = #"{"target":"/tmp/Fixture.xcodeproj","schemes":["Dependency","Fixture"]}"#
         case Routes.XCODE_DESTINATIONS: body = #"[{"udid":"12345678-1234-1234-1234-123456789abc","name":"Fixture device","runtime":"iOS fixture"}]"#
+        // The session's own already: the one it runs on.
+        case Routes.taskSimulator("task"): body = #"{"udid":"12345678-1234-1234-1234-123456789abc","name":"Fixture device","runtime":"iOS fixture"}"#
         case Routes.XCODE_BUILD_SETTINGS:
             body = #"{"appPath":"/tmp/Fixture.app","bundleId":"fixture.app","target":"/tmp/Fixture.xcodeproj","configuration":"Debug"}"#
         default: body = #"{"id":"fixture","name":"Fixture","repo":"","workspace":"/tmp","ide":"xcode"}"#
@@ -32,6 +34,8 @@ private final class BuildHTTPFixtureSimulator: URLProtocol, @unchecked Sendable 
         switch path {
         case Routes.XCODE_SCHEMES: body = #"{"target":"/tmp/Fixture.xcodeproj","schemes":["Dependency","Fixture"]}"#
         case Routes.XCODE_DESTINATIONS: body = #"[{"udid":"12345678-1234-1234-1234-123456789abc","name":"Fixture device","runtime":"iOS fixture"}]"#
+        // The session's own already: the one it runs on.
+        case Routes.taskSimulator("task"): body = #"{"udid":"12345678-1234-1234-1234-123456789abc","name":"Fixture device","runtime":"iOS fixture"}"#
         case Routes.XCODE_BUILD_SETTINGS:
             body = #"{"appPath":"/tmp/Fixture.app","bundleId":"fixture.app","target":"/tmp/Fixture.xcodeproj","configuration":"Debug","platform":"iphonesimulator"}"#
         default: body = #"{"id":"fixture","name":"Fixture","repo":"","workspace":"/tmp","ide":"xcode"}"#
@@ -317,4 +321,95 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     #expect(list.map(\.kind) == [.mac, .device, .simulator, .other("designed-for-ipad"), .simulator])
     #expect(list.filter(\.isHardware).map(\.udid) == ["a", "b", "d"])
     #expect(list[0].label == "My Mac" && list[1].label == "iPhone · iOS")
+}
+
+/// Two simulators, a simulator made for each session that asks, and each destination a Run saved.
+private final class SessionSimulatorService: BuildServing, @unchecked Sendable {
+    var saved: [String] = [], made: [String] = []
+    /// Simulators the lists still have that the backend has deleted.
+    var gone: Set<String> = []
+    func destinations(project: Project, session: WorkspaceSession, scheme: String, refresh: Bool) async throws -> (BuildSchemes, [BuildSimulator]) {
+        (BuildSchemes(target: "/tmp/Fixture.xcodeproj", schemes: ["Fixture", "Other"]),
+         [BuildSimulator(udid: "sim-a", name: "iPhone A", runtime: "iOS"), BuildSimulator(udid: "sim-b", name: "iPhone B", runtime: "iOS")])
+    }
+    func settings(project: Project, session: WorkspaceSession, scheme: String, simulator: String) async throws -> BuildSettings {
+        BuildSettings(appPath: "/tmp/Fixture.app", bundleId: "fixture.app", target: "/tmp/Fixture.xcodeproj", configuration: "Debug")
+    }
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) async throws {
+        saved.append(simulator)
+    }
+    func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator? {
+        made.append("\(session.id) from \(from)")
+        if gone.contains(from) { return nil }
+        return BuildSimulator(udid: "own-\(session.id)", name: "iPhone A · \(session.id)", runtime: "iOS")
+    }
+}
+
+// Each session runs on a simulator of its own, of the project's default model, whichever runs
+// first; it keeps it, and a destination picked in the menu is run as it is.
+@MainActor @Test func eachSessionRunsOnASimulatorOfItsOwn() async throws {
+    let service = SessionSimulatorService()
+    var project = Project(id: "own-simulators", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    project.runScheme = "Fixture"; project.runSim = "sim-a"
+    func session(_ id: String) -> WorkspaceSession {
+        WorkspaceSession(id: id, projectId: project.id, workspace: "/tmp", worktree: "/tmp/\(id)", title: "", branch: "", url: "session:\(id)", createdAt: nil, pinned: false)
+    }
+    let firstBuild = BuildTerminalRecorder(), secondBuild = BuildTerminalRecorder()
+    let first = BuildWorkspaceViewModel(service: service, project: project, session: session("first"), terminalFactory: { firstBuild })
+    let second = BuildWorkspaceViewModel(service: service, project: project, session: session("second"), terminalFactory: { secondBuild })
+
+    #expect(await BuildDestinationViewModel(runtime: second).start())
+    #expect(await BuildDestinationViewModel(runtime: first).start())
+    #expect(service.made == ["second from sim-a", "first from sim-a"])
+    #expect(secondBuild.commands.last?.contains("'own-second'") == true)
+    #expect(firstBuild.commands.last?.contains("'own-first'") == true)
+    #expect(service.saved == ["own-second", "own-first"] && first.simulator == "own-first")
+
+    // Kept: the next Run makes nothing.
+    await first.stop(); firstBuild.shell = true
+    for _ in 0..<300 where first.running { try await Task.sleep(for: .milliseconds(10)) }
+    #expect(await BuildDestinationViewModel(runtime: first).start())
+    #expect(service.made.count == 2 && firstBuild.commands.last?.contains("'own-first'") == true)
+
+    // A destination picked in the menu is the session's choice, shared or not.
+    let picker = BuildWorkspaceViewModel(service: service, project: project, session: session("picker"), terminalFactory: { BuildTerminalRecorder() })
+    await picker.loadDestinations()
+    await picker.choose(simulator: "sim-b")
+    #expect(await BuildDestinationViewModel(runtime: picker).start())
+    #expect(service.made.count == 2 && picker.simulator == "sim-b")
+    first.disconnect(); second.disconnect(); picker.disconnect()
+}
+
+// A simulator deleted with its session can still be in the cached lists, and even be the project's
+// default: Run leaves it out of every list and makes the session's own from the next one.
+@MainActor @Test func aDeletedSimulatorLeavesTheListsAndRunMovesOn() async throws {
+    let service = SessionSimulatorService()
+    service.gone = ["sim-a"]
+    var project = Project(id: "gone-simulator", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    project.runScheme = "Fixture"; project.runSim = "sim-a"
+    let session = WorkspaceSession(id: "late", projectId: project.id, workspace: "/tmp", worktree: "/tmp/late", title: "", branch: "",
+                                   url: "session:late", createdAt: nil, pinned: false)
+    let build = BuildTerminalRecorder()
+    let model = BuildWorkspaceViewModel(service: service, project: project, session: session, terminalFactory: { build })
+    #expect(await BuildDestinationViewModel(runtime: model).start())
+    #expect(service.made == ["late from sim-a", "late from sim-b"])
+    #expect(build.commands.last?.contains("'own-late'") == true)
+    let cached = BuildWorkspaceViewModel.cachedDestinations.filter { $0.key.hasPrefix(project.id) }
+    #expect(!cached.isEmpty && cached.values.allSatisfy { !$0.1.contains { $0.udid == "sim-a" } })
+    model.disconnect()
+}
+
+// A fork of a session that ran on its own simulator keeps the session's scheme, not the project's,
+// and gets a simulator of its own.
+@MainActor @Test func aForkKeepsItsSchemeWithoutASimulator() {
+    var project = Project(id: "forked-scheme", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
+    project.runScheme = "Fixture"; project.runSim = "sim-a"
+    var session = WorkspaceSession(id: "fork", projectId: project.id, workspace: "/tmp", worktree: "/tmp/fork", title: "", branch: "",
+                                   url: "session:fork", createdAt: nil, pinned: false)
+    session.runScheme = "Other"
+    let model = BuildWorkspaceViewModel(service: SessionSimulatorService(), project: project, session: session, terminalFactory: { BuildTerminalRecorder() })
+    #expect(model.scheme == "Other" && model.simulator == "sim-a")
+    model.adopt(project)
+    #expect(model.scheme == "Other")
+    model.disconnect()
 }

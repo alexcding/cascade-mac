@@ -118,16 +118,35 @@ pub async fn delete_task(
     Query(query): Query<DeleteTaskQuery>,
 ) -> ApiResult<Value> {
     if let Some(id) = query.id {
-        // Read before it goes; a read that fails only keeps the chats.
-        let worktree = state.db.task(&id).await.ok().flatten().map(|task| task.worktree).filter(|path| !path.is_empty());
+        // Read before it goes; a read that fails only keeps the chats and the simulator.
+        let task = state.db.task(&id).await.ok().flatten();
         state.db.delete_task(&id).await?;
+        let (worktree, made_sim) = task.map(|task| (task.worktree, task.made_sim)).unwrap_or_default();
         // A pane's chats are the worktree's, so they go once no session works there.
-        if let Some(worktree) = worktree {
+        if !worktree.is_empty() {
             crate::chat::delete_worktree_chats(&state, &worktree).await;
         }
+        discard_simulators(&state, vec![made_sim]).await;
     }
     state.publish(crate::Event::Tasks);
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Deletes the simulators made for sessions that are gone, behind the answer since a shutdown takes
+/// a while. One another session has chosen to run on stays.
+async fn discard_simulators(state: &AppState, made: Vec<String>) {
+    let made: Vec<_> = made.into_iter().filter(|sim| !sim.is_empty()).collect();
+    if made.is_empty() {
+        return;
+    }
+    let Ok(tasks) = state.db.tasks().await else {
+        return;
+    };
+    for sim in made {
+        if !tasks.iter().any(|task| task.run_sim == sim) {
+            tokio::spawn(crate::xcode::discard_simulator(sim));
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -252,7 +271,19 @@ pub async fn update_project(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> ApiResult<Project> {
-    let patch = sanitize_project_patch(&body)?;
+    let mut patch = sanitize_project_patch(&body)?;
+    // A session's own simulator goes with the session, so it is never a project's default. Its
+    // scheme still is, the first time: the app seeds again while the project has no simulator, and
+    // the default scheme must not follow every session's choice from then on.
+    if let Some(sim) = patch.get("runSim").and_then(Value::as_str).filter(|sim| !sim.is_empty()) {
+        if state.db.tasks().await?.iter().any(|task| task.made_sim == sim) {
+            patch.remove("runSim");
+            let project = state.db.project(&id).await?;
+            if project.is_some_and(|project| !project.run_scheme.is_empty()) {
+                patch.remove("runScheme");
+            }
+        }
+    }
     let project = state
         .db
         .update_project(&id, &patch).await?
@@ -273,8 +304,13 @@ pub async fn delete_project(
     Path(id): Path<String>,
 ) -> ApiResult<Value> {
     state.poller.invalidate(&id).await;
+    let made: Vec<_> = state.db.tasks().await?.into_iter()
+        .filter(|task| task.project_id == id)
+        .map(|task| task.made_sim)
+        .collect();
     state.db.delete_project(&id).await?;
     crate::chat::delete_project_chats(&state, &id).await;
+    discard_simulators(&state, made).await;
     state.publish(crate::Event::Sync { scope: None, project_id: Some(id.to_string()) });
     Ok(Json(json!({ "ok": true })))
 }

@@ -36,6 +36,10 @@ struct XcodeBuildService: BuildServing {
         let _: OperationOK = try await api.request(Routes.task(session.id), method: "PATCH", body: body)
         if seedingProject { let _: Project = try await api.request(Routes.project(session.projectId), method: "PUT", body: body) }
     }
+    /// Long, since `simctl create` can take a while on a busy Mac.
+    func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator? {
+        try await api.request(Routes.taskSimulator(session.id), method: "POST", body: ["from": from], timeout: 90)
+    }
 }
 
 extension BuildSettings {

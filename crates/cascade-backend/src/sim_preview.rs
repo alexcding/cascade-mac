@@ -27,7 +27,7 @@ type ApiResult<T> = Result<Json<T>, ApiError>;
 
 /// The serve-sim `npx` fetches when none is installed: pinned, so a release that changes the
 /// JSON `--detach` prints cannot break the panel unannounced.
-const PACKAGE: &str = "@expo/serve-sim@0.3.1";
+const PACKAGE: &str = "@alexcding/serve-sim@0.3.5";
 /// The Swift side matches this wording (`SimulatorPreviewModel.state(for:)`).
 const MISSING: &str =
     "The simulator preview needs Node.js 20 or later. See Settings → Integrations.";
@@ -81,6 +81,46 @@ fn is_missing(error: &anyhow::Error) -> bool {
     text.contains("No such file or directory") || text.contains("env: node")
 }
 
+/// A helper whose device shut down can outlive serve-sim's record of it: unlisted, `--kill` cannot
+/// find it, it keeps its port, and the next helper for the device waits on that port until the
+/// start times out. One serve-sim does not list is ended by its command line, which names the
+/// device.
+async fn end_unlisted_helper(udid: &str) {
+    let helper = format!("serve-sim {udid} --port");
+    // Most starts find no helper, or only the one serve-sim records: neither needs Node to tell.
+    // pgrep fails when it finds none.
+    let Ok(found) = cli::run("pgrep", ["-f", helper.as_str()], Duration::from_secs(5)).await else {
+        return;
+    };
+    let recorded = recorded_helper(udid);
+    if found.lines().all(|pid| pid.trim().parse::<u64>().ok() == recorded) {
+        return;
+    }
+    // Only on serve-sim's word: a list that failed says nothing, and a live helper must not go.
+    let unlisted = run_serve_sim(&["--list", udid, "-q"], false, Duration::from_secs(15))
+        .await
+        .ok()
+        .and_then(|answer| serde_json::from_str::<Value>(answer.lines().last()?.trim()).ok())
+        .is_some_and(|answer| answer["running"] == json!(false));
+    if unlisted {
+        let _ = cli::run("pkill", ["-f", helper.as_str()], Duration::from_secs(5)).await;
+    }
+}
+
+/// The helper serve-sim records for `udid`, in its state file under the temporary folder. Only a
+/// shortcut: what it says otherwise is asked of serve-sim itself.
+fn recorded_helper(udid: &str) -> Option<u64> {
+    let file = std::env::temp_dir().join("serve-sim").join(format!("server-{udid}.json"));
+    let state: Value = serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()?;
+    state["pid"].as_u64()
+}
+
+/// Ends `udid`'s helper, for a device about to be deleted.
+pub(crate) async fn end_helper(udid: &str) {
+    let _ = run_serve_sim(&["--kill", udid, "-q"], false, Duration::from_secs(15)).await;
+    end_unlisted_helper(udid).await;
+}
+
 /// Starts of one device run one at a time: two Runs racing on it would each spawn a helper
 /// before either had registered, and the second would fail on the port the first took.
 static DEVICES: LazyLock<std::sync::Mutex<HashMap<String, Arc<Mutex<()>>>>> =
@@ -120,7 +160,7 @@ fn parse_detach(raw: &str) -> Option<Value> {
         .then(|| json!({"udid": device, "url": url}))
 }
 
-fn valid_udid(value: &str) -> bool {
+pub(crate) fn valid_udid(value: &str) -> bool {
     Regex::new(r"^[0-9A-Fa-f-]{16,}$").unwrap().is_match(value)
 }
 
@@ -162,6 +202,7 @@ pub async fn start(headers: HeaderMap, Json(request): Json<PreviewRequest>) -> A
     let _turn = device.lock().await;
     let _spawning = SPAWNING.read().await;
     let stops = STOPS.load(Ordering::SeqCst);
+    end_unlisted_helper(&udid).await;
     // A first `npx` run downloads the package before it starts anything.
     let raw = run_serve_sim(
         &["--detach", "-q", udid.as_str()],
@@ -171,9 +212,11 @@ pub async fn start(headers: HeaderMap, Json(request): Json<PreviewRequest>) -> A
     .await
     .map_err(start_error)?;
     if STOPS.load(Ordering::SeqCst) != stops {
-        // A Stop ran while this helper was spawning, and gave up waiting for it.
+        // A Stop ran while this helper was spawning, and gave up waiting for it. The device goes
+        // straight after `--kill`, whose value is optional: `--kill -q <udid>` reads as a bare
+        // `--kill` and stops every device's.
         let _ = run_serve_sim(
-            &["--kill", "-q", udid.as_str()],
+            &["--kill", udid.as_str(), "-q"],
             false,
             Duration::from_secs(15),
         )

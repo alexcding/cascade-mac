@@ -98,6 +98,9 @@ protocol BuildServing: Sendable {
     /// The destination belongs to the session; `seedingProject` also makes it the
     /// default for a project that has none yet.
     func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) async throws
+    /// The session's own simulator, of the model and OS of the simulator `from`: made the first time,
+    /// the same one after. Nil when `from` is no simulator.
+    func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator?
 }
 
 @MainActor @Observable final class BuildWorkspaceViewModel {
@@ -146,7 +149,8 @@ protocol BuildServing: Sendable {
         self.terminalFactory = terminalFactory
         let own = (session.runScheme ?? "", session.runSim ?? "")
         let owns = !own.0.isEmpty && !own.1.isEmpty
-        let saved = owns ? own : (project.runScheme ?? "", project.runSim ?? "")
+        // A fork of a session that ran on its own simulator has the scheme and no simulator yet.
+        let saved = owns ? own : (own.0.isEmpty ? project.runScheme ?? "" : own.0, project.runSim ?? "")
         self.saved = saved; ownsDestination = owns
         scheme = saved.0; simulator = saved.1
     }
@@ -171,7 +175,7 @@ protocol BuildServing: Sendable {
     func adopt(_ project: Project) {
         self.project = project
         guard !ownsDestination, presentationID == nil, !starting, !running else { return }
-        if let scheme = project.runScheme, !scheme.isEmpty { self.scheme = scheme; saved.scheme = scheme }
+        if let scheme = project.runScheme, !scheme.isEmpty, (session.runScheme ?? "").isEmpty { self.scheme = scheme; saved.scheme = scheme }
         if let simulator = project.runSim, !simulator.isEmpty { self.simulator = simulator; saved.simulator = simulator }
     }
     /// Saves go one at a time, so the backend keeps the last pick, and only the newest says what is
@@ -356,6 +360,7 @@ protocol BuildServing: Sendable {
         guard isCurrent(id), !starting, !running, !preparing else { return false }
         preparingID = id
         defer { if preparingID == id { preparingID = nil } }
+        if !ownsDestination, !picked, await !makeOwnSimulator(presentation: id) { return false }
         if choosesSaved {
             if canRunSaved { return await run(presentation: id, direct: true) }
             // The lists lack it. The kept one may predate a device plugged in since: one fresh look.
@@ -368,6 +373,44 @@ protocol BuildServing: Sendable {
         // A failed load has said why already.
         if isCurrent(id), error == nil { error = notRunnable }
         return false
+    }
+    /// A session that has not chosen where to run runs on a simulator of its own, of the model it
+    /// would have run on: each worktree builds its own app, and two sessions on one simulator share
+    /// its screen and replace each other's app. The new one is picked, so the Run saves it as the
+    /// session's. False when the Run cannot go on.
+    private func makeOwnSimulator(presentation id: UUID) async -> Bool {
+        if schemes.isEmpty || simulators.isEmpty { await load(presentation: id, fresh: false) }
+        // Twice at most: a simulator the lists still have may be gone, deleted with its session.
+        for _ in 0..<2 {
+            guard isCurrent(id) else { return false }
+            guard let model = simulators.first(where: { $0.udid == simulator }), model.kind == .simulator else { return true }
+            do {
+                let own = try await service.sessionSimulator(session: session, from: model.udid)
+                guard isCurrent(id), !Task.isCancelled else { return false }
+                guard let own else { forgetSimulator(model.udid); continue }
+                // The lists predate it; the next fresh look has it anyway.
+                editCachedLists { list in if !list.contains(where: { $0.udid == own.udid }) { list.append(own) } }
+                if !simulators.contains(where: { $0.udid == own.udid }) { simulators.append(own) }
+                simulator = own.udid; picked = true
+                return true
+            } catch {
+                if isCurrent(id), !Task.isCancelled { self.error = error.localizedDescription }
+                return false
+            }
+        }
+        return true
+    }
+    /// A simulator the backend no longer has leaves every list, and the choice moves off it as the
+    /// lists move it off a destination they lack.
+    private func forgetSimulator(_ udid: String) {
+        editCachedLists { $0.removeAll { $0.udid == udid } }
+        simulators.removeAll { $0.udid == udid }
+        if simulator == udid { simulator = (simulators.first { $0.kind != .device } ?? simulators.first)?.udid ?? "" }
+    }
+    /// Each of this project's cached lists, whatever scheme it is kept under.
+    private func editCachedLists(_ edit: (inout [BuildSimulator]) -> Void) {
+        let prefix = cacheKey("")
+        for key in Self.cachedDestinations.keys where key.hasPrefix(prefix) { edit(&Self.cachedDestinations[key]!.1) }
     }
     private var notRunnable: String {
         if schemes.isEmpty { return String(localized: "The project has no scheme to run.") }

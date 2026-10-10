@@ -20,13 +20,13 @@ use std::{
 };
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path as RoutePath, Query, State},
     http::HeaderMap,
     Json,
 };
 use regex::Regex;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -915,6 +915,150 @@ pub async fn destinations(
     Ok(Json(value))
 }
 
+/// A simulator as `simctl list devices --json` describes it.
+#[derive(Debug, PartialEq)]
+struct Simulator {
+    udid: String,
+    name: String,
+    device_type: String,
+    /// The runtime's identifier, `com.apple.CoreSimulator.SimRuntime.iOS-27-0`.
+    runtime: String,
+}
+
+impl Simulator {
+    /// The destination `destinations` lists it as.
+    fn destination(&self) -> Value {
+        let short = self.runtime.rsplit('.').next().unwrap_or_default();
+        let (system, version) = short.split_once('-').unwrap_or((short, ""));
+        let runtime = format!("{system} {}", version.replace('-', ".")).trim().to_owned();
+        json!({"udid": self.udid, "name": self.name, "platform": format!("{system} Simulator"),
+               "runtime": runtime, "kind": "simulator"})
+    }
+}
+
+/// `{"devices": {<runtime>: [{udid, name, deviceTypeIdentifier, isAvailable}]}}`; a device whose
+/// runtime is not installed is left out, since nothing can boot it.
+fn parse_simulators(raw: &str) -> Vec<Simulator> {
+    let Ok(value) = serde_json::from_str::<Value>(raw) else {
+        return Vec::new();
+    };
+    let Some(runtimes) = value["devices"].as_object() else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (runtime, devices) in runtimes {
+        for device in devices.as_array().into_iter().flatten() {
+            let field = |key: &str| device[key].as_str().unwrap_or_default().to_owned();
+            if device["isAvailable"].as_bool() == Some(false) || field("udid").is_empty() {
+                continue;
+            }
+            found.push(Simulator {
+                udid: field("udid"),
+                name: field("name"),
+                device_type: field("deviceTypeIdentifier"),
+                runtime: runtime.clone(),
+            });
+        }
+    }
+    found
+}
+
+async fn simulators() -> Result<Vec<Simulator>, ApiError> {
+    let raw = cli::run(
+        "xcrun",
+        ["simctl", "list", "devices", "--json"],
+        Duration::from_secs(30),
+    )
+    .await
+    .map_err(ApiError::internal)?;
+    Ok(parse_simulators(&raw))
+}
+
+#[derive(Deserialize)]
+pub struct SimulatorRequest {
+    from: Option<String>,
+}
+
+/// A simulator of a session's own: each worktree builds its own app, and two sessions on one
+/// device would share its screen and replace each other's app. It is the model and OS of `from`,
+/// the destination the session would otherwise run on, named after the session, and made once:
+/// asked again, the session's own is the answer. Null when `from` is no simulator (this Mac, a
+/// device), which a session cannot have one of.
+pub async fn session_simulator(
+    headers: HeaderMap,
+    State(app): State<AppState>,
+    RoutePath(id): RoutePath<String>,
+    Json(request): Json<SimulatorRequest>,
+) -> ApiResult<Value> {
+    if foreign_origin(&headers) {
+        return Err(ApiError::forbidden("forbidden"));
+    }
+    let from = request
+        .from
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| ApiError::bad_request("from (a destination id) required"))?;
+    let session = app
+        .db
+        .task(&id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("Session not found"))?;
+    let devices = simulators().await?;
+    if let Some(own) = devices
+        .iter()
+        .find(|device| !session.made_sim.is_empty() && device.udid == session.made_sim)
+    {
+        return Ok(Json(own.destination()));
+    }
+    let Some(model) = devices.iter().find(|device| device.udid == from) else {
+        return Ok(Json(Value::Null));
+    };
+    // Named for the model, not for another session's simulator it may be a copy of.
+    let base = model.name.split(" · ").next().unwrap_or(&model.name);
+    let name = format!("{base} · {}", session.label());
+    let made = cli::run(
+        "xcrun",
+        [
+            "simctl",
+            "create",
+            name.as_str(),
+            model.device_type.as_str(),
+            model.runtime.as_str(),
+        ],
+        Duration::from_secs(60),
+    )
+    .await
+    .map_err(ApiError::internal)?;
+    let udid = made.trim().to_owned();
+    if !crate::sim_preview::valid_udid(&udid) {
+        return Err(ApiError::internal(format!("simctl create answered unexpectedly: {made}")));
+    }
+    let mut patch = Map::new();
+    patch.insert("madeSim".into(), json!(udid));
+    // A session that went meanwhile cannot have gone with it, so it goes now.
+    if !matches!(app.db.patch_task(&id, &patch).await, Ok(true)) {
+        tokio::spawn(discard_simulator(udid));
+        return Err(ApiError::not_found("Session not found"));
+    }
+    let simulator = Simulator {
+        udid,
+        name,
+        device_type: model.device_type.clone(),
+        runtime: model.runtime.clone(),
+    };
+    Ok(Json(simulator.destination()))
+}
+
+/// Deletes the simulator made for a session that is gone, its preview first.
+pub async fn discard_simulator(udid: String) {
+    crate::sim_preview::end_helper(&udid).await;
+    let _ = cli::run("xcrun", ["simctl", "shutdown", udid.as_str()], Duration::from_secs(60)).await;
+    if let Err(error) = cli::run("xcrun", ["simctl", "delete", udid.as_str()], Duration::from_secs(60)).await {
+        tracing::warn!(udid, error = %format!("{error:#}"), "session simulator not deleted");
+    }
+}
+
 /// What a scheme's Run hands the app it launches: the enabled arguments and environment
 /// variables of its launch action. `xcodebuild` builds a scheme and never runs it, so these
 /// are read from the scheme's file. Without them the app launched here is not the one Xcode
@@ -1168,6 +1312,32 @@ pub async fn build_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_simulators_that_can_boot() {
+        let raw = r#"{"devices":{
+            "com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+                {"udid":"21836E98-D63A-4740-A15E-BC0B7D734BAB","name":"iPhone 17","isAvailable":true,
+                 "deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17","state":"Booted"},
+                {"udid":"0B58A586-C2FD-41E3-B0C5-5D532C116621","name":"Gone","isAvailable":false,
+                 "deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-18-Pro"}]}}"#;
+        let found = parse_simulators(raw);
+        assert_eq!(
+            found,
+            vec![Simulator {
+                udid: "21836E98-D63A-4740-A15E-BC0B7D734BAB".into(),
+                name: "iPhone 17".into(),
+                device_type: "com.apple.CoreSimulator.SimDeviceType.iPhone-17".into(),
+                runtime: "com.apple.CoreSimulator.SimRuntime.iOS-27-0".into(),
+            }]
+        );
+        assert_eq!(
+            found[0].destination(),
+            json!({"udid":"21836E98-D63A-4740-A15E-BC0B7D734BAB","name":"iPhone 17",
+                   "platform":"iOS Simulator","runtime":"iOS 27.0","kind":"simulator"})
+        );
+        assert!(parse_simulators("not json").is_empty());
+    }
     use tempfile::TempDir;
 
     #[test]

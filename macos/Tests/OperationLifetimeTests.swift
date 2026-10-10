@@ -63,6 +63,10 @@ private actor OperationBuildService: BuildServing {
         if failsSaves { throw SaveFailed() }
         savedSessions.append(session.id); seededProject.append(seedingProject); savedSimulators.append(simulator)
     }
+    /// The session's own already: the one it would run on.
+    func sessionSimulator(session: WorkspaceSession, from: String) throws -> BuildSimulator? {
+        BuildSimulator(udid: from, name: from, runtime: "iOS")
+    }
 }
 
 @MainActor private final class OperationBuildTerminal: BuildTerminal {

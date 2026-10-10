@@ -54,8 +54,12 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
     private let service: any SimulatorPreviewing
     private var generation = UUID()
     private var retired = false
+    private let keepsPlaying: Duration
 
-    init(service: any SimulatorPreviewing) { self.service = service }
+    /// `keepsPlaying` is how long a hidden session's stream goes on before its page is unloaded.
+    init(service: any SimulatorPreviewing, keepsPlaying: Duration = .seconds(60)) {
+        self.service = service; self.keepsPlaying = keepsPlaying
+    }
 
     /// Shows `udid`'s stream, starting it when needed. A later call wins over one still starting.
     /// Asked again while live, it still asks the backend: the helper may have gone since (killed
@@ -87,13 +91,26 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         generation = UUID(); state = .failed(message)
     }
 
-    /// Whether the session is on screen, on whichever pane. The stream plays only then: a hidden
-    /// session's page is unloaded, since the helper would go on sending frames nobody sees, and it
-    /// loads again when the session is back. Switching panes within the session leaves it playing.
-    /// Nothing draws from it, so setting it redraws nothing.
+    /// Whether the session is on screen, on whichever pane. A session hidden for `keepsPlaying`
+    /// has its page unloaded, since the helper would go on sending frames nobody sees, and it loads
+    /// again when the session is back. Until then it plays on, so switching between sessions shows
+    /// each one's device at once rather than loading its page again. Switching panes within the
+    /// session leaves it playing. Nothing draws from it, so setting it redraws nothing.
     @ObservationIgnored var active = false {
-        didSet { if !retired, oldValue != active { pageFollowsState() } }
+        didSet {
+            guard !retired, oldValue != active else { return }
+            hiding?.cancel(); hiding = nil
+            if active { playing = true; pageFollowsState(); return }
+            hiding = Task { [weak self, keepsPlaying] in
+                try? await Task.sleep(for: keepsPlaying)
+                guard let self, !Task.isCancelled, !self.retired, !self.active else { return }
+                self.hiding = nil; self.playing = false; self.pageFollowsState()
+            }
+        }
     }
+    /// What the page follows: `active`, but only let go of once the session has been hidden a while.
+    @ObservationIgnored private var playing = false
+    @ObservationIgnored private var hiding: Task<Void, Never>?
 
     /// The stream's page, made the first time the panel shows it and kept here rather than in the
     /// panel's view: the panel is taken down and put back as the pane and the session change, and a
@@ -120,13 +137,13 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
         return view
     }
 
-    /// Keeps the page on the stream `state` names while the session is on screen. Another helper
+    /// Keeps the page on the stream `state` names while the session is `playing`. Another helper
     /// (another device streams on its own port) is loaded afresh; leaving the stream unloads the page
     /// and forgets the address, so the next live state loads again even at the same one, since a new
     /// helper can take the old port.
     private func pageFollowsState() {
         guard let page else { return }
-        if active, case .live(let url) = state {
+        if playing, case .live(let url) = state {
             if let loaded = pageURL, loaded.host == url.host, loaded.port == url.port { return }
             pageURL = url
             pageLoad = page.load(URLRequest(url: url))
@@ -141,6 +158,7 @@ struct APISimulatorPreviewService: SimulatorPreviewing {
     /// is left running, since another session may be showing the same device.
     func retire() {
         retired = true; generation = UUID(); state = .idle
+        hiding?.cancel(); hiding = nil
         page?.stopLoading(); page?.navigationDelegate = nil
         page?.removeFromSuperview(); page = nil; navigation = nil
     }

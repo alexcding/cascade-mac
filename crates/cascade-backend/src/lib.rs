@@ -132,6 +132,7 @@ pub fn build_app(state: AppState) -> Router {
         )
         .route("/api/tasks/{id}/pin", patch(routes::pin_task))
         .route("/api/tasks/{id}/fork", post(fork::fork_task))
+        .route("/api/tasks/{id}/simulator", post(xcode::session_simulator))
         .route("/api/tasks/{id}", patch(routes::patch_task))
         .route(
             "/api/projects",
