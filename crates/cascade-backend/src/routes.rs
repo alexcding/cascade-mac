@@ -261,6 +261,20 @@ pub async fn create_project(
     {
         return Err(ApiError::bad_request("name required"));
     }
+    // Sessions run in worktrees, so a project folder must be a git repository. One that is not is
+    // made one only when asked (`initGit`); a folder that is not there yet is left to be chosen.
+    let workspace = patch.get("workspace").and_then(Value::as_str).unwrap_or_default();
+    if std::path::Path::new(workspace).is_dir() && !crate::local::is_git(workspace).await {
+        if body.get("initGit") != Some(&Value::Bool(true)) {
+            return Err(ApiError::status(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                "The project folder isn\u{2019}t a git repository.",
+            ));
+        }
+        crate::local::init_git(workspace)
+            .await
+            .map_err(|error| ApiError::status(axum::http::StatusCode::UNPROCESSABLE_ENTITY, error))?;
+    }
     let project = state.db.add_project(&patch).await?;
     state.publish(crate::Event::Sync { scope: None, project_id: Some(project.id.clone()) });
     Ok(Json(project))
@@ -323,8 +337,10 @@ pub struct PathQuery {
 }
 
 pub async fn detect_repo(Query(query): Query<PathQuery>) -> ApiResult<Value> {
+    // Trimmed as a project's workspace is saved, so the folder asked about is the one stored.
     let path = query
         .path
+        .map(|path| path.trim().to_owned())
         .ok_or_else(|| ApiError::bad_request("path required"))?;
     let root = std::path::PathBuf::from(&path);
     let ide = tokio::task::spawn_blocking(move || crate::local::detect_ide(&root))
@@ -333,6 +349,8 @@ pub async fn detect_repo(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     Ok(Json(json!({
         "repo": crate::github::remote_repo(&path).await.unwrap_or_default(),
         "ide": ide,
+        // A folder not made yet is left to be chosen, as creating the project leaves it.
+        "git": !std::path::Path::new(&path).is_dir() || crate::local::is_git(&path).await,
     })))
 }
 pub async fn lookup_pr(Query(query): Query<PathQuery>) -> ApiResult<Value> {

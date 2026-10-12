@@ -489,6 +489,42 @@ async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
+/// A project folder must be a git repository: one that is not is refused, and made one, its files
+/// in a first commit, when the project is created with `initGit`.
+#[tokio::test]
+async fn a_folder_without_git_becomes_a_repository_only_when_asked() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let dir = parent.path().canonicalize().unwrap().join("notes");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("todo.md"), "- one").unwrap();
+    let path = dir.to_str().unwrap();
+    let (_, detected) = get(&app, &format!("/api/detect-repo?path={path}")).await;
+    assert_eq!(detected["git"], false, "{detected}");
+
+    // A step git refuses (here, a file it cannot read) leaves no repository behind to be taken
+    // for one.
+    let locked = dir.join("locked.txt");
+    fs::write(&locked, "secret").unwrap();
+    fs::set_permissions(&locked, std::os::unix::fs::PermissionsExt::from_mode(0o000)).unwrap();
+    let (status, failed) = post(&app, "/api/projects", json!({"name":"Notes","workspace":path,"initGit":true})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{failed}");
+    assert!(!dir.join(".git").exists());
+    fs::remove_file(&locked).unwrap();
+
+    let (status, refused) = post(&app, "/api/projects", json!({"name":"Notes","workspace":path})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert!(!dir.join(".git").exists());
+
+    let (status, project) = post(&app, "/api/projects", json!({"name":"Notes","workspace":path,"initGit":true})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let (_, detected) = get(&app, &format!("/api/detect-repo?path={path}")).await;
+    assert_eq!(detected["git"], true, "{detected}");
+    let (status, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"first","create":true})).await;
+    assert_eq!(status, StatusCode::OK, "{made}");
+    assert!(PathBuf::from(made["path"].as_str().unwrap()).join("todo.md").exists());
+}
+
 /// A new branch with no base named is cut from the repository's default branch, even when that
 /// branch is gone locally: `origin/main` is what the checkout knows, never the branch that happens
 /// to have the newest commit. The most-recent fallback is for parking the main checkout alone.

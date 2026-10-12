@@ -16,6 +16,10 @@ import Observation
     private(set) var busy = false
     private(set) var error: String?
     private(set) var saved = false
+    /// The folder last detected, and whether it is a git repository.
+    private var gitAnswer: (workspace: String, git: Bool?)?
+    /// The chosen folder is no git repository: a new project needs `draft.initGit` to be created.
+    var needsGit: Bool { id == nil && gitAnswer?.workspace == draft.workspace && gitAnswer?.git == false }
     private(set) var retired = false
     private var completedCreation = false
     private var suggestedName = ""
@@ -32,7 +36,10 @@ import Observation
     }
     var dirty: Bool { draft != baseline }
     private var active: Bool { !retired && !completedCreation }
-    var canSave: Bool { active && service != nil && !busy && draft.validationError == nil && (id == nil || dirty) }
+    var canSave: Bool {
+        active && service != nil && !busy && draft.validationError == nil && (id == nil || dirty)
+            && (!needsGit || draft.initGit)
+    }
     var canDelete: Bool { active && id != nil && service != nil && !busy }
     func makeDeletionRequest() -> DeletionRequest? {
         guard canDelete, let id else { return nil }
@@ -132,8 +139,12 @@ import Observation
             let detected = try await service.detect(workspace)
             let repo = detected.repo
             guard active, !Task.isCancelled, self.generation == generation, draft.workspace == workspace else { return }
+            // Agreeing to make one folder a repository is not agreeing for the next.
+            if gitAnswer?.workspace != workspace { draft.initGit = false }
+            gitAnswer = (workspace, detected.git)
             if repo.isEmpty {
-                error = String(localized: "No GitHub remote found in this workspace.")
+                // A new project's folder without git says so itself (`needsGit`); it has no remote.
+                if id != nil || detected.git != false { error = String(localized: "No GitHub remote found in this workspace.") }
                 // A new project's repo is only ever derived, so one left from another folder is stale.
                 if id == nil { draft.repo = "" }
             } else { draft.repo = repo }
@@ -164,8 +175,17 @@ import Observation
     }
     func save() async {
         guard active, !Task.isCancelled, !busy, let service else { return }
-        let generation = generation
         if let message = draft.validationError { error = message; return }
+        // A typed folder not yet detected is detected first: one without git waits for the box.
+        if id == nil, !draft.workspace.isEmpty, gitAnswer?.workspace != draft.workspace {
+            let before = generation
+            await detectRepository()
+            // A detection that failed keeps its error on screen rather than saving blind.
+            guard active, !Task.isCancelled, self.generation == before, gitAnswer?.workspace == draft.workspace, !needsGit else { return }
+        }
+        // The box was ticked for the folder detected; a folder never detected has not been agreed to.
+        if gitAnswer?.workspace != draft.workspace { draft.initGit = false }
+        let generation = generation
         busy = true; error = nil; saved = false
         defer { busy = false }
         do {

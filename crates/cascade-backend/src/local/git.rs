@@ -467,6 +467,41 @@ pub async fn commit_avatars(Query(query): Query<LocalQuery>) -> ApiResult<Value>
     Ok(Json(Value::Object(map)))
 }
 
+/// Whether `dir` is in a git repository: git reads it, or there is a `.git` in it or above it (a
+/// checkout git refuses just now is a repository all the same).
+pub(crate) async fn is_git(dir: &str) -> bool {
+    if git(dir, vec!["rev-parse".into(), "--git-dir".into()], 15).await.is_ok() {
+        return true;
+    }
+    let path = PathBuf::from(dir);
+    tokio::task::spawn_blocking(move || path.ancestors().any(|folder| folder.join(".git").exists()))
+        .await
+        .unwrap_or(true)
+}
+
+/// Makes `dir` a git repository whose first commit holds the folder's files (what `.gitignore`
+/// leaves out stays out): a session's worktree is made from a commit, so an empty repository would
+/// give it nothing. A step that fails takes the `.git` it made away again, so a repository with
+/// no commit is never left behind to be taken for a finished one; one that was there is kept.
+pub(crate) async fn init_git(dir: &str) -> Result<(), String> {
+    let made = Path::new(dir).join(".git");
+    let existed = made.exists();
+    for args in [
+        vec!["init"],
+        vec!["add", "-A"],
+        vec!["commit", "--allow-empty", "-m", "Initial commit"],
+    ] {
+        if let Err(error) = git(dir, args.into_iter().map(Into::into).collect(), 120).await {
+            if !existed {
+                let made = made.clone();
+                let _ = tokio::task::spawn_blocking(move || fs::remove_dir_all(made)).await;
+            }
+            return Err(error_line(&error.to_string()));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::fold_refs;

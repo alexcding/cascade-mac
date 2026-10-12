@@ -115,6 +115,11 @@ struct NewProjectSheet: View {
                 SheetHint(model.draft.repo.isEmpty
                     ? Text("Sets the terminal's working directory; the GitHub repo is auto-detected from its \(sheetCode("git")) origin.")
                     : Text("GitHub repo: \(sheetCode(model.draft.repo))"))
+                if model.needsGit {
+                    SheetHint(String(localized: "This folder isn’t a git repository. Sessions run in git worktrees."), isError: true)
+                    Toggle("Initialize a git repository and commit the folder’s files", isOn: $model.draft.initGit)
+                        .accessibilityIdentifier("project-init-git")
+                }
             }
             SheetSection(String(localized: "Jira")) {
                 SheetField(String(localized: "Project Key"), last: true) {

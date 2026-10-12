@@ -13,6 +13,8 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     var forwardWebhooks = true
     var issuesEnabled = true
     var boardEnabled = false
+    /// A new project's folder that is no git repository is made one, its files in a first commit.
+    var initGit = false
 
     init(_ project: Project? = nil) {
         guard let project else { return }
@@ -45,6 +47,8 @@ protocol ProjectService: Sendable {
 struct DetectedWorkspace: Decodable, Equatable, Sendable {
     let repo: String
     let ide: String
+    /// Whether the folder is a git repository; nil when the backend did not say.
+    var git: Bool? = nil
 }
 
 struct TrackedFile: Decodable, Equatable, Sendable {

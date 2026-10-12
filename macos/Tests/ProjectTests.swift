@@ -184,3 +184,39 @@ private struct IDEGuessFixture: ProjectService {
     #expect(existing.draft.ide == "cursor")
     #expect(existing.ideChoices.last?.title == "Cursor" && !IDEChoice.all.contains { $0.id == "cursor" || $0.id == "windsurf" })
 }
+
+private actor GitlessFixture: ProjectService {
+    var saved: [ProjectDraft] = []
+    func load(_ id: String) -> Project { Project(id: id, name: "", repo: "", color: nil, workspace: "") }
+    func save(_ draft: ProjectDraft, id: String?) -> Project {
+        saved.append(draft)
+        return Project(id: "created", name: draft.name, repo: "", color: nil, workspace: draft.workspace)
+    }
+    func delete(_ id: String) {}
+    func detectRepository(_ path: String) -> String { "" }
+    func detect(_ path: String) -> DetectedWorkspace { DetectedWorkspace(repo: "", ide: "", git: !path.hasSuffix("notes")) }
+}
+
+@MainActor @Test func aNewProjectInAFolderWithoutGitIsCreatedOnlyOnceGitIsToBeSetUp() async {
+    let service = GitlessFixture()
+    let editor = ProjectEditorViewModel(project: nil, service: service, chooseFolder: { "/tmp/notes" })
+    await editor.chooseWorkspace()
+    #expect(editor.needsGit && !editor.canSave && editor.error == nil)
+    editor.draft.initGit = true
+    #expect(editor.canSave)
+    await editor.save()
+    #expect(await service.saved.map(\.initGit) == [true])
+
+    // A folder typed and never detected is detected on Create, and not created without git.
+    var folder = "/tmp/other/notes"
+    let typed = ProjectEditorViewModel(project: nil, service: service, chooseFolder: { folder })
+    typed.draft.name = "Notes"; typed.draft.workspace = folder
+    await typed.save()
+    #expect(typed.needsGit && !typed.canSave)
+    #expect(await service.saved.count == 1)
+    // The box checked for one folder is unchecked for the next.
+    typed.draft.initGit = true
+    folder = "/tmp/more/notes"
+    await typed.chooseWorkspace()
+    #expect(typed.needsGit && !typed.draft.initGit && !typed.canSave)
+}
