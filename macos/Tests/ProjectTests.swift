@@ -220,3 +220,52 @@ private actor GitlessFixture: ProjectService {
     await typed.chooseWorkspace()
     #expect(typed.needsGit && !typed.draft.initGit && !typed.canSave)
 }
+
+/// A project moved in Settings to a folder without git waits for the box as a new one does, and
+/// its repository is left as the person set it. Saving anything else asks nothing.
+@MainActor @Test func aProjectMovedToAFolderWithoutGitSavesOnlyOnceGitIsToBeSetUp() async {
+    let service = GitlessFixture()
+    let existing = Project(id: "p", name: "P", repo: "me/p", color: nil, workspace: "/tmp/p")
+    let editor = ProjectEditorViewModel(project: existing, service: service, chooseFolder: { "/tmp/notes" })
+    editor.draft.name = "Renamed"
+    #expect(!editor.needsGit && editor.canSave)
+    await editor.pickFolder()
+    await editor.save()
+    #expect(editor.needsGit && !editor.canSave && editor.draft.repo == "me/p")
+    #expect(await service.saved.isEmpty)
+    editor.draft.initGit = true
+    await editor.save()
+    #expect(await service.saved.map(\.initGit) == [true])
+}
+
+/// A folder whose `.git` went away after it was detected: the backend refuses the save, and the next
+/// Save asks again rather than trusting the answer kept, so the box to set git up is offered.
+private actor StaleGitFixture: ProjectService {
+    var git = true
+    var saved: [ProjectDraft] = []
+    func loseGit() { git = false }
+    func load(_ id: String) -> Project { Project(id: id, name: "", repo: "", color: nil, workspace: "") }
+    func save(_ draft: ProjectDraft, id: String?) throws -> Project {
+        guard git || draft.initGit else { throw ChatFirstMessage.Failure(message: "The project folder isn’t a git repository.") }
+        saved.append(draft)
+        return Project(id: "created", name: draft.name, repo: "", color: nil, workspace: draft.workspace)
+    }
+    func delete(_ id: String) {}
+    func detectRepository(_ path: String) -> String { "" }
+    func detect(_ path: String) -> DetectedWorkspace { DetectedWorkspace(repo: "", ide: "", git: git) }
+}
+
+@MainActor @Test func aSaveRefusedForGitAsksAboutTheFolderAgain() async {
+    let service = StaleGitFixture()
+    let editor = ProjectEditorViewModel(project: nil, service: service, chooseFolder: { "/tmp/a" })
+    await editor.chooseWorkspace()
+    #expect(!editor.needsGit)
+    await service.loseGit()
+    await editor.save()
+    #expect(editor.error != nil && !editor.needsGit)
+    await editor.save()
+    #expect(editor.needsGit && !editor.canSave, "asked again, the folder needs git set up")
+    editor.draft.initGit = true
+    await editor.save()
+    #expect(await service.saved.map(\.initGit) == [true])
+}

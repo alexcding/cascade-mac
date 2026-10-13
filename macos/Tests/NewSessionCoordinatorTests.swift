@@ -33,17 +33,17 @@ private final class NewTaskChat: ChatServing, @unchecked Sendable {
 @MainActor private final class NewSessionRuntimeFixture: NewSessionCoordinating {
     var composers: [String] = []
     var newProjects = 0
+    var newChatProjects = 0
     var created: [ChatThreadShell] = []
     var chatsMade = 0
     var connected = true
-    var picked: String? = "/picked"
     let chat = NewTaskChat()
     func newSessionComposer(for projectID: String) -> ProjectComposerModel? { composers.append(projectID); return nil }
-    func newSessionNewProject() { newProjects += 1 }
+    func newSessionNewProject(forChat: Bool) { if forChat { newChatProjects += 1 } else { newProjects += 1 } }
     func newSessionChat(agent: String?) -> NewChatViewModel? {
         guard connected else { return nil }
         chatsMade += 1
-        return NativeChatFeatureFactory().newChat(agent: agent, service: chat, chooseFolder: { [weak self] _ in self?.picked })
+        return NativeChatFeatureFactory().newChat(agent: agent, service: chat)
     }
     func newSessionChatCreated(_ shell: ChatThreadShell) { created.append(shell) }
 }
@@ -138,8 +138,46 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
     }
 }
 
-/// The folder logic stands for a control to come: a picked folder is used instead of a scratch one.
-@MainActor @Test func chatSideWorksInAPickedFolderWhenOneIsChosen() async throws {
+@MainActor @Test func chatSideStartsInNoProjectAndWorksInAProjectsFolderOncePicked() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        let chat = try #require(model.chat)
+        #expect(model.chatProjectID == nil && chat.standalone, "a chat starts in no project")
+        await chat.load()
+        chat.prompt = "What does the poller do?"
+
+        model.chooseChatProject("p")
+        #expect(chat.projectID == "p" && chat.projectName == "P" && chat.folder == "/tmp")
+        #expect(!chat.canStart, "Start waits for the project folder's models")
+        await chat.modelsLoad?.value
+        #expect(chat.canStart && chat.askPlaceholder == "Ask Claude about this project")
+        model.chooseChatProject(nil)
+        #expect(chat.standalone && chat.folder.isEmpty, "No Project goes back to a scratch folder")
+        model.chooseChatProject("gone")
+        #expect(chat.standalone && model.chatProjectID == nil, "a project not listed is not picked")
+
+        // Kept by the form made anew on reconnect, and the chat is made in the project's folder.
+        model.chooseChatProject("p")
+        await chat.modelsLoad?.value
+        model.chatServiceChanged()
+        let again = try #require(model.chat)
+        #expect(again !== chat && again.projectID == "p" && again.folder == "/tmp")
+        await again.load()
+        await again.start()
+        let create = try #require(runtime.chat.commands.first)
+        #expect(create["projectId"]?.string == "p" && create["workingDirectory"]?.string == "/tmp")
+        #expect(create["worktreePath"] == .null, "no worktree, no branch")
+        #expect(model.chat?.projectID == "p", "the next chat starts in the same project")
+    }
+}
+
+/// The page alone says where the chat works: a project renamed is named anew, and one that leaves
+/// the list is no longer the pick when it returns.
+@MainActor @Test func theChatFollowsItsProjectAndForgetsOneThatLeft() async throws {
     try await withCleanNewTaskDefaults {
         let root = root(), runtime = NewSessionRuntimeFixture()
         let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
@@ -148,28 +186,72 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         model.setMode(.chat)
         let chat = try #require(model.chat)
         await chat.load()
-        await chat.changeFolder()
-        #expect(chat.folder == "/picked" && chat.askPlaceholder == "Ask Claude about this folder")
 
-        // Cancelling the panel keeps the folder; clearing it goes back to a scratch folder.
-        runtime.picked = nil
-        await chat.changeFolder()
-        #expect(chat.folder == "/picked")
-        await chat.clearFolder()
-        #expect(chat.folder.isEmpty)
-        runtime.picked = "/picked"
-        await chat.changeFolder()
+        model.chooseChatProject("p")
+        model.update(projects: [Project(id: "p", name: "Renamed", repo: "", color: nil, workspace: "/tmp")])
+        #expect(chat.projectName == "Renamed" && chat.folder == "/tmp")
 
-        // A form made again on reconnect keeps the folder and what was typed.
-        chat.prompt = "carried over"
+        model.update(projects: [])
+        #expect(chat.standalone && chat.folder.isEmpty && model.chatProjectID == nil, "the project left")
+        model.update(projects: [local])
+        #expect(chat.standalone, "and the chat does not go back to it by itself")
+    }
+}
+
+/// Only the Chat side's own New Project moves the chat: New Task opened on a project (⌘N, the
+/// sidebar) leaves it where the person put it.
+@MainActor @Test func onlyTheChatsOwnNewProjectMovesTheChat() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        let chat = try #require(model.chat)
+        model.start(in: "p")
+        #expect(chat.standalone && model.chatProjectID == nil, "New Task opened on a project keeps No Project")
+        model.start(in: "p", agent: .claude)
+        #expect(model.mode == .task && model.chatProjectID == nil)
+
+        model.setMode(.chat)
+        model.newChatProject()
+        model.newProject()
+        #expect(runtime.newChatProjects == 1 && runtime.newProjects == 1, "the chat's chip says it is the chat's")
+    }
+}
+
+/// A project picked with no form there (the chat backend not connected) is the next form's.
+@MainActor @Test func aProjectPickedWhileDisconnectedIsTheNextChats() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        runtime.connected = false
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        #expect(model.chat == nil)
+        model.chooseChatProject("p")
+        runtime.connected = true
         model.chatServiceChanged()
-        let again = try #require(model.chat)
-        #expect(again !== chat && again.folder == "/picked" && again.prompt == "carried over")
-        await again.load()
-        await again.start()
-        let create = try #require(runtime.chat.commands.first)
-        #expect(create["projectId"]?.string == ChatProject.standalone && create["workingDirectory"]?.string == "/picked")
-        #expect(runtime.created.first?.cwd == "/picked")
+        #expect(model.chat?.projectID == "p" && model.chat?.folder == "/tmp")
+    }
+}
+
+/// With no agent to read models for, a move leaves Start as it was rather than waiting for ever,
+/// and an error that is not the models' read stays.
+@MainActor @Test func aMoveWithNoUsableAgentDoesNotHoldStart() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        let chat = try #require(model.chat)
+        await chat.load()
+        chat.agent = nil
+        await chat.modelsLoad?.value
+        model.chooseChatProject("p")
+        #expect(!chat.loadingModels && chat.projectID == "p")
     }
 }
 

@@ -185,12 +185,11 @@ extension AppViewModel: ChatCoordinating {
 
     // MARK: New Task's Chat side
 
-    /// New Task's chat belongs to no project: it works in a scratch folder the backend makes, or in a
-    /// folder the system picker chooses (no control offers it yet).
+    /// New Task's chat: the page places it in a project, working in its folder, or in none, working in
+    /// a scratch folder the backend makes.
     func newSessionChat(agent: String?) -> NewChatViewModel? {
         guard let service = chatService else { return nil }
-        let choose = chooseChatFolder
-        return chatFactory.newChat(agent: agent, service: service, chooseFolder: { await choose($0.isEmpty ? nil : $0) })
+        return chatFactory.newChat(agent: agent, service: service)
     }
 
     func newSessionChatCreated(_ shell: ChatThreadShell) { chats.receive(shell) }
@@ -223,18 +222,5 @@ extension AppViewModel: ChatCoordinating {
                 for context in viewer.contexts.values { context.workspaceViewModel?.paneChatRemoved(id) }
             } catch { self?.reportRootError(String(localized: "Could not delete the chat: \(error.localizedDescription)")) }
         }
-    }
-
-    /// The system's folder picker, for a standalone chat's working folder.
-    static func pickFolder(from start: String?) -> String? {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose")
-        panel.message = String(localized: "Choose the folder the chat's agent works in.")
-        if let start, !start.isEmpty { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
-        return panel.runModal() == .OK ? panel.url?.path : nil
     }
 }

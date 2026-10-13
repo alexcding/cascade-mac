@@ -467,11 +467,20 @@ pub async fn commit_avatars(Query(query): Query<LocalQuery>) -> ApiResult<Value>
     Ok(Json(Value::Object(map)))
 }
 
-/// Whether `dir` is in a git repository: git reads it, or there is a `.git` in it or above it (a
-/// checkout git refuses just now is a repository all the same).
+/// Whether `dir` is in a git repository a worktree can be made from: one with a commit, or a `.git`
+/// in it or above it that git refuses just now (a repository all the same). A repository with no
+/// commit yet is not one: there is nothing to make a worktree from, and it may be one `init_git` is
+/// still setting up.
 pub(crate) async fn is_git(dir: &str) -> bool {
-    if git(dir, vec!["rev-parse".into(), "--git-dir".into()], 15).await.is_ok() {
+    let (head, readable) = tokio::join!(
+        git(dir, vec!["rev-parse".into(), "--verify".into(), "-q".into(), "HEAD".into()], 15),
+        git(dir, vec!["rev-parse".into(), "--git-dir".into()], 15),
+    );
+    if head.is_ok() {
         return true;
+    }
+    if readable.is_ok() {
+        return false;
     }
     let path = PathBuf::from(dir);
     tokio::task::spawn_blocking(move || path.ancestors().any(|folder| folder.join(".git").exists()))
@@ -481,16 +490,20 @@ pub(crate) async fn is_git(dir: &str) -> bool {
 
 /// Makes `dir` a git repository whose first commit holds the folder's files (what `.gitignore`
 /// leaves out stays out): a session's worktree is made from a commit, so an empty repository would
-/// give it nothing. A step that fails takes the `.git` it made away again, so a repository with
-/// no commit is never left behind to be taken for a finished one; one that was there is kept.
+/// give it nothing. A repository with no commit yet is given its first. The commit is the person's
+/// when git knows who they are, Cascade's when it does not, and runs no hook and asks for no
+/// signature, which could wait on a prompt nobody sees. A step that fails takes the `.git` it made
+/// away again, so a repository with no commit is never left behind; one that was there is kept.
 pub(crate) async fn init_git(dir: &str) -> Result<(), String> {
     let made = Path::new(dir).join(".git");
     let existed = made.exists();
-    for args in [
-        vec!["init"],
-        vec!["add", "-A"],
-        vec!["commit", "--allow-empty", "-m", "Initial commit"],
-    ] {
+    let mut steps = vec![vec!["init"], vec!["add", "-A"]];
+    let mut commit = vec!["commit", "--allow-empty", "--no-verify", "--no-gpg-sign", "-m", "Initial commit"];
+    if git(dir, vec!["var".into(), "GIT_AUTHOR_IDENT".into()], 15).await.is_err() {
+        commit.splice(0..0, ["-c", "user.name=Cascade", "-c", "user.email=cascade@localhost"]);
+    }
+    steps.push(commit);
+    for args in steps {
         if let Err(error) = git(dir, args.into_iter().map(Into::into).collect(), 120).await {
             if !existed {
                 let made = made.clone();

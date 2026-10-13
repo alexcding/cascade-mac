@@ -261,23 +261,28 @@ pub async fn create_project(
     {
         return Err(ApiError::bad_request("name required"));
     }
-    // Sessions run in worktrees, so a project folder must be a git repository. One that is not is
-    // made one only when asked (`initGit`); a folder that is not there yet is left to be chosen.
     let workspace = patch.get("workspace").and_then(Value::as_str).unwrap_or_default();
-    if std::path::Path::new(workspace).is_dir() && !crate::local::is_git(workspace).await {
-        if body.get("initGit") != Some(&Value::Bool(true)) {
-            return Err(ApiError::status(
-                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                "The project folder isn\u{2019}t a git repository.",
-            ));
-        }
-        crate::local::init_git(workspace)
-            .await
-            .map_err(|error| ApiError::status(axum::http::StatusCode::UNPROCESSABLE_ENTITY, error))?;
-    }
+    ensure_git(workspace, &body).await?;
     let project = state.db.add_project(&patch).await?;
     state.publish(crate::Event::Sync { scope: None, project_id: Some(project.id.clone()) });
     Ok(Json(project))
+}
+
+/// Sessions run in worktrees, so a project folder must be a git repository. One that is not is made
+/// one only when asked (`initGit`); a folder that is not there yet is left to be chosen.
+async fn ensure_git(workspace: &str, body: &Value) -> Result<(), ApiError> {
+    if !std::path::Path::new(workspace).is_dir() || crate::local::is_git(workspace).await {
+        return Ok(());
+    }
+    if body.get("initGit") != Some(&Value::Bool(true)) {
+        return Err(ApiError::status(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "The project folder isn\u{2019}t a git repository.",
+        ));
+    }
+    crate::local::init_git(workspace)
+        .await
+        .map_err(|error| ApiError::status(axum::http::StatusCode::UNPROCESSABLE_ENTITY, error))
 }
 
 pub async fn update_project(
@@ -286,6 +291,14 @@ pub async fn update_project(
     Json(body): Json<Value>,
 ) -> ApiResult<Project> {
     let mut patch = sanitize_project_patch(&body)?;
+    // A project moved to another folder is held to what a new one is; one left where it is is not
+    // asked again, so a project made before the rule still saves. A project gone sets up nothing.
+    if let Some(workspace) = patch.get("workspace").and_then(Value::as_str) {
+        let current = state.db.project(&id).await?.ok_or_else(|| ApiError::not_found("Not found"))?.workspace;
+        if workspace != current {
+            ensure_git(workspace, &body).await?;
+        }
+    }
     // A session's own simulator goes with the session, so it is never a project's default. Its
     // scheme still is, the first time: the app seeds again while the project has no simulator, and
     // the default scheme must not follow every session's choice from then on.
@@ -346,12 +359,12 @@ pub async fn detect_repo(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     let ide = tokio::task::spawn_blocking(move || crate::local::detect_ide(&root))
         .await
         .unwrap_or_default();
-    Ok(Json(json!({
-        "repo": crate::github::remote_repo(&path).await.unwrap_or_default(),
-        "ide": ide,
-        // A folder not made yet is left to be chosen, as creating the project leaves it.
-        "git": !std::path::Path::new(&path).is_dir() || crate::local::is_git(&path).await,
-    })))
+    // A folder not made yet is left to be chosen, as creating the project leaves it.
+    let folder = std::path::Path::new(&path).is_dir();
+    let (repo, git) = tokio::join!(crate::github::remote_repo(&path), async {
+        !folder || crate::local::is_git(&path).await
+    });
+    Ok(Json(json!({ "repo": repo.unwrap_or_default(), "ide": ide, "git": git })))
 }
 pub async fn lookup_pr(Query(query): Query<PathQuery>) -> ApiResult<Value> {
     Ok(Json(match query.url {

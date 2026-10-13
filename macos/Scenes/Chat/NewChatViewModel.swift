@@ -3,9 +3,9 @@ import Foundation
 import Observation
 import UniformTypeIdentifiers
 
-/// New Chat: which agent and which of its models. New Task's chat belongs to no project: it works in
-/// a private scratch folder the backend makes for it, or in a folder picked with `changeFolder` (the
-/// logic is here; New Task shows no folder control yet). A session
+/// New Chat: which agent and which of its models. New Task's chat works where its page places it
+/// (`place`, from `NewSessionViewModel.chatProjectID`): in a project, in the project's folder; in no
+/// project, in a private scratch folder the backend makes for it. A session
 /// pane's chat works in the session's worktree, and may start with what the session's agent knows.
 /// The chat starts asking before every tool call (`approval-required`), and is titled "New Chat"
 /// until the backend titles it from the first message.
@@ -39,18 +39,18 @@ import UniformTypeIdentifiers
     }
 
     /// Nil for a standalone chat.
-    let projectID: String?
+    private(set) var projectID: String?
     /// The project's name, or nil for a standalone chat.
-    let projectName: String?
-    /// The folder the chat works in; empty for New Task's chat, which works in a scratch folder of
-    /// its own.
+    private(set) var projectName: String?
+    /// The folder the chat works in; empty for a New Task chat of no project, which works in a
+    /// scratch folder of its own.
     private(set) var folder: String
     /// The session worktree a chat started in a session's pane is tagged with; nil elsewhere.
     let worktreePath: String?
     private(set) var agents: [Agent] = []
     var agent: String? { didSet { if oldValue != agent { modelsLoad = Task { await loadModels() } } } }
     /// The models' read a change of agent started, for `load` to wait on rather than start another.
-    @ObservationIgnored private var modelsLoad: Task<Void, Never>?
+    @ObservationIgnored private(set) var modelsLoad: Task<Void, Never>?
     private(set) var models: [ChatModelOption] = []
     var model: String? { didSet { if oldValue != model { Task { await refreshTraits() } } } }
     /// The chosen model's traits, as the chat page's picker footer draws them (`ChatModelCatalog`).
@@ -98,9 +98,10 @@ import UniformTypeIdentifiers
     private(set) var knowledgeChecked = false
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     @ObservationIgnored private let service: any ChatServing
-    @ObservationIgnored private let chooseFolder: (String) async -> String?
     @ObservationIgnored private var statuses: [String: ChatProviderStatus] = [:]
     @ObservationIgnored private var modelsRequest = UUID()
+    /// Whether `error` is what the models' read said, which a move to another folder takes back.
+    @ObservationIgnored private var errorFromModels = false
     /// Images already saved for `startedShell`, by attachment: a Start sent again after a failure
     /// does not save them twice.
     @ObservationIgnored private var saved: [ChatAttachment.ID: JSONValue] = [:]
@@ -109,7 +110,6 @@ import UniformTypeIdentifiers
 
     /// `agent` is the CLI to offer first, when it is usable: a session's own, in its pane.
     init(projectID: String?, projectName: String?, folder: String, service: any ChatServing,
-         chooseFolder: @escaping (String) async -> String? = { _ in nil },
          worktreePath: String? = nil, agent: String? = nil, knowledgeSession: SessionKnowledge? = nil) {
         self.projectID = projectID
         self.knowledgeSession = knowledgeSession
@@ -118,7 +118,6 @@ import UniformTypeIdentifiers
         self.worktreePath = worktreePath
         self.agent = agent
         self.service = service
-        self.chooseFolder = chooseFolder
     }
 
     var standalone: Bool { projectID == nil }
@@ -137,8 +136,7 @@ import UniformTypeIdentifiers
     /// New Task's field, before anything is typed.
     var askPlaceholder: String {
         guard let name = AgentDrivers.of(agent)?.shortName else { return String(localized: "Ask anything") }
-        if folder.isEmpty { return String(localized: "Ask \(name) anything") }
-        return standalone ? String(localized: "Ask \(name) about this folder") : String(localized: "Ask \(name) about this project")
+        return standalone ? String(localized: "Ask \(name) anything") : String(localized: "Ask \(name) about this project")
     }
     /// The session's agent, as the form names it.
     var knowledgeAgentName: String { AgentDrivers.of(knowledgeSession?.cli)?.shortName ?? String(localized: "the session’s agent") }
@@ -176,7 +174,8 @@ import UniformTypeIdentifiers
         return ChatKnowledgeSource(provider: driver.chatProvider, conversationID: conversation)
     }
     var canCreate: Bool {
-        !retired && !busy && (standalone || !folder.isEmpty) && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
+        // Not while the models are read again for a new folder: the one chosen may not be offered there.
+        !retired && !busy && !loadingModels && (standalone || !folder.isEmpty) && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
     }
 
     private var typedPrompt: String { ChatCompletion.text(of: prompt) }
@@ -205,6 +204,7 @@ import UniformTypeIdentifiers
             statuses = [:]
             self.error = error.localizedDescription
         }
+        errorFromModels = false
         agents = AgentDrivers.all.map { driver in
             let status = statuses[driver.chatProvider]
             let usable = status?.usable ?? false
@@ -229,7 +229,10 @@ import UniformTypeIdentifiers
     /// chosen until another is. With the catalogue out of reach, the CLI's list as it is; with no
     /// CLI list, the ones the agent's status names.
     func loadModels() async {
-        guard !retired, let agent = agents.first(where: { $0.cli == self.agent }) else { models = []; model = nil; return }
+        guard !retired, let agent = agents.first(where: { $0.cli == self.agent }) else {
+            models = []; model = nil; loadingModels = false
+            return
+        }
         let request = UUID()
         modelsRequest = request
         loadingModels = true
@@ -241,7 +244,7 @@ import UniformTypeIdentifiers
         guard !retired, modelsRequest == request else { return }
         if reported.isEmpty { reported = statuses[agent.provider]?.models ?? [] }
         // The CLI's list failing is told only when it leaves nothing to list.
-        if reported.isEmpty, let failure { self.error = failure }
+        if reported.isEmpty, let failure { self.error = failure; errorFromModels = true }
         let list = await ChatModelCatalog.shared.list(provider: agent.provider, runtime: reported) ?? reported
         guard !retired, modelsRequest == request else { return }
         self.reported = reported
@@ -301,26 +304,26 @@ import UniformTypeIdentifiers
         await refreshTraits()
     }
 
-    /// A standalone chat's folder, picked; the models are read again for it, since a CLI may offer
-    /// a folder its own. Cancelled, the chat stays where it was.
-    func changeFolder() async {
-        guard !retired, standalone, !busy, startedShell == nil, let picked = await chooseFolder(folder), !retired,
-              !picked.isEmpty, picked != folder else { return }
-        folder = picked
-        await loadModels()
-    }
+    /// Whether the person can say where the chat works: New Task's, until its chat is made. A pane's
+    /// chat works in its session's worktree.
+    var canMove: Bool { !retired && worktreePath == nil && !busy && startedShell == nil }
 
-    /// A form made anew (on reconnect) keeps the folder the one before had picked.
-    func carryFolder(from previous: NewChatViewModel) {
-        guard !retired, standalone, previous.standalone, startedShell == nil else { return }
-        folder = previous.folder
-    }
-
-    /// Back to a scratch folder of the chat's own.
-    func clearFolder() async {
-        guard !retired, standalone, !busy, startedShell == nil, !folder.isEmpty else { return }
-        folder = ""
-        await loadModels()
+    /// New Task's chat placed in `project`, working in its folder, or in none, in a scratch folder of
+    /// its own. A project renamed is only named anew. A move to another folder takes back what the last
+    /// folder's models read said, leaves any read still under way unheard, and reads them again, since
+    /// a CLI may offer a folder its own; Start waits for them.
+    func place(in project: Project?) {
+        guard canMove else { return }
+        let workspace = project?.workspace ?? ""
+        if project?.name != projectName { projectName = project?.name }
+        guard project?.id != projectID || workspace != folder else { return }
+        projectID = project?.id
+        folder = workspace
+        if errorFromModels { error = nil; errorFromModels = false }
+        modelsRequest = UUID()
+        guard agents.contains(where: { $0.cli == agent }) else { loadingModels = false; return }
+        loadingModels = true
+        modelsLoad = Task { await loadModels() }
     }
 
     /// A project chat works in its project's folder: one with none set cannot start a chat.
@@ -331,7 +334,7 @@ import UniformTypeIdentifiers
     /// Start sends it again to the chat already made.
     func create() async {
         guard canCreate, staging == 0, let agent = agents.first(where: { $0.cli == self.agent }), let model else { return }
-        busy = true; error = nil
+        busy = true; error = nil; errorFromModels = false
         defer { busy = false }
         let project = projectID ?? ChatProject.standalone
         let title = ChatProject.untitled
@@ -393,6 +396,7 @@ import UniformTypeIdentifiers
         } catch {
             guard !retired else { return }
             self.error = error.localizedDescription
+            errorFromModels = false
         }
     }
 
@@ -419,8 +423,10 @@ import UniformTypeIdentifiers
         if let shell = previous.startedShell {
             startedShell = shell
             saved = previous.saved
-            // The chat works where it was made.
-            if standalone, previous.standalone { folder = previous.folder }
+            // The chat works where it was made, which the page could not have moved since.
+            if worktreePath == nil, previous.worktreePath == nil {
+                projectID = previous.projectID; projectName = previous.projectName; folder = previous.folder
+            }
         }
         staging += previous.staging
         previous.successor = self

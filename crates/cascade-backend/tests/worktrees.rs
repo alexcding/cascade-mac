@@ -22,11 +22,19 @@ fn app() -> (axum::Router, TempDir) {
 }
 
 async fn post(app: &axum::Router, path: &str, body: Value) -> (StatusCode, Value) {
+    send(app, "POST", path, body).await
+}
+
+async fn put(app: &axum::Router, path: &str, body: Value) -> (StatusCode, Value) {
+    send(app, "PUT", path, body).await
+}
+
+async fn send(app: &axum::Router, method: &str, path: &str, body: Value) -> (StatusCode, Value) {
     let response = app
         .clone()
         .oneshot(
             Request::builder()
-                .method("POST")
+                .method(method)
                 .uri(path)
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))
@@ -523,6 +531,60 @@ async fn a_folder_without_git_becomes_a_repository_only_when_asked() {
     let (status, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"first","create":true})).await;
     assert_eq!(status, StatusCode::OK, "{made}");
     assert!(PathBuf::from(made["path"].as_str().unwrap()).join("todo.md").exists());
+}
+
+/// A repository with no commit yet has nothing to make a worktree from, and may be one still being
+/// set up: it is not taken for a project folder until it has its first commit.
+#[tokio::test]
+async fn a_repository_with_no_commit_is_given_its_first() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let dir = parent.path().canonicalize().unwrap().join("fresh");
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("a.txt"), "a").unwrap();
+    git(&dir, &["init", "-q"]);
+    let path = dir.to_str().unwrap();
+    let (_, detected) = get(&app, &format!("/api/detect-repo?path={path}")).await;
+    assert_eq!(detected["git"], false, "{detected}");
+    let (status, refused) = post(&app, "/api/projects", json!({"name":"F","workspace":path})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert!(dir.join(".git").exists(), "a repository that was there is kept");
+    let (status, project) = post(&app, "/api/projects", json!({"name":"F","workspace":path,"initGit":true})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    git(&dir, &["rev-parse", "--verify", "HEAD"]);
+}
+
+/// A project moved to a folder without git is held/// A project moved to a folder without git is held to what a new project is: refused, or made a
+/// repository when asked. Saving anything else leaves its folder unasked.
+#[tokio::test]
+async fn a_project_moved_to_a_folder_without_git_needs_it_set_up() {
+    let (app, _data) = app();
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let repo = root.join("repo");
+    fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["commit", "--allow-empty", "-q", "-m", "first"]);
+    let notes = root.join("notes");
+    fs::create_dir(&notes).unwrap();
+    fs::write(notes.join("todo.md"), "- one").unwrap();
+    let (status, project) = post(&app, "/api/projects", json!({"name":"P","workspace":repo.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let path = format!("/api/projects/{}", project["id"].as_str().unwrap());
+
+    let (status, gone) = put(&app, "/api/projects/missing", json!({"workspace":notes.to_str().unwrap(),"initGit":true})).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{gone}");
+    assert!(!notes.join(".git").exists(), "a project gone sets up nothing");
+    let (status, refused) = put(&app, &path, json!({"workspace":notes.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert!(!notes.join(".git").exists());
+    let (status, renamed) = put(&app, &path, json!({"name":"Q","workspace":repo.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::OK, "the folder it is in is not asked again: {renamed}");
+
+    let (status, moved) = put(&app, &path, json!({"workspace":notes.to_str().unwrap(),"initGit":true})).await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_eq!(moved["workspace"], notes.to_str().unwrap());
+    assert!(notes.join(".git").exists());
 }
 
 /// A new branch with no base named is cut from the repository's default branch, even when that

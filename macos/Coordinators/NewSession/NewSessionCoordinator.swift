@@ -10,11 +10,13 @@ import Observation
 }
 
 /// What New Task needs from the app: a project's Start composer, and New Project; on its Chat side,
-/// a chat's form (which picks its folder through the app) and the chat it started.
+/// a chat's form and the chat it started.
 @MainActor protocol NewSessionCoordinating: AnyObject {
     func newSessionComposer(for projectID: String) -> ProjectComposerModel?
-    func newSessionNewProject()
-    /// The Chat side's form, a chat of no project, on `agent` when usable; nil while not connected.
+    /// New Project; `forChat` from the Chat side's chip, whose chat then starts in it.
+    func newSessionNewProject(forChat: Bool)
+    /// The Chat side's form, on `agent` when usable, which the page then places in a project or none;
+    /// nil while not connected.
     func newSessionChat(agent: String?) -> NewChatViewModel?
     /// A chat New Task started: the list hears of it before the window goes to it.
     func newSessionChatCreated(_ shell: ChatThreadShell)
@@ -48,7 +50,7 @@ import Observation
     func handle(_ action: NewSessionViewModel.Action) {
         guard !retired, isOwned(), canPresent() else { return }
         switch action {
-        case .newProject: runtime?.newSessionNewProject()
+        case .newProject(let forChat): runtime?.newSessionNewProject(forChat: forChat)
         case .chatCreated(let shell):
             runtime?.newSessionChatCreated(shell)
             showChat(shell.id)

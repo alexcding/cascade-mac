@@ -12,6 +12,12 @@ struct ProjectEditorView: View {
                         TextField("Workspace folder", text: $model.draft.workspace).accessibilityIdentifier("project-workspace")
                         Button("Choose…") { Task { await model.pickFolder() } }
                     }
+                    if model.needsGit {
+                        Text("This folder isn’t a git repository. Sessions run in git worktrees.")
+                            .font(.caption).foregroundStyle(Theme.danger)
+                        Toggle("Initialize a git repository and commit the folder’s files", isOn: $model.draft.initGit)
+                            .accessibilityIdentifier("project-settings-init-git")
+                    }
                     HStack {
                         TextField("GitHub repository", text: $model.draft.repo).help("owner/repo or a GitHub URL")
                         Button("Detect") { Task { await model.detectRepository() } }.disabled(model.draft.workspace.isEmpty)
@@ -195,7 +201,6 @@ struct ProjectComposerView: View {
     var modeControl: AnyView?
     @FocusState private var focused: Bool
     @State private var choosingBranch = false
-    @State private var choosingProject = false
     @State private var choosingProjectFromTitle = false
 
     /// Whether Start can switch projects here: New Session's, not a project's own page.
@@ -295,18 +300,9 @@ struct ProjectComposerView: View {
     /// The project the session starts in; where Start can switch, it opens the projects to pick from.
     @ViewBuilder private var projectChip: some View {
         if switchesProject, let onChooseProject {
-            Button { choosingProject.toggle() } label: {
-                ComposerChip(symbol: "folder", title: project.name, active: choosingProject)
-            }
-            .buttonStyle(.plain)
-            .onChange(of: choosingProject) { _, open in if !open { focused = true } }
-            .popover(isPresented: $choosingProject, arrowEdge: .top) {
-                ProjectPicker(projects: projects, current: project.id, choose: onChooseProject, newProject: onNewProject) {
-                    choosingProject = false
-                }
-            }
-            .help(String(localized: "The project the session starts in"))
-            .accessibilityIdentifier("project-composer-project")
+            ProjectChip(title: project.name, projects: projects, current: project.id, choose: onChooseProject,
+                        newProject: onNewProject, help: String(localized: "The project the session starts in"),
+                        identifier: "project-composer-project") { focused = true }
         } else {
             ComposerChip(symbol: "folder", title: project.name, interactive: false)
                 .accessibilityIdentifier("project-composer-project")
@@ -351,13 +347,48 @@ struct ProjectComposerView: View {
     }
 }
 
+/// A composer's project chip, opening the projects to pick from (`ProjectPicker`): Start's, and New
+/// Task's chat's, which offers no project too. `closed` gives the keyboard back to the field.
+struct ProjectChip: View {
+    var symbol = "folder"
+    let title: String
+    let projects: [Project]
+    let current: String?
+    let choose: (String) -> Void
+    let newProject: (() -> Void)?
+    var noProject: (() -> Void)? = nil
+    var noneSelected = false
+    let help: String
+    let identifier: String
+    let closed: () -> Void
+    @State private var open = false
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            ComposerChip(symbol: symbol, title: title, active: open)
+        }
+        .buttonStyle(.plain)
+        .onChange(of: open) { _, open in if !open { closed() } }
+        .popover(isPresented: $open, arrowEdge: .top) {
+            ProjectPicker(projects: projects, current: current, choose: choose, newProject: newProject,
+                          noProject: noProject, noneSelected: noneSelected) { open = false }
+        }
+        .help(help)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
 /// The project chip's popover: the projects, filtered by what is typed, and New Project under them.
+/// A chat's chip offers no project too.
 struct ProjectPicker: View {
     let projects: [Project]
     /// The project picked; nil when none is.
     let current: String?
     let choose: (String) -> Void
     let newProject: (() -> Void)?
+    /// No Project, where what starts can belong to none; `noneSelected` marks it as the pick.
+    var noProject: (() -> Void)? = nil
+    var noneSelected = false
     let done: () -> Void
     @State private var query = ""
     @FocusState private var searching: Bool
@@ -390,13 +421,27 @@ struct ProjectPicker: View {
             // As tall as its rows, up to a limit: filtering shrinks it rather than leave a gap.
             .frame(height: min(CGFloat(max(matches.count, 1)) * 35 + 16, 340))
             .overlay {
-                if matches.isEmpty { Text("No project matches").font(.system(size: 12)).foregroundStyle(.secondary) }
+                if matches.isEmpty {
+                    // On one line: the overlay offers only what the empty list's padding leaves.
+                    Text(projects.isEmpty ? String(localized: "No projects yet") : String(localized: "No project matches"))
+                        .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize()
+                }
             }
-            if let newProject {
+            if noProject != nil || newProject != nil {
                 Divider()
-                PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
-                    .accessibilityIdentifier("project-composer-new-project")
-                    .padding(8)
+                VStack(spacing: 1) {
+                    if let noProject {
+                        PickerRow(symbol: "bubble.left", title: String(localized: "No Project"), selected: noneSelected) {
+                            noProject(); done()
+                        }
+                        .accessibilityIdentifier("project-picker-no-project")
+                    }
+                    if let newProject {
+                        PickerRow(symbol: "plus", title: String(localized: "New Project")) { done(); newProject() }
+                            .accessibilityIdentifier("project-composer-new-project")
+                    }
+                }
+                .padding(8)
             }
         }
         .frame(width: 300)

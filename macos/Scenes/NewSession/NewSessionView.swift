@@ -16,27 +16,11 @@ struct NewSessionView: View {
                 .id(ObjectIdentifier(composer))
                 .padding(28)
         } else if model.projects.isEmpty {
-            // Nothing to start a task in yet: the way to make the first project is right here. The
-            // switch stays, since a chat needs no project.
-            VStack(spacing: 0) {
-                NewTaskModeControl(model: model).padding(.top, 28)
-                noProjects
-            }
+            // Nothing to start a task in yet: Start as it is with a project, its chip offering New Project.
+            NewTaskNoProjectComposer(model: model).padding(28)
         } else {
             Text("Connect to start sessions.").foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private var noProjects: some View {
-        ContentUnavailableView {
-            Label(String(localized: "No Projects"), systemImage: "folder")
-        } description: {
-            Text("Add a project with a folder to start sessions in it.")
-        } actions: {
-            Button(String(localized: "New Project…"), action: model.newProject)
-                .buttonStyle(.bordered).controlSize(.large)
-                .accessibilityIdentifier("new-task-new-project")
         }
     }
 
@@ -49,6 +33,50 @@ struct NewSessionView: View {
             Text("Connect to start chats.").foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// New Task's Task side with no project to start a session in: Start's composer as it is with one,
+/// whose project chip opens the projects (none yet) and New Project. Nothing starts until one is made.
+private struct NewTaskNoProjectComposer: View {
+    let model: NewSessionViewModel
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            Text("What should we build?")
+                .font(.system(size: 32)).tracking(-0.6).multilineTextAlignment(.center)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Spacer(minLength: 24)
+            VStack(alignment: .leading, spacing: 6) {
+                ComposerTray {
+                    NewTaskModeControl(model: model)
+                    ProjectChip(title: String(localized: "Choose Project"), projects: [], current: nil, choose: { _ in },
+                                newProject: model.newProject, help: String(localized: "The project the session starts in"),
+                                identifier: "project-composer-project") {}
+                    Spacer(minLength: 0)
+                } card: {
+                    ComposerCard {
+                        ComposerTextField(placeholder: String(localized: "Describe a task or branch, or paste a pull request, issue or Jira link"), text: $text, focused: $focused,
+                                          disabled: true, identifier: "project-composer") {}
+                        HStack(spacing: 12) {
+                            Spacer(minLength: 0)
+                            ComposerStartButton(enabled: false, label: String(localized: "Create Session"),
+                                                identifier: "project-composer-create") {}
+                        }
+                        .frame(minHeight: 32)
+                    }
+                }
+                ComposerMessageLine {
+                    Text("Add a project with a folder to start sessions in it.").foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: 766)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -67,7 +95,7 @@ struct NewTaskModeControl: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.border))
         .fixedSize()
         .padding(.leading, 4).padding(.trailing, 6)
-        .help(String(localized: "Start a task with a worktree of its own, or a chat of no project"))
+        .help(String(localized: "Start a task with a worktree of its own, or a chat in a folder as it is"))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Start"))
         .accessibilityIdentifier("new-task-mode")
@@ -99,9 +127,9 @@ private struct NewTaskModeButton: View {
     }
 }
 
-/// New Task's Chat side: the question, and Start's composer — the Task | Chat switch on its tray, the
-/// agent and model by Start. The chat belongs to no project and works in a scratch folder of its own.
-/// Start makes the chat, sends what is typed as its first message, and goes to it.
+/// New Task's Chat side: the question, and Start's composer — the Task | Chat switch and the chat's
+/// project on its tray, the agent and model by Start. The chat works in the picked project's folder,
+/// or, of no project, in a scratch folder of its own; never on a branch or worktree of its own. Start makes the chat, sends what is typed as its first message, and goes to it.
 private struct NewTaskChatComposer: View {
     let page: NewSessionViewModel
     @Bindable var model: NewChatViewModel
@@ -119,6 +147,7 @@ private struct NewTaskChatComposer: View {
             VStack(alignment: .leading, spacing: 6) {
                 ComposerTray {
                     NewTaskModeControl(model: page)
+                    placeChip
                     Spacer(minLength: 0)
                     if model.busy || (model.loading && model.agents.isEmpty) {
                         ProgressView().controlSize(.small).padding(.trailing, 8)
@@ -147,6 +176,8 @@ private struct NewTaskChatComposer: View {
                         Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
                     } else if let chosen, !chosen.usable, let note = chosen.note {
                         Text(note).foregroundStyle(.secondary)
+                    } else if let name = model.projectName {
+                        Text("The agent works in \(name)’s folder as it is. It asks before running tools.").foregroundStyle(.secondary)
                     } else {
                         Text("The agent works in a folder of the chat's own. It asks before running tools.").foregroundStyle(.secondary)
                     }
@@ -158,5 +189,16 @@ private struct NewTaskChatComposer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { model.requestFocus() }
         .task { await model.load() }
+    }
+
+    /// The project the chat starts in, or none: Task's project chip, with No Project.
+    private var placeChip: some View {
+        ProjectChip(symbol: model.standalone ? "bubble.left" : "folder",
+                    title: model.projectName ?? String(localized: "No Project"),
+                    projects: page.projects, current: model.projectID, choose: { page.chooseChatProject($0) },
+                    newProject: page.newChatProject, noProject: { page.chooseChatProject(nil) },
+                    noneSelected: model.standalone, help: String(localized: "The project the chat works in"),
+                    identifier: "new-task-chat-project") { model.requestFocus() }
+            .disabled(!model.canMove)
     }
 }

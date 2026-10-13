@@ -167,7 +167,7 @@ private struct QuietPageBackend: ChatPageBackend {
         let knowing = try #require(model.paneChat(for: second)?.form)
         await knowing.load()
         knowing.agent = "codex"
-        await knowing.loadModels()
+        await knowing.modelsLoad?.value
         knowing.includeKnowledge = true
         await knowing.create()
         let command = try #require(service.chat.commands.last)

@@ -18,8 +18,11 @@ import Observation
     private(set) var saved = false
     /// The folder last detected, and whether it is a git repository.
     private var gitAnswer: (workspace: String, git: Bool?)?
-    /// The chosen folder is no git repository: a new project needs `draft.initGit` to be created.
-    var needsGit: Bool { id == nil && gitAnswer?.workspace == draft.workspace && gitAnswer?.git == false }
+    /// The chosen folder is no git repository: a new project, or one moved to another folder, needs
+    /// `draft.initGit` to be saved. A project left in its folder is not asked again.
+    var needsGit: Bool { movesFolder && gitAnswer?.workspace == draft.workspace && gitAnswer?.git == false }
+    /// Whether saving sets the project's folder: a new project's, or a folder changed.
+    private var movesFolder: Bool { id == nil || draft.workspace != baseline.workspace }
     private(set) var retired = false
     private var completedCreation = false
     private var suggestedName = ""
@@ -130,7 +133,10 @@ import Observation
         guard draft.workspace != before else { return }
         await detectRepository()
     }
-    func detectRepository() async {
+    /// What the folder holds: its GitHub repo, a name and IDE for a new project, and whether it is a
+    /// git repository. `git` asks only that last, for a project moved to another folder, whose repo
+    /// is the person's to keep.
+    func detectRepository(git gitOnly: Bool = false) async {
         guard active, !Task.isCancelled, !busy && !draft.workspace.isEmpty, let service else { return }
         let generation = generation, workspace = draft.workspace
         busy = true; error = nil
@@ -142,9 +148,10 @@ import Observation
             // Agreeing to make one folder a repository is not agreeing for the next.
             if gitAnswer?.workspace != workspace { draft.initGit = false }
             gitAnswer = (workspace, detected.git)
+            if gitOnly { return }
             if repo.isEmpty {
-                // A new project's folder without git says so itself (`needsGit`); it has no remote.
-                if id != nil || detected.git != false { error = String(localized: "No GitHub remote found in this workspace.") }
+                // A folder without git the project is moving to says so itself (`needsGit`); it has no remote.
+                if !needsGit { error = String(localized: "No GitHub remote found in this workspace.") }
                 // A new project's repo is only ever derived, so one left from another folder is stale.
                 if id == nil { draft.repo = "" }
             } else { draft.repo = repo }
@@ -176,10 +183,11 @@ import Observation
     func save() async {
         guard active, !Task.isCancelled, !busy, let service else { return }
         if let message = draft.validationError { error = message; return }
-        // A typed folder not yet detected is detected first: one without git waits for the box.
-        if id == nil, !draft.workspace.isEmpty, gitAnswer?.workspace != draft.workspace {
+        // A folder not yet detected is detected first: one without git waits for the box. A project
+        // moved to another folder only asks about git: the repository it names is the person's.
+        if movesFolder, !draft.workspace.isEmpty, gitAnswer?.workspace != draft.workspace {
             let before = generation
-            await detectRepository()
+            await detectRepository(git: id != nil)
             // A detection that failed keeps its error on screen rather than saving blind.
             guard active, !Task.isCancelled, self.generation == before, gitAnswer?.workspace == draft.workspace, !needsGit else { return }
         }
@@ -194,7 +202,13 @@ import Observation
             draft = ProjectDraft(project); baseline = draft; saved = true
             completedCreation = id == nil
             onAction(.saved(project))
-        } catch { if active && self.generation == generation { self.error = error.localizedDescription } }
+        } catch {
+            guard active && self.generation == generation else { return }
+            self.error = error.localizedDescription
+            // What the folder was may have changed under the answer kept (a `.git` taken away): the
+            // next Save asks again, and offers to set git up if it must.
+            gitAnswer = nil
+        }
     }
     func delete(_ request: DeletionRequest) async {
         guard canDelete(request), !Task.isCancelled, let id, let service else { return }

@@ -36,8 +36,6 @@ public final class AppViewModel {
     /// The chat screen's page, kept across the chats it shows (`ChatFeatureFactory.chatPage`):
     /// made for the first chat, or ahead of it (`loadChatPage`).
     @ObservationIgnored var chatPage: ChatPageHost?
-    /// Picks a standalone chat's folder, starting from the one given; nil when cancelled.
-    @ObservationIgnored var chooseChatFolder: @MainActor (String?) async -> String? = { AppViewModel.pickFolder(from: $0) }
     /// The chat views on screen, by the terminal they sit over: an agent's approval request goes
     /// to its chat, and one with no chat watching goes straight back to the terminal.
     @ObservationIgnored private var permissionWatchers: [String: PermissionWatcher] = [:]
@@ -575,7 +573,24 @@ public final class AppViewModel {
     func newTask(in projectID: String) { openStart(in: projectID) }
 
     func newSessionComposer(for projectID: String) -> ProjectComposerModel? { prepareProjectModel(projectID)?.composer }
-    func newSessionNewProject() { perform(.newProject) }
+    /// New Project from New Task's project chip. From the Chat side's, the chat starts in it, and the
+    /// Task side keeps its own project; a project made with no folder opens its Settings as any does.
+    func newSessionNewProject(forChat: Bool) {
+        guard forChat else { perform(.newProject); return }
+        presentNewProject { [weak self] project in
+            guard let self else { return }
+            guard !project.workspace.isEmpty else { savedProject(project); return }
+            applyProjectSave(project, source: .configuration)
+            select(.newSession)
+            coordinator.newSession?.chooseChatProject(project.id)
+        }
+    }
+
+    /// The New Project sheet, and what follows its save.
+    private func presentNewProject(didSave: @escaping (Project) -> Void) {
+        guard canPerform(.newProject), let api else { return }
+        coordinator.presentNewProject(service: backendFactory.projects(api: api), didSave: didSave)
+    }
 
     /// A project's name on Projects: the project's page, on its Settings.
     func openProjectSettings(_ projectID: String) {
@@ -722,9 +737,7 @@ public final class AppViewModel {
         case .compactConversation: if canPerform(command) { coordinator.activeWorkspaceModel?.compactAgent() }
         case .clearConversation: if canPerform(command), let model = coordinator.activeWorkspaceModel { confirmClear(model) }
         case .reloadPage: if canPerform(.reloadPage) { viewer.active?.activePage?.controls.reload() }
-        case .newProject:
-            guard canPerform(.newProject), let api else { return }
-            coordinator.presentNewProject(service: backendFactory.projects(api: api), didSave: { [weak self] in self?.savedProject($0) })
+        case .newProject: presentNewProject { [weak self] in self?.savedProject($0) }
         case .newSession: newSession(agent: nil)
         case .newTab: if canPerform(.newTab) { newBrowserTab() }
         case .runProject: if canPerform(.runProject) { coordinator.activeWorkspaceModel?.run() }

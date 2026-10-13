@@ -10,9 +10,9 @@ import Observation
     /// A chat's model, in `page` when one is given (the chat screen's), in a page of its own otherwise.
     func chat(threadID: String, shell: ChatThreadShell?, context: ChatPageContext, backend: any ChatPageBackend,
               page: ChatPageHost?) -> ChatViewModel
-    /// New Task's Chat side: a chat of no project, in a scratch folder the backend makes unless
-    /// `chooseFolder` picks one, on `agent` when it is usable.
-    func newChat(agent: String?, service: any ChatServing, chooseFolder: @escaping (String) async -> String?) -> NewChatViewModel
+    /// New Task's Chat side, on `agent` when it is usable: made in no project, in a scratch folder the
+    /// backend makes, and placed by the page in a project.
+    func newChat(agent: String?, service: any ChatServing) -> NewChatViewModel
     /// The new-chat form of a Chat tab in a session's pane: the chat works in the session's
     /// worktree and is tagged with it, on the session's agent unless another is picked, and may
     /// start with what that agent knows in `conversation`.
@@ -37,8 +37,8 @@ extension ChatFeatureFactory {
         ChatViewModel(threadID: threadID, shell: shell, projectName: context.projectName,
                       page: ChatPageModel(context: context, backend: backend, page: page))
     }
-    func newChat(agent: String?, service: any ChatServing, chooseFolder: @escaping (String) async -> String? = { _ in nil }) -> NewChatViewModel {
-        NewChatViewModel(projectID: nil, projectName: nil, folder: "", service: service, chooseFolder: chooseFolder, agent: agent)
+    func newChat(agent: String?, service: any ChatServing) -> NewChatViewModel {
+        NewChatViewModel(projectID: nil, projectName: nil, folder: "", service: service, agent: agent)
     }
 }
 
