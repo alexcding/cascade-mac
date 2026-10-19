@@ -237,18 +237,24 @@ final class CascadeUITests: XCTestCase {
             XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         }
         try await emitActivity()
-        let toast = app.buttons["activity-toast-open"]
+        // The activity capsule shows the latest activity until it is read; reading it opens the Today menu.
+        let toast = app.descendants(matching: .any)["activity-toast-open"].firstMatch
+        let menu = app.descendants(matching: .any)["today-activity-menu"].firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(toast.label.contains("Sample notification acceptance check"), toast.label)
         toast.click()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertFalse(toast.exists, app.debugDescription)
-        XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5), app.debugDescription)
-        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(menu.waitForNonExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].exists)
+        // Show all activity is where the menu leads for more.
         try await emitActivity()
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
-        app.buttons["Dismiss activity"].click()
-        XCTAssertFalse(toast.exists)
-        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].exists)
+        toast.click()
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["Show all activity →"].click()
+        XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5), app.debugDescription)
     }
 
     @MainActor
@@ -866,9 +872,9 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         XCTAssertEqual(draft.value as? String, "Keep this tray draft")
         app.sheets.buttons["Cancel"].click()
-        // The sidebar bell is today's activity (events-popover.js), not the tray.
+        // The sidebar's activity capsule is today's activity (events-popover.js), not the tray.
         app.buttons["Today's activity"].click()
-        XCTAssertTrue(app.descendants(matching: .any)["today-activity-popover"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["today-activity-menu"].firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.menuItems["Quit Cascade"].exists)
     }
 

@@ -376,7 +376,7 @@ it was written.
   it is its own SwiftUI `Settings` scene window (`SettingsWindowView`), and its coordinator
   follows `AppCoordinator.settingsPresented` instead of `selection`. `Activity` lives inside
   it as a section: `LogsCoordinator` follows `AppCoordinator.activityVisible`, and
-  `presentActivity()` is how the bell popover and notification clicks get there.
+  `presentActivity()` is how the sidebar's Today menu and notification clicks get there.
 - **`Coordinators/`** — presentation identity and model lifetime. A coordinator decides
   which model is current for a screen, whether it may present, and when it retires.
   `Coordinators/App/AppCoordinator.swift` is the root; routing and deep links live in

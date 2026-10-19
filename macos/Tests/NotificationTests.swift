@@ -91,7 +91,7 @@ private func activity(_ stamp: String, type: String = "pr_merged", url: String =
         "payload": ["repo": "owner/repo", "pr": ["number": 1, "title": "A change"], "quiet": true]])
     let quiet = try JSONDecoder().decode(ActivityEvent.self, from: data)
     for focused in [true, false] {
-        store.isMainWindowFocused = { focused }
+        store.isActivityCapsuleSeen = { focused }
         store.receiveActivity(quiet, enabled: true)
         await store.waitForDelivery()
     }
@@ -103,13 +103,13 @@ private func activity(_ stamp: String, type: String = "pr_merged", url: String =
     let recorder = RecordingNotifications()
     let store = NotificationStore()
     store.configure(recorder)
-    store.isMainWindowFocused = { true }
+    store.isActivityCapsuleSeen = { true }
     let first = try activity("first")
     store.receiveActivity(first, enabled: true)
     await store.waitForDelivery()
     #expect(store.toast?.title == "Pull request merged in repo")
     #expect(recorder.notices.isEmpty)
-    store.isMainWindowFocused = { false }
+    store.isActivityCapsuleSeen = { false }
     store.receiveActivity(first, enabled: true)
     await store.waitForDelivery()
     #expect(recorder.notices.isEmpty && store.recent.count == 1)

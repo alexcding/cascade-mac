@@ -159,16 +159,12 @@ enum MainWindowMetrics {
     static let paneMin: CGFloat = 320
 }
 
-/// The screen's column, with the activity toasts over its trailing corner.
+/// The screen's column.
 private struct MainContentColumn: View {
     let model: AppViewModel
 
     var body: some View {
         AppCoordinatorView(coordinator: model.coordinator)
-            .overlay(alignment: .topTrailing) {
-                ActivityToastView(notifications: model.shell.notifications)
-                    .padding(.top, 6).padding(.trailing, 20)
-            }
             .modifier(SettingsWindowOpener(model: model))
             .windowBackdrop(model.coordinator.windowBackdrop)
     }

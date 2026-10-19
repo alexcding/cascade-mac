@@ -125,8 +125,8 @@ the agent hooks from **Settings → Integrations**.
 - Light or dark appearance, a default agent for new sessions, terminal and editor
   fonts, and custom terminal keybinds.
 - Menu shortcuts can be remapped in **Settings → Shortcuts**.
-- Launch at login, CPU and memory use, and an activity log. The sidebar bell shows
-  today's events.
+- Launch at login, CPU and memory use, and an activity log. The sidebar's activity
+  capsule shows the latest event until it is opened, and unfolds into today's events.
 - `cascade://app/…` links open the overview, the terminal, a project section, or a
   session.
 - Cascade updates itself. Use **Check for Updates…** to check now.

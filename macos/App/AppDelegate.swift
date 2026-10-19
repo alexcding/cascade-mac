@@ -86,7 +86,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !chosen { NSSound.beep() }
             return nil
         }
-        model.configureNativeNotifications(isMainWindowFocused: { [weak self] in self?.window?.isKeyWindow == true },
+        // Activity shows in the sidebar's capsule only while the window is in front with its sidebar
+        // open; otherwise it goes out as a banner.
+        model.configureNativeNotifications(isActivityCapsuleSeen: { [weak self] in
+            guard let window = self?.window, window.isKeyWindow else { return false }
+            return (window.contentViewController as? NSSplitViewController)?.splitViewItems.first?.isCollapsed != true
+        },
             showWindow: { [weak self] in self?.showWindow() })
         // Variable, not square: the share left sits beside the glyph. Unscaled, so the gap between
         // them is the bar's own image-to-title spacing, as for the weather and every titled item.

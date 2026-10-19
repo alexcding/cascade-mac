@@ -13,12 +13,13 @@ import Observation
     private(set) var requesting = false
     private(set) var recent: [NativeNotice] = []
     private(set) var toast: NativeNotice?
-    @ObservationIgnored public var isMainWindowFocused: () -> Bool = { false }
+    /// Whether the sidebar's activity capsule is on screen in the focused main window, where an
+    /// activity is shown instead of as a banner.
+    @ObservationIgnored public var isActivityCapsuleSeen: () -> Bool = { false }
     @ObservationIgnored private var delivery: (any NotificationDelivery)?
     @ObservationIgnored private var reviewTracker = ReviewAnnouncementTracker()
     @ObservationIgnored private var activityKeys: [Data] = []
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var authorizationRead: UUID?
 
@@ -100,7 +101,7 @@ import Observation
         // A quiet line is history, one of several caught up on at once: the line that counts
         // them is the notice.
         guard enabled, event.payload?.quiet != true else { return }
-        if isMainWindowFocused() { showToast(notice) }
+        if isActivityCapsuleSeen() { showToast(notice) }
         else { deliver([notice]) }
     }
 
@@ -132,33 +133,17 @@ import Observation
     // Recheck focus if it changed between SSE receipt and the OS callback.
     func shouldPresentBanner(for notice: NativeNotice) -> Bool {
         guard !retired else { return false }
-        if notice.kind == .activity, isMainWindowFocused() { showToast(notice); return false }
+        if notice.kind == .activity, isActivityCapsuleSeen() { showToast(notice); return false }
         return true
     }
 
-    /// How long an activity toast stays (activity-toast.js LINGER_MS); hovering holds it.
-    static let toastLinger: Duration = .seconds(6)
-
+    /// The latest activity, shown until it is opened or closed; a newer one takes its place.
     func showToast(_ notice: NativeNotice) {
         guard !retired else { return }
         toast = notice
-        armToast()
     }
 
-    /// The pointer is over the toast: keep it until it leaves.
-    func holdToast() { toastTask?.cancel(); toastTask = nil }
-    func releaseToast() { if toast != nil { armToast() } }
-
-    private func armToast() {
-        guard let notice = toast else { return }
-        toastTask?.cancel()
-        toastTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.toastLinger) } catch { return }
-            if self?.toast?.id == notice.id { self?.dismissToast() }
-        }
-    }
-
-    func dismissToast() { toastTask?.cancel(); toastTask = nil; toast = nil }
+    func dismissToast() { toast = nil }
     func notice(id: String) -> NativeNotice? { toast?.id == id ? toast : recent.first { $0.id == id } }
     func open(_ notice: NativeNotice) { if !retired { onAction(.openCurrent(notice.id)) } }
     func openDelivered(_ notice: NativeNotice) { if !retired { onAction(.openDelivered(notice)) } }
@@ -188,7 +173,7 @@ import Observation
     }
 
     func retire() {
-        retired = true; onAction = { _ in }; isMainWindowFocused = { false }
+        retired = true; onAction = { _ in }; isActivityCapsuleSeen = { false }
         dismissToast(); _ = cancelOperations(); delivery = nil
     }
 

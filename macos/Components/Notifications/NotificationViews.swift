@@ -45,61 +45,86 @@ struct NotificationPreferencesView: View {
     }
 }
 
-/// The in-app activity toast — components/activity-toast.js + .act-toast (pages.css): a card with
-/// the event's tinted glyph, its line and one-line detail, and a small ×. Slides in from the right;
-/// hovering holds it on screen.
-struct ActivityToastView: View {
-    let notifications: NotificationStore
-    @State private var closeHovered = false
+/// The sidebar's activity capsule: "Today's activity" until there is activity to read, then the
+/// latest of it on the same line, until it is opened — its tinted glyph, its line and detail, and an unread dot. A newer
+/// activity lifts the old one up and out as it rises in, so the owner changes `notice` in an
+/// animation.
+struct ActivityCapsule: View {
+    let notice: NativeNotice?
+    let action: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            if let notice = notifications.toast {
-                card(notice)
-                    .id(notice.id)
-                    .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+        Button(action: action) {
+            ZStack {
+                if let notice {
+                    line(notice).id(notice.id).transition(Self.lift)
+                } else {
+                    Label("Today's activity", systemImage: "bell")
+                        .labelStyle(.titleAndIcon)
+                        .font(.system(size: 13))
+                        .frame(maxWidth: .infinity)
+                        .transition(.opacity.animation(.easeOut(duration: 0.1)))
+                }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: Theme.Size.largeControl)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
         }
-        .animation(.easeOut(duration: 0.2), value: notifications.toast?.id)
+        .buttonStyle(.plain)
+        .glassSurface(Capsule(), interactive: true)
+        .help(notice.map { [$0.title, $0.body].filter { !$0.isEmpty }.joined(separator: "\n") } ?? String(localized: "Today's activity"))
+        .accessibilityIdentifier(notice == nil ? "activity-capsule" : "activity-toast-open")
     }
 
-    private func card(_ notice: NativeNotice) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            ActivityGlyphView(type: notice.eventType ?? (notice.kind == .review ? "review_requested" : ""), level: nil)
-                .padding(.top, 1)
-            Button { notifications.open(notice) } label: {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(notice.title).font(.system(size: 13)).foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !notice.body.isEmpty {
-                        Text(notice.body).font(.system(size: 12)).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                            .lineLimit(1).truncationMode(.tail)
-                    }
-                    if let error = notifications.actionError {
-                        Text(error).font(.system(size: 12)).foregroundStyle(.red)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).accessibilityIdentifier("activity-toast-open")
-            Button(action: notifications.dismissToast) {
-                Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(closeHovered ? Color.primary : Color(nsColor: .tertiaryLabelColor))
-                    .frame(width: 18, height: 18)
-                    .background(closeHovered ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .onHover { closeHovered = $0 }
-            .accessibilityLabel("Dismiss activity")
+    private func line(_ notice: NativeNotice) -> some View {
+        HStack(spacing: 7) {
+            ActivityGlyphView(type: notice.eventType ?? (notice.kind == .review ? "review_requested" : ""), level: nil, size: 22)
+            (Text(notice.title).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.primary)
+                + Text(notice.body.isEmpty ? "" : "  \(notice.body)").font(.system(size: 12)).foregroundStyle(.secondary))
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Circle().fill(Color.accentColor).frame(width: 6, height: 6)
         }
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .frame(width: 340, alignment: .leading)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
-        .shadow(color: .black.opacity(0.10), radius: 6, y: 4)
-        .shadow(color: .black.opacity(0.06), radius: 3, y: 2)
-        .onHover { $0 ? notifications.holdToast() : notifications.releaseToast() }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("activity-toast")
+        .padding(.leading, 5).padding(.trailing, 12)
+        .accessibilityElement(children: .combine)
+    }
+
+    private static let lift = AnyTransition.asymmetric(
+        insertion: .offset(y: 18).combined(with: .opacity),
+        removal: .offset(y: -16).combined(with: .scale(scale: 0.97)).combined(with: .opacity))
+}
+
+/// Glass that rises out of a capsule `side` tall at its foot (`open` 0) to fill its whole frame
+/// (`open` 1). Drawn as the risen view's own shape, its content
+/// stands on the glass.
+struct RisingGlass: Shape {
+    var open: CGFloat
+    let side: CGFloat
+    var animatableData: CGFloat {
+        get { open }
+        set { open = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * open }
+        let height = mix(side, rect.height)
+        let frame = CGRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height)
+        let radius = min(mix(side / 2, 18), frame.height / 2, frame.width / 2)
+        return RoundedRectangle(cornerRadius: max(radius, 0), style: .continuous).path(in: frame)
+    }
+}
+
+extension View {
+    /// Liquid Glass in `shape` on macOS 26, answering the pointer when `interactive`; the window
+    /// surface with a hairline and a soft shadow before it.
+    @ViewBuilder func glassSurface<S: Shape>(_ shape: S, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background(shape.fill(.regularMaterial)
+                .overlay(shape.stroke(Theme.border, lineWidth: Theme.Size.hairline))
+                .shadow(color: .black.opacity(0.16), radius: 12, y: 5))
+        }
     }
 }

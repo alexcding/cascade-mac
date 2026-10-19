@@ -238,7 +238,7 @@ func notificationLatePermissionReadCannotOverwriteNewDeliveryState() async {
     let model = NotificationStore()
     let activity = NativeNotice(kind: .activity, title: "Activity", body: "")
     #expect(model.shouldPresentBanner(for: activity) && model.toast == nil)
-    model.isMainWindowFocused = { true }
+    model.isActivityCapsuleSeen = { true }
     #expect(!model.shouldPresentBanner(for: activity) && model.toast == activity)
     #expect(model.shouldPresentBanner(for: NativeNotice(kind: .review, title: "Review", body: "")))
     model.retire()

@@ -14,9 +14,9 @@ extension AppViewModel: NotificationCoordinating {
         return true
     }
 
-    public func configureNativeNotifications(isMainWindowFocused: @escaping () -> Bool,
+    public func configureNativeNotifications(isActivityCapsuleSeen: @escaping () -> Bool,
                                             showWindow: @escaping () -> Void) {
-        shell.notifications.isMainWindowFocused = isMainWindowFocused
+        shell.notifications.isActivityCapsuleSeen = isActivityCapsuleSeen
         coordinator.notificationCoordinator?.showWindow = showWindow
         self.showMainWindow = showWindow
         shell.notifications.configure(MacNotificationDelivery(store: shell.notifications))

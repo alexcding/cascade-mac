@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// One activity event's mark — the tinted round icon of pages/logs.js `presentEvent`, shared by the
-/// activity toast and the bell's Today popover so both read like the same feed row.
+/// activity capsule's notice and its Today menu so both read like the same feed row.
 @MainActor enum ActivityGlyph {
     static func style(type: String, level: String?) -> (icon: Image, tint: Color) {
         switch type {
@@ -19,17 +19,19 @@ import SwiftUI
     }
 }
 
-/// .act-icon: a 28pt circle in the tint's soft background with the 15pt glyph.
+/// .act-icon: a 28pt circle in the tint's soft background with the 15pt glyph; `size` draws it
+/// smaller where a row is shorter.
 struct ActivityGlyphView: View {
     let type: String
     let level: String?
+    var size: CGFloat = 28
 
     var body: some View {
         let style = ActivityGlyph.style(type: type, level: level)
         ZStack {
             Circle().fill(style.tint.opacity(0.12))
-            style.icon.font(.system(size: 13, weight: .medium)).foregroundStyle(style.tint)
+            style.icon.font(.system(size: size * 13 / 28, weight: .medium)).foregroundStyle(style.tint)
         }
-        .frame(width: 28, height: 28)
+        .frame(width: size, height: size)
     }
 }
