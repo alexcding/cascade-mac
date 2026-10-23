@@ -2,8 +2,9 @@ use super::{percent, tail, AgentProbe, Hooks, Profile};
 use crate::cli;
 use serde_json::{json, Value};
 use std::{
+    collections::HashMap,
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -184,6 +185,47 @@ fn effort_name(id: &str) -> String {
     }
 }
 
+/// Codex finds a worktree's conversations by the folder each session file's opening `session_meta`
+/// names, so a worktree that moved has that line rewritten to its new place in every file that
+/// names an old one, all moves in one walk of the history. Each file keeps its modification time,
+/// since the newest is the live one.
+pub(crate) fn move_worktrees(home: &Path, moves: &HashMap<String, String>) {
+    let mut pending = vec![home.join(".codex/sessions")];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(directory) else { continue };
+        for path in entries.filter_map(Result::ok).map(|entry| entry.path()) {
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|e| e == "jsonl") {
+                if let Err(error) = repoint(&path, moves) {
+                    tracing::warn!(file = %path.display(), %error, "codex: a moved worktree's session kept its old folder");
+                }
+            }
+        }
+    }
+}
+
+fn repoint(path: &Path, moves: &HashMap<String, String>) -> std::io::Result<()> {
+    let file = fs::File::open(path)?;
+    let modified = file.metadata()?.modified()?;
+    let mut reader = BufReader::new(file);
+    let mut first = String::new();
+    reader.read_line(&mut first)?;
+    let Ok(mut meta) = serde_json::from_str::<Value>(&first) else { return Ok(()) };
+    let Some(to) = meta["payload"]["cwd"].as_str().and_then(|cwd| moves.get(cwd)).filter(|_| meta["type"] == "session_meta") else {
+        return Ok(());
+    };
+    meta["payload"]["cwd"] = json!(to);
+    let temporary = path.with_extension("jsonl.moving");
+    let mut out = std::io::BufWriter::new(fs::File::create(&temporary)?);
+    writeln!(out, "{meta}")?;
+    std::io::copy(&mut reader, &mut out)?;
+    let out = out.into_inner().map_err(|e| e.into_error())?;
+    out.set_modified(modified)?;
+    drop(out);
+    fs::rename(&temporary, path)
+}
+
 /// The session file most recently written for this worktree. A resumed conversation keeps
 /// appending to the file from the day it began, so recency is by modification time across every
 /// day, not by the dated folder; the first line of each names the directory it ran in.
@@ -235,6 +277,25 @@ mod tests {
         assert_eq!(Codex::fork_source(&home, "/r/a", Some("known")).as_deref(), Some("known"));
         assert_eq!(Codex::fork_source(&home, "/r/b", None), None);
         let _ = fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_moved_worktree_keeps_its_codex_sessions_and_their_order() {
+        let home = tempfile::tempdir().unwrap();
+        let day = home.path().join(".codex/sessions/2026/10/23");
+        fs::create_dir_all(&day).unwrap();
+        let meta = |id: &str, cwd: &str| json!({"type":"session_meta","payload":{"id":id,"cwd":cwd}}).to_string();
+        let older = day.join("rollout-a-one.jsonl");
+        fs::write(&older, format!("{}\n{{\"turn\":1}}\n", meta("one", "/r/old"))).unwrap();
+        let other = day.join("rollout-b-two.jsonl");
+        fs::write(&other, format!("{}\n", meta("two", "/r/elsewhere"))).unwrap();
+        let stamp = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&older).unwrap().set_modified(stamp).unwrap();
+        move_worktrees(home.path(), &HashMap::from([("/r/old".to_owned(), "/r/new".to_owned())]));
+        assert_eq!(Codex::conversation_in_worktree(home.path(), "/r/new", "one"), Some(older.clone()));
+        assert!(fs::read_to_string(&older).unwrap().ends_with("{\"turn\":1}\n"), "the rest of the file is kept");
+        assert_eq!(fs::metadata(&older).unwrap().modified().unwrap(), stamp);
+        assert!(fs::read_to_string(&other).unwrap().contains("/r/elsewhere"));
     }
 
     #[test]

@@ -94,6 +94,13 @@
          <CommandLineArgument argument = "--data-dir" isEnabled = "YES"/>
          <CommandLineArgument argument = "&quot;$(PROJECT_DIR)/.build/dev-data&quot;" isEnabled = "YES"/>
       </CommandLineArguments>
+      <EnvironmentVariables>
+         <EnvironmentVariable
+            key = "CASCADE_WORKTREES_DIR"
+            value = "$(PROJECT_DIR)/.build/dev-worktrees"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+      </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

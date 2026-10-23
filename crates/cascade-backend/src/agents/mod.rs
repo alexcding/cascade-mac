@@ -409,6 +409,16 @@ pub(crate) async fn commands_in(agent: Agent, worktree: PathBuf) -> Value {
     found.unwrap_or_else(|| json!({"commands": []}))
 }
 
+/// What worktrees' agents keep by their paths follows each from its old path to its new one:
+/// Claude files transcripts and trust by the folder, Codex names the folder in each session file.
+/// Blocking file work over the agents' whole history, so it is run off the runtime's workers.
+pub(crate) fn move_worktrees_history(moves: &std::collections::HashMap<String, String>) {
+    if let Some(home) = home() {
+        claude::move_worktrees(&home, moves);
+        codex::move_worktrees(&home, moves);
+    }
+}
+
 pub(crate) fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").map(PathBuf::from)
 }

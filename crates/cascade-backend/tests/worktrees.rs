@@ -15,9 +15,13 @@ use serde_json::{json, Value};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
-fn app() -> (axum::Router, TempDir) {
+/// Beside the checkout rather than the default `~/.cascade/worktrees`, so a test never writes into
+/// the home folder of whoever runs it.
+async fn app() -> (axum::Router, TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let db = Database::open(directory.path()).unwrap();
+    let sibling = json!({"worktree_location": "sibling"});
+    db.set_config(sibling.as_object().unwrap()).await.unwrap();
     (build_app(AppState::new(db, None)), directory)
 }
 
@@ -91,14 +95,14 @@ fn repo(parent: &Path) -> PathBuf {
 
 #[tokio::test]
 async fn new_worktrees_follow_the_location_setting_and_copy_included_ignored_files() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     // Worktrees are recorded by their real path, and /var is a link to /private/var.
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
     let path = dir.to_str().unwrap();
 
-    // Sibling by default, with `.env*` as the default patterns.
+    // Beside the checkout, as `app()` sets, with `.env*` as the default patterns.
     let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"feat/one","create":true})).await;
     let one = root.join("app.worktrees/one");
     assert_eq!(made["path"], one.to_str().unwrap(), "{made}");
@@ -134,7 +138,7 @@ async fn new_worktrees_follow_the_location_setting_and_copy_included_ignored_fil
 
 #[tokio::test]
 async fn fetch_before_create_is_opt_in_and_cuts_from_the_fetched_tip() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let upstream = repo(&root);
@@ -157,7 +161,7 @@ async fn fetch_before_create_is_opt_in_and_cuts_from_the_fetched_tip() {
 
 #[tokio::test]
 async fn tracked_reports_what_a_new_worktree_will_check_out() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -188,7 +192,7 @@ async fn tracked_reports_what_a_new_worktree_will_check_out() {
 
 #[tokio::test]
 async fn project_patterns_beat_the_default_and_a_worktreeinclude_beats_both() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -215,7 +219,7 @@ async fn project_patterns_beat_the_default_and_a_worktreeinclude_beats_both() {
 /// to finish before the output is read would hang New Session here.
 #[tokio::test]
 async fn a_large_include_set_copies_without_wedging_the_create() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -232,7 +236,7 @@ async fn a_large_include_set_copies_without_wedging_the_create() {
 
 #[tokio::test]
 async fn existing_files_are_never_overwritten() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     // Worktrees are recorded by their real path, and /var is a link to /private/var.
     let root = parent.path().canonicalize().unwrap();
@@ -254,16 +258,15 @@ async fn existing_files_are_never_overwritten() {
 
 #[tokio::test]
 async fn setup_runs_in_the_new_worktree_and_removal_deletes_only_merged_branches() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     // Worktrees are recorded by their real path, and /var is a link to /private/var.
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
     let path = dir.to_str().unwrap();
-    // The setup script is the project's own; the branch cleanup is global.
+    // The setup script is the project's own.
     let (status, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":format!("{path}/"),"worktreeSetup":"printf %s \"$CASCADE_ROOT_PATH\" > setup-ran"})).await;
     assert_eq!(status, StatusCode::OK, "{project}");
-    post(&app, "/api/config", json!({"worktree_delete_branch":"true"})).await;
 
     let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"merged","create":true})).await;
     let merged = PathBuf::from(made["path"].as_str().unwrap());
@@ -275,6 +278,7 @@ async fn setup_runs_in_the_new_worktree_and_removal_deletes_only_merged_branches
     }
     assert_eq!(fs::read_to_string(&marker).unwrap(), path);
 
+    // Removing a worktree removes its branch, with no setting to ask.
     let (_, removed) = post(&app, "/api/worktree/remove", json!({"path":path,"worktree":merged,"force":true})).await;
     assert_eq!(removed["branchDeleted"], true, "{removed}");
     assert_eq!(git(&dir, &["branch", "--list", "merged"]), "");
@@ -292,7 +296,7 @@ async fn setup_runs_in_the_new_worktree_and_removal_deletes_only_merged_branches
 
 #[tokio::test]
 async fn history_lists_the_branch_on_its_base_and_the_whole_history_on_request() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let dir = repo(parent.path());
     let log = |query: &str| {
@@ -359,7 +363,7 @@ async fn history_lists_the_branch_on_its_base_and_the_whole_history_on_request()
 
 #[tokio::test]
 async fn a_fork_numbers_itself_after_its_family_and_carries_uncommitted_work() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -438,7 +442,7 @@ async fn a_fork_numbers_itself_after_its_family_and_carries_uncommitted_work() {
 
 #[tokio::test]
 async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -501,7 +505,7 @@ async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
 /// in a first commit, when the project is created with `initGit`.
 #[tokio::test]
 async fn a_folder_without_git_becomes_a_repository_only_when_asked() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let dir = parent.path().canonicalize().unwrap().join("notes");
     fs::create_dir(&dir).unwrap();
@@ -537,7 +541,7 @@ async fn a_folder_without_git_becomes_a_repository_only_when_asked() {
 /// set up: it is not taken for a project folder until it has its first commit.
 #[tokio::test]
 async fn a_repository_with_no_commit_is_given_its_first() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let dir = parent.path().canonicalize().unwrap().join("fresh");
     fs::create_dir(&dir).unwrap();
@@ -558,7 +562,7 @@ async fn a_repository_with_no_commit_is_given_its_first() {
 /// repository when asked. Saving anything else leaves its folder unasked.
 #[tokio::test]
 async fn a_project_moved_to_a_folder_without_git_needs_it_set_up() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let repo = root.join("repo");
@@ -592,7 +596,7 @@ async fn a_project_moved_to_a_folder_without_git_needs_it_set_up() {
 /// to have the newest commit. The most-recent fallback is for parking the main checkout alone.
 #[tokio::test]
 async fn a_fork_with_no_base_starts_from_the_default_branch_not_the_newest() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = repo(&root);
@@ -624,7 +628,7 @@ async fn a_fork_with_no_base_starts_from_the_default_branch_not_the_newest() {
 /// develop) forks from its most recently committed branch, not from a name only guessed at.
 #[tokio::test]
 async fn a_fork_with_no_base_and_no_known_default_starts_from_the_newest_branch() {
-    let (app, _data) = app();
+    let (app, _data) = app().await;
     let parent = tempfile::tempdir().unwrap();
     let root = parent.path().canonicalize().unwrap();
     let dir = root.join("app");
@@ -642,4 +646,105 @@ async fn a_fork_with_no_base_and_no_known_default_starts_from_the_newest_branch(
     let (status, session) = post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"feat/new","createBranch":true})).await;
     assert_eq!(status, StatusCode::OK, "{session}");
     assert_eq!(git(&dir, &["rev-parse", "feat/new"]), trunk, "forked from trunk, the one branch there is");
+}
+
+/// Everything a shared worktree folder holds is listed with the project that claims it. One no
+/// project claims is deleted on request: through git while its checkout exists, as a plain folder
+/// once that is gone. A project's own worktree is not deleted here.
+#[tokio::test]
+async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
+    let (app, _data) = app().await;
+    let parent = tempfile::tempdir().unwrap();
+    let base = parent.path().canonicalize().unwrap();
+    let shared = base.join("shared");
+    let dir = repo(&base);
+    let path = dir.to_str().unwrap();
+    let (_, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":path})).await;
+    let project_id = project["id"].as_str().unwrap().to_owned();
+    post(&app, "/api/config", json!({"worktree_location":"custom","worktree_root":shared.to_str().unwrap()})).await;
+    let (_, made) = post(&app, "/api/worktree", json!({"path":path,"branch":"mine","create":true})).await;
+    let mine = made["path"].as_str().unwrap().to_owned();
+    assert!(Path::new(&mine).starts_with(&shared), "{made}");
+
+    // A worktree Cascade made for a project since removed from it (the checkout is still there),
+    // and one whose checkout was deleted from under it.
+    let other = base.join("other");
+    fs::create_dir_all(&other).unwrap();
+    git(&other, &["init", "-q", "-b", "main"]);
+    git(&other, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let (_, removed_project) = post(&app, "/api/projects", json!({"name":"Other","workspace":other.to_str().unwrap()})).await;
+    let (_, made) = post(&app, "/api/worktree", json!({"path":other.to_str().unwrap(),"branch":"feat","create":true})).await;
+    let kept = PathBuf::from(made["path"].as_str().unwrap());
+    let kept_folder = kept.parent().unwrap().to_path_buf();
+    send(&app, "DELETE", &format!("/api/projects/{}", removed_project["id"].as_str().unwrap()), json!({})).await;
+    let gone = base.join("gone");
+    fs::create_dir_all(&gone).unwrap();
+    git(&gone, &["init", "-q", "-b", "main"]);
+    git(&gone, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let orphan = shared.join("gone-1234abcd/fix");
+    git(&gone, &["worktree", "add", "-q", "-b", "fix", orphan.to_str().unwrap()]);
+    fs::remove_dir_all(&gone).unwrap();
+
+    // A project whose checkout git cannot read just now claims its whole folder, so its worktree
+    // is never offered as a leftover.
+    let broken = base.join("broken");
+    fs::create_dir_all(&broken).unwrap();
+    git(&broken, &["init", "-q", "-b", "main"]);
+    git(&broken, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let (_, unread) = post(&app, "/api/projects", json!({"name":"Broken","workspace":broken.to_str().unwrap()})).await;
+    let (_, held) = post(&app, "/api/worktree", json!({"path":broken.to_str().unwrap(),"branch":"held","create":true})).await;
+    let held = held["path"].as_str().unwrap().to_owned();
+    fs::write(broken.join(".git/HEAD"), "not a ref").unwrap();
+
+    // A custom folder may hold anything: a whole checkout or a plain folder in it is no worktree,
+    // never listed, and never deleted.
+    let checkout = shared.join("code/repo");
+    fs::create_dir_all(&checkout).unwrap();
+    git(&checkout, &["init", "-q", "-b", "main"]);
+    let plain = shared.join("code/notes");
+    fs::create_dir_all(&plain).unwrap();
+    // Another tool's worktree there, in a folder Cascade did not name, is not Cascade's either;
+    // nor is one in a folder shaped like Cascade's whose name is not the one its checkout gets.
+    let foreign = shared.join("other.worktrees/tool");
+    git(&other, &["worktree", "add", "-q", "-b", "tool", foreign.to_str().unwrap()]);
+    let lookalike = shared.join("backup-deadbeef/copy");
+    git(&other, &["worktree", "add", "-q", "-b", "copy", lookalike.to_str().unwrap()]);
+
+    let (status, listed) = get(&app, "/api/worktrees/shared").await;
+    assert_eq!(status, StatusCode::OK, "{listed}");
+    let ours: Vec<&Value> = listed.as_array().unwrap().iter()
+        .filter(|l| Path::new(l["path"].as_str().unwrap()).starts_with(&shared))
+        .collect();
+    assert_eq!(ours.len(), 4, "{listed}");
+    let found = |p: &Path| ours.iter().find(|l| l["path"] == p.to_str().unwrap()).copied().unwrap();
+    assert_eq!(found(Path::new(&mine))["projectId"], project_id);
+    assert_eq!(found(Path::new(&mine))["branch"], "mine");
+    assert_eq!(found(&kept)["projectId"], Value::Null);
+    assert_eq!(found(&kept)["repo"], other.to_str().unwrap());
+    assert_eq!(found(&kept)["branch"], "feat");
+    assert_eq!(found(&orphan)["repo"], "");
+    assert_eq!(found(Path::new(&held))["projectId"], unread["id"]);
+    for other in [&checkout, &plain, &foreign, &lookalike] {
+        let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":other.to_str().unwrap()})).await;
+        assert_eq!(status, StatusCode::CONFLICT, "{}", other.display());
+        assert!(other.exists());
+    }
+    let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":held})).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(Path::new(&held).exists());
+
+    // The project's own worktree is not a leftover, so it is refused and left alone.
+    let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":mine})).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(Path::new(&mine).exists());
+
+    let (status, done) = post(&app, "/api/worktrees/leftover/remove", json!({"path":kept.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    assert!(!kept.exists() && !kept_folder.exists());
+    assert!(!git(&other, &["worktree", "list"]).contains("feat"));
+    assert_eq!(git(&other, &["branch", "--list", "feat"]), "", "the merged branch Cascade made goes with it");
+    assert!(git(&other, &["branch", "--list", "tool"]).ends_with("tool"), "a branch Cascade did not make stays");
+    let (status, done) = post(&app, "/api/worktrees/leftover/remove", json!({"path":orphan.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    assert!(!orphan.exists() && !shared.join("gone-1234abcd").exists());
 }

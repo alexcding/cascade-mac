@@ -6,6 +6,994 @@
       "extractionState" : "manual",
       "shouldTranslate" : false
     },
+    "Cascade can keep worktrees in ~/.cascade/worktrees, out of your projects’ folders. Move the %lld your sessions use there: uncommitted changes go with them, agents pick up their conversations in the new place, and new worktrees go there too." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade ওয়ার্কট্রি ~/.cascade/worktrees-এ রাখতে পারে, আপনার প্রকল্পের ফোল্ডারের বাইরে। আপনার সেশনগুলো যে %lldটি ব্যবহার করে সেগুলো সেখানে সরান: কমিট না করা পরিবর্তন সঙ্গে যায়, এজেন্টরা নতুন জায়গায় তাদের কথোপকথন চালিয়ে যায়, আর নতুন ওয়ার্কট্রিও সেখানেই যায়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade puede guardar los árboles de trabajo en ~/.cascade/worktrees, fuera de las carpetas de tus proyectos. Mueve allí los %lld que usan tus sesiones: los cambios sin confirmar van con ellos, los agentes retoman sus conversaciones en el nuevo lugar y los árboles de trabajo nuevos también irán allí."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade peut ranger les arbres de travail dans ~/.cascade/worktrees, hors des dossiers de vos projets. Déplacez-y les %lld qu’utilisent vos sessions : les modifications non validées les suivent, les agents reprennent leurs conversations au nouvel emplacement, et les nouveaux arbres de travail y iront aussi."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade वर्कट्री को ~/.cascade/worktrees में रख सकता है, आपके प्रोजेक्ट फ़ोल्डरों से बाहर। आपके सत्र जिन %lld का उपयोग करते हैं उन्हें वहाँ ले जाएँ: बिना कमिट किए बदलाव साथ जाते हैं, एजेंट नई जगह पर अपनी बातचीत जारी रखते हैं, और नई वर्कट्री भी वहीं बनेंगी।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade può tenere gli alberi di lavoro in ~/.cascade/worktrees, fuori dalle cartelle dei tuoi progetti. Sposta lì i %lld usati dalle tue sessioni: le modifiche non registrate li seguono, gli agenti riprendono le conversazioni nel nuovo posto e anche i nuovi alberi di lavoro andranno lì."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade はワークツリーを ~/.cascade/worktrees に、プロジェクトのフォルダの外にまとめて置けます。セッションが使っている %lld 件をそこへ移動します。コミットしていない変更も一緒に移り、エージェントは新しい場所で会話を続け、新しいワークツリーもそこに作られます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade는 워크트리를 프로젝트 폴더 밖의 ~/.cascade/worktrees에 둘 수 있습니다. 세션이 사용하는 %lld개를 그곳으로 옮기세요. 커밋하지 않은 변경 사항도 함께 옮겨지고, 에이전트는 새 위치에서 대화를 이어 가며, 새 워크트리도 그곳에 만들어집니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cascade pode manter as árvores de trabalho em ~/.cascade/worktrees, fora das pastas dos seus projetos. Mova para lá as %lld que suas sessões usam: as alterações não confirmadas vão junto, os agentes retomam as conversas no novo local e as novas árvores de trabalho também vão para lá."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade может хранить рабочие деревья в ~/.cascade/worktrees, вне папок ваших проектов. Перенесите туда %lld, которые используют ваши сеансы: незафиксированные изменения переедут вместе с ними, агенты продолжат свои разговоры на новом месте, а новые рабочие деревья тоже будут создаваться там."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade kan lägga arbetsträd i ~/.cascade/worktrees, utanför dina projektmappar. Flytta dit de %lld som dina sessioner använder: ändringar som inte är incheckade följer med, agenterna fortsätter sina konversationer på den nya platsen och nya arbetsträd hamnar också där."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 可以把工作树放在 ~/.cascade/worktrees，放在项目文件夹之外。把会话使用的 %lld 个移到那里：未提交的更改会一起移动，代理会在新位置继续对话，新的工作树也会建在那里。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 可以把工作樹放在 ~/.cascade/worktrees，放在專案資料夾之外。把工作階段使用的 %lld 個移到那裡：未提交的變更會一起移動，代理程式會在新位置繼續對話，新的工作樹也會建在那裡。"
+          }
+        }
+      }
+    },
+    "Cascade isn’t connected to its backend." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade তার ব্যাকএন্ডের সঙ্গে যুক্ত নয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade no está conectado a su backend."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade n’est pas connecté à son backend."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade अपने बैकएंड से कनेक्ट नहीं है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade non è connesso al suo backend."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade はバックエンドに接続されていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade가 백엔드에 연결되어 있지 않습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Cascade não está conectado ao backend."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade не подключён к своему бэкенду."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade är inte anslutet till sin backend."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 未连接到其后端。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 未連線到其後端。"
+          }
+        }
+      }
+    },
+    "Cascade’s folder" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade-এর ফোল্ডার"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carpeta de Cascade"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dossier de Cascade"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade का फ़ोल्डर"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cartella di Cascade"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade のフォルダ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 폴더"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pasta do Cascade"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка Cascade"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascades mapp"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 的文件夹"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 的資料夾"
+          }
+        }
+      }
+    },
+    "Existing worktrees" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "বিদ্যমান ওয়ার্কট্রি"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Árboles de trabajo existentes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbres de travail existants"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "मौजूदा वर्कट्री"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alberi di lavoro esistenti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "既存のワークツリー"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "기존 워크트리"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Árvores de trabalho existentes"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Существующие рабочие деревья"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Befintliga arbetsträd"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "现有工作树"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現有工作樹"
+          }
+        }
+      }
+    },
+    "From %@, which is not a project." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ থেকে, যা কোনো প্রকল্প নয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De %@, que no es un proyecto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depuis %@, qui n’est pas un projet."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ से, जो कोई प्रोजेक्ट नहीं है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da %@, che non è un progetto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ から作成されましたが、これはプロジェクトではありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에서 만들어졌으며, 이는 프로젝트가 아닙니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De %@, que não é um projeto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Из %@, который не является проектом."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Från %@, som inte är ett projekt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自 %@，它不是项目。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "來自 %@，它不是專案。"
+          }
+        }
+      }
+    },
+    "If you keep them where they are, new worktrees keep going next to your projects. You can change that in Settings → Worktrees. You won’t be asked again." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "যেখানে আছে সেখানে রাখলে, নতুন ওয়ার্কট্রি আপনার প্রকল্পের পাশেই তৈরি হতে থাকবে। এটি সেটিংস → ওয়ার্কট্রি-তে বদলাতে পারেন। আপনাকে আর জিজ্ঞাসা করা হবে না।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si los dejas donde están, los árboles de trabajo nuevos seguirán creándose junto a tus proyectos. Puedes cambiarlo en Ajustes → Árboles de trabajo. No se te volverá a preguntar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si vous les laissez où ils sont, les nouveaux arbres de travail continueront d’être créés à côté de vos projets. Vous pouvez changer cela dans Réglages → Arbres de travail. Cette question ne vous sera plus posée."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अगर आप इन्हें जहाँ हैं वहीं रखते हैं, तो नई वर्कट्री आपके प्रोजेक्ट के पास ही बनती रहेंगी। आप इसे सेटिंग्स → वर्कट्री में बदल सकते हैं। आपसे दोबारा नहीं पूछा जाएगा।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se li lasci dove sono, i nuovi alberi di lavoro continueranno a essere creati accanto ai tuoi progetti. Puoi cambiarlo in Impostazioni → Alberi di lavoro. Non ti verrà chiesto di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このままにすると、新しいワークツリーは引き続きプロジェクトの隣に作られます。これは設定 → ワークツリーで変更できます。今後この確認は表示されません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그대로 두면 새 워크트리는 계속 프로젝트 옆에 만들어집니다. 설정 → 워크트리에서 바꿀 수 있습니다. 다시 묻지 않습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se você as mantiver onde estão, as novas árvores de trabalho continuarão sendo criadas ao lado dos seus projetos. Você pode mudar isso em Ajustes → Árvores de trabalho. Você não será perguntado de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если оставить их на месте, новые рабочие деревья будут по-прежнему создаваться рядом с вашими проектами. Это можно изменить в Настройки → Рабочие деревья. Больше этот вопрос не появится."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Om du låter dem ligga kvar fortsätter nya arbetsträd att skapas bredvid dina projekt. Du kan ändra det under Inställningar → Arbetsträd. Du får inte frågan igen."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果保留在原处，新的工作树会继续建在项目旁边。可以在 设置 → 工作树 中更改。之后不会再询问。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "如果保留在原處，新的工作樹會繼續建在專案旁邊。可以在 設定 → 工作樹 中變更。之後不會再詢問。"
+          }
+        }
+      }
+    },
+    "Its checkout is gone." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এর চেকআউট আর নেই।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Su checkout ya no existe."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son checkout n’existe plus."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इसका चेकआउट अब नहीं है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il suo checkout non c’è più."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チェックアウト元はもうありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "체크아웃이 더 이상 없습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O checkout dela não existe mais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Его checkout больше не существует."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dess utcheckning finns inte längre."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "它的检出已不存在。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "它的簽出已不存在。"
+          }
+        }
+      }
+    },
+    "Keep Where They Are" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "যেখানে আছে রাখুন"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dejarlos donde están"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les laisser où ils sont"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "जहाँ हैं वहीं रखें"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lasciali dove sono"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このままにする"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그대로 두기"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter onde estão"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Оставить на месте"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Låt dem ligga kvar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留在原处"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保留在原處"
+          }
+        }
+      }
+    },
+    "%lld can’t move, because the folder they’d go to already exists, and stay where they are." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lldটি সরানো যাবে না, কারণ যে ফোল্ডারে যেত তা আগেই আছে, তাই সেগুলো যেখানে আছে সেখানেই থাকবে।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld no se pueden mover porque la carpeta de destino ya existe, así que se quedan donde están."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ne peuvent pas être déplacés, car le dossier de destination existe déjà ; ils restent où ils sont."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld नहीं ले जाई जा सकतीं, क्योंकि जिस फ़ोल्डर में वे जातीं वह पहले से मौजूद है, इसलिए वे जहाँ हैं वहीं रहेंगी।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld non possono essere spostati perché la cartella di destinazione esiste già, quindi restano dove sono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動先のフォルダがすでにあるため、%lld 件は移動できず、そのまま残ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "옮길 폴더가 이미 있어 %lld개는 옮길 수 없으며 그대로 남습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld não podem ser movidas porque a pasta de destino já existe, então ficam onde estão."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld нельзя перенести: папка назначения уже существует, поэтому они остаются на месте."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld kan inte flyttas eftersom målmappen redan finns, så de ligger kvar."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %lld 个无法移动，因为目标文件夹已存在，它们会留在原处。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有 %lld 個無法移動，因為目標資料夾已存在，它們會留在原處。"
+          }
+        }
+      }
+    },
+    "Move Worktrees" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ওয়ার্কট্রি সরান"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover árboles de trabajo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacer les arbres de travail"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "वर्कट्री ले जाएँ"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sposta alberi di lavoro"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークツリーを移動"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "워크트리 옮기기"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover árvores de trabalho"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенести рабочие деревья"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytta arbetsträd"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移动工作树"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動工作樹"
+          }
+        }
+      }
+    },
+    "Move your worktrees to Cascade’s folder?" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "আপনার ওয়ার্কট্রি Cascade-এর ফোল্ডারে সরাবেন?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Mover tus árboles de trabajo a la carpeta de Cascade?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacer vos arbres de travail dans le dossier de Cascade ?"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "अपनी वर्कट्री Cascade के फ़ोल्डर में ले जाएँ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spostare i tuoi alberi di lavoro nella cartella di Cascade?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークツリーを Cascade のフォルダに移動しますか？"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "워크트리를 Cascade 폴더로 옮기시겠습니까?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mover suas árvores de trabalho para a pasta do Cascade?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенести рабочие деревья в папку Cascade?"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytta dina arbetsträd till Cascades mapp?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要把工作树移到 Cascade 的文件夹吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要把工作樹移到 Cascade 的資料夾嗎？"
+          }
+        }
+      }
+    },
+    "No project" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো প্রকল্প নেই"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin proyecto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कोई प्रोजेक्ट नहीं"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun progetto"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プロジェクトなし"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "프로젝트 없음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sem projeto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Без проекта"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inget projekt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无项目"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無專案"
+          }
+        }
+      }
+    },
+    "No worktrees." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "কোনো ওয়ার্কট্রি নেই।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay árboles de trabajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun arbre de travail."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "कोई वर्कट्री नहीं।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun albero di lavoro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ワークツリーはありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "워크트리가 없습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nenhuma árvore de trabalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочих деревьев нет."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inga arbetsträd."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有工作树。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有工作樹。"
+          }
+        }
+      }
+    },
     " or " : {
       "extractionState" : "manual",
       "localizations" : {
@@ -797,6 +1785,386 @@
     },
     "“%@” already works on this branch" : {
 
+    },
+    "These worktrees stayed where they were:\n%@" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এই ওয়ার্কট্রিগুলো যেখানে ছিল সেখানেই রইল:\n%@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estos árboles de trabajo se quedaron donde estaban:\n%@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ces arbres de travail sont restés où ils étaient :\n%@"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ये वर्कट्री जहाँ थीं वहीं रहीं:\n%@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questi alberi di lavoro sono rimasti dov’erano:\n%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のワークツリーは元の場所に残りました：\n%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다음 워크트리는 원래 위치에 남았습니다:\n%@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Estas árvores de trabalho ficaram onde estavam:\n%@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти рабочие деревья остались на месте:\n%@"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De här arbetsträden låg kvar där de var:\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这些工作树仍留在原处：\n%@"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這些工作樹仍留在原處：\n%@"
+          }
+        }
+      }
+    },
+    "The terminal stops and this folder is deleted, and anything not committed here is lost. Its local branch is deleted if Cascade made it and it is merged; any other branch is kept." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "টার্মিনাল বন্ধ হয় এবং এই ফোল্ডার মুছে যায়, এখানে কমিট না করা সবকিছু হারিয়ে যায়। এর লোকাল ব্রাঞ্চ মুছে যায় যদি Cascade সেটি তৈরি করে থাকে এবং তা মার্জ হয়ে থাকে; অন্য যেকোনো ব্রাঞ্চ রাখা হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El terminal se detiene y esta carpeta se elimina; todo lo que no esté confirmado aquí se pierde. Su rama local se elimina si la creó Cascade y está fusionada; cualquier otra rama se conserva."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le terminal s’arrête et ce dossier est supprimé ; tout ce qui n’est pas validé ici est perdu. Sa branche locale est supprimée si Cascade l’a créée et qu’elle est fusionnée ; toute autre branche est conservée."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "टर्मिनल रुक जाता है और यह फ़ोल्डर मिटा दिया जाता है, और यहाँ बिना कमिट किया सब कुछ खो जाता है। इसकी लोकल ब्रांच मिटा दी जाती है अगर Cascade ने उसे बनाया हो और वह मर्ज हो चुकी हो; बाकी कोई भी ब्रांच रखी जाती है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il terminale si ferma e questa cartella viene eliminata; tutto ciò che non è registrato qui va perso. Il suo ramo locale viene eliminato se l’ha creato Cascade ed è stato unito; qualsiasi altro ramo viene mantenuto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ターミナルが停止し、このフォルダが削除されます。ここでコミットしていない内容は失われます。ローカルブランチは、Cascade が作成したものでマージ済みなら削除され、それ以外のブランチは残ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "터미널이 멈추고 이 폴더가 삭제되며, 여기에서 커밋하지 않은 내용은 사라집니다. 로컬 브랜치는 Cascade가 만들었고 병합된 경우 삭제되며, 그 밖의 브랜치는 유지됩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O terminal para e esta pasta é excluída; tudo o que não foi confirmado aqui se perde. O branch local é excluído se o Cascade o criou e ele foi mesclado; qualquer outro branch é mantido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Терминал остановится, и эта папка будет удалена; всё незафиксированное здесь будет потеряно. Локальная ветка удаляется, если её создал Cascade и она слита; любая другая ветка сохраняется."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminalen stoppas och den här mappen raderas, och allt som inte är incheckat här går förlorat. Den lokala grenen raderas om Cascade skapade den och den är sammanfogad; alla andra grenar behålls."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端会停止，此文件夹会被删除，这里所有未提交的内容都会丢失。如果本地分支是 Cascade 创建且已合并，会被删除；其他分支都会保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機會停止，此資料夾會被刪除，這裡所有未提交的內容都會遺失。如果本機分支是 Cascade 建立且已合併，會被刪除；其他分支都會保留。"
+          }
+        }
+      }
+    },
+    "The worktrees in Cascade’s worktree folder. Deleting a project keeps them; delete them here. Delete removes the folder and anything not committed in it, with any sessions using it. Its local branch goes too, if Cascade made it and it is merged; any other branch is kept." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade-এর ওয়ার্কট্রি ফোল্ডারের ওয়ার্কট্রি। প্রকল্প মুছলেও এগুলো থাকে; এখান থেকে মুছুন। মুছুন ফোল্ডারটি ও এতে কমিট না করা সবকিছু সরিয়ে দেয়, এটি ব্যবহার করা সেশনসহ। এর লোকাল ব্রাঞ্চও যায়, যদি Cascade সেটি তৈরি করে থাকে এবং তা মার্জ হয়ে থাকে; অন্য যেকোনো ব্রাঞ্চ রাখা হয়।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los árboles de trabajo de la carpeta de árboles de trabajo de Cascade. Eliminar un proyecto los conserva; elimínalos aquí. Eliminar borra la carpeta y todo lo que no esté confirmado en ella, junto con las sesiones que la usan. Su rama local también se elimina si la creó Cascade y está fusionada; cualquier otra rama se conserva."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les arbres de travail du dossier d’arbres de travail de Cascade. Supprimer un projet les conserve ; supprimez-les ici. Supprimer efface le dossier et tout ce qui n’y est pas validé, avec les sessions qui l’utilisent. Sa branche locale part aussi si Cascade l’a créée et qu’elle est fusionnée ; toute autre branche est conservée."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade के वर्कट्री फ़ोल्डर की वर्कट्री। प्रोजेक्ट मिटाने पर ये बनी रहती हैं; इन्हें यहाँ मिटाएँ। मिटाएँ फ़ोल्डर और उसमें बिना कमिट किया सब कुछ हटा देता है, उसका उपयोग करने वाले सत्रों के साथ। इसकी लोकल ब्रांच भी जाती है, अगर Cascade ने उसे बनाया हो और वह मर्ज हो चुकी हो; बाकी कोई भी ब्रांच रखी जाती है।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli alberi di lavoro nella cartella degli alberi di lavoro di Cascade. Eliminare un progetto li conserva; eliminali qui. Elimina rimuove la cartella e tutto ciò che non è registrato al suo interno, insieme alle sessioni che la usano. Anche il suo ramo locale viene eliminato se l’ha creato Cascade ed è stato unito; qualsiasi altro ramo viene mantenuto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade のワークツリーフォルダにあるワークツリーです。プロジェクトを削除しても残るので、ここで削除してください。削除するとフォルダとコミットしていない内容が、使っているセッションと一緒に消えます。ローカルブランチも、Cascade が作成したものでマージ済みなら削除され、それ以外のブランチは残ります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 워크트리 폴더에 있는 워크트리입니다. 프로젝트를 삭제해도 남아 있으니 여기에서 삭제하세요. 삭제하면 폴더와 그 안의 커밋하지 않은 내용이 사용하는 세션과 함께 제거됩니다. 로컬 브랜치도 Cascade가 만들었고 병합된 경우 삭제되며, 그 밖의 브랜치는 유지됩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As árvores de trabalho na pasta de árvores de trabalho do Cascade. Excluir um projeto as mantém; exclua-as aqui. Excluir remove a pasta e tudo o que não foi confirmado nela, junto com as sessões que a usam. O branch local também vai se o Cascade o criou e ele foi mesclado; qualquer outro branch é mantido."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Рабочие деревья в папке рабочих деревьев Cascade. При удалении проекта они остаются; удаляйте их здесь. «Удалить» стирает папку и всё незафиксированное в ней вместе с сеансами, которые её используют. Локальная ветка тоже удаляется, если её создал Cascade и она слита; любая другая ветка сохраняется."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arbetsträden i Cascades arbetsträdsmapp. Att radera ett projekt behåller dem; radera dem här. Radera tar bort mappen och allt som inte är incheckat i den, tillsammans med sessionerna som använder den. Den lokala grenen försvinner också om Cascade skapade den och den är sammanfogad; alla andra grenar behålls."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 工作树文件夹中的工作树。删除项目不会删除它们；请在这里删除。删除会移除该文件夹及其中所有未提交的内容，以及使用它的会话。本地分支如果是 Cascade 创建且已合并，也会被删除；其他分支都会保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cascade 工作樹資料夾中的工作樹。刪除專案不會刪除它們；請在這裡刪除。刪除會移除該資料夾及其中所有未提交的內容，以及使用它的工作階段。本機分支如果是 Cascade 建立且已合併，也會被刪除；其他分支都會保留。"
+          }
+        }
+      }
+    },
+    "This worktree could not be prepared for removal." : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "এই ওয়ার্কট্রি সরানোর জন্য প্রস্তুত করা যায়নি।"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo preparar este árbol de trabajo para eliminarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de préparer cet arbre de travail à la suppression."
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "इस वर्कट्री को हटाने के लिए तैयार नहीं किया जा सका।"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile preparare questo albero di lavoro per la rimozione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このワークツリーを削除する準備ができませんでした。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 워크트리를 제거할 준비를 하지 못했습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível preparar esta árvore de trabalho para remoção."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось подготовить это рабочее дерево к удалению."
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det gick inte att förbereda det här arbetsträdet för borttagning."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法准备移除此工作树。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法準備移除此工作樹。"
+          }
+        }
+      }
+    },
+    "Used by %@, which Delete also removes" : {
+      "localizations" : {
+        "bn" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ব্যবহার করছে, যা মুছুন-এর সঙ্গে সরানো হয়"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo usa %@, que Eliminar también quita"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Utilisé par %@, que Supprimer retire aussi"
+          }
+        },
+        "hi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ इसका उपयोग करता है, जिसे मिटाएँ भी हटा देता है"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usato da %@, che Elimina rimuove anche"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ が使用中で、削除するとこれも削除されます"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에서 사용 중이며, 삭제하면 함께 제거됩니다"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usada por %@, que Excluir também remove"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Используется: %@ — «Удалить» уберёт и это"
+          }
+        },
+        "sv" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Används av %@, som Radera också tar bort"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 正在使用，删除时也会一并移除"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 正在使用，刪除時也會一併移除"
+          }
+        }
+      }
     },
     "%@\n\nYour changes have not been discarded." : {
       "extractionState" : "manual",
@@ -22759,83 +24127,6 @@
         }
       }
     },
-    "Cleanup" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "পরিষ্কার"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Limpieza"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nettoyage"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "सफ़ाई"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pulizia"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クリーンアップ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "정리"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Limpeza"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Очистка"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rensning"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "清理"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "清理"
-          }
-        }
-      }
-    },
     "Clear" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -34649,160 +35940,6 @@
         }
       }
     },
-    "Delete merged branch" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "মার্জ করা ব্রাঞ্চ মুছুন"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eliminar rama fusionada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprimer la branche fusionnée"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "मर्ज की गई ब्रांच मिटाएँ"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elimina branch integrato"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "マージ済みブランチを削除"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "병합된 브랜치 삭제"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir branch mesclada"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалять слитую ветку"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radera sammanslagen gren"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "删除已合并分支"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "刪除已合併分支"
-          }
-        }
-      }
-    },
-    "Delete only fully merged branches. Keep branches with unmerged work." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "শুধু সম্পূর্ণ মার্জ করা ব্রাঞ্চ মুছুন। মার্জ না করা কাজ আছে এমন ব্রাঞ্চ রাখুন।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elimina solo las ramas completamente fusionadas. Conserva las que tienen trabajo sin fusionar."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprime uniquement les branches entièrement fusionnées. Conserve celles contenant du travail non fusionné."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "केवल पूरी तरह मर्ज की गई ब्रांच मिटाएँ। बिना मर्ज हुए काम वाली ब्रांच रखें।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elimina solo i branch completamente integrati. Mantiene quelli con lavoro non integrato."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "完全にマージされたブランチだけを削除します。未マージの作業があるブランチは残します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "완전히 병합된 브랜치만 삭제합니다. 병합하지 않은 작업이 있는 브랜치는 유지합니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exclui apenas branches totalmente mescladas. Preserva branches com trabalho não mesclado."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалять только полностью слитые ветки. Сохранять ветки с неслитой работой."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Raderar bara helt sammanslagna grenar. Behåller grenar med arbete som inte slagits samman."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "只删除已完全合并的分支。保留仍有未合并工作的分支。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "只刪除已完全合併的分支。保留仍有未合併工作的分支。"
-          }
-        }
-      }
-    },
     "Delete Project" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -34953,83 +36090,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "刪除專案…"
-          }
-        }
-      }
-    },
-    "Delete the branch when removing a worktree" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ওয়ার্কট্রি সরানোর সময় ব্রাঞ্চ মুছুন"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eliminar la rama al quitar el árbol"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Supprimer la branche avec l’arbre de travail"
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "वर्कट्री हटाते समय ब्रांच मिटाएँ"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Elimina il branch quando rimuovi l’albero"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ワークツリー削除時にブランチを削除"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "워크트리 제거 시 브랜치 삭제"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Excluir a branch ao remover a árvore"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Удалять ветку при удалении рабочего дерева"
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Radera grenen när arbetsträdet tas bort"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移除工作树时删除分支"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "移除工作樹時刪除分支"
           }
         }
       }
@@ -104914,83 +105974,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "終端機快照不完整。"
-          }
-        }
-      }
-    },
-    "The terminal stops and this folder is deleted. Your branch and its commits stay, but anything not committed here is lost." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "bn" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "টার্মিনাল থামবে এবং এই ফোল্ডার মুছবে। ব্রাঞ্চ ও তার কমিট থাকবে, কিন্তু এখানে কমিট না করা সব কাজ হারাবে।"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se detiene la terminal y se elimina esta carpeta. La rama y sus commits se conservan, pero se pierde todo lo no confirmado aquí."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le terminal s’arrête et ce dossier est supprimé. La branche et ses commits restent, mais le travail non commité ici est perdu."
-          }
-        },
-        "hi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "टर्मिनल रुक जाएगा और यह फ़ोल्डर मिट जाएगा। ब्रांच और उसके कमिट रहेंगे, लेकिन यहाँ बिना कमिट का काम खो जाएगा।"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il terminale si ferma e la cartella viene eliminata. Il ramo e i commit restano, ma il lavoro non salvato in un commit va perso."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ターミナルを停止し、このフォルダを削除します。ブランチとコミットは残りますが、未コミットの内容は失われます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "터미널이 중지되고 이 폴더가 삭제됩니다. 브랜치와 커밋은 유지되지만 커밋하지 않은 내용은 사라집니다."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O terminal para e esta pasta é excluída. A branch e seus commits ficam, mas tudo que não foi commitado aqui é perdido."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Терминал остановится, папка будет удалена. Ветка и коммиты сохранятся, но незакоммиченные изменения будут потеряны."
-          }
-        },
-        "sv" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Terminalen stoppas och mappen raderas. Grenen och dess incheckningar finns kvar, men allt som inte checkats in går förlorat."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "终端将停止，此文件夹将被删除。分支及其提交会保留，但此处未提交的内容将丢失。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "終端機將停止，此資料夾將被刪除。分支及其提交會保留，但此處未提交的內容將遺失。"
           }
         }
       }

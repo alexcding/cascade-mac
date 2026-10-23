@@ -484,6 +484,29 @@ pub async fn delete_project_chats(app: &AppState, project_id: &str) {
     delete_chats(app, owned).await;
 }
 
+/// The chats started in a session's pane follow its worktree to where it moved: their folder, and
+/// the tag that keeps them to that worktree.
+pub async fn move_worktree_chats(app: &AppState, from: &str, to: &str) {
+    let Some(engine) = app.chat.engine() else { return };
+    let Ok(shells) = engine.shells(None).await else {
+        return tracing::warn!(worktree = from, "chat: a moved worktree's chats were not listed");
+    };
+    for shell in shells.iter().filter(|shell| pane_of(shell) == Some(from)) {
+        let mut update = json!({
+            "commandId": format!("server:worktree-move:{}", uuid::Uuid::new_v4()),
+            "threadId": shell.id,
+            "worktreePath": to,
+        });
+        if shell.working_directory.as_deref() == Some(from) {
+            update["workingDirectory"] = json!(to);
+        }
+        let Ok(command) = serde_json::from_value(update) else { continue };
+        if let Err(error) = engine.dispatch(ClientThreadCommand::MetaUpdate(command)).await {
+            tracing::warn!(worktree = from, error = %format!("{error:#}"), "chat: a moved worktree's chat kept its old folder");
+        }
+    }
+}
+
 /// The chats started in a session's pane go with the last session on its worktree: they were
 /// reached only from that pane. Nothing goes while a session still works there, or when the
 /// sessions cannot be read.

@@ -353,6 +353,23 @@ impl Database {
             .await
     }
 
+    /// Points every session on a moved worktree, under any of the spellings `from` holds, to where
+    /// it went: all of them or none.
+    pub async fn move_worktree(&self, from: &[String], to: &str) -> rusqlite::Result<usize> {
+        let (from, to) = (from.to_vec(), to.to_owned());
+        self.durable
+            .call(move |conn| {
+                let tx = conn.transaction()?;
+                let mut moved = 0;
+                for path in &from {
+                    moved += tx.execute("UPDATE tasks SET worktree=?1 WHERE worktree=?2", params![to, path])?;
+                }
+                tx.commit()?;
+                Ok(moved)
+            })
+            .await
+    }
+
     pub async fn pin_task(&self, id: &str, pinned: bool) -> rusqlite::Result<bool> {
         let id = id.to_owned();
         self.durable

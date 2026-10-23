@@ -94,7 +94,7 @@ struct SessionRemovalService: SessionRemoving {
         guard let plan else { return "" }
         var lines = [plan.record.worktree]
         if plan.removesWorktree {
-            lines.append(String(localized: "The terminal stops and this folder is deleted. Your branch and its commits stay, but anything not committed here is lost."))
+            lines.append(String(localized: "The terminal stops and this folder is deleted, and anything not committed here is lost. Its local branch is deleted if Cascade made it and it is merged; any other branch is kept."))
             if plan.sessions.count > 1 {
                 let names = plan.sessions.map { $0.title.isEmpty ? $0.label : $0.title }
                 lines.append(String(localized: "\(plan.sessions.count) tasks use this folder, so all of them go: \(names.joined(separator: ", "))."))

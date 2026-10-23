@@ -1772,6 +1772,9 @@ public final class AppViewModel {
         do {
             let connectedAPI = try await backendRuntime.start()
             guard started, startGeneration == generation else { return }
+            // Before anything reads the sessions, so none starts in a folder about to move.
+            await settleWorktreeRelocation(api: connectedAPI)
+            guard started, startGeneration == generation else { return }
             api = connectedAPI
             if let api {
                 shell.connect(shellFactory.data(api: api)); viewer.connect(api); dashboard?.connect(backendFactory.dashboard(api: api))
@@ -1796,6 +1799,7 @@ public final class AppViewModel {
                 settings?.connect(backendFactory.settings(api: api))
                 settings?.clis.connect(backendFactory.cliSettings(api: api))
                 settings?.webhooks.connect(backendFactory.automation(api: api))
+                settings?.worktrees.connect(self)
                 settings?.diagnostics.connect(backendFactory.diagnostics(api: api))
                 settings?.resources.connect(platformFactory.resources(api: api))
                 workspaceLaunch.connect(backendFactory.workspaceTargets(api: api))
@@ -2172,5 +2176,147 @@ public final class AppViewModel {
         historyModels.removeAll()
         await backendRuntime.stop()
         api = nil
+    }
+}
+
+/// Settings → Worktrees' list of the worktree folder. A worktree a session works in is removed as
+/// the session's own removal removes it, terminals stopped and records forgotten; the rest go to
+/// the backend alone.
+extension AppViewModel: ExistingWorktreeManaging {
+    /// What the worktree folder holds (`~/.cascade/worktrees`, or the custom one), a group per
+    /// project in the sidebar's order, then what no project claims. The backend says which project
+    /// claims each, and its word stands even for a project the app has not read yet.
+    func existingWorktrees() async throws -> [ExistingWorktreeGroup] {
+        guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
+        struct Shared: Decodable, Sendable {
+            let path: String; let branch: String; let repo: String
+            let projectId: String?; let projectName: String?; let workspace: String?
+        }
+        let shared: [Shared] = try await api.get(Routes.WORKTREES_SHARED)
+        let trees = shared.map { tree in
+            ExistingWorktree(path: tree.path, branch: tree.branch, projectID: tree.projectId, workspace: tree.workspace ?? "",
+                             repo: tree.repo, sessions: sessionNames(in: tree.path))
+        }
+        var order = projects.map(\.id)
+        for tree in shared { if let id = tree.projectId, !order.contains(id) { order.append(id) } }
+        var groups = order.compactMap { id -> ExistingWorktreeGroup? in
+            let own = trees.filter { $0.projectID == id }
+            let title = projects.first { $0.id == id }?.name ?? shared.first { $0.projectId == id }?.projectName ?? ""
+            return own.isEmpty ? nil : .init(id: id, title: title, worktrees: own)
+        }
+        let leftovers = trees.filter { $0.projectID == nil }
+        if !leftovers.isEmpty { groups.append(.init(id: "leftover", title: String(localized: "No project"), worktrees: leftovers)) }
+        return groups
+    }
+
+    /// Every session on the worktree goes first, by its own removal: terminals stopped, records
+    /// forgotten. A session whose project the app knows takes the folder with it; any other is
+    /// forgotten and the folder is removed after, by its project's checkout or as a leftover.
+    func removeWorktree(_ worktree: ExistingWorktree) async throws {
+        guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
+        let folder = SessionRemovalPlan.path(worktree.path)
+        var removed: Set<String> = []
+        while let session = sessions.first(where: { SessionRemovalPlan.path($0.worktree) == folder && !removed.contains($0.id) }) {
+            guard !changingSessions.contains(session.id), let model = removalModel(for: session) else {
+                throw BackendError.operation(String(localized: "A session operation is already in progress."))
+            }
+            await model.load()
+            guard let plan = model.plan else {
+                throw BackendError.operation(model.error ?? String(localized: "This worktree could not be prepared for removal."))
+            }
+            await model.remove()
+            if let error = model.error { throw BackendError.operation(error) }
+            // Not completed and no error: a document with unsaved changes kept it open.
+            guard model.completed else { throw CancellationError() }
+            removed.formUnion(plan.sessions.map(\.id))
+            if case .session(let selected) = coordinator.selection, plan.sessions.contains(where: { $0.id == selected }) {
+                coordinator.navigate(to: .overview)
+            }
+            if plan.removesWorktree { return }
+        }
+        if worktree.projectID != nil, !worktree.workspace.isEmpty {
+            struct Payload: Encodable, Sendable { let path: String; let worktree: String; let force: Bool }
+            let _: OperationOK = try await api.request(Routes.WORKTREE_REMOVE, method: "POST", body:
+                Payload(path: worktree.workspace, worktree: worktree.path, force: true))
+        } else {
+            let _: OperationOK = try await api.request(Routes.WORKTREE_LEFTOVER_REMOVE, method: "POST", body: ["path": worktree.path])
+        }
+    }
+
+    private func sessionNames(in worktree: String) -> [String] {
+        let folder = SessionRemovalPlan.path(worktree)
+        return sessions.filter { SessionRemovalPlan.path($0.worktree) == folder }.map { $0.title.isEmpty ? $0.label : $0.title }
+    }
+}
+
+/// The one-time move of sessions' worktrees into Cascade's folder (`crates/cascade-backend/src/local/relocate.rs`).
+/// Asked once: whatever the answer, the backend makes the folder, and a made folder is never asked
+/// about. It is settled as the app starts, before the sessions are read, so no session's terminal
+/// or agent starts in a folder about to move; until it is answered the app shows no session. An app
+/// started hidden (a login item) is not held up for a question nobody sees: it asks at a launch
+/// whose window shows.
+extension AppViewModel {
+    private struct Relocation: Decodable, Sendable {
+        struct Tree: Decodable, Sendable { let path: String; let to: String; let sessions: [String]; let blocked: String? }
+        let due: Bool
+        let worktrees: [Tree]
+    }
+    private struct Relocated: Decodable, Sendable {
+        struct Moved: Decodable, Sendable { let stored: [String]; let to: String; let sessions: [String] }
+        struct Skip: Decodable, Sendable { let path: String; let reason: String }
+        let moved: [Moved]
+        let skipped: [Skip]
+    }
+
+    func settleWorktreeRelocation(api: APIClient) async {
+        guard let state: Relocation = try? await api.get(Routes.WORKTREES_RELOCATION), state.due else { return }
+        let movable = state.worktrees.filter { $0.blocked == nil }
+        // Nothing to move: the folder is made without a word.
+        guard !movable.isEmpty else { return await answerRelocation(move: false, api: api) }
+        guard !NSApp.isHidden, let window = NSApp.windows.first(where: { $0.windowController is MainWindowController }),
+              window.isVisible else { return }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Move your worktrees to Cascade’s folder?")
+        var lines = [String(localized: "Cascade can keep worktrees in ~/.cascade/worktrees, out of your projects’ folders. Move the \(movable.count) your sessions use there: uncommitted changes go with them, agents pick up their conversations in the new place, and new worktrees go there too.")]
+        let stuck = state.worktrees.count - movable.count
+        if stuck > 0 { lines.append(String(localized: "\(stuck) can’t move, because the folder they’d go to already exists, and stay where they are.")) }
+        lines.append(String(localized: "If you keep them where they are, new worktrees keep going next to your projects. You can change that in Settings → Worktrees. You won’t be asked again."))
+        alert.informativeText = lines.joined(separator: "\n\n")
+        alert.addButton(withTitle: String(localized: "Move Worktrees"))
+        alert.addButton(withTitle: String(localized: "Keep Where They Are"))
+        let answer = window.attachedSheet == nil ? await alert.beginSheetModal(for: window) : alert.runModal()
+        guard answer == .alertFirstButtonReturn else { return await answerRelocation(move: false, api: api) }
+        await relocateWorktrees(movable, api: api)
+    }
+
+    private func answerRelocation(move: Bool, api: APIClient) async {
+        do {
+            let _: OperationOK = try await api.request(Routes.WORKTREES_RELOCATION, method: "POST", body: ["move": move])
+        } catch { reportRootError(error.localizedDescription) }
+    }
+
+    /// Nothing of the sessions has started this launch, but a shell an earlier one left running (it
+    /// quit unexpectedly) still sits in the folder: it is stopped first, since a folder moved under
+    /// a shell leaves it nowhere. One that will not stop moves nothing, and the offer comes again.
+    private func relocateWorktrees(_ trees: [Relocation.Tree], api: APIClient) async {
+        let ids = Set(trees.flatMap(\.sessions))
+        let records: [WorkspaceSession] = ((try? await api.get(Routes.TASKS)) ?? []).filter { ids.contains($0.id) }
+        let shellPrefixes = ids.map { Self.shellPrefix(contextID: "task:\($0)") }
+        let running = (try? await terminalControl.pairedShells())?.keys.filter { key in shellPrefixes.contains { key.hasPrefix($0) } } ?? []
+        do {
+            try await terminalControl.stopPaired(keys: Set(records.flatMap { [$0.id, "build:\($0.url)"] }).union(running))
+        } catch { return reportRootError(error.localizedDescription) }
+        do {
+            let relocated: Relocated = try await api.request(Routes.WORKTREES_RELOCATION, method: "POST", body: ["move": true])
+            // Each session's saved file tabs follow its worktree, before any is restored.
+            for tree in relocated.moved {
+                for path in tree.stored {
+                    viewer.moveFiles(contextIDs: Set(tree.sessions.map { "task:\($0)" }), from: path, to: tree.to)
+                }
+            }
+            guard !relocated.skipped.isEmpty else { return }
+            let stayed = relocated.skipped.map { "\($0.path): \($0.reason)" }.joined(separator: "\n")
+            reportRootError(String(localized: "These worktrees stayed where they were:\n\(stayed)"))
+        } catch { reportRootError(error.localizedDescription) }
     }
 }

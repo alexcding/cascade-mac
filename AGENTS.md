@@ -207,6 +207,21 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   and one at a time. Only when origin was fetched does the answer carry the references; otherwise
   the list shown stands and nothing is read. A failure is logged, and creating a worktree never
   waits on a picker's fetch.
+- **New worktrees go to Cascade's folder, `~/.cascade/worktrees/<project>-<8 hex>/<branch>`, on a
+  clean install only.** The first start of this version settles `worktree_location` once
+  (`worktrees.rs` `settle_location`): an install with projects or sessions keeps "Next to the
+  project", and nothing stored means that too, so no install is moved without being asked. The
+  folder itself is the one-time flag (`local/relocate.rs`): while it is missing and a session's
+  worktree is elsewhere, the app asks at start, before it reads any session, whether to move them.
+  Either answer makes the folder, and it never asks again. A move goes through `git worktree move`
+  and carries the session records (every spelling of the path), pane chats, saved file tabs,
+  Claude's transcripts and `~/.claude.json` entry, and Codex's session files. Settings → Worktrees
+  lists what the folder holds and deletes each at once: a worktree with sessions through their
+  removal, and only folders Cascade named (`worktrees::is_project_folder`, and for a leftover the
+  exact name of its checkout). Deleting a project never touches its files. A branch goes with its
+  worktree only when Cascade made it (`branch.<name>.cascadeCreated`) and `git branch -d` agrees.
+  `CASCADE_WORKTREES_DIR` stands in for the folder; the scheme sets it, so ⌘R never uses up the
+  installed app's question.
 - **Child processes get their own process group** (`cli.rs`). The backend runs inside the
   app, so a child left in the app's group can take the app down with it, and a timeout
   kills the whole group rather than leaving a helper holding the output pipe.

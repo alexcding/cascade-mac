@@ -95,11 +95,11 @@ actor SettingsFixture: SettingsService {
     #expect(draft.validationError == nil && draft.values["unrelated"] == nil)
 }
 
-@Test func worktreeSettingsDefaultToTheSiblingLocationAndRequireAFolderForCustom() {
+@Test func worktreeSettingsDefaultToCascadesFolderAndRequireAFolderForCustom() {
     // Absent keys read as the backend's defaults, so an untouched draft round-trips unchanged.
     let untouched = AppConfigDraft([:])
-    #expect(untouched.worktreeLocation == .sibling && untouched.worktreeInclude == ".env*")
-    #expect(!untouched.worktreeFetch && !untouched.worktreeDeleteBranch)
+    #expect(untouched.worktreeLocation == .cascade && untouched.worktreeInclude == ".env*")
+    #expect(!untouched.worktreeFetch)
     #expect(AppConfigDraft(untouched.values) == untouched)
 
     var draft = AppConfigDraft(["worktree_location": "custom"])
@@ -108,7 +108,7 @@ actor SettingsFixture: SettingsService {
     #expect(draft.validationError != nil)
     draft.worktreeRoot = "~/worktrees"
     #expect(draft.validationError == nil)
-    draft.worktreeFetch = true; draft.worktreeDeleteBranch = true
-    #expect(draft.values["worktree_fetch"] == "true" && draft.values["worktree_delete_branch"] == "true")
-    #expect(AppConfigDraft(["worktree_location": "nowhere"]).worktreeLocation == .sibling)
+    draft.worktreeFetch = true
+    #expect(draft.values["worktree_fetch"] == "true" && draft.values["worktree_delete_branch"] == nil)
+    #expect(AppConfigDraft(["worktree_location": "nowhere"]).worktreeLocation == .cascade)
 }

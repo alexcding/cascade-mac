@@ -99,8 +99,10 @@ impl AppState {
 /// Starts the background services once the loopback listener is bound: the sync engine, and
 /// the webhook forwarders for the repos of the projects that forward. The wiring lives here so
 /// `integrations` need not know which module decides what is forwarded. The old per-project
-/// merge settings become pipelines first, before the first sync can act on them.
+/// merge settings become pipelines first, before the first sync can act on them, and where new
+/// worktrees go is settled before the app can read Settings.
 pub async fn start_background(state: &AppState, port: u16) {
+    worktrees::settle_location(state).await;
     automation::start(state).await;
     state.poller.start(state.clone());
     let wanted: integrations::Wanted =
@@ -154,6 +156,12 @@ pub fn build_app(state: AppState) -> Router {
             get(local::resolve_worktree).post(local::create_worktree),
         )
         .route("/api/worktrees", get(local::list_worktrees_route))
+        .route("/api/worktrees/shared", get(local::shared_worktrees_route))
+        .route(
+            "/api/worktrees/relocation",
+            get(local::worktree_relocation).post(local::relocate_worktrees),
+        )
+        .route("/api/worktrees/leftover/remove", post(local::remove_leftover_worktree))
         .route("/api/worktree/remove", post(local::remove_worktree))
         .route("/api/worktree/holders", get(local::worktree_holders))
         .route("/api/diff", get(local::diff))

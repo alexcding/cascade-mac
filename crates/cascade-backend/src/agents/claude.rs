@@ -234,6 +234,36 @@ pub(super) fn conversation_file(home: &Path, worktree: &str, id: &str) -> Option
     file.is_file().then_some(file)
 }
 
+/// What Claude keeps of a worktree by its path follows it when it moves, so the session's agent
+/// resumes there as it would have where it was: its folder of transcripts, which `--resume` looks
+/// in, and its entry in `~/.claude.json` (the folder's trust, allowed tools, MCP servers), without
+/// which Claude asks to trust the folder again. That file is read and written once for all the
+/// moves. Nothing already at a new path is overwritten.
+pub(crate) fn move_worktrees(home: &Path, moves: &std::collections::HashMap<String, String>) {
+    for (from, to) in moves {
+        let (old, new) = (project_dir(home, from), project_dir(home, to));
+        if old.is_dir() && !new.exists() {
+            let _ = std::fs::rename(old, new);
+        }
+    }
+    let file = home.join(".claude.json");
+    let Some(mut state) = crate::settings_file::read_json(&file) else { return };
+    let Some(projects) = state.get_mut("projects").and_then(Value::as_object_mut) else { return };
+    let mut changed = false;
+    for (from, to) in moves {
+        if projects.contains_key(to) {
+            continue;
+        }
+        if let Some(entry) = projects.get(from).cloned() {
+            projects.insert(to.clone(), entry);
+            changed = true;
+        }
+    }
+    if changed {
+        let _ = crate::settings_file::write_json(&file, &state);
+    }
+}
+
 fn project_dir(home: &Path, worktree: &str) -> PathBuf {
     let project: String = worktree
         .chars()
@@ -381,6 +411,28 @@ fn effort_name(level: &str) -> String {
 mod tests {
     use super::*;
     use crate::agents::Agent;
+
+    #[test]
+    fn a_moved_worktree_keeps_its_transcripts_and_trust_and_never_overwrites() {
+        let home = tempfile::tempdir().unwrap();
+        let (from, to) = ("/code/app.worktrees/fix", "/home/.cascade/worktrees/app-1/fix");
+        std::fs::create_dir_all(project_dir(home.path(), from)).unwrap();
+        std::fs::write(project_dir(home.path(), from).join("c.jsonl"), "{}").unwrap();
+        let trusted = serde_json::json!({"hasTrustDialogAccepted": true, "allowedTools": ["Bash"]});
+        let state = serde_json::json!({"numStartups": 3, "projects": {from: trusted}});
+        crate::settings_file::write_json(&home.path().join(".claude.json"), &state).unwrap();
+        let moves = std::collections::HashMap::from([(from.to_owned(), to.to_owned())]);
+        move_worktrees(home.path(), &moves);
+        assert!(project_dir(home.path(), to).join("c.jsonl").is_file());
+        assert!(!project_dir(home.path(), from).exists());
+        let state = crate::settings_file::read_json(&home.path().join(".claude.json")).unwrap();
+        assert_eq!(state["projects"][to], trusted);
+        assert_eq!(state["numStartups"], 3, "the rest of the file is kept");
+        // What is already at the new path is the newer: the old is left where it is.
+        std::fs::create_dir_all(project_dir(home.path(), from)).unwrap();
+        move_worktrees(home.path(), &moves);
+        assert!(project_dir(home.path(), from).is_dir());
+    }
 
     #[test]
     fn a_stop_waits_only_on_a_background_agent() {

@@ -3,7 +3,7 @@
 //! router still names `local::diff`, `local::create_worktree` and the rest.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     os::unix::{
         ffi::OsStringExt,
@@ -129,10 +129,12 @@ mod files;
 mod git;
 mod ide;
 mod patch;
+mod relocate;
 mod worktree;
 
 pub(crate) use files::*;
 pub(crate) use git::*;
 pub(crate) use ide::*;
 pub(crate) use patch::*;
+pub(crate) use relocate::*;
 pub(crate) use worktree::*;

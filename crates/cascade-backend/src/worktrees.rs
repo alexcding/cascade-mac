@@ -1,7 +1,7 @@
 //! What Settings → Worktrees changes about a session's worktree: where a new one lands, which
-//! ignored files follow it from the main checkout, the command that prepares it, and whether its
-//! branch goes with it when it is removed. Every option is read from `config` at the moment it is
-//! used, so a change applies to the next worktree without a restart.
+//! ignored files follow it from the main checkout, and the command that prepares it. Every option
+//! is read from `config` at the moment it is used, so a change applies to the next worktree
+//! without a restart.
 
 use std::{
     collections::HashMap,
@@ -21,7 +21,6 @@ use crate::Project;
 pub(crate) const LOCATION: &str = "worktree_location";
 pub(crate) const ROOT: &str = "worktree_root";
 pub(crate) const INCLUDE: &str = "worktree_include";
-pub(crate) const DELETE_BRANCH: &str = "worktree_delete_branch";
 pub(crate) const FETCH: &str = "worktree_fetch";
 /// What a checkout with no `.worktreeinclude` copies when Settings never named its own patterns.
 pub(crate) const DEFAULT_INCLUDE: &str = ".env*";
@@ -44,13 +43,28 @@ const OUTPUT_TAIL: usize = 2000;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Location {
-    /// `<workspace>.worktrees/<leaf>`, beside the checkout: the default, and what every worktree
-    /// made before this setting existed already uses.
+    /// `<workspace>.worktrees/<leaf>`, beside the checkout: what every worktree made before the
+    /// shared folder became the default already uses.
     Sibling,
     /// `<workspace>/.worktrees/<leaf>`, hidden from git through `info/exclude`.
     Inside,
-    /// `<folder>/<repo folder>/<leaf>`, so one folder can hold every project's worktrees.
+    /// `<folder>/<repo folder>/<leaf>`, so one folder can hold every project's worktrees. The
+    /// default is Cascade's own, `~/.cascade/worktrees`.
     Custom(PathBuf),
+}
+
+/// Where new worktrees land unless Settings names another place: one folder for every project,
+/// out of the way of the checkouts themselves.
+pub(crate) const DEFAULT_ROOT: &str = "~/.cascade/worktrees";
+
+/// `DEFAULT_ROOT`, or the folder `CASCADE_WORKTREES_DIR` names in its place, as `CASCADE_DATA_DIR`
+/// does for the data folder: a test or a development build keeps out of the real one, and out of
+/// its one-time offer to move worktrees there (`local::relocate`).
+pub(crate) fn default_root() -> PathBuf {
+    match std::env::var("CASCADE_WORKTREES_DIR") {
+        Ok(dir) if !dir.trim().is_empty() => resolve_path(dir.trim()),
+        _ => resolve_path(DEFAULT_ROOT),
+    }
 }
 
 async fn config(app: &AppState, key: &str) -> Option<String> {
@@ -59,14 +73,51 @@ async fn config(app: &AppState, key: &str) -> Option<String> {
 
 pub(crate) async fn location(app: &AppState) -> Location {
     match config(app, LOCATION).await.as_deref() {
+        Some("sibling") => Location::Sibling,
         Some("inside") => Location::Inside,
         Some("custom") => match config(app, ROOT).await.filter(|v| !v.trim().is_empty()) {
             Some(root) => Location::Custom(resolve_path(root.trim())),
             // A custom location with no folder yet is a setting half made, not a reason to fail
-            // New Session: keep landing where worktrees always have.
-            None => Location::Sibling,
+            // New Session: keep landing where the default puts them.
+            None => Location::Custom(default_root()),
         },
-        _ => Location::Sibling,
+        // Nothing stored: `settle_location` could not write its answer. Where worktrees always
+        // went, so an existing install is never moved without being asked.
+        None => Location::Sibling,
+        _ => Location::Custom(default_root()),
+    }
+}
+
+/// The folders that hold every project's worktrees: Cascade's own, and the custom one Settings
+/// names. A worktree there outlives a project removed from Cascade or a checkout deleted from
+/// under it, so Settings lists what such a folder holds (`local::shared_worktrees_route`).
+/// A custom folder counts while Settings still names it, chosen now or not: switching away leaves
+/// its worktrees there, and they are listed until they are deleted.
+pub(crate) async fn shared_roots(app: &AppState) -> Vec<PathBuf> {
+    let mut roots = vec![default_root()];
+    if let Some(folder) = config(app, ROOT).await.filter(|v| !v.trim().is_empty()) {
+        let folder = resolve_path(folder.trim());
+        if !roots.contains(&folder) {
+            roots.push(folder);
+        }
+    }
+    roots
+}
+
+/// Settles once, at the first start of this version, where an install's new worktrees go when it
+/// never chose: one that already has projects or sessions is an install from before Cascade's
+/// folder, and keeps making them next to the checkout as it always has; only a clean install
+/// starts with Cascade's folder. Stored, so Settings shows it and it never changes on its own.
+/// Unreadable counts as used: an existing install is never moved on a guess.
+pub async fn settle_location(app: &AppState) {
+    if config(app, LOCATION).await.is_some() {
+        return;
+    }
+    let used = app.db.projects().await.map_or(true, |p| !p.is_empty())
+        || app.db.tasks().await.map_or(true, |t| !t.is_empty());
+    let settled = json!({ LOCATION: if used { "sibling" } else { "cascade" } });
+    if let Err(error) = app.db.set_config(settled.as_object().unwrap()).await {
+        tracing::warn!(%error, "worktrees: where new worktrees go was not stored; next to the checkout until it is");
     }
 }
 
@@ -78,6 +129,14 @@ pub(crate) fn root(workspace: &str, location: &Location) -> PathBuf {
         Location::Inside => Path::new(workspace).join(".worktrees"),
         Location::Custom(folder) => folder.join(project_folder(workspace)),
     }
+}
+
+/// Whether a folder in a shared root is one `project_folder` named. A shared root may be a custom
+/// folder that holds other things, and only what Cascade made there is its to list or delete.
+pub(crate) fn is_project_folder(name: &str) -> bool {
+    name.rsplit_once('-').is_some_and(|(stem, hash)| {
+        !stem.is_empty() && hash.len() == 8 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
 }
 
 /// `<checkout folder>-<8 hex of its path>`: the name keeps it recognisable, the hash keeps
@@ -467,14 +526,34 @@ pub(crate) fn spawn_derived_data_removal(app: &AppState, worktree: &str, folders
     });
 }
 
-/// Whether removing a session's worktree also removes its branch.
-pub(crate) async fn delete_branch(app: &AppState) -> bool {
-    matches!(config(app, DELETE_BRANCH).await.as_deref(), Some("true" | "1"))
+/// The mark a branch Cascade made carries in the repository's own config. Git drops the branch's
+/// section, mark and all, when the branch is deleted, so a later branch of the same name the person
+/// makes is never taken for Cascade's.
+fn created_key(branch: &str) -> String {
+    format!("branch.{branch}.cascadeCreated")
 }
 
-/// `branch -d`, never `-D`: git refuses a branch that is not merged into its upstream or HEAD,
-/// and that refusal is the point. Work that was never merged is not deleted by a cleanup.
+/// Marks `branch`, which `git worktree add -b` just made, as Cascade's to delete with its worktree.
+/// A mark that could not be written only keeps the branch when the worktree goes, so it is logged,
+/// not failed.
+pub(crate) async fn mark_created(dir: &str, branch: &str) {
+    if let Err(error) = cli::run("git", ["-C", dir, "config", &created_key(branch), "true"], Duration::from_secs(15)).await {
+        tracing::warn!(branch, error = %crate::local::error_line(&error.to_string()), "worktree: the branch was not marked as Cascade's");
+    }
+}
+
+/// Removing a worktree removes its branch with it when Cascade made that branch for it, by
+/// `branch -d`, never `-D`: git refuses a branch that is not merged into its upstream or HEAD, and
+/// that refusal is the point. A branch merged into its upstream (often the base it was cut from) or
+/// HEAD goes; one holding work merged nowhere stays, pushed or not, and so does any branch a
+/// session only adopted (`develop`, a pull request's), whatever it holds.
 pub(crate) async fn remove_branch(app: &AppState, dir: &str, branch: &str) -> bool {
+    let made = cli::run("git", ["-C", dir, "config", "--bool", &created_key(branch)], Duration::from_secs(15))
+        .await
+        .is_ok_and(|value| value.trim() == "true");
+    if !made {
+        return false;
+    }
     let result = cli::run(
         "git",
         ["-C", dir, "branch", "-d", "--", branch],
@@ -495,6 +574,49 @@ pub(crate) async fn remove_branch(app: &AppState, dir: &str, branch: &str) -> bo
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn only_a_clean_install_starts_with_cascades_folder() {
+        let clean = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::db::Database::open(clean.path()).unwrap(), None);
+        settle_location(&app).await;
+        assert_eq!(config(&app, LOCATION).await.as_deref(), Some("cascade"));
+        // Settled for good: projects added later change nothing.
+        app.db.add_project(json!({"name": "App", "workspace": "/code/app"}).as_object().unwrap()).await.unwrap();
+        settle_location(&app).await;
+        assert_eq!(config(&app, LOCATION).await.as_deref(), Some("cascade"));
+
+        let used = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::db::Database::open(used.path()).unwrap(), None);
+        app.db.add_project(json!({"name": "App", "workspace": "/code/app"}).as_object().unwrap()).await.unwrap();
+        settle_location(&app).await;
+        assert_eq!(location(&app).await, Location::Sibling);
+
+        // A choice already saved is never touched.
+        let chosen = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::db::Database::open(chosen.path()).unwrap(), None);
+        app.db.set_config(json!({ LOCATION: "inside" }).as_object().unwrap()).await.unwrap();
+        settle_location(&app).await;
+        assert_eq!(location(&app).await, Location::Inside);
+    }
+
+    #[tokio::test]
+    async fn the_location_stored_decides_and_nothing_stored_stays_beside_the_checkout() {
+        let data = tempfile::tempdir().unwrap();
+        let app = AppState::new(crate::db::Database::open(data.path()).unwrap(), None);
+        let shared = Location::Custom(default_root());
+        // Nothing stored is the safe side: where worktrees always went.
+        assert_eq!(location(&app).await, Location::Sibling);
+        app.db.set_config(json!({ LOCATION: "cascade" }).as_object().unwrap()).await.unwrap();
+        assert_eq!(location(&app).await, shared);
+        // A custom location whose folder was never chosen lands there too.
+        let half_made = json!({ LOCATION: "custom", ROOT: " " });
+        app.db.set_config(half_made.as_object().unwrap()).await.unwrap();
+        assert_eq!(location(&app).await, shared);
+        let sibling = json!({ LOCATION: "sibling" });
+        app.db.set_config(sibling.as_object().unwrap()).await.unwrap();
+        assert_eq!(location(&app).await, Location::Sibling);
+    }
+
     #[test]
     fn roots_follow_the_location() {
         assert_eq!(root("/code/app/", &Location::Sibling), PathBuf::from("/code/app.worktrees"));
@@ -505,6 +627,15 @@ mod tests {
         // Same folder name, different checkout: never the same root.
         assert_ne!(work, root("/oss/app", &custom));
         assert_eq!(work, root("/work/app/", &custom));
+    }
+
+    #[test]
+    fn only_the_folders_cascade_names_count_as_its_own() {
+        let made = root("/work/my-app", &Location::Custom("/wt".into()));
+        assert!(is_project_folder(made.file_name().unwrap().to_str().unwrap()));
+        for other in ["app.worktrees", "notes", "my-app", "app-1234567", "app-ABCDEF12", "-1234abcd"] {
+            assert!(!is_project_folder(other), "{other}");
+        }
     }
 
     #[tokio::test]

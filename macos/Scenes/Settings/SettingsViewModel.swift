@@ -25,6 +25,7 @@ import Observation
     }
     let clis: CLISettingsViewModel
     let webhooks: WebhookForwardingViewModel
+    let worktrees: WorktreeListViewModel
     let diagnostics: DiagnosticsViewModel
     let loginItem: LoginItemViewModel
     let microphone: MicrophoneAccessViewModel
@@ -58,8 +59,9 @@ import Observation
 
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
          resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, fileIcons: FileIconSettingsViewModel, microphone: MicrophoneAccessViewModel,
-         webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel()) {
-        self.clis = clis; self.webhooks = webhooks; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
+         webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel(),
+         worktrees: WorktreeListViewModel = WorktreeListViewModel()) {
+        self.clis = clis; self.webhooks = webhooks; self.worktrees = worktrees; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
         self.resources = resources; self.adBlock = adBlock; self.fileIcons = fileIcons
     }
@@ -101,6 +103,8 @@ import Observation
         if active && section == .browser { adBlock.refresh() }
         if active && section == .editor { Task { await fileIcons.refresh() } }
         if active && section == .clis { clis.refresh(); webhooks.refresh() } else { clis.cancelReads() }
+        // Sessions come and go, and a folder can be deleted from under its worktree, so read each time.
+        if active && section == .worktrees { worktrees.refresh() }
         if active && section == .shortcuts { refreshAgentCatalogs() }
     }
     /// A CLI's models change with its version, so they are read each time Shortcuts shows.
@@ -186,12 +190,13 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); worktrees.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()
         let cliReads = clis.disconnect()
         webhooks.disconnect()
+        worktrees.disconnect()
         microphone.setActive(false)
         let loginMutation = loginItem.cancelRead(), fontRead = fonts.cancelRead(), microphoneRead = microphone.cancelRead()
         await loginMutation?.value

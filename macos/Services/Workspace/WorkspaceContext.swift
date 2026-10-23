@@ -891,6 +891,26 @@ struct ContextSnapshot: Codable, Equatable, Sendable {
             for page in context.pages where page.webView != nil { page.reload() }
         }
     }
+    /// A worktree moved: the file tabs and file visits saved for these contexts follow it to `to`.
+    /// Only what is saved: it runs as the app starts, before any of them is restored.
+    func moveFiles(contextIDs: Set<String>, from: String, to: String) {
+        let from = from.hasSuffix("/") ? String(from.dropLast()) : from
+        func moved(_ records: [FileDocumentRecord]?) -> [FileDocumentRecord]? {
+            records?.map { record in
+                guard record.path == from || record.path.hasPrefix(from + "/") else { return record }
+                return FileDocumentRecord(id: record.id, path: to + record.path.dropFirst(from.count))
+            }
+        }
+        var changed = false
+        for id in contextIDs where contexts[id] == nil {
+            guard var snapshot = saved[id] else { continue }
+            let before = snapshot
+            snapshot.documents = moved(snapshot.documents)
+            snapshot.fileHistory = moved(snapshot.fileHistory)
+            if snapshot != before { saved[id] = snapshot; changed = true }
+        }
+        if changed { cache() }
+    }
     private func save(_ context: WorkspaceContext) {
         saved[context.id] = context.snapshot
         cache()

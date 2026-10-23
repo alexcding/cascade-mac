@@ -9,15 +9,17 @@ pub(crate) struct Worktree {
     pub(crate) main: bool,
 }
 pub(crate) async fn list_worktrees(dir: &str) -> Vec<Worktree> {
-    let Ok(out) = git(
+    try_list_worktrees(dir).await.unwrap_or_default()
+}
+
+/// `list_worktrees`, telling a checkout git could not read from one with no worktrees.
+async fn try_list_worktrees(dir: &str) -> anyhow::Result<Vec<Worktree>> {
+    let out = git(
         dir,
         vec!["worktree".into(), "list".into(), "--porcelain".into()],
         20,
     )
-    .await
-    else {
-        return vec![];
-    };
+    .await?;
     let mut result = Vec::new();
     for line in out.lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
@@ -32,7 +34,7 @@ pub(crate) async fn list_worktrees(dir: &str) -> Vec<Worktree> {
             }
         }
     }
-    result
+    Ok(result)
 }
 
 pub async fn list_worktrees_route(Query(query): Query<LocalQuery>) -> ApiResult<Value> {
@@ -244,7 +246,10 @@ pub(crate) async fn create_worktree_value(app: &AppState, body: &Value) -> ApiRe
         args.push(start);
     }
     match git(dir, args, 90).await {
-        Ok(_) => Ok(Json(prepared(&app, dir, &destination, branch).await)),
+        Ok(_) => {
+            worktrees::mark_created(dir, branch).await;
+            Ok(Json(prepared(&app, dir, &destination, branch).await))
+        }
         Err(e) => Err(unprocessable(worktree_failure(branch, e.to_string()))),
     }
 }
@@ -340,6 +345,7 @@ pub(crate) async fn fork_worktree(
     )
     .await
     .map_err(|error| worktree_failure(&branch, error.to_string()))?;
+    worktrees::mark_created(dir, &branch).await;
     warnings.extend(carry_changes(source, &destination, stash, untracked).await);
     prepared(app, dir, &destination, &branch).await;
     let warning = (!warnings.is_empty()).then(|| warnings.join("; "));
@@ -622,13 +628,234 @@ pub async fn remove_worktree(
             crate::xcode::forget_answers(&app, &resolve_path(target)).await;
             worktrees::spawn_derived_data_removal(&app, target, derived);
             // A detached worktree has no branch to delete.
-            let deleted = !tree.branch.is_empty()
-                && worktrees::delete_branch(&app).await
-                && worktrees::remove_branch(&app, dir, &tree.branch).await;
+            let deleted = !tree.branch.is_empty() && worktrees::remove_branch(&app, dir, &tree.branch).await;
             Ok(Json(json!({"ok":true,"branchDeleted":deleted})))
         }
         Err(e) => Err(unprocessable(e.to_string())),
     }
+}
+
+/// A worktree folder in a shared root (`worktrees::shared_roots`), Settings → Worktrees' list.
+struct Shared {
+    path: PathBuf,
+    /// The project that claims it. None: a leftover, its project removed from Cascade or its
+    /// checkout deleted from under it.
+    project: Option<Claim>,
+    /// The checkout it was made from, when that is still there.
+    repo: Option<String>,
+    branch: String,
+}
+
+#[derive(Clone)]
+struct Claim {
+    id: String,
+    name: String,
+    workspace: String,
+}
+
+/// Every worktree at `<root>/<project folder>/<worktree>`, with the project that claims it. Only
+/// what Cascade made counts: a project folder it named (`worktrees::is_project_folder`), holding a
+/// folder whose `.git` says it is a linked worktree. A shared root may be a custom folder that holds
+/// anything else, other tools' worktrees included, and none of that is ever listed or deleted. Paths are compared
+/// resolved, as git records them. A project claims a worktree its checkout lists, or one made from
+/// its checkout; one whose checkout git could not read just now claims its whole folder in each
+/// root, so a slow or unmounted checkout never turns its worktrees into leftovers anyone may
+/// delete; one whose checkout is gone claims nothing.
+async fn shared_worktrees(app: &AppState) -> anyhow::Result<Vec<Shared>> {
+    let roots = worktrees::shared_roots(app).await;
+    let projects: Vec<_> = app.db.projects().await?.into_iter().filter(|p| !p.workspace.is_empty()).collect();
+    let listings = futures_util::future::join_all(projects.iter().map(|p| try_list_worktrees(&p.workspace))).await;
+    let (mut claimed, mut folders, mut checkouts) = (HashMap::new(), HashMap::new(), HashMap::new());
+    for (project, listing) in projects.iter().zip(listings) {
+        let claim = Claim { id: project.id.clone(), name: project.name.clone(), workspace: project.workspace.clone() };
+        checkouts.insert(resolved(Path::new(&project.workspace)), claim.clone());
+        match listing {
+            Ok(trees) => {
+                for tree in trees {
+                    claimed.insert(resolved(Path::new(&tree.path)), claim.clone());
+                }
+            }
+            Err(_) if Path::new(&project.workspace).exists() => {
+                for root in &roots {
+                    let location = worktrees::Location::Custom(root.clone());
+                    folders.insert(resolved(&worktrees::root(&project.workspace, &location)), claim.clone());
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    // The walk reads folders and files, which a slow or network volume can hold: off the workers.
+    let walk = move || {
+        let mut found = Vec::new();
+        for root in roots {
+            for folder in subfolders(&root).into_iter().filter(|folder| named_by_cascade(folder)) {
+                let folder = resolved(&folder);
+                for path in subfolders(&folder) {
+                    let Some(mut tree) = shared(resolved(&path)) else { continue };
+                    tree.project = claimed.get(&tree.path).or_else(|| folders.get(&folder))
+                        .or_else(|| tree.repo.as_ref().and_then(|repo| checkouts.get(&resolved(Path::new(repo)))))
+                        .cloned();
+                    if tree.project.is_some() || made_by_cascade(&folder, tree.repo.as_deref()) {
+                        found.push(tree);
+                    }
+                }
+            }
+        }
+        found.sort_by(|a, b| a.path.cmp(&b.path));
+        found.dedup_by(|a, b| a.path == b.path);
+        found
+    };
+    Ok(tokio::task::spawn_blocking(walk).await?)
+}
+
+fn named_by_cascade(folder: &Path) -> bool {
+    folder.file_name().and_then(|name| name.to_str()).is_some_and(worktrees::is_project_folder)
+}
+
+/// Whether a worktree no project claims is one Cascade made: its project folder has the very name
+/// Cascade gives the checkout it came from. Once that checkout is gone the name's shape is all
+/// there is to go by.
+fn made_by_cascade(folder: &Path, repo: Option<&str>) -> bool {
+    let name = folder.file_name().and_then(|name| name.to_str());
+    match repo {
+        Some(repo) => {
+            let expected = worktrees::root(repo, &worktrees::Location::Custom(PathBuf::new()));
+            name.is_some() && expected.file_name().and_then(|n| n.to_str()) == name
+        }
+        None => named_by_cascade(folder),
+    }
+}
+
+pub(crate) fn resolved(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn subfolders(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(dir) else { return vec![] };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .collect()
+}
+
+/// The worktree at `path`, when it is one: its `.git` is a file saying `gitdir: <common
+/// dir>/worktrees/<name>`, absolute or, as `worktree.useRelativePaths` writes it, relative to the
+/// worktree. A checkout (whose `.git` is a folder) or any other folder is None. Its `HEAD` is there
+/// while the checkout it came from exists; the checkout is the common dir's parent, or the common
+/// dir itself for a bare repository.
+fn shared(path: PathBuf) -> Option<Shared> {
+    if !fs::symlink_metadata(path.join(".git")).is_ok_and(|meta| meta.is_file()) {
+        return None;
+    }
+    let named = fs::read_to_string(path.join(".git"))
+        .ok()?
+        .trim()
+        .strip_prefix("gitdir:")
+        .map(|dir| path.join(dir.trim()))?;
+    if !named.parent().and_then(Path::file_name).is_some_and(|name| name == "worktrees") {
+        return None;
+    }
+    let gitdir = Some(resolved(&named)).filter(|dir| dir.is_dir());
+    let repo = gitdir
+        .as_deref()
+        .and_then(|dir| dir.parent()?.parent())
+        .map(|common| if common.file_name().is_some_and(|name| name == ".git") { common.parent().unwrap_or(common) } else { common })
+        .map(|repo| repo.to_string_lossy().into_owned());
+    let branch = gitdir
+        .and_then(|dir| fs::read_to_string(dir.join("HEAD")).ok())
+        .and_then(|head| head.trim().strip_prefix("ref: refs/heads/").map(str::to_owned))
+        .unwrap_or_default();
+    Some(Shared { path, project: None, repo, branch })
+}
+
+pub async fn shared_worktrees_route(State(app): State<AppState>) -> ApiResult<Value> {
+    let found = shared_worktrees(&app).await.map_err(ApiError::internal)?;
+    Ok(Json(Value::Array(
+        found
+            .into_iter()
+            .map(|w| json!({
+                "path": w.path,
+                "branch": w.branch,
+                "projectId": w.project.as_ref().map(|p| &p.id),
+                "projectName": w.project.as_ref().map(|p| &p.name),
+                "workspace": w.project.as_ref().map(|p| &p.workspace),
+                "repo": w.repo.unwrap_or_default(),
+            }))
+            .collect(),
+    )))
+}
+
+/// Deletes a leftover worktree folder: one `shared_worktrees_route` lists with no project. A
+/// project's own worktree goes through `remove_worktree`, or its session's removal, which stops
+/// what runs there first. Only that one folder is checked, never the whole list: it must be a
+/// worktree in a shared root, and no project's, by its folder or its checkout. While its checkout
+/// still knows it git removes it, and a refusal (a locked worktree) is the answer; the folder is
+/// deleted by hand only once its checkout is gone or has forgotten it. Its branch goes as any
+/// removed worktree's does (`worktrees::remove_branch`).
+pub async fn remove_leftover_worktree(
+    State(app): State<AppState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Value> {
+    let target = body["path"]
+        .as_str()
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| ApiError::bad_request("path required"))?;
+    let target = fs::canonicalize(resolve_path(target)).map_err(|e| unprocessable(e.to_string()))?;
+    let refused = || ApiError::conflict(format!("{} is not a leftover worktree", target.display()));
+    let roots: Vec<PathBuf> = worktrees::shared_roots(&app).await.iter().map(|root| resolved(root)).collect();
+    let folder = target.parent().ok_or_else(refused)?.to_path_buf();
+    if !named_by_cascade(&folder) || !folder.parent().is_some_and(|root| roots.iter().any(|r| r == root)) {
+        return Err(refused());
+    }
+    let found = shared(target.clone()).filter(|tree| made_by_cascade(&folder, tree.repo.as_deref())).ok_or_else(refused)?;
+    for project in app.db.projects().await.map_err(ApiError::internal)? {
+        let checkout = resolved(Path::new(&project.workspace));
+        let own_folder = roots.iter().any(|root| {
+            resolved(&worktrees::root(&project.workspace, &worktrees::Location::Custom(root.clone()))) == folder
+        });
+        let made_from = found.repo.as_ref().is_some_and(|repo| resolved(Path::new(repo)) == checkout);
+        if !project.workspace.is_empty() && (own_folder || made_from) {
+            return Err(refused());
+        }
+    }
+    let path = found.path.to_string_lossy().into_owned();
+    let derived = crate::xcode::derived_data_of(&found.path).await;
+    let mut deleted = false;
+    // A checkout git cannot read just now has not forgotten the worktree: that is an error to show,
+    // never a reason to delete the folder by hand.
+    let known = match &found.repo {
+        Some(repo) => try_list_worktrees(repo)
+            .await
+            .map_err(|e| unprocessable(format!("git could not read {repo}: {}", error_line(&e.to_string()))))?
+            .iter()
+            .any(|tree| resolved(Path::new(&tree.path)) == target),
+        None => false,
+    };
+    if let (Some(repo), true) = (&found.repo, known) {
+        git(repo, vec!["worktree".into(), "remove".into(), "--force".into(), path.clone()], 60)
+            .await
+            .map_err(|e| unprocessable(worktree_failure(&found.branch, e.to_string())))?;
+        if !found.branch.is_empty() {
+            deleted = worktrees::remove_branch(&app, repo, &found.branch).await;
+        }
+    } else {
+        let doomed = found.path.clone();
+        tokio::task::spawn_blocking(move || fs::remove_dir_all(doomed))
+            .await
+            .map_err(ApiError::internal)?
+            .map_err(|e| unprocessable(e.to_string()))?;
+        if let Some(repo) = &found.repo {
+            let _ = git(repo, vec!["worktree".into(), "prune".into()], 20).await;
+        }
+    }
+    crate::xcode::forget_answers(&app, &found.path).await;
+    worktrees::spawn_derived_data_removal(&app, &path, derived);
+    // A project folder goes with its last worktree; one still holding another stays.
+    if let Some(folder) = found.path.parent() {
+        let _ = fs::remove_dir(folder);
+    }
+    Ok(Json(json!({"ok": true, "branchDeleted": deleted})))
 }
 
 pub async fn worktree_holders(Query(query): Query<LocalQuery>) -> ApiResult<Value> {

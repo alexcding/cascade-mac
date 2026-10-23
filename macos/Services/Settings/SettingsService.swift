@@ -5,10 +5,9 @@ struct AppConfigDraft: Equatable, Sendable {
     var jiraPollInterval = "120"
     var jiraBaseURL = ""
     var jiraAPIToken = ""
-    var worktreeLocation = WorktreeLocation.sibling
+    var worktreeLocation = WorktreeLocation.cascade
     var worktreeRoot = ""
     var worktreeInclude = WorktreeLocation.defaultInclude
-    var worktreeDeleteBranch = false
     var worktreeFetch = false
 
     init(_ values: [String: String] = [:]) {
@@ -16,10 +15,9 @@ struct AppConfigDraft: Equatable, Sendable {
         jiraPollInterval = values["jira_poll_interval"] ?? "120"
         jiraBaseURL = values["jira_base_url"] ?? ""
         jiraAPIToken = values["jira_api_token"] ?? ""
-        worktreeLocation = values["worktree_location"].flatMap(WorktreeLocation.init(rawValue:)) ?? .sibling
+        worktreeLocation = values["worktree_location"].flatMap(WorktreeLocation.init(rawValue:)) ?? .cascade
         worktreeRoot = values["worktree_root"] ?? ""
         worktreeInclude = values["worktree_include"] ?? WorktreeLocation.defaultInclude
-        worktreeDeleteBranch = values["worktree_delete_branch"] == "true"
         worktreeFetch = values["worktree_fetch"] == "true"
     }
     var values: [String: String] {
@@ -29,7 +27,6 @@ struct AppConfigDraft: Equatable, Sendable {
          "worktree_location": worktreeLocation.rawValue,
          "worktree_root": worktreeRoot.trimmingCharacters(in: .whitespacesAndNewlines),
          "worktree_include": worktreeInclude,
-         "worktree_delete_branch": worktreeDeleteBranch ? "true" : "false",
          "worktree_fetch": worktreeFetch ? "true" : "false"]
     }
     var validationError: String? {
@@ -51,12 +48,13 @@ struct AppConfigDraft: Equatable, Sendable {
 /// Where the backend makes a session's new worktree (`crates/cascade-backend/src/worktrees.rs`).
 /// Existing worktrees stay where they are: git's own worktree list is what finds them.
 enum WorktreeLocation: String, CaseIterable, Identifiable, Sendable {
-    case sibling, inside, custom
+    case cascade, sibling, inside, custom
     /// What the backend copies when neither Settings nor the repo's `.worktreeinclude` names patterns.
     static let defaultInclude = ".env*"
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .cascade: String(localized: "Cascade’s folder")
         case .sibling: String(localized: "Next to the project")
         case .inside: String(localized: "Inside the project")
         case .custom: String(localized: "Custom folder")
@@ -64,6 +62,7 @@ enum WorktreeLocation: String, CaseIterable, Identifiable, Sendable {
     }
     var example: String {
         switch self {
+        case .cascade: "~/.cascade/worktrees/<project folder>-<id>/<branch>"
         case .sibling: "<project>.worktrees/<branch>"
         case .inside: String(localized: "<project>/.worktrees/<branch>; ignored by Git through .git/info/exclude.")
         case .custom: "<folder>/<project folder>-<id>/<branch>"
