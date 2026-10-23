@@ -2,35 +2,41 @@ import Foundation
 import Testing
 
 @MainActor final class WorktreeManagerFixture: ExistingWorktreeManaging {
-    var groups: [ExistingWorktreeGroup] = []
+    var worktrees: [ExistingWorktree] = []
+    var sizes: [String: Int64] = [:]
     var removed: [String] = []
     var failure: String?
-    func existingWorktrees() async throws -> [ExistingWorktreeGroup] { groups }
+    func existingWorktrees() async throws -> [ExistingWorktree] { worktrees }
+    func worktreeSizes() async throws -> [String: Int64] { sizes }
     func removeWorktree(_ worktree: ExistingWorktree) async throws {
         if let failure { throw BackendError.operation(failure) }
         removed.append(worktree.path)
-        groups = groups.map { group in
-            .init(id: group.id, title: group.title, worktrees: group.worktrees.filter { $0.path != worktree.path })
-        }.filter { !$0.worktrees.isEmpty }
+        worktrees.removeAll { $0.path == worktree.path }
     }
 }
 
 @MainActor @Test func worktreeListDeletesAtOnceAndReadsTheFolderAgain() async {
     let fixture = WorktreeManagerFixture()
-    let mine = ExistingWorktree(path: "/w/app-1/feat", branch: "feat", projectID: "p", sessions: ["Feat"])
+    let mine = ExistingWorktree(path: "/w/app-1/feat", branch: "feat", projectID: "p", project: "App")
     let left = ExistingWorktree(path: "/w/gone-2/fix", branch: "", projectID: nil)
-    fixture.groups = [.init(id: "p", title: "App", worktrees: [mine]), .init(id: "leftover", title: "No project", worktrees: [left])]
+    fixture.worktrees = [mine, left]
+    fixture.sizes = [mine.path: 2_000, left.path: 500]
     let model = WorktreeListViewModel()
     model.connect(fixture)
     model.refresh()
-    while !model.loaded { await Task.yield() }
-    #expect(model.groups.map(\.title) == ["App", "No project"])
+    while !model.loaded || model.loading { await Task.yield() }
+    #expect(model.worktrees.map(\.path) == [mine.path, left.path])
+    #expect(model.sizes[mine.path] == 2_000 && model.total == 2_500, "each size, and the total once all are read")
+    #expect(model.total(of: [mine]) == 2_000, "a project's own total")
     #expect(left.name == "fix", "a worktree with no branch goes by its folder")
 
+    fixture.sizes = [:]
     await model.remove(left)
     #expect(fixture.removed == [left.path])
     while model.loading { await Task.yield() }
-    #expect(model.groups.map(\.title) == ["App"] && model.removing == nil && model.error == nil)
+    #expect(!model.measuring, "a deletion measures nothing again")
+    #expect(model.worktrees.map(\.path) == [mine.path] && model.removing == nil && model.error == nil)
+    #expect(model.total == 2_000)
 
     fixture.failure = "busy"
     await model.remove(mine)

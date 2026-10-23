@@ -50,6 +50,7 @@ public enum Routes {
     public static let WORKTREE = "/api/worktree"
     public static let WORKTREES = "/api/worktrees"
     public static let WORKTREES_SHARED = "/api/worktrees/shared"
+    public static let WORKTREES_SHARED_SIZES = "/api/worktrees/shared/sizes"
     public static let WORKTREES_RELOCATION = "/api/worktrees/relocation"
     public static let WORKTREE_LEFTOVER_REMOVE = "/api/worktrees/leftover/remove"
     public static let WORKTREE_REMOVE = "/api/worktree/remove"

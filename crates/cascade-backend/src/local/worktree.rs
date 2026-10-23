@@ -660,7 +660,8 @@ struct Claim {
 /// resolved, as git records them. A project claims a worktree its checkout lists, or one made from
 /// its checkout; one whose checkout git could not read just now claims its whole folder in each
 /// root, so a slow or unmounted checkout never turns its worktrees into leftovers anyone may
-/// delete; one whose checkout is gone claims nothing.
+/// delete, and so does one out of reach with the folder it sits in (a drive not mounted); one
+/// whose checkout was deleted from a folder still there claims nothing.
 async fn shared_worktrees(app: &AppState) -> anyhow::Result<Vec<Shared>> {
     let roots = worktrees::shared_roots(app).await;
     let projects: Vec<_> = app.db.projects().await?.into_iter().filter(|p| !p.workspace.is_empty()).collect();
@@ -675,7 +676,10 @@ async fn shared_worktrees(app: &AppState) -> anyhow::Result<Vec<Shared>> {
                     claimed.insert(resolved(Path::new(&tree.path)), claim.clone());
                 }
             }
-            Err(_) if Path::new(&project.workspace).exists() => {
+            // Unreadable, or out of reach with the folder it sits in (a drive not mounted): still the
+            // project's. Only a checkout whose own folder is there without it was deleted.
+            Err(_) if Path::new(&project.workspace).exists()
+                || !Path::new(&project.workspace).parent().is_some_and(Path::exists) => {
                 for root in &roots {
                     let location = worktrees::Location::Custom(root.clone());
                     folders.insert(resolved(&worktrees::root(&project.workspace, &location)), claim.clone());
@@ -769,12 +773,39 @@ fn shared(path: PathBuf) -> Option<Shared> {
     Some(Shared { path, project: None, repo, branch })
 }
 
+/// Whether a session works in the worktree at `path`: its stored worktree is that folder, or names
+/// a folder that is no longer there with the same project folder and worktree names. A worktree
+/// moved with the folder around it (one nested in another that moved) keeps its session's old
+/// spelling, and is still that session's. Unreadable sessions count as in use: a session's
+/// worktree is never offered on a guess.
+async fn sessions_in(app: &AppState) -> Option<Vec<PathBuf>> {
+    let tasks = app.db.tasks().await.ok()?;
+    Some(tasks.into_iter().filter(|t| !t.worktree.is_empty()).map(|t| resolved(Path::new(&t.worktree))).collect())
+}
+
+/// Which of `paths` a session works in, worked out off the runtime's workers: a stale session path
+/// is looked for on disk.
+async fn in_use_of(sessions: Option<Vec<PathBuf>>, paths: Vec<PathBuf>) -> Result<Vec<bool>, ApiError> {
+    tokio::task::spawn_blocking(move || paths.iter().map(|path| in_use(&sessions, path)).collect())
+        .await
+        .map_err(ApiError::internal)
+}
+
+fn in_use(sessions: &Option<Vec<PathBuf>>, path: &Path) -> bool {
+    let Some(sessions) = sessions else { return true };
+    let place = |p: &Path| p.components().rev().take(2).map(|c| c.as_os_str().to_owned()).collect::<Vec<_>>();
+    sessions.iter().any(|stored| stored == path || (!stored.exists() && place(stored) == place(path)))
+}
+
 pub async fn shared_worktrees_route(State(app): State<AppState>) -> ApiResult<Value> {
     let found = shared_worktrees(&app).await.map_err(ApiError::internal)?;
+    let used = in_use_of(sessions_in(&app).await, found.iter().map(|w| w.path.clone()).collect()).await?;
     Ok(Json(Value::Array(
         found
             .into_iter()
-            .map(|w| json!({
+            .zip(used)
+            .map(|(w, used)| json!({
+                "inUse": used,
                 "path": w.path,
                 "branch": w.branch,
                 "projectId": w.project.as_ref().map(|p| &p.id),
@@ -786,10 +817,54 @@ pub async fn shared_worktrees_route(State(app): State<AppState>) -> ApiResult<Va
     )))
 }
 
+/// How much disk each worktree the list shows takes, by its path: the ones no session works in.
+/// Asked for apart from the list, so the rows show at once. Walked off the runtime's workers, a
+/// few at a time, so many large worktrees never thrash the disk together.
+pub async fn shared_worktree_sizes(State(app): State<AppState>) -> ApiResult<Value> {
+    const WALKS: usize = 4;
+    let found: Vec<PathBuf> = shared_worktrees(&app).await.map_err(ApiError::internal)?.into_iter().map(|w| w.path).collect();
+    let used = in_use_of(sessions_in(&app).await, found.clone()).await?;
+    let paths: Vec<PathBuf> = found.into_iter().zip(used).filter(|(_, used)| !used).map(|(path, _)| path).collect();
+    let sizes = tokio::task::spawn_blocking(move || {
+        let mut sizes = Map::new();
+        for batch in paths.chunks(WALKS) {
+            std::thread::scope(|scope| {
+                let walks: Vec<_> = batch.iter().map(|path| scope.spawn(move || folder_size(path))).collect();
+                for (path, walk) in batch.iter().zip(walks) {
+                    sizes.insert(path.to_string_lossy().into_owned(), json!(walk.join().unwrap_or(0)));
+                }
+            });
+        }
+        sizes
+    })
+    .await
+    .map_err(ApiError::internal)?;
+    Ok(Json(Value::Object(sizes)))
+}
+
+/// The disk a folder takes, as Finder counts it: the blocks of every file under it, links not
+/// followed.
+fn folder_size(root: &Path) -> u64 {
+    let mut total = 0;
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&directory) else { continue };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.path().symlink_metadata() else { continue };
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else {
+                total += meta.blocks() * 512;
+            }
+        }
+    }
+    total
+}
+
 /// Deletes a leftover worktree folder: one `shared_worktrees_route` lists with no project. A
 /// project's own worktree goes through `remove_worktree`, or its session's removal, which stops
-/// what runs there first. Only that one folder is checked, never the whole list: it must be a
-/// worktree in a shared root, and no project's, by its folder or its checkout. While its checkout
+/// what runs there first. It is looked up as the list looks it up, so the two never disagree about
+/// what is a leftover: a project whose checkout is gone claims nothing in either. While its checkout
 /// still knows it git removes it, and a refusal (a locked worktree) is the answer; the folder is
 /// deleted by hand only once its checkout is gone or has forgotten it. Its branch goes as any
 /// removed worktree's does (`worktrees::remove_branch`).
@@ -802,22 +877,16 @@ pub async fn remove_leftover_worktree(
         .filter(|v| !v.is_empty())
         .ok_or_else(|| ApiError::bad_request("path required"))?;
     let target = fs::canonicalize(resolve_path(target)).map_err(|e| unprocessable(e.to_string()))?;
-    let refused = || ApiError::conflict(format!("{} is not a leftover worktree", target.display()));
-    let roots: Vec<PathBuf> = worktrees::shared_roots(&app).await.iter().map(|root| resolved(root)).collect();
-    let folder = target.parent().ok_or_else(refused)?.to_path_buf();
-    if !named_by_cascade(&folder) || !folder.parent().is_some_and(|root| roots.iter().any(|r| r == root)) {
-        return Err(refused());
-    }
-    let found = shared(target.clone()).filter(|tree| made_by_cascade(&folder, tree.repo.as_deref())).ok_or_else(refused)?;
-    for project in app.db.projects().await.map_err(ApiError::internal)? {
-        let checkout = resolved(Path::new(&project.workspace));
-        let own_folder = roots.iter().any(|root| {
-            resolved(&worktrees::root(&project.workspace, &worktrees::Location::Custom(root.clone()))) == folder
-        });
-        let made_from = found.repo.as_ref().is_some_and(|repo| resolved(Path::new(repo)) == checkout);
-        if !project.workspace.is_empty() && (own_folder || made_from) {
-            return Err(refused());
-        }
+    // Found the way the list finds it, so what the list offers as a leftover is exactly what may be
+    // deleted as one: one of Cascade's, in a shared root, that no project claims.
+    let found = shared_worktrees(&app)
+        .await
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .find(|w| w.path == target && w.project.is_none())
+        .ok_or_else(|| ApiError::conflict(format!("{} is not a leftover worktree", target.display())))?;
+    if in_use_of(sessions_in(&app).await, vec![found.path.clone()]).await?[0] {
+        return Err(ApiError::conflict("A session works in this worktree. Remove the session instead."));
     }
     let path = found.path.to_string_lossy().into_owned();
     let derived = crate::xcode::derived_data_of(&found.path).await;

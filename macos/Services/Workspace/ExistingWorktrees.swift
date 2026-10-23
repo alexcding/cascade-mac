@@ -7,26 +7,21 @@ struct ExistingWorktree: Identifiable, Equatable, Sendable {
     let branch: String
     /// The project whose checkout lists it, as the backend says; nil for a leftover.
     let projectID: String?
+    /// That project's name, which the list shows beside it; empty for a leftover.
+    var project = ""
     /// That project's checkout, which removes it.
     var workspace = ""
     /// A leftover's checkout, empty once that is gone too.
     var repo = ""
-    /// The sessions working in it, by name: removing it removes them.
-    var sessions: [String] = []
     var id: String { path }
     var name: String { branch.isEmpty ? URL(fileURLWithPath: path).lastPathComponent : branch }
 }
 
-/// A project's worktrees, or the leftovers, under one heading.
-struct ExistingWorktreeGroup: Identifiable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let worktrees: [ExistingWorktree]
-}
-
-/// The app answers this, not the backend alone: a worktree a session works in goes through that
-/// session's removal, which stops its terminals and forgets the session with it.
+/// The app answers this, not the backend alone: only the app knows which worktrees a session works
+/// in, and those are left out.
 @MainActor protocol ExistingWorktreeManaging: AnyObject {
-    func existingWorktrees() async throws -> [ExistingWorktreeGroup]
+    func existingWorktrees() async throws -> [ExistingWorktree]
+    /// The disk each takes, in bytes, by path: slower than the list, so asked for after it.
+    func worktreeSizes() async throws -> [String: Int64]
     func removeWorktree(_ worktree: ExistingWorktree) async throws
 }

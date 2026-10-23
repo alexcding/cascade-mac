@@ -60,51 +60,65 @@ struct WorktreeSettingsView<SaveRow: View>: View {
     }
 }
 
-/// What the worktree folder holds, a section per project and one for leftovers no project claims.
-/// Worktrees made beside or inside a checkout are not listed.
+/// What the worktree folder holds, as the folder holds it: a heading per project with what its
+/// worktrees take together, then a row per worktree with its own size and Delete, which acts at
+/// once. What no project claims comes last. A session's worktree is not listed (it goes with its
+/// session), nor is one made beside or inside a checkout.
 private struct ExistingWorktreesSection: View {
     @Bindable var model: WorktreeListViewModel
+    private static let sizeWidth: CGFloat = 70
+
+    /// Consecutive rows of one project: the model keeps them in the sidebar's order of projects.
+    private var projects: [(id: String, name: String, worktrees: [ExistingWorktree])] {
+        var groups: [(id: String, name: String, worktrees: [ExistingWorktree])] = []
+        for worktree in model.worktrees {
+            let id = worktree.projectID ?? ""
+            if groups.last?.id == id { groups[groups.count - 1].worktrees.append(worktree); continue }
+            groups.append((id, worktree.project.isEmpty ? String(localized: "No project") : worktree.project, [worktree]))
+        }
+        return groups
+    }
 
     var body: some View {
         Section {
-            Text("The worktrees in Cascade’s worktree folder. Deleting a project keeps them; delete them here. Delete removes the folder and anything not committed in it, with any sessions using it. Its local branch goes too, if Cascade made it and it is merged; any other branch is kept.")
-                .font(.caption).foregroundStyle(Theme.textSecondary)
             if model.loaded && model.isEmpty {
                 Text("No worktrees.").foregroundStyle(Theme.textSecondary)
+            }
+            ForEach(projects, id: \.id) { project in
+                HStack(spacing: 12) {
+                    Text(project.name).fontWeight(.semibold).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(model.total(of: project.worktrees).map(Self.size) ?? "—")
+                        .foregroundStyle(Theme.textSecondary).monospacedDigit()
+                        .frame(width: Self.sizeWidth, alignment: .trailing)
+                }
+                ForEach(project.worktrees) { worktree in
+                    HStack(spacing: 12) {
+                        Text(worktree.name).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(model.sizes[worktree.path].map(Self.size) ?? "—")
+                            .foregroundStyle(Theme.textSecondary).monospacedDigit()
+                            .frame(width: Self.sizeWidth, alignment: .trailing)
+                        if model.removing == worktree.path { ProgressView().controlSize(.small) }
+                        Button("Delete", role: .destructive) { Task { await model.remove(worktree) } }
+                            .disabled(model.removing != nil)
+                            .accessibilityIdentifier("settings-worktree-delete-\(worktree.path)")
+                    }
+                    .padding(.leading, 16)
+                    .help(worktree.path)
+                }
             }
             if let error = model.error {
                 Text(error).font(.caption).foregroundStyle(Theme.warn).textSelection(.enabled)
             }
         } header: {
-            SettingsSectionHeader(title: String(localized: "Existing worktrees"), busy: model.loading) {
-                Button("Refresh", action: model.refresh).disabled(model.loading || model.removing != nil)
-            }
-        }
-        ForEach(model.groups) { group in
-            Section(group.title) {
-                ForEach(group.worktrees) { worktree in
-                    SettingsRow(title: worktree.name, caption: Self.caption(worktree)) {
-                        HStack(spacing: 8) {
-                            if model.removing == worktree.path { ProgressView().controlSize(.small) }
-                            Button("Delete", role: .destructive) { Task { await model.remove(worktree) } }
-                                .disabled(model.removing != nil)
-                                .accessibilityIdentifier("settings-worktree-delete-\(worktree.path)")
-                        }
-                    }
-                }
+            SettingsSectionHeader(title: String(localized: "Worktree cleanup"), busy: model.loading || model.measuring) {
+                if let total = model.total { Text(Self.size(total)).monospacedDigit() }
+                Button("Refresh") { model.refresh() }.disabled(model.loading || model.removing != nil)
             }
         }
     }
 
-    private static func caption(_ worktree: ExistingWorktree) -> String {
-        var lines = [worktree.path]
-        if !worktree.sessions.isEmpty {
-            lines.append(String(localized: "Used by \(worktree.sessions.joined(separator: ", ")), which Delete also removes"))
-        }
-        if worktree.projectID == nil {
-            lines.append(worktree.repo.isEmpty ? String(localized: "Its checkout is gone.")
-                         : String(localized: "From \(worktree.repo), which is not a project."))
-        }
-        return lines.joined(separator: "\n")
+    private static func size(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 }

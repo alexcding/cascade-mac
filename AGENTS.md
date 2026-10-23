@@ -215,10 +215,12 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   worktree is elsewhere, the app asks at start, before it reads any session, whether to move them.
   Either answer makes the folder, and it never asks again. A move goes through `git worktree move`
   and carries the session records (every spelling of the path), pane chats, saved file tabs,
-  Claude's transcripts and `~/.claude.json` entry, and Codex's session files. Settings → Worktrees
-  lists what the folder holds and deletes each at once: a worktree with sessions through their
-  removal, and only folders Cascade named (`worktrees::is_project_folder`, and for a leftover the
-  exact name of its checkout). Deleting a project never touches its files. A branch goes with its
+  Claude's transcripts and `~/.claude.json` entry, and Codex's session files. A session's worktree
+  goes when the session is removed. Settings → Worktrees → Worktree cleanup lists the rest, the
+  ones in the folder no session works in, with their sizes, and deletes each at once: only folders
+  Cascade named (`worktrees::is_project_folder`, and for a leftover the exact name of its
+  checkout), and never one a session claims, a stale path of it included (`local::worktree`
+  `in_use`, checked by the backend and the app). Deleting a project never touches its files. A branch goes with its
   worktree only when Cascade made it (`branch.<name>.cascadeCreated`) and `git branch -d` agrees.
   `CASCADE_WORKTREES_DIR` stands in for the folder; the scheme sets it, so ⌘R never uses up the
   installed app's question.

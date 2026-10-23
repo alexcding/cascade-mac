@@ -2162,60 +2162,46 @@ public final class AppViewModel {
     }
 }
 
-/// Settings → Worktrees' list of the worktree folder. A worktree a session works in is removed as
-/// the session's own removal removes it, terminals stopped and records forgotten; the rest go to
+/// Settings → Worktrees' list of the worktree folder's worktrees no session works in, which go to
 /// the backend alone.
 extension AppViewModel: ExistingWorktreeManaging {
-    /// What the worktree folder holds (`~/.cascade/worktrees`, or the custom one), a group per
-    /// project in the sidebar's order, then what no project claims. The backend says which project
-    /// claims each, and its word stands even for a project the app has not read yet.
-    func existingWorktrees() async throws -> [ExistingWorktreeGroup] {
+    /// The worktrees in the worktree folder (`~/.cascade/worktrees`, or the custom one) no session
+    /// works in, in the sidebar's order of projects, then what no project claims. A session's
+    /// worktree is the session's: it goes when the session is removed, never from this list. The
+    /// backend says which project claims each, and its word stands even for a project the app has
+    /// not read yet.
+    func existingWorktrees() async throws -> [ExistingWorktree] {
         guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
         struct Shared: Decodable, Sendable {
             let path: String; let branch: String; let repo: String
             let projectId: String?; let projectName: String?; let workspace: String?
+            /// The backend's word that a session works in it, a stale path of one included.
+            let inUse: Bool
         }
         let shared: [Shared] = try await api.get(Routes.WORKTREES_SHARED)
-        let trees = shared.map { tree in
-            ExistingWorktree(path: tree.path, branch: tree.branch, projectID: tree.projectId, workspace: tree.workspace ?? "",
-                             repo: tree.repo, sessions: sessionNames(in: tree.path))
-        }
-        var order = projects.map(\.id)
-        for tree in shared { if let id = tree.projectId, !order.contains(id) { order.append(id) } }
-        var groups = order.compactMap { id -> ExistingWorktreeGroup? in
-            let own = trees.filter { $0.projectID == id }
-            let title = projects.first { $0.id == id }?.name ?? shared.first { $0.projectId == id }?.projectName ?? ""
-            return own.isEmpty ? nil : .init(id: id, title: title, worktrees: own)
-        }
-        let leftovers = trees.filter { $0.projectID == nil }
-        if !leftovers.isEmpty { groups.append(.init(id: "leftover", title: String(localized: "No project"), worktrees: leftovers)) }
-        return groups
+        let order = projects.map(\.id)
+        let rank = { (id: String?) in id.flatMap { order.firstIndex(of: $0) } ?? (id == nil ? Int.max : order.count) }
+        return shared.filter { !$0.inUse && !hasSession(in: $0.path) }.map { tree in
+            ExistingWorktree(path: tree.path, branch: tree.branch, projectID: tree.projectId,
+                             project: projects.first { $0.id == tree.projectId }?.name ?? tree.projectName ?? "",
+                             workspace: tree.workspace ?? "", repo: tree.repo)
+        }.enumerated().sorted {
+            // A project's rows stay together even among projects the app has not read yet.
+            (rank($0.element.projectID), $0.element.projectID ?? "", $0.offset) < (rank($1.element.projectID), $1.element.projectID ?? "", $1.offset)
+        }.map(\.element)
     }
 
-    /// Every session on the worktree goes first, by its own removal: terminals stopped, records
-    /// forgotten. A session whose project the app knows takes the folder with it; any other is
-    /// forgotten and the folder is removed after, by its project's checkout or as a leftover.
+    func worktreeSizes() async throws -> [String: Int64] {
+        guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
+        return try await api.get(Routes.WORKTREES_SHARED_SIZES)
+    }
+
+    /// Only a worktree no session works in: one a session took since the list was read is refused,
+    /// never removed from under it.
     func removeWorktree(_ worktree: ExistingWorktree) async throws {
         guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
-        let folder = SessionRemovalPlan.path(worktree.path)
-        var removed: Set<String> = []
-        while let session = sessions.first(where: { SessionRemovalPlan.path($0.worktree) == folder && !removed.contains($0.id) }) {
-            guard !changingSessions.contains(session.id), let model = removalModel(for: session) else {
-                throw BackendError.operation(String(localized: "A session operation is already in progress."))
-            }
-            await model.load()
-            guard let plan = model.plan else {
-                throw BackendError.operation(model.error ?? String(localized: "This worktree could not be prepared for removal."))
-            }
-            await model.remove()
-            if let error = model.error { throw BackendError.operation(error) }
-            // Not completed and no error: a document with unsaved changes kept it open.
-            guard model.completed else { throw CancellationError() }
-            removed.formUnion(plan.sessions.map(\.id))
-            if case .session(let selected) = coordinator.selection, plan.sessions.contains(where: { $0.id == selected }) {
-                coordinator.navigate(to: .overview)
-            }
-            if plan.removesWorktree { return }
+        guard !hasSession(in: worktree.path) else {
+            throw BackendError.operation(String(localized: "A session works in this worktree. Remove the session instead."))
         }
         if worktree.projectID != nil, !worktree.workspace.isEmpty {
             struct Payload: Encodable, Sendable { let path: String; let worktree: String; let force: Bool }
@@ -2226,9 +2212,15 @@ extension AppViewModel: ExistingWorktreeManaging {
         }
     }
 
-    private func sessionNames(in worktree: String) -> [String] {
+    /// The app's own check beside the backend's `inUse`, by the same rule: the session's worktree
+    /// is this folder, or a folder no longer there with the same project folder and worktree names.
+    private func hasSession(in worktree: String) -> Bool {
         let folder = SessionRemovalPlan.path(worktree)
-        return sessions.filter { SessionRemovalPlan.path($0.worktree) == folder }.map { $0.title.isEmpty ? $0.label : $0.title }
+        let place = { (path: String) in URL(fileURLWithPath: path).pathComponents.suffix(2) }
+        return sessions.contains { session in
+            let stored = SessionRemovalPlan.path(session.worktree)
+            return stored == folder || (!FileManager.default.fileExists(atPath: stored) && place(stored) == place(folder))
+        }
     }
 }
 

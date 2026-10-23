@@ -677,12 +677,14 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     let kept = PathBuf::from(made["path"].as_str().unwrap());
     let kept_folder = kept.parent().unwrap().to_path_buf();
     send(&app, "DELETE", &format!("/api/projects/{}", removed_project["id"].as_str().unwrap()), json!({})).await;
+    // The second is still a project here: its checkout going does not make it claim the folder.
     let gone = base.join("gone");
     fs::create_dir_all(&gone).unwrap();
     git(&gone, &["init", "-q", "-b", "main"]);
     git(&gone, &["commit", "-q", "--allow-empty", "-m", "init"]);
-    let orphan = shared.join("gone-1234abcd/fix");
-    git(&gone, &["worktree", "add", "-q", "-b", "fix", orphan.to_str().unwrap()]);
+    post(&app, "/api/projects", json!({"name":"Gone","workspace":gone.to_str().unwrap()})).await;
+    let (_, made) = post(&app, "/api/worktree", json!({"path":gone.to_str().unwrap(),"branch":"fix","create":true})).await;
+    let orphan = PathBuf::from(made["path"].as_str().unwrap());
     fs::remove_dir_all(&gone).unwrap();
 
     // A project whose checkout git cannot read just now claims its whole folder, so its worktree
@@ -710,12 +712,24 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     let lookalike = shared.join("backup-deadbeef/copy");
     git(&other, &["worktree", "add", "-q", "-b", "copy", lookalike.to_str().unwrap()]);
 
+    // A project whose checkout is out of reach with the folder it sits in (a drive not mounted)
+    // still claims its worktrees: listed as its own, never as a leftover.
+    let volume = base.join("volume");
+    let away = volume.join("away");
+    fs::create_dir_all(&away).unwrap();
+    git(&away, &["init", "-q", "-b", "main"]);
+    git(&away, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let (_, unmounted) = post(&app, "/api/projects", json!({"name":"Away","workspace":away.to_str().unwrap()})).await;
+    let (_, made) = post(&app, "/api/worktree", json!({"path":away.to_str().unwrap(),"branch":"far","create":true})).await;
+    let far = PathBuf::from(made["path"].as_str().unwrap());
+    fs::rename(&volume, base.join("volume-unmounted")).unwrap();
+
     let (status, listed) = get(&app, "/api/worktrees/shared").await;
     assert_eq!(status, StatusCode::OK, "{listed}");
     let ours: Vec<&Value> = listed.as_array().unwrap().iter()
         .filter(|l| Path::new(l["path"].as_str().unwrap()).starts_with(&shared))
         .collect();
-    assert_eq!(ours.len(), 4, "{listed}");
+    assert_eq!(ours.len(), 5, "{listed}");
     let found = |p: &Path| ours.iter().find(|l| l["path"] == p.to_str().unwrap()).copied().unwrap();
     assert_eq!(found(Path::new(&mine))["projectId"], project_id);
     assert_eq!(found(Path::new(&mine))["branch"], "mine");
@@ -723,7 +737,14 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     assert_eq!(found(&kept)["repo"], other.to_str().unwrap());
     assert_eq!(found(&kept)["branch"], "feat");
     assert_eq!(found(&orphan)["repo"], "");
+    let (status, sizes) = get(&app, "/api/worktrees/shared/sizes").await;
+    assert_eq!(status, StatusCode::OK, "{sizes}");
+    assert!(sizes[&mine].as_u64().is_some_and(|bytes| bytes > 0), "{sizes}");
     assert_eq!(found(Path::new(&held))["projectId"], unread["id"]);
+    assert_eq!(found(&far)["projectId"], unmounted["id"]);
+    let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":far.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(far.exists());
     for other in [&checkout, &plain, &foreign, &lookalike] {
         let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":other.to_str().unwrap()})).await;
         assert_eq!(status, StatusCode::CONFLICT, "{}", other.display());
@@ -744,7 +765,18 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     assert!(!git(&other, &["worktree", "list"]).contains("feat"));
     assert_eq!(git(&other, &["branch", "--list", "feat"]), "", "the merged branch Cascade made goes with it");
     assert!(git(&other, &["branch", "--list", "tool"]).ends_with("tool"), "a branch Cascade did not make stays");
+    // A session that still names the orphan by a path it no longer has (the folder around it moved)
+    // keeps it: listed as in use, and never deleted as a leftover.
+    let stale = format!("/moved/away/{}", orphan.strip_prefix(&shared).unwrap().display());
+    post(&app, "/api/tasks", json!({"id":"stale","projectId":"p","workspace":"/moved/away","worktree":stale,"branch":"fix","cli":""})).await;
+    let (_, listed) = get(&app, "/api/worktrees/shared").await;
+    let row = listed.as_array().unwrap().iter().find(|l| l["path"] == orphan.to_str().unwrap()).unwrap().clone();
+    assert_eq!(row["inUse"], true, "{row}");
+    let (status, refused) = post(&app, "/api/worktrees/leftover/remove", json!({"path":orphan.to_str().unwrap()})).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert!(orphan.exists());
+    send(&app, "DELETE", "/api/tasks?id=stale", json!({})).await;
     let (status, done) = post(&app, "/api/worktrees/leftover/remove", json!({"path":orphan.to_str().unwrap()})).await;
     assert_eq!(status, StatusCode::OK, "{done}");
-    assert!(!orphan.exists() && !shared.join("gone-1234abcd").exists());
+    assert!(!orphan.exists() && !orphan.parent().unwrap().exists());
 }
