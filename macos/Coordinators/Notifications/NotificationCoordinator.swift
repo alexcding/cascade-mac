@@ -37,9 +37,6 @@ import Observation
         case .previewSound(let sound):
             guard canUsePreferences() else { return }
             model.playPreview(sound)
-        case .openCurrent(let id):
-            guard let notice = model.notice(id: id) else { return }
-            open(notice, runtime: runtime)
         case .openDelivered(let notice): open(notice, runtime: runtime)
         }
     }

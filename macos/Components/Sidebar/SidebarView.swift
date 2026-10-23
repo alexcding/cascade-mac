@@ -3,7 +3,7 @@ import SwiftUI
 
 // The chrome around the outline: a footer of glass buttons — Settings (gear only) on the left, and
 // the activity capsule beside it filling the rest, which shows the latest activity until it is read
-// and unfolds into the Today menu. New Project is File → New Project and New Task's project picker. The
+// and unfolds into the Today menu, which spans the footer, gear included. New Project is File → New Project and New Task's project picker. The
 // outline itself starts at the top of the column.
 struct SidebarView: View {
     let viewModel: RootViewModel
@@ -36,6 +36,11 @@ struct SidebarView: View {
 
             HStack(spacing: 8) {
                 SidebarAppButton(icon: "gearshape", label: String(localized: "Settings"), help: String(localized: "Settings")) { viewModel.openSettings() }
+                    // The menu widens over the gear as it rises.
+                    .opacity(capsuleHidden ? 0 : 1)
+                    .allowsHitTesting(!capsuleHidden)
+                    .accessibilityHidden(capsuleHidden)
+                    .animation(capsuleHidden ? .easeOut(duration: 0.12) : .easeIn(duration: 0.1).delay(0.2), value: capsuleHidden)
                 ActivityCapsule(notice: notice, action: capsuleClicked)
                     // The menu unfolds out of the capsule's own glass, and the capsule is back as
                     // the menu lands.
@@ -46,12 +51,12 @@ struct SidebarView: View {
             .foregroundStyle(Color(nsColor: SidebarPalette.text2))
             .overlay(alignment: .bottom) {
                 if menuShown, let today = viewModel.todayActivity {
-                    let shape = RisingGlass(open: menuOpen ? 1 : 0, side: Theme.Size.largeControl)
+                    let shape = RisingGlass(open: menuOpen ? 1 : 0, side: Theme.Size.largeControl, inset: Theme.Size.largeControl + 8)
                     // Room above the footer, less the menu's header and foot and a margin at the top.
                     TodayActivityMenu(model: today, revealed: menuOpen, listHeight: max(min(columnHeight - 170, 360), 80), showAllEvents: {
                         closeMenu()
                         viewModel.openActivity()
-                    }, dismiss: { closeMenu() })
+                    })
                     .frame(maxWidth: .infinity)
                     .fixedSize(horizontal: false, vertical: true)
                     .clipShape(shape)
@@ -61,7 +66,6 @@ struct SidebarView: View {
                     .onAppear { withAnimation(Self.unfold) { menuOpen = true } }
                     // Gone with the column or the window: stop refreshing what nobody sees.
                     .onDisappear(perform: menuGone)
-                    .padding(.leading, Theme.Size.largeControl + 8)
                 }
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
@@ -75,11 +79,8 @@ struct SidebarView: View {
         }
     }
 
-    /// An activity with a page opens it, as its banner does; the plain capsule, or an activity with
-    /// no page, opens the menu.
-    private func capsuleClicked() {
-        if let notice, notice.url != nil { viewModel.shell.notifications.open(notice) } else { openMenu() }
-    }
+    /// A click opens the menu, which reads the activity the capsule showed; it never opens a page.
+    private func capsuleClicked() { openMenu() }
 
     /// Opening the menu reads the activity the capsule showed. A click while it folds opens it again.
     private func openMenu() {

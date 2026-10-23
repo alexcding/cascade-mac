@@ -237,10 +237,6 @@ public final class AppViewModel {
         chats.onLoad = { [weak self] in self?.chatsLoaded() }
         root = coordinator.makeRoot(factory: rootFactory, runtime: self, shell: shell, viewer: viewer)
         coordinator.installNotifications(shell.notifications, runtime: self)
-        todayActivity.openPage = { [weak self] entry in
-            guard let self else { throw CancellationError() }
-            try await openActivityEntry(entry)
-        }
         scheduleSidebarLoad()
         followDashboardSessions()
         followDashboardChats()
@@ -886,19 +882,6 @@ public final class AppViewModel {
         shown.insert(moving, at: target)
         return shown
     }
-    /// A Today-popover row: its PR opens by link; a ticket by its key on the configured Jira site.
-    func openActivityEntry(_ entry: LogEntry) async throws {
-        if let link = entry.link {
-            // The page's own kind — an issue's tab is an issue tab — and a pull request's otherwise, as before.
-            try await openPage(OpenPageRequest(url: link, kind: SessionPage.parse(link)?.kind ?? "github", title: entry.title)); return
-        }
-        guard let key = entry.jiraKey, let api else { throw BackendError.operation(String(localized: "Connect before opening a page.")) }
-        let site: JiraSite = try await api.get(Routes.JIRA_SITE, timeout: 30)
-        guard let base = safeWebURL(site.baseUrl) else { throw BackendError.operation(String(localized: "Configure the Jira site to open ticket links.")) }
-        try await openPage(OpenPageRequest(url: base.appendingPathComponent("browse").appendingPathComponent(key).absoluteString,
-                                           kind: "jira", title: key))
-    }
-
     /// Every PR or ticket click — a row or its Go to Session / New Session, a board card, an
     /// Activity entry, a tray review, a notice: the page's session when it has one, else its
     /// project's Start with the link (and the ticket a pull request references) filled in. No

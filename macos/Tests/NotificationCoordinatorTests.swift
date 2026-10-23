@@ -82,24 +82,21 @@ func notificationPermissionAndPreviewRequireCoordinatorOwnershipAndCoalesce() as
 }
 
 @MainActor @Test(.timeLimit(.minutes(1)))
-func notificationClicksOpenCurrentRowsInTabsAndAcknowledgeOnlySuccessfulReviewOpens() async {
+func notificationClicksOpenPagesInTabsAndAcknowledgeOnlySuccessfulReviewOpens() async {
     let model = NotificationStore(), runtime = NotificationRuntime()
     let child = NotificationCoordinator(model: model, runtime: runtime)
     var activities = 0, windows = 0
     child.openActivity = { activities += 1 }; child.showWindow = { windows += 1 }
     let first = NativeNotice(id: "one", kind: .review, title: "Review", body: "", url: "https://github.com/a/b/pull/1", repo: "a/b", number: 1)
-    var current = first; current.url = "https://github.com/a/b/pull/2"
-    model.showToast(current)
+    model.showToast(first)
     runtime.pageSucceeds = false
-    model.open(first); await child.waitForOpen()
-    #expect(runtime.pages.map(\.url) == [current.url!] && runtime.acknowledged.isEmpty && windows == 1)
+    model.openDelivered(first); await child.waitForOpen()
+    #expect(runtime.pages.map(\.url) == [first.url!] && runtime.acknowledged.isEmpty && windows == 1)
     #expect(runtime.pages.first?.kind == "github" && runtime.pages.first?.repo == "a/b" && runtime.pages.first?.title == "Review")
-    #expect(model.toast == current && model.actionError != nil)
+    #expect(model.toast == first && model.actionError != nil)
     runtime.pageSucceeds = true
-    model.open(first); await child.waitForOpen()
+    model.openDelivered(first); await child.waitForOpen()
     #expect(runtime.acknowledged == ["a/b#1"] && model.toast == nil && model.actionError == nil && windows == 2)
-    model.open(first); await child.waitForOpen() // An old view callback no longer owns a current row.
-    #expect(runtime.pages.count == 2)
     var unsafe = first; unsafe.url = "file:///tmp/private"
     model.openDelivered(unsafe); await child.waitForOpen()
     #expect(model.actionError != nil && runtime.pages.count == 2 && activities == 0)
@@ -115,7 +112,7 @@ func notificationClicksOpenCurrentRowsInTabsAndAcknowledgeOnlySuccessfulReviewOp
     model.showToast(newer)
     model.openDelivered(first); await child.waitForOpen() // OS clicks remain valid after bounded history eviction.
     #expect(runtime.acknowledged.count == 2 && model.toast == newer)
-    model.open(newer)
+    model.openDelivered(newer)
     #expect(activities == 1 && windows == 5 && model.toast == nil)
     child.retire()
 }

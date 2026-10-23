@@ -3,20 +3,16 @@ import Observation
 
 /// The sidebar's Today menu — src/renderer/components/events-popover.js: today's activity rows
 /// (the Activity page's events, today only), refreshed live while it is open, with "Show all activity"
-/// leading to the Activity page.
+/// leading to the Activity page. Rows are read here, not links.
 @MainActor @Observable final class TodayActivityViewModel {
     private(set) var entries: [LogEntry] = []
     private(set) var loading = false
     private(set) var loaded = false
     private(set) var error: String?
     private(set) var visible = false
-    /// The row whose PR / ticket page is being opened.
-    private(set) var opening: Int?
     @ObservationIgnored private var service: (any LogService)?
     @ObservationIgnored private var task: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private let now: () -> Date
-    /// Opens an entry's PR or Jira page in Cascade (the popover's row links, events-popover.js).
-    @ObservationIgnored var openPage: (LogEntry) async throws -> Void = { _ in }
 
     init(now: @escaping () -> Date = Date.init) { self.now = now }
 
@@ -29,7 +25,7 @@ import Observation
     /// an earlier day) never stand in for today's.
     func setVisible(_ value: Bool) {
         visible = value
-        entries = []; loaded = false; error = nil; opening = nil
+        entries = []; loaded = false; error = nil
         if value { refresh() } else { task = nil; loading = false }
     }
 
@@ -53,17 +49,6 @@ import Observation
             }
         }
     }
-
-    func canOpen(_ entry: LogEntry) -> Bool { entry.link != nil || entry.jiraKey != nil }
-
-    /// Open a row's page; true when it opened (the popover then closes), false with `error` set.
-    func open(_ entry: LogEntry) async -> Bool {
-        guard canOpen(entry), opening == nil else { return false }
-        opening = entry.id; error = nil
-        defer { opening = nil }
-        do { try await openPage(entry); return true }
-        catch { self.error = String(localized: "Could not open the page: \(error.localizedDescription)"); return false }
-    }
 }
 
 /// The menu's content. While `revealed` turns on, its parts settle in one after another from the
@@ -74,7 +59,6 @@ struct TodayActivityMenu: View {
     /// The most the list may take, so the menu stays inside its column.
     var listHeight: CGFloat = 360
     let showAllEvents: () -> Void
-    let dismiss: () -> Void
 
     var body: some View {
         let count = model.entries.count
@@ -100,7 +84,7 @@ struct TodayActivityMenu: View {
                         empty(String(localized: "No activity today"), icon: true)
                     } else {
                         ForEach(Array(model.entries.enumerated()), id: \.element.id) { index, entry in
-                            row(entry).settles(revealed, step: max(min(count, 8) - index, 0) + 1)
+                            TodayActivityRow(entry: entry).help(entry.summary).settles(revealed, step: max(min(count, 8) - index, 0) + 1)
                         }
                     }
                 }
@@ -118,21 +102,6 @@ struct TodayActivityMenu: View {
             .settles(revealed, step: 0)
         }
         .accessibilityIdentifier("today-activity-menu")
-    }
-
-    @ViewBuilder private func row(_ entry: LogEntry) -> some View {
-        if model.canOpen(entry) {
-            Button {
-                Task { if await model.open(entry) { dismiss() } }
-            } label: {
-                TodayActivityRow(entry: entry, opening: model.opening == entry.id)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.opening != nil)
-            .help([entry.summary, entry.link ?? entry.jiraKey ?? ""].filter { !$0.isEmpty }.joined(separator: "\n"))
-        } else {
-            TodayActivityRow(entry: entry, opening: false).help(entry.summary)
-        }
     }
 
     private func empty(_ text: String, icon: Bool) -> some View {
@@ -154,36 +123,25 @@ private extension View {
     }
 }
 
-/// .act-row, as the menu draws it: a tinted round icon, the event's line and its detail on one line
-/// each, and how long ago.
+/// .act-row, as the menu draws it: a tinted round icon, the event's line on up to two lines and its
+/// detail on one.
 private struct TodayActivityRow: View {
     let entry: LogEntry
-    let opening: Bool
-    @State private var hovered = false
 
     var body: some View {
         HStack(spacing: 9) {
             ActivityGlyphView(type: entry.type ?? "", level: entry.level, size: 22)
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.title).font(.system(size: 12, weight: .semibold)).lineLimit(1).truncationMode(.tail)
+                Text(entry.title).font(.system(size: 12, weight: .semibold)).lineLimit(2).truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
                 if !entry.summary.isEmpty {
                     Text(entry.summary).font(.system(size: 11)).foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .lineLimit(1).truncationMode(.tail)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if opening {
-                ProgressView().controlSize(.mini)
-            } else if let date = entry.date {
-                Text(date, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
-                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                    .help(entry.created_at)
-            }
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(hovered ? Color.primary.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 10))
-        .contentShape(Rectangle())
-        .onHover { hovered = $0 && (entry.link != nil || entry.jiraKey != nil) }
         .accessibilityElement(children: .combine)
     }
 }

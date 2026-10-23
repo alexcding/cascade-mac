@@ -238,7 +238,7 @@ final class CascadeUITests: XCTestCase {
         }
         try await emitActivity()
         // The activity capsule shows the latest activity until it is read; reading it opens the Today menu.
-        let toast = app.descendants(matching: .any)["activity-toast-open"].firstMatch
+        let toast = app.descendants(matching: .any)["activity-capsule-notice"].firstMatch
         let menu = app.descendants(matching: .any)["today-activity-menu"].firstMatch
         XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
         XCTAssertTrue(toast.label.contains("Sample notification acceptance check"), toast.label)

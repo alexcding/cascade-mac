@@ -3,7 +3,7 @@ import Observation
 
 @MainActor @Observable public final class NotificationStore {
     enum Action: Equatable {
-        case enable, previewSound(String), openCurrent(String), openDelivered(NativeNotice)
+        case enable, previewSound(String), openDelivered(NativeNotice)
     }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     private(set) var retired = false
@@ -144,8 +144,6 @@ import Observation
     }
 
     func dismissToast() { toast = nil }
-    func notice(id: String) -> NativeNotice? { toast?.id == id ? toast : recent.first { $0.id == id } }
-    func open(_ notice: NativeNotice) { if !retired { onAction(.openCurrent(notice.id)) } }
     func openDelivered(_ notice: NativeNotice) { if !retired { onAction(.openDelivered(notice)) } }
     func didOpen(_ notice: NativeNotice, success: Bool) {
         guard !retired else { return }

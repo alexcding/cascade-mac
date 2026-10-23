@@ -74,7 +74,7 @@ struct ActivityCapsule: View {
         .buttonStyle(.plain)
         .glassSurface(Capsule(), interactive: true)
         .help(notice.map { [$0.title, $0.body].filter { !$0.isEmpty }.joined(separator: "\n") } ?? String(localized: "Today's activity"))
-        .accessibilityIdentifier(notice == nil ? "activity-capsule" : "activity-toast-open")
+        .accessibilityIdentifier(notice == nil ? "activity-capsule" : "activity-capsule-notice")
     }
 
     private func line(_ notice: NativeNotice) -> some View {
@@ -95,12 +95,13 @@ struct ActivityCapsule: View {
         removal: .offset(y: -16).combined(with: .scale(scale: 0.97)).combined(with: .opacity))
 }
 
-/// Glass that rises out of a capsule `side` tall at its foot (`open` 0) to fill its whole frame
-/// (`open` 1). Drawn as the risen view's own shape, its content
+/// Glass that rises out of a capsule `side` tall at its foot, `inset` in from its leading edge
+/// (`open` 0), to fill its whole frame (`open` 1). Drawn as the risen view's own shape, its content
 /// stands on the glass.
 struct RisingGlass: Shape {
     var open: CGFloat
     let side: CGFloat
+    var inset: CGFloat = 0
     var animatableData: CGFloat {
         get { open }
         set { open = newValue }
@@ -109,7 +110,8 @@ struct RisingGlass: Shape {
     func path(in rect: CGRect) -> Path {
         func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * open }
         let height = mix(side, rect.height)
-        let frame = CGRect(x: rect.minX, y: rect.maxY - height, width: rect.width, height: height)
+        let leading = rect.minX + inset * (1 - open)
+        let frame = CGRect(x: leading, y: rect.maxY - height, width: rect.maxX - leading, height: height)
         let radius = min(mix(side / 2, 18), frame.height / 2, frame.width / 2)
         return RoundedRectangle(cornerRadius: max(radius, 0), style: .continuous).path(in: frame)
     }

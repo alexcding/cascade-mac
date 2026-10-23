@@ -88,18 +88,6 @@ private actor TodayLogService: LogService {
     while !model.loaded { try await Task.sleep(for: .milliseconds(5)) }
     #expect(model.entries.map(\.seq) == [2, 3])
 
-    var opened: [Int] = []
-    model.openPage = { opened.append($0.seq) }
-    let merged = try #require(model.entries.first { $0.seq == 2 }), failed = try #require(model.entries.first { $0.seq == 3 })
-    #expect(model.canOpen(merged) && !model.canOpen(failed))
-    let openedMerged = await model.open(merged), openedFailed = await model.open(failed)
-    #expect(openedMerged && !openedFailed)
-    #expect(opened == [2])
-    model.openPage = { _ in throw BackendError.operation("offline") }
-    let openedOffline = await model.open(merged)
-    #expect(!openedOffline)
-    #expect(model.error?.contains("offline") == true)
-
     model.setVisible(false)
     model.setVisible(true) // reopening starts from "Loading…", never the previous rows
     #expect(model.entries.isEmpty && !model.loaded && model.error == nil)
