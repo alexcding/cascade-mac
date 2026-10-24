@@ -825,13 +825,22 @@ pub async fn shared_worktree_sizes(State(app): State<AppState>, Json(body): Json
     const WALKS: usize = 4;
     let asked: Vec<String> = body["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
     let roots: Vec<PathBuf> = worktrees::shared_roots(&app).await.iter().map(|root| resolved(root)).collect();
+    let checkouts: Vec<String> = app.db.projects().await.map_err(ApiError::internal)?.into_iter().map(|p| p.workspace).collect();
     let found: Vec<PathBuf> = tokio::task::spawn_blocking(move || {
-        asked.iter().map(|p| resolved(Path::new(p))).filter(|path| {
-            let folder = path.parent();
-            folder.is_some_and(named_by_cascade)
-                && folder.and_then(Path::parent).is_some_and(|root| roots.iter().any(|r| r == root))
-                && shared(path.clone()).is_some()
-        }).collect()
+        let checkouts: Vec<PathBuf> = checkouts.iter().filter(|w| !w.is_empty()).map(|w| resolved(Path::new(w))).collect();
+        // Each path once, and only by the list's own rule: in a project folder Cascade named for its
+        // checkout, or made from a project's checkout.
+        let mut found: Vec<PathBuf> = asked.iter().map(|p| resolved(Path::new(p))).filter(|path| {
+            let Some(folder) = path.parent() else { return false };
+            let Some(tree) = shared(path.clone()) else { return false };
+            named_by_cascade(folder)
+                && folder.parent().is_some_and(|root| roots.iter().any(|r| r == root))
+                && (made_by_cascade(folder, tree.repo.as_deref())
+                    || tree.repo.is_some_and(|repo| checkouts.contains(&resolved(Path::new(&repo)))))
+        }).collect();
+        found.sort();
+        found.dedup();
+        found
     })
     .await
     .map_err(ApiError::internal)?;

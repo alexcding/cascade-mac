@@ -737,7 +737,7 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     assert_eq!(found(&kept)["repo"], other.to_str().unwrap());
     assert_eq!(found(&kept)["branch"], "feat");
     assert_eq!(found(&orphan)["repo"], "");
-    let asked = json!({"paths": [&mine, checkout.to_str().unwrap(), "/etc"]});
+    let asked = json!({"paths": [&mine, &mine, format!("{mine}/."), checkout.to_str().unwrap(), lookalike.to_str().unwrap(), "/etc"]});
     let (status, sizes) = post(&app, "/api/worktrees/shared/sizes", asked).await;
     assert_eq!(status, StatusCode::OK, "{sizes}");
     assert!(sizes[&mine].as_u64().is_some_and(|bytes| bytes > 0), "{sizes}");
