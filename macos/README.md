@@ -66,7 +66,7 @@ separate scheme. `GhosttySnapshotTests` is a separate Swift package outside the
 shared test plan.
 
 The app's direct package dependencies are GhosttyTerminal, CodeEditSourceEditor,
-and Sparkle. Their versions are pinned in the Xcode project and resolved package
+Sparkle, and SFSymbolsPickerForSwiftUI with SFSafeSymbols (the project icon picker). Their versions are pinned in the Xcode project and resolved package
 file. The Ghostty package supplies the prebuilt rendering framework; bootstrap
 fetches the matching headless runtime. See the
 [Ghostty patch guide](patches/ghostty/README.md) when changing either side.

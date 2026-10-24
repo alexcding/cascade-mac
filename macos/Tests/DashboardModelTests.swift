@@ -467,11 +467,13 @@ private func makeTicketRow(_ ticket: Ticket) -> DashboardTicketRow {
     model.onAction = { if case .openSession(let id) = $0 { opened.append(id) } }
     model.sessions = [session("review", "p", branch: "feat-a", .idle), session("asks", "p", branch: "feat-b", .needsYou),
                       session("busy", "p", branch: "other", .working), session("gone", "q", branch: "feat-a", .stopped)]
+    model.projectSymbols = ["p": "hammer"]
     model.connect(fixture)
     while model.prs.loading || model.tickets.loading { try await Task.sleep(for: .milliseconds(10)) }
 
     let lanes = model.sessionLanes
     #expect(lanes.map(\.id) == ["p", "q"])
+    #expect(lanes.map(\.symbol) == ["hammer", ProjectDraft.defaultIcon], "A lane is drawn with its project's icon, or the folder")
     #expect(lanes[0].rows.map(\.id) == ["asks", "busy", "review"], "Needs you, then working, then in review")
     #expect(lanes[0].rows.map(\.stage) == [.needsYou, .working, .inReview])
     #expect(lanes[0].rows[2].pr?.pr.number == 1 && lanes[0].rows[2].pr?.pr.additions == 10, "Matched by branch, with its size")

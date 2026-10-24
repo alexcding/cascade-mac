@@ -804,6 +804,10 @@ enum SidebarMetrics {
     private let dot = SidebarStatusDot()
     /// The ⌘-held hint, in the status dot's trailing slot.
     private let shortcut = NSTextField(labelWithString: "")
+    /// A closed folder's count of the sessions it holds, in its New Task's slot.
+    private let count = NSTextField(labelWithString: "")
+    /// Whether the folder is open, as `setExpanded` was last told; nil for a row with nothing to open.
+    private var expanded: Bool?
     private let title = NSTextField(labelWithString: "")
     /// After a chat's title: its project, or its folder, in the secondary label colour.
     private let subtitle = NSTextField(labelWithString: "")
@@ -823,6 +827,9 @@ enum SidebarMetrics {
         shortcut.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
         shortcut.textColor = .secondaryLabelColor
         shortcut.alignment = .right
+        count.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        count.textColor = .secondaryLabelColor
+        count.alignment = .right
         // Down only: a symbol is already the size its font makes it, and must not be stretched to the slot.
         icon.imageScaling = .scaleProportionallyDown
         icon.wantsLayer = true
@@ -840,7 +847,7 @@ enum SidebarMetrics {
         subtitle.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         subtitle.textColor = .secondaryLabelColor
         subtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        [icon, dot, title, subtitle, forkMark, accessory, settings, shortcut].forEach(addSubview)
+        [icon, dot, title, subtitle, forkMark, accessory, settings, shortcut, count].forEach(addSubview)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -873,6 +880,7 @@ enum SidebarMetrics {
 
     func configure(_ entry: SidebarEntry, nested: Bool, shortcut hint: String? = nil) {
         self.entry = entry
+        expanded = nil
         shortcut.stringValue = hint ?? ""
         shortcut.isHidden = hint == nil
         self.nested = nested
@@ -975,6 +983,13 @@ enum SidebarMetrics {
         default: accessory.isHidden = true; dot.isHidden = true
         }
         if case .project = entry.role {} else { settings.isHidden = true }
+        // A closed folder says how many sessions it holds, and gives way to its buttons under the pointer.
+        count.isHidden = expanded != false || !accessory.isHidden
+        count.stringValue = "\(entry.children.count)"
+        // VoiceOver hears the count whenever the folder is closed, under the pointer or not.
+        if case .project = entry.role {
+            setAccessibilityLabel(expanded == false ? String(localized: "\(entry.title), \(entry.children.count) sessions") : entry.title)
+        }
         needsLayout = true
     }
 
@@ -988,10 +1003,12 @@ enum SidebarMetrics {
     }
 
     /// Whether the folder is open; nil for a row that has nothing to open. An open folder's icon is
-    /// drawn open, and a closed or empty one closed.
+    /// drawn open, and a closed or empty one closed; an icon chosen for the project stays as it is.
     func setExpanded(_ expanded: Bool?) {
         let isProject = if case .project = entry.role { true } else { false }
-        if isProject { icon.image = SidebarIcons.rowSymbol(expanded == true ? "folderOpen" : entry.symbol) }
+        self.expanded = isProject ? expanded : nil
+        applyState()
+        if isProject { icon.image = SidebarIcons.rowSymbol(expanded == true && entry.symbol == ProjectDraft.defaultIcon ? "folderOpen" : entry.symbol) }
         // The hover buttons are hidden from VoiceOver with the pointer elsewhere, so the row offers them itself.
         var actions: [NSAccessibilityCustomAction] = []
         if isProject {
@@ -1118,6 +1135,16 @@ enum SidebarMetrics {
             let baseline = titleY + font.ascender
             let subtitleY = (baseline - (subtitle.font?.ascender ?? font.ascender)).rounded()
             subtitle.frame = NSRect(x: titleX + titleWidth + gap, y: subtitleY, width: subtitleWidth, height: subtitle.frame.height)
+        }
+        if !count.isHidden {
+            // At the end of New Task's slot, on the name's baseline; a long name ends a gap before it.
+            count.sizeToFit()
+            let font = title.font ?? .systemFont(ofSize: NSFont.systemFontSize)
+            let size = count.frame.size
+            count.frame = NSRect(x: slotX + accessorySlot - size.width,
+                                 y: (titleY + font.ascender - (count.font?.ascender ?? font.ascender)).rounded(),
+                                 width: size.width, height: size.height)
+            titleWidth = min(titleWidth, max(0, count.frame.minX - SidebarMetrics.gap - titleX))
         }
         title.frame = NSRect(x: titleX, y: titleY, width: titleWidth, height: titleHeight)
     }

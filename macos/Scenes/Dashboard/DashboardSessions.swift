@@ -165,6 +165,8 @@ struct DashboardSessionLane: Equatable, Identifiable, Sendable {
     let rows: [DashboardSessionRow]
     /// Its chat sessions, newest first.
     var chats: [DashboardChat] = []
+    /// What it is drawn with, as the sidebar draws it (`Project.symbol`).
+    var symbol = ProjectDraft.defaultIcon
     var id: String { summary.id }
 }
 
@@ -186,7 +188,8 @@ extension DashboardViewModel {
             // Stable within a stage: the sessions keep the app's own order.
             let sorted = rows.enumerated().sorted { (order[$0.element.stage]!, $0.offset) < (order[$1.element.stage]!, $1.offset) }.map(\.element)
             return DashboardSessionLane(summary: summary, repo: prs.projects.first { $0.id == summary.id }?.repo ?? "",
-                                        rows: sorted, chats: chatsByProject[summary.id] ?? [])
+                                        rows: sorted, chats: chatsByProject[summary.id] ?? [],
+                                        symbol: projectSymbols[summary.id] ?? ProjectDraft.defaultIcon)
         }
     }
 

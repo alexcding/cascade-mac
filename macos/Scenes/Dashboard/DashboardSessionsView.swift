@@ -188,7 +188,7 @@ private struct DashboardSessionList: View {
         }
     }
 
-    /// The project's folder and name, which open it, and how many of its sessions are under way. A
+    /// The project's icon and name, which open it, and how many of its sessions are under way. A
     /// sync that failed says so, with the reason on hover; one that worked says nothing.
     private func title(_ lane: DashboardSessionLane) -> some View {
         let summary = lane.summary
@@ -196,8 +196,8 @@ private struct DashboardSessionList: View {
         return HStack(alignment: .center, spacing: 10) {
             Button { model.openProject(summary.id) } label: {
                 HStack(alignment: .center, spacing: 8) {
-                    Image(nsImage: SidebarIcons.mark("folderClosed", size: 14) ?? NSImage())
-                        .renderingMode(.template).foregroundStyle(DashboardPalette.ink3).accessibilityHidden(true)
+                    ProjectSymbol(symbol: lane.symbol, size: 14)
+                        .foregroundStyle(DashboardPalette.ink3).accessibilityHidden(true)
                     Text(summary.name).font(.system(size: 14, weight: .medium))
                 }
                 .lineLimit(1)

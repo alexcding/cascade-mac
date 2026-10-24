@@ -226,11 +226,21 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(UserDefaultsSidebarOrderStore(preferences: preferences).load() == .init(projects: ["p2"], sessions: dragged, pinned: ["x"]))
 }
 
-/// A project row is a folder, and the draft its forms edit sends no icon to the backend.
-@MainActor @Test func projectRowsAreFolders() throws {
-    #expect(SidebarEntry.make(projects: [sidebarProject], sessions: []).first { $0.id == "project:p1" }?.symbol == "folderClosed")
-    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProjectDraft(sidebarProject))) as? [String: Any]
-    #expect(body?["icon"] == nil)
+/// A project row is a folder until an icon is chosen for it in the project's forms, and the
+/// draft those forms edit sends the icon to the backend, storing nothing for the folder.
+@MainActor @Test func projectRowsDrawTheIconChosenForThem() throws {
+    #expect(SidebarEntry.make(projects: [sidebarProject], sessions: []).first { $0.id == "project:p1" }?.symbol == ProjectDraft.defaultIcon)
+    let iconed = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "hammer")
+    #expect(SidebarEntry.make(projects: [iconed], sessions: []).first { $0.id == "project:p1" }?.symbol == "hammer")
+    #expect(Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "").symbol == ProjectDraft.defaultIcon)
+    // One saved on a newer macOS, which this one has no symbol for, is drawn as the folder.
+    #expect(Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "no.such.symbol").symbol == ProjectDraft.defaultIcon)
+    #expect(SidebarIcons.rowSymbol("hammer") != nil)
+
+    #expect(ProjectDraft(iconed).icon == "hammer")
+    #expect(ProjectDraft(sidebarProject).icon.isEmpty)
+    let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ProjectDraft(iconed))) as? [String: Any]
+    #expect(body?["icon"] as? String == "hammer")
 }
 
 @MainActor private final class SidebarDropInfo: NSObject, @MainActor NSDraggingInfo {
@@ -513,6 +523,44 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     cell.hovered = false
 }
 
+/// An icon chosen for a project is drawn the same open or closed; only the folder opens.
+@MainActor @Test func aChosenIconStaysAsItIsWhenItsFolderOpens() throws {
+    _ = NSApplication.shared
+    let iconed = Project(id: "p1", name: "Project", repo: "o/r", color: nil, workspace: "/tmp", icon: "hammer")
+    let project = try #require(SidebarEntry.make(projects: [iconed], sessions: [workspaceSession("a", created: "2026-01")])
+        .flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    cell.configure(project, nested: false)
+    let icon = try #require(cell.subviews.compactMap { $0 as? NSImageView }.first { $0.image != nil })
+    let expected = try #require(SidebarIcons.rowSymbol("hammer")?.tiffRepresentation)
+    for expanded in [false, true] {
+        cell.setExpanded(expanded)
+        #expect(icon.image?.tiffRepresentation == expected, "the chosen icon is drawn while \(expanded ? "open" : "closed")")
+    }
+}
+
+/// A closed folder shows how many sessions it holds; an open one, or one under the pointer, does not.
+@MainActor @Test func aClosedFolderCountsItsSessions() throws {
+    _ = NSApplication.shared
+    let project = try #require(SidebarEntry.make(projects: [sidebarProject], sessions: [workspaceSession("a", created: "2026-01"), workspaceSession("b", created: "2026-02")])
+        .flatMap(\.descendants).first { $0.id.hasPrefix("project:") })
+    let cell = SidebarCellView(frame: NSRect(x: 0, y: 0, width: 240, height: SidebarMetrics.rowHeight))
+    cell.configure(project, nested: false)
+    func shown() -> NSTextField? { cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "2" && !$0.isHidden } }
+    cell.setExpanded(false)
+    cell.layoutSubtreeIfNeeded()
+    let count = try #require(shown(), "a closed folder counts its sessions")
+    let name = try #require(cell.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == project.title })
+    #expect(name.frame.maxX <= count.frame.minX, "the name ends before the count")
+    #expect(cell.accessibilityLabel() == "\(project.title), 2 sessions", "VoiceOver hears the count")
+    cell.hovered = true
+    #expect(shown() == nil, "the count gives way to the folder's buttons")
+    cell.hovered = false
+    cell.setExpanded(true)
+    #expect(shown() == nil, "an open folder shows its sessions instead")
+    #expect(cell.accessibilityLabel() == project.title)
+}
+
 /// A session running an agent offers Fork Session, which names the session and asks nothing.
 @MainActor @Test func onlyAnAgentsSessionOffersForkSession() throws {
     _ = NSApplication.shared
@@ -707,4 +755,27 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     coordinator.update(sidebar(.overview))
     let projects = try #require(rows.first { $0.entry.destination == .overview })
     #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === projects)
+}
+
+/// The icon picker's categories come from the system's tables in their own order, All first with
+/// no list of its own, each category's symbols in the system's symbol order; with no tables there
+/// are none.
+@Test func symbolCategoriesReadTheSystemTables() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cascade-glyphs-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    func write(_ value: Any, _ name: String) throws {
+        try PropertyListSerialization.data(fromPropertyList: value, format: .binary, options: 0)
+            .write(to: folder.appendingPathComponent(name))
+    }
+    #expect(SymbolCategories(resources: folder).categories.isEmpty)
+    try write([["key": "all", "icon": "square.grid.2x2"], ["key": "objectsandtools", "icon": "folder"],
+               ["key": "empty", "icon": "xmark"], ["key": "arrows", "icon": "arrow.forward"]], "categories.plist")
+    try write(["hammer": ["objectsandtools"], "folder": ["objectsandtools"], "arrow.up": ["arrows"]], "symbol_categories.plist")
+    try write(["folder", "hammer", "arrow.up"], "symbol_order.plist")
+    let read = SymbolCategories(resources: folder).categories
+    #expect(read.map(\.id) == ["all", "objectsandtools", "arrows"])
+    #expect(read[0].symbols == nil)
+    #expect(read[1].symbols == ["folder", "hammer"])
+    #expect(read[1].title == "Objects & Tools")
 }

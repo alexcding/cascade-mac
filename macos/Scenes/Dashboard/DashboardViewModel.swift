@@ -36,6 +36,8 @@ import Observation
     var sessions: [DashboardSession] = [] { didSet { if sessions != oldValue, onScreen { updateLanes() } } }
     /// Every chat session, from the app's chat list: listed in its project's lane.
     var chats: [DashboardChat] = [] { didSet { if chats != oldValue, onScreen { updateLanes() } } }
+    /// Each project's icon, by id, from the app's projects: what its lane is drawn with.
+    var projectSymbols: [String: String] = [:] { didSet { if projectSymbols != oldValue, onScreen { updateLanes() } } }
     /// Each project's numbers for Overview, worked out when the pull requests, tickets or session
     /// counts change rather than on every redraw.
     private(set) var projectSummaries: [DashboardProjectSummary] = []

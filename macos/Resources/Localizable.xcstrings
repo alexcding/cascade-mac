@@ -8981,6 +8981,9 @@
     "A zsh script run in the project folder before each run. A non-zero exit skips the run; what it prints is added under the prompt." : {
 
     },
+    "Accessibility" : {
+
+    },
     "Active refreshes: %lld · Combined requests: %lld" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13843,6 +13846,9 @@
         }
       }
     },
+    "Arrows" : {
+
+    },
     "As if" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -16228,6 +16234,9 @@
           }
         }
       }
+    },
+    "Automotive" : {
+
     },
     "Average: %lld ms · Maximum: %lld ms" : {
       "extractionState" : "manual",
@@ -18931,6 +18940,9 @@
           }
         }
       }
+    },
+    "Camera & Photos" : {
+
     },
     "Can’t tell which status this column maps to — use the move menu." : {
       "extractionState" : "manual",
@@ -22432,6 +22444,9 @@
           }
         }
       }
+    },
+    "Choose Icon" : {
+
     },
     "Choose New Session and enter a branch name, GitHub pull request URL, or Jira ticket URL. Choose a base branch and an agent, or Shell only. A session keeps its terminal and Git worktree together so tasks can run independently. Worktrees created outside Cascade do not appear automatically. Settings → Worktrees controls location, copied files, and optional fetching." : {
       "extractionState" : "manual",
@@ -26749,6 +26764,9 @@
         }
       }
     },
+    "Commerce" : {
+
+    },
     "Commit" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -27521,6 +27539,9 @@
           }
         }
       }
+    },
+    "Communication" : {
+
     },
     "Compact Conversation" : {
       "extractionState" : "manual",
@@ -29602,6 +29623,9 @@
       }
     },
     "context" : {
+
+    },
+    "Connectivity" : {
 
     },
     "Context" : {
@@ -37417,6 +37441,9 @@
         }
       }
     },
+    "Draw" : {
+
+    },
     "Dry Run" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -41488,6 +41515,9 @@
     "finished just now" : {
 
     },
+    "Fitness" : {
+
+    },
     "Fix" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -43112,6 +43142,9 @@
           }
         }
       }
+    },
+    "Gaming" : {
+
     },
     "General" : {
       "extractionState" : "manual",
@@ -45582,6 +45615,9 @@
         }
       }
     },
+    "Health" : {
+
+    },
     "Hear about new tickets assigned to you." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46512,6 +46548,9 @@
         }
       }
     },
+    "Home" : {
+
+    },
     "Hooks report when an agent starts and finishes a turn. Installing or removing hooks preserves your other configuration." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -46596,6 +46635,12 @@
 
     },
     "Hourly queue check" : {
+
+    },
+    "Human" : {
+
+    },
+    "Icon" : {
 
     },
     "Icon theme" : {
@@ -47295,6 +47340,9 @@
           }
         }
       }
+    },
+    "Indices" : {
+
     },
     "Info" : {
       "extractionState" : "manual",
@@ -51077,6 +51125,9 @@
         }
       }
     },
+    "Keyboard" : {
+
+    },
     "Keyboard shortcuts" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54251,6 +54302,9 @@
         }
       }
     },
+    "Maps" : {
+
+    },
     "Mark ready for review" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54482,6 +54536,9 @@
         }
       }
     },
+    "Math" : {
+
+    },
     "Max files changed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -54712,6 +54769,9 @@
           }
         }
       }
+    },
+    "Media" : {
+
     },
     "Medium" : {
       "extractionState" : "manual",
@@ -57029,6 +57089,9 @@
     "Moves the main checkout off %@ and opens it in a worktree of its own" : {
 
     },
+    "Multicolor" : {
+
+    },
     "Mute this tab" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -57569,6 +57632,9 @@
       }
     },
     "Name the session (optional)" : {
+
+    },
+    "Nature" : {
 
     },
     "Needs input" : {
@@ -65961,6 +66027,9 @@
         }
       }
     },
+    "Objects & Tools" : {
+
+    },
     "Off" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -73919,6 +73988,9 @@
         }
       }
     },
+    "Privacy & Security" : {
+
+    },
     "Process" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -74303,6 +74375,9 @@
           }
         }
       }
+    },
+    "Project Icon" : {
+
     },
     "Project key" : {
       "extractionState" : "manual",
@@ -89937,6 +90012,9 @@
         }
       }
     },
+    "Shapes" : {
+
+    },
     "Shell" : {
       "localizations" : {
         "bn" : {
@@ -97834,6 +97912,9 @@
           }
         }
       }
+    },
+    "Text Formatting" : {
+
     },
     "that pull request" : {
       "extractionState" : "manual",
@@ -111084,6 +111165,9 @@
     "Translucent window" : {
 
     },
+    "Transportation" : {
+
+    },
     "Trigger matches" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -115479,6 +115563,9 @@
         }
       }
     },
+    "Variable" : {
+
+    },
     "Version" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -116491,6 +116578,9 @@
     "Web" : {
 
     },
+    "Weather" : {
+
+    },
     "Web page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -117346,6 +117436,9 @@
           }
         }
       }
+    },
+    "What's New" : {
+
     },
     "When" : {
       "extractionState" : "manual",

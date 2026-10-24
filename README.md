@@ -240,6 +240,8 @@ modify, and share it, including commercially.
 
 Cascade builds on [Ghostty](https://github.com/ghostty-org/ghostty),
 [GhosttyTerminal](https://github.com/alexcding/ghostty-terminal-spm),
-[CodeEditSourceEditor](https://github.com/CodeEditApp/CodeEditSourceEditor), and
-[Sparkle](https://github.com/sparkle-project/Sparkle), alongside the CLI tools that
+[CodeEditSourceEditor](https://github.com/CodeEditApp/CodeEditSourceEditor),
+[Sparkle](https://github.com/sparkle-project/Sparkle),
+[SFSymbolsPickerForSwiftUI](https://github.com/alessiorubicini/SFSymbolsPickerForSwiftUI), and
+[SFSafeSymbols](https://github.com/SFSafeSymbols/SFSafeSymbols), alongside the CLI tools that
 connect it to your work. Third-party dependencies retain their own licenses.

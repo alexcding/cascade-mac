@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct ProjectDraft: Encodable, Equatable, Sendable {
     var name = ""
@@ -16,6 +16,13 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
     /// A new project's folder that is no git repository is made one, its files in a first commit.
     var initGit = false
 
+    /// The SF Symbol the sidebar draws the project with; empty is `defaultIcon`.
+    var icon = ""
+
+    /// What a project with no icon of its own is drawn with: the sidebar's folder, a drawn mark
+    /// (`SidebarIcons`), not an SF Symbol.
+    static let defaultIcon = "folderClosed"
+
     init(_ project: Project? = nil) {
         guard let project else { return }
         name = project.name; workspace = project.workspace; repo = project.repo
@@ -24,6 +31,7 @@ struct ProjectDraft: Encodable, Equatable, Sendable {
         ide = project.ide ?? ""; ideCmd = project.ideCmd ?? ""; ideTarget = project.ideTarget ?? ""
         worktreeSetup = project.worktreeSetup ?? ""; worktreeInclude = project.worktreeInclude ?? ""
         forwardWebhooks = project.forwardWebhooks ?? true
+        icon = project.icon ?? ""
     }
     var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return String(localized: "Enter a project name.") }
@@ -105,5 +113,18 @@ struct IDEChoice: Identifiable {
         guard !all.contains(where: { $0.id == current }) else { return all }
         let title = ExternalTool.editors.first { $0.id == current }?.name ?? current
         return all + [.init(id: current, title: title)]
+    }
+}
+
+extension Project {
+    /// The project's chosen SF Symbol, or `ProjectDraft.defaultIcon` when none is chosen or this
+    /// macOS has no symbol by that name, as one chosen on a newer macOS may not be.
+    var symbol: String { Self.symbol(for: icon) }
+
+    static func symbol(for icon: String?) -> String {
+        guard let icon, !icon.isEmpty, NSImage(systemSymbolName: icon, accessibilityDescription: nil) != nil else {
+            return ProjectDraft.defaultIcon
+        }
+        return icon
     }
 }
