@@ -7,7 +7,11 @@ import Testing
     var removed: [String] = []
     var failure: String?
     func existingWorktrees() async throws -> [ExistingWorktree] { worktrees }
-    func worktreeSizes() async throws -> [String: Int64] { sizes }
+    var measured: [[String]] = []
+    func worktreeSizes(of paths: [String]) async throws -> [String: Int64] {
+        measured.append(paths)
+        return sizes.filter { paths.contains($0.key) }
+    }
     func removeWorktree(_ worktree: ExistingWorktree) async throws {
         if let failure { throw BackendError.operation(failure) }
         removed.append(worktree.path)
@@ -34,7 +38,7 @@ import Testing
     await model.remove(left)
     #expect(fixture.removed == [left.path])
     while model.loading { await Task.yield() }
-    #expect(!model.measuring, "a deletion measures nothing again")
+    #expect(!model.measuring && fixture.measured.count == 1, "a deletion measures nothing again")
     #expect(model.worktrees.map(\.path) == [mine.path] && model.removing == nil && model.error == nil)
     #expect(model.total == 2_000)
 

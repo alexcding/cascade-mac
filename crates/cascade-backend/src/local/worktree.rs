@@ -678,8 +678,7 @@ async fn shared_worktrees(app: &AppState) -> anyhow::Result<Vec<Shared>> {
             }
             // Unreadable, or out of reach with the folder it sits in (a drive not mounted): still the
             // project's. Only a checkout whose own folder is there without it was deleted.
-            Err(_) if Path::new(&project.workspace).exists()
-                || !Path::new(&project.workspace).parent().is_some_and(Path::exists) => {
+            Err(_) if Path::new(&project.workspace).exists() || out_of_reach(Path::new(&project.workspace)) => {
                 for root in &roots {
                     let location = worktrees::Location::Custom(root.clone());
                     folders.insert(resolved(&worktrees::root(&project.workspace, &location)), claim.clone());
@@ -817,12 +816,25 @@ pub async fn shared_worktrees_route(State(app): State<AppState>) -> ApiResult<Va
     )))
 }
 
-/// How much disk each worktree the list shows takes, by its path: the ones no session works in.
-/// Asked for apart from the list, so the rows show at once. Walked off the runtime's workers, a
-/// few at a time, so many large worktrees never thrash the disk together.
-pub async fn shared_worktree_sizes(State(app): State<AppState>) -> ApiResult<Value> {
+/// How much disk each of `paths`, the rows the list shows, takes. Asked for apart from the list,
+/// so the rows show at once, and for the paths the app already holds, so nothing is listed again:
+/// each is measured only if it is one of Cascade's worktrees in a shared root that no session works
+/// in. Walked off the runtime's workers, a few at a time, so many large worktrees never thrash the
+/// disk together.
+pub async fn shared_worktree_sizes(State(app): State<AppState>, Json(body): Json<Value>) -> ApiResult<Value> {
     const WALKS: usize = 4;
-    let found: Vec<PathBuf> = shared_worktrees(&app).await.map_err(ApiError::internal)?.into_iter().map(|w| w.path).collect();
+    let asked: Vec<String> = body["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_owned)).collect();
+    let roots: Vec<PathBuf> = worktrees::shared_roots(&app).await.iter().map(|root| resolved(root)).collect();
+    let found: Vec<PathBuf> = tokio::task::spawn_blocking(move || {
+        asked.iter().map(|p| resolved(Path::new(p))).filter(|path| {
+            let folder = path.parent();
+            folder.is_some_and(named_by_cascade)
+                && folder.and_then(Path::parent).is_some_and(|root| roots.iter().any(|r| r == root))
+                && shared(path.clone()).is_some()
+        }).collect()
+    })
+    .await
+    .map_err(ApiError::internal)?;
     let used = in_use_of(sessions_in(&app).await, found.clone()).await?;
     let paths: Vec<PathBuf> = found.into_iter().zip(used).filter(|(_, used)| !used).map(|(path, _)| path).collect();
     let sizes = tokio::task::spawn_blocking(move || {
@@ -840,6 +852,32 @@ pub async fn shared_worktree_sizes(State(app): State<AppState>) -> ApiResult<Val
     .await
     .map_err(ApiError::internal)?;
     Ok(Json(Value::Object(sizes)))
+}
+
+/// A missing checkout that may only be out of reach, not deleted: the folder it sits in is missing
+/// too, or it is a drive's own folder under `/Volumes`, there only while the drive is mounted (and
+/// macOS can leave an empty one behind once it is not).
+fn out_of_reach(workspace: &Path) -> bool {
+    if workspace.exists() {
+        return false;
+    }
+    if !workspace.parent().is_some_and(Path::exists) {
+        return true;
+    }
+    let mut parts = workspace.components();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(std::path::Component::RootDir), Some(std::path::Component::Normal(volumes)), Some(std::path::Component::Normal(drive)))
+            if volumes == "Volumes" => !mounted(&Path::new("/Volumes").join(drive)),
+        _ => false,
+    }
+}
+
+/// Whether `root` is a mounted drive: a folder on a device of its own, not `/Volumes`'.
+fn mounted(root: &Path) -> bool {
+    match (fs::metadata(root), fs::metadata("/Volumes")) {
+        (Ok(drive), Ok(volumes)) => drive.dev() != volumes.dev(),
+        _ => false,
+    }
 }
 
 /// The disk a folder takes, as Finder counts it: the blocks of every file under it, links not
@@ -955,4 +993,23 @@ pub async fn worktree_holders(Query(query): Query<LocalQuery>) -> ApiResult<Valu
     Ok(Json(
         json!({"holders":holders.into_iter().map(|(pid,command)|json!({"pid":pid.parse::<i64>().unwrap_or(0),"command":command})).collect::<Vec<_>>()}),
     ))
+}
+
+#[cfg(test)]
+mod reach_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_checkout_is_out_of_reach_only_where_it_could_be_unmounted() {
+        let here = tempfile::tempdir().unwrap();
+        // Deleted: the folder it sat in is still there.
+        assert!(!out_of_reach(&here.path().join("deleted")));
+        // The folder it sat in is gone too.
+        assert!(out_of_reach(&here.path().join("drive/app")));
+        // A drive's own folder, or anything on it, while that drive is not mounted.
+        assert!(out_of_reach(Path::new("/Volumes/No Such Drive 9f3e")));
+        assert!(out_of_reach(Path::new("/Volumes/No Such Drive 9f3e/code/app")));
+        // There: never out of reach.
+        assert!(!out_of_reach(here.path()));
+    }
 }

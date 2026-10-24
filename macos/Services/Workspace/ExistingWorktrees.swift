@@ -21,7 +21,7 @@ struct ExistingWorktree: Identifiable, Equatable, Sendable {
 /// in, and those are left out.
 @MainActor protocol ExistingWorktreeManaging: AnyObject {
     func existingWorktrees() async throws -> [ExistingWorktree]
-    /// The disk each takes, in bytes, by path: slower than the list, so asked for after it.
-    func worktreeSizes() async throws -> [String: Int64]
+    /// The disk each of `paths` takes, in bytes, by path: slower than the list, so asked for after it.
+    func worktreeSizes(of paths: [String]) async throws -> [String: Int64]
     func removeWorktree(_ worktree: ExistingWorktree) async throws
 }

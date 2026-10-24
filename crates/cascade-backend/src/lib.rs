@@ -157,7 +157,7 @@ pub fn build_app(state: AppState) -> Router {
         )
         .route("/api/worktrees", get(local::list_worktrees_route))
         .route("/api/worktrees/shared", get(local::shared_worktrees_route))
-        .route("/api/worktrees/shared/sizes", get(local::shared_worktree_sizes))
+        .route("/api/worktrees/shared/sizes", post(local::shared_worktree_sizes))
         .route(
             "/api/worktrees/relocation",
             get(local::worktree_relocation).post(local::relocate_worktrees),

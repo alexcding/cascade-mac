@@ -39,9 +39,10 @@ import Observation
         if manager == nil { worktrees = []; sizes = [:]; loaded = false }
     }
 
-    /// Reads the list, then, when `measure`, the sizes behind it. Sizes already known stay shown
-    /// meanwhile, and Refresh is free again once the list is in. After a deletion nothing is
-    /// measured again: the rows that stay have the sizes they had.
+    /// Reads the list, then the sizes behind it: all of them when `measure`, else only those not
+    /// known yet. Sizes already known stay shown meanwhile, and Refresh is free again once the list
+    /// is in. After a deletion the rows that stay keep the sizes they had, and one whose size had
+    /// not come in yet (the deletion cut its measuring short) is measured then.
     func refresh(measure: Bool = true) {
         guard !retired, let manager else { return }
         read?.cancel()
@@ -54,9 +55,10 @@ import Observation
                 guard let self, !Task.isCancelled, !self.retired, self.readToken == token else { return }
                 self.worktrees = value; self.loaded = true; self.error = nil; self.loading = false
                 self.sizes = self.sizes.filter { size in value.contains { $0.path == size.key } }
-                guard measure, !value.isEmpty else { return }
+                let wanted = value.map(\.path).filter { measure || self.sizes[$0] == nil }
+                guard !wanted.isEmpty else { return }
                 self.measuring = true
-                let sizes = (try? await manager.worktreeSizes()) ?? [:]
+                let sizes = (try? await manager.worktreeSizes(of: wanted)) ?? [:]
                 guard !Task.isCancelled, !self.retired, self.readToken == token else { return }
                 self.sizes.merge(sizes) { _, new in new }; self.measuring = false
             } catch {

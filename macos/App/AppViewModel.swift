@@ -2181,7 +2181,8 @@ extension AppViewModel: ExistingWorktreeManaging {
         let shared: [Shared] = try await api.get(Routes.WORKTREES_SHARED)
         let order = projects.map(\.id)
         let rank = { (id: String?) in id.flatMap { order.firstIndex(of: $0) } ?? (id == nil ? Int.max : order.count) }
-        return shared.filter { !$0.inUse && !hasSession(in: $0.path) }.map { tree in
+        let claimed = sessionFolders()
+        return shared.filter { !$0.inUse && !Self.claims(claimed, $0.path) }.map { tree in
             ExistingWorktree(path: tree.path, branch: tree.branch, projectID: tree.projectId,
                              project: projects.first { $0.id == tree.projectId }?.name ?? tree.projectName ?? "",
                              workspace: tree.workspace ?? "", repo: tree.repo)
@@ -2191,16 +2192,16 @@ extension AppViewModel: ExistingWorktreeManaging {
         }.map(\.element)
     }
 
-    func worktreeSizes() async throws -> [String: Int64] {
+    func worktreeSizes(of paths: [String]) async throws -> [String: Int64] {
         guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
-        return try await api.get(Routes.WORKTREES_SHARED_SIZES)
+        return try await api.request(Routes.WORKTREES_SHARED_SIZES, method: "POST", body: ["paths": paths])
     }
 
     /// Only a worktree no session works in: one a session took since the list was read is refused,
     /// never removed from under it.
     func removeWorktree(_ worktree: ExistingWorktree) async throws {
         guard let api else { throw BackendError.operation(String(localized: "Cascade isn’t connected to its backend.")) }
-        guard !hasSession(in: worktree.path) else {
+        guard !Self.claims(sessionFolders(), worktree.path) else {
             throw BackendError.operation(String(localized: "A session works in this worktree. Remove the session instead."))
         }
         if worktree.projectID != nil, !worktree.workspace.isEmpty {
@@ -2212,15 +2213,20 @@ extension AppViewModel: ExistingWorktreeManaging {
         }
     }
 
-    /// The app's own check beside the backend's `inUse`, by the same rule: the session's worktree
-    /// is this folder, or a folder no longer there with the same project folder and worktree names.
-    private func hasSession(in worktree: String) -> Bool {
+    /// Every session's worktree, resolved and looked for once per read rather than once per row.
+    private func sessionFolders() -> [(path: String, gone: Bool)] {
+        sessions.filter { !$0.worktree.isEmpty }.map { session in
+            let stored = SessionRemovalPlan.path(session.worktree)
+            return (stored, !FileManager.default.fileExists(atPath: stored))
+        }
+    }
+
+    /// The app's own check beside the backend's `inUse`, by the same rule: a session's worktree is
+    /// this folder, or a folder no longer there with the same project folder and worktree names.
+    private static func claims(_ sessions: [(path: String, gone: Bool)], _ worktree: String) -> Bool {
         let folder = SessionRemovalPlan.path(worktree)
         let place = { (path: String) in URL(fileURLWithPath: path).pathComponents.suffix(2) }
-        return sessions.contains { session in
-            let stored = SessionRemovalPlan.path(session.worktree)
-            return stored == folder || (!FileManager.default.fileExists(atPath: stored) && place(stored) == place(folder))
-        }
+        return sessions.contains { $0.path == folder || ($0.gone && place($0.path) == place(folder)) }
     }
 }
 

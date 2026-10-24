@@ -737,9 +737,11 @@ async fn the_shared_folder_is_listed_and_its_leftovers_removed() {
     assert_eq!(found(&kept)["repo"], other.to_str().unwrap());
     assert_eq!(found(&kept)["branch"], "feat");
     assert_eq!(found(&orphan)["repo"], "");
-    let (status, sizes) = get(&app, "/api/worktrees/shared/sizes").await;
+    let asked = json!({"paths": [&mine, checkout.to_str().unwrap(), "/etc"]});
+    let (status, sizes) = post(&app, "/api/worktrees/shared/sizes", asked).await;
     assert_eq!(status, StatusCode::OK, "{sizes}");
     assert!(sizes[&mine].as_u64().is_some_and(|bytes| bytes > 0), "{sizes}");
+    assert_eq!(sizes.as_object().map(|s| s.len()), Some(1), "only a worktree of Cascade's is measured: {sizes}");
     assert_eq!(found(Path::new(&held))["projectId"], unread["id"]);
     assert_eq!(found(&far)["projectId"], unmounted["id"]);
     let (status, _) = post(&app, "/api/worktrees/leftover/remove", json!({"path":far.to_str().unwrap()})).await;
