@@ -7,6 +7,8 @@ import Foundation
     /// A session the project's Start made, with its agent's first prompt and the model and effort
     /// it starts on, when it has them.
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?)
+    /// Removes the project's sessions and their worktrees, ahead of deleting the project itself.
+    func removeProjectSessions(_ id: String) async throws
 }
 
 extension AppCoordinator {
@@ -47,6 +49,11 @@ extension AppCoordinator {
             // A retired coordinator's late event must not act on whichever model now owns the id.
             guard let self, let model, projectCoordinators[id]?.model === model else { return }
             handle(.projectEvent(event, projectID: id))
+        }
+        child.removeSessions = { [weak runtime] id in
+            guard requiresRuntime else { return }
+            guard let runtime else { throw CancellationError() }
+            try await runtime.removeProjectSessions(id)
         }
         projectRuntimes[id] = runtime.map { WeakProjectRuntime(runtime: $0) }
         projectCoordinators[id] = child

@@ -23,8 +23,12 @@ import Observation
     let model: ProjectPageViewModel
     private(set) var deletionConfirmation: ProjectEditorViewModel.DeletionRequest?
     private(set) var deleting = false
+    /// Why removing the project's sessions stopped short; the project is then kept.
+    private(set) var removalError: String?
     private(set) var retired = false
     @ObservationIgnored var onEvent: (Event) -> Void = { _ in }
+    /// Removes the project's sessions, worktrees and all, before the project goes.
+    @ObservationIgnored var removeSessions: (String) async throws -> Void = { _ in }
     @ObservationIgnored var canPresent: () -> Bool = { true }
     @ObservationIgnored var isOwned: () -> Bool = { true }
     var isPresenting: Bool { deletionConfirmation != nil || deleting }
@@ -63,15 +67,21 @@ import Observation
     func confirmDeletion(id: UUID) async {
         guard !retired, !deleting, let request = deletionConfirmation, request.id == id else { return }
         guard isOwned(), model.editor.canDelete(request) else { endPresentation(); return }
-        deleting = true
+        deleting = true; removalError = nil
         defer { deleting = false; onEvent(.presentationEnded) }
+        // Its sessions go first: their worktrees are found through the project.
+        do { try await removeSessions(request.projectID) } catch {
+            if !retired { removalError = error.localizedDescription }
+            return
+        }
+        guard !retired, isOwned(), model.editor.canDelete(request) else { return }
         await model.editor.delete(request)
     }
 
     /// Leaving the screen ends its presentation; an already started write finishes.
     func endPresentation() {
         guard deletionConfirmation != nil else { return }
-        deletionConfirmation = nil
+        deletionConfirmation = nil; removalError = nil
         onEvent(.presentationEnded)
     }
 

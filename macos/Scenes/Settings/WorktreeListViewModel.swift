@@ -2,8 +2,8 @@ import Foundation
 import Observation
 
 /// Settings → Worktrees' list of the worktrees in the worktree folder no session works in: each
-/// project's, and what a project removed from Cascade or a deleted checkout left there. Deleting a project never
-/// touches its files; this is where its worktrees are deleted.
+/// project's, and what a project removed from Cascade or a deleted checkout left there. Deleting a project removes
+/// its sessions' worktrees but never one no session works in; this is where those are deleted.
 @MainActor @Observable final class WorktreeListViewModel {
     private(set) var worktrees: [ExistingWorktree] = []
     /// Each worktree's size by path, once read; the list shows before them.

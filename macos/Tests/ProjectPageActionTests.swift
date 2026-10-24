@@ -47,4 +47,5 @@ struct ProjectPageService: ProjectService {
     func applyProjectSave(_ project: Project, source: ProjectSaveSource) {}
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) {}
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) {}
+    func removeProjectSessions(_ id: String) async throws {}
 }

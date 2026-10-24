@@ -13,8 +13,13 @@ struct ProjectCoordinatorView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Delete this project?").font(.title2.weight(.semibold))
                     Text(request.name).font(.headline)
-                    Text("This removes the project configuration and PR/Jira links. Sessions remain under Sessions, and workspace folders and running terminals are kept.")
-                    if let error = coordinator.model.editor.deletionError(for: request) {
+                    Text("This removes the project configuration and PR/Jira links. The project folder is kept.")
+                    let sessions = coordinator.model.composer.sessions.count
+                    if sessions > 0 {
+                        Label("This also removes ^[\(sessions) session](inflect: true): terminals stop and worktrees are deleted, and anything not committed there is lost.",
+                              systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                    }
+                    if let error = coordinator.removalError ?? coordinator.model.editor.deletionError(for: request) {
                         Text(error).foregroundStyle(.orange).textSelection(.enabled)
                     }
                     HStack {

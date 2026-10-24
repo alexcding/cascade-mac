@@ -64,7 +64,7 @@ import Observation
     /// Where each branch is checked out, and whether that is the main checkout.
     private(set) var checkouts: [String: (path: String, main: Bool)] = [:] { didSet { updateOwners() } }
     /// The project's sessions: a branch or worktree one already works on is not offered to another.
-    private var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateOwners() } } }
+    private(set) var sessions: [WorkspaceSession] = [] { didSet { if oldValue != sessions { updateOwners() } } }
     /// The session already working on each branch, by its branch or by the worktree that holds it.
     private var owners: [String: WorkspaceSession] = [:]
     private var generation = UUID()

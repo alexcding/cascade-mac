@@ -220,7 +220,7 @@ identity, `Container/` factories, `Services/` non-UI logic, `Components/` reusab
   ones in the folder no session works in, with their sizes, and deletes each at once: only folders
   Cascade named (`worktrees::is_project_folder`, and for a leftover the exact name of its
   checkout), and never one a session claims, a stale path of it included (`local::worktree`
-  `in_use`, checked by the backend and the app). Deleting a project never touches its files. A branch goes with its
+  `in_use`, checked by the backend and the app). Deleting a project removes its sessions first, worktrees and all, as Remove does, and stops if one fails; the project folder itself is never touched. A branch goes with its
   worktree only when Cascade made it (`branch.<name>.cascadeCreated`) and `git branch -d` agrees.
   `CASCADE_WORKTREES_DIR` stands in for the folder; the scheme sets it, so ⌘R never uses up the
   installed app's question.

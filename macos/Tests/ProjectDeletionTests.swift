@@ -39,6 +39,12 @@ private actor ProjectDeletionService: ProjectService {
     weak var coordinator: AppCoordinator?
     var projects = [deletionProject]
     var removed: [String] = []
+    var sessionRemovals: [String] = []
+    var sessionRemovalError: (any Error)?
+    func removeProjectSessions(_ id: String) async throws {
+        sessionRemovals.append(id)
+        if let sessionRemovalError { throw sessionRemovalError }
+    }
     func rootState() -> RootState {
         RootState(selection: coordinator?.selection ?? .overview, projects: projects,
                   projectModels: coordinator?.projectModels ?? [:])
@@ -169,4 +175,26 @@ func projectDeletionFinishesOriginalOperationWithoutRedirectingAnotherScreen(fai
     #expect(root.selection == .terminal && root.canPresent)
     #expect(runtime.removed == (failing ? [] : [deletionProject.id]))
     #expect(await service.deletions == [deletionProject.id])
+}
+
+@MainActor @Test func projectDeletionRemovesItsSessionsFirstAndKeepsTheProjectWhenThatFails() async throws {
+    let service = ProjectDeletionService(), runtime = ProjectDeletionRuntime()
+    let root = AppCoordinator(factory: NativeCreationFlowFactory(chooseFolder: { nil }))
+    runtime.coordinator = root; root.rootRuntime = runtime; root.setRoutingReady(true)
+    let model = deletionModel(service: service), child = root.installProject(model, runtime: runtime)
+    root.navigate(to: .project(deletionProject.id))
+
+    runtime.sessionRemovalError = BackendError.operation("Worktree busy")
+    model.editor.requestDeletion()
+    let failed = try #require(child.deletionConfirmation)
+    await child.confirmDeletion(id: failed.id)
+    #expect(runtime.sessionRemovals == [deletionProject.id])
+    #expect(await service.deletions.isEmpty && runtime.removed.isEmpty)
+    #expect(child.removalError?.contains("Worktree busy") == true && child.deletionConfirmation?.id == failed.id)
+
+    runtime.sessionRemovalError = nil
+    await child.confirmDeletion(id: failed.id)
+    #expect(runtime.sessionRemovals == [deletionProject.id, deletionProject.id])
+    #expect(await service.deletions == [deletionProject.id] && runtime.removed == [deletionProject.id])
+    #expect(child.removalError == nil)
 }

@@ -482,6 +482,21 @@ public final class AppViewModel {
         refresh()
     }
 
+    /// Each of the project's sessions is removed as Remove does, worktree and all, while the project
+    /// is still there to find its worktrees. The first that fails stops the rest, and the project stays.
+    func removeProjectSessions(_ id: String) async throws {
+        while let session = sessions.first(where: { $0.projectId == id }) {
+            guard !changingSessions.contains(session.id), let model = removalModel(for: session) else {
+                throw BackendError.operation(String(localized: "A session operation is already in progress."))
+            }
+            await model.load()
+            if let error = model.error { throw BackendError.operation(error) }
+            await model.remove()
+            if let error = model.error { throw BackendError.operation(error) }
+            guard model.completed else { throw CancellationError() }
+        }
+    }
+
     private func retireProject(_ model: ProjectPageViewModel) {
         model.retire()
     }

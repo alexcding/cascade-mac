@@ -153,7 +153,13 @@ struct SidebarEntry: Equatable {
                   children: ordered.filter { $0.projectId == project.id }.map { row($0) },
                   role: .project)
         }
-        result += ordered.filter { !projectIDs.contains($0.projectId) }.map { row($0) }
+        // Sessions whose project was deleted stay, under a heading of their own: listed bare after the
+        // projects they read as the last project's.
+        let orphans = ordered.filter { !projectIDs.contains($0.projectId) }
+        if !orphans.isEmpty {
+            result.append(label("label:sessions", String(localized: "Sessions")))
+            result += orphans.map { row($0) }
+        }
         if !chats.isEmpty {
             result.append(label(chatsID, String(localized: "Chats")))
             result += chats.map(chatRow)

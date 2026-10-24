@@ -14,6 +14,7 @@ import Testing
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) { ids.remove(id); deletions.append(id) }
     var created: [(String, String?)] = []
     func projectSessionCreated(_ session: WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) { created.append((session.id, prompt)) }
+    func removeProjectSessions(_ id: String) async throws {}
 }
 
 @MainActor private final class CountingProjectFeatureFactory: ProjectFeatureFactory {
