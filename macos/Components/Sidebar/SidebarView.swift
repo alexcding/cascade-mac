@@ -21,7 +21,7 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            CocoaSidebar(entries: viewModel.entries, selection: viewModel.selection,
+            CocoaSidebar(entries: viewModel.entries, selection: viewModel.sidebarSelection,
                          pinnedIDs: viewModel.pinnedIDs, forkableIDs: viewModel.forkableIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
                          onNewTask: viewModel.newTask(in:),

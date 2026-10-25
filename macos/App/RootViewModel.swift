@@ -3,6 +3,9 @@ import Observation
 
 @MainActor struct RootState {
     var selection: SidebarDestination = .overview
+    /// The row the sidebar shows selected, which can be a project's while its page or the New Task
+    /// it opened is on screen.
+    var sidebarSelection: SidebarDestination = .overview
     var entries: [SidebarEntry] = []
     var pinnedIDs: Set<String> = []
     var projects: [Project] = []
@@ -46,6 +49,7 @@ import Observation
     }
     private var state: RootState { service?.rootState() ?? RootState() }
     var selection: SidebarDestination { state.selection }
+    var sidebarSelection: SidebarDestination { state.sidebarSelection }
     var entries: [SidebarEntry] { state.entries }
     var pinnedIDs: Set<String> { state.pinnedIDs }
     /// The sessions whose agent can fork its conversation: every one running an agent.

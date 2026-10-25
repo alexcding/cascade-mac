@@ -486,3 +486,43 @@ private actor RefreshTransport: BackendTransport {
     if case .chatCoordinator(let shown) = model.coordinator.root { #expect(shown === screen) } else { Issue.record("no chat screen") }
     await model.stop()
 }
+
+@MainActor @Test func aPinnedProjectJoinsPinnedAndItsNewTaskShowsItsRowSelected() async throws {
+    let suite = "pinned-project-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let runtime = RefreshRuntime()
+    await runtime.transport.addSession()
+    let model = refreshApp(runtime, preferences: preferences)
+    await model.start()
+    try await refreshEventually { model.projects.contains { $0.id == "p" } && model.root.pinnedIDs == ["s"] }
+    func pinnedRows() -> [String] { model.root.entries.map(\.id).filter { $0.hasPrefix("pin:") } }
+
+    // A project pins after the pinned session, takes its place in one order with it, and unpins.
+    model.togglePin("p")
+    try await refreshEventually { model.root.pinnedIDs == ["s", "p"] }
+    #expect(pinnedRows() == ["pin:s", "pin:p"])
+    #expect(!model.root.entries.contains { $0.id == "label:projects" })
+    model.movePinned("p", before: "s")
+    try await refreshEventually { pinnedRows() == ["pin:p", "pin:s"] }
+    model.togglePin("p")
+    try await refreshEventually { model.root.pinnedIDs == ["s"] }
+    #expect(model.root.entries.contains { $0.id == "project:p" })
+
+    // The project row's New Task shows that row selected until anything else is chosen,
+    // New Task's own row included; its Settings shows it selected too.
+    model.newTask(in: "p")
+    #expect(model.selection == .newSession && model.root.sidebarSelection == .project("p"))
+    model.select(.overview)
+    #expect(model.root.sidebarSelection == .overview)
+    model.newTask(in: "p")
+    model.select(.newSession)
+    #expect(model.root.sidebarSelection == .newSession)
+    model.openProjectSettings("p")
+    #expect(model.root.sidebarSelection == .project("p"))
+    // A New Task that did not open on the project leaves the selection where it was.
+    model.select(.newSession)
+    model.newTask(in: "missing")
+    #expect(model.root.sidebarSelection == .newSession)
+    await model.stop()
+}

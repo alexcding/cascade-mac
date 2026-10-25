@@ -5,7 +5,8 @@ import SwiftUI
 // snapshots and receives semantic selection/actions. The look is the system's: a source list
 // over the sidebar material, with its selection, its section headers and its label colours.
 // What is ours sits inside that: no disclosure triangles (a click on a project folder collapses
-// or expands it, and never selects it; nothing shows selected while its page is open), sessions nested under their project, a session's hover-only
+// or expands it, and never selects it; it shows selected while its page, or the New Task its row
+// opened, is on screen), sessions nested under their project, a session's hover-only
 // pin, a folder's icon drawn open while open and its hover Settings and New Task, and the session status dot.
 struct CocoaSidebar: NSViewRepresentable {
     let entries: [SidebarEntry]
@@ -166,12 +167,11 @@ struct CocoaSidebar: NSViewRepresentable {
                     if let scrollPosition { outline.enclosingScrollView?.contentView.scroll(to: scrollPosition) }
                 }
             }
-            // A project's page is not a place in the sidebar: nothing shows selected while it is open.
-            let shown: SidebarDestination? = if case .project = value.selection { nil } else { value.selection }
+            // A project's row shows selected while its page, or the New Task it opened, is on screen;
+            // a click on it still only collapses or expands it.
             let placed = selectedPlacement.flatMap { nodes[$0] }
-            let selected = shown.flatMap { shown in
-                placed?.entry.destination == shown ? placed : roots.flatMap(flatten).first { $0.entry.destination == shown }
-            }
+            let selected = placed?.entry.destination == value.selection
+                ? placed : roots.flatMap(flatten).first { $0.entry.destination == value.selection }
             guard let selected else { outline.deselectAll(nil); return }
             let changedPlacement = selectedPlacement != selected.entry.id
             selectedPlacement = selected.entry.id
@@ -198,7 +198,7 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any { children(item)[index] }
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { (item as? Node)?.children.isEmpty == false }
         /// A click on a project folder only collapses or expands it, and never selects it. Its page opens from
-        /// its gear, its menu or its name on Projects, and nothing in the sidebar shows selected while it is open.
+        /// its gear, its menu or its name on Projects, and its row shows selected while that page is open.
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
             guard let entry = (item as? Node)?.entry else { return false }
             return entry.destination != nil && entry.projectID == nil

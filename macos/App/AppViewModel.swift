@@ -104,6 +104,8 @@ public final class AppViewModel {
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
     @ObservationIgnored private var pendingPins: Set<String> = []
+    /// New Task is on screen because a project row's New Task opened it (`newTask(in:)`).
+    private var composingFromProject = false
     /// Observed, not ignored: `isRemoving(_:)` is read from a view body, so a lock taken or
     /// released has to invalidate it.
     private var removalLocks: [UUID: Set<String>] = [:]
@@ -573,19 +575,34 @@ public final class AppViewModel {
     /// Every session starts on New Task: this opens it on `projectID`, filled in. `jiraKey` is the
     /// ticket a pull request link references, for the session created from it. A project with no
     /// folder has nowhere to start one, so its Settings open instead.
-    func openStart(in projectID: String, text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) {
-        guard coordinator.canPresent, let project = projects.first(where: { $0.id == projectID }) else { return }
+    /// True when New Task opened on the project; false when it could not, or its Settings opened instead.
+    @discardableResult
+    func openStart(in projectID: String, text: String? = nil, jiraKey: String? = nil, agent: SessionAgent? = nil) -> Bool {
+        guard coordinator.canPresent, let project = projects.first(where: { $0.id == projectID }) else { return false }
         guard !project.workspace.isEmpty else {
             openProjectSettings(projectID)
             projectModels[projectID]?.editor.explainMissingFolder()
-            return
+            return false
         }
         select(.newSession)
-        coordinator.newSession?.start(in: projectID, text: text, jiraKey: jiraKey, agent: agent)
+        guard let newSession = coordinator.newSession else { return false }
+        newSession.start(in: projectID, text: text, jiraKey: jiraKey, agent: agent)
+        return true
     }
 
-    /// A project row's hover pencil: New Task on that project.
-    func newTask(in projectID: String) { openStart(in: projectID) }
+    /// A project row's hover pencil: New Task on that project, shown in the sidebar as that
+    /// project's row rather than New Task's.
+    func newTask(in projectID: String) {
+        if openStart(in: projectID) { composingFromProject = true }
+    }
+
+    /// The row the sidebar shows selected: the selection itself, except New Task opened from a
+    /// project's row, which shows the project its form is on while that project is listed.
+    var sidebarSelection: SidebarDestination {
+        if selection == .newSession, composingFromProject, let id = coordinator.newSession?.projectID,
+           projects.contains(where: { $0.id == id }) { return .project(id) }
+        return selection
+    }
 
     func newSessionComposer(for projectID: String) -> ProjectComposerModel? { prepareProjectModel(projectID)?.composer }
     /// New Project from New Task's project chip. From the Chat side's, the chat starts in it, and the
@@ -940,6 +957,8 @@ public final class AppViewModel {
     }
 
     func activateRootDestination() {
+        // Any navigation, New Task's own row included, ends a New Task opened from a project's row.
+        composingFromProject = false
         showSelectedContext()
         acknowledgeShownSession()
         // A switch hides the session it leaves, which the pool may now stop.

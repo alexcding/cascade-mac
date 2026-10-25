@@ -74,6 +74,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.collapseItem(project)
     coordinator.update(sidebar([first], selection: .project("p1")))
     #expect(!outline.isItemExpanded(project))
+    // A project's page, or the New Task its row opened, shows its row selected.
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === project)
     #expect(preferences.stringArray(forKey: "sidebar.collapsed")?.contains("project:p1") == true)
 }
 
@@ -728,8 +730,8 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(try glyph("pullRequests").width > SidebarMetrics.glyphMaxWidth - 1, "the list is held at the cap, not shrunk past it")
 }
 
-/// A project's page shows nothing selected in the sidebar, and a click on its folder still only opens or closes it.
-@MainActor @Test func aProjectPageShowsNothingSelected() throws {
+/// A project's page shows its folder selected in the sidebar, and a click on the folder still only opens or closes it.
+@MainActor @Test func aProjectPageShowsItsFolderSelected() throws {
     _ = NSApplication.shared
     let suite = "cascade-sidebar-test-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -748,7 +750,7 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     coordinator.update(sidebar(.project("p1")))
     let rows = (0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }
     let folder = try #require(rows.first { $0.entry.destination == .project("p1") })
-    #expect(outline.selectedRow == -1, "nothing shows selected")
+    #expect(outline.item(atRow: outline.selectedRow) as? CocoaSidebar.Node === folder, "its folder shows selected")
     chosen = []
     coordinator.reselected(folder)
     #expect(chosen.isEmpty, "a click on the folder does not leave its page")
