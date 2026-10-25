@@ -79,7 +79,7 @@ struct SidebarEntry: Equatable {
     enum Role: Equatable {
         case nav                                  // Dashboard
         case label                                // "Pinned" and "Projects" headings
-        case project
+        case project                              // in Projects, or pinned (placement id "pin:")
         case session(SidebarSessionStatus, pinned: Bool)
         case chat(SidebarChatStatus)
     }
@@ -103,7 +103,7 @@ struct SidebarEntry: Equatable {
     var projectID: String? { if case .project(let id) = destination { id } else { nil } }
     var chatID: String? { if case .chat(let id) = destination { id } else { nil } }
 
-    /// Dashboard, Pinned sessions, then the Projects heading with each folder's unpinned sessions
+    /// Dashboard, Pinned sessions and projects, then the Projects heading with each folder's unpinned sessions
     /// nested under it, then unpinned sessions whose project is gone (unlabeled). Headings are
     /// flat rows, not collapsible groups — only a project folder collapses.
     ///
@@ -132,6 +132,13 @@ struct SidebarEntry: Equatable {
             return Self(id: "chat:\(chat.id)", title: chat.label, symbol: "chat", detail: chat.cwd,
                         destination: .chat(chat.id), role: .chat(state)).withTip(chat.cwd)
         }
+        func folder(_ project: Project, id: String) -> Self {
+            .init(id: id, title: project.name, symbol: project.symbol,
+                  detail: project.workspace,
+                  destination: .project(project.id),
+                  children: ordered.filter { $0.projectId == project.id }.map { row($0) },
+                  role: .project)
+        }
         let projectIDs = Set(projects.map(\.id))
         var result: [Self] = [
             .init(id: "new-session", title: String(localized: "New Task"), symbol: "newSession", destination: .newSession),
@@ -139,20 +146,22 @@ struct SidebarEntry: Equatable {
             .init(id: "automation", title: String(localized: "Automation"), symbol: "automation", destination: .automation)
         ]
         // Pinned lists across projects and has an order of its own: a drag inside one project
-        // must not change the order used when sessions are pinned.
-        let pinned = displayOrder(sessions.filter(\.pinned), dragged: order.pinned)
+        // must not change the order used when sessions are pinned. A pinned project moves here
+        // whole, folder and unpinned sessions, and trades places with the pinned sessions.
+        let pinned = pins(projects: projects, sessions: sessions, order: order)
         if !pinned.isEmpty {
             result.append(label("label:pinned", String(localized: "Pinned")))
-            result += pinned.map { row($0, pinned: true) }
+            result += pinned.map { pin in
+                switch pin {
+                case .project(let project): folder(project, id: "pin:\(project.id)")
+                case .session(let session): row(session, pinned: true)
+                }
+            }
         }
-        result.append(label("label:projects", String(localized: "Projects")))
-        result += projects.map { project in
-            .init(id: "project:\(project.id)", title: project.name, symbol: project.symbol,
-                  detail: project.workspace,
-                  destination: .project(project.id),
-                  children: ordered.filter { $0.projectId == project.id }.map { row($0) },
-                  role: .project)
-        }
+        // With every project pinned, Projects has nothing under it and its heading goes too.
+        let unpinned = projects.filter { !order.pinnedProjects.contains($0.id) }
+        if !unpinned.isEmpty || projects.isEmpty { result.append(label("label:projects", String(localized: "Projects"))) }
+        result += unpinned.map { folder($0, id: "project:\($0.id)") }
         // Sessions whose project was deleted stay, under a heading of their own: listed bare after the
         // projects they read as the last project's.
         let orphans = ordered.filter { !projectIDs.contains($0.projectId) }
@@ -165,6 +174,29 @@ struct SidebarEntry: Equatable {
             result += chats.map(chatRow)
         }
         return result
+    }
+
+    /// A row of the Pinned section: a session, or a project with its unpinned sessions.
+    enum Pin: Identifiable {
+        case project(Project), session(WorkspaceSession)
+        var id: String {
+            switch self {
+            case .project(let project): project.id
+            case .session(let session): session.id
+            }
+        }
+    }
+
+    /// The Pinned section in sidebar order: dragged order first, then pinned sessions as they
+    /// come, then pinned projects as Projects lists them.
+    static func pins(projects: [Project], sessions: [WorkspaceSession], order: SidebarOrder) -> [Pin] {
+        let pins = displayOrder(sessions.filter(\.pinned), dragged: order.pinned).map(Pin.session)
+            + displayOrder(projects, dragged: order.projects).filter { order.pinnedProjects.contains($0.id) }.map(Pin.project)
+        let rank = Dictionary(order.pinned.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return pins.enumerated().sorted { lhs, rhs in
+            let l = rank[lhs.element.id] ?? Int.max, r = rank[rhs.element.id] ?? Int.max
+            return l != r ? l < r : lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// The Chats heading's id.

@@ -779,3 +779,112 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(read[1].symbols == ["folder", "hammer"])
     #expect(read[1].title == "Objects & Tools")
 }
+
+@Test func aPinnedProjectMovesToPinnedWithItsSessionsInOneOrderWithPinnedSessions() {
+    let projects = [sidebarProject, Project(id: "p2", name: "Second", repo: "o/s", color: nil, workspace: "/tmp")]
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("pa", created: "2026-02", pinned: true),
+                    workspaceSession("x", created: "2026-03", project: "p2")]
+    let pinned = SidebarEntry.make(projects: projects, sessions: sessions, order: .init(pinnedProjects: ["p1"]))
+    // Pinned sessions first, then pinned projects, until dragged; the project leaves Projects.
+    #expect(pinned.map(\.id) == ["new-session", "overview", "automation", "label:pinned", "pin:pa", "pin:p1",
+                                 "label:projects", "project:p2"])
+    let folder = pinned.first { $0.id == "pin:p1" }
+    #expect(folder?.destination == .project("p1") && folder?.role == .project)
+    #expect(folder?.children.map(\.id) == ["session:a"])
+    // A dragged order mixes them.
+    let arranged = SidebarEntry.make(projects: projects, sessions: sessions, order: .init(pinned: ["p1", "pa"], pinnedProjects: ["p1"]))
+    #expect(arranged.map(\.id).filter { $0.hasPrefix("pin:") } == ["pin:p1", "pin:pa"])
+    // A project alone is enough for the heading; a pin of a project that is gone shows nothing.
+    #expect(SidebarEntry.make(projects: projects, sessions: [], order: .init(pinnedProjects: ["p2"])).map(\.id)
+        .contains("label:pinned"))
+    #expect(!SidebarEntry.make(projects: projects, sessions: [], order: .init(pinnedProjects: ["gone"])).map(\.id)
+        .contains("label:pinned"))
+}
+
+@MainActor @Test func aPinnedProjectTradesPlacesWithPinnedSessionsAndOffersUnpin() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let projects = [sidebarProject, Project(id: "p2", name: "Second", repo: "o/s", color: nil, workspace: "/tmp")]
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("b", created: "2026-02"),
+                    workspaceSession("pa", created: "2026-03", pinned: true)]
+    var moves: [String] = [], toggled: [String] = []
+    var value = CocoaSidebar(entries: SidebarEntry.make(projects: projects, sessions: sessions, order: .init(pinnedProjects: ["p1"])),
+                             selection: .overview, pinnedIDs: ["pa", "p1"], onSelect: { _ in }, onTogglePin: { toggled.append($0) })
+    value.onMovePinned = { moves.append("pinned \($0) before \($1 ?? "end")") }
+    value.onMoveSession = { moves.append("session \($0) before \($1 ?? "end")") }
+    value.onMoveProject = { moves.append("project \($0) before \($1 ?? "end")") }
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    func node(_ id: String) throws -> CocoaSidebar.Node {
+        try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == id })
+    }
+    func root(_ id: String) throws -> Int { outline.childIndex(forItem: try node(id)) }
+    func drop(_ placement: String, on item: CocoaSidebar.Node?, at index: Int) -> Bool {
+        let info = SidebarDropInfo(placement: placement)
+        defer { info.draggingPasteboard.releaseGlobally() }
+        guard coordinator.outlineView(outline, validateDrop: info, proposedItem: item, proposedChildIndex: index) == .move else { return false }
+        return coordinator.outlineView(outline, acceptDrop: info, item: item, childIndex: index)
+    }
+
+    // The pinned project stays in Pinned; it does not join Projects.
+    #expect(!drop("pin:p1", on: nil, at: try root("project:p2") + 1))
+    #expect(drop("pin:p1", on: nil, at: try root("pin:pa")))
+    #expect(drop("pin:pa", on: nil, at: try root("pin:p1")))
+    // Its sessions still move within it.
+    #expect(drop("session:b", on: try node("pin:p1"), at: 0))
+    #expect(moves == ["pinned p1 before pa", "pinned pa before p1", "session b before a"])
+
+    let menu = try #require(coordinator.menu(for: try node("pin:p1")))
+    let unpin = try #require(menu.items.first { $0.title == "Unpin" })
+    _ = (unpin.target as AnyObject?)?.perform(unpin.action, with: unpin)
+    #expect(toggled == ["p1"])
+    #expect(try #require(coordinator.menu(for: try node("project:p2"))).items.contains { $0.title == "Pin" })
+}
+
+@Test func pinningAProjectKeepsBothListsAndDeletingItForgetsIt() {
+    let pinned = SidebarOrder(projects: ["p2", "p1"]).pinning("p1", pinned: true, shown: ["s"], project: true)
+    #expect(pinned.pinned == ["s", "p1"] && pinned.pinnedProjects == ["p1"])
+    let unpinned = pinned.pinning("p1", pinned: false, shown: pinned.pinned, project: true)
+    #expect(unpinned.pinned == ["s"] && unpinned.pinnedProjects.isEmpty)
+    // A session's pin is the backend's: its order changes, the projects' set does not.
+    #expect(pinned.pinning("s", pinned: false, shown: pinned.pinned).pinnedProjects == ["p1"])
+    let deleted = pinned.removing(project: "p1")
+    #expect(deleted.pinned == ["s"] && deleted.pinnedProjects.isEmpty && deleted.projects == ["p2"])
+}
+
+@Test func withEveryProjectPinnedTheProjectsHeadingGoes() {
+    let ids = SidebarEntry.make(projects: [sidebarProject], sessions: [], order: .init(pinnedProjects: ["p1"])).map(\.id)
+    #expect(ids.contains("pin:p1") && !ids.contains("label:projects"))
+    // With no project at all the heading stays.
+    #expect(SidebarEntry.make(projects: [], sessions: []).map(\.id).contains("label:projects"))
+}
+
+/// A folder closed under Projects is closed in Pinned too: the state is the project's, not its row's.
+@MainActor @Test func aPinnedFolderKeepsItsProjectsCollapsedState() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    preferences.set(["project:p1"], forKey: "sidebar.collapsed")
+    let sessions = [workspaceSession("a", created: "2026-01")]
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions, order: .init(pinnedProjects: ["p1"])),
+                             selection: .overview, pinnedIDs: ["p1"], onSelect: { _ in }, onTogglePin: { _ in })
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = NSOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    coordinator.outline = outline
+    coordinator.update(value)
+    let folder = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CocoaSidebar.Node }.first { $0.entry.id == "pin:p1" })
+    #expect(!outline.isItemExpanded(folder))
+    outline.expandItem(folder)
+    #expect(preferences.stringArray(forKey: "sidebar.collapsed") == [])
+}

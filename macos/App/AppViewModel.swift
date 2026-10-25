@@ -263,8 +263,8 @@ public final class AppViewModel {
         guard sidebarNeedsLoad else { return }
         sidebarNeedsLoad = false
         acknowledgeShownSession()
-        let (entries, pinnedIDs) = withObservationTracking {
-            (makeSidebarEntries(), Set(sessions.filter(\.pinned).map(\.id)))
+        let entries = withObservationTracking {
+            makeSidebarEntries()
         } onChange: { [weak self] in
             // Every source is MainActor-owned. Mark dirty synchronously so an inventory
             // load can flush the new rows before validating selection. Re-arm only after
@@ -275,6 +275,8 @@ public final class AppViewModel {
                 self.scheduleSidebarLoad()
             }
         }
+        // The Pinned section's rows, read off the entries rather than sorted out again.
+        let pinnedIDs = Set(entries.filter { $0.id.hasPrefix("pin:") }.compactMap { $0.sessionID ?? $0.projectID })
         if sidebarEntries != entries { sidebarEntries = entries }
         if sidebarPinnedIDs != pinnedIDs { sidebarPinnedIDs = pinnedIDs }
     }
@@ -478,6 +480,7 @@ public final class AppViewModel {
 
     func applyProjectDeletion(_ id: String, model: ProjectPageViewModel) {
         projects.removeAll { $0.id == id }
+        sidebarOrder = sidebarOrder.removing(project: id)
         retireProject(model)
         refresh()
     }
@@ -863,9 +866,9 @@ public final class AppViewModel {
         sidebarOrder.projects = moved.map(\.id)
     }
 
-    /// Reorders the Pinned section: `id` lands before `before`, or last when nil.
+    /// Reorders the Pinned section, sessions and projects alike: `id` lands before `before`, or last when nil.
     func movePinned(_ id: String, before: String?) {
-        let shown = SidebarEntry.displayOrder(sessions.filter(\.pinned), dragged: sidebarOrder.pinned)
+        let shown = SidebarEntry.pins(projects: projects, sessions: sessions, order: sidebarOrder)
         guard id != before, let moved = Self.reordered(shown, moving: id, before: before) else { return }
         sidebarOrder.pinned = moved.map(\.id)
     }
@@ -1652,15 +1655,21 @@ public final class AppViewModel {
         return stopping
     }
 
+    /// Pins or unpins a session, or a project, in the sidebar's Pinned section. A project's pin is
+    /// the sidebar's own arrangement, kept by the app; a session's is the backend's.
     func togglePin(_ id: String) {
+        let pinnedOrder = { SidebarEntry.pins(projects: self.projects, sessions: self.sessions, order: self.sidebarOrder).map(\.id) }
+        if projects.contains(where: { $0.id == id }) {
+            sidebarOrder = sidebarOrder.pinning(id, pinned: !sidebarOrder.pinnedProjects.contains(id), shown: pinnedOrder(), project: true)
+            return
+        }
         guard let api, let record = sessions.first(where: { $0.id == id }), pendingPins.insert(id).inserted else { return }
         Task {
             defer { pendingPins.remove(id) }
             do {
                 try await api.setPinned(!record.pinned, for: id)
                 // A pin joins the end of Pinned; an unpin is forgotten, so pinning again is last again.
-                let shown = SidebarEntry.displayOrder(sessions.filter(\.pinned), dragged: sidebarOrder.pinned).map(\.id)
-                sidebarOrder = sidebarOrder.pinning(id, pinned: !record.pinned, shown: shown)
+                sidebarOrder = sidebarOrder.pinning(id, pinned: !record.pinned, shown: pinnedOrder())
                 if let index = sessions.firstIndex(where: { $0.id == id }) { sessions[index].pinned = !record.pinned }
                 refresh()
             } catch { self.error = String(localized: "Could not update pin: \(error.localizedDescription)") }

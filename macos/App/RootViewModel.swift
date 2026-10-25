@@ -101,7 +101,7 @@ import Observation
     func moveProject(_ id: String, before: String?) { onAction(.moveProject(id, before: before)) }
     /// Drops a session before its sibling `before`, or last in its project when nil.
     func moveSession(_ id: String, before: String?) { onAction(.moveSession(id, before: before)) }
-    /// Drops a pinned session before `before` in the Pinned section, or at its end when nil.
+    /// Drops a pinned session or project before `before` in the Pinned section, or at its end when nil.
     func movePinned(_ id: String, before: String?) { onAction(.movePinned(id, before: before)) }
     func reconnect() { onAction(.reconnect) }
     func openActivity() { onAction(.command(.activity)) }

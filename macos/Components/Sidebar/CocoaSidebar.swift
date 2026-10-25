@@ -160,7 +160,7 @@ struct CocoaSidebar: NSViewRepresentable {
                                        uniquingKeysWith: { first, _ in first })
                     snapshot = value.entries
                     outline.reloadData()
-                    for node in roots where !node.children.isEmpty && !collapsed.contains(node.entry.id) {
+                    for node in roots where !node.children.isEmpty && !collapsed.contains(Self.collapseKey(node.entry)) {
                         outline.expandItem(node)
                     }
                     if let scrollPosition { outline.enclosingScrollView?.contentView.scroll(to: scrollPosition) }
@@ -207,11 +207,11 @@ struct CocoaSidebar: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool { (item as? Node)?.entry.isHeading == true }
 
         // Drag to reorder, always among siblings: a project within Projects, a session within its
-        // own project, a pinned session within Pinned. The pasteboard carries the row's placement id.
+        // own project, a pinned session or project within Pinned. The pasteboard carries the row's placement id.
         private enum Drag: Equatable { case project, session, pinned }
         private func drag(for node: Node) -> Drag? {
             switch node.entry.destination {
-            case .project: return .project
+            case .project(let id): return node.entry.id == "pin:\(id)" ? .pinned : .project
             case .session(let id):
                 // A pinned session moves within Pinned, a project's row within its project; an orphan stays put.
                 if node.entry.id == "pin:\(id)" { return .pinned }
@@ -382,6 +382,10 @@ struct CocoaSidebar: NSViewRepresentable {
 
         func outlineViewItemDidCollapse(_ notification: Notification) { expansionChanged(notification, collapsed: true) }
         func outlineViewItemDidExpand(_ notification: Notification) { expansionChanged(notification, collapsed: false) }
+        /// A folder stays open or closed wherever it is listed: a pinned project's key is its Projects row's.
+        private static func collapseKey(_ entry: SidebarEntry) -> String {
+            entry.projectID.map { "project:\($0)" } ?? entry.id
+        }
         private func expansionChanged(_ notification: Notification, collapsed isCollapsed: Bool) {
             guard let outline, let node = notification.userInfo?["NSObject"] as? Node else { return }
             let row = outline.row(forItem: node)
@@ -389,7 +393,7 @@ struct CocoaSidebar: NSViewRepresentable {
                 configure(cell, node: node, row: row)
             }
             guard !updating else { return }
-            if isCollapsed { collapsed.insert(node.entry.id) } else { collapsed.remove(node.entry.id) }
+            if isCollapsed { collapsed.insert(Self.collapseKey(node.entry)) } else { collapsed.remove(Self.collapseKey(node.entry)) }
             preferences.set(Array(collapsed).sorted(), forKey: "sidebar.collapsed")
         }
 
@@ -402,9 +406,10 @@ struct CocoaSidebar: NSViewRepresentable {
             }
             guard let destination = node.entry.destination else { return nil }
             // A folder's hover gear and New Task, for the keyboard and for anyone who opens its menu instead.
-            if case .project = destination {
+            if case .project(let id) = destination {
                 add("Project Settings", action: #selector(projectSettings(_:)))
                 add("New Task", action: #selector(newTask(_:)))
+                add(parent.pinnedIDs.contains(id) ? "Unpin" : "Pin", action: #selector(togglePin(_:)))
                 menu.addItem(.separator())
             }
             if node.entry.detail.hasPrefix("/") {
@@ -484,7 +489,7 @@ struct CocoaSidebar: NSViewRepresentable {
         }
 
         @objc private func togglePin(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.sessionID ?? node.entry.projectID else { return }
             parent.onTogglePin(id)
         }
         /// The system's own text prompt, as a sheet on the sidebar's window. An empty name puts
