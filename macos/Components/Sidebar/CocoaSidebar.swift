@@ -566,6 +566,10 @@ enum SidebarPalette {
         NSColor(srgbRed: CGFloat(hex >> 16 & 0xff) / 255, green: CGFloat(hex >> 8 & 0xff) / 255,
                 blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
     }
+    /// The selected and hovered rows' plates: a near-black wash in light and a near-white one in dark,
+    /// hover three-quarters of the selection (Grok's list rows: 7.8% and 5.9% of #1c1c1c, 8% and 6% of #f0f0f0).
+    static let selection = dynamic(0x1c1c1c, 0xf0f0f0, alpha: 0x14 / 255)
+    static let hover = dynamic(0x1c1c1c, 0xf0f0f0, alpha: 0x0f / 255)
     static let text = dynamic(0x16181d, 0xe8e8e8)      // --text
     static let text2 = dynamic(0x565d68, 0xa2a2a2)     // --text-2
     static let text3 = dynamic(0x9298a3, 0x6e6e6e)     // --text-3
@@ -769,16 +773,46 @@ enum SidebarMetrics {
         didSet {
             guard oldValue != hovered else { return }
             (numberOfColumns > 0 ? view(atColumn: 0) as? SidebarCellView : nil)?.hovered = hovered
+            needsDisplay = true
         }
     }
     private var tracking: NSTrackingArea?
+    /// The plate's shape, as the source list draws its selection: in from each side and rounded, but
+    /// a half point short of the row at top and bottom, so neighbouring plates (a selection and the
+    /// hover beside it) keep a point between them. Ours rather than the list's, so the hover plate can share it: a table draws no
+    /// selection for a row that is not selected.
+    static let plateInset: CGFloat = 10
+    static let plateRadius: CGFloat = 8
+    static let plateGap: CGFloat = 0.5
+    private func fillPlate(_ color: NSColor) {
+        color.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: Self.plateInset, dy: Self.plateGap), xRadius: Self.plateRadius, yRadius: Self.plateRadius).fill()
+    }
+
+    /// The source list puts its selection in as a material view in the row. It is hidden here, and
+    /// the row draws both plates itself, so the selection and hover are measured against each other.
+    /// Hidden again on each selection change too, so a list that shows it again never doubles the plate.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if subview is NSVisualEffectView { subview.isHidden = true }
+    }
+    private func hideListSelection() {
+        for view in subviews where view is NSVisualEffectView { view.isHidden = true }
+    }
+    override func drawBackground(in dirtyRect: NSRect) {
+        super.drawBackground(in: dirtyRect)
+        if isSelected { fillPlate(SidebarPalette.selection) } else if hovered { fillPlate(SidebarPalette.hover) }
+    }
 
     /// A sidebar selection says where the detail pane is, not where the keyboard is: it stays the
     /// quiet grey plate whether or not the list has focus, as in Finder's sidebar.
     override var isEmphasized: Bool { get { false } set {} }
     /// A selected row's icons take its title's colour.
     override var isSelected: Bool {
-        didSet { (numberOfColumns > 0 ? view(atColumn: 0) as? SidebarCellView : nil)?.selected = isSelected }
+        didSet {
+            (numberOfColumns > 0 ? view(atColumn: 0) as? SidebarCellView : nil)?.selected = isSelected
+            if oldValue != isSelected { hideListSelection(); needsDisplay = true }
+        }
     }
 
     override func updateTrackingAreas() {

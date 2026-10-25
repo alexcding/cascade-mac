@@ -890,3 +890,110 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     outline.expandItem(folder)
     #expect(preferences.stringArray(forKey: "sidebar.collapsed") == [])
 }
+
+private typealias WindowCapture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
+
+/// A hovered row shows a plate a step under the selection's, in both appearances. Drawn in a
+/// real source list on screen and read back composited: inside a table the system draws no selection
+/// for a row that is not selected, and an offscreen render shows only the plate's vibrancy mask.
+@MainActor @Test func aHoveredRowShowsALighterSelectionPlate() async throws {
+    _ = NSApplication.shared
+    let capture = unsafeBitCast(try #require(dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage")), to: WindowCapture.self)
+    for dark in [false, true] {
+        let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: []), selection: .overview,
+                                 pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+        let coordinator = CocoaSidebar.Coordinator(parent: value)
+        let outline = SidebarOutlineView()
+        SidebarList.configure(outline)
+        outline.floatsGroupRows = false; outline.indentationPerLevel = 0
+        outline.dataSource = coordinator; outline.delegate = coordinator
+        let scroll = SidebarList.scrollView(outline)
+        let effect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 260, height: 300))
+        effect.material = .sidebar; effect.blendingMode = .withinWindow; effect.state = .active
+        scroll.frame = effect.bounds; effect.addSubview(scroll)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 260, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = effect
+        window.orderFrontRegardless()
+        defer { window.close() }
+        coordinator.outline = outline
+        coordinator.update(value)
+        effect.layoutSubtreeIfNeeded()
+        func index(_ id: String) throws -> Int {
+            try #require((0..<outline.numberOfRows).first { (outline.item(atRow: $0) as? CocoaSidebar.Node)?.entry.id == id })
+        }
+        let row = try #require(outline.rowView(atRow: try index("automation"), makeIfNecessary: true) as? SidebarRowView)
+        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                                    windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)))
+        window.displayIfNeeded()
+        try await Task.sleep(for: .milliseconds(300))
+        let bitmap = NSBitmapImageRep(cgImage: try #require(capture(.null, 1 << 3, UInt32(window.windowNumber), 1 | 8)?.takeRetainedValue()))
+        let scale = CGFloat(bitmap.pixelsWide) / 260
+        // Inside the plate, past the title: the plate's own colour.
+        func luminance(_ id: String) throws -> CGFloat {
+            let rect = outline.convert(outline.rect(ofRow: try index(id)), to: nil)
+            let color = try #require(bitmap.colorAt(x: Int(240 * scale), y: bitmap.pixelsHigh - Int(rect.midY * scale))?.usingColorSpace(.sRGB))
+            return color.greenComponent
+        }
+        let rest = try luminance("new-session"), selected = try luminance("overview"), hovered = try luminance("automation")
+        // Where the selected row meets the hovered one below it, the sidebar shows between the plates.
+        let seam = outline.convert(outline.rect(ofRow: try index("automation")), to: nil).maxY
+        let between = try #require(bitmap.colorAt(x: Int(240 * scale), y: bitmap.pixelsHigh - Int((seam * scale).rounded()))?.usingColorSpace(.sRGB))
+        #expect(abs(between.greenComponent - rest) < 0.004, "dark=\(dark): a gap between the plates: \(between.greenComponent) against \(rest)")
+        let step = (hovered - rest) / (selected - rest)
+        #expect(abs(selected - rest) > 0.015, "dark=\(dark): the selection shows: \(selected) against \(rest)")
+        #expect(step > 0.6 && step < 0.9, "dark=\(dark): hover \(hovered) a step under the selection \(selected), over \(rest)")
+    }
+}
+
+/// The source list's own selection view stays hidden through every selection change and reload, so
+/// no row ever shows two plates.
+@MainActor @Test func theListsOwnSelectionStaysHiddenAcrossSelectionsAndReloads() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    func sidebar(_ sessions: [WorkspaceSession], _ selection: SidebarDestination) -> CocoaSidebar {
+        .init(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions), selection: selection, pinnedIDs: [],
+              onSelect: { _ in }, onTogglePin: { _ in })
+    }
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("b", created: "2026-02")]
+    let coordinator = CocoaSidebar.Coordinator(parent: sidebar(sessions, .overview), preferences: preferences)
+    let outline = SidebarOutlineView()
+    SidebarList.configure(outline)
+    outline.floatsGroupRows = false; outline.indentationPerLevel = 0
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    let scroll = SidebarList.scrollView(outline)
+    scroll.frame = NSRect(x: 0, y: 0, width: 260, height: 400)
+    let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = scroll
+    window.orderFrontRegardless()
+    defer { window.close() }
+    coordinator.outline = outline
+    var shown = 0
+    func check(_ step: String) {
+        window.displayIfNeeded()
+        outline.enumerateAvailableRowViews { row, _ in
+            for view in row.subviews where view is NSVisualEffectView {
+                shown += 1
+                #expect(view.isHidden, "\(step): row \(row) shows the list's selection")
+            }
+        }
+    }
+    for (step, destination) in [("first", SidebarDestination.overview), ("another", .session("a")), ("back", .overview),
+                                ("sibling", .session("b")), ("automation", .automation)] {
+        coordinator.update(sidebar(sessions, destination))
+        check(step)
+    }
+    // A reload makes new rows and reuses old ones.
+    coordinator.update(sidebar([sessions[1]], .session("b")))
+    check("reload")
+    coordinator.update(sidebar(sessions, .session("a")))
+    check("reload back")
+    // A deselect and a select made directly on the table, as a click does.
+    outline.deselectAll(nil); check("deselect")
+    outline.selectRowIndexes([1], byExtendingSelection: false); check("select")
+    #expect(shown > 0, "the list added its selection view at all")
+}
