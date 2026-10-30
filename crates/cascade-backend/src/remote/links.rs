@@ -190,7 +190,12 @@ enum Refused {
 /// relays it until it ends. Answers whether it was ever online; `Changed` only when no address got
 /// through and a stored one showed another certificate (an address only seen proves nothing).
 async fn listen(state: &AppState, id: &str, generation: u64, seen: Option<&str>) -> Result<bool, Refused> {
-    let Ok(Some((peer, token))) = peer(state, id).await else { return Err(Refused::Gone) };
+    let (peer, token) = match peer(state, id).await {
+        Ok(Some(found)) => found,
+        Ok(None) => return Err(Refused::Gone),
+        // Not read now: offline, so the next look tries it again.
+        Err(_) => return Ok(false),
+    };
     let seen = seen.filter(|seen| !peer.addresses.iter().any(|known| known == seen));
     let mut changed = false;
     for address in seen.into_iter().chain(peer.addresses.iter().map(String::as_str)) {

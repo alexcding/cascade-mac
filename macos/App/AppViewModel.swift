@@ -32,6 +32,8 @@ public final class AppViewModel {
     let chats = ChatListStore()
     /// The Macs this one paired with, and their sessions and chats (`AppViewModel+Remote`).
     let remotePeers = RemotePeersStore()
+    /// This Mac on Bonjour while other Macs may connect, and what it advertises (`advertiseHost`).
+    @ObservationIgnored var hostAdvertiser: (key: String, advertiser: RemoteAdvertiser)?
     /// The chat backend while connected; a chat page looks it up for each request.
     @ObservationIgnored private(set) var chatService: (any ChatServing)?
     @ObservationIgnored let chatFactory: any ChatFeatureFactory

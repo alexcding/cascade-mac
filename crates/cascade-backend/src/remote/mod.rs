@@ -103,6 +103,7 @@ async fn start(state: &AppState, address: IpAddr) -> Result<Status> {
         let task = tokio::spawn(listener::serve(listener, tls, listener::router(state.clone())));
         *running = Some(Running { port, task });
         tracing::info!(port, "remote listener on");
+        state.publish(Event::RemoteHost);
     }
     drop(running);
     status(state).await
@@ -113,6 +114,7 @@ pub async fn disable(state: &AppState) -> Result<Status> {
     pairing::close(state);
     if running.take().is_some() {
         tracing::info!("remote listener off");
+        state.publish(Event::RemoteHost);
     }
     if store::host(&state.db).await?.is_some() {
         store::set_enabled(&state.db, false, None).await?;

@@ -129,6 +129,8 @@ pub enum Event {
     },
     /// The Macs paired to see this one's sessions changed: one paired, or one was revoked.
     RemoteClients,
+    /// This Mac's listener went on or off (`GET /api/remote`): the app advertises it while it is on.
+    RemoteHost,
     /// The Macs this one paired with changed.
     RemotePeers,
     /// The pairing window opened, closed, paired a Mac or used its attempts up
@@ -176,6 +178,7 @@ mod tests {
         assert_eq!(Value::from(Event::Tasks), json!({"type":"tasks"}));
         assert_eq!(Value::from(Event::Reload), json!({"type":"reload"}));
         assert_eq!(Value::from(Event::RemoteClients), json!({"type":"remote-clients"}));
+        assert_eq!(Value::from(Event::RemoteHost), json!({"type":"remote-host"}));
         assert_eq!(Value::from(Event::RemotePeers), json!({"type":"remote-peers"}));
         assert_eq!(Value::from(Event::RemotePairing), json!({"type":"remote-pairing"}));
         assert_eq!(

@@ -7,8 +7,9 @@ import Observation
 ///
 /// Nothing tries an unreachable Mac on a timer: while this section is shown, each paired Mac not
 /// answering is tried once, and again whenever Bonjour sees it, at the address it is seen at.
-/// Bonjour runs only while the section is shown, and this Mac advertises itself only while its
-/// pairing code is up.
+/// Bonjour browses only while the section is shown. This Mac is advertised whenever other Macs may
+/// connect (`AppViewModel.advertiseHost`, told of each status read through `onStatus`), so a Mac
+/// paired with it finds it again after its address or port changed.
 @MainActor @Observable final class RemoteSettingsViewModel {
     private(set) var status: RemoteStatus?
     private(set) var clients: [RemoteClient] = []
@@ -33,17 +34,16 @@ import Observation
     /// What was tried this time the section was shown: each Mac, at each address.
     @ObservationIgnored private var tried: Set<String> = []
     @ObservationIgnored private var browser: RemoteBrowser?
-    @ObservationIgnored private var advertiser: RemoteAdvertiser?
+    /// Each status read or set, for the app's advertiser.
+    @ObservationIgnored var onStatus: (RemoteStatus) -> Void = { _ in }
     /// Ends the code when its window closes, shown or not: the backend says nothing then.
     @ObservationIgnored private var expiry: Task<Void, Never>?
     @ObservationIgnored private let makeBrowser: @MainActor () -> RemoteBrowser?
-    @ObservationIgnored private let makeAdvertiser: @MainActor (_ name: String, _ port: Int, _ fingerprint: String) -> RemoteAdvertiser?
     @ObservationIgnored private let name: @MainActor () -> String?
 
     init(makeBrowser: @escaping @MainActor () -> RemoteBrowser? = { RemoteBrowser() },
-         makeAdvertiser: @escaping @MainActor (String, Int, String) -> RemoteAdvertiser? = { RemoteAdvertiser(name: $0, port: $1, fingerprint: $2) },
          name: @escaping @MainActor () -> String? = { RemoteBonjour.computerName() }) {
-        self.makeBrowser = makeBrowser; self.makeAdvertiser = makeAdvertiser; self.name = name
+        self.makeBrowser = makeBrowser; self.name = name
     }
 
     var enabled: Bool { status?.enabled == true }
@@ -92,9 +92,9 @@ import Observation
                 let read = try await (status, clients, peers, window)
                 guard let self, !self.retired, self.generation == token else { return }
                 self.status = read.0; self.clients = read.1; self.error = nil
+                self.onStatus(read.0)
                 self.setPeers(read.2)
                 self.windowRead(read.3)
-                if self.pairingCode != nil, self.advertiser == nil { self.advertise() }
             } catch {
                 guard let self, !self.retired, self.generation == token else { return }
                 self.error = error.localizedDescription
@@ -111,13 +111,14 @@ import Observation
             let updated = try await service.setEnabled(value)
             guard !retired, generation == token else { return }
             status = updated
+            onStatus(updated)
             if !value { clearPairing() }
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
         }
     }
 
-    /// Opens a pairing window and shows its code; this Mac is advertised while it is open.
+    /// Opens a pairing window and shows its code.
     func openPairing() async {
         guard !retired, let service else { return }
         let token = generation
@@ -128,7 +129,6 @@ import Observation
             pairingCode = opened.code
             attemptsLeft = 3
             closes(in: opened.seconds)
-            advertise()
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
         }
@@ -182,7 +182,7 @@ import Observation
     func receive(_ event: ServerEvent) {
         guard !retired, service != nil else { return }
         switch event.type {
-        case "remote-clients", "remote-peers":
+        case "remote-clients", "remote-peers", "remote-host":
             if active { refresh() }
         case "remote-pairing":
             readWindow()
@@ -200,7 +200,7 @@ import Observation
         guard !retired else { return }
         setActive(false)
         clearPairing()
-        retired = true; service = nil
+        retired = true; service = nil; onStatus = { _ in }
     }
 
     func disconnect() {
@@ -264,12 +264,6 @@ import Observation
         }
     }
 
-    private func advertise() {
-        advertiser?.stop(); advertiser = nil
-        guard let port = status?.port, let fingerprint = status?.fingerprint else { return }
-        advertiser = makeAdvertiser(name() ?? "Mac", port, fingerprint)
-    }
-
     private func closes(in seconds: Int) {
         pairingCloses = Date().addingTimeInterval(TimeInterval(seconds))
         expiry?.cancel()
@@ -283,6 +277,5 @@ import Observation
     private func clearPairing() {
         pairingCode = nil; pairingCloses = nil; attemptsLeft = 3
         expiry?.cancel(); expiry = nil
-        advertiser?.stop(); advertiser = nil
     }
 }

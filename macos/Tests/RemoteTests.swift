@@ -186,7 +186,7 @@ private func event(_ json: String) throws -> ServerEvent {
 @MainActor @Test func settingsLooksForMacsNotAnsweringOnlyWhileItShows() async throws {
     let remote = FakeRemote()
     remote.set(peers: [RemotePeer(id: "ab", name: "Mac mini"), RemotePeer(id: "cd", name: "Studio", reach: .online)])
-    let model = RemoteSettingsViewModel(makeBrowser: { nil }, makeAdvertiser: { _, _, _ in nil }, name: { "This Mac" })
+    let model = RemoteSettingsViewModel(makeBrowser: { nil }, name: { "This Mac" })
     model.connect(remote)
     #expect(remote.calls.isEmpty, "nothing is read before the section shows")
 
@@ -214,7 +214,7 @@ private func event(_ json: String) throws -> ServerEvent {
 
 @MainActor @Test func settingsPairsWithACodeAndShowsWhyItFailed() async throws {
     let remote = FakeRemote()
-    let model = RemoteSettingsViewModel(makeBrowser: { nil }, makeAdvertiser: { _, _, _ in nil }, name: { "This Mac" })
+    let model = RemoteSettingsViewModel(makeBrowser: { nil }, name: { "This Mac" })
     model.connect(remote)
     #expect(await model.pair(address: "mini.local:1", code: "12345") == false, "a code is six digits")
     #expect(await model.pair(address: "mini.local:1", code: "123 456") == false)

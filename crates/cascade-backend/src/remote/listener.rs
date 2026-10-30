@@ -62,6 +62,9 @@ const HEADER_READ: Duration = if cfg!(test) { Duration::from_millis(500) } else 
 /// a paired Mac holds a few (its stream and a request or two), and the app's descriptors are few.
 pub(crate) const CONNECTIONS: usize = if cfg!(test) { 4 } else { 32 };
 
+/// The most a pairing request's body may take to arrive.
+const PAIR_BODY: Duration = if cfg!(test) { Duration::from_millis(500) } else { Duration::from_secs(10) };
+
 /// The client a request was authorised as, for the handlers that need it.
 #[derive(Clone)]
 struct Client(String);
@@ -77,12 +80,30 @@ pub(crate) fn router(state: AppState) -> Router {
         // Every route above needs a token; the two below are how a Mac gets one, and answer only
         // while the host's pairing window is open (`pairing`).
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
-        .route("/pair/start", post(pairing::start))
-        .route("/pair/finish", post(pairing::finish))
+        .merge(
+            Router::new()
+                .route("/pair/start", post(pairing::start))
+                .route("/pair/finish", post(pairing::finish))
+                .route_layer(middleware::from_fn_with_state(state.clone(), pairing_gate)),
+        )
         .fallback(|| async { ApiError::not_found("Not found") })
         .layer(no_store)
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)
+}
+
+/// Anyone can reach `/pair/*`: it is answered only while a window is open, before its body is
+/// read, and the body must come whole within `PAIR_BODY`, so a slow sender cannot hold a slot.
+async fn pairing_gate(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    if !pairing::accepting(&state) {
+        return ApiError::not_found("not pairing").into_response();
+    }
+    let (parts, body) = request.into_parts();
+    match tokio::time::timeout(PAIR_BODY, axum::body::to_bytes(body, 64 * 1024)).await {
+        Ok(Ok(bytes)) => next.run(Request::from_parts(parts, axum::body::Body::from(bytes))).await,
+        Ok(Err(_)) => ApiError::bad_request("bad body").into_response(),
+        Err(_) => ApiError::status(StatusCode::REQUEST_TIMEOUT, "too slow").into_response(),
+    }
 }
 
 async fn authorize(State(state): State<AppState>, mut request: Request, next: Next) -> Response {

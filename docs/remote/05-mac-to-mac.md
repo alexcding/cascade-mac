@@ -84,10 +84,14 @@ and its port.
 
 ### Pairing
 
-1. On the host, Settings → Remote → "Pair a Mac…" opens a sheet showing a 6-digit code. While
-   it is open, and only then, the app advertises `_cascade._tcp` with Bonjour
-   (`DNSServiceRegister` for port `P`; TXT: `id=<certificate SHA-256>`, `name=<Mac name>`) and
-   `/pair` answers. Closing the sheet, a successful pairing, 5 minutes or 3 wrong codes end it.
+1. On the host, Settings → Remote → Show Code shows a 6-digit code, and while it shows `/pair`
+   answers (a request to it when no window is open is refused before its body is read, and its
+   body must arrive within 10 seconds). Done, a successful pairing, 5 minutes, or 3 attempts used
+   with none still pending (an exchange is pending for 30 seconds) end it. The app advertises
+   `_cascade._tcp` with Bonjour (`DNSServiceRegister`; TXT `id=<certificate SHA-256>`,
+   `name`, `host`, `port`) whenever other Macs may connect, not only while the code shows, so a
+   paired Mac finds the host again after its address or port changed (`remote-host` tells the
+   app when the listener goes on or off).
 2. On the client, Settings → Remote → "Add a Mac…" lists what `NWBrowser` finds. Picking one
    and typing the code sends `POST /api/remote/peers/pair {address, code}` to the client's own
    backend.
@@ -162,8 +166,8 @@ pairs or is revoked, `remote-peers` when this Mac pairs with or forgets one.
   chats open read-only (`.remoteChat(peer:thread:)`), on the chat screen's page, through a
   `ChatServiceBackend` on `POST /api/remote/peers/{id}/chat/rpc`; only a web link the page names
   is followed, never a file.
-- Settings → Remote (`RemoteSettingsViewModel`): allow other Macs, show a pairing code (this Mac
-  is advertised while it is up, with its address for Pair by address), the Macs that can see this
+- Settings → Remote (`RemoteSettingsViewModel`): allow other Macs, show a pairing code (with this
+  Mac's address for Pair by address), the Macs that can see this
   one with Remove, the Macs this one shows with Forget, and nearby Macs not paired with Pair….
   While the section shows, Bonjour runs, and each paired Mac not answering is tried once, and
   again at each address Bonjour sees it at. Nothing tries it on a timer.

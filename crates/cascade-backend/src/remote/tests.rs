@@ -450,6 +450,23 @@ async fn starts_that_never_finish_use_the_window_up_and_the_host_hears_of_it() {
     assert!(heard, "the window's end was not told");
     let error = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
     assert!(error.to_string().contains("not pairing"), "{error:#}");
+
+    // The two left pending are given up after a while, and the window closes then, told.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(!pairing::window(&host).open);
+}
+
+#[tokio::test]
+async fn three_bad_starts_close_the_window_at_once() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, _other, _code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let tls = identity::pinned_client_config(status.fingerprint.as_deref().unwrap()).unwrap();
+    for _ in 0..pairing::ATTEMPTS {
+        let body = json!({ "message": "00" });
+        let (started, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body), client::PAIRED_BODY).await.unwrap();
+        assert_eq!(started.as_u16(), 400);
+    }
+    assert!(!pairing::window(&host).open, "nothing is pending, so nothing is left to finish");
 }
 
 // ---- links: this Mac's side ------------------------------------------------------------------

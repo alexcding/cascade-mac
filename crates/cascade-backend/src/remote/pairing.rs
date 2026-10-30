@@ -35,6 +35,8 @@ use crate::{error::ApiError, AppState, Event};
 const WINDOW: Duration = Duration::from_secs(5 * 60);
 /// The most the client's whole pairing may take: before it, the other end is anyone.
 const DEADLINE: Duration = Duration::from_secs(30);
+/// How long the host holds an exchange past `/pair/start`: the client's whole `DEADLINE`.
+const PENDING: Duration = if cfg!(test) { Duration::from_millis(500) } else { DEADLINE };
 pub(crate) const ATTEMPTS: u8 = 3;
 const CLIENT: &[u8] = b"cascade-client";
 const HOST: &[u8] = b"cascade-host";
@@ -52,6 +54,8 @@ pub(crate) struct Window {
 }
 
 struct Started {
+    /// When `/pair/start` answered: past `PENDING` the client has given up on it.
+    at: Instant,
     key: Vec<u8>,
     transcript: Transcript,
     label: String,
@@ -142,7 +146,11 @@ pub struct WindowState {
 
 pub fn window(state: &AppState) -> WindowState {
     let now = Instant::now();
-    match lock(&state.remote.pairing).as_ref().filter(|window| window.closes > now) {
+    let mut guard = lock(&state.remote.pairing);
+    if settle(&mut guard) {
+        state.publish(Event::RemotePairing);
+    }
+    match guard.as_ref() {
         Some(window) => WindowState {
             open: true,
             attempts_left: ATTEMPTS.saturating_sub(window.attempts),
@@ -150,6 +158,28 @@ pub fn window(state: &AppState) -> WindowState {
         },
         None => WindowState { open: false, attempts_left: 0, seconds: 0 },
     }
+}
+
+/// Closes a window past its time, or past its attempts with none still pending (an exchange
+/// started more than `DEADLINE` ago is one the client gave up). True when it closed one.
+fn settle(window: &mut Option<Window>) -> bool {
+    let now = Instant::now();
+    let Some(open) = window.as_mut() else { return false };
+    open.started.retain(|_, started| now.duration_since(started.at) < PENDING);
+    if open.closes <= now || (open.attempts >= ATTEMPTS && open.started.is_empty()) {
+        *window = None;
+        return true;
+    }
+    false
+}
+
+/// Whether `/pair/*` is answered now: a window is open with an attempt left, or one pending.
+pub(crate) fn accepting(state: &AppState) -> bool {
+    let mut guard = lock(&state.remote.pairing);
+    if settle(&mut guard) {
+        state.publish(Event::RemotePairing);
+    }
+    guard.is_some()
 }
 
 fn lock(window: &Mutex<Option<Window>>) -> std::sync::MutexGuard<'_, Option<Window>> {
@@ -171,11 +201,11 @@ fn refused(status: StatusCode, message: &str) -> ApiError {
 pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartBody>) -> Result<Json<Value>, ApiError> {
     let from_client = identity::unhex(&body.message).ok_or_else(|| ApiError::bad_request("bad message"))?;
     let mut guard = lock(&state.remote.pairing);
-    if guard.as_ref().is_some_and(|window| window.closes <= Instant::now()) {
-        *guard = None;
+    if settle(&mut guard) {
+        state.publish(Event::RemotePairing);
     }
     // Past its attempts the window stays, refusing new ones, so an attempt already started can
-    // still finish; it closes when that one fails (`finish`).
+    // still finish; it closes when that one fails (`finish`) or is given up (`settle`).
     let Some(window) = guard.as_mut().filter(|window| window.attempts < ATTEMPTS) else {
         return Err(refused(StatusCode::NOT_FOUND, "not pairing"));
     };
@@ -187,12 +217,24 @@ pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartB
     let answer = spake.finish(&from_client).map(|key| {
         let session = Uuid::new_v4().to_string();
         let label = body.label.chars().take(64).collect();
-        window.started.insert(session.clone(), Started { key, transcript: Transcript { from_client, from_host: from_host.clone() }, label });
+        window.started.insert(session.clone(), Started { at: Instant::now(), key, transcript: Transcript { from_client, from_host: from_host.clone() }, label });
         json!({ "message": identity::hex(&from_host), "session": session })
     });
+    // The last attempt: the window closes now if it left nothing pending, else once what it left
+    // is finished or given up.
+    let closed = used_up && settle(&mut guard);
     drop(guard);
     if used_up {
         state.publish(Event::RemotePairing);
+    }
+    if used_up && !closed {
+        let state = state.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(PENDING).await;
+            if settle(&mut lock(&state.remote.pairing)) {
+                state.publish(Event::RemotePairing);
+            }
+        });
     }
     answer.map(Json).map_err(|_| ApiError::bad_request("bad message"))
 }

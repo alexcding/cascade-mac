@@ -92,7 +92,7 @@ struct RemoteSettingsView: View {
             }
         } else {
             SettingsRow(title: String(localized: "Pair a Mac"),
-                        caption: String(localized: "Shows a code for five minutes, and lets nearby Macs find this one.")) {
+                        caption: String(localized: "Shows a code for five minutes, to type on the other Mac.")) {
                 Button("Show Code") { Task { await model.openPairing() } }
                     .accessibilityIdentifier("settings-remote-open-pairing")
             }

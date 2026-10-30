@@ -7,7 +7,28 @@ extension AppViewModel {
     func connectRemote(_ service: (any RemoteServing)?) {
         remotePeers.onRead = { [weak self] in self?.remoteRead() }
         remotePeers.connect(service)
+        settings?.remote.onStatus = { [weak self] in self?.advertiseHost($0) }
         settings?.remote.connect(service)
+        advertiseHost(nil)
+        guard let service else { return }
+        Task { [weak self] in
+            guard let status = try? await service.status(), let self, remotePeers.service != nil else { return }
+            advertiseHost(status)
+        }
+    }
+
+    /// This Mac is on Bonjour for as long as other Macs may connect: a Mac paired with it finds it
+    /// again there when its address or port changed, and a new one lists it to pair with.
+    func advertiseHost(_ status: RemoteStatus?) {
+        guard let status, status.enabled, let port = status.port, let fingerprint = status.fingerprint else {
+            hostAdvertiser?.advertiser.stop(); hostAdvertiser = nil
+            return
+        }
+        let name = RemoteBonjour.computerName() ?? "Mac"
+        let key = "\(name) \(port) \(fingerprint)"
+        guard hostAdvertiser?.key != key else { return }
+        hostAdvertiser?.advertiser.stop()
+        hostAdvertiser = RemoteAdvertiser(name: name, port: port, fingerprint: fingerprint).map { (key, $0) }
     }
 
     /// Each paired Mac's section, in the order they were paired.
@@ -28,6 +49,13 @@ extension AppViewModel {
 
     func receiveRemote(_ event: ServerEvent) {
         settings?.remote.receive(event)
+        if event.type == "remote-host", let service = remotePeers.service {
+            Task { [weak self] in
+                guard let status = try? await service.status(), let self, remotePeers.service != nil else { return }
+                advertiseHost(status)
+            }
+            return
+        }
         guard remotePeers.receive(event), let peer = event.peer else { return }
         // The Mac's events were missed (its stream was down, or lagged there): the chat of it on
         // screen reads its thread again, as this Mac's does after a `reload`.
