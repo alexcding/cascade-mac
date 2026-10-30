@@ -3,13 +3,14 @@
 
 use axum::{
     extract::{Path, State},
-    http::HeaderMap,
+    http::{HeaderMap, Method},
+    response::{IntoResponse, Response},
     Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{pairing, store, Status};
+use super::{links, pairing, store, Status};
 use crate::{error::ApiError, local::foreign_origin, AppState};
 
 type ApiResult<T> = Result<Json<T>, ApiError>;
@@ -79,8 +80,47 @@ pub async fn close_pairing(State(state): State<AppState>, headers: HeaderMap) ->
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn peers(State(state): State<AppState>) -> ApiResult<Vec<store::Peer>> {
-    Ok(Json(store::peers(&state.db).await?))
+/// The paired Macs, each with whether it answers now (`reach`).
+pub async fn peers(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
+    let peers = store::peers(&state.db).await?;
+    Ok(Json(
+        peers
+            .into_iter()
+            .map(|peer| {
+                let reach = state.remote.links.reach(&peer.id);
+                let mut value = serde_json::to_value(peer).unwrap_or_default();
+                value["reach"] = json!(reach);
+                value
+            })
+            .collect(),
+    ))
+}
+
+/// Answers what the peer answered, status and all; `404` for a Mac not paired, `502` when it
+/// could not be reached.
+async fn forward(state: &AppState, id: &str, method: Method, path: &str, body: Option<&Value>) -> Response {
+    match links::forward(state, id, method, path, body).await {
+        Ok(Some((status, answer))) => (status, Json(answer)).into_response(),
+        Ok(None) => ApiError::not_found("No such Mac").into_response(),
+        Err(error) => ApiError::status(axum::http::StatusCode::BAD_GATEWAY, format!("{error:#}")).into_response(),
+    }
+}
+
+pub async fn peer_tasks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    forward(&state, &id, Method::GET, "/api/tasks", None).await
+}
+
+pub async fn peer_projects(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    forward(&state, &id, Method::GET, "/api/projects", None).await
+}
+
+/// The chat page's calls for a remote session, which the peer answers or refuses by its own
+/// list (`listener::CHAT_METHODS`).
+pub async fn peer_chat_rpc(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<Value>) -> Response {
+    if let Err(error) = local_only(&headers) {
+        return error.into_response();
+    }
+    forward(&state, &id, Method::POST, "/api/chat/rpc", Some(&body)).await
 }
 
 #[derive(Deserialize)]
@@ -103,6 +143,7 @@ pub async fn pair(State(state): State<AppState>, headers: HeaderMap, Json(body):
 
 pub async fn forget_peer(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Value> {
     local_only(&headers)?;
+    links::unlink(&state, &id);
     if !store::forget_peer(&state.db, &id).await? {
         return Err(ApiError::not_found("Not found"));
     }

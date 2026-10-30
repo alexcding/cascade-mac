@@ -296,7 +296,7 @@ async fn a_mac_pairs_with_the_code_and_its_token_then_works() {
 
     let token = store::peer_token(&other.db, &peer.id).await.unwrap().unwrap();
     let tls = identity::pinned_client_config(&peer.id).unwrap();
-    let (code_now, tasks) = client::request(&address(&status), tls, Method::GET, "/api/tasks", Some(&token), None).await.unwrap();
+    let (code_now, tasks) = client::request(&address(&status), tls, Method::GET, "/api/tasks", Some(&token), None, client::PAIRED_BODY).await.unwrap();
     assert_eq!((code_now.as_u16(), tasks), (200, json!([])));
 
     // The window closed with the pairing: the same code pairs nothing more.
@@ -345,14 +345,14 @@ async fn a_proof_made_over_another_certificate_is_refused() {
     let (spake, from_client) = pairing::testing::start(&code);
     let tls = identity::pinned_client_config(status.fingerprint.as_deref().unwrap()).unwrap();
     let body = json!({ "message": identity::hex(&from_client), "label": "MacBook" });
-    let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+    let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body), client::PAIRED_BODY).await.unwrap();
     let from_host = identity::unhex(started["message"].as_str().unwrap()).unwrap();
     let key = spake.finish(&from_host).unwrap();
 
     let impostor = identity::Identity::generate(None).unwrap().fingerprint();
     let proof = pairing::testing::proof_for(&key, &from_client, &from_host, &impostor);
     let body = json!({ "session": started["session"], "proof": proof });
-    let (refused, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&body)).await.unwrap();
+    let (refused, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&body), client::PAIRED_BODY).await.unwrap();
     assert_eq!(refused.as_u16(), 403);
     assert!(store::clients(&host.db).await.unwrap().is_empty());
 }
@@ -405,21 +405,21 @@ async fn an_exchange_finishes_at_most_once() {
     for _ in 0..2 {
         let (spake, from_client) = pairing::testing::start(&code);
         let body = json!({ "message": identity::hex(&from_client), "label": "MacBook" });
-        let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+        let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body), client::PAIRED_BODY).await.unwrap();
         let from_host = identity::unhex(started["message"].as_str().unwrap()).unwrap();
         let key = spake.finish(&from_host).unwrap();
         let proof = pairing::testing::proof_for(&key, &from_client, &from_host, &fingerprint);
         exchanges.push(json!({ "session": started["session"], "proof": proof }));
     }
     let wrong = json!({ "session": exchanges[0]["session"], "proof": "00" });
-    let (refused, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&wrong)).await.unwrap();
+    let (refused, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&wrong), client::PAIRED_BODY).await.unwrap();
     assert_eq!(refused.as_u16(), 403);
     // The session the wrong proof used is spent, right proof or not.
-    let (gone, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[0])).await.unwrap();
+    let (gone, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[0]), client::PAIRED_BODY).await.unwrap();
     assert_eq!(gone.as_u16(), 404);
-    let (paired, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[1])).await.unwrap();
+    let (paired, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[1]), client::PAIRED_BODY).await.unwrap();
     assert_eq!(paired.as_u16(), 200);
-    let (again, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&exchanges[1])).await.unwrap();
+    let (again, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&exchanges[1]), client::PAIRED_BODY).await.unwrap();
     assert_eq!(again.as_u16(), 404);
     assert_eq!(store::clients(&host.db).await.unwrap().len(), 1);
 }
@@ -438,7 +438,7 @@ async fn starts_that_never_finish_use_the_window_up_and_the_host_hears_of_it() {
             from_client.truncate(5);
         }
         let body = json!({ "message": identity::hex(&from_client) });
-        let (started, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+        let (started, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body), client::PAIRED_BODY).await.unwrap();
         assert_eq!(started.as_u16(), if last { 400 } else { 200 });
     }
     let window = pairing::window(&host);
@@ -450,4 +450,199 @@ async fn starts_that_never_finish_use_the_window_up_and_the_host_hears_of_it() {
     assert!(heard, "the window's end was not told");
     let error = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
     assert!(error.to_string().contains("not pairing"), "{error:#}");
+}
+
+// ---- links: this Mac's side ------------------------------------------------------------------
+
+use super::links::{self, Reach};
+
+/// A host and a second Mac paired with it, and the peer's id.
+async fn paired(host_dir: &std::path::Path, client_dir: &std::path::Path) -> (AppState, Status, AppState, String) {
+    let (host, status, other, code) = pairing_pair(host_dir, client_dir).await;
+    let peer = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+    (host, status, other, peer.id)
+}
+
+async fn reaches(state: &AppState, id: &str, reach: Reach) {
+    let reached = tokio::time::timeout(Duration::from_secs(5), async {
+        while state.remote.links.reach(id) != reach {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(reached.is_ok(), "{id} never became {reach:?}, still {:?}", state.remote.links.reach(id));
+}
+
+async fn get(router: &axum::Router, path: &str) -> (u16, Value) {
+    use axum::{body::Body, http::Request};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+    let response = router.clone().oneshot(Request::get(path).body(Body::empty()).unwrap()).await.unwrap();
+    let status = response.status().as_u16();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn a_paired_mac_hears_the_hosts_allowed_events() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+    let mut events = other.events.subscribe();
+
+    host.publish(Event::Config);
+    host.publish(Event::Tasks);
+    let relayed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let event = events.recv().await.unwrap();
+            if event["type"] == "remote" {
+                return event;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    // `config` is not on the host's list, so the first event relayed is `tasks`.
+    assert_eq!(relayed, json!({ "type": "remote", "peer": id, "event": { "type": "tasks" } }));
+}
+
+#[tokio::test]
+async fn the_app_reads_a_peers_sessions_projects_and_chat_through_its_own_backend() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    host.db.add_project(json!({ "name": "cascade-mac", "workspace": "/Users/someone/cascade-mac" }).as_object().unwrap()).await.unwrap();
+    let router = crate::build_app(other.clone());
+
+    let (code, peers) = get(&router, "/api/remote/peers").await;
+    assert_eq!((code, peers[0]["id"].as_str(), peers[0]["name"].as_str()), (200, Some(id.as_str()), Some("mac-mini")));
+    assert_eq!(get(&router, &format!("/api/remote/peers/{id}/tasks")).await, (200, json!([])));
+    let (code, projects) = get(&router, &format!("/api/remote/peers/{id}/projects")).await;
+    assert_eq!((code, projects[0]["name"].as_str()), (200, Some("cascade-mac")));
+
+    // The host's own list decides which chat calls pass.
+    let (code, refused) = links::forward(&other, &id, Method::POST, "/api/chat/rpc", Some(&json!({ "method": "orchestration.dispatchCommand" }))).await.unwrap().unwrap();
+    assert_eq!((code.as_u16(), refused["error"]["code"].as_str()), (403, Some("forbidden")));
+    let (code, _) = links::forward(&other, &id, Method::POST, "/api/chat/rpc", Some(&json!({ "method": "chat.listThreads" }))).await.unwrap().unwrap();
+    assert_eq!(code.as_u16(), 404, "passed on to a chat with no engine");
+}
+
+#[tokio::test]
+async fn a_peer_goes_offline_with_its_listener_and_comes_back() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+
+    super::disable(&host).await.unwrap();
+    reaches(&other, &id, Reach::Offline).await;
+    let router = crate::build_app(other.clone());
+    assert_eq!(get(&router, &format!("/api/remote/peers/{id}/tasks")).await.0, 502);
+
+    start(&host, LOOPBACK).await.unwrap();
+    reaches(&other, &id, Reach::Online).await;
+}
+
+#[tokio::test]
+async fn a_revoked_mac_learns_it_and_stops_trying() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+
+    let client = store::clients(&host.db).await.unwrap().remove(0);
+    super::revoke(&host, &client.id).await.unwrap();
+    reaches(&other, &id, Reach::Revoked).await;
+    let (code, _) = links::forward(&other, &id, Method::GET, "/api/tasks", None).await.unwrap().unwrap();
+    assert_eq!(code.as_u16(), 401);
+}
+
+#[tokio::test]
+async fn a_forgotten_peer_is_unlinked() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (_host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+    let router = crate::build_app(other.clone());
+    let forget = Request::delete(format!("/api/remote/peers/{id}")).body(Body::empty()).unwrap();
+    assert_eq!(router.clone().oneshot(forget).await.unwrap().status(), 200);
+    assert!(!other.remote.links.linked(&id));
+    assert_eq!(get(&router, "/api/remote/peers").await.1, json!([]));
+    assert_eq!(get(&router, &format!("/api/remote/peers/{id}/tasks")).await.0, 404);
+}
+
+#[test]
+fn server_sent_events_are_read_across_pieces_and_line_ends() {
+    let mut sse = links::Sse::default();
+    assert!(sse.push(b": connected\n\nda").is_empty(), "a comment is no event");
+    assert_eq!(sse.push(b"ta: {\"a\":1}\n\n"), [r#"{"a":1}"#]);
+    // CRLF, a CR split from its LF across pieces, and lone CRs all end lines.
+    assert!(sse.push(b"data: one\r").is_empty());
+    assert_eq!(sse.push(b"\ndata:two\r\n\r\ndata: three\r\r"), ["one\ntwo", "three"]);
+    // Many small pieces of one large event make one event.
+    let large = format!("data: {}\n\n", "x".repeat(100_000));
+    let mut events = Vec::new();
+    for piece in large.as_bytes().chunks(1000) {
+        events.extend(sse.push(piece));
+    }
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].len(), 100_000);
+}
+
+#[tokio::test]
+async fn a_replaced_link_cannot_change_its_successors_reach() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = AppState::new(crate::Database::open(dir.path()).unwrap(), None);
+    // Links to a peer that is not stored end at once; only their records matter here.
+    links::link(&state, "peer");
+    links::link(&state, "peer");
+    links::set_reach(&state, "peer", Some(0), Reach::Revoked);
+    assert_ne!(state.remote.links.reach("peer"), Reach::Revoked);
+    links::set_reach(&state, "peer", Some(1), Reach::Revoked);
+    assert_eq!(state.remote.links.reach("peer"), Reach::Revoked);
+}
+
+#[tokio::test]
+async fn another_certificate_at_a_peers_address_stops_the_link() {
+    let (host_dir, client_dir, impostor_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (_host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+    // The paired address now answers with another Mac's certificate, as after a data reset.
+    let (_impostor, elsewhere) = listening(impostor_dir.path()).await;
+    let peer = store::Peer { id: id.clone(), name: "mac-mini".into(), addresses: vec![address(&elsewhere)] };
+    let token = store::peer_token(&other.db, &id).await.unwrap().unwrap();
+    store::keep_peer(&other.db, &peer, &token).await.unwrap();
+    links::link(&other, &id);
+    reaches(&other, &id, Reach::Changed).await;
+    let error = links::forward(&other, &id, Method::GET, "/api/tasks", None).await.unwrap_err();
+    assert!(error.is::<client::CertificateChanged>(), "{error:#}");
+}
+
+#[tokio::test]
+async fn an_idle_stream_is_kept_alive() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (_host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+    let mut events = other.events.subscribe();
+    // Past the silence a link allows under test (2 s), with nothing published.
+    tokio::time::sleep(Duration::from_millis(3000)).await;
+    assert_eq!(other.remote.links.reach(&id), Reach::Online);
+    while let Ok(event) = events.try_recv() {
+        assert_ne!(event["type"], "remote-peer", "the link dropped: {event}");
+    }
+}
+
+#[tokio::test]
+async fn another_certificate_at_one_address_does_not_stop_a_peer_reached_at_another() {
+    let (host_dir, client_dir, impostor_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (_host, status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let (_impostor, elsewhere) = listening(impostor_dir.path()).await;
+    // The first address answers with another certificate; the second is the paired Mac.
+    let peer = store::Peer { id: id.clone(), name: "mac-mini".into(), addresses: vec![address(&elsewhere), address(&status)] };
+    let token = store::peer_token(&other.db, &id).await.unwrap().unwrap();
+    store::keep_peer(&other.db, &peer, &token).await.unwrap();
+    links::link(&other, &id);
+    reaches(&other, &id, Reach::Online).await;
+    let (code, _) = links::forward(&other, &id, Method::GET, "/api/tasks", None).await.unwrap().unwrap();
+    assert_eq!(code.as_u16(), 200);
+    assert_eq!(other.remote.links.reach(&id), Reach::Online);
 }

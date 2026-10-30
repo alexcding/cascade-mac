@@ -48,6 +48,10 @@ pub(crate) const CHAT_METHODS: &[&str] = &[
 /// The events a paired Mac's stream carries (`Event`'s `type`s).
 pub(crate) const EVENTS: &[&str] = &["tasks", "chat-thread", "chat-shell", "chat-removed", "reload"];
 
+/// How often an idle stream says it is alive; a paired Mac drops one silent for three times as
+/// long (`links::SILENT`).
+const KEEP_ALIVE: Duration = if cfg!(test) { Duration::from_millis(300) } else { Duration::from_secs(15) };
+
 /// How long a connection may take to finish its TLS handshake, and then each request's headers,
 /// the first and every one after it on a kept-alive connection: a peer that opens connections and
 /// sends nothing has them closed rather than holding the app's descriptors.
@@ -151,7 +155,7 @@ async fn stream(State(state): State<AppState>, Extension(Client(id)): Extension<
         }
     });
     Sse::new(initial.chain(events).take_until(Box::pin(ended)))
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .keep_alive(KeepAlive::new().interval(KEEP_ALIVE))
         .into_response()
 }
 

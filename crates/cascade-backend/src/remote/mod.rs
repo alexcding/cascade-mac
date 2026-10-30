@@ -6,6 +6,7 @@
 
 mod client;
 mod identity;
+mod links;
 mod listener;
 mod pairing;
 pub(crate) mod routes;
@@ -36,6 +37,8 @@ pub struct Remote {
     /// The pairing window, while the host's sheet is open (`pairing`). A short lock: never held
     /// across an await.
     pairing: std::sync::Mutex<Option<pairing::Window>>,
+    /// This Mac's links to the Macs it paired with.
+    links: links::Links,
 }
 
 struct Running {
@@ -51,7 +54,7 @@ impl Drop for Running {
 
 impl Default for Remote {
     fn default() -> Self {
-        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None) }
+        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default() }
     }
 }
 
@@ -118,8 +121,10 @@ pub async fn disable(state: &AppState) -> Result<Status> {
     status(state).await
 }
 
-/// At start: on again if it was on when the app last ran.
+/// At start: the listener on again if it was on when the app last ran, and the links to the
+/// paired Macs.
 pub async fn resume(state: &AppState) {
+    links::start_all(state).await;
     match store::host(&state.db).await {
         Ok(Some(host)) if host.enabled => {
             if let Err(error) = enable(state).await {

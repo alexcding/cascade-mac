@@ -1,6 +1,6 @@
 # Mac to Mac: see another Mac's sessions
 
-Status: **phases 1 (the listener) and 2 (pairing) built**, `crates/cascade-backend/src/remote/`. Decided 2026-10-29. This comes before the phone app in
+Status: **phases 1–3 (listener, pairing, this Mac's links) built**; the app (phase 4) is next, `crates/cascade-backend/src/remote/`. Decided 2026-10-29. This comes before the phone app in
 [03-architecture.md](03-architecture.md) and replaces its iCloud pairing for now. The remote
 listener, its allowlist and the terminal bridge are shared with that design.
 
@@ -118,16 +118,25 @@ and reads `GET /api/remote/pairing` (`{open, attemptsLeft, seconds}`) to show it
 
 ### Client: peers and the proxy
 
-- `remote::peers` owns one connection per paired host: it keeps the host's `/api/stream`
-  open, retries with backoff while the host cannot be reached, and tries the stored addresses
-  plus the address Bonjour resolves for its `id` now (DHCP and sleep change addresses).
-- Loopback routes for the app (added to `Routes.swift` and `route_contract`):
-  - `GET /api/remote/peers`: each paired host's name and whether it answers now.
-  - `DELETE /api/remote/peers/{id}`: forget it.
+- `remote::links` runs one task per paired host: it keeps the host's `/api/stream` open,
+  trying its stored addresses in turn, retries with a doubling wait (2 seconds up to a minute)
+  while the host cannot be reached, and drops a stream silent for 45 seconds (the host sends a
+  keep-alive every 15). A `401` means this Mac was revoked there, and another certificate at
+  the address means the Mac there is not the one paired (its data was reset, or another took
+  the address): either way the link stops, and only pairing again starts it. From phase 4 the address Bonjour resolves for the host's `id` is
+  tried too (DHCP and sleep change addresses).
+- Loopback routes for the app (to be added to `Routes.swift` in phase 4):
+  - `GET /api/remote/peers`: each paired host's `id`, `name`, `addresses` and `reach`
+    (`connecting`, `online`, `offline`, `revoked`, `changed`).
+  - `DELETE /api/remote/peers/{id}`: forget it, and stop its link.
   - `GET /api/remote/peers/{id}/tasks`, `GET /api/remote/peers/{id}/projects`,
-    `POST /api/remote/peers/{id}/chat/rpc`: proxied to the host as they are.
-- Events: the host's events come back as a new `Event::Remote { peer, event }`, and a peer
-  going up or down as `Event::RemotePeer { peer, reachable }`.
+    `POST /api/remote/peers/{id}/chat/rpc`: forwarded to the host as they are, one pinned
+    connection per request; the host's answer comes back with its status, `404` for a Mac not
+    paired, and `502` when no address answers. A large answer may take as long as it keeps
+    coming (15 seconds at most between pieces, 64 MiB at most). The host's own lists decide what passes.
+- Events: what the host's stream carries comes back as `Event::Remote { peer, event }`
+  (`{"type":"remote","peer":…,"event":{…}}`), and a change in whether it answers as
+  `Event::RemotePeer { peer, reach }`.
 
 Host-side loopback routes: `GET /api/remote` (on or off, port, fingerprint),
 `POST /api/remote/enable` and `/disable`, `GET /api/remote/clients`, `DELETE /api/remote/clients/{id}`
@@ -167,3 +176,11 @@ Each phase ends with its tests green and an independent review before the next.
 1. Does anything on the host need to show that a client is watching (a dot in the toolbar)?
 2. Should "Allow other Macs" stay on across restarts? The plan assumes yes once enabled; only
    *pairing* is limited to the sheet being open.
+3. A link keeps each paired Mac's stream open for as long as the app runs, which is push, not
+   polling, but is a connection held whether anyone is looking. Should it follow a look
+   instead (`AttentionMonitor`), as the snapshots do? The phase 3 review's view: keep a stream
+   that is up (one socket and a keep-alive, no `gh`), but in phase 4 retry an unreachable Mac
+   only on a look or when Bonjour sees it, rather than every minute for ever.
+4. Follow-up outside this work: the loopback router checks no `Host` header, so a page that
+   rebinds its DNS name to 127.0.0.1 can read GET routes. It already could read `/api/tasks`;
+   the remote proxy adds the paired Macs' sessions. A loopback-wide `Host` allowlist fixes both.

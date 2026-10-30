@@ -88,6 +88,9 @@ pub(crate) fn observing_client_config(seen: Arc<Mutex<Option<String>>>) -> Resul
     client_config(Pinned { fingerprint: None, seen, provider: provider() })
 }
 
+/// What a pinned connection fails with when the certificate is another; `client` tells it apart.
+pub(crate) const NOT_PINNED: &str = "not the paired Mac's certificate";
+
 fn client_config(verifier: Pinned) -> Result<rustls::ClientConfig> {
     Ok(rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])?
@@ -115,7 +118,7 @@ impl ServerCertVerifier for Pinned {
     ) -> Result<ServerCertVerified, rustls::Error> {
         let presented = fingerprint(end_entity);
         if self.fingerprint.as_ref().is_some_and(|pinned| *pinned != presented) {
-            return Err(rustls::Error::General("not the paired Mac's certificate".into()));
+            return Err(rustls::Error::General(NOT_PINNED.into()));
         }
         // The handshake goes on to check the server signs with this certificate's key.
         *self.seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(presented);

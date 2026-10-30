@@ -134,6 +134,10 @@ pub enum Event {
     /// The pairing window opened, closed, paired a Mac or used its attempts up
     /// (`GET /api/remote/pairing`).
     RemotePairing,
+    /// An event a paired Mac told this one, as it told it (`remote::links`).
+    Remote { peer: String, event: Value },
+    /// Whether a paired Mac answers changed: `connecting`, `online`, `offline` or `revoked`.
+    RemotePeer { peer: String, reach: &'static str },
 }
 
 impl Event {
@@ -174,6 +178,14 @@ mod tests {
         assert_eq!(Value::from(Event::RemoteClients), json!({"type":"remote-clients"}));
         assert_eq!(Value::from(Event::RemotePeers), json!({"type":"remote-peers"}));
         assert_eq!(Value::from(Event::RemotePairing), json!({"type":"remote-pairing"}));
+        assert_eq!(
+            Value::from(Event::Remote { peer: "ab".into(), event: json!({"type":"tasks"}) }),
+            json!({"type":"remote","peer":"ab","event":{"type":"tasks"}})
+        );
+        assert_eq!(
+            Value::from(Event::RemotePeer { peer: "ab".into(), reach: "online" }),
+            json!({"type":"remote-peer","peer":"ab","reach":"online"})
+        );
         assert_eq!(
             Value::from(Event::JiraSync {
                 id: "board:p1".into()

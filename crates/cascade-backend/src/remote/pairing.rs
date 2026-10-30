@@ -33,6 +33,8 @@ use super::{client, identity, store};
 use crate::{error::ApiError, AppState, Event};
 
 const WINDOW: Duration = Duration::from_secs(5 * 60);
+/// The most the client's whole pairing may take: before it, the other end is anyone.
+const DEADLINE: Duration = Duration::from_secs(30);
 pub(crate) const ATTEMPTS: u8 = 3;
 const CLIENT: &[u8] = b"cascade-client";
 const HOST: &[u8] = b"cascade-host";
@@ -239,6 +241,17 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
 /// Pairs with the Mac at `address` (`host:port`) using the code it shows, and keeps it as a peer
 /// under `label`, the name this Mac gives itself there.
 pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> Result<store::Peer> {
+    // The deadline bounds the talk with the other Mac only, never keeping what it gave.
+    let (peer, token) =
+        tokio::time::timeout(DEADLINE, exchange(address, code, label)).await.context("the other Mac stopped answering")??;
+    store::keep_peer(&state.db, &peer, &token).await?;
+    super::links::link(state, &peer.id);
+    state.publish(Event::RemotePeers);
+    Ok(peer)
+}
+
+/// The exchange itself: the peer it paired with, and the token the peer gave.
+async fn exchange(address: &str, code: &str, label: &str) -> Result<(store::Peer, String)> {
     let code = code.trim();
     if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
         bail!("the code is six digits");
@@ -253,6 +266,7 @@ pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> R
         "/pair/start",
         None,
         Some(&json!({ "message": identity::hex(&from_client), "label": label })),
+        client::PAIRING_BODY,
     )
     .await?;
     check(status, &started)?;
@@ -270,6 +284,7 @@ pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> R
         "/pair/finish",
         None,
         Some(&json!({ "session": session, "proof": mine })),
+        client::PAIRING_BODY,
     )
     .await?;
     check(status, &finished)?;
@@ -285,9 +300,7 @@ pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> R
         name: finished["name"].as_str().unwrap_or("Mac").to_owned(),
         addresses: vec![address.to_owned()],
     };
-    store::keep_peer(&state.db, &peer, token).await?;
-    state.publish(Event::RemotePeers);
-    Ok(peer)
+    Ok((peer, token.to_owned()))
 }
 
 fn lock_seen(seen: &Mutex<Option<String>>) -> Option<String> {
