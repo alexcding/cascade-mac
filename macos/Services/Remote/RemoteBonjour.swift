@@ -49,8 +49,9 @@ enum RemoteBonjour {
     }
 }
 
-/// Advertises this Mac while a pairing window is open, so the other Mac lists it without an
-/// address typed. Stops when released.
+/// Advertises this Mac while other Macs may connect, so the other Mac lists it without an
+/// address typed, and a paired Mac finds it again after its address or port changed. Stops when
+/// released.
 @MainActor final class RemoteAdvertiser {
     private var service: DNSServiceRef?
 
