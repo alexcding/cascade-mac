@@ -71,30 +71,37 @@ pub(crate) const PER_NETWORK: usize = CONNECTIONS * 3 / 4;
 /// What a connection from `address` is counted under, each with its limit: the address itself,
 /// and for a global IPv6 address its /64 too. Link-local (`fe80::/10`, which every Mac on the
 /// link shares as a /64) and IPv4 count by address alone.
-pub(crate) fn sources(address: IpAddr) -> Vec<(IpAddr, usize)> {
+pub(crate) fn sources(address: IpAddr) -> Vec<(Source, usize)> {
     let address = address.to_canonical();
-    let mut counted = vec![(address, PER_SOURCE)];
+    let mut counted = vec![(Source::Address(address), PER_SOURCE)];
     if let IpAddr::V6(v6) = address {
         if !v6.is_unicast_link_local() && !v6.is_loopback() {
-            let network = std::net::Ipv6Addr::from(v6.to_bits() & !((1u128 << 64) - 1));
-            counted.push((IpAddr::V6(network), PER_NETWORK));
+            counted.push((Source::Network(std::net::Ipv6Addr::from(v6.to_bits() & !((1u128 << 64) - 1))), PER_NETWORK));
         }
     }
     counted
 }
 
+/// A key connections are counted under: an address, or a global IPv6 /64. Apart, so an address
+/// whose low 64 bits are zero is not its own network.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Source {
+    Address(IpAddr),
+    Network(std::net::Ipv6Addr),
+}
+
 /// The connections each address and network holds now. A short lock, never held across an await.
 #[derive(Default)]
-struct Sources(std::sync::Mutex<HashMap<IpAddr, usize>>);
+pub(crate) struct Sources(std::sync::Mutex<HashMap<Source, usize>>);
 
 /// A connection's share of the slots, given back when it ends.
-struct SourceSlot {
+pub(crate) struct SourceSlot {
     sources: Arc<Sources>,
-    counted: Vec<IpAddr>,
+    counted: Vec<Source>,
 }
 
 impl Sources {
-    fn take(self: &Arc<Self>, address: IpAddr) -> Option<SourceSlot> {
+    pub(crate) fn take(self: &Arc<Self>, address: IpAddr) -> Option<SourceSlot> {
         let counted = sources(address);
         let mut held = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if counted.iter().any(|(key, limit)| held.get(key).copied().unwrap_or(0) >= *limit) {

@@ -737,11 +737,30 @@ async fn a_repairing_whose_answer_is_lost_keeps_the_old_token_working() {
 
 #[test]
 fn a_connection_counts_under_its_address_and_a_global_ipv6_address_under_its_network_too() {
-    use super::listener::{sources, PER_NETWORK, PER_SOURCE};
+    use super::listener::{sources, Source, PER_NETWORK, PER_SOURCE};
     let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
-    assert_eq!(sources(ip("192.168.1.5")), [(ip("192.168.1.5"), PER_SOURCE)]);
-    assert_eq!(sources(ip("::ffff:192.168.1.5")), [(ip("192.168.1.5"), PER_SOURCE)]);
+    assert_eq!(sources(ip("192.168.1.5")), [(Source::Address(ip("192.168.1.5")), PER_SOURCE)]);
+    assert_eq!(sources(ip("::ffff:192.168.1.5")), [(Source::Address(ip("192.168.1.5")), PER_SOURCE)]);
     // Every Mac on the link shares fe80::/64: each counts by its own address.
-    assert_eq!(sources(ip("fe80::1:2:3:4")), [(ip("fe80::1:2:3:4"), PER_SOURCE)]);
-    assert_eq!(sources(ip("2001:db8:0:1::5")), [(ip("2001:db8:0:1::5"), PER_SOURCE), (ip("2001:db8:0:1::"), PER_NETWORK)]);
+    assert_eq!(sources(ip("fe80::1:2:3:4")), [(Source::Address(ip("fe80::1:2:3:4")), PER_SOURCE)]);
+    assert_eq!(
+        sources(ip("2001:db8:0:1::5")),
+        [(Source::Address(ip("2001:db8:0:1::5")), PER_SOURCE), (Source::Network("2001:db8:0:1::".parse().unwrap()), PER_NETWORK)]
+    );
+}
+
+#[test]
+fn one_network_cannot_take_more_than_its_share() {
+    use super::listener::{Sources, PER_NETWORK, PER_SOURCE};
+    let sources = std::sync::Arc::new(Sources::default());
+    let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+    // One address per connection, all in one /64: the network's limit is what refuses.
+    let held: Vec<_> = (1..=PER_NETWORK).map(|n| sources.take(ip(&format!("2001:db8:0:1::{n}"))).expect("within the share")).collect();
+    assert!(sources.take(ip("2001:db8:0:1::ff")).is_none(), "past the network's share");
+    assert!(sources.take(ip("2001:db8:0:2::1")).is_some(), "another network is not held back");
+    // Its address alone: the address limit refuses.
+    let one: Vec<_> = (0..PER_SOURCE).map(|_| sources.take(ip("10.0.0.1")).unwrap()).collect();
+    assert!(sources.take(ip("10.0.0.1")).is_none());
+    drop((held, one));
+    assert!(sources.take(ip("2001:db8:0:1::ff")).is_some() && sources.take(ip("10.0.0.1")).is_some(), "given back");
 }
