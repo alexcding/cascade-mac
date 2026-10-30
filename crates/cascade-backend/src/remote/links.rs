@@ -25,7 +25,9 @@ use crate::{AppState, Event};
 
 /// The host sends a keep-alive every 15 seconds; a stream silent for longer than this is dead.
 const SILENT: Duration = if cfg!(test) { Duration::from_secs(2) } else { Duration::from_secs(45) };
-/// The most addresses kept for a peer; Bonjour's latest first.
+/// A reopened stream that lasts less than this is not reopened again (`run`).
+const BRIEF: Duration = if cfg!(test) { Duration::from_millis(500) } else { Duration::from_secs(10) };
+/// The most addresses kept for a peer; the one it last answered at first.
 const ADDRESSES: usize = 4;
 /// The most one event may hold before the stream is dropped as broken.
 const EVENT_LIMIT: usize = 16 * 1024 * 1024;
@@ -101,32 +103,34 @@ pub async fn start_all(state: &AppState) {
 
 /// (Re)links one peer: a pairing replaced its token, or it is new.
 pub fn link(state: &AppState, id: &str) {
+    link_at(state, id, None);
+}
+
+/// Links a peer, trying `seen` first: an address Bonjour saw it at, kept among its addresses only
+/// once the peer answers there.
+fn link_at(state: &AppState, id: &str, seen: Option<String>) {
     let generation = state.remote.links.made.fetch_add(1, Ordering::Relaxed);
     // Spawned under the lock, so the task finds its link in place the first time it looks; the
     // link it replaces is dropped, and its task with it.
     let mut links = state.remote.links.lock();
-    let task = tokio::spawn(run(state.clone(), id.to_owned(), generation));
+    let task = tokio::spawn(run(state.clone(), id.to_owned(), generation, seen));
     links.insert(id.to_owned(), Link { task, reach: Reach::Connecting, generation });
 }
 
 /// Tries a peer again that is not linked now, for someone looking for it; `address` is where
-/// Bonjour sees it, kept first among its addresses. A peer online or being reached is left as it
-/// is, and a revoked one too: only pairing again helps it.
+/// Bonjour sees it, tried first and kept first among its addresses once the peer answers there
+/// (anyone on the network can advertise a peer's id). A peer online or being reached is left as
+/// it is, and a revoked one too: only pairing again helps it.
 pub async fn connect(state: &AppState, id: &str, address: Option<&str>) -> Result<Option<Reach>> {
-    let Some(mut peer) = store::peers(&state.db).await?.into_iter().find(|peer| peer.id == id) else { return Ok(None) };
-    if let Some(address) = address.map(str::trim).filter(|address| !address.is_empty()) {
-        if peer.addresses.first().map(String::as_str) != Some(address) {
-            peer.addresses.retain(|known| known != address);
-            peer.addresses.insert(0, address.to_owned());
-            peer.addresses.truncate(ADDRESSES);
-            store::set_addresses(&state.db, id, &peer.addresses).await?;
-        }
+    if !store::peers(&state.db).await?.iter().any(|peer| peer.id == id) {
+        return Ok(None);
     }
     let reach = state.remote.links.reach(id);
     if matches!(reach, Reach::Online | Reach::Connecting | Reach::Revoked) {
         return Ok(Some(reach));
     }
-    link(state, id);
+    let seen = address.map(str::trim).filter(|address| !address.is_empty()).map(str::to_owned);
+    link_at(state, id, seen);
     Ok(Some(Reach::Connecting))
 }
 
@@ -150,11 +154,19 @@ pub(super) fn set_reach(state: &AppState, id: &str, generation: Option<u64>, rea
 }
 
 /// Tries the peer and relays its stream for as long as it lasts. A stream that ends is opened
-/// again once at once, which hears why: the peer went away, or it revoked this Mac.
-async fn run(state: AppState, id: String, generation: u64) {
-    let mut outcome = listen(&state, &id, generation).await;
+/// again at once, which hears why: the peer went away, or it revoked this Mac. A reopened stream
+/// that ends within `BRIEF` is not opened a third time: a peer that answers and hangs up at once
+/// is not tried in a loop.
+async fn run(state: AppState, id: String, generation: u64, seen: Option<String>) {
+    let mut outcome = listen(&state, &id, generation, seen.as_deref()).await;
+    let mut brief = false;
     while let Ok(true) = outcome {
-        outcome = listen(&state, &id, generation).await;
+        if brief {
+            break;
+        }
+        let opened = tokio::time::Instant::now();
+        outcome = listen(&state, &id, generation, None).await;
+        brief = opened.elapsed() < BRIEF;
     }
     let reach = match outcome {
         Ok(_) => Reach::Offline,
@@ -174,18 +186,19 @@ enum Refused {
     Gone,
 }
 
-/// Opens the peer's stream at the first address that answers and relays it until it ends.
-/// Answers whether it was ever online; `Changed` only when no address got through and one showed
-/// another certificate.
-async fn listen(state: &AppState, id: &str, generation: u64) -> Result<bool, Refused> {
+/// Opens the peer's stream at the first address that answers, `seen` before the stored ones, and
+/// relays it until it ends. Answers whether it was ever online; `Changed` only when no address got
+/// through and a stored one showed another certificate (an address only seen proves nothing).
+async fn listen(state: &AppState, id: &str, generation: u64, seen: Option<&str>) -> Result<bool, Refused> {
     let Ok(Some((peer, token))) = peer(state, id).await else { return Err(Refused::Gone) };
+    let seen = seen.filter(|seen| !peer.addresses.iter().any(|known| known == seen));
     let mut changed = false;
-    for address in &peer.addresses {
+    for address in seen.into_iter().chain(peer.addresses.iter().map(String::as_str)) {
         let Ok(tls) = identity::pinned_client_config(&peer.id) else { return Ok(false) };
         let open = match client::open(address, tls, Method::GET, "/api/stream", Some(&token), None).await {
             Ok(open) => open,
             Err(error) => {
-                changed |= error.is::<client::CertificateChanged>();
+                changed |= Some(address) != seen && error.is::<client::CertificateChanged>();
                 continue;
             }
         };
@@ -195,6 +208,9 @@ async fn listen(state: &AppState, id: &str, generation: u64) -> Result<bool, Ref
             _ => continue,
         }
         set_reach(state, id, Some(generation), Reach::Online);
+        if peer.addresses.first().map(String::as_str) != Some(address) {
+            remember(state, &peer, address).await;
+        }
         let client::Open { response, connection: _connection } = open;
         relay(state, id, response.into_body()).await;
         return Ok(true);
@@ -203,6 +219,18 @@ async fn listen(state: &AppState, id: &str, generation: u64) -> Result<bool, Ref
         Err(Refused::Changed)
     } else {
         Ok(false)
+    }
+}
+
+/// The peer answered at `address`: it goes first among its addresses, the oldest dropped past
+/// `ADDRESSES`.
+async fn remember(state: &AppState, peer: &store::Peer, address: &str) {
+    let mut addresses = peer.addresses.clone();
+    addresses.retain(|known| known != address);
+    addresses.insert(0, address.to_owned());
+    addresses.truncate(ADDRESSES);
+    if let Err(error) = store::set_addresses(&state.db, &peer.id, &addresses).await {
+        tracing::warn!(%error, "keep a paired Mac's address");
     }
 }
 

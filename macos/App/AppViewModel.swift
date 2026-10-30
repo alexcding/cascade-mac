@@ -2042,6 +2042,8 @@ public final class AppViewModel {
     /// even one whose first listing failed, and the chat on screen reads its thread again.
     private func resyncChats() {
         chats.reload()
+        // A paired Mac's events came the same way: its lists and whether it answers are read again.
+        remotePeers.reload()
         coordinator.chatCoordinator?.model.page.resync()
         for context in viewer.contexts.values { context.workspaceViewModel?.resyncPaneChats() }
     }

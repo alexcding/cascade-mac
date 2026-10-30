@@ -12,6 +12,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     private var _chats: [String: [JSONValue]] = [:]
     private var _calls: [String] = []
     private var _paired: RemotePeer?
+    private var _pairingSeconds = 300
 
     var calls: [String] { lock.withLock { _calls } }
     func set(peers: [RemotePeer]) { lock.withLock { _peers = peers } }
@@ -19,6 +20,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
         lock.withLock { _sessions[peer] = sessions; _chats[peer] = chats }
     }
     func pairs(as peer: RemotePeer) { lock.withLock { _paired = peer } }
+    func pairingLasts(_ seconds: Int) { lock.withLock { _pairingSeconds = seconds } }
     private func log(_ call: String) { lock.withLock { _calls.append(call) } }
 
     func status() async throws -> RemoteStatus { log("status"); return lock.withLock { _status } }
@@ -28,7 +30,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     }
     func clients() async throws -> [RemoteClient] { [] }
     func revoke(client id: String) async throws { log("revoke \(id)") }
-    func openPairing(name: String?) async throws -> RemotePairingCode { log("open"); return RemotePairingCode(code: "123456", seconds: 300) }
+    func openPairing(name: String?) async throws -> RemotePairingCode { log("open"); return RemotePairingCode(code: "123456", seconds: lock.withLock { _pairingSeconds }) }
     func pairingWindow() async throws -> RemotePairingWindow { RemotePairingWindow(open: false, attemptsLeft: 3, seconds: 0) }
     func closePairing() async throws { log("close") }
     func peers() async throws -> [RemotePeer] { log("peers"); return lock.withLock { _peers } }
@@ -167,6 +169,12 @@ private func event(_ json: String) throws -> ServerEvent {
     await store.settle()
     #expect(store.peers.map(\.id) == ["ab"] && store.sessions["cd"] == nil)
 
+    // A Mac heard of before the list that names it: the list is read again.
+    remote.set(peers: [RemotePeer(id: "ab", name: "Mac mini", reach: .online), RemotePeer(id: "gh", name: "New", reach: .online)])
+    store.receive(try event(#"{"type":"remote-peer","peer":"gh","reach":"online"}"#))
+    await store.settle()
+    #expect(store.peer("gh")?.reach == .online)
+
     // Events of another kind are not the store's.
     #expect(!store.receive(try event(#"{"type":"tasks"}"#)))
     store.connect(nil)
@@ -220,6 +228,11 @@ private func event(_ json: String) throws -> ServerEvent {
     #expect(model.pairingCode == "123456" && model.pairingCloses != nil)
     await model.closePairing()
     #expect(model.pairingCode == nil && remote.calls.contains("close"))
+
+    // A code that runs out goes by itself, whether or not the section shows it.
+    remote.pairingLasts(0)
+    await model.openPairing()
+    try await waitUntil { model.pairingCode == nil }
 }
 
 @MainActor private func waitUntil(_ condition: @escaping () -> Bool) async throws {

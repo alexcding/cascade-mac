@@ -39,9 +39,10 @@ import Observation
         let generation = self.generation
         peersTask?.cancel()
         peersTask = Task { [weak self] in
-            guard let listed = try? await service.peers() else { return }
+            let listed = try? await service.peers()
             guard let self, self.generation == generation, !Task.isCancelled else { return }
             peersTask = nil
+            guard let listed else { return }
             if peers != listed { peers = listed }
             let ids = Set(listed.map(\.id))
             sessions = sessions.filter { ids.contains($0.key) }
@@ -69,7 +70,12 @@ import Observation
         case "remote-peers":
             reload()
         case "remote-peer":
-            guard let id = event.peer, let index = peers.firstIndex(where: { $0.id == id }) else { return true }
+            // One not listed yet, or heard of while the list is on its way, which may say otherwise:
+            // the list is read again, with each Mac's state as it is now.
+            guard let id = event.peer, peersTask == nil, let index = peers.firstIndex(where: { $0.id == id }) else {
+                reload()
+                return true
+            }
             let reach = event.reach.flatMap(RemotePeer.Reach.init(rawValue:)) ?? .offline
             if peers[index].reach != reach { peers[index].reach = reach }
             if reach == .online { read(id) }

@@ -34,6 +34,8 @@ import Observation
     @ObservationIgnored private var tried: Set<String> = []
     @ObservationIgnored private var browser: RemoteBrowser?
     @ObservationIgnored private var advertiser: RemoteAdvertiser?
+    /// Ends the code when its window closes, shown or not: the backend says nothing then.
+    @ObservationIgnored private var expiry: Task<Void, Never>?
     @ObservationIgnored private let makeBrowser: @MainActor () -> RemoteBrowser?
     @ObservationIgnored private let makeAdvertiser: @MainActor (_ name: String, _ port: Int, _ fingerprint: String) -> RemoteAdvertiser?
     @ObservationIgnored private let name: @MainActor () -> String?
@@ -124,8 +126,8 @@ import Observation
             let opened = try await service.openPairing(name: name())
             guard !retired, generation == token else { return }
             pairingCode = opened.code
-            pairingCloses = Date().addingTimeInterval(TimeInterval(opened.seconds))
             attemptsLeft = 3
+            closes(in: opened.seconds)
             advertise()
         } catch {
             if !retired, generation == token { self.error = error.localizedDescription }
@@ -185,7 +187,10 @@ import Observation
         case "remote-pairing":
             readWindow()
         case "remote-peer":
-            guard let id = event.peer, let index = peers.firstIndex(where: { $0.id == id }) else { return }
+            guard let id = event.peer, let index = peers.firstIndex(where: { $0.id == id }) else {
+                if active { refresh() }
+                return
+            }
             peers[index].reach = event.reach.flatMap(RemotePeer.Reach.init(rawValue:)) ?? .offline
         default: break
         }
@@ -253,7 +258,7 @@ import Observation
     private func windowRead(_ window: RemotePairingWindow) {
         if window.open {
             attemptsLeft = window.attemptsLeft
-            if pairingCode != nil { pairingCloses = Date().addingTimeInterval(TimeInterval(window.seconds)) }
+            if pairingCode != nil { closes(in: window.seconds) }
         } else if pairingCode != nil {
             clearPairing()
         }
@@ -265,8 +270,19 @@ import Observation
         advertiser = makeAdvertiser(name() ?? "Mac", port, fingerprint)
     }
 
+    private func closes(in seconds: Int) {
+        pairingCloses = Date().addingTimeInterval(TimeInterval(seconds))
+        expiry?.cancel()
+        expiry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            guard !Task.isCancelled else { return }
+            self?.pairingExpired()
+        }
+    }
+
     private func clearPairing() {
         pairingCode = nil; pairingCloses = nil; attemptsLeft = 3
+        expiry?.cancel(); expiry = nil
         advertiser?.stop(); advertiser = nil
     }
 }

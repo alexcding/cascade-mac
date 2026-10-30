@@ -663,3 +663,19 @@ async fn another_certificate_at_one_address_does_not_stop_a_peer_reached_at_anot
     assert_eq!(code.as_u16(), 200);
     assert_eq!(other.remote.links.reach(&id), Reach::Online);
 }
+
+#[tokio::test]
+async fn an_address_only_seen_is_kept_once_the_peer_answers_there() {
+    let (host_dir, client_dir, impostor_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    reaches(&other, &id, Reach::Online).await;
+    super::disable(&host).await.unwrap();
+    reaches(&other, &id, Reach::Offline).await;
+
+    // Something else on the network advertises the peer's id: another certificate there is not
+    // the peer's doing, and the address is not kept.
+    let (_impostor, elsewhere) = listening(impostor_dir.path()).await;
+    links::connect(&other, &id, Some(&address(&elsewhere))).await.unwrap();
+    reaches(&other, &id, Reach::Offline).await;
+    assert_eq!(store::peers(&other.db).await.unwrap().remove(0).addresses, [address(&status)]);
+}

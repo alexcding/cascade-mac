@@ -28,8 +28,15 @@ extension AppViewModel {
 
     func receiveRemote(_ event: ServerEvent) {
         settings?.remote.receive(event)
-        guard remotePeers.receive(event), event.type == "remote", let peer = event.peer,
-              let relayed = event.relayed, let thread = relayed["threadId"]?.string ?? relayed["shell"]?["id"]?.string
+        guard remotePeers.receive(event), let peer = event.peer else { return }
+        // The Mac's events were missed (its stream was down, or lagged there): the chat of it on
+        // screen reads its thread again, as this Mac's does after a `reload`.
+        if (event.type == "remote-peer" && event.reach == "online") || (event.type == "remote" && event.relayed?["type"]?.string == "reload"),
+           case .remoteChat(let shown, _)? = coordinator.chatCoordinator?.destination, shown == peer {
+            coordinator.chatCoordinator?.model.page.resync()
+        }
+        guard event.type == "remote", let relayed = event.relayed,
+              let thread = relayed["threadId"]?.string ?? relayed["shell"]?["id"]?.string
         else { return }
         let destination = SidebarDestination.remoteChat(peer: peer, thread: thread)
         switch relayed["type"]?.string {
