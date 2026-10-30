@@ -124,12 +124,14 @@ pub async fn open(state: &AppState, name: &str) -> Result<Opened> {
         started: HashMap::new(),
     });
     drop(running);
+    super::log(state, "info", "pairing_opened", json!({ "seconds": WINDOW.as_secs() }));
     state.publish(Event::RemotePairing);
     Ok(Opened { code, seconds: WINDOW.as_secs() })
 }
 
 pub fn close(state: &AppState) {
     if lock(&state.remote.pairing).take().is_some() {
+        super::log(state, "info", "pairing_closed", json!({ "reason": "closed" }));
         state.publish(Event::RemotePairing);
     }
 }
@@ -147,8 +149,8 @@ pub struct WindowState {
 pub fn window(state: &AppState) -> WindowState {
     let now = Instant::now();
     let mut guard = lock(&state.remote.pairing);
-    if settle(&mut guard) {
-        state.publish(Event::RemotePairing);
+    if let Some(reason) = settle(&mut guard) {
+        settled(state, reason);
     }
     match guard.as_ref() {
         Some(window) => WindowState {
@@ -161,23 +163,33 @@ pub fn window(state: &AppState) -> WindowState {
 }
 
 /// Closes a window past its time, or past its attempts with none still pending (an exchange
-/// started more than `DEADLINE` ago is one the client gave up). True when it closed one.
-fn settle(window: &mut Option<Window>) -> bool {
+/// started more than `DEADLINE` ago is one the client gave up). Says why when it closed one.
+fn settle(window: &mut Option<Window>) -> Option<&'static str> {
     let now = Instant::now();
-    let Some(open) = window.as_mut() else { return false };
+    let open = window.as_mut()?;
     open.started.retain(|_, started| now.duration_since(started.at) < PENDING);
-    if open.closes <= now || (open.attempts >= ATTEMPTS && open.started.is_empty()) {
-        *window = None;
-        return true;
-    }
-    false
+    let reason = if open.closes <= now {
+        "expired"
+    } else if open.attempts >= ATTEMPTS && open.started.is_empty() {
+        "attempts used"
+    } else {
+        return None;
+    };
+    *window = None;
+    Some(reason)
+}
+
+/// A window `settle` closed, told to the app and the log.
+fn settled(state: &AppState, reason: &'static str) {
+    super::log(state, "info", "pairing_closed", json!({ "reason": reason }));
+    state.publish(Event::RemotePairing);
 }
 
 /// Whether `/pair/*` is answered now: a window is open with an attempt left, or one pending.
 pub(crate) fn accepting(state: &AppState) -> bool {
     let mut guard = lock(&state.remote.pairing);
-    if settle(&mut guard) {
-        state.publish(Event::RemotePairing);
+    if let Some(reason) = settle(&mut guard) {
+        settled(state, reason);
     }
     guard.is_some()
 }
@@ -201,8 +213,8 @@ fn refused(status: StatusCode, message: &str) -> ApiError {
 pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartBody>) -> Result<Json<Value>, ApiError> {
     let from_client = identity::unhex(&body.message).ok_or_else(|| ApiError::bad_request("bad message"))?;
     let mut guard = lock(&state.remote.pairing);
-    if settle(&mut guard) {
-        state.publish(Event::RemotePairing);
+    if let Some(reason) = settle(&mut guard) {
+        settled(&state, reason);
     }
     // Past its attempts the window stays, refusing new ones, so an attempt already started can
     // still finish; it closes when that one fails (`finish`) or is given up (`settle`).
@@ -222,8 +234,13 @@ pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartB
     });
     // The last attempt: the window closes now if it left nothing pending, else once what it left
     // is finished or given up.
-    let closed = used_up && settle(&mut guard);
+    let attempt = window.attempts;
+    let closed = used_up && settle(&mut guard).is_some();
     drop(guard);
+    super::log(&state, "info", "pairing_attempt", json!({ "label": body.label.chars().take(64).collect::<String>(), "attempt": attempt, "of": ATTEMPTS, "readable": answer.is_ok() }));
+    if closed {
+        super::log(&state, "info", "pairing_closed", json!({ "reason": "attempts used" }));
+    }
     if used_up {
         state.publish(Event::RemotePairing);
     }
@@ -231,8 +248,9 @@ pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartB
         let state = state.clone();
         tokio::spawn(async move {
             tokio::time::sleep(PENDING).await;
-            if settle(&mut lock(&state.remote.pairing)) {
-                state.publish(Event::RemotePairing);
+            let reason = settle(&mut lock(&state.remote.pairing));
+            if let Some(reason) = reason {
+                settled(&state, reason);
             }
         });
     }
@@ -264,10 +282,11 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
         };
         let started = window.started.remove(&body.session).ok_or_else(|| refused(StatusCode::NOT_FOUND, "not pairing"))?;
         if !verify(&started.key, CLIENT, &started.transcript, &window.fingerprint, &body.proof) {
+            super::log(&state, "error", "pairing_refused", json!({ "label": started.label, "reason": "wrong code" }));
             if window.attempts >= ATTEMPTS && window.started.is_empty() {
                 *guard = None;
                 drop(guard);
-                state.publish(Event::RemotePairing);
+                settled(&state, "attempts used");
             }
             return Err(refused(StatusCode::FORBIDDEN, "wrong code"));
         }
@@ -275,7 +294,11 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
         *guard = None;
         taken
     };
-    let (id, token) = store::add_client(&state.db, &started.label).await.map_err(ApiError::internal)?;
+    let (id, token) = store::add_client(&state.db, &started.label).await.map_err(|error| {
+        super::log(&state, "error", "client_unkept", json!({ "label": started.label, "error": error.to_string() }));
+        ApiError::internal(error)
+    })?;
+    super::log(&state, "info", "client_paired", json!({ "label": started.label, "client": id, "again": body.replaces.is_some() }));
     // Only a token this host gave, and only now the code is proven. The old client goes once the
     // new token is used (`listener::authorize`): until then this answer may not have arrived.
     if let Some(old) = body.replaces.as_deref() {
@@ -297,9 +320,20 @@ pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> R
     // The deadline bounds the talk with the other Mac only, never keeping what it gave.
     // A Mac paired before hands back its old token, for the host to revoke.
     let held = store::peer_tokens(&state.db).await?;
-    let (peer, token) =
-        tokio::time::timeout(DEADLINE, exchange(address, code, label, &held)).await.context("the other Mac stopped answering")??;
-    store::keep_peer(&state.db, &peer, &token).await?;
+    let exchanged =
+        tokio::time::timeout(DEADLINE, exchange(address, code, label, &held)).await.context("the other Mac stopped answering").and_then(|done| done);
+    let (peer, token) = match exchanged {
+        Ok(paired) => paired,
+        Err(error) => {
+            super::log(state, "error", "pair_failed", json!({ "address": address, "error": format!("{error:#}") }));
+            return Err(error);
+        }
+    };
+    if let Err(error) = store::keep_peer(&state.db, &peer, &token).await {
+        super::log(state, "error", "pair_unkept", json!({ "peer": super::short(&peer.id), "error": error.to_string() }));
+        return Err(error.into());
+    }
+    super::log(state, "info", "paired", json!({ "peer": super::short(&peer.id), "name": peer.name, "address": address, "again": held.contains_key(&peer.id) }));
     super::links::link(state, &peer.id);
     state.publish(Event::RemotePeers);
     Ok(peer)

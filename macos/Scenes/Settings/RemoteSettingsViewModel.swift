@@ -96,6 +96,7 @@ import Observation
                 self.setPeers(read.2)
                 self.windowRead(read.3)
             } catch {
+                RemoteBonjour.log.error("settings read failed: \(error.localizedDescription, privacy: .public)")
                 guard let self, !self.retired, self.generation == token else { return }
                 self.error = error.localizedDescription
             }
@@ -251,7 +252,12 @@ import Observation
             let key = "\(peer.id) \(address ?? "")"
             guard !tried.contains(key) else { continue }
             tried.insert(key)
-            Task { try? await service.connect(peer: peer.id, address: address) }
+            RemoteBonjour.log.notice("retry \(peer.name, privacy: .public) at \(address ?? "its known addresses", privacy: .public)")
+            Task {
+                do { try await service.connect(peer: peer.id, address: address) } catch {
+                    RemoteBonjour.log.error("retry \(peer.name, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
         }
     }
 

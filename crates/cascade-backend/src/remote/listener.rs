@@ -188,7 +188,14 @@ async fn authorize(State(state): State<AppState>, mut request: Request, next: Ne
             request.extensions_mut().insert(Client(id));
             next.run(request).await
         }
-        Ok(None) => ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        Ok(None) => {
+            // Only a token refused (a request with none is anyone on the network), and seldom:
+            // anyone can make up a token.
+            if token.is_some() {
+                super::log_seldom(&state, "info", "client_unauthorized", json!({}));
+            }
+            ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response()
+        }
         Err(error) => ApiError::from(error).into_response(),
     }
 }
@@ -211,7 +218,7 @@ async fn stream(State(state): State<AppState>, Extension(Client(id)): Extension<
     // Listening before looking again: a revoke between `authorize` and here is seen either way.
     let mut revoked = state.remote.revocations();
     match store::client_exists(&state.db, &id).await {
-        Ok(true) => {}
+        Ok(true) => super::log(&state, "info", "client_stream", json!({ "client": id })),
         Ok(false) => return ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
         Err(error) => return ApiError::from(error).into_response(),
     }
@@ -253,6 +260,8 @@ async fn chat_rpc(State(app): State<AppState>, request: Result<Json<chat::RpcReq
         Err(rejection) => return RpcError::from(rejection).into_response(),
     };
     if !CHAT_METHODS.contains(&request.method()) {
+        // Routine: a read-only page still asks for what it may not have (file references).
+        super::log(&app, "info", "client_chat_refused", json!({ "method": request.method() }));
         return (StatusCode::FORBIDDEN, Json(json!({ "error": { "message": "not allowed from another Mac", "code": "forbidden" } })))
             .into_response();
     }
@@ -261,11 +270,15 @@ async fn chat_rpc(State(app): State<AppState>, request: Result<Json<chat::RpcReq
 
 /// Serves `router` over TLS on `listener` until the task running it is aborted, which ends every
 /// connection with it: a stream never finishes by itself, so it is never waited for.
-pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, router: Router) {
+pub(crate) async fn serve(state: AppState, listener: TcpListener, tls: rustls::ServerConfig, router: Router) {
     let acceptor = TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(Semaphore::new(CONNECTIONS));
     let sources = Arc::new(Sources::default());
     let mut connections = JoinSet::new();
+    // A full listener is worth knowing of; a flood of refusals is not worth the log.
+    let turned_away = |peer: std::net::SocketAddr, limit: &'static str| {
+        super::log_seldom(&state, "error", "connection_refused", json!({ "from": peer.ip().to_string(), "limit": limit }));
+    };
     loop {
         tokio::select! {
             accepted = listener.accept() => {
@@ -274,8 +287,14 @@ pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, rout
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 };
-                let Some(source) = sources.take(peer.ip()) else { continue };
-                let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
+                let Some(source) = sources.take(peer.ip()) else {
+                    turned_away(peer, "per address or network");
+                    continue;
+                };
+                let Ok(slot) = slots.clone().try_acquire_owned() else {
+                    turned_away(peer, "all connections");
+                    continue;
+                };
                 let (acceptor, router) = (acceptor.clone(), router.clone());
                 connections.spawn(async move {
                     let _slots = (slot, source);

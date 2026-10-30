@@ -163,6 +163,7 @@ pub async fn forget_peer(State(state): State<AppState>, headers: HeaderMap, Path
     if !store::forget_peer(&state.db, &id).await? {
         return Err(ApiError::not_found("Not found"));
     }
+    super::log(&state, "info", "peer_forgotten", json!({ "peer": super::short(&id) }));
     state.publish(crate::Event::RemotePeers);
     Ok(Json(json!({ "ok": true })))
 }

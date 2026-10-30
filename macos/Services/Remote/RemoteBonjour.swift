@@ -1,6 +1,7 @@
 import dnssd
 import Foundation
 import Network
+import os
 import SystemConfiguration
 
 /// The Bonjour service other Macs find this one by, and its TXT keys: `id` (the listener
@@ -8,6 +9,9 @@ import SystemConfiguration
 /// `port` (where its listener answers). `NSBonjourServices` in `App-Info.plist` names the type.
 enum RemoteBonjour {
     static let type = "_cascade._tcp"
+    /// What Bonjour did, for a Mac nobody can debug: `log show --predicate 'subsystem ==
+    /// "com.cascade.app" && category == "remote"'`. The backend's side is in Activity → Remote.
+    static let log = Logger(subsystem: "com.cascade.app", category: "remote")
 
     /// What one Mac advertised.
     struct Sighting: Equatable, Sendable {
@@ -57,20 +61,39 @@ enum RemoteBonjour {
 
     /// Nil when the network has no name for this Mac or Bonjour refused the service.
     init?(name: String, port: Int, fingerprint: String) {
-        guard let host = RemoteBonjour.localHost(), (1...65535).contains(port) else { return nil }
+        guard let host = RemoteBonjour.localHost(), (1...65535).contains(port) else {
+            RemoteBonjour.log.error("advertise: no local host name, or port \(port, privacy: .public) out of range")
+            return nil
+        }
         let txt = RemoteBonjour.txtRecord([("id", fingerprint), ("name", name), ("host", host), ("port", String(port))])
         var reference: DNSServiceRef?
         let error = txt.withUnsafeBytes { bytes in
             DNSServiceRegister(&reference, 0, 0, name, RemoteBonjour.type, nil, nil, UInt16(port).bigEndian,
-                               UInt16(bytes.count), bytes.baseAddress, nil, nil)
+                               UInt16(bytes.count), bytes.baseAddress, Self.registered, nil)
         }
-        guard error == kDNSServiceErr_NoError, let reference else { return nil }
+        guard error == kDNSServiceErr_NoError, let reference else {
+            RemoteBonjour.log.error("advertise: DNSServiceRegister failed \(error, privacy: .public)")
+            return nil
+        }
+        RemoteBonjour.log.notice("advertise \(name, privacy: .public) at \(host, privacy: .public):\(port, privacy: .public)")
         DNSServiceSetDispatchQueue(reference, .main)
         service = reference
     }
 
+    /// Bonjour's answer, which comes after the call: the name it took, or why it refused
+    /// (`-65570` is the local network permission turned off).
+    private static let registered: DNSServiceRegisterReply = { _, _, error, name, _, _, _ in
+        let name = name.map { String(cString: $0) } ?? ""
+        if error == kDNSServiceErr_NoError {
+            RemoteBonjour.log.notice("advertised as \(name, privacy: .public)")
+        } else {
+            RemoteBonjour.log.error("advertise refused: \(error, privacy: .public)")
+        }
+    }
+
     func stop() {
         guard let service else { return }
+        RemoteBonjour.log.notice("advertise stopped")
         DNSServiceRefDeallocate(service)
         self.service = nil
     }
@@ -87,11 +110,22 @@ enum RemoteBonjour {
     func start() {
         guard browser == nil else { return }
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: RemoteBonjour.type, domain: nil), using: .tcp)
+        // Waiting with -65570 (PolicyDenied) is the local network permission turned off.
+        browser.stateUpdateHandler = { state in
+            switch state {
+            case .failed(let error): RemoteBonjour.log.error("browse failed: \(error, privacy: .public)")
+            case .waiting(let error): RemoteBonjour.log.error("browse waiting: \(error, privacy: .public)")
+            case .ready: RemoteBonjour.log.notice("browse ready")
+            default: break
+            }
+        }
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             let sightings = results.compactMap { result -> RemoteBonjour.Sighting? in
                 guard case .bonjour(let txt) = result.metadata else { return nil }
                 return RemoteBonjour.sighting(txt.dictionary)
             }
+            let seen = sightings.map { "\($0.name) \($0.address)" }.joined(separator: ", ")
+            RemoteBonjour.log.notice("browse sees \(results.count, privacy: .public) (\(sightings.count, privacy: .public) readable): \(seen, privacy: .public)")
             MainActor.assumeIsolated { self?.onChange(sightings) }
         }
         browser.start(queue: .main)

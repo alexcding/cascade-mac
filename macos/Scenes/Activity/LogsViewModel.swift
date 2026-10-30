@@ -54,6 +54,7 @@ import Observation
         case "worktree": String(localized: "Worktrees")
         case "webhook": String(localized: "Webhooks")
         case "agent": String(localized: "Agents")
+        case "remote": String(localized: "Remote")
         default: category.capitalized }
     }
     func refresh() {

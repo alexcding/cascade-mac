@@ -42,7 +42,8 @@ struct LogEntry: Decodable, Identifiable, Equatable, Sendable {
         let notice = ActivityEvent(type: type ?? "", payload: eventPayload, created_at: created_at).message
         title = notice.title
         summary = notice.body
-        if !notice.body.isEmpty { detail = notice.body }
+        // A remote line is read for all it says (which Mac, which address), not its error alone.
+        if !notice.body.isEmpty && category != "remote" { detail = notice.body }
         else if let object = try? JSONSerialization.jsonObject(with: data),
                 JSONSerialization.isValidJSONObject(object),
                 let formatted = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),

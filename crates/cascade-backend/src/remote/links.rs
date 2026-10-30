@@ -17,7 +17,7 @@ use anyhow::Result;
 use axum::http::{Method, StatusCode};
 use http_body_util::BodyExt;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use tokio::task::JoinHandle;
 
 use super::{client, identity, store};
@@ -97,7 +97,7 @@ impl Links {
 pub async fn start_all(state: &AppState) {
     match store::peers(&state.db).await {
         Ok(peers) => peers.iter().for_each(|peer| link(state, &peer.id)),
-        Err(error) => tracing::warn!(%error, "read the paired Macs"),
+        Err(error) => super::log(state, "error", "peers_unread", json!({ "error": error.to_string() })),
     }
 }
 
@@ -130,6 +130,7 @@ pub async fn connect(state: &AppState, id: &str, address: Option<&str>) -> Resul
         return Ok(Some(reach));
     }
     let seen = address.map(str::trim).filter(|address| !address.is_empty()).map(str::to_owned);
+    super::log(state, "info", "peer_retry", json!({ "peer": super::short(id), "seen": seen }));
     link_at(state, id, seen);
     Ok(Some(Reach::Connecting))
 }
@@ -149,6 +150,9 @@ pub(super) fn set_reach(state: &AppState, id: &str, generation: Option<u64>, rea
         _ => false,
     };
     if changed {
+        // "Errors only" in Activity shows what needs pairing again.
+        let level = if matches!(reach, Reach::Revoked | Reach::Changed) { "error" } else { "info" };
+        super::log(state, level, "peer_reach", json!({ "peer": super::short(id), "reach": reach.name() }));
         state.publish(Event::RemotePeer { peer: id.to_owned(), reach: reach.name() });
     }
 }
@@ -162,6 +166,7 @@ async fn run(state: AppState, id: String, generation: u64, seen: Option<String>)
     let mut brief = false;
     while let Ok(true) = outcome {
         if brief {
+            super::log(&state, "info", "peer_not_reopened", json!({ "peer": super::short(&id), "reason": "its stream ended again within seconds" }));
             break;
         }
         let opened = tokio::time::Instant::now();
@@ -194,30 +199,54 @@ async fn listen(state: &AppState, id: &str, generation: u64, seen: Option<&str>)
         Ok(Some(found)) => found,
         Ok(None) => return Err(Refused::Gone),
         // Not read now: offline, so the next look tries it again.
-        Err(_) => return Ok(false),
+        Err(error) => {
+            super::log(state, "error", "peer_unread", json!({ "peer": super::short(id), "error": error.to_string() }));
+            return Ok(false);
+        }
     };
     let seen = seen.filter(|seen| !peer.addresses.iter().any(|known| known == seen));
     let mut changed = false;
     for address in seen.into_iter().chain(peer.addresses.iter().map(String::as_str)) {
-        let Ok(tls) = identity::pinned_client_config(&peer.id) else { return Ok(false) };
+        let tls = match identity::pinned_client_config(&peer.id) {
+            Ok(tls) => tls,
+            Err(error) => {
+                super::log(state, "error", "peer_unpinned", json!({ "peer": super::short(id), "error": format!("{error:#}") }));
+                return Ok(false);
+            }
+        };
         let open = match client::open(address, tls, Method::GET, "/api/stream", Some(&token), None).await {
             Ok(open) => open,
             Err(error) => {
-                changed |= Some(address) != seen && error.is::<client::CertificateChanged>();
+                let other = error.is::<client::CertificateChanged>();
+                super::log(state, "info", "peer_address_failed", json!({
+                    "peer": super::short(id), "name": peer.name, "address": address,
+                    "seen": Some(address) == seen, "certificateChanged": other, "error": format!("{error:#}"),
+                }));
+                changed |= Some(address) != seen && other;
                 continue;
             }
         };
         match open.response.status() {
             StatusCode::OK => {}
-            StatusCode::UNAUTHORIZED => return Err(Refused::Revoked),
-            _ => continue,
+            StatusCode::UNAUTHORIZED => {
+                super::log(state, "error", "peer_refused_token", json!({ "peer": super::short(id), "name": peer.name, "address": address }));
+                return Err(Refused::Revoked);
+            }
+            status => {
+                super::log(state, "info", "peer_address_failed", json!({
+                    "peer": super::short(id), "name": peer.name, "address": address, "status": status.as_u16(),
+                }));
+                continue;
+            }
         }
+        super::log(state, "info", "peer_online", json!({ "peer": super::short(id), "name": peer.name, "address": address }));
         set_reach(state, id, Some(generation), Reach::Online);
         if peer.addresses.first().map(String::as_str) != Some(address) {
             remember(state, &peer, address).await;
         }
         let client::Open { response, connection: _connection } = open;
-        relay(state, id, response.into_body()).await;
+        let ended = relay(state, id, response.into_body()).await;
+        super::log(state, "info", "peer_stream_ended", json!({ "peer": super::short(id), "name": peer.name, "address": address, "reason": ended }));
         return Ok(true);
     }
     if changed {
@@ -234,19 +263,23 @@ async fn remember(state: &AppState, peer: &store::Peer, address: &str) {
     addresses.retain(|known| known != address);
     addresses.insert(0, address.to_owned());
     addresses.truncate(ADDRESSES);
-    if let Err(error) = store::set_addresses(&state.db, &peer.id, &addresses).await {
-        tracing::warn!(%error, "keep a paired Mac's address");
+    match store::set_addresses(&state.db, &peer.id, &addresses).await {
+        Ok(()) => super::log(state, "info", "peer_address_kept", json!({ "peer": super::short(&peer.id), "addresses": addresses })),
+        Err(error) => super::log(state, "error", "peer_address_unkept", json!({ "peer": super::short(&peer.id), "error": error.to_string() })),
     }
 }
 
 /// Passes each `data:` event of an SSE body on as `Event::Remote`, until the body ends, breaks,
 /// or is silent past `SILENT`.
-async fn relay(state: &AppState, id: &str, mut body: hyper::body::Incoming) {
+/// Answers why it ended, for the log.
+async fn relay(state: &AppState, id: &str, mut body: hyper::body::Incoming) -> &'static str {
     let mut parser = Sse::default();
     loop {
         let frame = match tokio::time::timeout(SILENT, body.frame()).await {
             Ok(Some(Ok(frame))) => frame,
-            _ => return,
+            Ok(Some(Err(_))) => return "broken",
+            Ok(None) => return "closed by the other Mac",
+            Err(_) => return "silent",
         };
         let Ok(data) = frame.into_data() else { continue };
         for data in parser.push(&data) {
@@ -255,7 +288,7 @@ async fn relay(state: &AppState, id: &str, mut body: hyper::body::Incoming) {
             }
         }
         if parser.pending.len() > EVENT_LIMIT {
-            return;
+            return "event too large";
         }
     }
 }
@@ -333,7 +366,19 @@ pub async fn forward(
                 set_reach(state, id, None, Reach::Revoked);
                 return Ok(Some((StatusCode::UNAUTHORIZED, answer)));
             }
-            Ok(answer) => return Ok(Some(answer)),
+            Ok(answer) => {
+                if !answer.0.is_success() {
+                    // A refusal is the other Mac's list at work (a read-only page asks for more);
+                    // anything else went wrong there.
+                    let level = if answer.0 == StatusCode::FORBIDDEN { "info" } else { "error" };
+                    super::log(state, level, "peer_request_refused", json!({
+                        "peer": super::short(id), "name": peer.name, "path": path, "status": answer.0.as_u16(),
+                        // What it said, not a whole body it may have sent.
+                        "answer": answer.1.get("error").cloned().unwrap_or_else(|| json!(answer.1.to_string().chars().take(1000).collect::<String>())),
+                    }));
+                }
+                return Ok(Some(answer));
+            }
             // A changed certificate is the failure told, over an address that did not answer.
             Err(error) => {
                 if failure.as_ref().is_none_or(|failure: &anyhow::Error| !failure.is::<client::CertificateChanged>()) {
@@ -343,6 +388,9 @@ pub async fn forward(
         }
     }
     let failure = failure.unwrap_or_else(|| anyhow::anyhow!("no address for {}", peer.name));
+    super::log(state, "error", "peer_request_failed", json!({
+        "peer": super::short(id), "name": peer.name, "path": path, "addresses": peer.addresses, "error": format!("{failure:#}"),
+    }));
     if failure.is::<client::CertificateChanged>() {
         set_reach(state, id, None, Reach::Changed);
     }
