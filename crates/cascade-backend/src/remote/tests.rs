@@ -76,8 +76,9 @@ async fn a_request_needs_a_paired_clients_token() {
 
     assert_eq!(call(&status, "GET", "/api/tasks", None, None).await.0, 401);
     assert_eq!(call(&status, "GET", "/api/tasks", Some("not-a-token"), None).await.0, 401);
-    // Unknown paths are refused before they are looked up.
-    assert_eq!(call(&status, "GET", "/api/nowhere", None, None).await.0, 401);
+    // Unknown paths are not found, token or none.
+    assert_eq!(call(&status, "GET", "/api/nowhere", None, None).await.0, 404);
+    assert_eq!(call(&status, "GET", "/api/config", None, None).await.0, 404);
 
     let (code, tasks) = call(&status, "GET", "/api/tasks", Some(&token), None).await;
     assert_eq!((code, tasks), (200, json!([])));
@@ -259,4 +260,194 @@ async fn connections_past_the_limit_are_closed_as_they_come() {
     })
     .await;
     assert!(served.is_ok());
+}
+
+// ---- pairing ---------------------------------------------------------------------------------
+
+use super::{client, pairing};
+use axum::http::Method;
+
+/// A host listening with its pairing window open, a second Mac's state, and the code.
+async fn pairing_pair(host_dir: &std::path::Path, client_dir: &std::path::Path) -> (AppState, Status, AppState, String) {
+    let (host, status) = listening(host_dir).await;
+    let code = pairing::open(&host, "mac-mini").await.unwrap().code;
+    let other = AppState::new(crate::Database::open(client_dir).unwrap(), Some("test-client".into()));
+    (host, status, other, code)
+}
+
+fn address(status: &Status) -> String {
+    format!("127.0.0.1:{}", status.port.unwrap())
+}
+
+fn wrong(code: &str) -> String {
+    format!("{:06}", (code.parse::<u32>().unwrap() + 1) % 1_000_000)
+}
+
+#[tokio::test]
+async fn a_mac_pairs_with_the_code_and_its_token_then_works() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+
+    let peer = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+    assert_eq!((Some(&peer.id), peer.name.as_str()), (status.fingerprint.as_ref(), "mac-mini"));
+    assert_eq!(store::peers(&other.db).await.unwrap().len(), 1);
+    let clients = store::clients(&host.db).await.unwrap();
+    assert_eq!(clients.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), ["MacBook"]);
+
+    let token = store::peer_token(&other.db, &peer.id).await.unwrap().unwrap();
+    let tls = identity::pinned_client_config(&peer.id).unwrap();
+    let (code_now, tasks) = client::request(&address(&status), tls, Method::GET, "/api/tasks", Some(&token), None).await.unwrap();
+    assert_eq!((code_now.as_u16(), tasks), (200, json!([])));
+
+    // The window closed with the pairing: the same code pairs nothing more.
+    let again = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
+    assert!(again.to_string().contains("not pairing"), "{again:#}");
+}
+
+#[tokio::test]
+async fn a_wrong_code_fails_and_three_close_the_window() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+
+    let error = pairing::pair(&other, &address(&status), &wrong(&code), "MacBook").await.unwrap_err();
+    assert!(error.to_string().contains("wrong code"), "{error:#}");
+    // A second attempt with the right code still pairs.
+    pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+
+    let code = pairing::open(&host, "mac-mini").await.unwrap().code;
+    for _ in 0..pairing::ATTEMPTS {
+        assert!(pairing::pair(&other, &address(&status), &wrong(&code), "MacBook").await.is_err());
+    }
+    let error = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
+    assert!(error.to_string().contains("not pairing"), "{error:#}");
+    assert!(store::peer_token(&other.db, status.fingerprint.as_deref().unwrap()).await.unwrap().is_some(), "the first pairing stands");
+    assert_eq!(store::clients(&host.db).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn nothing_pairs_without_an_open_window_or_with_the_listener_off() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    pairing::close(&host);
+    let error = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
+    assert!(error.to_string().contains("not pairing"), "{error:#}");
+
+    super::disable(&host).await.unwrap();
+    assert!(pairing::open(&host, "mac-mini").await.is_err());
+}
+
+#[tokio::test]
+async fn a_proof_made_over_another_certificate_is_refused() {
+    // A machine in the middle shows the client its own certificate, so the client's proof covers
+    // that fingerprint, not the host's.
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, _other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let (spake, from_client) = pairing::testing::start(&code);
+    let tls = identity::pinned_client_config(status.fingerprint.as_deref().unwrap()).unwrap();
+    let body = json!({ "message": identity::hex(&from_client), "label": "MacBook" });
+    let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+    let from_host = identity::unhex(started["message"].as_str().unwrap()).unwrap();
+    let key = spake.finish(&from_host).unwrap();
+
+    let impostor = identity::Identity::generate(None).unwrap().fingerprint();
+    let proof = pairing::testing::proof_for(&key, &from_client, &from_host, &impostor);
+    let body = json!({ "session": started["session"], "proof": proof });
+    let (refused, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&body)).await.unwrap();
+    assert_eq!(refused.as_u16(), 403);
+    assert!(store::clients(&host.db).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_browser_page_cannot_open_pairing_or_pair() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let router = crate::build_app(AppState::new(crate::Database::open(dir.path()).unwrap(), None));
+    for (path, body) in [("/api/remote/pairing", "{}"), ("/api/remote/peers/pair", r#"{"address":"127.0.0.1:1","code":"123456"}"#)] {
+        let request = Request::post(path)
+            .header("origin", "https://example.com")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        assert_eq!(router.clone().oneshot(request).await.unwrap().status(), 403, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_host_is_the_same_peer_across_its_restarts_and_needs_no_instance_id() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let other = AppState::new(crate::Database::open(client_dir.path()).unwrap(), None);
+    let mut first_token = None;
+    // Each launch of the app gives the backend a new instance id, or none.
+    for instance in [Some("launch-1"), None] {
+        let host = AppState::new(crate::Database::open(host_dir.path()).unwrap(), instance.map(String::from));
+        let status = start(&host, LOOPBACK).await.unwrap();
+        let code = pairing::open(&host, "mac-mini").await.unwrap().code;
+        let peer = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+        assert_eq!(Some(&peer.id), status.fingerprint.as_ref());
+        let token = store::peer_token(&other.db, &peer.id).await.unwrap();
+        assert_ne!(token, first_token, "pairing again replaces the token");
+        first_token = token;
+        super::disable(&host).await.unwrap();
+    }
+    assert_eq!(store::peers(&other.db).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_exchange_finishes_at_most_once() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, _other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let fingerprint = status.fingerprint.clone().unwrap();
+    let tls = identity::pinned_client_config(&fingerprint).unwrap();
+    // Two exchanges with the right code; the window must still be open for the second finish.
+    let mut exchanges = Vec::new();
+    for _ in 0..2 {
+        let (spake, from_client) = pairing::testing::start(&code);
+        let body = json!({ "message": identity::hex(&from_client), "label": "MacBook" });
+        let (_, started) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+        let from_host = identity::unhex(started["message"].as_str().unwrap()).unwrap();
+        let key = spake.finish(&from_host).unwrap();
+        let proof = pairing::testing::proof_for(&key, &from_client, &from_host, &fingerprint);
+        exchanges.push(json!({ "session": started["session"], "proof": proof }));
+    }
+    let wrong = json!({ "session": exchanges[0]["session"], "proof": "00" });
+    let (refused, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&wrong)).await.unwrap();
+    assert_eq!(refused.as_u16(), 403);
+    // The session the wrong proof used is spent, right proof or not.
+    let (gone, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[0])).await.unwrap();
+    assert_eq!(gone.as_u16(), 404);
+    let (paired, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/finish", None, Some(&exchanges[1])).await.unwrap();
+    assert_eq!(paired.as_u16(), 200);
+    let (again, _) = client::request(&address(&status), tls, Method::POST, "/pair/finish", None, Some(&exchanges[1])).await.unwrap();
+    assert_eq!(again.as_u16(), 404);
+    assert_eq!(store::clients(&host.db).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn starts_that_never_finish_use_the_window_up_and_the_host_hears_of_it() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let mut events = host.events.subscribe();
+    let tls = identity::pinned_client_config(status.fingerprint.as_deref().unwrap()).unwrap();
+    for attempt in 1..=pairing::ATTEMPTS {
+        let (_, mut from_client) = pairing::testing::start("000000");
+        // The last is well-formed hex but no SPAKE2 message: refused, and still an attempt.
+        let last = attempt == pairing::ATTEMPTS;
+        if last {
+            from_client.truncate(5);
+        }
+        let body = json!({ "message": identity::hex(&from_client) });
+        let (started, _) = client::request(&address(&status), tls.clone(), Method::POST, "/pair/start", None, Some(&body)).await.unwrap();
+        assert_eq!(started.as_u16(), if last { 400 } else { 200 });
+    }
+    let window = pairing::window(&host);
+    assert!(window.open && window.attempts_left == 0);
+    let mut heard = false;
+    while let Ok(event) = events.try_recv() {
+        heard |= event["type"] == "remote-pairing";
+    }
+    assert!(heard, "the window's end was not told");
+    let error = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap_err();
+    assert!(error.to_string().contains("not pairing"), "{error:#}");
 }

@@ -220,6 +220,15 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/remote/disable", post(remote::routes::disable))
         .route("/api/remote/clients", get(remote::routes::clients))
         .route("/api/remote/clients/{id}", delete(remote::routes::revoke))
+        .route(
+            "/api/remote/pairing",
+            get(remote::routes::pairing_state)
+                .post(remote::routes::open_pairing)
+                .delete(remote::routes::close_pairing),
+        )
+        .route("/api/remote/peers", get(remote::routes::peers))
+        .route("/api/remote/peers/pair", post(remote::routes::pair))
+        .route("/api/remote/peers/{id}", delete(remote::routes::forget_peer))
         .route("/api/usage", get(usage::get))
         .route("/api/agent/catalog", get(agents::catalog))
         .route("/api/agent/status", get(agents::status))

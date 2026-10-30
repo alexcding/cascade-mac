@@ -73,7 +73,6 @@ pub(crate) struct Client {
 }
 
 /// A new paired client, and the token it is given; only the token's hash is stored.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn add_client(db: &Database, label: &str) -> anyhow::Result<(String, String)> {
     let id = Uuid::new_v4().to_string();
     let token = identity::token()?;
@@ -135,4 +134,63 @@ pub(crate) async fn client_exists(db: &Database, id: &str) -> rusqlite::Result<b
 pub(crate) async fn remove_client(db: &Database, id: &str) -> rusqlite::Result<bool> {
     let id = id.to_owned();
     db.durable.call(move |conn| Ok(conn.execute("DELETE FROM remote_clients WHERE id=?1", [id])? > 0)).await
+}
+
+/// A Mac this one paired with, as it is kept; the token is read only to make a request.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Peer {
+    /// SHA-256 of the other Mac's certificate: what every connection to it pins, and what it is
+    /// known by, since it lasts across its restarts. Its Bonjour TXT `id` is the same.
+    pub id: String,
+    pub name: String,
+    /// `host:port`s it was reached at, the latest first.
+    pub addresses: Vec<String>,
+}
+
+/// Keeps a peer, replacing one paired before under the same id.
+pub(crate) async fn keep_peer(db: &Database, peer: &Peer, token: &str) -> rusqlite::Result<()> {
+    let (peer, token) = (peer.clone(), token.to_owned());
+    let addresses = serde_json::to_string(&peer.addresses).unwrap_or_else(|_| "[]".into());
+    db.durable
+        .call(move |conn| {
+            conn.execute(
+                "INSERT INTO remote_peers (id, name, addresses, token, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET name=excluded.name, addresses=excluded.addresses, token=excluded.token",
+                params![peer.id, peer.name, addresses, token, now()],
+            )?;
+            Ok(())
+        })
+        .await
+}
+
+pub(crate) async fn peers(db: &Database) -> rusqlite::Result<Vec<Peer>> {
+    db.durable
+        .call(|conn| {
+            let mut statement = conn.prepare("SELECT id, name, addresses FROM remote_peers ORDER BY created_at")?;
+            let rows = statement.query_map([], |row| {
+                let addresses: String = row.get(2)?;
+                Ok(Peer {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    addresses: serde_json::from_str(&addresses).unwrap_or_default(),
+                })
+            })?;
+            rows.collect()
+        })
+        .await
+}
+
+/// The token a request to a peer carries.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) async fn peer_token(db: &Database, id: &str) -> rusqlite::Result<Option<String>> {
+    let id = id.to_owned();
+    db.durable
+        .call(move |conn| conn.query_row("SELECT token FROM remote_peers WHERE id=?1", [id], |row| row.get(0)).optional())
+        .await
+}
+
+pub(crate) async fn forget_peer(db: &Database, id: &str) -> rusqlite::Result<bool> {
+    let id = id.to_owned();
+    db.durable.call(move |conn| Ok(conn.execute("DELETE FROM remote_peers WHERE id=?1", [id])? > 0)).await
 }

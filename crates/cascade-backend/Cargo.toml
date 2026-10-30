@@ -16,7 +16,8 @@ axum = { version = "0.8.4", features = ["json", "macros"] }
 cascade-chat = { path = "../cascade-chat" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 futures-util = "0.3"
-hyper = { version = "1", features = ["http1", "server"] }
+hyper = { version = "1", features = ["client", "http1", "server"] }
+http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["tokio"] }
 libc = "0.2"
 mime_guess = "2.0"
@@ -38,9 +39,9 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2.5"
 uuid = { version = "1.18", features = ["v4"] }
+spake2 = "0.4"
 
 [dev-dependencies]
-http-body-util = "0.1"
 tempfile = "3.21"
 
 # Panics stay on unwind: ffi.rs catches them at the C ABI boundary.

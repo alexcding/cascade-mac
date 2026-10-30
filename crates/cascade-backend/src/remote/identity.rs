@@ -1,7 +1,7 @@
 //! The listener's identity and the secrets it checks: a self-signed certificate that a paired
 //! Mac pins by fingerprint, and the bearer tokens it hands out, of which only a hash is kept.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -64,26 +64,43 @@ pub(crate) fn digest(token: &str) -> String {
     hex(&Sha256::digest(token.as_bytes()))
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+pub(crate) fn unhex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    (0..text.len()).step_by(2).map(|at| u8::from_str_radix(text.get(at..at + 2)?, 16).ok()).collect()
+}
+
 /// A client's TLS configuration that trusts exactly the certificate with `fingerprint`, whatever
-/// name or dates it carries. A paired Mac connects with this; pairing and the client side use it
-/// from the next phase on (docs/remote/05-mac-to-mac.md).
-#[cfg_attr(not(test), allow(dead_code))]
+/// name or dates it carries. A paired Mac connects with this.
 pub(crate) fn pinned_client_config(fingerprint: &str) -> Result<rustls::ClientConfig> {
-    let verifier = Arc::new(Pinned { fingerprint: fingerprint.to_owned(), provider: provider() });
+    client_config(Pinned { fingerprint: Some(fingerprint.to_owned()), seen: Arc::default(), provider: provider() })
+}
+
+/// For pairing's first request only: any certificate is taken, as long as the server holds its
+/// key, and its fingerprint is kept in `seen`. Pairing then proves it is the one the host sent
+/// (`pairing`), and every later connection pins it.
+pub(crate) fn observing_client_config(seen: Arc<Mutex<Option<String>>>) -> Result<rustls::ClientConfig> {
+    client_config(Pinned { fingerprint: None, seen, provider: provider() })
+}
+
+fn client_config(verifier: Pinned) -> Result<rustls::ClientConfig> {
     Ok(rustls::ClientConfig::builder_with_provider(provider())
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .dangerous()
-        .with_custom_certificate_verifier(verifier)
+        .with_custom_certificate_verifier(Arc::new(verifier))
         .with_no_client_auth())
 }
 
 #[derive(Debug)]
 struct Pinned {
-    fingerprint: String,
+    /// None takes any certificate.
+    fingerprint: Option<String>,
+    seen: Arc<Mutex<Option<String>>>,
     provider: Arc<CryptoProvider>,
 }
 
@@ -96,11 +113,13 @@ impl ServerCertVerifier for Pinned {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        if fingerprint(end_entity) == self.fingerprint {
-            Ok(ServerCertVerified::assertion())
-        } else {
-            Err(rustls::Error::General("not the paired Mac's certificate".into()))
+        let presented = fingerprint(end_entity);
+        if self.fingerprint.as_ref().is_some_and(|pinned| *pinned != presented) {
+            return Err(rustls::Error::General("not the paired Mac's certificate".into()));
         }
+        // The handshake goes on to check the server signs with this certificate's key.
+        *self.seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(presented);
+        Ok(ServerCertVerified::assertion())
     }
 
     fn verify_tls12_signature(

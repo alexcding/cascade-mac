@@ -1,6 +1,6 @@
 # Mac to Mac: see another Mac's sessions
 
-Status: **phase 1 (the listener) built**, `crates/cascade-backend/src/remote/`. Decided 2026-10-29. This comes before the phone app in
+Status: **phases 1 (the listener) and 2 (pairing) built**, `crates/cascade-backend/src/remote/`. Decided 2026-10-29. This comes before the phone app in
 [03-architecture.md](03-architecture.md) and replaces its iCloud pairing for now. The remote
 listener, its allowlist and the terminal bridge are shared with that design.
 
@@ -62,7 +62,7 @@ what the person types and approves, and no credential crosses between the Macs.
   `cascade.db` settings (same trust level as `jira_api_token`; Keychain later).
 - At most 32 connections at once, and each must finish its handshake and each request's
   headers within 10 seconds, so a peer without a token cannot hold the app's descriptors.
-- Every route but `/pair` requires `Authorization: Bearer <token>`. The middleware hashes
+- Every route but `/pair/*` requires `Authorization: Bearer <token>`. The middleware hashes
   the token (SHA-256) and looks it up in `remote_clients`; unknown or revoked is `401`.
 - The allowlist is its own `Router` naming each path and the same handler `build_app` uses.
   It never falls through to the loopback router. A `remote_contract` test lists it.
@@ -86,19 +86,35 @@ and its port.
 
 1. On the host, Settings → Remote → "Pair a Mac…" opens a sheet showing a 6-digit code. While
    it is open, and only then, the app advertises `_cascade._tcp` with Bonjour
-   (`DNSServiceRegister` for port `P`; TXT: `id=<instanceId>`, `name=<Mac name>`) and
+   (`DNSServiceRegister` for port `P`; TXT: `id=<certificate SHA-256>`, `name=<Mac name>`) and
    `/pair` answers. Closing the sheet, a successful pairing, 5 minutes or 3 wrong codes end it.
 2. On the client, Settings → Remote → "Add a Mac…" lists what `NWBrowser` finds. Picking one
    and typing the code sends `POST /api/remote/peers/pair {address, code}` to the client's own
    backend.
-3. The client backend opens TLS to the host, accepting any certificate *for this exchange
-   only*, and records the fingerprint it saw. Both run SPAKE2 over `/pair` with the code.
-4. Each side sends an HMAC, keyed by the SPAKE2 key, over the transcript and **the
-   certificate fingerprint as each side sees it**. A machine in the middle shows a different
-   certificate, so the MACs do not match and pairing fails.
-5. The host creates a `remote_clients` row and sends the token, encrypted with the SPAKE2 key.
-   The client stores a `remote_peers` row: `id` (host `instanceId`), `name`, `addresses`,
-   `cert_sha256`, `token`. From then on it requires that certificate.
+3. The client backend opens TLS to the host, accepting any certificate whose key the server
+   holds *for this first request only*, and records its fingerprint. It sends its SPAKE2
+   message (`POST /pair/start {message, label}`); the host answers with its own and a session
+   id. Each `/pair/start` is one of the window's 3 attempts.
+4. Each side proves it has the SPAKE2 key with an HMAC over both messages and **the certificate
+   fingerprint as it sees it**: the client first (`POST /pair/finish {session, proof}`, on a
+   connection pinned to the fingerprint it recorded), then the host in its answer. A machine in
+   the middle shows the client a different certificate, so the client's proof does not match
+   what the host computes and the host refuses it (`403`).
+5. Only after the client's proof checks does the host create a `remote_clients` row and answer
+   with the token, its name and its own proof, over that pinned connection. The client checks
+   the host's proof, stores a `remote_peers` row (`id` = the host's certificate SHA-256, which
+   lasts across its restarts, unlike the backend's per-launch `instanceId`; `name`,
+   `addresses`, `token`), and pins that certificate from then on.
+
+The host keeps the client and sends the token before the client has checked the host's proof,
+so an answer lost on the way leaves the host listing a Mac with no token until it is revoked.
+Accepted for v1.
+
+`/pair/start` and `/pair/finish` are the only listener routes without a token, and answer only
+while the window is open. A right proof closes the window; so do closing the sheet, 5 minutes,
+and the third failed attempt. Three `/pair/start`s use the window up even if none finishes:
+the host hears `remote-pairing` whenever the window opens, closes, pairs a Mac or is used up,
+and reads `GET /api/remote/pairing` (`{open, attemptsLeft, seconds}`) to show it.
 
 ### Client: peers and the proxy
 
@@ -115,7 +131,10 @@ and its port.
 
 Host-side loopback routes: `GET /api/remote` (on or off, port, fingerprint),
 `POST /api/remote/enable` and `/disable`, `GET /api/remote/clients`, `DELETE /api/remote/clients/{id}`
-(revoke), and from phase 2 `POST /api/remote/pairing` (start; returns the code) and `DELETE` (end).
+(revoke), `POST /api/remote/pairing` (open the window; returns the code) and `DELETE` (close it).
+Client-side, from phase 2: `GET /api/remote/peers`, `POST /api/remote/peers/pair
+{address, code, label?}`, `DELETE /api/remote/peers/{id}`. Events: `remote-clients` when a Mac
+pairs or is revoked, `remote-peers` when this Mac pairs with or forgets one.
 
 ### App
 

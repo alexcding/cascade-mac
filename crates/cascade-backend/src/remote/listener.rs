@@ -28,7 +28,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tower_http::set_header::SetResponseHeaderLayer;
 
-use super::store;
+use super::{pairing, store};
 use crate::{
     chat::{self, RpcError},
     error::ApiError,
@@ -70,9 +70,12 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/projects", get(projects))
         .route("/api/stream", get(stream))
         .route("/api/chat/rpc", post(chat_rpc))
+        // Every route above needs a token; the two below are how a Mac gets one, and answer only
+        // while the host's pairing window is open (`pairing`).
+        .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
+        .route("/pair/start", post(pairing::start))
+        .route("/pair/finish", post(pairing::finish))
         .fallback(|| async { ApiError::not_found("Not found") })
-        // Outermost of the route layers, so an unknown path without a token is a 401 too.
-        .layer(middleware::from_fn_with_state(state.clone(), authorize))
         .layer(no_store)
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(state)
@@ -98,8 +101,10 @@ async fn authorize(State(state): State<AppState>, mut request: Request, next: Ne
     }
 }
 
-async fn health(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({ "service": "cascade", "protocol": 1, "instanceId": state.instance_id }))
+/// `id` is the certificate's fingerprint, what a paired Mac knows this one by.
+async fn health(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let id = store::host(&state.db).await?.map(|host| host.identity.fingerprint());
+    Ok(Json(json!({ "service": "cascade", "protocol": 1, "id": id, "instanceId": state.instance_id })))
 }
 
 /// Each project's name and icon, for the label beside a remote session; nothing of its paths,

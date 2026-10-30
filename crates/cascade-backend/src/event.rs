@@ -127,6 +127,13 @@ pub enum Event {
         #[serde(rename = "threadId")]
         thread_id: String,
     },
+    /// The Macs paired to see this one's sessions changed: one paired, or one was revoked.
+    RemoteClients,
+    /// The Macs this one paired with changed.
+    RemotePeers,
+    /// The pairing window opened, closed, paired a Mac or used its attempts up
+    /// (`GET /api/remote/pairing`).
+    RemotePairing,
 }
 
 impl Event {
@@ -164,6 +171,9 @@ mod tests {
         assert_eq!(edit, json!({"type":"sync"}));
         assert_eq!(Value::from(Event::Tasks), json!({"type":"tasks"}));
         assert_eq!(Value::from(Event::Reload), json!({"type":"reload"}));
+        assert_eq!(Value::from(Event::RemoteClients), json!({"type":"remote-clients"}));
+        assert_eq!(Value::from(Event::RemotePeers), json!({"type":"remote-peers"}));
+        assert_eq!(Value::from(Event::RemotePairing), json!({"type":"remote-pairing"}));
         assert_eq!(
             Value::from(Event::JiraSync {
                 id: "board:p1".into()

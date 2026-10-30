@@ -4,8 +4,10 @@
 //! `AppState.remote` is its handle. Turning it on makes the certificate the first time, binds the
 //! port it had before when it can, and keeps serving across restarts until it is turned off.
 
+mod client;
 mod identity;
 mod listener;
+mod pairing;
 pub(crate) mod routes;
 mod store;
 #[cfg(test)]
@@ -20,7 +22,7 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::AppState;
+use crate::{AppState, Event};
 
 /// Where the listener binds: every interface, IPv4 through the dual-stack socket included.
 const EVERYWHERE: IpAddr = IpAddr::V6(Ipv6Addr::UNSPECIFIED);
@@ -31,6 +33,9 @@ pub struct Remote {
     running: Mutex<Option<Running>>,
     /// Ids of revoked clients, so their open streams end.
     revoked: broadcast::Sender<String>,
+    /// The pairing window, while the host's sheet is open (`pairing`). A short lock: never held
+    /// across an await.
+    pairing: std::sync::Mutex<Option<pairing::Window>>,
 }
 
 struct Running {
@@ -46,7 +51,7 @@ impl Drop for Running {
 
 impl Default for Remote {
     fn default() -> Self {
-        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0 }
+        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None) }
     }
 }
 
@@ -102,6 +107,7 @@ async fn start(state: &AppState, address: IpAddr) -> Result<Status> {
 
 pub async fn disable(state: &AppState) -> Result<Status> {
     let mut running = state.remote.running.lock().await;
+    pairing::close(state);
     if running.take().is_some() {
         tracing::info!("remote listener off");
     }
@@ -129,5 +135,8 @@ pub async fn resume(state: &AppState) {
 pub async fn revoke(state: &AppState, id: &str) -> Result<bool> {
     let removed = store::remove_client(&state.db, id).await?;
     let _ = state.remote.revoked.send(id.to_owned());
+    if removed {
+        state.publish(Event::RemoteClients);
+    }
     Ok(removed)
 }

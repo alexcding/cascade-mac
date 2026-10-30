@@ -59,3 +59,9 @@ CREATE TABLE IF NOT EXISTS remote_clients (
   id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', token_sha256 TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL, last_seen_at TEXT
 );
+-- The Macs this one paired with, to see their sessions: `id` is the SHA-256 of the certificate
+-- every connection pins; where they were reached, and the token each request carries.
+CREATE TABLE IF NOT EXISTS remote_peers (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', addresses TEXT NOT NULL DEFAULT '[]',
+  token TEXT NOT NULL, created_at TEXT NOT NULL
+);
