@@ -239,12 +239,14 @@ async fn a_connection_that_sends_nothing_is_closed() {
 }
 
 #[tokio::test]
-async fn connections_past_the_limit_are_closed_as_they_come() {
+async fn connections_past_one_addresss_share_are_closed_as_they_come() {
     let dir = tempfile::tempdir().unwrap();
     let (_state, status) = listening(dir.path()).await;
     let fingerprint = status.fingerprint.clone().unwrap();
+    // One address cannot take every slot: its share is less than the whole.
+    const { assert!(super::listener::PER_SOURCE < super::listener::CONNECTIONS) };
     let mut held = Vec::new();
-    for _ in 0..super::listener::CONNECTIONS {
+    for _ in 0..super::listener::PER_SOURCE {
         held.push(connect(&status, &fingerprint).await.unwrap());
     }
     assert!(connect(&status, &fingerprint).await.is_err(), "a connection past the limit was served");
@@ -695,4 +697,17 @@ async fn an_address_only_seen_is_kept_once_the_peer_answers_there() {
     links::connect(&other, &id, Some(&address(&elsewhere))).await.unwrap();
     reaches(&other, &id, Reach::Offline).await;
     assert_eq!(store::peers(&other.db).await.unwrap().remove(0).addresses, [address(&status)]);
+}
+
+#[tokio::test]
+async fn pairing_again_replaces_the_client_and_its_old_token() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let peer = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+    let old = store::peer_token(&other.db, &peer.id).await.unwrap().unwrap();
+
+    let again = pairing::open(&host, "mac-mini").await.unwrap();
+    pairing::pair(&other, &address(&status), &again.code, "MacBook").await.unwrap();
+    assert_eq!(store::clients(&host.db).await.unwrap().len(), 1, "listed once");
+    assert_eq!(store::client_for(&host.db, &old).await.unwrap(), None, "the old token no longer works");
 }

@@ -2,7 +2,7 @@
 //! whose routes are named one by one here. Nothing falls through to the loopback router
 //! (`build_app`), which has no authentication and trusts its callers.
 
-use std::{convert::Infallible, sync::Arc, time::Duration};
+use std::{collections::HashMap, convert::Infallible, net::IpAddr, sync::Arc, time::Duration};
 
 use axum::{
     extract::{rejection::JsonRejection, DefaultBodyLimit, Request, State},
@@ -61,6 +61,43 @@ const HEADER_READ: Duration = if cfg!(test) { Duration::from_millis(500) } else 
 /// Connections served at once, handshakes included. Past it a new one is closed as it comes:
 /// a paired Mac holds a few (its stream and a request or two), and the app's descriptors are few.
 pub(crate) const CONNECTIONS: usize = if cfg!(test) { 4 } else { 32 };
+/// Of those, the most one address may hold: one device on the network, paired or not, cannot
+/// take every slot from the others.
+pub(crate) const PER_SOURCE: usize = if cfg!(test) { 3 } else { 8 };
+
+/// The connections each address holds now. A short lock, never held across an await.
+#[derive(Default)]
+struct Sources(std::sync::Mutex<HashMap<IpAddr, usize>>);
+
+/// One address's share of the slots, given back when its connection ends.
+struct SourceSlot {
+    sources: Arc<Sources>,
+    address: IpAddr,
+}
+
+impl Sources {
+    fn take(self: &Arc<Self>, address: IpAddr) -> Option<SourceSlot> {
+        let mut held = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let count = held.entry(address).or_default();
+        if *count >= PER_SOURCE {
+            return None;
+        }
+        *count += 1;
+        Some(SourceSlot { sources: self.clone(), address })
+    }
+}
+
+impl Drop for SourceSlot {
+    fn drop(&mut self) {
+        let mut held = self.sources.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(count) = held.get_mut(&self.address) {
+            *count -= 1;
+            if *count == 0 {
+                held.remove(&self.address);
+            }
+        }
+    }
+}
 
 /// The most a pairing request's body may take to arrive.
 const PAIR_BODY: Duration = if cfg!(test) { Duration::from_millis(500) } else { Duration::from_secs(10) };
@@ -197,19 +234,21 @@ async fn chat_rpc(State(app): State<AppState>, request: Result<Json<chat::RpcReq
 pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, router: Router) {
     let acceptor = TlsAcceptor::from(Arc::new(tls));
     let slots = Arc::new(Semaphore::new(CONNECTIONS));
+    let sources = Arc::new(Sources::default());
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
             accepted = listener.accept() => {
-                let Ok((stream, _)) = accepted else {
+                let Ok((stream, peer)) = accepted else {
                     // Out of descriptors and the like: wait rather than spin.
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 };
+                let Some(source) = sources.take(peer.ip().to_canonical()) else { continue };
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let (acceptor, router) = (acceptor.clone(), router.clone());
                 connections.spawn(async move {
-                    let _slot = slot;
+                    let _slots = (slot, source);
                     let Ok(Ok(tls)) = tokio::time::timeout(HANDSHAKE, acceptor.accept(stream)).await else { return };
                     let service = hyper::service::service_fn(move |request| router.clone().call(request));
                     let _ = hyper::server::conn::http1::Builder::new()

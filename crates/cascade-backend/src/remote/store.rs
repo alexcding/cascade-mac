@@ -191,6 +191,17 @@ pub(crate) async fn set_addresses(db: &Database, id: &str, addresses: &[String])
         .await
 }
 
+/// Every paired Mac's token, by its id.
+pub(crate) async fn peer_tokens(db: &Database) -> rusqlite::Result<std::collections::HashMap<String, String>> {
+    db.durable
+        .call(|conn| {
+            let mut statement = conn.prepare("SELECT id, token FROM remote_peers")?;
+            let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect()
+        })
+        .await
+}
+
 /// The token a request to a peer carries.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn peer_token(db: &Database, id: &str) -> rusqlite::Result<Option<String>> {

@@ -61,7 +61,7 @@ extension Destination {
         case .sessionWorkspaceCoordinator(let coordinator):
             SessionWorkspaceCoordinatorView(coordinator: coordinator)
         case .chatCoordinator(let coordinator):
-            ChatCoordinatorView(coordinator: coordinator).id(coordinator.threadID)
+            ChatCoordinatorView(coordinator: coordinator).id(coordinator.destination)
 
         // Screens
         case .dashboard(let viewModel, let shell):

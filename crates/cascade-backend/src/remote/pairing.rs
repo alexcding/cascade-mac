@@ -243,6 +243,10 @@ pub(crate) async fn start(State(state): State<AppState>, Json(body): Json<StartB
 pub(crate) struct FinishBody {
     session: String,
     proof: String,
+    /// The token this client held from an earlier pairing with this host, revoked once the new
+    /// one is given: pairing again replaces the client rather than listing it twice.
+    #[serde(default)]
+    replaces: Option<String>,
 }
 
 /// `POST /pair/finish` `{session, proof}` → `{proof, token, name}`, or `403` for a wrong code. A
@@ -272,6 +276,12 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
         taken
     };
     let (_, token) = store::add_client(&state.db, &started.label).await.map_err(ApiError::internal)?;
+    // Only a token this host gave, and only now the code is proven: the old client goes.
+    if let Some(old) = body.replaces.as_deref() {
+        if let Ok(Some(id)) = store::client_for(&state.db, old).await {
+            let _ = super::revoke(&state, &id).await;
+        }
+    }
     state.publish(Event::RemotePairing);
     state.publish(Event::RemoteClients);
     let proof = proof(&started.key, HOST, &started.transcript, &fingerprint);
@@ -284,16 +294,19 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
 /// under `label`, the name this Mac gives itself there.
 pub async fn pair(state: &AppState, address: &str, code: &str, label: &str) -> Result<store::Peer> {
     // The deadline bounds the talk with the other Mac only, never keeping what it gave.
+    // A Mac paired before hands back its old token, for the host to revoke.
+    let held = store::peer_tokens(&state.db).await?;
     let (peer, token) =
-        tokio::time::timeout(DEADLINE, exchange(address, code, label)).await.context("the other Mac stopped answering")??;
+        tokio::time::timeout(DEADLINE, exchange(address, code, label, &held)).await.context("the other Mac stopped answering")??;
     store::keep_peer(&state.db, &peer, &token).await?;
     super::links::link(state, &peer.id);
     state.publish(Event::RemotePeers);
     Ok(peer)
 }
 
-/// The exchange itself: the peer it paired with, and the token the peer gave.
-async fn exchange(address: &str, code: &str, label: &str) -> Result<(store::Peer, String)> {
+/// The exchange itself: the peer it paired with, and the token the peer gave. `held` is the token
+/// held for each Mac paired before, by its fingerprint.
+async fn exchange(address: &str, code: &str, label: &str, held: &HashMap<String, String>) -> Result<(store::Peer, String)> {
     let code = code.trim();
     if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
         bail!("the code is six digits");
@@ -325,7 +338,8 @@ async fn exchange(address: &str, code: &str, label: &str) -> Result<(store::Peer
         Method::POST,
         "/pair/finish",
         None,
-        Some(&json!({ "session": session, "proof": mine })),
+        // Over a connection pinned to the certificate the old token was given by.
+        Some(&json!({ "session": session, "proof": mine, "replaces": held.get(&fingerprint) })),
         client::PAIRING_BODY,
     )
     .await?;

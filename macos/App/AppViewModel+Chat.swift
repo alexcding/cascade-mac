@@ -12,7 +12,8 @@ extension AppViewModel: ChatCoordinating {
         case "chat-thread":
             guard let id = event.threadId, let events = event.events, !events.isEmpty else { return }
             for context in viewer.contexts.values { context.workspaceViewModel?.receivePaneChatEvents(threadID: id, events: events) }
-            guard let chat = coordinator.chatCoordinator, chat.threadID == id else { return }
+            // This Mac's chat only: a paired Mac's on screen may carry the same thread id.
+            guard let chat = coordinator.chatCoordinator, chat.destination == .chat(id) else { return }
             chat.model.receive(events: events)
         case "chat-shell":
             guard let value = event.shell else { return }
@@ -24,7 +25,7 @@ extension AppViewModel: ChatCoordinating {
                 }
             }
             // A chat selected before it was heard of (one the page opened) gets its screen now.
-            if selection == .chat(id), coordinator.chatCoordinator?.threadID != id, chats.shell(id) != nil {
+            if selection == .chat(id), coordinator.chatCoordinator?.destination != .chat(id), chats.shell(id) != nil {
                 coordinator.refreshRoot()
             }
             updateChatScreen(id)
@@ -49,7 +50,8 @@ extension AppViewModel: ChatCoordinating {
     }
 
     private func updateChatScreen(_ id: String) {
-        guard let model = coordinator.chatCoordinator?.model, model.threadID == id else { return }
+        guard let chat = coordinator.chatCoordinator, chat.destination == .chat(id) else { return }
+        let model = chat.model
         let shell = chats.shell(id)
         model.update(shell: shell, projectName: chatPlaceName(shell))
     }

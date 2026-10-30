@@ -169,8 +169,19 @@ import Observation
         do {
             let peer = try await service.pair(address: address, code: code, label: name())
             guard !retired, generation == token else { return false }
-            if let index = peers.firstIndex(where: { $0.id == peer.id }) { peers[index] = peer } else { peers.append(peer) }
+            // The answer says nothing of whether it answers: what was heard of that stands, and the
+            // list is read again for the rest.
+            if let index = peers.firstIndex(where: { $0.id == peer.id }) {
+                var paired = peer
+                paired.reach = peers[index].reach
+                peers[index] = paired
+            } else {
+                var paired = peer
+                paired.reach = .connecting
+                peers.append(paired)
+            }
             updateNearby()
+            if active { refresh() }
             return true
         } catch {
             if !retired, generation == token { pairError = error.localizedDescription }
