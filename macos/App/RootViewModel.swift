@@ -40,6 +40,7 @@ import Observation
         case newTask(String)
         case renameChat(String, name: String)
         case deleteChat(String)
+        case openActivityLink(OpenPageRequest)
     }
     let shell: ShellStore
     let viewer: ViewerStore
@@ -121,5 +122,6 @@ import Observation
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }
     /// A chat row's Delete…, once its confirmation was answered.
     func deleteChat(_ id: String) { onAction(.deleteChat(id)) }
+    func openActivityLink(_ request: OpenPageRequest) { onAction(.openActivityLink(request)) }
     func openTerminal() { onAction(.openTerminal) }
 }

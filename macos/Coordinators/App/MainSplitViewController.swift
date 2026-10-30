@@ -21,6 +21,7 @@ import SwiftUI
     /// The workspace on show when the pane was last set, to tell a toggle from a switch.
     private var shownWorkspace: ObjectIdentifier?
     private var collapseObservation: NSKeyValueObservation?
+    private var sidebarObservation: NSKeyValueObservation?
     /// No widths saved yet: the first time the window shows, the sidebar opens at its ideal width.
     private var needsInitialWidths = false
     private static let autosaveName = "CascadeMainColumns"
@@ -70,6 +71,14 @@ import SwiftUI
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.paneCollapsedChanged(self.paneItem.isCollapsed)
+            }
+        }
+        // The toolbar shows the sidebar's toggle alone while the sidebar is collapsed.
+        sidebarObservation = sidebarItem.observe(\.isCollapsed, options: [.initial]) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let collapsed = self.sidebarItem.isCollapsed
+                if self.coordinator.sidebarCollapsed != collapsed { self.coordinator.sidebarCollapsed = collapsed }
             }
         }
         observePane()

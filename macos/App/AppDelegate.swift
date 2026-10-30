@@ -86,8 +86,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !chosen { NSSound.beep() }
             return nil
         }
-        // Activity shows in the sidebar's capsule only while the window is in front with its sidebar
-        // open; otherwise it goes out as a banner.
+        // Activity badges the toolbar's bell only while the window is in front with its sidebar open,
+        // which is when the bell shows; otherwise it goes out as a banner.
         model.configureNativeNotifications(isActivityCapsuleSeen: { [weak self] in
             guard let window = self?.window, window.isKeyWindow else { return false }
             return (window.contentViewController as? NSSplitViewController)?.splitViewItems.first?.isCollapsed != true

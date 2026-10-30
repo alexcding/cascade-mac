@@ -428,6 +428,12 @@ extension WorkspaceServing {
         if context.activeTool == .simulator { context.showPages() }
         context.close(.tool(.simulator))
     }
+    /// A link from elsewhere in the window (a Today menu row) opens in this session's browser, as
+    /// the chat's links do.
+    @discardableResult func openLink(_ url: URL) -> Bool {
+        guard active, state.canPresent else { return false }
+        return openInBrowser(url)
+    }
     /// A link from the chat opens in this session's browser, beside the chat, and brings it in.
     private func openInBrowser(_ url: URL) -> Bool {
         guard let context, context.open(url.absoluteString) != nil else { return false }

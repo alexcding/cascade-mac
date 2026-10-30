@@ -19,6 +19,12 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating, NewSessionCoordin
         return removalModel(for: session)
     }
 
+    /// A Today row's link with no session on screen: its page's session or its project's Start, as
+    /// a notice's click opens it, with a failure reported where the app reports errors.
+    func openActivityLink(_ request: OpenPageRequest) {
+        Task { _ = try? await openNotificationPage(request) }
+    }
+
     /// Sidebar right-click "Open in <git client>": opens the session's worktree without opening it.
     func openGitClient(_ id: String) {
         guard let session = sessions.first(where: { $0.id == id }), !changingSessions.contains(id) else { return }

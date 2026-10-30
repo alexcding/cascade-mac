@@ -7,6 +7,8 @@ import Observation
 @MainActor @Observable final class AppCoordinator: Coordinatable {
     var root: Destination = .none
     var path: [Destination] = []
+    /// The sidebar column is collapsed (`MainSplitViewController`): the toolbar shows its toggle alone.
+    var sidebarCollapsed = false
     @ObservationIgnored var action: ((Action) -> Void)?
 
     struct Sheet: Identifiable {

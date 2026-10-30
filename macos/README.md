@@ -252,9 +252,9 @@ The menu-bar popover shows pending review requests and available Claude/Codex us
 Its icon is the menu bar's own black or white.
 The first successful review snapshot seeds notifications silently; later review
 requests can trigger alerts and the configured sound. Notification permission is
-requested through the user's explicit action. The sidebar's activity capsule, beside
-Settings, shows the latest activity until it is clicked, and a click unfolds it into today's activity
-across the footer, with access to the full Activity section.
+requested through the user's explicit action. The activity bell, in the toolbar
+before the sidebar's toggle, is badged with the latest activity (in its tooltip) until it is clicked,
+and a click drops today's activity from it, with access to the full Activity section.
 
 Common shortcuts are **⌘R** / **⌘.** to run and stop, **⌘1**–**⌘9** and **⌘0** for the first ten sessions in sidebar order, **⌘[** / **⌘]** for the previous and next session, **⌘D** for the
 next model preset, **⇧⌘H** for Overview, **⌃⌘T** for the terminal, **⇧⌘U** for Reviews &

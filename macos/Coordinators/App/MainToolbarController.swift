@@ -140,8 +140,9 @@ import SwiftUI
                 (index > 0 && item.glass && items[index - 1].glass ? [.space] : []) + [NSToolbarItem.Identifier(item.id)]
             }
         }
-        // The sidebar's section holds its toggle alone, against the divider, the same over every screen.
-        var identifiers: [NSToolbarItem.Identifier] = [.flexibleSpace, .toggleSidebar, .sidebarTrackingSeparator]
+        // The sidebar's section holds its own items and then its toggle, against the divider, the
+        // same over every screen.
+        var identifiers: [NSToolbarItem.Identifier] = [.flexibleSpace] + run(toolbar.sidebar) + [.toggleSidebar, .sidebarTrackingSeparator]
         identifiers += run(toolbar.leading)
         // Beside a bar that fills there is no slack to centre the middle in.
         let balanced = !toolbar.center.isEmpty && !toolbar.leading.contains(where: \.fills)
@@ -165,7 +166,7 @@ import SwiftUI
     }
 
     private func allItems(_ toolbar: WindowToolbar) -> [WindowToolbarItem] {
-        toolbar.leading + toolbar.center + toolbar.trailing + (toolbar.pane ?? [])
+        toolbar.sidebar + toolbar.leading + toolbar.center + toolbar.trailing + (toolbar.pane ?? [])
     }
 
     /// A picker whose choices are no longer the ones its group was made with; which are enabled

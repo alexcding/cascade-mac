@@ -23,6 +23,8 @@ import Foundation
     func openSession(_ id: String)
     func renameChat(_ id: String, to name: String)
     func deleteChat(_ id: String)
+    /// A link with no session on screen to show it, from the Today menu: opened as a notice's is.
+    func openActivityLink(_ request: OpenPageRequest)
 }
 
 extension RootCoordinating {
@@ -40,6 +42,7 @@ extension RootCoordinating {
     func openSession(_ id: String) {}
     func renameChat(_ id: String, to name: String) {}
     func deleteChat(_ id: String) {}
+    func openActivityLink(_ request: OpenPageRequest) {}
     func canPerform(_ command: ShellCommand) -> Bool { command == .newProject && rootState().canCreateProject }
 }
 
@@ -82,6 +85,7 @@ extension AppCoordinator {
         case .newTask(let id): rootRuntime?.newTask(in: id)
         case .renameChat(let id, let name): rootRuntime?.renameChat(id, to: name)
         case .deleteChat(let id): rootRuntime?.deleteChat(id)
+        case .openActivityLink(let request): rootRuntime?.openActivityLink(request)
         }
     }
 }

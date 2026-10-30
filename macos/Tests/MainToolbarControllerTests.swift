@@ -210,6 +210,22 @@ import Testing
         #expect(controller.room.afterLeading > 500)
     }
 
+    // The sidebar's own items come before its toggle, which stays against the divider.
+    @Test(.timeLimit(.minutes(1))) func sidebarItemsPrecedeTheToggle() async throws {
+        let window = Self.splitWindow()
+        defer { window.close() }
+        let controller = MainToolbarController {
+            WindowToolbar(sidebar: [WindowToolbarItem("activity") { Color.clear.frame(width: 20, height: 20) }],
+                          leading: [WindowToolbarItem("title", style: .plain) { Color.clear.frame(width: 100, height: 20) }])
+        }
+        controller.window = window
+        window.orderFront(nil)
+        let ids = window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? []
+        #expect(Array(ids.prefix(5)) == [NSToolbarItem.Identifier.flexibleSpace.rawValue, "activity",
+                                         NSToolbarItem.Identifier.toggleSidebar.rawValue,
+                                         NSToolbarItem.Identifier.sidebarTrackingSeparator.rawValue, "title"])
+    }
+
     // The pane opening adds its tabs to the toolbar and shutting takes them out. The toolbar is
     // edited in place: the same toolbar, the title's item and view untouched, so nothing but the
     // pane's section moves.
