@@ -1,6 +1,7 @@
-//! This Mac's side of each pairing: a task per peer that keeps the peer's event stream open,
-//! retrying while it cannot be reached, and tells the app what it hears (`Event::Remote`) and
-//! whether the peer answers (`Event::RemotePeer`). Requests the app makes of a peer are
+//! This Mac's side of each pairing: a task per peer that keeps the peer's event stream open while
+//! it answers, and tells the app what it hears (`Event::Remote`) and whether the peer answers
+//! (`Event::RemotePeer`). A peer that cannot be reached, or whose stream ends, is not tried again
+//! on a timer: only when someone opens Settings → Remote to look for it (`connect`). Requests the app makes of a peer are
 //! forwarded as they are, with the peer's token, over a connection pinned to its certificate.
 
 use std::{
@@ -22,11 +23,10 @@ use tokio::task::JoinHandle;
 use super::{client, identity, store};
 use crate::{AppState, Event};
 
-/// Waits between tries while a peer cannot be reached: doubling from the first to the last.
-const RETRY_FIRST: Duration = if cfg!(test) { Duration::from_millis(50) } else { Duration::from_secs(2) };
-const RETRY_LAST: Duration = if cfg!(test) { Duration::from_millis(200) } else { Duration::from_secs(60) };
 /// The host sends a keep-alive every 15 seconds; a stream silent for longer than this is dead.
 const SILENT: Duration = if cfg!(test) { Duration::from_secs(2) } else { Duration::from_secs(45) };
+/// The most addresses kept for a peer; Bonjour's latest first.
+const ADDRESSES: usize = 4;
 /// The most one event may hold before the stream is dropped as broken.
 const EVENT_LIMIT: usize = 16 * 1024 * 1024;
 
@@ -109,6 +109,27 @@ pub fn link(state: &AppState, id: &str) {
     links.insert(id.to_owned(), Link { task, reach: Reach::Connecting, generation });
 }
 
+/// Tries a peer again that is not linked now, for someone looking for it; `address` is where
+/// Bonjour sees it, kept first among its addresses. A peer online or being reached is left as it
+/// is, and a revoked one too: only pairing again helps it.
+pub async fn connect(state: &AppState, id: &str, address: Option<&str>) -> Result<Option<Reach>> {
+    let Some(mut peer) = store::peers(&state.db).await?.into_iter().find(|peer| peer.id == id) else { return Ok(None) };
+    if let Some(address) = address.map(str::trim).filter(|address| !address.is_empty()) {
+        if peer.addresses.first().map(String::as_str) != Some(address) {
+            peer.addresses.retain(|known| known != address);
+            peer.addresses.insert(0, address.to_owned());
+            peer.addresses.truncate(ADDRESSES);
+            store::set_addresses(&state.db, id, &peer.addresses).await?;
+        }
+    }
+    let reach = state.remote.links.reach(id);
+    if matches!(reach, Reach::Online | Reach::Connecting | Reach::Revoked) {
+        return Ok(Some(reach));
+    }
+    link(state, id);
+    Ok(Some(Reach::Connecting))
+}
+
 pub fn unlink(state: &AppState, id: &str) {
     state.remote.links.lock().remove(id);
 }
@@ -128,27 +149,20 @@ pub(super) fn set_reach(state: &AppState, id: &str, generation: Option<u64>, rea
     }
 }
 
+/// Tries the peer and relays its stream for as long as it lasts. A stream that ends is opened
+/// again once at once, which hears why: the peer went away, or it revoked this Mac.
 async fn run(state: AppState, id: String, generation: u64) {
-    let mut wait = RETRY_FIRST;
-    loop {
-        match listen(&state, &id, generation).await {
-            // Heard from it, then lost it: try again soon.
-            Ok(true) => wait = RETRY_FIRST,
-            Ok(false) => {}
-            Err(Refused::Revoked) => {
-                set_reach(&state, &id, Some(generation), Reach::Revoked);
-                return;
-            }
-            Err(Refused::Changed) => {
-                set_reach(&state, &id, Some(generation), Reach::Changed);
-                return;
-            }
-            Err(Refused::Gone) => return,
-        }
-        set_reach(&state, &id, Some(generation), Reach::Offline);
-        tokio::time::sleep(wait).await;
-        wait = (wait * 2).min(RETRY_LAST);
+    let mut outcome = listen(&state, &id, generation).await;
+    while let Ok(true) = outcome {
+        outcome = listen(&state, &id, generation).await;
     }
+    let reach = match outcome {
+        Ok(_) => Reach::Offline,
+        Err(Refused::Revoked) => Reach::Revoked,
+        Err(Refused::Changed) => Reach::Changed,
+        Err(Refused::Gone) => return,
+    };
+    set_reach(&state, &id, Some(generation), reach);
 }
 
 enum Refused {

@@ -229,6 +229,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/remote/peers", get(remote::routes::peers))
         .route("/api/remote/peers/pair", post(remote::routes::pair))
         .route("/api/remote/peers/{id}", delete(remote::routes::forget_peer))
+        .route("/api/remote/peers/{id}/connect", post(remote::routes::connect_peer))
         .route("/api/remote/peers/{id}/tasks", get(remote::routes::peer_tasks))
         .route("/api/remote/peers/{id}/projects", get(remote::routes::peer_projects))
         .route("/api/remote/peers/{id}/chat/rpc", post(remote::routes::peer_chat_rpc))

@@ -123,6 +123,22 @@ pub async fn peer_chat_rpc(State(state): State<AppState>, headers: HeaderMap, Pa
     forward(&state, &id, Method::POST, "/api/chat/rpc", Some(&body)).await
 }
 
+#[derive(Default, Deserialize)]
+pub struct ConnectBody {
+    address: Option<String>,
+}
+
+/// `POST /api/remote/peers/{id}/connect` `{address?}` → `{reach}`: tries a paired Mac again,
+/// for Settings → Remote while it is open, at `address` when Bonjour sees it there.
+pub async fn connect_peer(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, body: Option<Json<ConnectBody>>) -> ApiResult<Value> {
+    local_only(&headers)?;
+    let address = body.and_then(|Json(body)| body.address);
+    match links::connect(&state, &id, address.as_deref()).await.map_err(ApiError::internal)? {
+        Some(reach) => Ok(Json(json!({ "reach": reach }))),
+        None => Err(ApiError::not_found("No such Mac")),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct PairBody {
     address: String,

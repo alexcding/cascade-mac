@@ -119,15 +119,20 @@ and reads `GET /api/remote/pairing` (`{open, attemptsLeft, seconds}`) to show it
 ### Client: peers and the proxy
 
 - `remote::links` runs one task per paired host: it keeps the host's `/api/stream` open,
-  trying its stored addresses in turn, retries with a doubling wait (2 seconds up to a minute)
-  while the host cannot be reached, and drops a stream silent for 45 seconds (the host sends a
-  keep-alive every 15). A `401` means this Mac was revoked there, and another certificate at
+  trying its stored addresses in turn, and drops a stream silent for 45 seconds (the host sends a
+  keep-alive every 15). It tries once at start and after pairing; a stream that ends is opened
+  again once at once, which hears why. Nothing tries an unreachable host on a timer: only
+  Settings → Remote, while it is open, through `POST /api/remote/peers/{id}/connect`
+  `{address?}` (on opening, and when Bonjour sees the host, at the address it resolves). A `401` means this Mac was revoked there, and another certificate at
   the address means the Mac there is not the one paired (its data was reset, or another took
-  the address): either way the link stops, and only pairing again starts it. From phase 4 the address Bonjour resolves for the host's `id` is
-  tried too (DHCP and sleep change addresses).
+  the address): either way the link stops. A revoked host takes pairing again; a changed one
+  is tried again at an address Bonjour resolves for its `id` (DHCP and sleep change addresses),
+  which goes first among its addresses (at most four).
 - Loopback routes for the app (to be added to `Routes.swift` in phase 4):
   - `GET /api/remote/peers`: each paired host's `id`, `name`, `addresses` and `reach`
     (`connecting`, `online`, `offline`, `revoked`, `changed`).
+  - `POST /api/remote/peers/{id}/connect` `{address?}` → `{reach}`: try it again, for
+    Settings → Remote; one online, being reached or revoked is left as it is.
   - `DELETE /api/remote/peers/{id}`: forget it, and stop its link.
   - `GET /api/remote/peers/{id}/tasks`, `GET /api/remote/peers/{id}/projects`,
     `POST /api/remote/peers/{id}/chat/rpc`: forwarded to the host as they are, one pinned
@@ -176,11 +181,8 @@ Each phase ends with its tests green and an independent review before the next.
 1. Does anything on the host need to show that a client is watching (a dot in the toolbar)?
 2. Should "Allow other Macs" stay on across restarts? The plan assumes yes once enabled; only
    *pairing* is limited to the sheet being open.
-3. A link keeps each paired Mac's stream open for as long as the app runs, which is push, not
-   polling, but is a connection held whether anyone is looking. Should it follow a look
-   instead (`AttentionMonitor`), as the snapshots do? The phase 3 review's view: keep a stream
-   that is up (one socket and a keep-alive, no `gh`), but in phase 4 retry an unreachable Mac
-   only on a look or when Bonjour sees it, rather than every minute for ever.
+3. Decided: a stream that is up stays open; an unreachable Mac is tried again only from
+   Settings → Remote (on opening it, and when Bonjour sees the Mac), never on a timer.
 4. Follow-up outside this work: the loopback router checks no `Host` header, so a page that
    rebinds its DNS name to 127.0.0.1 can read GET routes. It already could read `/api/tasks`;
    the remote proxy adds the paired Macs' sessions. A loopback-wide `Host` allowlist fixes both.

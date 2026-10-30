@@ -527,7 +527,7 @@ async fn the_app_reads_a_peers_sessions_projects_and_chat_through_its_own_backen
 }
 
 #[tokio::test]
-async fn a_peer_goes_offline_with_its_listener_and_comes_back() {
+async fn a_peer_gone_offline_is_tried_again_only_when_someone_looks_for_it() {
     let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
     reaches(&other, &id, Reach::Online).await;
@@ -538,7 +538,18 @@ async fn a_peer_goes_offline_with_its_listener_and_comes_back() {
     assert_eq!(get(&router, &format!("/api/remote/peers/{id}/tasks")).await.0, 502);
 
     start(&host, LOOPBACK).await.unwrap();
+    // No timer tries it again.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(other.remote.links.reach(&id), Reach::Offline);
+
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let connect = Request::post(format!("/api/remote/peers/{id}/connect")).body(Body::empty()).unwrap();
+    assert_eq!(router.clone().oneshot(connect).await.unwrap().status(), 200);
     reaches(&other, &id, Reach::Online).await;
+    // A peer online is left as it is, and one not paired is not found.
+    assert_eq!(links::connect(&other, &id, None).await.unwrap(), Some(Reach::Online));
+    assert_eq!(links::connect(&other, "nobody", None).await.unwrap(), None);
 }
 
 #[tokio::test]
@@ -604,7 +615,7 @@ async fn a_replaced_link_cannot_change_its_successors_reach() {
 #[tokio::test]
 async fn another_certificate_at_a_peers_address_stops_the_link() {
     let (host_dir, client_dir, impostor_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let (_host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let (_host, status, other, id) = paired(host_dir.path(), client_dir.path()).await;
     reaches(&other, &id, Reach::Online).await;
     // The paired address now answers with another Mac's certificate, as after a data reset.
     let (_impostor, elsewhere) = listening(impostor_dir.path()).await;
@@ -615,6 +626,12 @@ async fn another_certificate_at_a_peers_address_stops_the_link() {
     reaches(&other, &id, Reach::Changed).await;
     let error = links::forward(&other, &id, Method::GET, "/api/tasks", None).await.unwrap_err();
     assert!(error.is::<client::CertificateChanged>(), "{error:#}");
+
+    // Bonjour sees the paired Mac at its own address: it is tried there, first.
+    assert_eq!(links::connect(&other, &id, Some(&address(&status))).await.unwrap(), Some(Reach::Connecting));
+    reaches(&other, &id, Reach::Online).await;
+    let addresses = store::peers(&other.db).await.unwrap().remove(0).addresses;
+    assert_eq!(addresses, [address(&status), address(&elsewhere)]);
 }
 
 #[tokio::test]

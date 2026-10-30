@@ -181,6 +181,16 @@ pub(crate) async fn peers(db: &Database) -> rusqlite::Result<Vec<Peer>> {
         .await
 }
 
+pub(crate) async fn set_addresses(db: &Database, id: &str, addresses: &[String]) -> rusqlite::Result<()> {
+    let (id, addresses) = (id.to_owned(), serde_json::to_string(addresses).unwrap_or_else(|_| "[]".into()));
+    db.durable
+        .call(move |conn| {
+            conn.execute("UPDATE remote_peers SET addresses=?1 WHERE id=?2", params![addresses, id])?;
+            Ok(())
+        })
+        .await
+}
+
 /// The token a request to a peer carries.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn peer_token(db: &Database, id: &str) -> rusqlite::Result<Option<String>> {
