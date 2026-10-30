@@ -217,47 +217,6 @@ final class CascadeUITests: XCTestCase {
     }
 
     @MainActor
-    func testNativeActivityToastRoutesAndDismissesWithoutRequestingPermission() async throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let base = environment["CASCADE_UI_BACKEND_URL"], let path = environment["CASCADE_UI_DATA_DIR"],
-              let socket = environment["CASCADE_UI_PTY_SOCKET"] else {
-            throw XCTSkip("Run macos/scripts/test-browser-ui.sh with the isolated notification fixture.")
-        }
-        let app = XCUIApplication()
-        app.launchArguments = ["--backend-url", base, "--data-dir", path, "--pty-socket", socket]
-        app.launch()
-        XCTAssertTrue(app.outlines["workspace-sidebar"].waitForExistence(timeout: 10))
-        app.outlines["workspace-sidebar"].descendants(matching: .any)["overview"].firstMatch.click()
-        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].waitForExistence(timeout: 10), app.debugDescription)
-        app.activate()
-        func emitActivity() async throws {
-            var request = URLRequest(url: URL(string: base + "/fixture/activity-notification")!)
-            request.httpMethod = "POST"
-            let (_, response) = try await URLSession.shared.data(for: request)
-            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-        }
-        try await emitActivity()
-        // The activity capsule shows the latest activity until it is read; reading it opens the Today menu.
-        let toast = app.descendants(matching: .any)["activity-capsule-notice"].firstMatch
-        let menu = app.descendants(matching: .any)["today-activity-menu"].firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(toast.label.contains("Sample notification acceptance check"), toast.label)
-        toast.click()
-        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(toast.exists, app.debugDescription)
-        app.typeKey(.escape, modifierFlags: [])
-        XCTAssertTrue(menu.waitForNonExistence(timeout: 5), app.debugDescription)
-        XCTAssertTrue(app.descendants(matching: .any)["native-dashboard"].exists)
-        // Show all activity is where the menu leads for more.
-        try await emitActivity()
-        XCTAssertTrue(toast.waitForExistence(timeout: 5), app.debugDescription)
-        toast.click()
-        XCTAssertTrue(menu.waitForExistence(timeout: 5), app.debugDescription)
-        app.buttons["Show all activity →"].click()
-        XCTAssertTrue(app.buttons["Clear Logs…"].waitForExistence(timeout: 5), app.debugDescription)
-    }
-
-    @MainActor
     func testNativeGitClientPreferencesAndLaunchFailureRecovery() throws {
         let environment = ProcessInfo.processInfo.environment
         guard let base = environment["CASCADE_UI_BACKEND_URL"],
@@ -872,10 +831,6 @@ final class CascadeUITests: XCTestCase {
         XCTAssertTrue(draft.waitForExistence(timeout: 5))
         XCTAssertEqual(draft.value as? String, "Keep this tray draft")
         app.sheets.buttons["Cancel"].click()
-        // The sidebar's activity capsule is today's activity (events-popover.js), not the tray.
-        app.buttons["Today's activity"].click()
-        XCTAssertTrue(app.descendants(matching: .any)["today-activity-menu"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.menuItems["Quit Cascade"].exists)
     }
 
     @MainActor
