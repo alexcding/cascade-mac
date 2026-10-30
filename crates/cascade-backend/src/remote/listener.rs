@@ -64,45 +64,58 @@ pub(crate) const CONNECTIONS: usize = if cfg!(test) { 4 } else { 32 };
 /// Of those, the most one address may hold: one device on the network, paired or not, cannot
 /// take every slot from the others.
 pub(crate) const PER_SOURCE: usize = if cfg!(test) { 3 } else { 8 };
+/// And the most one global IPv6 /64 may hold, since a device can take as many addresses in its
+/// network as it likes; the Macs sharing that network share this, so it is most of the whole.
+pub(crate) const PER_NETWORK: usize = CONNECTIONS * 3 / 4;
 
-/// The address a connection is counted under: IPv4 as it is, IPv6 by its /64, since one device
-/// can take as many addresses in its network as it likes.
-pub(crate) fn source(address: IpAddr) -> IpAddr {
-    match address.to_canonical() {
-        IpAddr::V6(v6) => IpAddr::V6(std::net::Ipv6Addr::from(v6.to_bits() & !((1u128 << 64) - 1))),
-        v4 => v4,
+/// What a connection from `address` is counted under, each with its limit: the address itself,
+/// and for a global IPv6 address its /64 too. Link-local (`fe80::/10`, which every Mac on the
+/// link shares as a /64) and IPv4 count by address alone.
+pub(crate) fn sources(address: IpAddr) -> Vec<(IpAddr, usize)> {
+    let address = address.to_canonical();
+    let mut counted = vec![(address, PER_SOURCE)];
+    if let IpAddr::V6(v6) = address {
+        if !v6.is_unicast_link_local() && !v6.is_loopback() {
+            let network = std::net::Ipv6Addr::from(v6.to_bits() & !((1u128 << 64) - 1));
+            counted.push((IpAddr::V6(network), PER_NETWORK));
+        }
     }
+    counted
 }
 
-/// The connections each address holds now. A short lock, never held across an await.
+/// The connections each address and network holds now. A short lock, never held across an await.
 #[derive(Default)]
 struct Sources(std::sync::Mutex<HashMap<IpAddr, usize>>);
 
-/// One address's share of the slots, given back when its connection ends.
+/// A connection's share of the slots, given back when it ends.
 struct SourceSlot {
     sources: Arc<Sources>,
-    address: IpAddr,
+    counted: Vec<IpAddr>,
 }
 
 impl Sources {
     fn take(self: &Arc<Self>, address: IpAddr) -> Option<SourceSlot> {
+        let counted = sources(address);
         let mut held = self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let count = held.entry(address).or_default();
-        if *count >= PER_SOURCE {
+        if counted.iter().any(|(key, limit)| held.get(key).copied().unwrap_or(0) >= *limit) {
             return None;
         }
-        *count += 1;
-        Some(SourceSlot { sources: self.clone(), address })
+        for (key, _) in &counted {
+            *held.entry(*key).or_default() += 1;
+        }
+        Some(SourceSlot { sources: self.clone(), counted: counted.into_iter().map(|(key, _)| key).collect() })
     }
 }
 
 impl Drop for SourceSlot {
     fn drop(&mut self) {
         let mut held = self.sources.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(count) = held.get_mut(&self.address) {
-            *count -= 1;
-            if *count == 0 {
-                held.remove(&self.address);
+        for key in &self.counted {
+            if let Some(count) = held.get_mut(key) {
+                *count -= 1;
+                if *count == 0 {
+                    held.remove(key);
+                }
             }
         }
     }
@@ -254,7 +267,7 @@ pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, rout
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 };
-                let Some(source) = sources.take(source(peer.ip())) else { continue };
+                let Some(source) = sources.take(peer.ip()) else { continue };
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let (acceptor, router) = (acceptor.clone(), router.clone());
                 connections.spawn(async move {

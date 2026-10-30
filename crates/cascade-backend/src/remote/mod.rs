@@ -142,7 +142,6 @@ pub async fn resume(state: &AppState) {
     }
 }
 
-/// Forgets a paired client and ends its open stream. Its next request is refused.
 /// `new` was given in place of `old` (`pairing::finish`); `old` goes when `new` is first used.
 pub(crate) fn replace(state: &AppState, new: String, old: String) {
     if new != old {
@@ -158,6 +157,7 @@ pub(crate) async fn used(state: &AppState, id: &str) {
     }
 }
 
+/// Forgets a paired client and ends its open stream. Its next request is refused.
 pub async fn revoke(state: &AppState, id: &str) -> Result<bool> {
     let removed = store::remove_client(&state.db, id).await?;
     let _ = state.remote.revoked.send(id.to_owned());

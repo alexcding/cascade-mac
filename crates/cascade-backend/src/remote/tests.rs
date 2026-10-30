@@ -736,11 +736,12 @@ async fn a_repairing_whose_answer_is_lost_keeps_the_old_token_working() {
 }
 
 #[test]
-fn a_connection_counts_under_its_ipv4_address_or_its_ipv6_network() {
-    use super::listener::source;
+fn a_connection_counts_under_its_address_and_a_global_ipv6_address_under_its_network_too() {
+    use super::listener::{sources, PER_NETWORK, PER_SOURCE};
     let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
-    assert_eq!(source(ip("192.168.1.5")), ip("192.168.1.5"));
-    assert_eq!(source(ip("::ffff:192.168.1.5")), ip("192.168.1.5"));
-    assert_eq!(source(ip("fe80::1:2:3:4")), source(ip("fe80::9:9:9:9")));
-    assert_ne!(source(ip("2001:db8:0:1::5")), source(ip("2001:db8:0:2::5")));
+    assert_eq!(sources(ip("192.168.1.5")), [(ip("192.168.1.5"), PER_SOURCE)]);
+    assert_eq!(sources(ip("::ffff:192.168.1.5")), [(ip("192.168.1.5"), PER_SOURCE)]);
+    // Every Mac on the link shares fe80::/64: each counts by its own address.
+    assert_eq!(sources(ip("fe80::1:2:3:4")), [(ip("fe80::1:2:3:4"), PER_SOURCE)]);
+    assert_eq!(sources(ip("2001:db8:0:1::5")), [(ip("2001:db8:0:1::5"), PER_SOURCE), (ip("2001:db8:0:1::"), PER_NETWORK)]);
 }

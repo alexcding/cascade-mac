@@ -114,8 +114,8 @@ The host keeps the client and sends the token before the client has checked the 
 so an answer lost on the way leaves the host listing a Mac with no token until it is revoked.
 A Mac pairing again sends the token it holds (`replaces`, over the pinned connection); the host
 revokes that old client only when the new token is first used, so a re-pairing whose answer was
-lost leaves the old pairing working. The listener holds at most 32 connections, at most 8 from
-one IPv4 address or IPv6 /64.
+lost leaves the old pairing working. The listener holds at most 32 connections: at most 8 from one
+address, and at most 24 from one global IPv6 /64 (link-local and IPv4 count by address alone).
 Accepted for v1.
 
 `/pair/start` and `/pair/finish` are the only listener routes without a token, and answer only
