@@ -65,6 +65,15 @@ pub(crate) const CONNECTIONS: usize = if cfg!(test) { 4 } else { 32 };
 /// take every slot from the others.
 pub(crate) const PER_SOURCE: usize = if cfg!(test) { 3 } else { 8 };
 
+/// The address a connection is counted under: IPv4 as it is, IPv6 by its /64, since one device
+/// can take as many addresses in its network as it likes.
+pub(crate) fn source(address: IpAddr) -> IpAddr {
+    match address.to_canonical() {
+        IpAddr::V6(v6) => IpAddr::V6(std::net::Ipv6Addr::from(v6.to_bits() & !((1u128 << 64) - 1))),
+        v4 => v4,
+    }
+}
+
 /// The connections each address holds now. A short lock, never held across an await.
 #[derive(Default)]
 struct Sources(std::sync::Mutex<HashMap<IpAddr, usize>>);
@@ -155,6 +164,7 @@ async fn authorize(State(state): State<AppState>, mut request: Request, next: Ne
     };
     match client {
         Ok(Some(id)) => {
+            super::used(&state, &id).await;
             request.extensions_mut().insert(Client(id));
             next.run(request).await
         }
@@ -244,7 +254,7 @@ pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, rout
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 };
-                let Some(source) = sources.take(peer.ip().to_canonical()) else { continue };
+                let Some(source) = sources.take(source(peer.ip())) else { continue };
                 let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
                 let (acceptor, router) = (acceptor.clone(), router.clone());
                 connections.spawn(async move {

@@ -224,6 +224,15 @@ private func event(_ json: String) throws -> ServerEvent {
     #expect(await model.pair(address: "mini.local:1", code: "123456"))
     #expect(model.peers.map(\.id) == ["ab"] && model.pairError == nil)
 
+    // Pairing again with a Mac that answers: the pair's answer says nothing of that, so it stands.
+    remote.set(peers: [RemotePeer(id: "ab", name: "Mac mini", reach: .online)])
+    model.setActive(true)
+    try await waitUntil { model.peers.first?.reach == .online }
+    remote.pairs(as: RemotePeer(id: "ab", name: "Mac mini"))
+    #expect(await model.pair(address: "mini.local:1", code: "123456"))
+    #expect(model.peers.first?.reach == .online)
+    model.setActive(false)
+
     await model.openPairing()
     #expect(model.pairingCode == "123456" && model.pairingCloses != nil)
     await model.closePairing()

@@ -244,7 +244,7 @@ pub(crate) struct FinishBody {
     session: String,
     proof: String,
     /// The token this client held from an earlier pairing with this host, revoked once the new
-    /// one is given: pairing again replaces the client rather than listing it twice.
+    /// one is first used: pairing again replaces the client rather than listing it twice.
     #[serde(default)]
     replaces: Option<String>,
 }
@@ -275,11 +275,12 @@ pub(crate) async fn finish(State(state): State<AppState>, Json(body): Json<Finis
         *guard = None;
         taken
     };
-    let (_, token) = store::add_client(&state.db, &started.label).await.map_err(ApiError::internal)?;
-    // Only a token this host gave, and only now the code is proven: the old client goes.
+    let (id, token) = store::add_client(&state.db, &started.label).await.map_err(ApiError::internal)?;
+    // Only a token this host gave, and only now the code is proven. The old client goes once the
+    // new token is used (`listener::authorize`): until then this answer may not have arrived.
     if let Some(old) = body.replaces.as_deref() {
-        if let Ok(Some(id)) = store::client_for(&state.db, old).await {
-            let _ = super::revoke(&state, &id).await;
+        if let Ok(Some(old)) = store::client_for(&state.db, old).await {
+            super::replace(&state, id, old);
         }
     }
     state.publish(Event::RemotePairing);

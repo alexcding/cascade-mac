@@ -39,6 +39,10 @@ pub struct Remote {
     pairing: std::sync::Mutex<Option<pairing::Window>>,
     /// This Mac's links to the Macs it paired with.
     links: links::Links,
+    /// A client that paired again, by its new id, and the old one it replaces: the old goes once
+    /// the new token is first used, so a pairing whose answer was lost keeps the old one working.
+    /// Short lock; lost on restart, which leaves the old client listed until revoked by hand.
+    replacing: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 struct Running {
@@ -54,7 +58,7 @@ impl Drop for Running {
 
 impl Default for Remote {
     fn default() -> Self {
-        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default() }
+        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default(), replacing: Default::default() }
     }
 }
 
@@ -139,6 +143,21 @@ pub async fn resume(state: &AppState) {
 }
 
 /// Forgets a paired client and ends its open stream. Its next request is refused.
+/// `new` was given in place of `old` (`pairing::finish`); `old` goes when `new` is first used.
+pub(crate) fn replace(state: &AppState, new: String, old: String) {
+    if new != old {
+        state.remote.replacing.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(new, old);
+    }
+}
+
+/// A client's token was used: the client it replaced, if any, is revoked now.
+pub(crate) async fn used(state: &AppState, id: &str) {
+    let old = state.remote.replacing.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(id);
+    if let Some(old) = old {
+        let _ = revoke(state, &old).await;
+    }
+}
+
 pub async fn revoke(state: &AppState, id: &str) -> Result<bool> {
     let removed = store::remove_client(&state.db, id).await?;
     let _ = state.remote.revoked.send(id.to_owned());

@@ -708,6 +708,39 @@ async fn pairing_again_replaces_the_client_and_its_old_token() {
 
     let again = pairing::open(&host, "mac-mini").await.unwrap();
     pairing::pair(&other, &address(&status), &again.code, "MacBook").await.unwrap();
-    assert_eq!(store::clients(&host.db).await.unwrap().len(), 1, "listed once");
+    // The old goes once the new token is used: the link uses it at once.
+    reaches(&other, &peer.id, Reach::Online).await;
+    let replaced = tokio::time::timeout(Duration::from_secs(5), async {
+        while store::clients(&host.db).await.unwrap().len() != 1 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(replaced.is_ok(), "listed once");
     assert_eq!(store::client_for(&host.db, &old).await.unwrap(), None, "the old token no longer works");
+}
+
+#[tokio::test]
+async fn a_repairing_whose_answer_is_lost_keeps_the_old_token_working() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, status, other, code) = pairing_pair(host_dir.path(), client_dir.path()).await;
+    let peer = pairing::pair(&other, &address(&status), &code, "MacBook").await.unwrap();
+    let old = store::peer_token(&other.db, &peer.id).await.unwrap().unwrap();
+    let (old_id, _) = store::clients(&host.db).await.unwrap().into_iter().map(|client| (client.id, ())).next().unwrap();
+    // The host gave a new client in place of the old, and the answer never arrived.
+    let (new_id, _) = store::add_client(&host.db, "MacBook").await.unwrap();
+    super::replace(&host, new_id, old_id);
+    let (code, _) = links::forward(&other, &peer.id, Method::GET, "/api/tasks", None).await.unwrap().unwrap();
+    assert_eq!(code.as_u16(), 200, "the old token still works");
+    assert!(store::client_for(&host.db, &old).await.unwrap().is_some());
+}
+
+#[test]
+fn a_connection_counts_under_its_ipv4_address_or_its_ipv6_network() {
+    use super::listener::source;
+    let ip = |text: &str| text.parse::<std::net::IpAddr>().unwrap();
+    assert_eq!(source(ip("192.168.1.5")), ip("192.168.1.5"));
+    assert_eq!(source(ip("::ffff:192.168.1.5")), ip("192.168.1.5"));
+    assert_eq!(source(ip("fe80::1:2:3:4")), source(ip("fe80::9:9:9:9")));
+    assert_ne!(source(ip("2001:db8:0:1::5")), source(ip("2001:db8:0:2::5")));
 }
