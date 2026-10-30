@@ -1,6 +1,6 @@
 # Mac to Mac: see another Mac's sessions
 
-Status: **phases 1–3 (listener, pairing, this Mac's links) built**; the app (phase 4) is next, `crates/cascade-backend/src/remote/`. Decided 2026-10-29. This comes before the phone app in
+Status: **phases 1–4 built**: the backend in `crates/cascade-backend/src/remote/`, the app in `macos/Services/Remote/`, Settings → Remote and the sidebar. Decided 2026-10-29. This comes before the phone app in
 [03-architecture.md](03-architecture.md) and replaces its iCloud pairing for now. The remote
 listener, its allowlist and the terminal bridge are shared with that design.
 
@@ -139,8 +139,8 @@ and reads `GET /api/remote/pairing` (`{open, attemptsLeft, seconds}`) to show it
     connection per request; the host's answer comes back with its status, `404` for a Mac not
     paired, and `502` when no address answers. A large answer may take as long as it keeps
     coming (15 seconds at most between pieces, 64 MiB at most). The host's own lists decide what passes.
-- Events: what the host's stream carries comes back as `Event::Remote { peer, event }`
-  (`{"type":"remote","peer":…,"event":{…}}`), and a change in whether it answers as
+- Events: what the host's stream carries comes back as `Event::Remote { peer, relayed }`
+  (`{"type":"remote","peer":…,"relayed":{…}}`), and a change in whether it answers as
   `Event::RemotePeer { peer, reach }`.
 
 Host-side loopback routes: `GET /api/remote` (on or off, port, fingerprint),
@@ -152,15 +152,21 @@ pairs or is revoked, `remote-peers` when this Mac pairs with or forgets one.
 
 ### App
 
-- `Services/Remote/`: `RemoteAdvertiser` (Bonjour while the pairing sheet is open),
-  `RemoteBrowser` (`NWBrowser`), `RemotePeersStore` (peers and their sessions, from the
-  proxied routes and the `remote` events).
-- Sidebar: one section per peer after Projects, with a reachability dot; each row shows the
-  session title and its project's name. Not pinnable in phase 1.
-- Opening a remote session shows its chat read-only. It reuses the chat page with a
-  `ChatPageBackend` that answers from `POST /api/remote/peers/{id}/chat/rpc`.
-- Settings → Remote: allow other Macs, pair a Mac, the paired clients with Revoke (host),
-  the paired Macs with Forget (client).
+- `Services/Remote/`: `RemoteService` (the loopback routes), `RemoteBonjour` (the advertiser,
+  `DNSServiceRegister`, and the browser, `NWBrowser`; TXT `id`, `name`, `host`, `port`, so no
+  resolve is needed), `RemotePeersStore` (the paired Macs and each one's sessions and chats, read
+  when it comes online and kept by the relayed `tasks`, `chat-shell` and `chat-removed`).
+- Sidebar: one section per paired Mac after Chats, headed by its name and, when it is not
+  answering, why. Its sessions are listed, not opened: their terminals and transcripts are the
+  other Mac's, and the listener serves neither (a follow-up could allow the transcript read). Its
+  chats open read-only (`.remoteChat(peer:thread:)`), on the chat screen's page, through a
+  `ChatServiceBackend` on `POST /api/remote/peers/{id}/chat/rpc`; only a web link the page names
+  is followed, never a file.
+- Settings → Remote (`RemoteSettingsViewModel`): allow other Macs, show a pairing code (this Mac
+  is advertised while it is up, with its address for Pair by address), the Macs that can see this
+  one with Remove, the Macs this one shows with Forget, and nearby Macs not paired with Pair….
+  While the section shows, Bonjour runs, and each paired Mac not answering is tried once, and
+  again at each address Bonjour sees it at. Nothing tries it on a timer.
 - `App-Info.plist`: `NSLocalNetworkUsageDescription` and `NSBonjourServices = [_cascade._tcp]`.
   macOS asks for local network access once, on both Macs.
 

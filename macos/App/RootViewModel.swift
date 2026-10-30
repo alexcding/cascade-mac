@@ -23,6 +23,8 @@ import Observation
     /// Every chat the store holds, and whether it has been read yet.
     var chats: [ChatThreadShell] = []
     var chatsLoaded = false
+    /// The paired Macs' chats, each by its `.remoteChat` destination, with its title.
+    var remoteChatTitles: [SidebarDestination: String] = [:]
 }
 
 @MainActor protocol RootServing: AnyObject { func rootState() -> RootState }
@@ -83,6 +85,7 @@ import Observation
         case .project(let id): return state.projects.first { $0.id == id }?.name ?? String(localized: "Project")
         case .session(let id): return state.sessions.first { $0.id == id }?.label ?? String(localized: "Session")
         case .chat(let id): return state.chats.first { $0.id == id }?.label ?? String(localized: "Chat")
+        case .remoteChat: return state.remoteChatTitles[state.selection] ?? String(localized: "Chat")
         }
     }
     func session(_ id: String) -> WorkspaceSession? { state.sessions.first { $0.id == id } }

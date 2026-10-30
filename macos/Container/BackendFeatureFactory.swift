@@ -20,6 +20,8 @@ import Foundation
     func ideWarmup(api: APIClient) -> any IDEWarmupServing
     /// The chat sessions' backend (`/api/chat/rpc`).
     func chat(api: APIClient) -> any ChatServing
+    /// Other Macs: this one's listener, pairing, and the Macs it paired with (`/api/remote`).
+    func remote(api: APIClient) -> any RemoteServing
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving
 }
 
@@ -41,6 +43,7 @@ extension BackendFeatureFactory {
     func sessions(api: APIClient) -> any SessionServing { SessionOperations(api: api) }
     func ideWarmup(api: APIClient) -> any IDEWarmupServing { APIIDEWarmupService(api: api) }
     func chat(api: APIClient) -> any ChatServing { APIChatService(api: api) }
+    func remote(api: APIClient) -> any RemoteServing { APIRemoteService(api: api) }
     func removal(api: APIClient, stopTerminals: @escaping @Sendable (Set<String>) async throws -> Void) -> any SessionRemoving {
         SessionRemovalService(api: api, stopTerminals: stopTerminals)
     }

@@ -135,8 +135,8 @@ pub enum Event {
     /// (`GET /api/remote/pairing`).
     RemotePairing,
     /// An event a paired Mac told this one, as it told it (`remote::links`).
-    Remote { peer: String, event: Value },
-    /// Whether a paired Mac answers changed: `connecting`, `online`, `offline` or `revoked`.
+    Remote { peer: String, relayed: Value },
+    /// Whether a paired Mac answers changed: `connecting`, `online`, `offline`, `revoked` or `changed`.
     RemotePeer { peer: String, reach: &'static str },
 }
 
@@ -179,8 +179,8 @@ mod tests {
         assert_eq!(Value::from(Event::RemotePeers), json!({"type":"remote-peers"}));
         assert_eq!(Value::from(Event::RemotePairing), json!({"type":"remote-pairing"}));
         assert_eq!(
-            Value::from(Event::Remote { peer: "ab".into(), event: json!({"type":"tasks"}) }),
-            json!({"type":"remote","peer":"ab","event":{"type":"tasks"}})
+            Value::from(Event::Remote { peer: "ab".into(), relayed: json!({"type":"tasks"}) }),
+            json!({"type":"remote","peer":"ab","relayed":{"type":"tasks"}})
         );
         assert_eq!(
             Value::from(Event::RemotePeer { peer: "ab".into(), reach: "online" }),

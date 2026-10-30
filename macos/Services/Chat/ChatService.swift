@@ -10,10 +10,12 @@ protocol ChatServing: Sendable {
 
 struct APIChatService: ChatServing {
     let api: APIClient
+    /// This Mac's chat engine, or a paired Mac's through this Mac's backend (`remotePeerChatRPC`).
+    var path = Routes.CHAT_RPC
 
     func rpc(_ method: String, params: JSONValue) async throws -> JSONValue {
         let body: JSONValue = ["method": .string(method), "params": params]
-        let (data, status) = try await api.post(Routes.CHAT_RPC, json: body.encoded())
+        let (data, status) = try await api.post(path, json: body.encoded())
         let reply = try? JSONDecoder().decode(JSONValue.self, from: data)
         guard (200..<300).contains(status) else {
             if let error = reply?["error"] {

@@ -84,7 +84,7 @@ extension AppViewModel: ChatCoordinating {
     }
 
     /// The chat screen's page (`chatPage`), made when first wanted.
-    private func chatScreenPage() -> ChatPageHost? {
+    func chatScreenPage() -> ChatPageHost? {
         if chatPage == nil { chatPage = chatFactory.chatPage() }
         return chatPage
     }

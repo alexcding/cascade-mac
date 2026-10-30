@@ -197,9 +197,13 @@ import Observation
             return automationCoordinator.map(Destination.automationCoordinator) ?? .unavailable(title: String(localized: "Automation"), message: String(localized: "Connect to load automations."))
         case .project(let id):
             return projectCoordinators[id].map(Destination.projectCoordinator) ?? .unavailable(title: rootModel?.title ?? String(localized: "Project"), message: String(localized: "Connect to load this project."))
-        case .chat(let id):
-            if let chat = chatCoordinator, chat.threadID == id { return .chatCoordinator(chat) }
+        case .chat:
+            if let chat = chatCoordinator, chat.destination == destination { return .chatCoordinator(chat) }
             return .unavailable(title: rootModel?.title ?? String(localized: "Chat"), message: String(localized: "Connect to load this chat."))
+        case .remoteChat:
+            if let chat = chatCoordinator, chat.destination == destination { return .chatCoordinator(chat) }
+            return .unavailable(title: rootModel?.title ?? String(localized: "Chat"),
+                                message: String(localized: "The other Mac has not answered yet. Open Settings → Remote to look for it."))
         // A workspace selection shows its coordinator once the viewer has activated the
         // context and a coordinator is bound to it; until then, the root placeholder.
         case .terminal:

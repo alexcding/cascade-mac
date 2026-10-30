@@ -126,6 +126,7 @@ extension SettingsSection {
         case .editor: "doc.plaintext"
         case .worktrees: "arrow.triangle.branch"
         case .shortcuts: "keyboard"
+        case .remote: "desktopcomputer"
         case .clis: "puzzlepiece.extension"
         case .system: "cpu"
         case .activity: "clock"

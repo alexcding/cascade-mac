@@ -45,7 +45,12 @@
     <!-- Since macOS 15, reaching a device on the local network (a dev server on another Mac, a
          phone) asks first; the prompt shows this text. -->
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Cascade needs the local network to reach dev servers and devices from the browser panel and terminal sessions.</string>
+    <string>Cascade needs the local network to find and connect to your other Macs running Cascade, and to reach dev servers and devices from the browser panel and terminal sessions.</string>
+    <!-- Settings → Remote finds other Macs, and is found, over Bonjour (`RemoteBonjour.type`). -->
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_cascade._tcp</string>
+    </array>
     <!-- Empty values leave Sparkle inactive. Release builds supply the real feed
          and public key through build settings; private keys never enter the app. -->
     <key>SUFeedURL</key>

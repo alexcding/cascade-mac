@@ -122,6 +122,35 @@ public enum Routes {
     public static func automationRun(_ value: String) -> String {
         "/api/automations/\(encodeComponent(value))/run"
     }
+    /// Other Macs: this one's listener and the Macs paired with it (host), and the Macs this one
+    /// paired with, read through its own backend (client). `docs/remote/05-mac-to-mac.md`.
+    public static let REMOTE = "/api/remote"
+    public static let REMOTE_ENABLE = "/api/remote/enable"
+    public static let REMOTE_DISABLE = "/api/remote/disable"
+    public static let REMOTE_CLIENTS = "/api/remote/clients"
+    public static let REMOTE_CLIENT = "/api/remote/clients/:id"
+    public static func remoteClient(_ value: String) -> String {
+        "/api/remote/clients/\(encodeComponent(value))"
+    }
+    public static let REMOTE_PAIRING = "/api/remote/pairing"
+    public static let REMOTE_PEERS = "/api/remote/peers"
+    public static let REMOTE_PEERS_PAIR = "/api/remote/peers/pair"
+    public static let REMOTE_PEER = "/api/remote/peers/:id"
+    public static func remotePeer(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))"
+    }
+    public static let REMOTE_PEER_CONNECT = "/api/remote/peers/:id/connect"
+    public static func remotePeerConnect(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/connect"
+    }
+    public static let REMOTE_PEER_TASKS = "/api/remote/peers/:id/tasks"
+    public static func remotePeerTasks(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/tasks"
+    }
+    public static let REMOTE_PEER_CHAT_RPC = "/api/remote/peers/:id/chat/rpc"
+    public static func remotePeerChatRPC(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/chat/rpc"
+    }
     public static let WEBHOOK_GITHUB = "/webhook/github"
     public static let CLI_TOOLS = "/api/cli-tools"
     public static let AGENT_HOOKS = "/api/agent-hooks"

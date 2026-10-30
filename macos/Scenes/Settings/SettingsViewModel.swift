@@ -26,6 +26,7 @@ import Observation
     let clis: CLISettingsViewModel
     let webhooks: WebhookForwardingViewModel
     let worktrees: WorktreeListViewModel
+    let remote: RemoteSettingsViewModel
     let diagnostics: DiagnosticsViewModel
     let loginItem: LoginItemViewModel
     let microphone: MicrophoneAccessViewModel
@@ -60,8 +61,9 @@ import Observation
     init(clis: CLISettingsViewModel, diagnostics: DiagnosticsViewModel, loginItem: LoginItemViewModel, fonts: FontSettingsViewModel,
          resources: ResourceUsageViewModel, adBlock: BrowserSettingsViewModel, fileIcons: FileIconSettingsViewModel, microphone: MicrophoneAccessViewModel,
          webhooks: WebhookForwardingViewModel = WebhookForwardingViewModel(),
-         worktrees: WorktreeListViewModel = WorktreeListViewModel()) {
-        self.clis = clis; self.webhooks = webhooks; self.worktrees = worktrees; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
+         worktrees: WorktreeListViewModel = WorktreeListViewModel(),
+         remote: RemoteSettingsViewModel = RemoteSettingsViewModel()) {
+        self.clis = clis; self.webhooks = webhooks; self.worktrees = worktrees; self.remote = remote; self.diagnostics = diagnostics; self.loginItem = loginItem; self.microphone = microphone
         self.fonts = fonts
         self.resources = resources; self.adBlock = adBlock; self.fileIcons = fileIcons
     }
@@ -106,6 +108,8 @@ import Observation
         // Sessions come and go, and a folder can be deleted from under its worktree, so read each time.
         if active && section == .worktrees { worktrees.refresh() }
         if active && section == .shortcuts { refreshAgentCatalogs() }
+        // Bonjour runs, and Macs not answering are looked for, only while Remote shows.
+        remote.setActive(active && section == .remote)
     }
     /// A CLI's models change with its version, so they are read each time Shortcuts shows.
     private func refreshAgentCatalogs() {
@@ -190,13 +194,14 @@ import Observation
         connection = UUID(); cancelRead(); service = nil
     }
     private func cancelRead() { readGeneration = UUID(); task?.cancel(); task = nil; loading = false }
-    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); worktrees.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
+    func retire() { active = false; retired = true; onAction = { _ in }; clis.retire(); webhooks.retire(); worktrees.retire(); remote.retire(); loginItem.retire(); microphone.retire(); adBlock.retire(); fileIcons.retire(); disconnect() }
     func stop() async {
         let read = task; active = false; disconnect(); diagnostics.stop()
         resources.stop()
         let cliReads = clis.disconnect()
         webhooks.disconnect()
         worktrees.disconnect()
+        remote.disconnect()
         microphone.setActive(false)
         let loginMutation = loginItem.cancelRead(), fontRead = fonts.cancelRead(), microphoneRead = microphone.cancelRead()
         await loginMutation?.value

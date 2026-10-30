@@ -52,6 +52,12 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     var threadId: String? = nil
     var events: [JSONValue]? = nil
     var shell: JSONValue? = nil
+    /// `remote` and `remote-peer`: the paired Mac it is about (its certificate's fingerprint).
+    /// `remote` carries the event that Mac told, as it told it; `remote-peer` whether it answers
+    /// (`connecting`, `online`, `offline`, `revoked`, `changed`).
+    var peer: String? = nil
+    var relayed: JSONValue? = nil
+    var reach: String? = nil
 }
 
 /// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.

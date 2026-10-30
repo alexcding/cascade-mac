@@ -503,7 +503,7 @@ async fn a_paired_mac_hears_the_hosts_allowed_events() {
     .await
     .unwrap();
     // `config` is not on the host's list, so the first event relayed is `tasks`.
-    assert_eq!(relayed, json!({ "type": "remote", "peer": id, "event": { "type": "tasks" } }));
+    assert_eq!(relayed, json!({ "type": "remote", "peer": id, "relayed": { "type": "tasks" } }));
 }
 
 #[tokio::test]

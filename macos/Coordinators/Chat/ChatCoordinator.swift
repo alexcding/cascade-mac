@@ -48,6 +48,15 @@ extension ChatFeatureFactory {
     /// The model for the chat `threadID`, or nil while the app cannot show it (not connected).
     func makeChatModel(threadID: String) -> ChatViewModel?
     func performChatAction(_ action: ChatViewModel.Action, threadID: String)
+    /// The model for a paired Mac's chat, shown read-only, or nil while the app cannot show it.
+    func makeRemoteChatModel(peer: String, threadID: String) -> ChatViewModel?
+    /// What a paired Mac's chat page asked for: nothing of it is this Mac's but a link.
+    func performRemoteChatAction(_ action: ChatViewModel.Action, peer: String)
+}
+
+extension ChatCoordinating {
+    func makeRemoteChatModel(peer: String, threadID: String) -> ChatViewModel? { nil }
+    func performRemoteChatAction(_ action: ChatViewModel.Action, peer: String) {}
 }
 
 /// One chat on screen. A chat's coordinator lives while its chat is selected, and retires when the
@@ -58,14 +67,17 @@ extension ChatFeatureFactory {
     @ObservationIgnored var action: ((Action) -> Void)?
 
     let model: ChatViewModel
+    /// The selection it shows: `.chat`, or `.remoteChat` for a paired Mac's.
+    let destination: SidebarDestination
     private(set) var retired = false
     @ObservationIgnored var isOwned: () -> Bool = { true }
     @ObservationIgnored var canPresent: () -> Bool = { true }
     /// What the page asked for, handed to the app.
     @ObservationIgnored var perform: (ChatViewModel.Action) -> Void = { _ in }
 
-    init(model: ChatViewModel) {
+    init(model: ChatViewModel, destination: SidebarDestination? = nil) {
         self.model = model
+        self.destination = destination ?? .chat(model.threadID)
         root = .chat(model)
         model.onAction = { [weak self] in self?.handle($0) }
     }
@@ -86,21 +98,28 @@ extension ChatFeatureFactory {
 }
 
 extension AppCoordinator {
-    /// Shows `model` as the chat on screen, retiring the one before it.
-    @discardableResult func installChat(_ model: ChatViewModel) -> ChatCoordinator {
+    /// Shows `model` as the chat on screen, retiring the one before it. `peer` is the paired Mac a
+    /// remote chat is on, nil for this Mac's.
+    @discardableResult func installChat(_ model: ChatViewModel, peer: String? = nil) -> ChatCoordinator {
         if let existing = chatCoordinator, existing.model === model { return existing }
         chatCoordinator?.retire()
-        let child = ChatCoordinator(model: model)
         let id = model.threadID
+        let destination: SidebarDestination = peer.map { .remoteChat(peer: $0, thread: id) } ?? .chat(id)
+        let child = ChatCoordinator(model: model, destination: destination)
         child.isOwned = { [weak self, weak model] in
             guard let self, let model else { return false }
             return chatCoordinator?.model === model
         }
         child.canPresent = { [weak self] in
-            self?.selection == .chat(id) && self?.canPresent == true && self?.canOpenExternalRoute() == true
+            self?.selection == destination && self?.canPresent == true && self?.canOpenExternalRoute() == true
         }
         child.perform = { [weak self] action in
             guard let self else { return }
+            if let peer {
+                chatRuntime?.performRemoteChatAction(action, peer: peer)
+                if case .openThread(let other) = action, other != id { navigate(to: .remoteChat(peer: peer, thread: other)) }
+                return
+            }
             // The app hears of it first, so it can read the list again for a chat it has not heard
             // of yet; the window then goes to that chat, which retires this one.
             chatRuntime?.performChatAction(action, threadID: id)
@@ -113,18 +132,34 @@ extension AppCoordinator {
     /// The chat coordinator follows the selection: made for the chat selected, retired when the
     /// selection is not a chat or is another one. Called before `root` is rebuilt.
     func syncChatCoordinator() {
-        guard case .chat(let id) = selection else {
+        switch selection {
+        case .chat(let id):
+            if chatCoordinator?.destination == selection, chatCoordinator?.retired == false { return }
             if let current = chatCoordinator { chatCoordinator = nil; current.retire() }
-            return
+            if let model = chatRuntime?.makeChatModel(threadID: id) { installChat(model) }
+        case .remoteChat(let peer, let id):
+            if chatCoordinator?.destination == selection, chatCoordinator?.retired == false { return }
+            if let current = chatCoordinator { chatCoordinator = nil; current.retire() }
+            if let model = chatRuntime?.makeRemoteChatModel(peer: peer, threadID: id) { installChat(model, peer: peer) }
+        default:
+            if let current = chatCoordinator { chatCoordinator = nil; current.retire() }
         }
-        if chatCoordinator?.threadID == id, chatCoordinator?.retired == false { return }
-        if let current = chatCoordinator { chatCoordinator = nil; current.retire() }
-        if let model = chatRuntime?.makeChatModel(threadID: id) { installChat(model) }
     }
 
     /// A chat was deleted: its screen goes, and the window goes back to Projects if it showed it.
     func chatRemoved(_ id: String) {
-        guard chatCoordinator?.threadID == id || selection == .chat(id) else { return }
+        guard chatCoordinator?.destination == .chat(id) || selection == .chat(id) else { return }
         if selection == .chat(id) { navigate(to: .overview) } else { syncChatCoordinator(); refreshRoot() }
+    }
+
+    /// A paired Mac's chat was deleted there, or the Mac forgotten here (`thread` nil): its screen
+    /// goes, as a chat of this Mac's does.
+    func remoteChatRemoved(peer: String, thread: String?) {
+        func gone(_ destination: SidebarDestination?) -> Bool {
+            guard case .remoteChat(let other, let id)? = destination else { return false }
+            return other == peer && (thread == nil || id == thread)
+        }
+        guard gone(chatCoordinator?.destination) || gone(selection) else { return }
+        if gone(selection) { navigate(to: .overview) } else { syncChatCoordinator(); refreshRoot() }
     }
 }

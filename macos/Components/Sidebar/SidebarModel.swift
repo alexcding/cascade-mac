@@ -37,6 +37,9 @@ enum SidebarDestination: Hashable, Codable {
     case newSession, overview, automation, terminal, project(String), session(String)
     /// A chat session, by its thread id, listed under Chats.
     case chat(String)
+    /// A chat on a paired Mac, shown read-only: the Mac's id (its certificate's fingerprint) and
+    /// the thread's, listed in that Mac's section.
+    case remoteChat(peer: String, thread: String)
 
     /// True for destinations that exist only while the sidebar lists them. A chat is listed from
     /// its own store, read apart from the inventory, so it is not checked against the inventory's
@@ -44,7 +47,7 @@ enum SidebarDestination: Hashable, Codable {
     var isSidebarBacked: Bool {
         switch self {
         case .project, .session: true
-        case .newSession, .overview, .automation, .terminal, .chat: false
+        case .newSession, .overview, .automation, .terminal, .chat, .remoteChat: false
         }
     }
 }
@@ -68,6 +71,13 @@ struct SidebarChatStatus: Equatable {
 
     /// The status dot's terms: a chat is never "stopped", its agent starts with each message.
     var session: SidebarSessionStatus { SidebarSessionStatus(live: true, busy: working, needsInput: needsInput, done: false, cli: cli) }
+}
+
+/// A paired Mac's section: the Mac, and what it showed when last read.
+struct SidebarRemoteSection: Equatable {
+    let peer: RemotePeer
+    var sessions: [WorkspaceSession] = []
+    var chats: [ChatThreadShell] = []
 }
 
 struct SidebarEntry: Equatable {
@@ -107,12 +117,15 @@ struct SidebarEntry: Equatable {
     /// nested under it, then unpinned sessions whose project is gone (unlabeled). Headings are
     /// flat rows, not collapsible groups — only a project folder collapses.
     ///
-    /// The chats close the list under a Chats heading, every one of them, a project's or not, newest
-    /// first (as `chats` comes), each by its title alone. The heading is there only while there is a
-    /// chat; a chat is started from New Task or a project's New Chat.
+    /// The chats close this Mac's part under a Chats heading, every one of them, a project's or not,
+    /// newest first (as `chats` comes), each by its title alone. The heading is there only while
+    /// there is a chat; a chat is started from New Task or a project's New Chat.
+    ///
+    /// Each paired Mac follows in a section of its own, headed by its name and whether it answers:
+    /// its sessions, which run there and are listed only, then its chats, which open read-only.
     static func make(projects: [Project], sessions: [WorkspaceSession],
                      status: [String: SidebarSessionStatus] = [:], order: SidebarOrder = .init(),
-                     chats: [ChatThreadShell] = []) -> [Self] {
+                     chats: [ChatThreadShell] = [], remote: [SidebarRemoteSection] = []) -> [Self] {
         let ordered = displayOrder(sessions.filter { !$0.pinned }, dragged: order.sessions)
         let projects = displayOrder(projects, dragged: order.projects)
         func row(_ session: WorkspaceSession, pinned: Bool = false) -> Self {
@@ -172,6 +185,34 @@ struct SidebarEntry: Equatable {
         if !chats.isEmpty {
             result.append(label(chatsID, String(localized: "Chats")))
             result += chats.map(chatRow)
+        }
+        for section in remote { result += remoteSection(section) }
+        return result
+    }
+
+    /// A paired Mac's heading and rows. Nothing in them is this Mac's: no row names a local path,
+    /// so none offers Finder, and a session is not selectable, since its terminal is the other Mac's.
+    static func remoteSection(_ section: SidebarRemoteSection) -> [Self] {
+        let peer = section.peer
+        let state: String? = switch peer.reach {
+        case .online: nil
+        case .connecting: String(localized: "Connecting")
+        case .offline: String(localized: "Offline")
+        case .revoked: String(localized: "Access removed")
+        case .changed: String(localized: "Pair again")
+        }
+        var result = [Self(id: "label:remote:\(peer.id)", title: state.map { "\(peer.name) · \($0)" } ?? peer.name,
+                           symbol: "", role: .label)]
+        result += section.sessions.map { session in
+            Self(id: "remote-session:\(peer.id):\(session.id)", title: session.label, symbol: "terminal",
+                 role: .chat(SidebarChatStatus(cli: session.cli)))
+                .withTip(String(localized: "Runs on \(peer.name): \(session.worktree)"))
+        }
+        result += section.chats.map { chat in
+            let status = SidebarChatStatus(working: chat.working, needsInput: chat.needsInput, cli: chat.cli)
+            return Self(id: "remote-chat:\(peer.id):\(chat.id)", title: chat.label, symbol: "chat",
+                        destination: .remoteChat(peer: peer.id, thread: chat.id), role: .chat(status))
+                .withTip(String(localized: "On \(peer.name), read only"))
         }
         return result
     }

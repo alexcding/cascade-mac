@@ -30,6 +30,8 @@ public final class AppViewModel {
     let ideWarmup = IDEWarmupStore()
     /// Every chat session, for the sidebar and Projects; kept by `chat-shell` and `chat-removed`.
     let chats = ChatListStore()
+    /// The Macs this one paired with, and their sessions and chats (`AppViewModel+Remote`).
+    let remotePeers = RemotePeersStore()
     /// The chat backend while connected; a chat page looks it up for each request.
     @ObservationIgnored private(set) var chatService: (any ChatServing)?
     @ObservationIgnored let chatFactory: any ChatFeatureFactory
@@ -343,7 +345,8 @@ public final class AppViewModel {
                 cli: turns?.cli ?? session.cli)
         }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
-                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees))
+                                 chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
+                                 remote: remoteSections())
     }
     var activeTerminalKey: String? {
         switch selection {
@@ -1813,6 +1816,7 @@ public final class AppViewModel {
             if let api {
                 chatService = backendFactory.chat(api: api)
                 chats.connect(chatService)
+                connectRemote(backendFactory.remote(api: api))
                 coordinator.newSession?.chatServiceChanged()
                 coordinator.refreshRoot()
             }
@@ -2124,6 +2128,7 @@ public final class AppViewModel {
         }
         ideWarmup.receive(event)
         receiveChat(event)
+        receiveRemote(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
         if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt,
            let automationID = event.automationId, let key = event.key {
@@ -2190,6 +2195,7 @@ public final class AppViewModel {
         ideWarmup.connect(nil)
         chats.connect(nil)
         chatService = nil
+        connectRemote(nil)
         coordinator.newSession?.chatServiceChanged()
         // A backend switch leaves no handle on this backend's streams, so they go with it. Only
         // when a panel asked for one: stopping runs serve-sim, which a Mac without it pays for.

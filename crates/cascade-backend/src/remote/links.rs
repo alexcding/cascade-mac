@@ -218,7 +218,7 @@ async fn relay(state: &AppState, id: &str, mut body: hyper::body::Incoming) {
         let Ok(data) = frame.into_data() else { continue };
         for data in parser.push(&data) {
             if let Ok(event) = serde_json::from_str::<Value>(&data) {
-                state.publish(Event::Remote { peer: id.to_owned(), event });
+                state.publish(Event::Remote { peer: id.to_owned(), relayed: event });
             }
         }
         if parser.pending.len() > EVENT_LIMIT {
