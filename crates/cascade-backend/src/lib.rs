@@ -17,6 +17,7 @@ mod kept;
 mod local;
 mod poller;
 pub mod recovery;
+mod remote;
 mod routes;
 mod sessions;
 mod settings_file;
@@ -57,6 +58,8 @@ pub struct AppState {
     pub kept: Arc<kept::Kept>,
     /// The chat engine, once `chat::start` has started it.
     pub chat: Arc<chat::Chat>,
+    /// The listener other Macs reach, while it is on (`remote`).
+    pub remote: Arc<remote::Remote>,
 }
 
 /// How many events the broadcast keeps for a subscriber that has not read them yet. A chat thread
@@ -81,6 +84,7 @@ impl AppState {
             fetches: Arc::new(worktrees::Fetches::default()),
             kept: Arc::new(kept::Kept::default()),
             chat: Arc::new(chat::Chat::default()),
+            remote: Arc::new(remote::Remote::default()),
         }
     }
 
@@ -108,6 +112,7 @@ pub async fn start_background(state: &AppState, port: u16) {
     let wanted: integrations::Wanted =
         Arc::new(|app: AppState| Box::pin(async move { automation::forward_repos(&app).await }));
     state.forwarders.start(state.clone(), port, wanted);
+    remote::resume(state).await;
 }
 
 pub fn build_app(state: AppState) -> Router {
@@ -210,6 +215,11 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/issues/search", post(routes::issues_search))
         .route("/api/issues/lookup", get(routes::issue_lookup))
         .route("/api/stream", get(routes::stream))
+        .route("/api/remote", get(remote::routes::status))
+        .route("/api/remote/enable", post(remote::routes::enable))
+        .route("/api/remote/disable", post(remote::routes::disable))
+        .route("/api/remote/clients", get(remote::routes::clients))
+        .route("/api/remote/clients/{id}", delete(remote::routes::revoke))
         .route("/api/usage", get(usage::get))
         .route("/api/agent/catalog", get(agents::catalog))
         .route("/api/agent/status", get(agents::status))

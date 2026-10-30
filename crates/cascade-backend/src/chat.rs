@@ -258,11 +258,22 @@ pub async fn rpc(State(app): State<AppState>, headers: HeaderMap, request: Resul
     if crate::local::foreign_origin(&headers) {
         return (StatusCode::FORBIDDEN, Json(json!({"error": {"message": "forbidden"}}))).into_response();
     }
-    let request = match request {
-        Ok(Json(request)) => request,
-        Err(rejection) => return RpcError::from(rejection).into_response(),
-    };
-    match call(&app, &request.method, request.params).await {
+    match request {
+        Ok(Json(request)) => answer(&app, request).await,
+        Err(rejection) => RpcError::from(rejection).into_response(),
+    }
+}
+
+impl RpcRequest {
+    pub(crate) fn method(&self) -> &str {
+        &self.method
+    }
+}
+
+/// Runs one call and answers it as the route does; the remote listener's route calls it too,
+/// after its own check of the method (`remote::listener`).
+pub(crate) async fn answer(app: &AppState, request: RpcRequest) -> Response {
+    match call(app, &request.method, request.params).await {
         Ok(result) => Json(json!({ "result": result })).into_response(),
         Err(error) => error.into_response(),
     }

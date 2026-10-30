@@ -16,14 +16,21 @@ axum = { version = "0.8.4", features = ["json", "macros"] }
 cascade-chat = { path = "../cascade-chat" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 futures-util = "0.3"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 libc = "0.2"
 mime_guess = "2.0"
+# The remote listener (src/remote): its self-signed certificate, TLS and tokens, on ring.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 regex = "1.11"
+ring = "0.17"
 rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.47", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["set-header", "trace"] }

@@ -1,0 +1,195 @@
+//! What another Mac reaches: a TLS server whose every request needs a paired client's token, and
+//! whose routes are named one by one here. Nothing falls through to the loopback router
+//! (`build_app`), which has no authentication and trusts its callers.
+
+use std::{convert::Infallible, sync::Arc, time::Duration};
+
+use axum::{
+    extract::{rejection::JsonRejection, DefaultBodyLimit, Request, State},
+    http::{header, HeaderValue, StatusCode},
+    middleware::{self, Next},
+    response::{
+        sse::{Event, KeepAlive},
+        IntoResponse, Response, Sse,
+    },
+    routing::{get, post},
+    Extension, Json, Router,
+};
+use futures_util::StreamExt;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use serde_json::{json, Value};
+use tokio::{
+    net::TcpListener,
+    sync::{broadcast::error::RecvError, Semaphore},
+    task::JoinSet,
+};
+use tokio_rustls::TlsAcceptor;
+use tokio_stream::wrappers::BroadcastStream;
+use tower::Service;
+use tower_http::set_header::SetResponseHeaderLayer;
+
+use super::store;
+use crate::{
+    chat::{self, RpcError},
+    error::ApiError,
+    routes, AppState,
+};
+
+/// The chat calls a paired Mac may make: reads only. Anything else is `403`.
+pub(crate) const CHAT_METHODS: &[&str] = &[
+    "orchestration.getShellSnapshot",
+    "orchestration.getThreadDetailSnapshot",
+    "orchestration.getTurnDiff",
+    "orchestration.getFullThreadDiff",
+    "chat.listThreads",
+    "chat.providerStatuses",
+];
+
+/// The events a paired Mac's stream carries (`Event`'s `type`s).
+pub(crate) const EVENTS: &[&str] = &["tasks", "chat-thread", "chat-shell", "chat-removed", "reload"];
+
+/// How long a connection may take to finish its TLS handshake, and then each request's headers,
+/// the first and every one after it on a kept-alive connection: a peer that opens connections and
+/// sends nothing has them closed rather than holding the app's descriptors.
+const HANDSHAKE: Duration = Duration::from_secs(10);
+const HEADER_READ: Duration = if cfg!(test) { Duration::from_millis(500) } else { Duration::from_secs(10) };
+
+/// Connections served at once, handshakes included. Past it a new one is closed as it comes:
+/// a paired Mac holds a few (its stream and a request or two), and the app's descriptors are few.
+pub(crate) const CONNECTIONS: usize = if cfg!(test) { 4 } else { 32 };
+
+/// The client a request was authorised as, for the handlers that need it.
+#[derive(Clone)]
+struct Client(String);
+
+pub(crate) fn router(state: AppState) -> Router {
+    let no_store = SetResponseHeaderLayer::overriding(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Router::new()
+        .route("/api/backend/health", get(health))
+        .route("/api/tasks", get(routes::get_tasks))
+        .route("/api/projects", get(projects))
+        .route("/api/stream", get(stream))
+        .route("/api/chat/rpc", post(chat_rpc))
+        .fallback(|| async { ApiError::not_found("Not found") })
+        // Outermost of the route layers, so an unknown path without a token is a 401 too.
+        .layer(middleware::from_fn_with_state(state.clone(), authorize))
+        .layer(no_store)
+        .layer(DefaultBodyLimit::max(1024 * 1024))
+        .with_state(state)
+}
+
+async fn authorize(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
+    let token = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let client = match token {
+        Some(token) => store::client_for(&state.db, token).await,
+        None => Ok(None),
+    };
+    match client {
+        Ok(Some(id)) => {
+            request.extensions_mut().insert(Client(id));
+            next.run(request).await
+        }
+        Ok(None) => ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        Err(error) => ApiError::from(error).into_response(),
+    }
+}
+
+async fn health(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({ "service": "cascade", "protocol": 1, "instanceId": state.instance_id }))
+}
+
+/// Each project's name and icon, for the label beside a remote session; nothing of its paths,
+/// repository or Jira.
+async fn projects(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let projects = state.db.projects().await?;
+    Ok(Json(projects.iter().map(|project| json!({ "id": project.id, "name": project.name, "icon": project.icon })).collect()))
+}
+
+/// The loopback stream's events, only those in `EVENTS`, until this client is revoked.
+async fn stream(State(state): State<AppState>, Extension(Client(id)): Extension<Client>) -> Response {
+    // Listening before looking again: a revoke between `authorize` and here is seen either way.
+    let mut revoked = state.remote.revocations();
+    match store::client_exists(&state.db, &id).await {
+        Ok(true) => {}
+        Ok(false) => return ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
+    }
+    let db = state.db.clone();
+    let ended = async move {
+        loop {
+            match revoked.recv().await {
+                Ok(gone) if gone == id => return,
+                Ok(_) => {}
+                Err(RecvError::Closed) => return,
+                // Revocations were missed, maybe this one's: ask the store.
+                Err(RecvError::Lagged(_)) => {
+                    if !store::client_exists(&db, &id).await.unwrap_or(false) {
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    let initial = futures_util::stream::once(async {
+        Ok::<_, Infallible>(Event::default().comment("connected").retry(Duration::from_secs(1)))
+    });
+    let events = BroadcastStream::new(state.events.subscribe()).filter_map(|message| async move {
+        match message {
+            Ok(value) => EVENTS
+                .contains(&value["type"].as_str().unwrap_or_default())
+                .then(|| Ok(Event::default().data(value.to_string()))),
+            Err(_) => Some(Ok(Event::default().data(crate::Event::lagged()))),
+        }
+    });
+    Sse::new(initial.chain(events).take_until(Box::pin(ended)))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+        .into_response()
+}
+
+async fn chat_rpc(State(app): State<AppState>, request: Result<Json<chat::RpcRequest>, JsonRejection>) -> Response {
+    let request = match request {
+        Ok(Json(request)) => request,
+        Err(rejection) => return RpcError::from(rejection).into_response(),
+    };
+    if !CHAT_METHODS.contains(&request.method()) {
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": { "message": "not allowed from another Mac", "code": "forbidden" } })))
+            .into_response();
+    }
+    chat::answer(&app, request).await
+}
+
+/// Serves `router` over TLS on `listener` until the task running it is aborted, which ends every
+/// connection with it: a stream never finishes by itself, so it is never waited for.
+pub(crate) async fn serve(listener: TcpListener, tls: rustls::ServerConfig, router: Router) {
+    let acceptor = TlsAcceptor::from(Arc::new(tls));
+    let slots = Arc::new(Semaphore::new(CONNECTIONS));
+    let mut connections = JoinSet::new();
+    loop {
+        tokio::select! {
+            accepted = listener.accept() => {
+                let Ok((stream, _)) = accepted else {
+                    // Out of descriptors and the like: wait rather than spin.
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                };
+                let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
+                let (acceptor, router) = (acceptor.clone(), router.clone());
+                connections.spawn(async move {
+                    let _slot = slot;
+                    let Ok(Ok(tls)) = tokio::time::timeout(HANDSHAKE, acceptor.accept(stream)).await else { return };
+                    let service = hyper::service::service_fn(move |request| router.clone().call(request));
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .timer(TokioTimer::new())
+                        .header_read_timeout(HEADER_READ)
+                        .serve_connection(TokioIo::new(tls), service)
+                        .await;
+                });
+            }
+            Some(_) = connections.join_next() => {}
+        }
+    }
+}

@@ -48,3 +48,14 @@ CREATE TABLE IF NOT EXISTS automation_fired (
   automation_id TEXT NOT NULL, event_key TEXT NOT NULL, fired_at TEXT NOT NULL,
   PRIMARY KEY (automation_id, event_key)
 );
+-- This Mac's listener for other Macs (src/remote, docs/remote/05-mac-to-mac.md): one row, made on
+-- first enable. The certificate and its key are DER; the port is kept so a paired Mac's address stays good.
+CREATE TABLE IF NOT EXISTS remote_host (
+  id INTEGER PRIMARY KEY CHECK (id = 1), enabled INTEGER NOT NULL DEFAULT 0, port INTEGER NOT NULL DEFAULT 0,
+  cert_der BLOB NOT NULL, key_der BLOB NOT NULL
+);
+-- The Macs paired with this one. Only a hash of each one's token is kept; revoking deletes the row.
+CREATE TABLE IF NOT EXISTS remote_clients (
+  id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', token_sha256 TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL, last_seen_at TEXT
+);

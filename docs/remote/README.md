@@ -13,6 +13,7 @@ QR code, token or port to set up.
 | [02-research.md](02-research.md) | What the codebase and the platforms give us today, with `file:line` citations and verification status |
 | [03-architecture.md](03-architecture.md) | The design: pairing, transport, the remote listener and its allowlist, the simulator and terminal relays, background alerts |
 | [04-plan.md](04-plan.md) | Phases, work items, estimates, risks, open questions |
+| [05-mac-to-mac.md](05-mac-to-mac.md) | **Current first step:** another Mac's sessions in the sidebar, paired once on the local network with a code |
 
 ## The short version
 
