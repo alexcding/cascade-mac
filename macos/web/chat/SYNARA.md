@@ -7,7 +7,7 @@ menu, run unchanged behind Cascade's native bridge. The backend (`crates/cascade
 Synara's data: `OrchestrationThread`, `OrchestrationEvent`, `ClientOrchestrationCommand`. This
 page reaches it only through the app.
 
-**Pinned commit:** `c6ce7f7a0dfc5c4e31fb85c217a188885c99180e` (see `vendor/synara/MANIFEST.json`).
+**Pinned commit:** `0cf5ea460d193367feacbe89372afa1a9d8fcce8` (see `vendor/synara/MANIFEST.json`).
 
 ## Layout
 
@@ -20,16 +20,17 @@ page reaches it only through the app.
 | `src/shims/` | Replacements for Synara modules that reach its server, router or Electron. |
 | `src/bridge.ts` | The native bridge (protocol below). |
 | `src/main.tsx` | Entry: React Query, toasts, theme and type scale, the controller. |
-| `src/ChatController.tsx` | A slim ChatView: Synara's hooks and components for one thread. |
-| `src/TurnDiffPanel.tsx` | A slim DiffPanel: the turn and whole-thread checkpoint diffs, drawn over the chat. |
+| `src/ChatController.tsx` | A slim ChatView: Synara's hooks and components for one thread, with its single-row composer and the status row under it. |
+| `src/TurnDiffPanel.tsx` | A slim DiffPanel: the turn and whole-thread checkpoint diffs, drawn over the chat, in DiffPanel's per-thread layout. |
 | `src/threadStream.ts` | Folds pushed snapshots and events into Synara's store. |
-| `src/relatedThreads.ts` | Reads the threads the subagent strip needs beside the one on screen (its subagents, or its parent and siblings) into Synara's store. |
+| `src/relatedThreads.ts` | Reads the threads the subagent run cards and a subagent's intro need beside the one on screen (its subagents, or its parent and siblings) into Synara's store. |
 | `src/decode.ts` | Decodes pushes with Synara's schemas, as its WebSocket transport does. |
 | `src/storage.ts` | In-memory `localStorage` if the origin has none; otherwise the real one, with the composer drafts' key merged on write (`storageMerge.ts`). |
 | `src/storageMerge.ts` | Merges a page's whole-state write onto what another page stored since. |
-| `src/styles.css` | Synara's `index.css` through Tailwind v4, then Cascade's overrides (system fonts). |
+| `src/editorDropPaths.ts` | Reads the paths a folder dragged from an editor's file tree carries (`codefiles`, file:// `text/uri-list`), as Synara's `composerDropPaths.ts` does under its desktop shell only. |
+| `src/styles.css` | Synara's `index.css` through Tailwind v4, then Cascade's overrides (system fonts, a transparent ground, the composer's 24px side gutters). |
 | `build.mjs` | esbuild + Tailwind into `macos/Resources/ChatPage`. |
-| `test/` | DOM smoke test, the queue's survival across pages (`queue-restore`, which loads fresh pages through `remount.mjs`), the storage merge, and the fixture harness (`npm test`, `npm run dev:fixture`). |
+| `test/` | DOM smoke test, the composer's layout (`layout`, laid out in headless Chrome when it is installed), subagent run cards and the composer's running-agents capsule (`subagents`), the queue's survival across pages (`queue-restore`, which loads fresh pages through `remount.mjs`), the storage merge, file attachment by path (`attach-paths`), inline visuals (`visuals`: a `visual.shown` activity drawn with Synara's components where its reply's fence places it, and its follow-up choice sent), what came by hand from Synara 0cf5ea460 (`ported`: the interface English with another language stored, a new `/goal` sent as a visible goal start, Stop on an idle thread blocked by a provider failure, a folder dragged from an editor's tree mentioned by path, an assistant's inline image drawn from its kept attachment), and the fixture harness (`npm test`, `npm run dev:fixture`). |
 
 ## Commands
 
@@ -81,7 +82,20 @@ it is imported (`web` = `apps/web/src`, `shared` = `packages/shared/src`, `contr
 | `web/lib/icons.tsx` | Synara draws a fork with its branch glyph, which in Cascade is the session's branch. `GitForkIcon` is Cascade's own fork mark; same exports otherwise. |
 | `web/components/chat/ChatEmptyStateHero.tsx` | A blank chat is headed by Synara's logo, which in Cascade stands for nothing. The words stay without it; same exports. |
 | `web/components/chat/ComposerModelPicker.logic.ts` | The model picker takes ⌘1…⌘9 for its rows while open and labels them so; in Cascade those chords are the sidebar's. No row answers a chord and none is labelled with one; same exports otherwise. |
+| `web/components/chat/InlineVisualFrame.tsx` | Synara's file with two changes, for an HTML visual (below, "Inline visuals"). Synara runs agent HTML only under its desktop shell (`isElectron`), whose main process stops a frame navigating itself; here the app's navigation delegate does that, so the frame is always drawn. And Synara writes the document into its frame as `srcdoc`; WebKit gives a srcdoc frame (as a `data:` or `blob:` one) the page's own content security policy, whose `script-src 'self'` stops every inline script of the visual, so the frame loads the same document (built by Synara's `buildInlineVisualDocument`, its policy first) from `cascade-chat://visual/<id>.html`, handed to the app in a `visualDocument` event. Same export. |
+| `web/i18n/locale.ts` | Synara picks its interface language from the stored preference or the system's languages (English, Spanish, and Chinese where Beta features are on, as they are on any scheme not Synara's). Cascade's interface is English: every preference resolves to English and English is the only language offered; the stored value is still read and kept. Same exports. |
+| `shared/uiLocalizationResources.ts` | Only the English catalogue (`packages/shared/src/locales/en`), imported as `@synara/shared/locales/en/*.json` (a shim's relative import means its own neighbour; `synara-paths.mjs` maps a `.json` subpath the package does not export to its file). The Spanish and Chinese catalogues the page never reads stay out of the bundle. Same export, with `en` only. |
 | `npm/@tanstack/react-router` | No router: one thread per page. `useParams` answers the page's thread (toasts scope by it), `useSearch` answers no search, the history goes nowhere (a push to `/settings` is told to the app as `openSettings`). |
+
+`tsconfig.json` resolves `~/…` to `src/shims/web/…` first, then the vendored tree, as the build
+does, so a shimmed module type-checks against its shim (a shimmed original is not vendored).
+
+**Interface language.** Synara's strings go through its i18n (`~/i18n`, i18next and react-i18next)
+and its catalogue keys; with the two shims above the page draws them in English. `main.tsx` does
+not call Synara's `initializeI18n`: under the shims it would only set the document's `lang` to
+`en` (and set it again on every app-settings write), where the page keeps the app's `locale` from
+the context. Dates and times format with Synara's format locale, which is the interface language
+(`en`), as Synara does. No language picker is offered.
 
 Build-level adaptations (no file changed): `import.meta.env.*` is defined (production, no
 WebSocket URL); `new URL("./x.worker.ts", import.meta.url)` is emitted as `x.worker.js` beside
@@ -120,9 +134,10 @@ Events:
 | `openFile` | `{ path, line? }` | A file reference was clicked. `path` is absolute and inside `context.cwd` or `context.homeDir`; the page sends nothing for a file outside them (the app should check too). |
 | `revealFile` | `{ path }` | "Show in Finder" on a file reference. Same rule for `path`. |
 | `openTurnDiff` | `{ threadId, turnId, filePath? }` | "Edit file" on a file of the page's turn diff (Synara opens its own diff editor there): show Cascade's diff of that file. "Review" and the changed-file rows open the diff in the page instead. |
-| `openThread` | `{ threadId }` | Show another chat thread: the one a `/fork`, a message's "Fork from here" or Codex's `/review` just made, a thread link, or a row of the subagent strip (a subagent's thread, `subagent:<parent>:<provider thread id>`, or from there its parent). Synara navigates to it; the page shows one thread, so the app is asked to. Never sent for the thread on screen. |
+| `openThread` | `{ threadId }` | Show another chat thread: the one a `/fork`, a message's "Fork from here" or Codex's `/review` just made, a thread link, a row of a subagent run card (a subagent's thread, `subagent:<parent>:<provider thread id>`), or a subagent's intro (its parent). Synara navigates to it; the page shows one thread, so the app is asked to. Never sent for the thread on screen. |
 | `openSettings` | `{ path }` | Synara's "Manage providers" link. |
 | `copy` | `{ text }` | Put text on the pasteboard. The page routes `navigator.clipboard.writeText` here (Synara's copy buttons), since a custom-scheme page may have no Clipboard API. |
+| `visualDocument` | `{ id, html }` | An HTML inline visual's built document, which the app serves at `cascade-chat://visual/<id>.html` for its frame (`ChatPageAssets`). `id` is `<load token>-<n>`; the app keeps the page's latest 64 documents, each at most 1 MiB, and forgets them when the page loads again. Not a chat's: the page host takes it whichever chat is in the page. |
 | `error` | `{ message, stack? }` | An uncaught error or rejection. |
 | `log` | `{ level, message }` | Diagnostics: an RPC the app does not serve (once per method), a push that did not decode with Synara's schema (once per distinct failure). |
 
@@ -179,6 +194,7 @@ encoded as JSON (the backend implements exactly this list). Types below are in
 | `orchestration.dispatchCommand` | `{ command: ClientOrchestrationCommand }` | `{ sequence }`: the sequence of the last event the command produced |
 | `orchestration.getTurnDiff` | `OrchestrationGetTurnDiffInput`: `{ threadId, fromTurnCount, toTurnCount, ignoreWhitespace? }` | `OrchestrationGetTurnDiffResult`: `{ threadId, fromTurnCount, toTurnCount, diff }` (a unified patch; one turn is `toTurnCount - 1 → toTurnCount`) |
 | `orchestration.getFullThreadDiff` | `OrchestrationGetFullThreadDiffInput`: `{ threadId, toTurnCount, ignoreWhitespace? }` | the same shape, from turn count 0 ("All turns" in the diff panel) |
+| `orchestration.getInlineVisual` | `OrchestrationGetInlineVisualInput`: `{ threadId, visualId }` | `OrchestrationGetInlineVisualResult`: `{ visualId, html }`, the stored source of a visual the thread's agent published (the spec JSON, or the HTML document, per the `visual.shown` activity's `format`). A visual that is gone fails coded `inline-visual-missing`. |
 | `orchestration.getShellSnapshot` | `{}` | `OrchestrationShellSnapshot`: `{ snapshotSequence, spaces, projects, threads, updatedAt }`, read after a fork or a review as Synara does. The page applies it only when it lists the thread on screen (a shell snapshot prunes every thread it does not list). |
 | `provider.listModels` | `ProviderListModelsInput`: `{ provider, instanceId?, refresh?: "if-stale"\|"now", cwd?, binaryPath?, … }` | `ProviderListModelsResult`: `{ models: ProviderModelDescriptor[], source?, cached?, error? }`; a descriptor is `{ slug, name, description?, supportedReasoningEfforts?: {value,label?}[], defaultReasoningEffort?, supportsFastMode?, supportsThinkingToggle?, supportsAutoMode?, contextWindowOptions?, defaultContextWindow?, optionDescriptors?, … }` |
 | `provider.getComposerCapabilities` | `{ provider, instanceId? }` | `ProviderComposerCapabilities`: `{ provider, supportsSkillMentions, supportsSkillDiscovery, supportsNativeSlashCommandDiscovery, supportsPluginMentions, supportsPluginDiscovery, supportsRuntimeModelList, supportsThreadCompaction?, supportsThreadImport? }` |
@@ -238,14 +254,89 @@ through `orchestration.onThreadEvent`). Optional members of `NativeApi` the app 
 absent, so Synara's feature checks see them missing. Any other method rejects with
 `{ code: "unavailable" }` and is logged once.
 
+## Inline visuals
+
+A chat's agent shows a chart, table, comparison or small interactive view with Synara's
+`synara_show_visual` tool, which the backend's agent gateway serves to chat CLIs (not to terminal
+agents, whose turns no page shows): `crates/cascade-backend/src/gateway/visuals.rs`, a port of
+`apps/server/src/agentGateway/inlineVisualTools.ts` keeping its name, description, limits, ids,
+`visual.shown` activity and `synara-visual` fence. The page draws the activity with Synara's own
+components, unchanged: `MessagesTimeline` places it where the reply's fence puts it (or above the
+reply), `InlineVisualBlocks` and its charts, tables, calculator and choices draw a component spec,
+and `InlineVisualFrame` (shimmed, above) runs an HTML one; both read the source through
+`orchestration.getInlineVisual` (`inlineVisualQueryOptions`). A choice is the reader's next
+message, as ChatView's `onSendVisualChoice` sends it (`ChatController.tsx`), and scrolling over an
+HTML visual detaches the transcript's follow as ChatView's `onEmbeddedScrollIntent` does.
+
+An HTML visual runs where Synara's desktop runs it: a frame sandboxed `allow-scripts allow-forms`
+(no `allow-same-origin`, so an opaque origin, away from the page, its storage and the bridge),
+under Synara's policy for the document (no network, inline code and `data:` media only), with
+Synara's bootstrap reporting its size and passing theme changes. What differs is where the
+document comes from (the shim's note): the page's policy allows one frame source,
+`frame-src cascade-chat://visual`, and keeps `connect-src 'none'`. The app's navigation delegate
+(`ChatPageHost.allows`) is Synara's `subframeNavigationGuard`: a frame loads only a registered
+visual document (or `about:srcdoc` / `about:blank`), so a visual cannot carry data out in a URL it
+sends its frame to; a frame that navigates to its own document again loads it a second time, which
+Synara's `onLoad` takes as a navigation and stops the visual.
+
+Synara patches LegendList 3.3.3 (`patches/@legendapp%2Flist@3.3.3.patch`) so that putting rows back
+in order moves their containers with `Element.moveBefore`, which keeps an HTML visual's frame
+loaded. WebKit has no `moveBefore` (checked in a WKWebView on macOS 27), where the patch falls back
+to `insertBefore`, today's behaviour; so it is not applied. A frame the list re-inserts gets a new
+browsing context and loads its document again from the app, a fresh first load to Synara's
+`onLoad`, and the visual's own state (a value typed into it) starts over.
+
 ## Known gaps against Synara's ChatView
 
-Left out with ChatView itself: the sidebar, header, split panes, right dock, terminal drawer,
-plan sidebar, git and worktree controls, handoffs, sidechats, export commands, automations,
-computer control, voice, pinned messages and notes, goal header, the workflow run card, plan
-follow-ups from the plan card, and the composer footer's width-adaptive tiers (the footer always
-plans for full width). The transcript's assistant-selection action (select text to quote it in
-the composer) is not wired.
+Left out with ChatView itself: the sidebar, header (and its new-thread button and project
+actions; a new chat is the app's), split panes, right dock, terminal drawer,
+plan sidebar, git and worktree controls, handoffs (and the blocked-handoff notice), sidechats,
+export commands, automations, computer control, voice, pinned messages and notes, goal capsule,
+the workflow run capsule, MCP connector mentions, plan follow-ups from the plan card, the
+Claude-switch tip, and the composer status row's width-adaptive tiers (it always plans for full
+width). The transcript's assistant-selection action (select text to quote it in the composer) is
+not wired, nor is Stop on a
+background command's row (`thread.task.stop`, which no adapter here carries out).
+
+The composer is ChatView's for a started thread: a single pill row (+ / text / send) while the
+draft is one plain line (`useComposerSingleRow`), the block otherwise, with permissions, model,
+effort and the context ring in the status row under it. Above it, the capsule row
+(`ComposerCapsuleRow`) and Synara's queue, which a Stop pauses (`holdQueuedComposerTurnsForStop`)
+until Resume or a message sent by hand. A failed turn offers Synara's "Continue" (a turn of its
+own with Synara's resume prompt) and "Change model".
+
+Synara 0cf5ea460's right-dock changes (each thread's dock width, the subagents dock's model and
+effort per row) are not reached: the page has no right dock. A folder dragged from an editor's
+file tree is mentioned by path as Synara's desktop does (`editorDropPaths.ts`; Synara reads those
+paths only under its desktop shell, the page runs beside its agent as the desktop does); a drag
+that carries file URLs is the app's, as a Finder drop is.
+
+Data the new UI reads that the backend does not send yet, so the page goes without it: a new
+`/goal` on an idle thread (Synara sends `thread.meta.update` with `goal` and
+`goalStartBehavior: "start-with-message"`, and its server records the goal, a visible
+`/goal …` user message `goal:<commandId>` and a queued turn carrying `initialGoalStartedAt`
+together; the backend keeps no goal and refuses the command, so the composer keeps the text and
+a toast says why); an assistant's inline image
+kept as an attachment (`ChatImageAttachment.sourcePath`: an image whose alias matches a markdown
+image's path is drawn from `/attachments/<id>`, which the app serves); Stop on an idle thread the
+engine quarantined (the footer offers it while the session's `lastError` starts with
+`PROVIDER_DELIVERY_BLOCK_SUMMARY`, "Thread is blocked by an earlier provider failure", which the
+engine never writes; were it written, that Stop would reach a settled thread and do nothing); turn
+headers' stop provenance (`turn.stop-requested` activities with `payload.requestedBy: "user"`; the
+page sends `requestedBy` on `thread.turn.interrupt`, which the backend ignores) and their start
+time from the checkpoint (`OrchestrationCheckpointSummary.startedAt`); Claude's served speed
+(`fast-mode.state` activities); the queue's pause on a usage limit (`account.rate-limited`);
+"Fork from here" stopping at its message (`thread.fork.create.throughMessageId`, so it forks the
+whole thread); and the recovery cursors (`OrchestrationThreadDetailSnapshot.historyRevisionSequence`,
+`OrchestrationEventMetadata.checkpointRuntimeSequence`, `OrchestrationThreadActivity.sequenceSource`).
+Also: a running turn's diff in full (Synara's server answers `orchestration.getTurnDiff` for a turn
+whose summary is a `provider-diff:` placeholder, `status: "missing"`, from the patch it captured
+live; the page asks with the cache scope and `liveSnapshot` DiffPanel uses, and shows what the
+backend returns); a Claude subagent's own model on its thread (Synara reports the model of the
+subagent's assistant messages as thread metadata; here the child shows the model its launch named,
+or its parent's); and the end of every subagent task a stop or a crash leaves open (Synara appends
+a `stopped` `task.completed` carrying the launching call; here a card of a session that is
+`stopped` reads "Stopped" from the session alone, and an open task of a live session still counts).
 
 The diff panel is DiffPanel's turn view only (TurnDiffPanel.tsx): no working-tree, staged,
 branch or compare-ref scopes, no blame, no file tree, no commit and push, since all of them read
@@ -254,17 +345,23 @@ sends it with `envMode: "worktree"` and no path and creates the worktree on the 
 and a chat here has no worktree of its own, so the engine refuses it (a typed `/fork worktree`
 ends in Synara's "Could not fork thread" toast with the engine's reason).
 
-**Subagents** go Synara's way: the transcript drops a subagent tool call's row
-(`omitRoutedSubagentWorkEntries`) and ChatView's `ComposerSubagentStrip` lists the turn's
-subagents above the composer, from `useChatWorkLog`'s `composerSubagentStripItems`. Synara keeps
-the subagents' own threads in its store through detail subscriptions; the app pushes only the
-thread on screen, so `relatedThreads.ts` reads them with `orchestration.getThreadDetailSnapshot`
-(and, on a subagent's page, its parent and siblings), again whenever the thread on screen changes,
-at most every 500 ms. A row opens the subagent's thread through `openThread`; Stop sends
-`thread.turn.interrupt` for the subagent's thread, which stops that subagent only; "Run in
-background" is not offered. A subagent's thread opens read-only (`readOnly` in the context): it
-follows its parent's agent, and messaging a running subagent is not ported. Its strip leads back
-to the parent.
+**Subagents** go Synara's way: the transcript folds a subagent launch into Synara's
+`SubagentRunCard` where the tool call ran (`useChatWorkLog`'s `foldSubagentRunWorkEntries`), fed
+through `SubagentRunContext` as ChatView feeds it, and while the newest card with subagents at work
+is off screen a floating "N running" chip (`SubagentRunningChip`) brings it back. Above the
+composer, ChatView's "N agents running" capsule (`ComposerRunningAgentsCapsule`) counts every agent
+still at work across the thread, during the turn and after it (`scanSubagentRunCards`,
+`deriveRunningSubagentTasks`, `createRunningChildThreadIdsSelector`, `summarizeRunningAgents`), and
+a click scrolls to the newest one's card; while it shows, the chip stays hidden. Liveness follows
+the root thread's session: once it is `stopped`, nothing it launched is counted as running. Synara keeps the
+subagents' own threads in its store through detail subscriptions; the app pushes only the thread
+on screen, so `relatedThreads.ts` reads them with `orchestration.getThreadDetailSnapshot` (and, on a
+subagent's page, its parent and siblings), again whenever the thread on screen changes, at most
+every 500 ms. A card's row opens the subagent's thread through `openThread`; Stop (and the card's
+Stop all) sends `thread.turn.interrupt` for the subagent's thread (`useSubagentRunControls`), which
+stops that subagent only; "Run in background" is not offered. A subagent's thread opens read-only
+(`readOnly` in the context) under Synara's `SubagentThreadIntro`, which names the parent and leads
+back to it: it follows its parent's agent, and messaging a running subagent is not ported.
 
 On a read-only page (a terminal session's transcript) there is no composer, so no queue, and the
 transcript offers no edit, revert, undo or fork; the approval and question panels, the turn diff

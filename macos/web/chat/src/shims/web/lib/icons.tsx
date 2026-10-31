@@ -36,6 +36,7 @@ import {
   IconChevronRight,
   IconChevronUp,
   IconCircleCheck,
+  IconCoffee,
   IconColumns2,
   IconDots,
   IconDownload,
@@ -154,6 +155,7 @@ export const CircleQuestionIcon: LucideIcon = centralIconWrapper("circle-questio
 export const ArrowUpCircleIcon: LucideIcon = centralIconWrapper("arrow-up-circle");
 export const CloudSyncIcon = centralIconWrapper("cloud-sync");
 export const Columns2Icon = adaptIcon(IconColumns2);
+export const CoffeeIcon = adaptIcon(IconCoffee);
 export const ChangesIcon = centralIconWrapper("changes");
 /** The one "Keybindings" glyph: the Help menu row, the feature tour, and (by basename) the
  *  Settings nav entry, so the three always match. */
@@ -338,13 +340,14 @@ export {
   ClockHour7Icon as ClockIcon,
   CollapseIcon as PanelCollapseIcon,
   DashboardCircleIcon as HubIcon,
-  DashboardCircleSolidIcon as HubActiveIcon,
   Download01Icon as UpdateDownloadIcon,
   ExpandIcon as PanelExpandIcon,
   Folder02Icon as FolderOpenIcon,
   FolderAddIcon,
   FolderClosedIcon as FolderIcon,
   BookOpen01Icon as BookIcon,
+  // Transcript file reads (rows and collapsed read groups) wear the open book.
+  BookOpen01Icon as FileReadIcon,
   GiftIcon,
   MessageEdit01Icon as FeedbackIcon,
   SlidersHorizontalIcon as CustomizeIcon,

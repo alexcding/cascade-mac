@@ -12,7 +12,9 @@ import type { QueuedComposerTurn } from "../../composerDraftStore";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import { useTranslation } from "~/i18n";
 
 type QueuedComposerActionsProps = {
   queuedTurn: QueuedComposerTurn;
@@ -27,16 +29,25 @@ function QueuedComposerActions({
   onRemove,
   onEdit,
 }: QueuedComposerActionsProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex shrink-0 items-center gap-0">
-      <Button variant="ghost" size="chip" onClick={() => void onSteer(queuedTurn)}>
-        <SteerIcon />
-        <span>Steer</span>
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={<Button variant="ghost" size="chip" onClick={() => void onSteer(queuedTurn)} />}
+        >
+          <SteerIcon />
+          <span>{t("chat:queuedActions_steer")}</span>
+        </TooltipTrigger>
+        <TooltipPopup className="max-w-80 leading-tight">
+          {t("chat:sendThisFollowUpNowToRedirectTheCurrent")}
+        </TooltipPopup>
+      </Tooltip>
       <IconButton
         variant="ghost"
         size="icon-chip"
-        label="Delete queued follow-up"
+        label={t("chat:queuedActions_deleteQueued")}
         onClick={() => onRemove(queuedTurn.id)}
       >
         <Trash2 />
@@ -47,7 +58,7 @@ function QueuedComposerActions({
             <Button
               variant="ghost"
               size="icon-chip"
-              aria-label="Queued follow-up actions"
+              aria-label={t("chat:queuedActions_queuedActions")}
               className="[&_svg]:mx-0"
             />
           }
@@ -55,8 +66,7 @@ function QueuedComposerActions({
           <EllipsisIcon />
         </MenuTrigger>
         <ComposerPickerMenuPopup align="end" side="top" sideOffset={6}>
-          <MenuItem onClick={() => onEdit(queuedTurn)}>Edit queued prompt</MenuItem>
-          <MenuItem onClick={() => onRemove(queuedTurn.id)}>Delete queued prompt</MenuItem>
+          <MenuItem onClick={() => onEdit(queuedTurn)}>{t("chat:editQueuedFollowUp")}</MenuItem>
         </ComposerPickerMenuPopup>
       </Menu>
     </div>

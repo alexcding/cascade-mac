@@ -1031,14 +1031,14 @@ pub async fn session_simulator(
     .await
     .map_err(ApiError::internal)?;
     let udid = made.trim().to_owned();
-    if !crate::sim_preview::valid_udid(&udid) {
+    if !valid_udid(&udid) {
         return Err(ApiError::internal(format!("simctl create answered unexpectedly: {made}")));
     }
     let mut patch = Map::new();
     patch.insert("madeSim".into(), json!(udid));
     // A session that went meanwhile cannot have gone with it, so it goes now.
     if !matches!(app.db.patch_task(&id, &patch).await, Ok(true)) {
-        tokio::spawn(discard_simulator(udid));
+        tokio::spawn(discard_simulator(app.clone(), udid));
         return Err(ApiError::not_found("Session not found"));
     }
     let simulator = Simulator {
@@ -1050,10 +1050,22 @@ pub async fn session_simulator(
     Ok(Json(simulator.destination()))
 }
 
-/// Deletes the simulator made for a session that is gone, its preview first.
-pub async fn discard_simulator(udid: String) {
-    crate::sim_preview::end_helper(&udid).await;
-    let _ = cli::run("xcrun", ["simctl", "shutdown", udid.as_str()], Duration::from_secs(60)).await;
+/// What `simctl create` answers: a simulator's udid.
+fn valid_udid(value: &str) -> bool {
+    value.len() >= 16 && value.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+}
+
+/// Deletes the simulator made for a session that is gone. The device manager shuts it down first,
+/// so whatever pane watched it is detached and its stream stopped rather than left on a device that
+/// is about to disappear. Without the manager, `simctl` shuts it down.
+pub async fn discard_simulator(state: AppState, udid: String) {
+    let shut_down = match state.device.supported() {
+        Some(manager) => manager.shutdown(&udid).await.is_ok(),
+        None => false,
+    };
+    if !shut_down {
+        let _ = cli::run("xcrun", ["simctl", "shutdown", udid.as_str()], Duration::from_secs(60)).await;
+    }
     if let Err(error) = cli::run("xcrun", ["simctl", "delete", udid.as_str()], Duration::from_secs(60)).await {
         tracing::warn!(udid, error = %format!("{error:#}"), "session simulator not deleted");
     }

@@ -626,6 +626,7 @@ pub async fn remove_worktree(
         Ok(_) => {
             // What xcodebuild said about the worktree is kept by its path; nothing asks again.
             crate::xcode::forget_answers(&app, &resolve_path(target)).await;
+            crate::device::service::owner_removed(&app, target).await;
             worktrees::spawn_derived_data_removal(&app, target, derived);
             // A detached worktree has no branch to delete.
             let deleted = !tree.branch.is_empty() && worktrees::remove_branch(&app, dir, &tree.branch).await;

@@ -113,6 +113,10 @@ protocol AgentDriver: Sendable {
     /// source's and works in `directory`, the fork's worktree, not the source's. The source's own
     /// conversation is left as it was.
     func forkCommand(from source: String, in directory: String, sessionID: String?, statusLine: AgentStatusLine?) -> String
+    /// The arguments that give a launch the app's agent gateway (its MCP server), started through
+    /// `proxy`, the app's `cascade-mcp-proxy.sh`. The terminal's shell fills in the port file and
+    /// run id, so the gateway knows which terminal is calling.
+    func gatewayArguments(proxy: String) -> String
     /// The conversation a fork's `source` is, so the app can ask whether the CLI still has it.
     func forkedConversation(_ source: String) -> String
     /// What to type at the running agent to move it to `model`, without leaving the conversation.
@@ -135,6 +139,18 @@ enum AgentDrivers {
     /// Each CLI as (id, short name), for pickers of one agent's usage.
     static var choices: [(key: String, title: String)] { all.map { ($0.cli, $0.shortName) } }
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'" }
+    /// `value` inside a double-quoted shell word, where the shell still expands `$NAME`.
+    static func doubleQuoted(_ value: String) -> String {
+        value.reduce(into: "") { out, c in
+            if "\\\"$`".contains(c) { out.append("\\") }
+            out.append(c)
+        }
+    }
+    /// The gateway proxy's arguments as JSON strings, the port file and run id left to the shell.
+    static func gatewayProxyArguments(_ proxy: String) -> String {
+        let path = doubleQuoted(proxy.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))
+        return #"\"\#(path)\",\"$CASCADE_PORT_FILE\",\"$CASCADE_RUN_ID\""#
+    }
 }
 
 extension AgentDriver {
@@ -185,6 +201,14 @@ struct ClaudeDriver: AgentDriver {
         if let statusLine, let settings = Self.settings(statusLine) { parts += ["--settings", AgentDrivers.quote(settings)] }
         return parts.joined(separator: " ")
     }
+    /// `--mcp-config` for this launch only, a stdio server the user's own configuration never sees.
+    /// Joined by `=`: the option takes several configs, so a first prompt after it would be read
+    /// as one more ("MCP config file not found").
+    func gatewayArguments(proxy: String) -> String {
+        let args = AgentDrivers.gatewayProxyArguments(proxy)
+        return #"--mcp-config="{\"mcpServers\":{\"cascade\":{\"type\":\"stdio\",\"command\":\"/bin/sh\",\"args\":[\#(args)]}}}""#
+    }
+
     /// The transcript is named by the conversation's id.
     func forkedConversation(_ source: String) -> String {
         ((source as NSString).lastPathComponent as NSString).deletingPathExtension
@@ -242,6 +266,12 @@ struct CodexDriver: AgentDriver {
         ["codex", "fork", "-C", AgentDrivers.quote(directory), AgentDrivers.quote(source)].joined(separator: " ")
     }
     func forkedConversation(_ source: String) -> String { source }
+
+    /// Config overrides for this launch only; `config.toml` is never written.
+    func gatewayArguments(proxy: String) -> String {
+        let args = AgentDrivers.gatewayProxyArguments(proxy)
+        return #"-c 'mcp_servers.cascade.command="/bin/sh"' -c "mcp_servers.cascade.args=[\#(args)]""#
+    }
 
     /// Codex's `/model` takes no argument: typed text after it goes to the model as a prompt. It
     /// opens a numbered picker instead, models in catalog order and then the model's reasoning

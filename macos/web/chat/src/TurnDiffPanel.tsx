@@ -16,16 +16,22 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppSettings } from "~/appSettings";
+import { useDiffRenderModeStore } from "~/diffRenderModeStore";
 import { DiffPanelChangeMarkers } from "~/components/DiffPanelChangeMarkers";
 import { DiffPanelPatchViewport } from "~/components/DiffPanelPatchViewport";
 import { DiffPanelShell } from "~/components/DiffPanelShell";
-import { resolveConversationCacheScope, resolveSelectedTurnSummary } from "~/components/DiffPanel.logic";
+import {
+  resolveConversationCacheScope,
+  resolveSelectedTurnSummary,
+  resolveTurnDiffCacheScope,
+} from "~/components/DiffPanel.logic";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
 import { DiffStat } from "~/components/chat/DiffStatLabel";
 import { TOOLBAR_ICON_BUTTON_TONE_CLASS_NAME } from "~/components/ui/button-group";
 import { IconButton } from "~/components/ui/icon-button";
 import { Menu, MenuItem, MenuTrigger } from "~/components/ui/menu";
 import { useTheme } from "~/hooks/useTheme";
+import { useTranslation } from "~/i18n";
 import { appendChatFileReference, appendComposerPromptText, buildWhyChangedPrompt } from "~/lib/chatReferences";
 import { getRenderablePatch, sortFileDiffsByPath, summarizeRenderablePatchStats } from "~/lib/diffRendering";
 import { ChevronDownIcon, Columns2Icon, Rows3Icon, TextWrapIcon, XIcon } from "~/lib/icons";
@@ -41,6 +47,9 @@ export interface TurnDiffSelection {
   filePath: string | null;
 }
 
+/** diffRenderMode.ts's DiffRenderMode (a type-only module, not vendored). */
+type DiffRenderMode = "stacked" | "split";
+
 export function TurnDiffPanel(props: {
   threadId: ThreadId;
   workspaceRoot: string | null;
@@ -53,9 +62,17 @@ export function TurnDiffPanel(props: {
   onClose: () => void;
 }) {
   const { threadId, turnDiffSummaries, inferredCheckpointTurnCountByTurnId, selection, onSelect, onClose } = props;
+  const { t, formatLocale } = useTranslation();
   const { resolvedTheme } = useTheme();
   const { settings } = useAppSettings();
-  const [diffRenderMode, setDiffRenderMode] = useState<"stacked" | "split">("stacked");
+  // DiffPanel's per-thread layout (diffRenderModeStore), which remembers a toggle per thread.
+  // The fallback stays stacked: the pane the page draws in is often narrower than a split.
+  const diffRenderMode = useDiffRenderModeStore((store) => store.getModeForThread(threadId, "stacked"));
+  const setModeForThread = useDiffRenderModeStore((store) => store.setModeForThread);
+  const setDiffRenderMode = useCallback(
+    (update: (mode: DiffRenderMode) => DiffRenderMode) => setModeForThread(threadId, update(diffRenderMode)),
+    [diffRenderMode, setModeForThread, threadId],
+  );
   const [diffWordWrap, setDiffWordWrap] = useState(settings.diffWordWrap);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(() => new Set());
   const patchViewportRef = useRef<HTMLDivElement>(null);
@@ -93,7 +110,11 @@ export function TurnDiffPanel(props: {
       fromTurnCount: range?.fromTurnCount ?? null,
       toTurnCount: range?.toTurnCount ?? null,
       ignoreWhitespace: true,
-      cacheScope: selectedTurn ? `turn:${selectedTurn.turnId}` : resolveConversationCacheScope(conversationTurnCount),
+      // DiffPanel's: a live snapshot of a running turn and its final checkpoint cache apart, and
+      // a live one is dropped as soon as it is not shown.
+      cacheScope: selectedTurn ? resolveTurnDiffCacheScope(selectedTurn) : resolveConversationCacheScope(conversationTurnCount),
+      liveSnapshot:
+        selectedTurn?.status === "missing" && selectedTurn.checkpointRef?.startsWith("provider-diff:") === true,
       enabled: range !== null,
     }),
   );
@@ -140,7 +161,7 @@ export function TurnDiffPanel(props: {
 
   const turnLabel = (summary: TurnDiffSummary) => {
     const count = turnCountOf(summary);
-    return typeof count === "number" ? `Turn ${count}` : "Turn";
+    return typeof count === "number" ? `${t("common:diff_turn")} ${count}` : t("common:diff_turn");
   };
   const header = (
     <div className="flex w-full min-w-0 items-center gap-1.5" data-turn-diff-header="">
@@ -151,14 +172,14 @@ export function TurnDiffPanel(props: {
               type="button"
               className="inline-flex min-w-0 items-center gap-1 rounded-full px-2 py-1 text-ui-sm font-medium text-foreground hover:bg-[var(--color-background-button-secondary-hover)]"
             >
-              <span className="truncate">{selectedTurn ? turnLabel(selectedTurn) : "All turns"}</span>
+              <span className="truncate">{selectedTurn ? turnLabel(selectedTurn) : t("common:diff_allTurns")}</span>
               <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground" />
             </button>
           }
         />
         <ComposerPickerMenuPopup align="start" side="bottom" sideOffset={6} className="w-64 min-w-64">
           <MenuItem onClick={() => onSelect({ turnId: null, filePath: null })}>
-            <span className="flex-1">All turns</span>
+            <span className="flex-1">{t("common:diff_allTurns")}</span>
           </MenuItem>
           {orderedTurnDiffSummaries.map((summary) => {
             const additions = summary.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
@@ -168,7 +189,7 @@ export function TurnDiffPanel(props: {
                 <span className="flex-1 truncate">{turnLabel(summary)}</span>
                 <DiffStat additions={additions} deletions={deletions} className="text-ui-xs tabular-nums" />
                 <span className="text-ui-xs text-muted-foreground">
-                  {formatShortTimestamp(summary.completedAt, settings.timestampFormat)}
+                  {formatShortTimestamp(summary.completedAt, settings.timestampFormat, formatLocale)}
                 </span>
               </MenuItem>
             );
@@ -184,7 +205,7 @@ export function TurnDiffPanel(props: {
           size="icon-xs"
           shape="capsule"
           className={TOOLBAR_ICON_BUTTON_TONE_CLASS_NAME}
-          label={diffRenderMode === "split" ? "Stacked diff" : "Split diff"}
+          label={diffRenderMode === "split" ? t("common:stackedDiff") : t("common:splitDiff")}
           onClick={() => setDiffRenderMode((mode) => (mode === "split" ? "stacked" : "split"))}
         >
           {diffRenderMode === "split" ? <Rows3Icon className="size-3.5" /> : <Columns2Icon className="size-3.5" />}
@@ -232,7 +253,7 @@ export function TurnDiffPanel(props: {
             error={range === null ? "No turn diffs are available yet." : display.error}
             refreshStatus={display.refreshStatus}
             viewKind="turn"
-            loadingLabel="Loading checkpoint diff..."
+            loadingLabel={t("common:diff_loadingCheckpointDiff")}
             emptyLabel={orderedTurnDiffSummaries.length === 0 ? "No turn diffs are available yet." : "No net changes in this selection."}
             unavailableLabel="No diff is available right now."
           />

@@ -126,6 +126,11 @@ fn start(data_dir: PathBuf, packaged: bool, instance_id: Option<String>) -> anyh
     std::fs::write(&port_file, port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
     runtime.block_on(crate::start_background(&state, port));
+    if let Err(error) = state.gateway.configure(port, &data_dir) {
+        tracing::error!(error = %format!("{error:#}"), "gateway: agents get no tools");
+    }
+    state.gateway.register_all();
+    crate::start_devices(&state, &data_dir);
     runtime.block_on(crate::chat::start(&state, &data_dir));
     let router = build_app(state.clone());
     let (shutdown, stopped) = oneshot::channel::<()>();
@@ -422,6 +427,7 @@ pub unsafe extern "C" fn cascade_backend_stop(backend: *mut CascadeBackend) {
             }
             state.forwarders.stop().await;
             state.chat.shutdown().await;
+            crate::stop_devices(&state).await;
             if let Some(server) = server {
                 let _ = tokio::time::timeout(Duration::from_secs(2), server).await;
             }

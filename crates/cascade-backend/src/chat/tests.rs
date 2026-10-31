@@ -32,6 +32,7 @@ async fn app_with_engine(dir: &Path, spawner: &ScriptedSpawner) -> AppState {
         publish: publisher(app.events.clone()),
         git: None,
         text_generation: None,
+        agent_gateway: None,
     };
     start_with(&app, config).await.unwrap();
     app
@@ -868,6 +869,7 @@ async fn the_first_message_is_titled_by_a_headless_claude_on_haiku() {
             publish: publisher(app.events.clone()),
             git: None,
             text_generation: Some(Arc::new(titles::CliTitles::new())),
+            agent_gateway: None,
         };
         start_with(&app, config).await.unwrap();
         app

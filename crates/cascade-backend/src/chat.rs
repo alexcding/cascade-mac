@@ -61,11 +61,14 @@ pub struct Chat {
     files: workspace::Index,
     /// Where a chat created with no folder gets one of its own: `<data>/chat/workspaces`.
     scratch: OnceLock<PathBuf>,
+    /// The engine's attachments root, `<data>/chat/attachments`, under which the agent gateway
+    /// keeps inline visuals (`gateway/visuals/store.rs`).
+    attachments: OnceLock<PathBuf>,
 }
 
 impl Default for Chat {
     fn default() -> Self {
-        Self { engine: OnceLock::new(), statuses: flight::Flights::new(STATUS_TTL, 1), files: workspace::Index::default(), scratch: OnceLock::new() }
+        Self { engine: OnceLock::new(), statuses: flight::Flights::new(STATUS_TTL, 1), files: workspace::Index::default(), scratch: OnceLock::new(), attachments: OnceLock::new() }
     }
 }
 
@@ -89,6 +92,11 @@ impl Chat {
         self.engine.get()
     }
 
+    /// The engine's attachments root, once the engine has started.
+    pub fn attachments_dir(&self) -> Option<PathBuf> {
+        self.attachments.get().cloned()
+    }
+
     /// Stops every chat's CLI and saves what is unsaved. The engine refuses calls afterwards.
     pub async fn shutdown(&self) {
         if let Some(engine) = self.engine.get() {
@@ -107,6 +115,7 @@ pub async fn start(state: &AppState, data_dir: &Path) {
         publish: publisher(state.events.clone()),
         git: Some(Arc::new(CliGit)),
         text_generation: Some(Arc::new(titles::CliTitles::new())),
+        agent_gateway: Some(state.gateway.clone()),
     };
     if let Err(error) = start_with(state, config).await {
         tracing::error!(error = %format!("{error:#}"), "chat: the engine did not start");
@@ -114,15 +123,34 @@ pub async fn start(state: &AppState, data_dir: &Path) {
 }
 
 /// Starts the engine with `config` as given; tests hand it a scripted spawner.
-pub(crate) async fn start_with(state: &AppState, config: ChatEngineConfig) -> anyhow::Result<()> {
+pub(crate) async fn start_with(state: &AppState, mut config: ChatEngineConfig) -> anyhow::Result<()> {
     let scratch = config.data_dir.join(SCRATCH_FOLDER);
+    let attachments = config.data_dir.join("attachments");
+    config.publish = crate::device::service::releasing_devices(state, removing_visuals(attachments.clone(), config.publish));
     let engine = ChatEngine::start(config).await?;
     if let Err(engine) = state.chat.engine.set(engine) {
         engine.shutdown().await;
         anyhow::bail!("the chat engine was already started");
     }
     let _ = state.chat.scratch.set(scratch);
+    let _ = state.chat.attachments.set(attachments);
     Ok(())
+}
+
+/// `publish`, and a deleted thread's inline visuals removed with it (Synara's thread-deletion side
+/// effect, `ProjectionPipeline.ts`). Off the engine's task, which must not block.
+fn removing_visuals(attachments: PathBuf, publish: Arc<dyn Fn(ChatEngineEvent) + Send + Sync>) -> Arc<dyn Fn(ChatEngineEvent) + Send + Sync> {
+    Arc::new(move |event| {
+        if let ChatEngineEvent::Removed { thread_id } = &event {
+            let (attachments, thread_id) = (attachments.clone(), thread_id.as_str().to_owned());
+            tokio::task::spawn_blocking(move || {
+                if let Err(error) = crate::gateway::visuals::store::remove_thread(&attachments, &thread_id) {
+                    tracing::warn!(thread = %thread_id, "chat: a deleted thread's visuals were not removed: {error}");
+                }
+            });
+        }
+        publish(event)
+    })
 }
 
 /// The engine's events, as the app's `Event`s.
@@ -150,7 +178,7 @@ pub(crate) fn publisher(events: broadcast::Sender<Value>) -> Arc<dyn Fn(ChatEngi
 /// its tool approvals to that terminal's chat. Without them Claude's hooks stop at their
 /// foreground guard (the CLI has no controlling terminal), and Codex's report with no run, which
 /// the permission hook answers with no decision at once and the turn hooks only relay.
-struct CliSpawner;
+pub(crate) struct CliSpawner;
 
 /// What a Cascade terminal sets for the agent hooks, kept from a chat's CLI.
 const HOOK_VARIABLES: [&str; 2] = ["CASCADE_RUN_ID", "CASCADE_PORT_FILE"];
@@ -286,6 +314,7 @@ async fn call(app: &AppState, method: &str, params: Value) -> RpcResult {
         "orchestration.getShellSnapshot" => shell_snapshot(app).await,
         "orchestration.getTurnDiff" => turn_diff(app, params).await,
         "orchestration.getFullThreadDiff" => full_thread_diff(app, params).await,
+        "orchestration.getInlineVisual" => inline_visual(app, params).await,
         "provider.listModels" => list_models(app, params).await,
         "provider.getComposerCapabilities" => composer_capabilities(params),
         "provider.listCommands" => list_commands(app, params).await,
@@ -369,6 +398,35 @@ async fn turn_diff(app: &AppState, raw: Value) -> RpcResult {
 async fn full_thread_diff(app: &AppState, raw: Value) -> RpcResult {
     let input: OrchestrationGetFullThreadDiffInput = params(raw)?;
     diff_result(engine(app)?.full_thread_diff(input).await)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InlineVisualParams {
+    thread_id: String,
+    visual_id: String,
+}
+
+/// Synara `orchestration.getInlineVisual {threadId, visualId}` → `{visualId, html}`: the stored
+/// source of a visual the thread's agent published (`gateway/visuals.rs`), the spec JSON or the
+/// HTML document per its activity's format.
+async fn inline_visual(app: &AppState, raw: Value) -> RpcResult {
+    let InlineVisualParams { thread_id, visual_id } = params(raw)?;
+    engine(app)?;
+    let attachments = app.chat.attachments_dir().ok_or_else(|| RpcError::unavailable("chats are not available"))?;
+    let id = visual_id.clone();
+    let html = tokio::task::spawn_blocking(move || crate::gateway::visuals::store::read(&attachments, &thread_id, &id))
+        .await
+        .map_err(RpcError::internal)?
+        .map_err(|error| RpcError::internal(format!("Failed to load visual: {error}")))?;
+    match html {
+        Some(html) => Ok(json!({ "visualId": visual_id, "html": html })),
+        None => Err(RpcError {
+            status: StatusCode::NOT_FOUND,
+            message: "This visual is no longer available.".into(),
+            code: Some("inline-visual-missing"),
+        }),
+    }
 }
 
 #[derive(Deserialize)]

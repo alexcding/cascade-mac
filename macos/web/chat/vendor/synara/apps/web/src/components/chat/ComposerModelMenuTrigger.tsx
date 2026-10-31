@@ -7,7 +7,9 @@
 import type { ProviderKind } from "@synara/contracts";
 import { useState } from "react";
 
-import { ChevronDownIcon, FastModeIcon, SettingsIcon } from "~/lib/icons";
+import type { FastModeNotice } from "~/lib/fastModeState";
+import { ChevronDownIcon, SettingsIcon } from "~/lib/icons";
+import { FastModeBadgeIcon } from "./FastModeBadgeIcon";
 import { cn } from "~/lib/utils";
 import { ProviderAccountDot } from "../ProviderAccountMark";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
@@ -20,6 +22,13 @@ import {
   COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
 } from "./composerPickerStyles";
 import { getProviderIconClassName } from "./ProviderModelPicker";
+import { useTranslation } from "~/i18n";
+
+// Effort and context window ("High", "1M") share one muted tone after the model name.
+const TRIGGER_TRAIT_LABEL_CLASS_NAME = cn(
+  "shrink-0 dark:text-muted-foreground/45",
+  COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
+);
 
 // Must render inside a `Menu`. `hideModelLabel` / `hideStatusLabel` are the narrow-composer
 // degradation steps: the text moves to title/sr-only so assistive tech keeps it.
@@ -34,6 +43,8 @@ export function ComposerModelMenuTrigger(props: {
   statusLabel: string | null;
   contextWindowLabel?: string | null | undefined;
   showsFastBadge: boolean;
+  /** Fast mode was requested but is not serving; the badge turns into a muted outline. */
+  fastModeNotice?: FastModeNotice | null | undefined;
   hideModelLabel?: boolean | undefined;
   hideStatusLabel?: boolean | undefined;
   disabled?: boolean | undefined;
@@ -44,6 +55,8 @@ export function ComposerModelMenuTrigger(props: {
   openPlaceholderLabel?: string | null | undefined;
   shortcutLabel?: string | null | undefined;
 }) {
+  const { t } = useTranslation();
+
   const freezesLabel = props.isMenuOpen && Boolean(props.openPlaceholderLabel);
   // A compact (icon-only) trigger has no room for the placeholder; it only freezes.
   const showsPlaceholder = freezesLabel && !props.hideModelLabel;
@@ -82,7 +95,7 @@ export function ComposerModelMenuTrigger(props: {
         "min-w-0 shrink-0 justify-start gap-1.5 whitespace-nowrap px-2 sm:px-2.5 [&_svg]:mx-0",
         COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
       )}
-      aria-label="Change model and reasoning"
+      aria-label={t("chat:modelEffort_changeModelAndReasoning")}
       {...(hiddenTriggerTitle.length > 0 ? { title: hiddenTriggerTitle } : {})}
     />
   );
@@ -127,8 +140,8 @@ export function ComposerModelMenuTrigger(props: {
             </span>
           )}
           {label.showsFastBadge ? (
-            <FastModeIcon
-              aria-hidden="true"
+            <FastModeBadgeIcon
+              notice={props.fastModeNotice}
               className="size-3.5 shrink-0 text-[var(--color-text-foreground)] opacity-100"
             />
           ) : null}
@@ -145,24 +158,11 @@ export function ComposerModelMenuTrigger(props: {
                 <span className="sr-only">{label.statusLabel}</span>
               </>
             ) : (
-              <span
-                className={cn(
-                  "shrink-0 dark:text-muted-foreground/45",
-                  COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
-                )}
-              >
-                {label.statusLabel}
-              </span>
+              <span className={TRIGGER_TRAIT_LABEL_CLASS_NAME}>{label.statusLabel}</span>
             )
           ) : null}
           {label.contextWindowLabel ? (
-            <span
-              className={
-                props.hideStatusLabel
-                  ? "sr-only"
-                  : cn("shrink-0", COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME)
-              }
-            >
+            <span className={props.hideStatusLabel ? "sr-only" : TRIGGER_TRAIT_LABEL_CLASS_NAME}>
               {label.contextWindowLabel}
             </span>
           ) : null}
@@ -193,7 +193,7 @@ export function ComposerModelMenuTrigger(props: {
       {!props.isMenuOpen ? (
         <TooltipPopup side="top" sideOffset={6} variant="picker">
           <span className="inline-flex items-center gap-2 px-1 py-0.5">
-            <span>Change model</span>
+            <span>{t("chat:providerModelPicker_changeModel")}</span>
             <ShortcutKbd shortcutLabel={props.shortcutLabel} className="h-4 min-w-4 text-ui-2xs" />
           </span>
         </TooltipPopup>

@@ -1,7 +1,8 @@
-// The subagent strip: a Claude turn that ran a subagent (recorded through cascade-chat's engine,
-// test/fixtures/claude-subagent.json) draws Synara's ComposerSubagentStrip, reads the subagent's
-// thread to tell whether it still runs, and asks the app to show it; on the subagent's own
-// (read-only) page the strip leads back to the parent.
+// Subagents: a Claude turn that ran a subagent (recorded through cascade-chat's engine,
+// test/fixtures/claude-subagent.json) draws Synara's subagent run card in the transcript and the
+// composer's "N agents running" capsule (which stands in for the card's "N running" chip), reads the subagent's thread to tell whether it still runs, and asks the app to
+// show it; the subagent's own (read-only) page opens with Synara's subagent intro, which leads
+// back to the parent.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -32,7 +33,10 @@ after(async () => {
 
 const events = (name) => page.posted.filter((message) => message.kind === "event" && message.name === name);
 const reads = (threadId) => page.requests.filter((m) => m.method === SNAPSHOT_READ && m.params?.threadId === threadId);
-const strip = () => document.querySelector('[data-testid="composer-subagent-strip"]');
+const card = () => document.querySelector('[data-testid="subagent-run-card"]');
+const chip = () => document.querySelector('[data-testid="subagent-running-chip"]');
+const capsule = () => document.querySelector('[data-testid="running-agents-capsule"]');
+const rows = () => [...(card()?.querySelectorAll('[data-testid="subagent-run-row"]') ?? [])];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function show(thread, extra = {}) {
@@ -41,24 +45,33 @@ function show(thread, extra = {}) {
   page.push("thread", { kind: "snapshot", snapshot: { snapshotSequence: sequence, thread } });
 }
 
-test("a running subagent shows in the strip, read from its own thread, and opens it", async () => {
+/** Opens the card's rows (it starts folded, as an expanded tool group would not). */
+async function expandCard() {
+  const toggle = await waitFor(() => card()?.querySelector("button[aria-expanded]"), "the card's header");
+  if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+  return waitFor(() => (rows().length > 0 ? rows() : null), "the card's rows");
+}
+
+test("a running subagent shows in its transcript card, read from its own thread, and opens it", async () => {
   show(recorded.parentRunning);
-  await waitFor(strip, "the subagent strip");
+  await waitFor(card, "the subagent run card");
   await waitFor(() => reads(childId).length > 0, "the subagent's thread read");
-  await waitFor(() => /1 of 1 subagent running/.test(strip()?.textContent ?? ""), "the running count");
-  assert.match(strip().textContent, /List files in current directory/);
-  assert.match(strip().textContent, /general-purpose/);
+  await waitFor(() => /1 agent running/.test(capsule()?.textContent ?? ""), "the running agents capsule");
+  // One indicator is enough: while the capsule counts the agent, the card's chip stays hidden.
+  assert.equal(chip(), null, "no running chip beside the capsule");
   // A subagent still running is read again as the parent changes.
   const runningReads = reads(childId).length;
   show(recorded.parentRunning);
   await waitFor(() => reads(childId).length > runningReads, "the running subagent read again");
 
-  const row = strip().querySelector('[data-testid="composer-subagent-row"] button');
-  row.click();
+  const [row] = await expandCard();
+  await waitFor(() => row.getAttribute("data-phase") === "running" || row.getAttribute("data-phase") === "waiting", "the running row");
+  assert.equal(row.querySelector('button[aria-label="Run in background (ctrl+b)"]'), null, "no background offer");
+  row.querySelector('button[aria-label^="Open "]').click();
   const open = await waitFor(() => events("openThread").at(-1), "the openThread event");
   assert.equal(open.payload.threadId, childId);
 
-  const stop = strip().querySelector('button[aria-label="Stop subagent"]');
+  const stop = row.querySelector('button[aria-label^="Stop "]');
   assert.ok(stop, "a running subagent can be stopped");
   stop.click();
   const interrupt = await waitFor(
@@ -71,11 +84,14 @@ test("a running subagent shows in the strip, read from its own thread, and opens
   assert.equal(interrupt.params.command.threadId, childId);
 });
 
-test("once the parent's turn and the subagent are done, the strip retires", async () => {
+test("once the parent's turn and the subagent are done, the card settles and the capsule goes", async () => {
   threads = { [parentId]: recorded.parentDone, [childId]: recorded.childDone };
   show(recorded.parentDone);
-  await waitFor(() => !strip(), "the strip to retire");
+  await waitFor(() => !capsule() && !chip(), "the running agents capsule to go");
   await waitFor(() => text().includes("The directory contains five files"), "the parent's answer");
+  const [row] = await expandCard();
+  await waitFor(() => row.getAttribute("data-phase") === "done", "the settled row");
+  assert.equal(row.querySelector('button[aria-label^="Stop "]'), null, "nothing left to stop");
 });
 
 test("a settled subagent is read once, not again on every push", async () => {
@@ -91,19 +107,25 @@ test("a settled subagent is read once, not again on every push", async () => {
   assert.equal(reads(childId).length, settledReads, "no read of a subagent seen settled");
 });
 
-test("a subagent's page is read-only and its strip leads back to the parent", async () => {
+test("a subagent's page is read-only and its intro leads back to the parent", async () => {
   threads = { [parentId]: recorded.parentRunning, [childId]: recorded.childRunning };
   const before = events("openThread").length;
   show(recorded.childRunning, { readOnly: true });
   await waitFor(() => reads(parentId).length > 0, "the parent's thread read");
   const back = await waitFor(
-    () => document.querySelector('[data-testid="composer-subagent-parent-row"] button'),
-    "the parent row",
+    () => document.querySelector('[data-testid="subagent-thread-intro"] button[aria-label^="Open parent thread"]'),
+    "the way back to the parent",
   );
   assert.equal(document.querySelector("[data-chat-composer-form]"), null, "no composer");
-  const viewed = strip().querySelector('[data-testid="composer-subagent-row"][data-viewed]');
-  assert.ok(viewed, "the subagent on screen is marked");
   back.click();
   const open = await waitFor(() => events("openThread").slice(before).at(-1), "the openThread event");
   assert.equal(open.payload.threadId, parentId);
+});
+
+test("a read-only page with a running subagent keeps the card's chip, having no composer for the capsule", async () => {
+  threads = { [parentId]: recorded.parentRunning, [childId]: recorded.childRunning };
+  show(recorded.parentRunning, { readOnly: true });
+  await waitFor(card, "the subagent run card");
+  await waitFor(chip, "the running chip");
+  assert.equal(capsule(), null, "no capsule without a composer");
 });

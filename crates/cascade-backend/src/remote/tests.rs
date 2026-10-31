@@ -115,9 +115,12 @@ async fn the_chat_answers_reads_and_refuses_everything_else() {
         let (code, reply) = call(&status, "POST", "/api/chat/rpc", Some(&token), Some(json!({ "method": method, "params": {} }))).await;
         assert_eq!((code, reply["error"]["code"].as_str()), (403, Some("forbidden")), "{method}");
     }
-    // Allowed, and passed to the chat, which has no engine in this test.
-    let (code, reply) = call(&status, "POST", "/api/chat/rpc", Some(&token), Some(json!({ "method": "chat.listThreads" }))).await;
-    assert_eq!((code, reply["error"]["code"].as_str()), (404, Some("unavailable")));
+    // Allowed, and passed to the chat, which has no engine in this test. A visual its agent showed
+    // is a read of what the chat stored, as a turn's diff is.
+    for method in ["chat.listThreads", "orchestration.getInlineVisual"] {
+        let (code, reply) = call(&status, "POST", "/api/chat/rpc", Some(&token), Some(json!({ "method": method, "params": { "threadId": "t", "visualId": "vis_1" } }))).await;
+        assert_eq!((code, reply["error"]["code"].as_str()), (404, Some("unavailable")), "{method}");
+    }
 }
 
 #[tokio::test]

@@ -12,6 +12,7 @@ crate-type = ["rlib", "staticlib"]
 
 [dependencies]
 anyhow = "1.0"
+base64 = "0.22"
 axum = { version = "0.8.4", features = ["json", "macros"] }
 cascade-chat = { path = "../cascade-chat" }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
@@ -30,7 +31,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.47", features = ["io-util", "macros", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.47", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tower = { version = "0.5", features = ["util"] }
@@ -43,6 +44,8 @@ spake2 = "0.4"
 
 [dev-dependencies]
 tempfile = "3.21"
+# Paused time for the device manager's settle and idle-shutdown tests.
+tokio = { version = "1.47", features = ["test-util"] }
 
 # Panics stay on unwind: ffi.rs catches them at the C ABI boundary.
 [profile.release]

@@ -42,7 +42,9 @@ import Testing
     let runtime = [opus, haiku]
 
     let fresh = try #require(await catalog.traits(provider: "claudeAgent", model: "claude-opus-5-5", runtime: runtime, options: [:]))
-    #expect(fresh.effortLevels.map(\.label) == ["Low", "Medium", "High", "Extra High", "Max", "Ultracode"])
+    // The levels the installed CLI reports are Claude's ladder as they stand, its own labels
+    // included (Synara d9f1f4175, 27c659690): no level the CLI does not offer is added.
+    #expect(fresh.effortLevels.map(\.label) == ["Low", "Medium", "High", "Extra", "Max"])
     #expect(fresh.effort == "high" && fresh.defaultEffort == "high" && fresh.ladderIndex == 2 && fresh.statusLabel == "High")
     #expect(fresh.supportsFastMode && !fresh.fastModeEnabled && fresh.thinkingEnabled == nil && !fresh.locked)
     #expect(fresh.contextLabel == "Auto-compact" && fresh.contextId == "autoCompactWindow" && fresh.contextWindow == "auto")

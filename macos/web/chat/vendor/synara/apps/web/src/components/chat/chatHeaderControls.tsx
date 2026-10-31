@@ -17,6 +17,7 @@ import {
   type ComponentProps,
   type CSSProperties,
   type MouseEvent,
+  type RefObject,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -33,6 +34,7 @@ import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { useTranslation } from "~/i18n";
 
 /**
  * Fixed height of the top chrome bar shared by the chat header, the diff panel
@@ -154,6 +156,32 @@ export function SurfaceChipIcon({
   className?: string;
 }) {
   return <Icon aria-hidden className={cn(CHAT_SURFACE_CHIP_ICON_CLASS_NAME, className)} />;
+}
+
+/**
+ * Route vertical mouse-wheel input sideways for a horizontal tab strip while preserving
+ * native horizontal trackpad gestures and browser zoom. A short gap starts a fresh gesture;
+ * this keeps a zero-deltaX trackpad sample from fighting the browser's native scrolling.
+ */
+export function useHorizontalWheelScroll(stripRef: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) {
+      return;
+    }
+    let lastWheelAt = -Infinity;
+    let nativeHorizontalGesture = false;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
+      if (event.timeStamp - lastWheelAt > 250) nativeHorizontalGesture = false;
+      lastWheelAt = event.timeStamp;
+      if (event.deltaX !== 0) nativeHorizontalGesture = true;
+      if (nativeHorizontalGesture || event.deltaY === 0) return;
+      strip.scrollLeft += event.deltaY;
+    };
+    strip.addEventListener("wheel", onWheel, { passive: true });
+    return () => strip.removeEventListener("wheel", onWheel);
+  }, [stripRef]);
 }
 
 /** Header diff toggle — shared chip skin + Toggle's pressed text treatment. */
@@ -467,31 +495,7 @@ export function SurfaceTabStrip({
     };
   }, [activeKey]);
 
-  // Wheel mice only emit vertical deltas; route them sideways while the strip overflows.
-  // The listener stays passive: a cancelable one makes every wheel event, sideways trackpad
-  // swipes included, wait for the main thread, so the strip stalls whenever a chat is
-  // rendering. Once a gesture carries sideways movement, leave its remaining samples to
-  // the browser too: a trackpad can briefly emit deltaX === 0, and writing scrollLeft for
-  // that sample fights the native scroll. WheelEvent has no gesture-end signal, so a quiet
-  // gap lets the next vertical-only gesture use the mouse-wheel fallback again.
-  useEffect(() => {
-    const strip = stripRef.current;
-    if (!strip) {
-      return;
-    }
-    let lastWheelAt = -Infinity;
-    let nativeHorizontalGesture = false;
-    const onWheel = (event: WheelEvent) => {
-      if (event.ctrlKey) return;
-      if (event.timeStamp - lastWheelAt > 250) nativeHorizontalGesture = false;
-      lastWheelAt = event.timeStamp;
-      if (event.deltaX !== 0) nativeHorizontalGesture = true;
-      if (nativeHorizontalGesture || event.deltaY === 0) return;
-      strip.scrollLeft += event.deltaY;
-    };
-    strip.addEventListener("wheel", onWheel, { passive: true });
-    return () => strip.removeEventListener("wheel", onWheel);
-  }, []);
+  useHorizontalWheelScroll(stripRef);
 
   return (
     <div
@@ -564,7 +568,7 @@ export function ChatHeaderGroupDivider() {
   );
 }
 
-export type DiffRenderMode = "stacked" | "split";
+export type { DiffRenderMode } from "../../diffRenderMode";
 
 /** Visual treatment shared across the header row. `surface` is the quiet icon-only
  *  look of the panel toggles (muted glyph at rest, filled on hover), for icon buttons
@@ -677,6 +681,8 @@ export function SurfacePanelToggle({
   ariaLabel: string;
   tooltip: ReactNode;
 }) {
+  const { t } = useTranslation();
+
   return (
     <Tooltip>
       <TooltipTrigger
@@ -685,7 +691,9 @@ export function SurfacePanelToggle({
             className={SURFACE_PANEL_TOGGLE_CLASS_NAME}
             pressed={state.open}
             onPressedChange={state.onOpenChange}
-            aria-label={state.attention ? `${ariaLabel}, needs attention` : ariaLabel}
+            aria-label={
+              state.attention ? t("chat:needsAttention", { value0: ariaLabel }) : ariaLabel
+            }
             variant="default"
             size="xs"
           >

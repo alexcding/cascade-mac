@@ -376,6 +376,8 @@ async function dispatchDraftThreadOnce(
     files: filesForSend,
     assistantSelections: composerAssistantSelections,
   });
+  // Preparation may outlast a failed upload; the original promise still drives rollback.
+  void turnAttachmentsPromise.catch(() => undefined);
   // The same instant feeds both the command timestamps and onDispatchStart: a
   // server-side failure stamps the session with this createdAt, and Kanban's
   // failure check compares it against startedAtMs with >=.
@@ -423,7 +425,10 @@ async function dispatchDraftThreadOnce(
           worktreePath: creationState.worktreePath,
           workingDirectory: creationState.workingDirectory,
           lastKnownPr: creationState.lastKnownPr,
-          createdAt: draftThread?.createdAt ?? createdAt,
+          // A local draft's createdAt is the time its composer opened. The durable
+          // thread is created by this dispatch, so use the same send timestamp as
+          // the first turn instead of carrying the draft's idle time into sorting.
+          createdAt,
         },
         api,
       );

@@ -272,16 +272,19 @@ fn to_permission_mode(value: Option<&str>) -> Option<&'static str> {
     }
 }
 
-/// The permission mode a session spawns in (ClaudeAdapter.ts:6119-6123): `auto` is Claude's own
-/// classifier, full access bypasses permissions, and approval-required leaves the CLI in its
-/// `default` mode (no flag). A configured `permissionMode` wins over the runtime mode except auto.
+/// The permission mode a session spawns in (ClaudeAdapter.ts:7192-7200): `auto` is Claude's own
+/// classifier, full access bypasses permissions, and approval-required pins `default`: with the
+/// flag omitted, Claude Code starts in the settings' `permissions.defaultMode` (or `auto` where
+/// that is the default), so a user or project setting could silently stop the prompts this mode
+/// promises. A configured `permissionMode` wins over the runtime mode except auto.
 pub fn claude_permission_mode(runtime_mode: RuntimeMode, configured: Option<&str>) -> Option<&'static str> {
     if runtime_mode == RuntimeMode::Auto {
         return Some("auto");
     }
     to_permission_mode(configured).or(match runtime_mode {
         RuntimeMode::FullAccess => Some("bypassPermissions"),
-        _ => None,
+        RuntimeMode::ApprovalRequired => Some("default"),
+        RuntimeMode::Auto => None,
     })
 }
 
@@ -592,10 +595,15 @@ fn build_user_message(
     Ok(protocol::user_message(sdk_content))
 }
 
-/// Synara `turnStatusFromResult` (ClaudeAdapter.ts:1580)
+/// Synara `turnStatusFromResult` (ClaudeAdapter.ts:1580). A success envelope can still carry
+/// the error flag, with or without an assistant error (908ba5065).
 fn turn_status_from_result(result: &Value) -> RuntimeTurnState {
     if message_subtype(result) == Some("success") {
-        return RuntimeTurnState::Completed;
+        return if result.get("is_error").and_then(Value::as_bool) == Some(true) {
+            RuntimeTurnState::Failed
+        } else {
+            RuntimeTurnState::Completed
+        };
     }
     if is_interrupted_result(result) {
         return RuntimeTurnState::Interrupted;
@@ -1300,10 +1308,15 @@ fn plan_claude_start(input: &ProviderSessionStartInput, binary: &str) -> ClaudeS
         include_partial_messages: true,
         additional_directories: input.cwd.iter().cloned().collect(),
         settings: Some(settings),
+        // ClaudeAdapter.ts:7300 `mcpServers: buildClaudeMcpServers(...)`.
+        mcp_config: input.agent_gateway.as_ref().map(crate::agent_gateway::claude_mcp_config),
     };
     let mut env = vec![("CLAUDE_CODE_ENTRYPOINT".to_owned(), "sdk-ts".to_owned())];
     if let Some(environment) = provider_options.and_then(|o| o.environment.as_ref()) {
         env.extend(environment.iter().map(|(k, v)| (k.clone(), v.clone())));
+    }
+    if let Some(gateway) = &input.agent_gateway {
+        env.push((crate::agent_gateway::CLAUDE_TOKEN_VARIABLE.to_owned(), gateway.bearer_token.clone()));
     }
     let spec = SpawnSpec {
         program: provider_options.and_then(|o| o.binary_path.clone()).unwrap_or_else(|| binary.to_owned()),
@@ -1341,6 +1354,9 @@ struct ClaudeSubagentRun {
     tool_use_id: String,
     task_id: Option<String>,
     scope: ClaudeScope,
+    /// The last resolved model id surfaced for this subagent (from its assistant messages), so
+    /// the child thread is updated once per distinct model.
+    reported_model: Option<String>,
 }
 
 /// Synara `subagentRefs`: stamped on every event a subagent's scoped context makes.
@@ -1583,6 +1599,14 @@ async fn report_spawn_failure(
         .await;
 }
 
+/// The last lines the CLI wrote to stderr, on one line: the transcript shows an error's first line
+/// alone (`sanitize_user_facing_error_message`), and the line saying what went wrong is often not
+/// stderr's first.
+fn stderr_tail_message(tail: &VecDeque<String>) -> Option<String> {
+    let text: Vec<&str> = tail.iter().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    (!text.is_empty()).then(|| text[text.len().saturating_sub(5)..].join(" · "))
+}
+
 async fn collect_stderr(stderr: Pin<Box<dyn AsyncRead + Send>>, tail: Arc<Mutex<VecDeque<String>>>) {
     let mut lines = BufReader::new(stderr).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -1671,6 +1695,7 @@ impl ClaudeSessionContext {
         ClaudeSubagentRun {
             tool_use_id: tool_use_id.to_owned(),
             task_id: None,
+            reported_model: None,
             scope: ClaudeScope {
                 session: self.session.clone(),
                 pending_approvals: HashMap::new(),
@@ -1703,6 +1728,30 @@ impl ClaudeSessionContext {
                 }),
             },
         }
+    }
+
+    /// Synara `reportSubagentResolvedModel` (ClaudeAdapter.ts:6239): the SDK resolves a
+    /// subagent's model from its agent definition, env or the Agent tool input; the assistant
+    /// messages carry the id that actually ran. Called with the run's scope swapped in.
+    async fn report_subagent_resolved_model(&mut self, reported_model: &mut Option<String>, message: &Value) {
+        let Some(raw_model) = message.get("message").and_then(|m| m.get("model")).and_then(Value::as_str) else { return };
+        if raw_model.is_empty() || raw_model == "<synthetic>" {
+            return;
+        }
+        let model = strip_claude_context_window_suffix(raw_model);
+        if model.is_empty() || reported_model.as_deref() == Some(model) {
+            return;
+        }
+        *reported_model = Some(model.to_owned());
+        let mut metadata = Map::new();
+        metadata.insert("model".into(), json!(model));
+        let event = self
+            .event(ProviderRuntimeEventBody::ThreadMetadataUpdated(crate::contracts::provider_runtime::ThreadMetadataUpdatedPayload {
+                name: None,
+                metadata: Some(metadata),
+            }))
+            .turn(self.current_turn_id());
+        self.offer(event).await;
     }
 
     fn put_subagent_run(&mut self, run: ClaudeSubagentRun) {
@@ -3278,8 +3327,13 @@ impl ClaudeSessionContext {
                 }
                 let tool_use_id = text("tool_use_id");
                 let status = text("status");
+                // The owning run's launching call, which the parent's card ends on.
+                let run = self.subagent_run_for_task(tool_use_id.as_deref(), &task_id);
+                if let Some(run) = &run {
+                    payload["toolUseId"] = json!(run);
+                }
                 self.offer_body("task.completed", payload, base_raw).await;
-                if let Some(run) = self.subagent_run_for_task(tool_use_id.as_deref(), &task_id) {
+                if let Some(run) = run {
                     let (settled, turn_status) = match status.as_deref() {
                         Some("completed") => ("completed", RuntimeTurnState::Completed),
                         Some("failed") => ("failed", RuntimeTurnState::Failed),
@@ -3305,6 +3359,10 @@ impl ClaudeSessionContext {
                 }
                 ("files.persisted", payload)
             }
+            // The full slash-command list after a mid-session change (ClaudeAdapter.ts:6090):
+            // bookkeeping for the `/` menu, which `listCommands` reads from the live session,
+            // not transcript content.
+            "commands_changed" => return,
             "background_tasks_changed" => {
                 // REPLACE semantics: the payload is the whole live background set.
                 let tasks = message.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -3432,7 +3490,10 @@ impl ClaudeSessionContext {
             match message_type(&message).unwrap_or_default() {
                 "stream_event" => self.handle_stream_event(&message).await,
                 "user" => self.handle_user_message(&message).await,
-                "assistant" => self.handle_assistant_message(&message).await,
+                "assistant" => {
+                    self.report_subagent_resolved_model(&mut run.reported_model, &message).await;
+                    self.handle_assistant_message(&message).await;
+                }
                 _ => self.handle_sdk_telemetry_message(&message).await,
             }
             self.swap_scope(&mut run.scope);
@@ -3659,9 +3720,7 @@ impl ClaudeSessionContext {
     // ---- the end of the stream and of the session ------------------------------------------
 
     fn stderr_message(&self) -> Option<String> {
-        let tail = self.stderr_tail.lock().unwrap();
-        let text: Vec<&str> = tail.iter().map(String::as_str).filter(|l| !l.trim().is_empty()).collect();
-        (!text.is_empty()).then(|| text[text.len().saturating_sub(5)..].join("\n"))
+        stderr_tail_message(&self.stderr_tail.lock().unwrap())
     }
 
     /// Synara `handleStreamExit` (ClaudeAdapter.ts:5275): the CLI's output ended.
@@ -3712,6 +3771,24 @@ impl ClaudeSessionContext {
             return;
         }
         self.settle_pending_human_interactions(None).await;
+        // The stopped completions below are published after the runs are cleared. Keep each live
+        // task's launching tool call, as its own task_notification would carry, or the parent's
+        // card never sees it end (ClaudeAdapter.ts:6453). A live run can be in no task set:
+        // async_launched drops it from the foreground before background_tasks_changed lists it.
+        let mut retired_tasks: Vec<(String, Option<String>)> = Vec::new();
+        for task_id in self
+            .subagent_runs
+            .values()
+            .filter_map(|run| run.task_id.clone())
+            .chain(self.known_background_task_ids.iter().cloned())
+            .collect::<Vec<_>>()
+        {
+            if retired_tasks.iter().any(|(id, _)| *id == task_id) {
+                continue;
+            }
+            let tool_use_id = self.subagent_run_for_task(None, &task_id);
+            retired_tasks.push((task_id, tool_use_id));
+        }
         let runs: Vec<String> = self.subagent_runs.keys().cloned().collect();
         for tool_use_id in runs {
             let Some(mut run) = self.subagent_runs.remove(&tool_use_id) else { continue };
@@ -3736,9 +3813,22 @@ impl ClaudeSessionContext {
             }
         }
 
-        // Retired background tasks cannot report their own end.
+        // Retired tasks cannot report their own end. Tasks that already ended (a lagging snapshot
+        // re-listed a notified task) keep their own outcome (ClaudeAdapter.ts:6523).
         for task_id in std::mem::take(&mut self.known_background_task_ids) {
-            if let Some(body) = body("task.completed", json!({ "taskId": task_id, "status": "stopped" })) {
+            if !retired_tasks.iter().any(|(id, _)| *id == task_id) {
+                retired_tasks.push((task_id, None));
+            }
+        }
+        for (task_id, tool_use_id) in retired_tasks {
+            if !self.terminal_task_ids.insert(task_id.clone()) {
+                continue;
+            }
+            let mut payload = json!({ "taskId": task_id, "status": "stopped" });
+            if let Some(tool_use_id) = tool_use_id {
+                payload["toolUseId"] = json!(tool_use_id);
+            }
+            if let Some(body) = body("task.completed", payload) {
                 let event = self.event(body);
                 self.offer(event).await;
             }
@@ -4029,7 +4119,7 @@ mod tests {
         assert_eq!(claude_permission_mode(RuntimeMode::Auto, None), Some("auto"));
         assert_eq!(claude_permission_mode(RuntimeMode::Auto, Some("plan")), Some("auto"));
         assert_eq!(claude_permission_mode(RuntimeMode::FullAccess, None), Some("bypassPermissions"));
-        assert_eq!(claude_permission_mode(RuntimeMode::ApprovalRequired, None), None);
+        assert_eq!(claude_permission_mode(RuntimeMode::ApprovalRequired, None), Some("default"));
         assert_eq!(claude_permission_mode(RuntimeMode::ApprovalRequired, Some("acceptEdits")), Some("acceptEdits"));
         assert_eq!(claude_permission_mode(RuntimeMode::FullAccess, Some("bogus")), Some("bypassPermissions"));
     }
@@ -4043,8 +4133,28 @@ mod tests {
         assert_eq!(args[at + 1], "bypassPermissions");
         assert!(args.contains(&"--allow-dangerously-skip-permissions".to_owned()));
         let approval = plan_claude_start(&start_input(RuntimeMode::ApprovalRequired), "claude");
-        assert!(!approval.spec.args.contains(&"--permission-mode".to_owned()));
-        assert_eq!(approval.permission_mode.unwrap_or("default"), "default");
+        let at = approval.spec.args.iter().position(|a| a == "--permission-mode").unwrap();
+        assert_eq!(approval.spec.args[at + 1], "default", "approval pins default over the settings' defaultMode");
+    }
+
+    #[test]
+    fn the_agent_gateway_is_passed_as_mcp_config() {
+        let mut input = start_input(RuntimeMode::ApprovalRequired);
+        assert!(!plan_claude_start(&input, "claude").spec.args.contains(&"--mcp-config".to_owned()));
+        input.agent_gateway = Some(crate::agent_gateway::GatewayConnection {
+            name: "cascade".into(),
+            url: "http://127.0.0.1:9/mcp".into(),
+            bearer_token: "secret".into(),
+        });
+        let spec = plan_claude_start(&input, "claude").spec;
+        let at = spec.args.iter().position(|a| a == "--mcp-config").unwrap();
+        let config: Value = serde_json::from_str(&spec.args[at + 1]).unwrap();
+        assert_eq!(
+            config,
+            json!({ "mcpServers": { "cascade": { "type": "http", "url": "http://127.0.0.1:9/mcp", "headers": { "Authorization": "Bearer ${CASCADE_GATEWAY_TOKEN}" } } } })
+        );
+        assert!(!spec.args.iter().any(|arg| arg.contains("secret")), "the token is never an argument");
+        assert!(spec.env.contains(&("CASCADE_GATEWAY_TOKEN".to_owned(), "secret".to_owned())));
     }
 
     #[test]
@@ -4132,6 +4242,7 @@ mod tests {
             sandbox_mode: None,
             provider_options: None,
             auto_approve_synara_tools: None,
+            agent_gateway: None,
             runtime_mode,
         }
     }
@@ -4185,7 +4296,7 @@ mod tests {
         assert_eq!(pair("--model").as_deref(), Some("haiku"));
         assert_eq!(pair("--permission-prompt-tool").as_deref(), Some("stdio"));
         assert_eq!(pair("--add-dir").as_deref(), Some("/tmp/probe"));
-        assert_eq!(pair("--permission-mode"), None);
+        assert_eq!(pair("--permission-mode").as_deref(), Some("default"));
         let session_flag = args.iter().find(|a| a.starts_with("--session-id=")).unwrap();
         assert!(is_uuid(&session_flag["--session-id=".len()..]));
         assert_eq!(child.spec.cwd.as_deref(), Some(Path::new("/tmp/probe")));
@@ -4322,6 +4433,10 @@ mod tests {
         assert_eq!(cursor["resume"], "f17ee499-d743-47c0-965c-a383d97a0b55");
         assert_eq!(cursor["turnCount"], 1);
         assert!(cursor["resumeSessionAt"].is_string());
+        // The base mode is pinned, so every later turn re-applies it (a sticky plan cannot leak).
+        let mode = read_json_line(&mut stdin).await;
+        assert_eq!(mode["request"]["subtype"], "set_permission_mode");
+        assert_eq!(mode["request"]["mode"], "default");
         let _second_user = read_json_line(&mut stdin).await;
 
         // Interrupt writes the control request and is answered by the CLI's acknowledgement.
@@ -4552,6 +4667,70 @@ mod tests {
         })
         .await
         .is_err());
+    }
+
+    #[test]
+    fn a_crashed_clis_stderr_survives_the_transcripts_first_line() {
+        let tail: VecDeque<String> =
+            ["", "Invalid MCP configuration:", "  mcpServers.foo: command is required  "].map(String::from).into();
+        let message = format!("Claude Code process exited with code 1: {}", stderr_tail_message(&tail).unwrap());
+        assert_eq!(
+            crate::orchestration::activity_projection::sanitize_user_facing_error_message(&message, "failed"),
+            "Claude Code process exited with code 1: Invalid MCP configuration: · mcpServers.foo: command is required"
+        );
+        assert_eq!(stderr_tail_message(&["  ".to_owned()].into()), None);
+    }
+
+    /// 908ba5065 (ClaudeAdapter.test.ts "vendor result is_error boundary"): a `success` result
+    /// that carries `is_error` fails its turn, whether or not an assistant error named why.
+    #[tokio::test]
+    async fn a_success_result_with_the_error_flag_fails_the_turn() {
+        for (is_error, assistant_error, expected) in [
+            (false, None, RuntimeTurnState::Completed),
+            (true, Some("invalid_request"), RuntimeTurnState::Failed),
+            (true, None, RuntimeTurnState::Failed),
+        ] {
+            let spawner = ScriptedSpawner::new();
+            let (sink, mut events) = mpsc::channel(256);
+            let handle = ClaudeAdapter::new("/tmp").start_session(start_input(RuntimeMode::FullAccess), sink, Arc::new(spawner.clone()));
+            let mut child = spawner.next().await;
+            let mut stdin = BufReader::new(child.stdin).lines();
+            let _initialize = read_json_line(&mut stdin).await;
+            let turn = handle
+                .send_turn(ProviderSendTurnInput {
+                    thread_id: ThreadId::new("thread-1"),
+                    input: Some("Synthetic boundary fixture".into()),
+                    attachments: None,
+                    skills: None,
+                    mentions: None,
+                    model_selection: None,
+                    interaction_mode: None,
+                })
+                .await
+                .unwrap();
+            let _user = read_json_line(&mut stdin).await;
+            let mut assistant = json!({
+                "type": "assistant", "session_id": "vendor-error-flag-session", "uuid": "vendor-error-flag-assistant",
+                "parent_tool_use_id": null,
+                "message": { "id": "vendor-error-flag-message", "content": [{ "type": "text", "text": "Synthetic boundary fixture" }] },
+            });
+            if let Some(error) = assistant_error {
+                assistant["error"] = json!(error);
+            }
+            let result = json!({
+                "type": "result", "subtype": "success", "is_error": is_error, "stop_reason": "stop_sequence",
+                "session_id": "vendor-error-flag-session", "uuid": "vendor-error-flag-result", "duration_ms": 0,
+                "duration_api_ms": 0, "num_turns": 1, "total_cost_usd": 0, "usage": {}, "result": "Synthetic boundary fixture",
+            });
+            child.stdout.write_all(format!("{assistant}\n{result}\n").as_bytes()).await.unwrap();
+            let mut seen = Vec::new();
+            let completed = next_until(&mut events, &mut seen, "turn.completed").await;
+            assert_eq!(completed.turn_id.as_ref(), Some(&turn.turn_id));
+            let ProviderRuntimeEventBody::TurnCompleted(payload) = &completed.body else { unreachable!() };
+            assert_eq!(payload.state, expected, "is_error {is_error}, assistant error {assistant_error:?}");
+            assert_eq!(seen.iter().any(|e| kind(e) == "runtime.error"), expected == RuntimeTurnState::Failed);
+            let _ = handle.stop().await;
+        }
     }
 
     #[tokio::test]

@@ -1,0 +1,24 @@
+{
+  "source": "apps/server/native/device-helper (+ LICENSE from the repository root)",
+  "commit": "566efb1b132b97a1d76e86229be8a177abb9e435",
+  "files": {
+    "HEADER.md": "16bf686282d4285e9067b29c1f1e4b4cee9aa19454de05680ba24c1417161de8",
+    "LICENSE": "305724dd050ca7ded99c662de813d755bc4ec3887c4543a37159c6662ca36d1b",
+    "Sources/AXBridge.h": "81349b919d12ff252e143f6daec64c42f15b58a08cbb96ec22ae279f212b0ba5",
+    "Sources/AXBridge.m": "27fe218fb1f83482a44aa807f388c251beab13a0f90189ec8aaf5abca84e5b58",
+    "Sources/CapabilityProbe.swift": "58e3431ae090428cdfbc47bac0e37a5a1352c64579faea0a386429946213a6f8",
+    "Sources/CoreSimulatorBridge.swift": "a2f45a47d8c97142137e457a781ecdf049adf1e0470e2c2fb24dfe771af39d01",
+    "Sources/DTUHIDTransport.h": "a169688414f05dee3be88e5b9f0ebfb951b06ea870f5605f4a61e70af3c4236d",
+    "Sources/DTUHIDTransport.m": "3bc51444bf33eba68398ed0b5e3288fd2ab56aecdc3912625c0661d518bd7f87",
+    "Sources/DeviceHelper-Bridging-Header.h": "8f02548d26205d85fa9c843d8735f2dd18bce29658b438ac89cecabbe8e00b8d",
+    "Sources/FrameStream.swift": "c3f87a202f67d670c8759f75e009301ed9cb48f69a830089d8da9e6a7950f869",
+    "Sources/HIDBridge.h": "beb78addbd6dbc862600a9455dbd2da5ada7341dd822c08f764a4f3f709cdc5a",
+    "Sources/HIDBridge.m": "306f6c9343ba18c94f413048d1314a7627e18f31abeb61c260fa5e8f008a5067",
+    "Sources/Screenshot.swift": "39cd6db0412ad826037c279e2ececd40a814a898860dbfa396bc3a89e72d26be",
+    "Sources/SymbolManifest.swift": "8681efeacaa39ba8fe4e057a0e650e49001f6ad9e23585cf256f4a1cc155a0c3",
+    "Sources/main.swift": "1d523585a90e48d29be5f748e387c33d49e017323e97d8f55ddca97edd7d2929",
+    "Tests/InputDeliveryTests.m": "1614fddd6c19da016d7edddbb678739d43bf4a0282925794de823c9029734a42",
+    "build.sh": "be8b021c825bd3145ea95827fdb6afeb3d9ceb648c8fc713fbe6a23475b86c46",
+    "device-helper.sb": "185f5a11c08d6f8d43d56b659ef0901d7d16b42432c0eac751c0f3853f5dc859"
+  }
+}

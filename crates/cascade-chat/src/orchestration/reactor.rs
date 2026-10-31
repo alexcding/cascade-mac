@@ -39,12 +39,12 @@ use crate::{
 };
 
 use super::{
-    activity_projection::runtime_turn_state,
+    activity_projection::{runtime_turn_state, sanitize_user_facing_error_message},
     ingestion::resolve_subagent_provider_thread_id,
     decider::{collect_tail_turn_ids, model_selection_provider, CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND},
     engine::{
         is_inside_git_work_tree, resolve_cwd, send_turn_input, server_command_id, Actor, CallOutcome,
-        CapturedCheckpoint, Ctx, EditRestore, Internal, LiveSession, PendingEdit, Reservation, RevertOutcome, TurnTakeBack,
+        CapturedCheckpoint, Ctx, EditRestore, Internal, InterruptFailure, LiveSession, PendingEdit, Reservation, RevertOutcome, TurnTakeBack,
     },
     ingestion::parse_checkpoint_files_from_unified_diff,
 };
@@ -116,10 +116,15 @@ impl Actor {
     pub(super) fn react(&mut self, ctx: &mut Ctx, event: &OrchestrationEvent) {
         use OrchestrationEventBody as E;
         match &event.body {
-            E::ThreadDeleted(_) => self.on_thread_deleted(ctx),
+            E::ThreadDeleted(_) => {
+                if let Some(gateway) = &self.agent_gateway {
+                    gateway.release(&ctx.thread_id);
+                }
+                self.on_thread_deleted(ctx)
+            }
             E::ThreadArchived(payload) => {
                 let at = payload.archived_at.clone().or_else(|| payload.updated_at.clone()).unwrap_or_else(|| event.occurred_at.clone());
-                self.process_session_stop(ctx, &at);
+                self.process_session_stop(ctx, &at, None);
             }
             E::ThreadMetaUpdated(payload) => {
                 // A title set after a generation started wins over the generated one.
@@ -132,13 +137,10 @@ impl Actor {
                     self.reconcile_idle_session(ctx, EnsureOptions { model_selection: Some(selection.clone()), ..Default::default() });
                 }
             }
-            E::ThreadRuntimeModeSet(payload) => {
-                let selection = self.thread(&ctx.thread_id).map(|t| t.model_selection.clone());
-                self.reconcile_idle_session(
-                    ctx,
-                    EnsureOptions { model_selection: selection, runtime_mode: Some(payload.runtime_mode), ..Default::default() },
-                );
-            }
+            // The projection already saves the desired mode (PCR:7176). It is applied when the
+            // next turn ensures its session, even on an idle thread: restarting here would show
+            // `starting` with no turn and make the composer and finished work look active.
+            E::ThreadRuntimeModeSet(_) => {}
             E::ThreadTurnQueued(payload) => {
                 if let Some(entry) = self.entry_mut(&ctx.thread_id) {
                     entry.queue.push_back(payload.clone());
@@ -183,15 +185,20 @@ impl Actor {
             E::ThreadCheckpointRevertRequested(payload) => self.on_checkpoint_revert_requested(ctx, payload),
             E::ThreadConversationRollbackRequested(payload) => self.on_conversation_rollback_requested(ctx, payload),
             E::ThreadMessageEditResendRequested(payload) => self.on_message_edit_resend_requested(ctx, payload),
-            E::ThreadSessionStopRequested(payload) => self.process_session_stop(ctx, &payload.created_at),
+            E::ThreadSessionStopRequested(payload) => self.process_session_stop(ctx, &payload.created_at, None),
             _ => {}
         }
     }
 
     // --- dispatch helpers (PCR:1474-1664) ---
 
-    /// Synara `appendProviderFailureActivity` (PCR:1474)
-    fn append_provider_failure(&mut self, ctx: &mut Ctx, kind: &str, summary: &str, payload: Value, turn_id: Option<TurnId>) {
+    /// Synara `appendProviderFailureActivity` (PCR:1474), its `detail` readable (3f55b77ef).
+    fn append_provider_failure(&mut self, ctx: &mut Ctx, kind: &str, summary: &str, mut payload: Value, turn_id: Option<TurnId>) {
+        if let Some(detail) = payload.get_mut("detail") {
+            if let Some(text) = detail.as_str() {
+                *detail = Value::String(sanitize_user_facing_error_message(text, summary));
+            }
+        }
         self.append_activity(ctx, OrchestrationThreadActivityTone::Error, kind, summary, payload, turn_id);
     }
 
@@ -262,6 +269,9 @@ impl Actor {
 
     /// Synara `setThreadSessionError` (PCR:1549)
     fn set_session_error(&mut self, ctx: &mut Ctx, detail: &str, runtime_mode: Option<RuntimeMode>) {
+        // A failed rebind can leave the previous process alive: report its actual permissions
+        // while the thread keeps the requested mode (PCR:1643).
+        let runtime_mode = self.live_session(&ctx.thread_id).map(|live| live.runtime_mode).or(runtime_mode);
         let now = now_iso();
         let Some(session) = self.session_with(&ctx.thread_id, |session| {
             session.status = OrchestrationSessionStatus::Error;
@@ -312,7 +322,8 @@ impl Actor {
         }
     }
 
-    fn stop_in_background(&self, thread_id: &ThreadId, handle: ProviderSessionHandle, report: bool) {
+    /// `interrupt` is reported with the stop's failure, and dropped once the session stopped.
+    fn stop_in_background(&self, thread_id: &ThreadId, handle: ProviderSessionHandle, report: bool, interrupt: Option<InterruptFailure>) {
         let internal = self.internal.clone();
         let thread_id = thread_id.clone();
         tokio::spawn(async move {
@@ -325,7 +336,7 @@ impl Actor {
                 ),
             };
             if report {
-                let _ = internal.send(Internal::StopFailed { thread_id, detail });
+                let _ = internal.send(Internal::StopFailed { thread_id, detail, interrupt });
             }
         });
     }
@@ -335,7 +346,7 @@ impl Actor {
     /// rollback is this in Synara, and the session handle has no native Codex rollback.
     fn reset_provider_conversation(&mut self, ctx: &mut Ctx) {
         if let Some(handle) = self.take_provider_conversation(ctx) {
-            self.stop_in_background(&ctx.thread_id, handle, false);
+            self.stop_in_background(&ctx.thread_id, handle, false, None);
         }
     }
 
@@ -428,13 +439,13 @@ impl Actor {
                 resume_cursor = None;
             }
             let old = self.sessions.remove(&thread_id).expect("checked live");
-            self.stop_in_background(&thread_id, old.handle, false);
+            self.stop_in_background(&thread_id, old.handle, false, None);
         }
 
         // A session the thread no longer shows as running (stopped, or its CLI gone) is ended
         // before its replacement starts.
         if let Some(old) = self.sessions.remove(&thread_id) {
-            self.stop_in_background(&thread_id, old.handle, false);
+            self.stop_in_background(&thread_id, old.handle, false, None);
         }
         let fork_source_resume_cursor = match has_own_conversation {
             false => self
@@ -457,6 +468,7 @@ impl Actor {
             provider_options: provider_options.clone(),
             auto_approve_synara_tools: None,
             runtime_mode: desired_runtime_mode,
+            agent_gateway: self.agent_gateway.as_ref().and_then(|gateway| gateway.connection(&thread_id)),
         };
         let handle = adapter.start_session(input, self.sink.clone(), self.spawner.clone());
         self.generations.insert(thread_id.clone(), generation.clone());
@@ -575,8 +587,8 @@ impl Actor {
         );
     }
 
-    /// `thread.meta-updated` with a model and `thread.runtime-mode-set` (PCR:6744, 6809): only an
-    /// idle live session is reconciled now; a busy or absent one is at the next turn.
+    /// `thread.meta-updated` with a model (PCR:6744): only an idle live session is reconciled
+    /// now; a busy or absent one is at the next turn.
     fn reconcile_idle_session(&mut self, ctx: &mut Ctx, options: EnsureOptions) {
         let Some(thread) = self.thread(&ctx.thread_id) else { return };
         let idle = thread
@@ -597,8 +609,9 @@ impl Actor {
     }
 
     /// Synara `processThreadSessionStop` (PCR:6227): stop the CLI, keep its conversation for the
-    /// next turn, and show the session stopped.
-    fn process_session_stop(&mut self, ctx: &mut Ctx, at: &IsoDateTime) {
+    /// next turn, and show the session stopped. `interrupt` is a Stop's interrupt failure held
+    /// back: reported only when no session is stopped or its stop fails (b1dca5b25).
+    fn process_session_stop(&mut self, ctx: &mut Ctx, at: &IsoDateTime, interrupt: Option<InterruptFailure>) {
         if let Some(entry) = self.entry_mut(&ctx.thread_id) {
             entry.queue.clear();
             entry.reservation = None;
@@ -608,10 +621,14 @@ impl Actor {
             .thread(&ctx.thread_id)
             .and_then(|t| t.session.as_ref())
             .is_none_or(|s| s.status == OrchestrationSessionStatus::Stopped);
+        let mut interrupt = interrupt;
         if let Some(live) = self.sessions.remove(&ctx.thread_id) {
             if !stopped {
-                self.stop_in_background(&ctx.thread_id, live.handle, true);
+                self.stop_in_background(&ctx.thread_id, live.handle, true, interrupt.take());
             }
+        }
+        if let Some(failure) = interrupt {
+            self.append_interrupt_failure(ctx, failure);
         }
         let Some(session) = self.thread(&ctx.thread_id).and_then(|t| t.session.clone()) else { return };
         self.set_session(
@@ -632,7 +649,7 @@ impl Actor {
             entry.reservation = None;
         }
         if let Some(live) = self.sessions.remove(&ctx.thread_id) {
-            self.stop_in_background(&ctx.thread_id, live.handle, false);
+            self.stop_in_background(&ctx.thread_id, live.handle, false, None);
         }
         self.generations.remove(&ctx.thread_id);
     }
@@ -1030,6 +1047,7 @@ impl Actor {
     fn interrupt_provider_turn(&mut self, ctx: &mut Ctx, requested_turn: Option<TurnId>, at: &IsoDateTime) {
         let Some(thread) = self.thread(&ctx.thread_id).cloned() else { return };
         let session = thread.session.as_ref();
+        let latest_turn = thread.latest_turn.as_ref().map(|t| t.turn_id.clone());
         // A subagent shares its parent's session: its run is stopped, not the session (PCR:6304).
         let child = thread.parent_thread_id.as_ref().and_then(|parent| {
             Some((parent.clone(), resolve_subagent_provider_thread_id(&thread.id, Some(parent))?))
@@ -1038,8 +1056,8 @@ impl Actor {
             let running_turn = session
                 .filter(|s| s.status == OrchestrationSessionStatus::Running)
                 .and_then(|s| s.active_turn_id.clone());
-            let parent_handle = self.live_session(&parent_id).map(|live| live.handle.clone());
-            if let (Some(turn_id), Some(handle)) = (running_turn, parent_handle) {
+            let parent = self.live_session(&parent_id).map(|live| (live.handle.clone(), live.generation.clone()));
+            if let (Some(turn_id), Some((handle, generation))) = (running_turn, parent) {
                 let internal = self.internal.clone();
                 let thread_id = ctx.thread_id.clone();
                 tokio::spawn(async move {
@@ -1049,34 +1067,58 @@ impl Actor {
                         Ok(Err(error)) => CallOutcome::Failed(format!("{error:#}")),
                         Err(_) => CallOutcome::TimedOut,
                     };
-                    let _ = internal.send(Internal::Interrupted { thread_id, turn_id: Some(turn_id), outcome });
+                    let _ = internal.send(Internal::Interrupted {
+                        thread_id,
+                        turn_id: Some(turn_id),
+                        generation: Some(generation),
+                        latest_turn,
+                        outcome,
+                    });
                 });
                 return;
             }
         }
         let live_turn = self.live_turn(&ctx.thread_id);
         let latest_running = thread.latest_turn.as_ref().is_some_and(|t| t.state == OrchestrationLatestTurnState::Running);
+        // 3f55b77ef: a Stop of a settled thread (a repeated Stop, one that raced the turn's end)
+        // needs no provider call and no error row. A send still in flight is work the projection
+        // does not show yet; a child, or a turn named that is not the latest, may still be live.
+        let projection_has_work = latest_running
+            || session.is_some_and(|s| {
+                matches!(s.status, OrchestrationSessionStatus::Starting | OrchestrationSessionStatus::Running)
+                    || s.active_turn_id.is_some()
+            });
+        let has_unsettled_target = thread.parent_thread_id.is_some()
+            || (requested_turn.is_some()
+                && requested_turn != latest_turn
+                && session.is_some_and(|s| s.status != OrchestrationSessionStatus::Stopped));
+        let send_in_flight = self.entries.get(&ctx.thread_id).is_some_and(|e| e.reservation.is_some());
+        if !projection_has_work && !has_unsettled_target && !send_in_flight && live_turn.is_none() {
+            return;
+        }
         let stuck = session.is_some_and(|s| {
             matches!(s.status, OrchestrationSessionStatus::Starting | OrchestrationSessionStatus::Running)
                 && s.active_turn_id.is_none()
         });
         if stuck && !latest_running && live_turn.is_none() {
             // No provider turn to interrupt: stopping is the way out of a stuck start.
-            self.process_session_stop(ctx, at);
+            self.process_session_stop(ctx, at, None);
             return;
         }
         let stopped = session.is_none_or(|s| s.status == OrchestrationSessionStatus::Stopped);
-        let Some(handle) = self.live_session(&ctx.thread_id).filter(|_| !stopped).map(|l| l.handle.clone()) else {
+        let Some(live) = self.live_session(&ctx.thread_id).filter(|_| !stopped) else {
+            let turn_id = requested_turn.or_else(|| session.and_then(|s| s.active_turn_id.clone()));
             self.append_provider_failure(
                 ctx,
                 "provider.turn.interrupt.failed",
                 "Provider turn interrupt failed",
                 json!({ "detail": "No active provider session is bound to this thread." }),
-                requested_turn,
+                turn_id,
             );
             self.settle_interrupted_turn(ctx, at);
             return;
         };
+        let (handle, generation) = (live.handle.clone(), live.generation.clone());
         let turn_id = live_turn.or(requested_turn).or_else(|| session.and_then(|s| s.active_turn_id.clone()));
         let internal = self.internal.clone();
         let thread_id = ctx.thread_id.clone();
@@ -1086,44 +1128,87 @@ impl Actor {
                 Ok(Err(error)) => CallOutcome::Failed(format!("{error:#}")),
                 Err(_) => CallOutcome::TimedOut,
             };
-            let _ = internal.send(Internal::Interrupted { thread_id, turn_id, outcome });
+            let _ = internal.send(Internal::Interrupted { thread_id, turn_id, generation: Some(generation), latest_turn, outcome });
         });
     }
 
-    fn on_interrupted(&mut self, ctx: &mut Ctx, turn_id: Option<TurnId>, outcome: CallOutcome) {
+    /// 3f55b77ef: whether the turn or the session an interrupt went to has been replaced while it
+    /// ran: the thread moved on to another turn, or the session is a newer one. A late outcome
+    /// then belongs to neither, and must not settle the new turn or stop it.
+    fn interrupt_target_replaced(
+        &self,
+        thread_id: &ThreadId,
+        turn_id: Option<&TurnId>,
+        generation: Option<&str>,
+        latest_turn: Option<&TurnId>,
+    ) -> bool {
+        let Some(thread) = self.thread(thread_id) else { return false };
+        let current_turn = thread.latest_turn.as_ref().map(|t| &t.turn_id);
+        if current_turn != latest_turn && current_turn != turn_id {
+            return true;
+        }
+        if let Some(active) = thread.session.as_ref().and_then(|s| s.active_turn_id.as_ref()) {
+            if Some(active) != turn_id {
+                return true;
+            }
+        }
+        let owner = thread.parent_thread_id.as_ref().unwrap_or(&thread.id);
+        match (generation, self.live_session(owner)) {
+            (Some(generation), Some(live)) => live.generation != generation,
+            _ => false,
+        }
+    }
+
+    fn on_interrupted(
+        &mut self,
+        ctx: &mut Ctx,
+        turn_id: Option<TurnId>,
+        generation: Option<String>,
+        latest_turn: Option<TurnId>,
+        outcome: CallOutcome,
+    ) {
         let now = now_iso();
+        let timeout_detail =
+            format!("The provider did not confirm the interrupt within {}ms.", PROVIDER_COMMAND_INTERRUPT_TIMEOUT.as_millis());
+        if self.interrupt_target_replaced(&ctx.thread_id, turn_id.as_ref(), generation.as_deref(), latest_turn.as_ref()) {
+            // Reported, but the replacement turn is neither settled nor stopped.
+            match outcome {
+                CallOutcome::Ok => {}
+                CallOutcome::TimedOut => {
+                    self.append_interrupt_failure(ctx, InterruptFailure { detail: timeout_detail, turn_id });
+                }
+                CallOutcome::Failed(detail) => self.append_provider_failure(
+                    ctx,
+                    "provider.turn.interrupt.failed",
+                    "Provider turn interrupt failed",
+                    json!({ "detail": detail }),
+                    turn_id,
+                ),
+            }
+            return;
+        }
         match outcome {
             CallOutcome::Ok => {}
             // The parent was never told to end the child's turn, so no terminal child event is
             // coming: the child's turn is settled here (PCR:6330).
             CallOutcome::TimedOut if self.thread(&ctx.thread_id).is_some_and(|t| t.parent_thread_id.is_some()) => {
-                self.append_provider_failure(
-                    ctx,
-                    "provider.turn.interrupt.failed",
-                    "Provider turn interrupt failed",
-                    json!({
-                        "detail": format!("The provider did not confirm the interrupt within {}ms.", PROVIDER_COMMAND_INTERRUPT_TIMEOUT.as_millis()),
-                        "settlementStatus": "uncertain",
-                    }),
-                    turn_id,
-                );
+                self.append_interrupt_failure(ctx, InterruptFailure { detail: timeout_detail, turn_id });
                 self.settle_interrupted_turn(ctx, &now);
             }
             CallOutcome::TimedOut => {
-                self.append_provider_failure(
-                    ctx,
-                    "provider.turn.interrupt.failed",
-                    "Provider turn interrupt failed",
-                    json!({
-                        "detail": format!(
-                            "The provider did not confirm the interrupt within {}ms. Stopping the provider session to settle the turn.",
-                            PROVIDER_COMMAND_INTERRUPT_TIMEOUT.as_millis()
-                        ),
-                        "settlementStatus": "uncertain",
-                    }),
+                let failure = InterruptFailure {
+                    detail: format!("{timeout_detail} Stopping the provider session to settle the turn."),
                     turn_id,
-                );
-                self.process_session_stop(ctx, &now);
+                };
+                // b1dca5b25: a Claude session that stops is the Stop done, not a failed one; its
+                // missing acknowledgement is reported only if the session cannot be stopped.
+                let claude = self.live_session(&ctx.thread_id).is_some_and(|live| live.provider == ProviderKind::ClaudeAgent);
+                if claude {
+                    self.process_session_stop(ctx, &now, Some(failure));
+                } else {
+                    self.append_interrupt_failure(ctx, failure);
+                    self.process_session_stop(ctx, &now, None);
+                }
             }
             CallOutcome::Failed(detail) => {
                 self.append_provider_failure(
@@ -1136,6 +1221,17 @@ impl Actor {
                 self.settle_interrupted_turn(ctx, &now);
             }
         }
+    }
+
+    /// An interrupt whose outcome is not known: `settlementStatus: uncertain`.
+    fn append_interrupt_failure(&mut self, ctx: &mut Ctx, failure: InterruptFailure) {
+        self.append_provider_failure(
+            ctx,
+            "provider.turn.interrupt.failed",
+            "Provider turn interrupt failed",
+            json!({ "detail": failure.detail, "settlementStatus": "uncertain" }),
+            failure.turn_id,
+        );
     }
 
     // --- approvals and user input (PCR:5764-5960) ---
@@ -1907,20 +2003,27 @@ impl Actor {
             Internal::TurnSent { generation, payload, native_steer, retried, result, .. } => {
                 self.on_turn_sent(ctx, generation, payload, native_steer, retried, result)
             }
-            Internal::Interrupted { turn_id, outcome, .. } => self.on_interrupted(ctx, turn_id, outcome),
+            Internal::Interrupted { turn_id, generation, latest_turn, outcome, .. } => {
+                self.on_interrupted(ctx, turn_id, generation, latest_turn, outcome)
+            }
             Internal::Responded { approval, request_id, command_id, error, .. } => {
                 let unknown = error.contains("Unknown pending") || error.contains("session has ended") || error.contains("ended before");
                 let detail = if unknown { stale_pending_request_failure_detail(approval, &request_id) } else { error };
                 let status = if unknown { "uncertain" } else { "retryable" };
                 self.append_interaction_failure(ctx, approval, &request_id, command_id, None, &detail, status);
             }
-            Internal::StopFailed { detail, .. } => self.append_provider_failure(
-                ctx,
-                "provider.session.stop.failed",
-                "Provider session stop failed",
-                json!({ "detail": detail, "settlementStatus": "uncertain" }),
-                None,
-            ),
+            Internal::StopFailed { detail, interrupt, .. } => {
+                self.append_provider_failure(
+                    ctx,
+                    "provider.session.stop.failed",
+                    "Provider session stop failed",
+                    json!({ "detail": detail, "settlementStatus": "uncertain" }),
+                    None,
+                );
+                if let Some(failure) = interrupt {
+                    self.append_interrupt_failure(ctx, failure);
+                }
+            }
             Internal::CheckpointCaptured(captured) => self.on_checkpoint_captured(ctx, captured),
             Internal::TitleGenerated { expected, result, .. } => self.on_title_generated(ctx, expected, result),
             Internal::Reverted { turn_count, result, .. } => self.on_reverted(ctx, turn_count, result),

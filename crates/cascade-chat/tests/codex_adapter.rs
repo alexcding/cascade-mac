@@ -43,6 +43,7 @@ fn start_input(thread_id: &ThreadId, cwd: &str, runtime_mode: RuntimeMode) -> Pr
         provider_options: None,
         auto_approve_synara_tools: None,
         runtime_mode,
+        agent_gateway: None,
     }
 }
 

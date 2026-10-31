@@ -721,6 +721,7 @@ private final class ChatPageWebView: WKWebView {
     func load() {
         guard state == .none, !closed else { return }
         state = .loading
+        assets.forgetVisuals()
         navigation = webView.load(URLRequest(url: ChatPageAssets.pageURL))
     }
 
@@ -788,7 +789,17 @@ private final class ChatPageWebView: WKWebView {
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-        decisionHandler(action.targetFrame?.isMainFrame == true && action.request.url == ChatPageAssets.pageURL ? .allow : .cancel)
+        decisionHandler(Self.allows(action.request.url, inMainFrame: action.targetFrame?.isMainFrame == true, assets: assets) ? .allow : .cancel)
+    }
+
+    /// The page's own load, and in a frame only an inline visual's document: Synara's
+    /// `subframeNavigationGuard` (a frame stays on the document the app wrote into it, so a visual
+    /// cannot carry data out in a URL it navigates its frame to). A frame's own about:srcdoc and
+    /// about:blank are allowed, as there; no frame navigates anywhere else.
+    static func allows(_ url: URL?, inMainFrame: Bool, assets: ChatPageAssets) -> Bool {
+        guard let url else { return false }
+        if inMainFrame { return url == ChatPageAssets.pageURL }
+        return url.absoluteString == "about:srcdoc" || url.absoluteString == "about:blank" || assets.isVisualDocument(url)
     }
 
     /// The composer's "Files and folders": files and folders alike, several at once when the input
@@ -864,6 +875,12 @@ private final class ChatPageWebView: WKWebView {
                 bootFailure = nil
             case "error" where state == .booting:
                 failed(String((value["payload"]?["message"]?.string ?? "").prefix(4096)))
+            case "visualDocument":
+                // The page's, whichever chat is in it: kept for the visual's frame to load.
+                if let id = value["payload"]?["id"]?.string, let html = value["payload"]?["html"]?.string {
+                    assets.registerVisual(id: id, html: html)
+                }
+                return
             default: break
             }
         }

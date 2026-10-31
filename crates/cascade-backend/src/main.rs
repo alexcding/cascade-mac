@@ -48,6 +48,11 @@ async fn serve() -> Result<()> {
     std::fs::write(&port_file, bound_port.to_string())
         .with_context(|| format!("write {}", port_file.display()))?;
     cascade_backend::start_background(&state, bound_port).await;
+    if let Err(error) = state.gateway.configure(bound_port, &data_dir) {
+        tracing::error!(error = %format!("{error:#}"), "gateway: agents get no tools");
+    }
+    state.gateway.register_all();
+    cascade_backend::start_devices(&state, &data_dir);
     cascade_backend::chat::start(&state, &data_dir).await;
     let app = build_app(state.clone());
     tracing::info!("Cascade Rust backend running at http://127.0.0.1:{bound_port}");
@@ -57,6 +62,7 @@ async fn serve() -> Result<()> {
         .context("serve Cascade backend")?;
     state.forwarders.stop().await;
     state.chat.shutdown().await;
+    cascade_backend::stop_devices(&state).await;
     let _ = std::fs::remove_file(port_file);
     Ok(())
 }

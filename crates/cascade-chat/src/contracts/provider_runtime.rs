@@ -925,6 +925,9 @@ pub struct TaskCompletedPayload {
     pub workflow_task_id: Option<RuntimeTaskId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow_agents: Option<Vec<WorkflowAgentSnapshot>>,
+    /// Spawning tool call id when the task is a provider-native subagent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_use_id: Option<String>,
 }
 
 /// The `target` literals of [`TurnSteeredPayload`]

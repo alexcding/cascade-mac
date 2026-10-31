@@ -75,7 +75,7 @@ Read-only allowlist (phase 1):
 | `GET /api/tasks` | the sessions |
 | `GET /api/projects` | for each row's project label only |
 | `GET /api/stream` | filtered to `Tasks`, `ChatThread`, `ChatShell`, `ChatRemoved`, and `Reload` (sent when the client fell behind, so it reads again) |
-| `POST /api/chat/rpc` | filtered by method: `orchestration.getShellSnapshot`, `orchestration.getThreadDetailSnapshot`, `orchestration.getTurnDiff`, `orchestration.getFullThreadDiff`, `chat.listThreads`, `chat.providerStatuses`. Every other method is `403`, so no `dispatchCommand`, `projects.readFile` or `attachments.*` |
+| `POST /api/chat/rpc` | filtered by method: `orchestration.getShellSnapshot`, `orchestration.getThreadDetailSnapshot`, `orchestration.getTurnDiff`, `orchestration.getFullThreadDiff`, `orchestration.getInlineVisual` (a visual the chat's agent showed), `chat.listThreads`, `chat.providerStatuses`. Every other method is `403`, so no `dispatchCommand`, `projects.readFile` or `attachments.*` |
 
 `remote_clients` (in `schema_durable.sql`): `id`, `label` (the client Mac's name),
 `token_sha256`, `created_at`, `last_seen_at`. Revoking deletes the row and ends that client's

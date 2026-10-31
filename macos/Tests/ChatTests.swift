@@ -703,6 +703,40 @@ private actor AttachmentReads {
     #expect(await ChatPageAssets().response(for: URL(string: "cascade-chat://page/attachments/thread-1_image.png")!) == nil)
 }
 
+/// What a frame may load: only a document the page registered, at its own URL; the page itself
+/// only in the main frame.
+@MainActor @Test func chatSchemeServesOnlyRegisteredVisualDocuments() {
+    let assets = ChatPageAssets()
+    assets.registerVisual(id: "abc-1", html: "<p>hi</p>")
+    assets.registerVisual(id: "bad/id", html: "x")
+    assets.registerVisual(id: "big-1", html: String(repeating: "x", count: ChatPageAssets.visualDocumentLimit + 1))
+    func url(_ text: String) -> URL { URL(string: text)! }
+    #expect(ChatPageAssets.visualID(for: url("cascade-chat://visual/abc-1.html")) == "abc-1")
+    for refused in ["cascade-chat://page/abc-1.html", "cascade-chat://visual/abc-1", "cascade-chat://visual/abc-1.html?x=1",
+                    "cascade-chat://visual/a/b.html", "cascade-chat://visual/%2E%2E.html", "https://visual/abc-1.html"] {
+        #expect(ChatPageAssets.visualID(for: url(refused)) == nil, "\(refused)")
+    }
+    #expect(assets.isVisualDocument(url("cascade-chat://visual/abc-1.html")))
+    #expect(!assets.isVisualDocument(url("cascade-chat://visual/big-1.html")), "an oversized document is not kept")
+    #expect(!assets.isVisualDocument(url("cascade-chat://visual/other-1.html")))
+
+    let allows = { (text: String, main: Bool) in ChatPageHost.allows(URL(string: text), inMainFrame: main, assets: assets) }
+    #expect(allows(ChatPageAssets.pageURL.absoluteString, true))
+    #expect(!allows("cascade-chat://visual/abc-1.html", true), "the page never navigates to a visual")
+    #expect(allows("cascade-chat://visual/abc-1.html", false))
+    #expect(allows("about:srcdoc", false) && allows("about:blank", false))
+    for refused in ["cascade-chat://visual/other-1.html", ChatPageAssets.pageURL.absoluteString, "https://example.com/?leak=1",
+                    "data:text/html,x"] {
+        #expect(!allows(refused, false), "\(refused)")
+    }
+
+    for index in 0..<ChatPageAssets.visualLimit { assets.registerVisual(id: "v-\(index)", html: "x") }
+    #expect(!assets.isVisualDocument(url("cascade-chat://visual/abc-1.html")), "the oldest go past the limit")
+    #expect(assets.isVisualDocument(url("cascade-chat://visual/v-0.html")))
+    assets.forgetVisuals()
+    #expect(!assets.isVisualDocument(url("cascade-chat://visual/v-0.html")))
+}
+
 /// Synara builds an attachment's image URL as `new URL("/attachments/<id>", location.origin)`
 /// (`wsHttpUrl.ts`), so the page's origin on its own scheme must be a real one, not "null". This
 /// loads the built page through `ChatPageAssets` in a real web view, checks the origin and that
@@ -739,6 +773,42 @@ private actor AttachmentReads {
         """, contentWorld: .page) as? String
     #expect(loaded == "1x1")
     #expect(await reads.ids == ["thread-1_image.png"])
+}
+
+/// An inline visual's frame (Synara's `synara_show_visual` HTML, `InlineVisualFrame` shim) loads
+/// the document the page handed over (`visualDocument`) from the page's scheme, where its inline
+/// script runs under its own policy, not the page's `script-src 'self'`, in an opaque origin; the
+/// frame navigating itself away is refused (Synara's subframe navigation guard).
+@MainActor @Test func aVisualsFrameRunsItsOwnDocumentAndLoadsNothingElse() async throws {
+    ChatPageAssets.useBuiltPage()
+    let page = ChatPageHost()
+    defer { page.close() }
+    let chat = ChatPageModel(context: pageContext(), backend: PageBackend(), page: page)
+    defer { chat.retire() }
+    let view = try #require(chat.webView)
+    for _ in 0..<400 {
+        if try await view.evaluateJavaScript("typeof window.nativeChat?.flush") as? String == "function" { break }
+        try await Task.sleep(for: .milliseconds(25))
+    }
+    let ran = try await view.callAsyncJavaScript("""
+        const document_ = "<meta http-equiv='Content-Security-Policy' content=\\"default-src 'none'; script-src 'unsafe-inline'\\">"
+          + "<script>let reach = 'parent blocked'; try { parent.document.title; reach = 'parent reached'; } catch {}"
+          + "parent.postMessage('ran ' + String(window.origin) + ', ' + reach, '*');"
+          + "setTimeout(() => { location.href = 'cascade-chat://page/ChatPage.html'; }, 50);"
+          + "setTimeout(() => parent.postMessage('still here', '*'), 400);</script>";
+        webkit.messageHandlers.chat.postMessage({ kind: "event", name: "visualDocument", payload: { id: "test-1", html: document_ } });
+        const heard = [];
+        window.addEventListener("message", (event) => heard.push(String(event.data)));
+        const frame = document.createElement("iframe");
+        frame.sandbox = "allow-scripts allow-forms";
+        frame.src = "cascade-chat://visual/test-1.html";
+        document.body.appendChild(frame);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        return heard.join(" | ");
+        """, contentWorld: .page) as? String
+    // The document's own script ran, in an opaque origin, and its navigation away was refused: the
+    // document is still there to say so.
+    #expect(ran == "ran null, parent blocked | still here", "got \(ran ?? "nil")")
 }
 
 /// Every chat page shares one persistent data store, so what one page keeps in its localStorage

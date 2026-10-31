@@ -62,19 +62,6 @@ struct WebhookForwardingSection: View {
     }
 }
 
-/// The Integrations tab's "Simulator preview" card: what the workspace's Simulator panel needs.
-/// Optional, so it stays out of first-run setup.
-struct SimulatorPreviewSection: View {
-    let model: CLISettingsViewModel
-    var body: some View {
-        Section("Simulator preview") {
-            Text("Simulator preview needs Node.js 20 or later in your terminal. Cascade downloads its preview tool automatically when first used.")
-                .font(.caption).foregroundStyle(Theme.textSecondary)
-            ForEach(ManagedCLI.simulatorPreview) { cli in CLIStatusRow(model: model, cli: cli) }
-        }
-    }
-}
-
 private struct CLIStatusRow: View {
     let model: CLISettingsViewModel
     let cli: ManagedCLI
@@ -82,14 +69,10 @@ private struct CLIStatusRow: View {
         let state = model.availability[cli.rawValue]
         SettingsStatusRow(title: cli.title, status: model.label(cli), tone: tone(state),
                           statusIdentifier: "cli-status-\(cli.rawValue)") {
-            let outdated = state?.outdated(for: cli) == true
-            // serve-sim is fetched on use: what it lacks is Node, which has its own row.
-            if cli != .serveSim, state?.present == false || outdated {
-                Button(LocalizedStringKey(outdated ? "Update" : "Install")) { model.openGuide(cli) }
+            if state?.present == false {
+                Button("Install") { model.openGuide(cli) }
                 if let command = model.installCommand(cli) {
-                    Button(LocalizedStringKey(command.hasPrefix("brew ") ? "Copy Homebrew Command" : "Copy Install Command")) {
-                        model.copyInstall(cli)
-                    }.help(command)
+                    Button("Copy Install Command") { model.copyInstall(cli) }.help(command)
                 }
             }
             if cli.loginCommand != nil {
@@ -103,11 +86,10 @@ private struct CLIStatusRow: View {
     /// there would contradict the "Installed" label sitting next to it.
     private func tone(_ state: CLIAvailability?) -> ThemeTone {
         guard let state, state.present else { return .neutral }
-        if state.outdated(for: cli) { return .warning }
         switch state.authed {
         case true: return .success
         case false: return .warning
-        default: return cli.supportsHooks || cli.isExtension || cli.isSimulatorPreview ? .success : .neutral
+        default: return cli.supportsHooks || cli.isExtension ? .success : .neutral
         }
     }
 }

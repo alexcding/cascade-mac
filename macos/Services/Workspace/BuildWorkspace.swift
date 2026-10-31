@@ -128,10 +128,9 @@ protocol BuildServing: Sendable {
     /// The error is a load's that nobody asked for (the menu's lists, behind the toolbar): the menu
     /// shows it, the toolbar's line is for a Run that failed.
     private(set) var quietError = false
-    /// The session's Simulator panel; a run on a simulator points it at that device.
-    let preview: SimulatorPreviewModel?
-    /// A run on a simulator started: the workspace brings its Simulator panel forward.
-    @ObservationIgnored var onSimulatorRun: (() -> Void)?
+    /// A run on a simulator started, on the device it names: the workspace points its Simulator
+    /// panel at that device and brings it forward.
+    @ObservationIgnored var onSimulatorRun: ((String) -> Void)?
     private let service: any BuildServing
     private var project: Project
     private let session: WorkspaceSession
@@ -144,8 +143,8 @@ protocol BuildServing: Sendable {
     private var valid = true
 
     init(service: any BuildServing, project: Project, session: WorkspaceSession,
-         preview: SimulatorPreviewModel? = nil, terminalFactory: @escaping () throws -> any BuildTerminal) {
-        self.service = service; self.project = project; self.session = session; self.preview = preview
+         terminalFactory: @escaping () throws -> any BuildTerminal) {
+        self.service = service; self.project = project; self.session = session
         self.terminalFactory = terminalFactory
         let own = (session.runScheme ?? "", session.runSim ?? "")
         let owns = !own.0.isEmpty && !own.1.isEmpty
@@ -323,9 +322,8 @@ protocol BuildServing: Sendable {
             // The same default `command` launches by: a destination with no platform is a simulator.
             // Only for a command this Run sent: an adopted build runs to whatever destination it
             // was started for, which need not be the one picked now.
-            if atShell, (settings.platform ?? "iphonesimulator").hasSuffix("simulator"), let preview {
-                preview.show(udid: simulator)
-                onSimulatorRun?()
+            if atShell, (settings.platform ?? "iphonesimulator").hasSuffix("simulator") {
+                onSimulatorRun?(simulator)
             }
             // A detached build already running is adopted without injecting a
             // second command. Only this build PTY is polled or interrupted.
@@ -464,7 +462,7 @@ protocol BuildServing: Sendable {
     func disconnect() {
         valid = false; presentationID = nil; preparingID = nil; loadGeneration = UUID(); monitorGeneration = UUID()
         monitor = nil; terminal?.close(); terminal = nil; running = false; launched = false; loading = false
-        preview?.retire(); onSimulatorRun = nil
+        onSimulatorRun = nil
     }
 }
 

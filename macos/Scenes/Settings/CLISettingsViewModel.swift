@@ -119,12 +119,8 @@ import Observation
         guard !retired, canAct(), let command = installCommand(cli) else { return }
         copy(command); actionError = nil
     }
-    /// The install line for `cli` as this Mac stands: Node's goes through Homebrew only when the
-    /// probe found Homebrew.
-    func installCommand(_ cli: ManagedCLI) -> String? {
-        guard let state = availability[cli.rawValue] else { return cli.installCommand }
-        return state.installCommand(for: cli, homebrew: availability["brew"]?.present == true)
-    }
+    /// The install line for `cli`, when it has one worth copying.
+    func installCommand(_ cli: ManagedCLI) -> String? { cli.installCommand }
     func openGuide(_ cli: ManagedCLI) {
         guard !retired, canAct() else { return }
         actionError = openBrowser(cli.installationGuide) ? nil : String(localized: "macOS could not open the installation guide.")

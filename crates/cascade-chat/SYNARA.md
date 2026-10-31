@@ -11,6 +11,60 @@ To take a newer Synara: diff the upstream files below between the pinned commit 
 one, port each hunk into the mapped file, then move the pin. Do not reshape a mapped file
 beyond what Rust needs; a file that drifts from its source cannot be updated from it.
 
+**Cherry-picked since the pin** (the pin stays until everything between it and a newer commit
+that applies is ported):
+
+- `4b2441d10` Claude permission fixes (approval pins `--permission-mode default`), `60dc4e667`
+  Codex terminal notifications for an older turn, `4e79063ac` streaming messages finalized on
+  session exit, `ec8c940e0` idle threads stay settled when access changes.
+- `0f8194de0` `turn/moderationMetadata` (with `item/autoApprovalReview/started`) kept out of
+  the transcript; `8cd655901` "no rollout found" is a recoverable resume error; `d5a91276b`
+  Codex `guardianWarning`/`warning` as warning activities (`codex.<method>`), an approval
+  review's approval dropped; `540ba4a11` `--src-prefix=a/ --dst-prefix=b/` on every checkpoint
+  diff, whatever the person's `diff.noprefix`.
+- `1b4252570` a Claude subagent's resolved model (its assistant messages' `model`) is reported
+  as `thread.metadata.updated` and set on its child thread, never the parent.
+- `a8ba57587` (server half) a session stop ends every live task with `stopped` and its
+  launching call (`toolUseId`), skipping tasks already ended; at start, tasks a dead runtime left
+  open on a thread whose session was not stopped, or a subagent child of one, get a `stopped`
+  end (`findRestartOrphanedTasks`, in `engine.rs`), and that session is then stored as stopped (no CLI outlives a run), so the next start reads the thread no more. `task.completed` carries `toolUseId`, and
+  `task_notification` names its run's. Not ported: re-publishing a background run's launching
+  item (`emitSubagentFinalState`; no background runs here), the per-task turn ids.
+- `94407ef8e`, `99b090d91` a running Codex turn's diff is its streamed cumulative patch,
+  rebuilt from the turn's start in a private index (`CheckpointStore::diff_provider_patch`);
+  each parsed revision is a placeholder ref of its own; an interrupted turn's captured end
+  (status missing, its canonical turn ref) is a readable single-turn diff. Synara reads the
+  patch back from its runtime event journal by the placeholder's event id; here the turn's
+  latest revision is kept with ingestion's placeholder and handed over only for that exact ref.
+  Not ported: the git-derived live preview of providers without a streamed patch (Claude) and
+  its revisioned `turn-live` refs, which nothing here writes.
+- `4cd66c35d` a spawn into a missing working folder names the folder (`process.rs`).
+- From `29b11e105..0cf5ea460`: `908ba5065` a Claude `success` result carrying `is_error` fails
+  its turn. `3f55b77ef` (part): a provider failure's `detail`, a `runtime.error` message, a failed
+  turn's `errorMessage` and a Codex request error show their first line without an inline stack
+  frame (`sanitize_user_facing_error_message`), so the Claude CLI's stderr tail, which Synara's SDK
+  error does not carry, is joined on one line (`stderr_tail_message`); a command's elapsed-time snapshots (Codex
+  `command_execution` `item.updated`, Claude `Bash` `tool.progress`) update one row
+  (`provider-command-progress:<key>`) that keeps its first place, per runtime generation and turn,
+  through `stableActivityById` bounded at its 2,048 entries (no TTL);
+  an interrupt's late outcome neither settles nor stops a turn or session that replaced the one it
+  was for (`interrupt_target_replaced`), and only reports; a Stop of a thread with nothing running
+  calls no provider and appends no error row. `b1dca5b25` a Claude Stop whose interrupt times out
+  shows no interrupt failure once the session stops; it is reported only if the stop fails. Not
+  ported from `3f55b77ef`: the durable Stop receipts, lifecycle-generation fences and retries of
+  `ProviderService` (no event store or delivery replay here), `preserveQueuedWork` (both providers
+  steer natively, so no steer reaches the interrupt path), the `active-turn-unavailable`
+  escalation (no adapter reports it). Not ported, as they fix Synara's SDK runtime, delivery
+  recovery or features this crate does not have: `92a3b771a`, `7ff3f26ac` (a steer here is
+  prepared and written within one command of the session's one task, so no turn can end between
+  them), `dfb6416d5`, `e5303d7b1`, `6300b86fc`, `ddab94e31` (uncertain-send recovery leases,
+  quarantine, stop-control receipts), `13a6333b7` (VCS notices are not ported), `e730d195f`,
+  `d6eaa4306` (goals: a `thread.meta.update` carrying a goal field is refused, `GoalsUnsupported`,
+  so the page keeps a `/goal` in the composer rather than taking it as done), `d72b8cf47` (assistant image snapshots need Synara's managed attachments;
+  its optional `sourcePath` and `attachments` fields are left out of the contracts), and the
+  web-only `555a74112`, `dd5373847`, `6c5939957`, `1f05cb442`. Every contract change in the range
+  is optional, so nothing this crate sends lacks a field the new schemas require.
+
 ## File map
 
 `S` = `apps/server/src`, `C` = `packages/contracts/src`.
@@ -35,9 +89,9 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
 | `src/orchestration/handoff.rs` | `S/orchestration/handoff.ts` (`buildImportedMessagesBootstrapText` alone, for the knowledge recap below) |
 | `src/orchestration/projector.rs` | `S/orchestration/projector.ts` (thread events), `S/orchestration/turnLifecycle.ts`, `S/orchestration/turnStartSession.ts` |
 | `src/orchestration/ingestion.rs` | `S/orchestration/Layers/ProviderRuntimeIngestion.ts`, with `ensureSubagentThread` split with the engine (below) |
-| `src/orchestration/activity_projection.rs` | `S/orchestration/providerRuntimeActivityProjection.ts` |
+| `src/orchestration/activity_projection.rs` | `S/orchestration/providerRuntimeActivityProjection.ts`, `providerRuntimeProgressKey` and `providerRuntimeCommandProgressKey` of `S/orchestration/providerRuntimeProgressCoalescing.ts`, `sanitizeUserFacingErrorMessage` of `packages/shared/src/errorMessages.ts` |
 | `src/orchestration/subagents.rs` | `packages/shared/src/subagents.ts` (receiver ids, identity hints and their directory) |
-| `src/orchestration/engine.rs` | `S/orchestration/Layers/OrchestrationEngine.ts` and `S/provider/Layers/ProviderService.ts`, reduced to what a single-user app needs: one task owning threads, sessions and the store; the shell snapshot of `S/orchestration/Layers/ProjectionSnapshotQuery.ts` (`getShellSnapshot`) |
+| `src/orchestration/engine.rs` | `S/orchestration/Layers/OrchestrationEngine.ts` and `S/provider/Layers/ProviderService.ts`, reduced to what a single-user app needs: one task owning threads, sessions and the store; the shell snapshot of `S/orchestration/Layers/ProjectionSnapshotQuery.ts` (`getShellSnapshot`); from `S/orchestration/startupTurnReconciliation.ts` the orphaned tasks (`findRestartOrphanedTasks`, `planOrphanedTaskCommands`) |
 | `src/orchestration/reactor.rs` | `S/orchestration/Layers/ProviderCommandReactor.ts` (`processDomainEvent` and its handlers, the fork branch of `ensureSessionForThread`), `ProviderService.forkThread`, and `S/orchestration/Layers/CheckpointReactor.ts` (capture, diff, revert) |
 | `src/checkpointing/store.rs` | `S/checkpointing/Layers/CheckpointStore.ts`, the ref names of `S/checkpointing/Utils.ts` (under `refs/cascade/checkpoints`, with the managed-family helpers) |
 | `src/checkpointing/diff_query.rs` | `S/checkpointing/Layers/CheckpointDiffQuery.ts` (`orchestration.getTurnDiff`, `orchestration.getFullThreadDiff`) |
@@ -158,6 +212,24 @@ beyond what Rust needs; a file that drifts from its source cannot be updated fro
   `expectedTitleSequence` is kept as a pending marker on the thread's entry: any title set after the
   fallback clears it, and the generated title is dropped. Conversation-context regeneration
   (`regenerateThreadTitle`) is not ported.
+- **The gateway token of a Claude chat.** Synara's `buildClaudeMcpServers` writes the bearer token
+  into the server's headers, and so into the CLI's `--mcp-config` argument, which every user's `ps`
+  shows. Here the header names `${CASCADE_GATEWAY_TOKEN}`, which the CLI expands, and the token is in
+  the child's environment (`agent_gateway.rs` `CLAUDE_TOKEN_VARIABLE`). Codex's is sent over its
+  app-server pipe, as in Synara.
+- **The agent gateway's writes.** Synara's gateway (`S/agentGateway/mcpTransport.ts`) binds a tool
+  call's write authority to the caller thread's running turn (`latestTurn`, while `running`) when the
+  request arrives, checks it again (`assertCallerTurnActive`) and dispatches `thread.activity.append`;
+  an identical retry collides on its command id and succeeds. Here the gateway is the backend's
+  (`cascade-backend/src/gateway/`) and the engine is one task, so it asks `ChatEngine::running_turn`
+  for the turn, and `ChatEngine::append_turn_activity` checks that turn still runs and appends on the
+  engine's task in one step (refused as `ChatError::Invalid` otherwise); an activity whose id the
+  thread already has is that retry and appends nothing. The inline visual tool
+  (`S/agentGateway/inlineVisualTools.ts`, `S/inlineVisualStore.ts`, `C/inlineVisual.ts`,
+  `C/inlineVisualSpec.ts`, `packages/shared/src/inlineVisualFormula.ts`) is ported in
+  `cascade-backend/src/gateway/visuals.rs` and `visuals/{store,spec,formula}.rs`, its store under this
+  engine's `attachments/visuals/`, removed with a deleted thread by the backend on the engine's
+  `Removed` event, and its `orchestration.getInlineVisual` read in `cascade-backend/src/chat.rs`.
 - **Providers.** Claude and Codex. The ACP family (Cursor, Droid, Grok, Devin, OMP), OpenCode,
   Pi and Antigravity are not ported yet.
 

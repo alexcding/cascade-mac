@@ -85,6 +85,8 @@ pub enum DecideError {
     ForkIntoNewWorktree { command_type: &'static str },
     /// A command whose family is not ported.
     Unsupported { command_type: &'static str },
+    /// Cascade: a thread goal, which this crate does not keep.
+    GoalsUnsupported { command_type: &'static str },
 }
 
 impl DecideError {
@@ -119,7 +121,8 @@ impl DecideError {
             | SessionChanged { command_type, .. }
             | ForkSourceOtherProject { command_type, .. }
             | ForkIntoNewWorktree { command_type }
-            | Unsupported { command_type } => command_type,
+            | Unsupported { command_type }
+            | GoalsUnsupported { command_type } => command_type,
         }
     }
 }
@@ -237,6 +240,7 @@ impl fmt::Display for DecideError {
             Unsupported { command_type } => {
                 write!(f, "Command '{command_type}' is not supported here.")
             }
+            GoalsUnsupported { .. } => write!(f, "Thread goals are not available in Cascade yet."),
         }
     }
 }
@@ -1348,6 +1352,11 @@ fn decide_meta_update(
     now: &IsoDateTime,
 ) -> Result<Vec<OrchestrationEvent>, DecideError> {
     let current = require_thread(command_type, thread, &command.thread_id)?;
+    // Cascade: goals are not ported. Applied without its goal, a `/goal` would be taken as done
+    // and its text dropped; refused, the page keeps it and says why.
+    if command.goal.is_some() || command.goal_start_behavior.is_some() || command.goal_paused.is_some() || command.goal_achieved.is_some() {
+        return Err(DecideError::GoalsUnsupported { command_type });
+    }
     let expected_snoozed_until = &command.expected_snoozed_until;
     let expires_snooze = expected_snoozed_until.is_some();
     if matches!(command.snoozed_until, Some(Some(_))) || expires_snooze {
@@ -2504,5 +2513,24 @@ pub(crate) mod tests {
         assert_eq!(thread.title, "Renamed");
         assert_eq!(thread.settled_at, Some(iso(T0)));
         assert_eq!(thread.associated_worktree_branch.as_deref(), Some("fix/x"));
+    }
+
+    /// The page's `/goal` (useComposerSlashCommands): refused, so the composer keeps its text.
+    #[test]
+    fn a_goal_is_refused_not_dropped() {
+        let (thread, _) = created_thread();
+        for goal in [
+            json!({ "goal": "Ship the release notes", "goalStartBehavior": "start-with-message" }),
+            json!({ "goalPaused": true }),
+            json!({ "goalAchieved": true }),
+        ] {
+            let mut command = json!({ "type": "thread.meta.update", "commandId": "g1", "threadId": "thread-1" });
+            command.as_object_mut().unwrap().extend(goal.as_object().unwrap().clone());
+            let error = decide(&client(command), Some(&thread), &iso(T0)).unwrap_err();
+            assert!(matches!(error, DecideError::GoalsUnsupported { .. }), "{error:?}");
+            assert_eq!(error.to_string(), "Thread goals are not available in Cascade yet.");
+        }
+        let rename = client(json!({ "type": "thread.meta.update", "commandId": "u1", "threadId": "thread-1", "title": "Renamed" }));
+        assert!(decide(&rename, Some(&thread), &iso(T0)).is_ok());
     }
 }

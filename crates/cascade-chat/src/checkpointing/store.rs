@@ -164,6 +164,16 @@ fn make_temp_dir(prefix: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
+/// A folder of [`make_temp_dir`] that goes when dropped, so a read whose caller goes away midway
+/// leaves nothing behind.
+struct TempDirGuard(PathBuf);
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn undo_conflict(strict_stderr: &str, merged_stderr: &str) -> String {
     ["Undo could not be applied because the workspace changed since this checkpoint.", strict_stderr.trim(), merged_stderr.trim()]
         .iter()
@@ -324,7 +334,16 @@ impl CheckpointStore {
             .git_ok(
                 cwd,
                 &[
-                    &["diff", "--patch", "--minimal", "--no-color", "--no-ext-diff", "--no-textconv"][..],
+                    &[
+                        "diff",
+                        "--patch",
+                        "--minimal",
+                        "--no-color",
+                        "--no-ext-diff",
+                        "--no-textconv",
+                        "--src-prefix=a/",
+                        "--dst-prefix=b/",
+                    ][..],
                     if ignore_whitespace { &["--ignore-all-space"][..] } else { &[][..] },
                     &[from_commit.as_str(), to_commit.as_str()][..],
                 ]
@@ -336,6 +355,63 @@ impl CheckpointStore {
             bail!("The turn diff is larger than {CHECKPOINT_DIFF_MAX_OUTPUT_BYTES} bytes.");
         }
         Ok(output.stdout)
+    }
+
+    /// The `providerPatch` branch of Synara `diffCheckpoints` (CheckpointStore.ts:396): an exact
+    /// provider patch (a running Codex turn's cumulative diff), reconstructed only from `from` in
+    /// a fresh index. Never seeded from today's index or files, and never merged onto a
+    /// mismatched base: a patch that does not apply to `from` is an error.
+    pub async fn diff_provider_patch(
+        &self,
+        cwd: &Path,
+        from: &CheckpointRef,
+        provider_patch: &str,
+        ignore_whitespace: bool,
+    ) -> Result<String> {
+        let baseline = self.resolve_checkpoint_commit(cwd, from).await?;
+        let Some(baseline) = baseline.filter(|_| provider_patch.len() <= CHECKPOINT_DIFF_MAX_OUTPUT_BYTES) else {
+            bail!("Provider patch baseline or size is unavailable.");
+        };
+        if provider_patch.is_empty() {
+            return Ok(String::new());
+        }
+        // Removed when dropped, so a read whose caller goes away leaves nothing behind.
+        let temp_dir = TempDirGuard(make_temp_dir("cascade-provider-patch")?);
+        let temp_dir = temp_dir.0.as_path();
+        {
+            let env = vec![("GIT_INDEX_FILE".to_owned(), temp_dir.join("index").to_string_lossy().into_owned())];
+            let patch_path = temp_dir.join("provider.patch");
+            std::fs::write(&patch_path, provider_patch).context("Could not prepare a private provider patch index.")?;
+            let patch_path = patch_path.to_string_lossy().into_owned();
+            self.git_ok(cwd, &["read-tree", &baseline], &env).await?;
+            self.git_ok(cwd, &["apply", "--cached", "--whitespace=nowarn", "--", &patch_path], &env).await?;
+            let output = self
+                .git_ok(
+                    cwd,
+                    &[
+                        &[
+                            "diff",
+                            "--cached",
+                            "--patch",
+                            "--minimal",
+                            "--no-color",
+                            "--no-ext-diff",
+                            "--no-textconv",
+                            "--src-prefix=a/",
+                            "--dst-prefix=b/",
+                        ][..],
+                        if ignore_whitespace { &["--ignore-all-space"][..] } else { &[][..] },
+                        &[baseline.as_str()][..],
+                    ]
+                    .concat(),
+                    &env,
+                )
+                .await?;
+            if output.stdout.len() > CHECKPOINT_DIFF_MAX_OUTPUT_BYTES {
+                bail!("The turn diff is larger than {CHECKPOINT_DIFF_MAX_OUTPUT_BYTES} bytes.");
+            }
+            Ok(output.stdout)
+        }
     }
 
     /// Synara `reverseCheckpointDiff`: take back, in the workspace, the changes from `from` to
@@ -368,7 +444,20 @@ impl CheckpointStore {
         let output = format!("--output={}", patch_path.to_string_lossy());
         self.git_ok(
             cwd,
-            &["diff", "--patch", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv", &output, from_commit, to_commit],
+            &[
+                "diff",
+                "--patch",
+                "--binary",
+                "--full-index",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
+                &output,
+                from_commit,
+                to_commit,
+            ],
             &[],
         )
         .await?;
@@ -863,6 +952,112 @@ mod tests {
         assert!(!cwd.join("new.txt").exists());
         assert_eq!(git(cwd, &["ls-files"]), "README.md\n", "notes.txt stays untracked, new.txt is unstaged");
         assert_eq!(git(cwd, &["show", ":README.md"]), "staged\n", "the person's staging stays");
+    }
+
+    /// A user's `diff.noprefix` (or `diff.mnemonicPrefix`) does not reach the turn diff the page
+    /// parses or the patch an undo applies (540ba4a11).
+    #[tokio::test]
+    async fn keeps_a_and_b_prefixes_on_turn_diffs_and_file_undo_under_diff_noprefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        git(cwd, &["init", "-q"]);
+        git(cwd, &["config", "core.autocrlf", "false"]);
+        git(cwd, &["config", "diff.noprefix", "true"]);
+        std::fs::create_dir(cwd.join("src")).unwrap();
+        std::fs::write(cwd.join("src/file.ts"), "before\n").unwrap();
+        git(cwd, &["add", "."]);
+        git(cwd, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]);
+        let store = CheckpointStore::new(Arc::new(super::super::git::ProcessGit));
+        let (s1, e1) = (at("s1"), at("e1"));
+        store.capture_checkpoint(cwd, &s1, false).await.unwrap();
+        std::fs::write(cwd.join("src/file.ts"), "after\n").unwrap();
+        store.capture_checkpoint(cwd, &e1, false).await.unwrap();
+
+        let diff = store.diff_checkpoints(cwd, &s1, &e1).await.unwrap();
+        assert!(diff.contains("diff --git a/src/file.ts b/src/file.ts"), "{diff}");
+        assert!(store.reverse_checkpoint_diff(cwd, &s1, &e1).await.unwrap());
+        assert_eq!(read(cwd, "src/file.ts"), "before\n");
+    }
+
+    /// Synara "reconstructs provider patches from the captured baseline in a private index"
+    /// (99b090d91): the patch is read against its baseline only, whatever the folder and the
+    /// person's index hold now; a patch that does not apply there is an error.
+    #[tokio::test]
+    async fn reconstructs_provider_patches_from_the_captured_baseline_in_a_private_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        git(cwd, &["init", "-q"]);
+        std::fs::write(cwd.join("internal.txt"), "hello world\n").unwrap();
+        std::fs::write(cwd.join("real.txt"), "before\n").unwrap();
+        std::fs::write(cwd.join("old name.txt"), "renamed content\n").unwrap();
+        std::fs::write(cwd.join("delete.txt"), "delete me\n").unwrap();
+        std::fs::write(cwd.join("no-newline.txt"), "before").unwrap();
+        std::fs::write(cwd.join("binary.dat"), [0u8, 1, 2]).unwrap();
+        git(cwd, &["add", "."]);
+        git(cwd, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "baseline"]);
+        let baseline = at("exact");
+        git(cwd, &["update-ref", baseline.as_str(), "HEAD"]);
+        std::fs::write(cwd.join("internal.txt"), "hello  world\n").unwrap();
+        std::fs::write(cwd.join("real.txt"), "after\n").unwrap();
+        std::fs::write(cwd.join("no-newline.txt"), "after").unwrap();
+        std::fs::rename(cwd.join("old name.txt"), cwd.join("new name.txt")).unwrap();
+        std::fs::remove_file(cwd.join("delete.txt")).unwrap();
+        std::fs::write(cwd.join("binary.dat"), [0u8, 3, 2]).unwrap();
+        git(cwd, &["add", "."]);
+        let provider_patch = git(cwd, &["diff", "--cached", "--binary", "--full-index", baseline.as_str()]);
+        // Real staged and working content can diverge after the provider's event.
+        std::fs::write(cwd.join("real.txt"), "another session\n").unwrap();
+        std::fs::write(cwd.join("peer.txt"), "unrelated staged work\n").unwrap();
+        git(cwd, &["add", "peer.txt", "real.txt"]);
+        let index = std::fs::read(cwd.join(".git/index")).unwrap();
+        let store = CheckpointStore::new(Arc::new(super::super::git::ProcessGit));
+        for ignore_whitespace in [false, true] {
+            let patch = store.diff_provider_patch(cwd, &baseline, &provider_patch, ignore_whitespace).await.unwrap();
+            assert!(patch.contains("+after"), "{patch}");
+            assert!(patch.contains("delete.txt"));
+            assert!(patch.contains("rename from old name.txt"));
+            assert!(patch.contains("No newline at end of file"));
+            assert!(patch.contains("binary.dat"));
+            assert_eq!(patch.contains("internal.txt"), !ignore_whitespace);
+            assert!(!patch.contains("another session"));
+            assert!(!patch.contains("peer.txt"));
+        }
+        assert!(store.diff_provider_patch(cwd, &baseline, "not a patch", false).await.is_err());
+        let mismatch = provider_patch.replace("-before", "-wrong baseline");
+        assert!(store.diff_provider_patch(cwd, &baseline, &mismatch, false).await.is_err());
+        assert!(store.diff_provider_patch(cwd, &at("absent"), &provider_patch, false).await.is_err());
+        assert_eq!(std::fs::read(cwd.join(".git/index")).unwrap(), index, "the person's index is not touched");
+    }
+
+    /// A provider patch read whose caller goes away midway leaves no private index behind.
+    #[tokio::test]
+    async fn a_dropped_provider_patch_read_removes_its_private_index() {
+        struct HangingApply(std::sync::Mutex<Option<PathBuf>>);
+        impl GitRunner for HangingApply {
+            fn run(&self, cwd: &Path, args: &[String], env: &[(String, String)]) -> super::super::git::GitFuture {
+                if args.first().is_some_and(|a| a == "apply") {
+                    let index = env.iter().find(|(k, _)| k == "GIT_INDEX_FILE").map(|(_, v)| PathBuf::from(v));
+                    *self.0.lock().unwrap() = index;
+                    return Box::pin(std::future::pending());
+                }
+                super::super::git::ProcessGit.run(cwd, args, env)
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path();
+        git(cwd, &["init", "-q"]);
+        std::fs::write(cwd.join("a.txt"), "a\n").unwrap();
+        git(cwd, &["add", "."]);
+        git(cwd, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "baseline"]);
+        let baseline = at("exact");
+        git(cwd, &["update-ref", baseline.as_str(), "HEAD"]);
+        let runner = Arc::new(HangingApply(std::sync::Mutex::new(None)));
+        let store = CheckpointStore::new(runner.clone());
+        let patch = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n";
+        let read = tokio::time::timeout(std::time::Duration::from_millis(500), store.diff_provider_patch(cwd, &baseline, patch, false)).await;
+        assert!(read.is_err(), "the read was left waiting");
+        let index = runner.0.lock().unwrap().clone().expect("the patch was applied in a private index");
+        assert!(!index.parent().unwrap().exists(), "{} is left behind", index.display());
     }
 
     #[test]

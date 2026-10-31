@@ -7,6 +7,8 @@ import Observation
     var terminal: TerminalSession?
     var buildTerminal: TerminalSession?
     var build: BuildWorkspaceViewModel?
+    /// The session's Simulator pane, which streams the simulator its worktree's agents and Runs use.
+    var simulator: SimulatorPaneModel?
     var history: GitHistoryViewModel?
     var diff: DiffViewModel?
     var appearance: AppAppearance = .system
@@ -199,17 +201,17 @@ extension WorkspaceServing {
         if offers(context.pane) { return context.pane }
         return offers(context.lastPane) ? context.lastPane : .term
     }
-    /// Diff needs a session, and Simulator an Xcode session's preview.
+    /// Diff needs a session, and Simulator the session's pane model.
     private func offers(_ pane: WorkspacePane) -> Bool {
         switch pane {
         case .diff: session != nil
-        case .simulator: simulatorPreview != nil
+        case .simulator: simulator != nil
         case .term: true
         case .off: false
         }
     }
-    /// The Simulator panel's model, owned by the session's build.
-    var simulatorPreview: SimulatorPreviewModel? { build?.preview }
+    /// The Simulator panel's model, one per session.
+    var simulator: SimulatorPaneModel? { state.simulator }
     var showsBrowser: Bool { showsPage && !showsChanges && shownPane == .term }
     /// Beside a terminal the context pane is the window's inspector column, with its own section of
     /// the toolbar tracking the divider (`MainSplitViewController`).
@@ -341,8 +343,9 @@ extension WorkspaceServing {
         state.diff?.reviewing = reviewing
         state.history?.presentation = .init(active: reviewing && context?.reviewSection == .history,
                                             appearance: state.appearance, font: state.documentFont)
-        // On any pane: switching back to the Simulator is instant, and a hidden session streams nothing.
-        state.build?.preview?.active = visible
+        // On any pane: the panel itself says whether it is shown, and a hidden session streams
+        // nothing once the pane's short grace is over.
+        state.simulator?.active = visible
         // Once each, not per page or document: every one of these rebuilds the workspace state.
         let shownPage = visible && showsBrowser ? context?.activePage : nil
         let shownDocument = visible && showsBrowser ? context?.activeDocument : nil
@@ -376,8 +379,8 @@ extension WorkspaceServing {
     func openFile() { perform(.openFile) }
     func toggleChanges() { if canShowChanges { perform(.changes) } }
     /// What a session's blank tab offers to open: its worktree's Files explorer, a shell in its
-    /// worktree, its changes, its agent's Live diagram, and the Simulator while a build has one. A web page is the blank tab
-    /// itself.
+    /// worktree, its changes, its agent's Live diagram, and the Simulator for an Xcode project or a
+    /// session whose agent attached one. A web page is the blank tab itself.
     func startPageTools() -> [StartPageTool] {
         guard let context, listsWorktree else { return [] }
         // One tab of each tool: one already open is in the strip, not offered again. But for Files,
@@ -411,7 +414,8 @@ extension WorkspaceServing {
         tools.append(.init(id: "chat", title: WorkspaceTool.chat.title, symbol: WorkspaceTool.chat.symbol) { [weak context] in
             context?.openChat(replacingBlank: true)
         })
-        if simulatorPreview != nil, !open.contains(.simulator) {
+        if let simulator, state.project?.ide == "xcode" || simulator.state?.attachedDeviceUdid != nil,
+           !open.contains(.simulator) {
             tools.append(.init(id: "simulator", title: WorkspaceTool.simulator.title, symbol: WorkspaceTool.simulator.symbol) { [weak context] in
                 context?.openTool(.simulator, replacingBlank: true)
             })
@@ -421,10 +425,11 @@ extension WorkspaceServing {
     /// Whether there is a worktree for the Files picker to list. The scratch Terminal has none, but
     /// can still open files, from the terminal's links.
     var listsWorktree: Bool { session?.worktree.isEmpty == false }
-    /// The Simulator's run is over: its tab has nothing left to show, so the pane goes back to the
-    /// page or file shown before it rather than sitting blank with no tabs.
+    /// The Simulator's model went (the backend changed, the session closed): its tab has nothing
+    /// left to show, so the pane goes back to the page or file shown before it rather than sitting
+    /// blank with no tabs.
     func leaveEndedSimulator() {
-        guard let context, simulatorPreview == nil, context.tools.contains(.simulator) else { return }
+        guard let context, simulator == nil, context.tools.contains(.simulator) else { return }
         if context.activeTool == .simulator { context.showPages() }
         context.close(.tool(.simulator))
     }

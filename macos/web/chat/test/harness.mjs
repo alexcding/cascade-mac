@@ -222,5 +222,11 @@ export function text() {
 }
 
 export async function unload() {
+  // React's scheduler may still hold a commit (it runs on setImmediate); let it run against the
+  // window it was scheduled for, rather than one already torn down.
+  for (let turn = 0; turn < 3; turn += 1) {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
   await GlobalRegistrator.unregister();
 }

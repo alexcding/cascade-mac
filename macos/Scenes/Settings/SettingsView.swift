@@ -166,7 +166,6 @@ struct SettingsView: View {
             WebhookForwardingSection(model: model.webhooks, clis: model.clis)
             WorkflowHooksSection(model: model.clis)
             AgentStatusLineSection(model: model.clis)
-            SimulatorPreviewSection(model: model.clis)
             Section("Polling") {
                 Text("Choose how often Cascade checks GitHub and Jira for updates.")
                     .font(.caption).foregroundStyle(Theme.textSecondary)

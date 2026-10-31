@@ -8,7 +8,9 @@
 //! units; object keys come out in `serde_json`'s order, so `activityPayloadKeyRank` only decides
 //! which keys a truncation keeps. `sensitiveKeys.ts` (`isSensitiveKey`) is ported at the bottom
 //! without `isProviderCredentialKey`, and `unmappedProviderEvents.ts`'s sanitizers are reduced to
-//! key redaction and the size cap.
+//! key redaction and the size cap. Also here: `sanitizeUserFacingErrorMessage` of
+//! `packages/shared/src/errorMessages.ts`, and `providerRuntimeProgressKey` /
+//! `providerRuntimeCommandProgressKey` of `S/orchestration/providerRuntimeProgressCoalescing.ts`.
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -28,6 +30,115 @@ const MAX_ACTIVITY_DATA_OBJECT_KEYS: usize = 64;
 const ACTIVITY_DATA_TRUNCATION_MARKER: &str = "__synaraTruncated";
 
 type ActivityPayload = Value;
+
+/// Synara `sanitizeUserFacingErrorMessage` (packages/shared/src/errorMessages.ts, 3f55b77ef): a
+/// provider failure as the transcript shows it, its first line without an inline stack frame;
+/// full causes belong in logs.
+pub fn sanitize_user_facing_error_message(message: &str, fallback: &str) -> String {
+    let first_line = message.trim().split('\n').next().unwrap_or_default().trim();
+    // `/\s+at file:\/\/.*$/s`
+    let line = match whitespace_run_before(first_line, |rest| rest.starts_with("at file://")) {
+        Some(cut) => &first_line[..cut],
+        None => first_line,
+    };
+    // `/\s+at (?:async )?\S+ \((?:file:\/\/|\/|[A-Za-z]:\\).*:\d+(?::\d+)?\)$/s`
+    let line = match whitespace_run_before(line, is_trailing_stack_frame) {
+        Some(cut) => &line[..cut],
+        None => line,
+    };
+    let line = line.trim();
+    if line.is_empty() { fallback.to_owned() } else { line.to_owned() }
+}
+
+/// Where the leftmost whitespace run followed by text `matches` accepts begins: the start of a
+/// `\s+<pattern>` match.
+fn whitespace_run_before(text: &str, matches: impl Fn(&str) -> bool) -> Option<usize> {
+    let mut run_start = None;
+    for (index, c) in text.char_indices() {
+        if c.is_whitespace() {
+            run_start.get_or_insert(index);
+        } else if let Some(start) = run_start.take() {
+            if matches(&text[index..]) {
+                return Some(start);
+            }
+        }
+    }
+    None
+}
+
+/// `at (?:async )?\S+ \((?:file:\/\/|\/|[A-Za-z]:\\).*:\d+(?::\d+)?\)$`
+fn is_trailing_stack_frame(rest: &str) -> bool {
+    let Some(rest) = rest.strip_prefix("at ") else { return false };
+    let frame = |rest: &str| -> bool {
+        let name_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        if name_end == 0 {
+            return false;
+        }
+        let Some(location) = rest[name_end..].strip_prefix(" (") else { return false };
+        let bytes = location.as_bytes();
+        let path = if let Some(path) = location.strip_prefix("file://") {
+            path
+        } else if let Some(path) = location.strip_prefix('/') {
+            path
+        } else if bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && bytes[2] == b'\\' {
+            &location[3..]
+        } else {
+            return false;
+        };
+        let Some(path) = path.strip_suffix(')') else { return false };
+        let digits = path.len() - path.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+        digits > 0 && path[..path.len() - digits].ends_with(':')
+    };
+    rest.strip_prefix("async ").is_some_and(frame) || frame(rest)
+}
+
+/// Synara `providerRuntimeProgressKey` (providerRuntimeProgressCoalescing.ts): the identity of a
+/// snapshot a later one of the same work replaces.
+fn provider_runtime_progress_key(event: &ProviderRuntimeEvent) -> Option<String> {
+    let identity = match &event.body {
+        ProviderRuntimeEventBody::TurnDiffUpdated(_) => event.turn_id.as_ref().map(|t| t.as_str().to_owned()),
+        ProviderRuntimeEventBody::ToolProgress(payload) => payload.tool_use_id.clone(),
+        ProviderRuntimeEventBody::ItemUpdated(payload) => {
+            let item_type = wire(&payload.item_type);
+            if payload.status != Some(crate::contracts::provider_runtime::RuntimeItemStatus::InProgress)
+                || !is_tool_lifecycle_item_type(&item_type)
+                || payload.item_type == CanonicalItemType::CollabAgentToolCall
+            {
+                return None;
+            }
+            event.item_id.as_ref().map(|i| i.as_str().to_owned())
+        }
+        _ => None,
+    }
+    .filter(|identity| !identity.is_empty())?;
+    Some(
+        json!([
+            event.provider,
+            event.provider_instance_id,
+            event.lifecycle_generation,
+            event.thread_id,
+            event.turn_id,
+            event.provider_refs.as_ref().and_then(|r| r.provider_thread_id.as_deref()),
+            runtime_event_type(event),
+            identity,
+        ])
+        .to_string(),
+    )
+}
+
+/// Synara `providerRuntimeCommandProgressKey` (3f55b77ef): commands report their elapsed time
+/// again and again. Those are snapshots of one row, not new work, fenced by the runtime
+/// generation and the turn.
+pub fn provider_runtime_command_progress_key(event: &ProviderRuntimeEvent) -> Option<String> {
+    let is_command = match &event.body {
+        ProviderRuntimeEventBody::ItemUpdated(payload) => payload.item_type == CanonicalItemType::CommandExecution,
+        ProviderRuntimeEventBody::ToolProgress(payload) => {
+            event.provider.as_str() == "claudeAgent" && payload.tool_name.as_deref() == Some("Bash")
+        }
+        _ => false,
+    };
+    if is_command && event.turn_id.is_some() { provider_runtime_progress_key(event) } else { None }
+}
 
 /// The `type` literal of a runtime event (Synara reads `event.type`).
 pub fn runtime_event_type(event: &ProviderRuntimeEvent) -> &'static str {
@@ -661,6 +772,10 @@ pub fn project_provider_runtime_activities(
     }
 
     let id = event.event_id.clone();
+    let command_progress_id = match provider_runtime_command_progress_key(event) {
+        Some(key) => EventId::new(format!("provider-command-progress:{key}")),
+        None => id.clone(),
+    };
     match &event.body {
         B::SessionConfigured(_) => match build_configured_context_window_payload(event) {
             Some(payload) => vec![activity(
@@ -742,7 +857,10 @@ pub fn project_provider_runtime_activities(
                 return vec![];
             }
             let mut out = Map::new();
-            out.insert("message".into(), json!(truncate_detail(&payload.message, 500)));
+            out.insert(
+                "message".into(),
+                json!(truncate_detail(&sanitize_user_facing_error_message(&payload.message, "Provider runtime error"), 500)),
+            );
             if let Some(class) = payload.class {
                 out.insert("class".into(), json!(wire(&class)));
             }
@@ -752,6 +870,9 @@ pub fn project_provider_runtime_activities(
         B::RuntimeWarning(payload) => {
             let raw_payload = event.raw.as_ref().map(|raw| &raw.payload);
             let native_type = as_str(as_object(raw_payload).and_then(|p| p.get("type")));
+            let native_method = event.raw.as_ref().and_then(|raw| raw.method.as_deref());
+            let is_codex_thread_warning =
+                provider == "codex" && matches!(native_method, Some("guardianWarning") | Some("warning"));
             let detail_subtype = as_str(as_object(payload.detail.as_ref()).and_then(|d| d.get("subtype")));
             let is_background_move = detail_subtype == Some("background_tasks_changed");
             let is_claude_retry = provider == "claudeAgent" && detail_subtype == Some("api_retry");
@@ -775,7 +896,9 @@ pub fn project_provider_runtime_activities(
             let mut out = Map::new();
             out.insert("message".into(), json!(message));
             out.insert("detail".into(), json!(message));
-            if is_background_move || is_claude_retry {
+            if is_codex_thread_warning {
+                out.insert("nativeEventType".into(), json!(format!("codex.{}", native_method.unwrap_or_default())));
+            } else if is_background_move || is_claude_retry {
                 if let Some(subtype) = detail_subtype {
                     out.insert("nativeEventType".into(), json!(subtype));
                 }
@@ -899,6 +1022,7 @@ pub fn project_provider_runtime_activities(
             let mut out = Map::new();
             out.insert("taskId".into(), json!(payload.task_id));
             out.insert("status".into(), json!(wire(&payload.status)));
+            insert_non_empty(&mut out, "toolUseId", payload.tool_use_id.as_deref());
             if let Some(summary) = payload.summary.as_deref().filter(|s| !s.is_empty()) {
                 out.insert("detail".into(), json!(truncate_detail(summary, MAX_ACTIVITY_DATA_STRING_CHARS)));
             }
@@ -1054,7 +1178,7 @@ pub fn project_provider_runtime_activities(
                 out.insert("detail".into(), json!(truncate_detail(detail, 180)));
             }
             activity_data_field(&mut out, payload.data.as_ref());
-            vec![activity(event, id, Tone::Tool, kind, summary, Value::Object(out), maybe_sequence)]
+            vec![activity(event, command_progress_id, Tone::Tool, kind, summary, Value::Object(out), maybe_sequence)]
         }
 
         B::ToolSummary(payload) => {
@@ -1120,7 +1244,7 @@ pub fn project_provider_runtime_activities(
                 .unwrap_or_else(|| "MCP tool call".to_string());
             vec![activity(
                 event,
-                id,
+                command_progress_id,
                 Tone::Tool,
                 "tool.updated",
                 summary,
@@ -1162,7 +1286,7 @@ pub fn project_provider_runtime_activities(
                 out.insert("cumulativeCostUsd".into(), json!(cost));
             }
             if let Some(message) = error_message {
-                out.insert("errorMessage".into(), json!(message));
+                out.insert("errorMessage".into(), json!(sanitize_user_facing_error_message(message, "Turn failed")));
             }
             vec![activity(
                 event,
@@ -1349,6 +1473,9 @@ pub fn provider_activity_update_dedupe_key(
     }
     if activity.kind != "tool.updated" {
         return None;
+    }
+    if let Some(key) = provider_runtime_command_progress_key(event) {
+        return Some(format!("{prefix}:{key}"));
     }
     let data = payload.and_then(|p| p.get("data")).and_then(Value::as_object);
     let tool_update_id = event.item_id.as_ref().map(|i| i.as_str().to_string()).or_else(|| {
@@ -1541,6 +1668,33 @@ mod tests {
         assert_eq!(rows[0].kind, "tool.completed");
         assert_eq!(rows[0].summary, "Tool");
         assert_eq!(rows[0].sequence, None);
+    }
+
+    /// 3f55b77ef (errorMessages.test.ts): the first line, without an inline stack frame.
+    #[test]
+    fn user_facing_errors_lose_their_stacks() {
+        let sanitize = |message: &str| sanitize_user_facing_error_message(message, "Fallback");
+        assert_eq!(sanitize("Temporarily unavailable\n    at request (/app/provider.ts:12:1)"), "Temporarily unavailable");
+        assert_eq!(sanitize("Request failed at handler (/app/codex.js:10:5)"), "Request failed");
+        assert_eq!(sanitize("Request failed at async run (file:///app/codex.js:10)"), "Request failed");
+        assert_eq!(sanitize("Request failed at run (C:\\app\\codex.js:3:4)"), "Request failed");
+        assert_eq!(sanitize("Boom   at file:///app/x.js:1:2 and more"), "Boom");
+        assert_eq!(sanitize("Look at this (it is fine)"), "Look at this (it is fine)");
+        assert_eq!(sanitize("Port at localhost (/tmp/sock)"), "Port at localhost (/tmp/sock)");
+        assert_eq!(sanitize("  \n second line"), "second line");
+        assert_eq!(sanitize(" \n "), "Fallback");
+        assert_eq!(sanitize("at file:///app/x.js:1:2"), "at file:///app/x.js:1:2");
+    }
+
+    /// 3f55b77ef (providerRuntimeActivityProjection.test.ts "persists terminal error identity"):
+    /// a runtime error and a failed turn show the readable message.
+    #[test]
+    fn runtime_errors_and_failed_turns_show_readable_messages() {
+        let stack = "Temporarily unavailable\n    at request (/app/provider.ts:12:1)";
+        let error = project_provider_runtime_activities(&event(base("runtime.error", json!({ "message": stack, "class": "provider_error" }))), None);
+        assert_eq!(error[0].payload["message"], "Temporarily unavailable");
+        let failed = project_provider_runtime_activities(&event(base("turn.completed", json!({ "state": "failed", "errorMessage": stack }))), None);
+        assert_eq!(failed[0].payload["errorMessage"], "Temporarily unavailable");
     }
 
     #[test]

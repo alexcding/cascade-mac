@@ -98,12 +98,6 @@ private final class BuildHTTPFixtureLaunch: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
-/// A `SimulatorPreviewing` fake that answers immediately, for tests that only care whether it was asked.
-private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked Sendable {
-    func start(udid: String) async throws -> URL { URL(string: "http://127.0.0.1:3100")! }
-    func stopAll() async {}
-}
-
 @MainActor private final class BuildTerminalRecorder: BuildTerminal {
     var commands: [String] = []
     var interrupts = 0
@@ -190,27 +184,25 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     #expect(model.error == "Runtime closed" && model.canRun)
 }
 
-@MainActor @Test func buildRunOnSimulatorPlatformShowsPreviewAndFiresCallback() async throws {
+@MainActor @Test func buildRunOnSimulatorPlatformPointsThePaneAtItsDevice() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BuildHTTPFixtureSimulator.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
     let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
     let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
     let build = BuildTerminalRecorder()
-    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
-    var simulatorRuns = 0
+    var simulatorRuns: [String] = []
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
-        preview: preview, terminalFactory: { build })
-    model.onSimulatorRun = { simulatorRuns += 1 }
+        terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns.append($0) }
     await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
     #expect(await destination.start())
-    #expect(simulatorRuns == 1)
-    #expect(preview.udid == "12345678-1234-1234-1234-123456789abc")
+    #expect(simulatorRuns == ["12345678-1234-1234-1234-123456789abc"], "the pane follows the device the Run runs on")
     model.disconnect()
 }
 
-@MainActor @Test func buildRunAdoptingARunningBuildLeavesThePreviewAlone() async throws {
+@MainActor @Test func buildRunAdoptingARunningBuildLeavesThePaneAlone() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BuildHTTPFixtureSimulator.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
@@ -220,37 +212,33 @@ private final class NoopSimulatorPreviewService: SimulatorPreviewing, @unchecked
     // so the destination picked now says nothing about what is running.
     let build = BuildTerminalRecorder()
     build.shell = false; build.process = "xcodebuild"; build.subshell = true
-    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
-    var simulatorRuns = 0
+    var simulatorRuns: [String] = []
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
-        preview: preview, terminalFactory: { build })
-    model.onSimulatorRun = { simulatorRuns += 1 }
+        terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns.append($0) }
     await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
     await destination.start()
     #expect(build.commands.isEmpty, "the running build is adopted, not joined by a second command")
-    #expect(simulatorRuns == 0)
-    #expect(preview.state == .idle && preview.udid == nil)
+    #expect(simulatorRuns.isEmpty)
     model.disconnect()
 }
 
-@MainActor @Test func buildRunOnMacPlatformDoesNotShowPreview() async throws {
+@MainActor @Test func buildRunOnMacPlatformLeavesThePaneAlone() async throws {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [BuildHTTPFixtureMac.self]
     let api = try APIClient(baseURL: URL(string: "http://127.0.0.1:12345")!, session: URLSession(configuration: configuration))
     let project = Project(id: "fixture", name: "Fixture", repo: "", color: nil, workspace: "/tmp", ide: "xcode")
     let session = WorkspaceSession(id: "task", projectId: "fixture", workspace: "/tmp", worktree: "/tmp", title: "", branch: "", url: "session:task", createdAt: nil, pinned: false)
     let build = BuildTerminalRecorder()
-    let preview = SimulatorPreviewModel(service: NoopSimulatorPreviewService())
-    var simulatorRuns = 0
+    var simulatorRuns: [String] = []
     let model = BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
-        preview: preview, terminalFactory: { build })
-    model.onSimulatorRun = { simulatorRuns += 1 }
+        terminalFactory: { build })
+    model.onSimulatorRun = { simulatorRuns.append($0) }
     await model.loadDestinations() // Its own fixture's lists, not another test's cached ones.
     let destination = BuildDestinationViewModel(runtime: model)
     await destination.start()
-    #expect(simulatorRuns == 0)
-    #expect(preview.state == .idle && preview.udid == nil)
+    #expect(simulatorRuns.isEmpty)
     model.disconnect()
 }
 

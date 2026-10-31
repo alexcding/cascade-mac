@@ -17,7 +17,7 @@
     "types": [],
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./vendor/synara/apps/web/src/*"],
+      "~/*": ["./src/shims/web/*", "./vendor/synara/apps/web/src/*"],
       "@synara/contracts": ["./vendor/synara/packages/contracts/src/index.ts"],
       "@synara/shared/*": ["./vendor/synara/packages/shared/src/*"],
       "cascade:central-icons": ["./src/central-icons.d.ts"]

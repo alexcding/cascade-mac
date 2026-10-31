@@ -5,8 +5,7 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
     /// backend's webhook forwarders run. The backend reports it beside the CLIs.
     /// `ghWebhook` is optional too: polling catches every change without it, so it sits in the
     /// GitHub webhooks card rather than the CLI list.
-    /// `node` and `serveSim` are the Simulator panel's: optional, so first-run setup never asks for them.
-    case claude, codex, gh, ghWebhook, acli, node, serveSim
+    case claude, codex, gh, ghWebhook, acli
     var id: String { rawValue }
     /// The agent CLI's driver, for the tools that are agents; its facts are the driver's.
     var agent: (any AgentDriver)? { AgentDrivers.of(rawValue) }
@@ -14,21 +13,17 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
         if let agent { return agent.name }
         return switch self {
         case .gh: "GitHub CLI"; case .ghWebhook: String(localized: "gh webhook extension")
-        case .acli: "Atlassian CLI"; case .node: String(localized: "Node.js 20 or later"); case .serveSim: "serve-sim"
+        case .acli: "Atlassian CLI"
         default: rawValue
         }
     }
     var supportsHooks: Bool { agent != nil }
     /// An extension is only ever installed or not: it has no sign-in of its own to report.
     var isExtension: Bool { self == .ghWebhook }
-    var isSimulatorPreview: Bool { self == .node || self == .serveSim }
-    static var required: [ManagedCLI] { allCases.filter { !$0.isSimulatorPreview && !$0.isExtension } }
-    static var simulatorPreview: [ManagedCLI] { allCases.filter(\.isSimulatorPreview) }
+    static var required: [ManagedCLI] { allCases.filter { !$0.isExtension } }
     static var webhooks: [ManagedCLI] { allCases.filter(\.isExtension) }
     var loginCommand: String? { switch self { case .gh: "gh auth login"; case .acli: "acli jira auth login"; default: nil } }
     /// A one-line install, for tools that have one worth copying whatever else is installed.
-    /// Node's depends on Homebrew: `CLIAvailability.installCommand(for:homebrew:)`. serve-sim
-    /// has none — `npx` fetches it, so Node is all it needs.
     var installCommand: String? { self == .ghWebhook ? "gh extension install cli/gh-webhook" : nil }
     var installationGuide: URL {
         if let agent { return agent.installationGuide }
@@ -36,8 +31,6 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
         case .gh: "https://cli.github.com"
         case .ghWebhook: "https://github.com/cli/gh-webhook"
         case .acli: "https://developer.atlassian.com/cloud/acli/guides/install-macos/"
-        case .node: "https://nodejs.org/en/download"
-        case .serveSim: "https://github.com/expo/serve-sim"
         default: "https://github.com"
         }
         return URL(string: address)!
@@ -47,52 +40,13 @@ enum ManagedCLI: String, CaseIterable, Identifiable, Sendable {
 struct CLIAvailability: Decodable, Sendable {
     let present: Bool
     var authed: Bool?
-    /// Node only: what `node --version` printed, and whether serve-sim can run on it.
-    var version: String?
-    var supported: Bool?
-    /// Node: which installer put it there (`Homebrew`, `installer`, `nvm`, `fnm`, `Volta`, `asdf`,
-    /// `mise`, `nodenv`, `other`). serve-sim: `installed`, or `npx` when it is fetched on use.
-    var source: String?
-    /// serve-sim only: what keeps it from running — `node` (none, or older than 20) or `npx`.
-    var needs: String?
-    /// Present, but not confirmed usable: Node older than 20, or a version nobody could read.
-    /// Only a confirmed 20 or later counts, so an unreadable version warns rather than passes.
-    func outdated(for cli: ManagedCLI) -> Bool { cli == .node && present && supported != true }
-    /// The command worth copying for this state. Node through Homebrew only where there is one:
-    /// upgrade a Homebrew Node, install one beside any other. A version manager's Node is the
-    /// user's to update in that manager, so the guide covers it.
-    func installCommand(for cli: ManagedCLI, homebrew: Bool) -> String? {
-        guard cli == .node else { return cli.installCommand }
-        guard homebrew, !present || outdated(for: cli) else { return nil }
-        if present && source != "Homebrew" && source != "installer" { return nil }
-        return present && source == "Homebrew" ? "brew upgrade node" : "brew install node"
-    }
     func label(for cli: ManagedCLI) -> String {
-        if cli == .serveSim {
-            guard present else { return needs == "npx" ? String(localized: "Needs npx, which comes with npm") : String(localized: "Needs Node.js 20 or later") }
-            return source == "npx" ? String(localized: "Fetched automatically on first use") : String(localized: "Installed")
-        }
         guard present else { return cli.isExtension ? String(localized: "Not installed") : String(localized: "Not found") }
-        if cli == .node {
-            let via = source.flatMap(Self.sourceName).map { " · \($0)" } ?? ""
-            switch (supported, version) {
-            case (true, let version?): return String(localized: "Installed · \(version)\(via)")
-            case (false, let version?): return String(localized: "\(version)\(via), needs 20 or later")
-            default: return String(localized: "Installed · version unknown")
-            }
-        }
-        if cli.supportsHooks || cli.isExtension || cli.isSimulatorPreview { return String(localized: "Installed") }
+        if cli.supportsHooks || cli.isExtension { return String(localized: "Installed") }
         switch authed {
         case true: return String(localized: "Signed in")
         case false: return String(localized: "Not signed in")
         default: return String(localized: "Installed; sign-in status unavailable")
-        }
-    }
-    private static func sourceName(_ source: String) -> String? {
-        switch source {
-        case "installer": String(localized: "Node.js installer")
-        case "other": nil
-        default: source
         }
     }
 }

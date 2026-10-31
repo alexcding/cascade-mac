@@ -24,6 +24,9 @@ struct SessionWorkspacePane: View {
                 if model.showsChanges {
                     ReviewBar(context: context, diff: model.diff)
                     Divider()
+                } else if model.shownPane == .simulator, let simulator = model.simulator {
+                    SimulatorBar(model: simulator)
+                    Divider()
                 } else if context.activePage != nil {
                     BrowserCompactTabBar(context: context, model: model, part: .address)
                     Divider()
@@ -32,6 +35,6 @@ struct SessionWorkspacePane: View {
             }
             .ignoresSafeArea(.container, edges: .top)
         }
-        .onChange(of: model.simulatorPreview == nil, initial: true) { _, ended in if ended { model.leaveEndedSimulator() } }
+        .onChange(of: model.simulator == nil, initial: true) { _, ended in if ended { model.leaveEndedSimulator() } }
     }
 }

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::{
     contracts::{
-        base::ThreadId,
+        base::{CheckpointRef, ThreadId, TurnId},
         orchestration::{
             OrchestrationCheckpointStatus, OrchestrationGetFullThreadDiffInput, OrchestrationGetTurnDiffInput,
             OrchestrationThread, ThreadTurnDiff,
@@ -52,10 +52,14 @@ fn unavailable(turn_count: u64, detail: String) -> CheckpointDiffError {
 
 /// Synara `getTurnDiff` (CheckpointDiffQuery.ts:43). `thread` is the thread the input names, or
 /// `None` for one that does not exist.
+///
+/// `live_turn_patch` hands back the cumulative provider patch a running turn's `provider-diff:`
+/// placeholder names (Synara reads it from its runtime event journal), or `None`.
 pub async fn get_turn_diff(
     store: &CheckpointStore,
     thread: Option<&OrchestrationThread>,
     input: &OrchestrationGetTurnDiffInput,
+    live_turn_patch: impl Fn(&TurnId, &CheckpointRef) -> Option<String>,
 ) -> Result<ThreadTurnDiff, CheckpointDiffError> {
     let ignore_whitespace = input.ignore_whitespace.unwrap_or(true);
     if input.from_turn_count > input.to_turn_count {
@@ -93,7 +97,24 @@ pub async fn get_turn_diff(
         0 => None,
         from => thread.checkpoints.iter().find(|c| c.checkpoint_turn_count == from),
     };
-    if from_checkpoint.is_some_and(|c| c.status == OrchestrationCheckpointStatus::Missing) {
+    let is_missing = to_checkpoint.status == OrchestrationCheckpointStatus::Missing;
+    let single_turn = input.to_turn_count == input.from_turn_count + 1;
+    let is_live_snapshot = is_missing && to_checkpoint.checkpoint_ref.as_str().starts_with("provider-diff:") && single_turn;
+    // An interrupted turn may have a captured canonical ref while retaining status missing. Its
+    // exact start/ref pair remains a readable single turn.
+    let is_captured_interrupted_snapshot = is_missing
+        && single_turn
+        && checkpoint_ref_for_thread_turn_in_managed_family(
+            to_checkpoint.checkpoint_ref.as_str(),
+            &input.thread_id,
+            input.to_turn_count,
+        )
+        .as_ref()
+            == Some(&to_checkpoint.checkpoint_ref);
+    if from_checkpoint.is_some_and(|c| c.status == OrchestrationCheckpointStatus::Missing)
+        && !is_live_snapshot
+        && !is_captured_interrupted_snapshot
+    {
         return Err(unavailable(
             input.from_turn_count,
             format!("Checkpoint diff is not available yet for turn {}.", input.from_turn_count),
@@ -104,9 +125,13 @@ pub async fn get_turn_diff(
     let earliest_managed_baseline_ref = ordered
         .iter()
         .find_map(|c| checkpoint_ref_for_thread_turn_in_managed_family(c.checkpoint_ref.as_str(), &input.thread_id, 0));
-    let mut from_ref = match input.from_turn_count {
-        0 => Some(earliest_managed_baseline_ref.unwrap_or_else(|| checkpoint_ref_for_thread_turn(&input.thread_id, 0))),
-        _ => from_checkpoint.map(|c| c.checkpoint_ref.clone()),
+    let mut from_ref = if is_live_snapshot || is_captured_interrupted_snapshot {
+        Some(checkpoint_ref_for_turn_start(&input.thread_id, &to_checkpoint.turn_id))
+    } else {
+        match input.from_turn_count {
+            0 => Some(earliest_managed_baseline_ref.unwrap_or_else(|| checkpoint_ref_for_thread_turn(&input.thread_id, 0))),
+            _ => from_checkpoint.map(|c| c.checkpoint_ref.clone()),
+        }
     };
     let Some(mut from) = from_ref.take() else {
         return Err(unavailable(
@@ -114,25 +139,35 @@ pub async fn get_turn_diff(
             format!("Checkpoint ref is unavailable for turn {}.", input.from_turn_count),
         ));
     };
+    // Synara reads a live revision's captured ref (`checkpointRefForThreadTurnLive`), which only
+    // its git-derived live preview writes; that preview is not ported, so a live placeholder is
+    // read from its provider patch alone.
     let to = to_checkpoint.checkpoint_ref.clone();
-    if to_checkpoint.status == OrchestrationCheckpointStatus::Missing {
+    let cwd = Path::new(&cwd);
+    let turn_start = checkpoint_ref_for_turn_start_in_managed_family(to.as_str(), &input.thread_id, &to_checkpoint.turn_id)
+        .unwrap_or_else(|| checkpoint_ref_for_turn_start(&input.thread_id, &to_checkpoint.turn_id));
+    let turn_start_exists = single_turn && store.has_checkpoint_ref(cwd, &turn_start).await.unwrap_or(false);
+    // Missing metadata alone never proves a patch: both an exact turn baseline and its immutable
+    // captured ref (or provider patch) must exist. Never read today's tree.
+    let missing_snapshot_exists =
+        is_captured_interrupted_snapshot && store.has_checkpoint_ref(cwd, &to).await.unwrap_or(false);
+    let provider_patch = (is_live_snapshot && turn_start_exists && !missing_snapshot_exists)
+        .then(|| live_turn_patch(&to_checkpoint.turn_id, &to))
+        .flatten();
+    if is_missing && (!turn_start_exists || (!missing_snapshot_exists && provider_patch.is_none())) {
         return Err(unavailable(
             input.to_turn_count,
             format!("Checkpoint diff is not available yet for turn {}.", input.to_turn_count),
         ));
     }
-    let cwd = Path::new(&cwd);
-    if input.to_turn_count == input.from_turn_count + 1 {
-        let turn_start = checkpoint_ref_for_turn_start_in_managed_family(to.as_str(), &input.thread_id, &to_checkpoint.turn_id)
-            .unwrap_or_else(|| checkpoint_ref_for_turn_start(&input.thread_id, &to_checkpoint.turn_id));
-        if store.has_checkpoint_ref(cwd, &turn_start).await.unwrap_or(false) {
-            from = turn_start;
-        }
+    if turn_start_exists {
+        from = turn_start;
     }
-    let diff = store
-        .diff_checkpoints_with(cwd, &from, &to, ignore_whitespace)
-        .await
-        .map_err(|error| CheckpointDiffError::Failed(format!("{error:#}")))?;
+    let diff = match &provider_patch {
+        Some(patch) => store.diff_provider_patch(cwd, &from, patch, ignore_whitespace).await,
+        None => store.diff_checkpoints_with(cwd, &from, &to, ignore_whitespace).await,
+    }
+    .map_err(|error| CheckpointDiffError::Failed(format!("{error:#}")))?;
     Ok(ThreadTurnDiff {
         thread_id: input.thread_id.clone(),
         from_turn_count: input.from_turn_count,

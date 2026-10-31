@@ -7,11 +7,13 @@ import Foundation
     func build(api: APIClient, project: Project, session: WorkspaceSession,
                terminalFactory: @escaping () throws -> any BuildTerminal) -> BuildWorkspaceViewModel
     func buildDestination(runtime: BuildWorkspaceViewModel) -> BuildDestinationViewModel
-    /// The simulator streams: the one each build's panel starts, and the one Quit stops.
-    func simulatorPreview(api: APIClient) -> any SimulatorPreviewing
+    /// A session's Simulator pane, for the worktree `owner`.
+    func simulator(api: APIClient, owner: String) -> SimulatorPaneModel
 }
 extension WorkspaceFeatureFactory {
-    func simulatorPreview(api: APIClient) -> any SimulatorPreviewing { APISimulatorPreviewService(api: api) }
+    func simulator(api: APIClient, owner: String) -> SimulatorPaneModel {
+        SimulatorPaneModel(owner: owner, service: APIDeviceService(api: api))
+    }
 }
 
 @MainActor struct NativeWorkspaceFeatureFactory: WorkspaceFeatureFactory {
@@ -26,7 +28,7 @@ extension WorkspaceFeatureFactory {
     func build(api: APIClient, project: Project, session: WorkspaceSession,
                terminalFactory: @escaping () throws -> any BuildTerminal) -> BuildWorkspaceViewModel {
         BuildWorkspaceViewModel(service: XcodeBuildService(api: api), project: project, session: session,
-            preview: SimulatorPreviewModel(service: simulatorPreview(api: api)), terminalFactory: terminalFactory)
+                                terminalFactory: terminalFactory)
     }
     func buildDestination(runtime: BuildWorkspaceViewModel) -> BuildDestinationViewModel {
         BuildDestinationViewModel(runtime: runtime)

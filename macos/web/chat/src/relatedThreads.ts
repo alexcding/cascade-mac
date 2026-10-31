@@ -1,7 +1,8 @@
-// The threads a subagent strip reads besides the one on screen. Synara's ChatView keeps a parent's
-// subagent threads (their own session says whether they still run) and, on a subagent's thread,
-// its parent (whose activities list the siblings) in its store through detail subscriptions
-// (useChatWorkLog's retainThreadDetailSubscription). The app pushes only the thread on screen, so
+// The threads Synara's subagent surfaces read besides the one on screen: the transcript's subagent
+// run cards and their "N running" chip, and a subagent's own intro. Synara's ChatView keeps a
+// parent's subagent threads (their own session says whether they still run) and, on a subagent's
+// thread, its parent (whose activities list the siblings) in its store through detail
+// subscriptions (useSubagentStripSource, SubagentRunCard). The app pushes only the thread on screen, so
 // this page reads the others itself with `orchestration.getThreadDetailSnapshot` and puts them in
 // Synara's store, again whenever the thread on screen changes, at most every READ_INTERVAL_MS; a
 // subagent seen settled is not read again until a new tool call names it.
@@ -44,7 +45,7 @@ export function subagentProviderThreadIds(activities: ReadonlyArray<Orchestratio
 }
 
 /**
- * A thread the strip reads: the parent of a subagent's page, or a subagent thread, with how many
+ * A thread the subagent cards read: the parent of a subagent's page, or a subagent thread, with how many
  * tool calls of its parent name it. A subagent read once it has settled is not read again until a
  * new call names it (Codex can send a settled agent more work); the parent is always read.
  */
@@ -56,7 +57,7 @@ export interface RelatedThread {
 
 /**
  * The threads to read for `thread`: its parent, if it is a subagent's, and the subagent threads of
- * whichever of the two the strip is drawn from (the parent on a subagent's page).
+ * whichever of the two the cards are drawn from (the parent on a subagent's page).
  */
 export function relatedThreads(
   thread: Pick<OrchestrationThread, "id" | "parentThreadId" | "activities"> | undefined,

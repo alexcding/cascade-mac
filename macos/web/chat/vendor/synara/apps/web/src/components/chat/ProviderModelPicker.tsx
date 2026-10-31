@@ -5,7 +5,6 @@
 
 import {
   type ModelSlug,
-  type OmpModelOptions,
   type ProviderInstanceId,
   ProviderKind,
   type ServerProviderStatus,
@@ -15,7 +14,10 @@ import * as Schema from "effect/Schema";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { appHistory } from "../../appNavigation";
-import { formatProviderModelOptionName } from "../../providerModelOptions";
+import {
+  formatProviderModelOptionName,
+  getOmpModelSelectionIssue,
+} from "../../providerModelOptions";
 import { compareProvidersByOrder } from "../../providerOrdering";
 import {
   Menu,
@@ -59,11 +61,9 @@ import {
 import { Skeleton } from "../ui/skeleton";
 import { PlusIcon } from "~/lib/icons";
 import { isProviderUsable } from "../../lib/providerAvailability";
-import {
-  MISSING_PROVIDER_INSTANCE_LABEL,
-  providerAccountQualifiedLabel,
-} from "../../lib/providerInstancePresentation";
+import { providerAccountQualifiedLabel } from "../../lib/providerInstancePresentation";
 import { ProviderAccountDot } from "../ProviderAccountMark";
+import { t, useTranslation } from "~/i18n";
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderKind;
@@ -80,28 +80,32 @@ export function resolveLiveProviderAvailability(provider: ServerProviderStatus |
   if (!provider) {
     return {
       disabled: true,
-      label: "Checking",
+      label: t("chat:providerModelPicker_checking"),
     };
   }
 
   if (!provider.available) {
     return {
       disabled: true,
-      label: provider.authStatus === "unauthenticated" ? "Sign in" : "Unavailable",
+      label:
+        provider.authStatus === "unauthenticated"
+          ? t("chat:providerModelPicker_signIn")
+          : t("chat:providerModelPicker_unavailable"),
     };
   }
 
   if (provider.authStatus === "unauthenticated") {
     return {
       disabled: true,
-      label: "Sign in",
+      label: t("chat:providerModelPicker_signIn"),
     };
   }
 
   if (!isProviderUsable(provider)) {
     return {
       disabled: true,
-      label: provider.status === "warning" ? "Check" : "Unavailable",
+      label:
+        provider.status === "warning" ? t("chat:check") : t("chat:providerModelPicker_unavailable"),
     };
   }
 
@@ -157,7 +161,10 @@ export function resolveVisibleProviderOptions(input: {
       compareProvidersByOrder(input.providerOrder ?? [], left.value, right.value),
     ).filter((option) =>
       input.providers?.some(
-        (provider) => (provider.driver ?? provider.provider) === option.value && provider.available,
+        (provider) =>
+          (provider.driver ?? provider.provider) === option.value &&
+          provider.enabled !== false &&
+          provider.available,
       ),
     ),
     new Set<ProviderKind>(input.hiddenProviders ?? []),
@@ -251,6 +258,9 @@ function resolveSelectedModelLabel(input: {
   model: string;
   options: ReadonlyArray<ProviderModelOption>;
 }): string {
+  if (input.provider === "omp" && getOmpModelSelectionIssue(input.model, input.options)) {
+    return t("chat:selectOMPModel");
+  }
   const resolvedSlug = resolveSelectableModel(input.provider, input.model, input.options);
   if (resolvedSlug) {
     const resolvedOption = input.options.find((option) => option.slug === resolvedSlug);
@@ -306,11 +316,6 @@ type ProviderModelMenuItemsProps = {
     model: ModelSlug,
     instanceId?: ProviderInstanceId,
   ) => void;
-  onProviderModelRoleSelect?: (
-    model: ModelSlug,
-    options: OmpModelOptions,
-    instanceId: ProviderInstanceId,
-  ) => void;
   // Invoked after a model selection commits so callers can close ancestor
   // menus and refocus the composer.
   onAfterSelection?: () => void;
@@ -322,6 +327,8 @@ type ProviderModelMenuItemsProps = {
 export const ProviderModelMenuItems = function ProviderModelMenuItems(
   props: ProviderModelMenuItemsProps,
 ) {
+  const { t } = useTranslation();
+
   const { onAfterSelection } = props;
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [cursorFavoriteModelSlugs, setCursorFavoriteModelSlugs] = useLocalStorage(
@@ -444,7 +451,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
   const resolveInstanceAvailability = useCallback(
     (instance: ProviderModelPickerInstance): { disabled: boolean; label: string | null } => {
       if (!instance.enabled) {
-        return { disabled: true, label: "Disabled" };
+        return { disabled: true, label: t("chat:disabled") };
       }
       return resolveLiveProviderAvailability(
         findProviderStatusForInstance({
@@ -454,7 +461,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         }),
       );
     },
-    [props.providers],
+    [props.providers, t],
   );
 
   const resolveProviderOptionAvailability = useCallback(
@@ -465,9 +472,14 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       if (instanceAvailabilities.some((availability) => !availability.disabled)) {
         return { disabled: false, label: null };
       }
-      return instanceAvailabilities[0] ?? { disabled: true, label: "Unavailable" };
+      return (
+        instanceAvailabilities[0] ?? {
+          disabled: true,
+          label: t("chat:providerModelPicker_unavailable"),
+        }
+      );
     },
-    [getProviderInstances, resolveInstanceAvailability],
+    [getProviderInstances, resolveInstanceAvailability, t],
   );
 
   const handleModelChange = (
@@ -478,24 +490,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
     if (props.disabled) return;
     if (!value) return;
     const providerOptions = getModelOptionsForProviderInstance(provider, instanceId);
-    const selectedOption = providerOptions.find((option) => option.slug === value);
-    if (selectedOption?.role) {
-      if (props.onProviderModelRoleSelect) {
-        props.onProviderModelRoleSelect(
-          selectedOption.role.model,
-          selectedOption.role.thinkingLevel
-            ? { thinkingLevel: selectedOption.role.thinkingLevel }
-            : {},
-          instanceId,
-        );
-      } else {
-        // Surfaces without the role callback still commit the role's model so
-        // picking a role can never close the menu with a silent no-op.
-        props.onProviderModelChange(provider, selectedOption.role.model, instanceId);
-      }
-      onAfterSelection?.();
-      return;
-    }
+    if (provider === "omp" && getOmpModelSelectionIssue(value, providerOptions)) return;
     const resolvedModel = resolveSelectableModel(provider, value, providerOptions);
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel, instanceId);
@@ -504,6 +499,12 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
 
   const handleInstanceChange = (provider: ProviderKind, instanceId: ProviderInstanceId) => {
     if (props.disabled || !instanceId) return;
+    // Choosing an OMP account is not a model choice. Preserve opaque selectors
+    // and stale role keys for explicit selection/validation in that account.
+    if (provider === "omp" && activeProvider === provider) {
+      props.onProviderModelChange(provider, props.model, instanceId);
+      return;
+    }
     const providerOptions = getModelOptionsForProviderInstance(provider, instanceId);
     const model = activeProvider === provider ? props.model : (providerOptions[0]?.slug ?? "");
     if (!model) return;
@@ -528,7 +529,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       return null;
     }
     const sectionLabel =
-      provider === "codex" || provider === "claudeAgent" ? "Accounts" : "Profiles";
+      provider === "codex" || provider === "claudeAgent" ? t("chat:accounts") : t("chat:profiles");
     return (
       <>
         <div className="px-2.5 pb-1 pt-1.5 text-ui-xs font-medium text-muted-foreground uppercase tracking-[0.08em]">
@@ -544,9 +545,9 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         >
           {selectedInstanceIsMissing ? (
             <MenuRadioItem value={selectedInstanceId} disabled>
-              <span className="truncate">{MISSING_PROVIDER_INSTANCE_LABEL}</span>
+              <span className="truncate">{t("settings:missingAccount")}</span>
               <span className="ms-auto text-ui-xs text-muted-foreground/80 uppercase tracking-[0.08em]">
-                Unavailable
+                {t("chat:providerModelPicker_unavailable")}
               </span>
             </MenuRadioItem>
           ) : null}
@@ -594,7 +595,10 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
   ) => {
     if (props.loadingModelProviders?.[provider]) {
       return (
-        <div className="space-y-2 px-2 py-2" aria-label="Loading models">
+        <div
+          className="space-y-2 px-2 py-2"
+          aria-label={t("chat:providerModelPicker_loadingModels")}
+        >
           {Array.from({ length: 6 }, (_, index) => (
             <div key={index} className="flex items-center gap-2 rounded-md px-2 py-1.5">
               <Skeleton className="size-3.5 rounded-full" />
@@ -638,10 +642,23 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           })
         : groupProviderModelOptions(filteredOptions);
 
+    const modelSelectionIssue =
+      provider === "omp" && isActiveAccount
+        ? getOmpModelSelectionIssue(props.model, providerOptions)
+        : null;
     const discoveryError = props.discoveryErrorsByProvider?.[provider];
-    const discoveryErrorElement = discoveryError ? (
-      <div className="px-2 py-1.5 text-ui leading-snug text-destructive">{discoveryError}</div>
-    ) : null;
+    const discoveryErrorElement = (
+      <>
+        {modelSelectionIssue ? (
+          <div role="status" className="px-2 py-1.5 text-ui leading-snug text-destructive">
+            {modelSelectionIssue}
+          </div>
+        ) : null}
+        {discoveryError ? (
+          <div className="px-2 py-1.5 text-ui leading-snug text-destructive">{discoveryError}</div>
+        ) : null}
+      </>
+    );
 
     const activeModelSlug = isActiveAccount
       ? (resolveSelectableModel(provider, props.model, providerOptions) ?? props.model)
@@ -669,18 +686,18 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         <div
           role="status"
           aria-live="polite"
-          aria-label="Couldn’t load OMP models. Check that omp is installed and authenticated."
+          aria-label={t("chat:couldnTLoadOMPModelsCheckThatOmpIs2")}
           tabIndex={-1}
           className="text-ui-sm flex items-start gap-1.5 px-2 py-2 text-amber-600 dark:text-amber-300/90"
         >
           <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>Couldn’t load OMP models — check that omp is installed and authenticated</span>
+          <span>{t("chat:couldnTLoadOMPModelsCheckThatOmpIs")}</span>
         </div>
       ) : (
         <div className="px-2 py-2 text-muted-foreground text-ui leading-snug">
           {provider === "pi" && normalizedModelSearchQuery.length === 0
-            ? "No Pi models found"
-            : "No matches"}
+            ? t("chat:providerModelPicker_noPiModels")
+            : t("workspace:providerModelPicker_noMatches")}
         </div>
       );
 
@@ -714,7 +731,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
 
     return (
       <PickerPanelShell
-        searchPlaceholder="Search models or providers"
+        searchPlaceholder={t("chat:providerModelPicker_searchModels")}
         query={modelSearchQuery}
         onQueryChange={setModelSearchQuery}
         stopSearchKeyPropagation
@@ -730,6 +747,18 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
   };
 
   if (props.lockedProvider !== null) {
+    const status = findProviderStatusForInstance({
+      providers: props.providers,
+      provider: props.lockedProvider,
+      instanceId: selectedProviderInstanceId,
+    });
+    if (status?.enabled === false) {
+      return (
+        <MenuItem onClick={() => appHistory.push("/settings?section=providers")}>
+          {t("chat:enableAProviderInSettings")}
+        </MenuItem>
+      );
+    }
     return (
       <>
         {renderProviderInstanceRadioGroup(props.lockedProvider)}
@@ -765,8 +794,17 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               </span>
             );
             if (accountAvailability.disabled) {
+              const canOpenProviderSettings = accountAvailability.label === "Sign in";
               return (
-                <MenuItem key={account.instanceId} disabled>
+                <MenuItem
+                  key={account.instanceId}
+                  disabled={!canOpenProviderSettings}
+                  onClick={
+                    canOpenProviderSettings
+                      ? () => appHistory.push("/settings?section=providers")
+                      : undefined
+                  }
+                >
                   {accountIcon}
                   <span className="truncate">{accountLabel}</span>
                   <span className="ms-auto text-ui-sm text-muted-foreground/80">
@@ -793,8 +831,17 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         }
         const availability = resolveProviderOptionAvailability(option.value);
         if (availability.disabled) {
+          const canOpenProviderSettings = availability.label === "Sign in";
           return (
-            <MenuItem key={option.value} disabled>
+            <MenuItem
+              key={option.value}
+              disabled={!canOpenProviderSettings}
+              onClick={
+                canOpenProviderSettings
+                  ? () => appHistory.push("/settings?section=providers")
+                  : undefined
+              }
+            >
               <OptionIcon
                 aria-hidden="true"
                 className={cn(
@@ -844,7 +891,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               providerStatus.provider}
           </span>
           <span className="ms-auto text-ui-xs text-muted-foreground/80 uppercase tracking-[0.08em]">
-            Missing driver
+            {t("chat:missingDriver")}
           </span>
         </MenuItem>
       ))}
@@ -854,7 +901,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       ) : null}
       <MenuItem onClick={() => appHistory.push("/settings?section=providers")}>
         <PlusIcon aria-hidden="true" className="size-3 shrink-0 text-muted-foreground/85" />
-        <span>Add Providers</span>
+        <span>{t("chat:addProviders")}</span>
       </MenuItem>
     </>
   );
@@ -917,14 +964,11 @@ type ProviderModelPickerProps = {
     model: ModelSlug,
     instanceId?: ProviderInstanceId,
   ) => void;
-  onProviderModelRoleSelect?: (
-    model: ModelSlug,
-    options: OmpModelOptions,
-    instanceId: ProviderInstanceId,
-  ) => void;
 };
 
 export const ProviderModelPicker = function ProviderModelPicker(props: ProviderModelPickerProps) {
+  const { t } = useTranslation();
+
   const { onOpenChange, onSelectionCommitted, open } = props;
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
   const selectionCommitTimerRef = useRef<number | null>(null);
@@ -965,9 +1009,12 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
         instance.instanceId !== selectedAccount.instanceId,
     );
   const triggerLabel = selectedProviderInstanceIsMissing
-    ? `${MISSING_PROVIDER_INSTANCE_LABEL} · ${selectedModelLabel}`
+    ? t("common:symbol9", {
+        value0: t("settings:missingAccount"),
+        value1: selectedModelLabel,
+      })
     : selectedAccount && selectedAccountHasSiblings
-      ? `${selectedAccount.label} · ${selectedModelLabel}`
+      ? t("common:symbol9", { value0: selectedAccount.label, value1: selectedModelLabel })
       : selectedModelLabel;
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[activeProvider];
   const setMenuOpen = (nextOpen: boolean) => {
@@ -1046,7 +1093,7 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
           {!isMenuOpen ? (
             <TooltipPopup side="top" sideOffset={6} variant="picker">
               <span className="inline-flex items-center gap-2 px-1 py-0.5">
-                <span>Change model</span>
+                <span>{t("chat:providerModelPicker_changeModel")}</span>
                 <ShortcutKbd
                   shortcutLabel={props.shortcutLabel}
                   className="h-4 min-w-4 text-ui-2xs"
@@ -1087,9 +1134,6 @@ export const ProviderModelPicker = function ProviderModelPicker(props: ProviderM
             : {})}
           {...(props.disabled !== undefined ? { disabled: props.disabled } : {})}
           onProviderModelChange={props.onProviderModelChange}
-          {...(props.onProviderModelRoleSelect
-            ? { onProviderModelRoleSelect: props.onProviderModelRoleSelect }
-            : {})}
           onAfterSelection={handleAfterSelection}
         />
       </ComposerPickerMenuPopup>

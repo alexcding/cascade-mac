@@ -220,7 +220,9 @@ test("the context meter shows the turn's usage", () => {
 });
 
 test("the model picker shows the thread's model from provider.listModels", async () => {
-  await waitFor(() => text().includes("Claude Haiku"), "the model label");
+  // Synara names the model beside its provider's icon without the family prefix the icon
+  // already stands for ("Claude Haiku 4.5" reads "Haiku 4.5", composerModelDisplayName).
+  await waitFor(() => /Haiku 4\.5/.test(document.querySelector("[data-chat-composer-status-row]")?.textContent ?? ""), "the model label");
   const methods = new Set(page.requests.map((message) => message.method));
   assert.ok(methods.has("provider.listModels"));
   assert.ok(methods.has("provider.getComposerCapabilities"));
@@ -434,7 +436,7 @@ test("a user's image attachment is drawn from the page's own scheme path", async
         ...user,
         id: "user-with-image",
         text: "Here is a picture",
-        turnId: null,
+        turnId: "turn-5",
         createdAt: at,
         updatedAt: at,
         attachments: [{ type: "image", id, name: "shot.png", mimeType: "image/png", sizeBytes: 68 }],
@@ -560,7 +562,12 @@ test("answering a question refreshes the thread without an error banner", async 
   // Synara's subscribeThread after the answer is a fresh read of the thread.
   await waitFor(() => page.requests.filter((m) => m.method === SNAPSHOT_READ).length > readsBefore, "the refresh read");
   await waitFor(() => text().includes("Red it is."), "the refreshed thread");
-  await waitFor(() => !text().includes("Which color should the probe be?"), "the question card to go");
+  // The answered question stays in the transcript as Synara's answered-question row; the card
+  // that asked it, above the composer, goes.
+  await waitFor(
+    () => !(document.querySelector("[data-chat-composer-slot]")?.textContent ?? "").includes("Which color should the probe be?"),
+    "the question card to go",
+  );
   assert.equal(text().includes("Could not submit or refresh the answer"), false, "no error banner");
   assert.equal(
     events("log").some((m) => /subscribeThread/.test(m.payload.message)),

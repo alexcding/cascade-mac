@@ -27,6 +27,9 @@ QR code, token or port to set up.
   `foreign_origin` trust are never exposed. Same Wi-Fi works out of the box; if both
   devices run Tailscale, the tailnet address is just another candidate and off-network
   works too, with no extra code.
+- **Superseded (2026-10):** the Simulator pane no longer uses serve-sim. It is native, over the
+  backend's device layer (`/api/device/*`, H.264 on a Unix socket); see AGENTS.md "The Simulator
+  pane". The simulator parts of these documents describe the removed design.
 - **Simulator = relay serve-sim's own page.** The helper already rewrites its stream and
   WebSocket URLs to whatever host the request came from, so the phone shows the same page
   the Mac shows, through the relay, in a `WKWebView`. No MJPEG parsing on the phone.

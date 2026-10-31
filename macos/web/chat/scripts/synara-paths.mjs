@@ -63,7 +63,10 @@ function sharedSubpath(root, sub) {
   const exportsMap = sharedExports.get(root);
   const entry = exportsMap?.[`./${sub}`];
   const target = typeof entry === "string" ? entry : entry?.import;
-  return target ? `packages/shared/${target.replace(/^\.\//, "")}` : `packages/shared/src/${sub}.ts`;
+  if (target) return `packages/shared/${target.replace(/^\.\//, "")}`;
+  // A data file the package does not export by name (a shim reaching a catalogue its original
+  // imported relatively, such as `@synara/shared/locales/en/chat.json`) is its own path.
+  return /\.json$/.test(sub) ? `packages/shared/src/${sub}` : `packages/shared/src/${sub}.ts`;
 }
 
 /** The package name of a bare specifier: `@scope/pkg/sub` → `@scope/pkg`. */

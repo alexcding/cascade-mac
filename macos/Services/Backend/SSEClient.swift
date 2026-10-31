@@ -58,6 +58,20 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     var peer: String? = nil
     var relayed: JSONValue? = nil
     var reach: String? = nil
+    /// `device` and `device-open-pane`: the working folder whose Simulator pane it is about (a
+    /// session's worktree). `device` carries the pane's new `OwnerDeviceState` under `state`, read
+    /// as it comes since `worktree-setup` names a plain string `state`; `device-open-pane` the
+    /// device an agent drove and why (`agent-install`, `agent-launch`, `agent-tool`).
+    var owner: String? = nil
+    var state: JSONValue? = nil
+    var udid: String? = nil
+    var reason: String? = nil
+
+    /// A `device` event's state, when it reads as one.
+    var deviceState: OwnerDeviceState? {
+        guard type == "device" else { return nil }
+        return try? state?.decode(OwnerDeviceState.self)
+    }
 }
 
 /// A tool approval an agent is waiting on, offered by its `PermissionRequest` hook.

@@ -3,7 +3,11 @@
 // Layer: Web appearance domain logic
 // Exports: Theme types, normalization helpers, import/export utilities, and CSS variable builders.
 
-import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@synara/contracts";
+import {
+  DESKTOP_WINDOW_BLUR_RADIUS_MAX,
+  DESKTOP_WINDOW_BLUR_RADIUS_MIN,
+  type DesktopWindowTranslucency,
+} from "@synara/contracts";
 import { THEME_SEED_CATALOG } from "./theme.seed.generated";
 import {
   normalizeFontFamilyCssValue,
@@ -223,8 +227,10 @@ const CODE_THEME_SEED_PATCH_METADATA: Partial<
     light: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
   },
   synara: {
-    dark: { contrast: true },
-    light: { contrast: true },
+    // Selecting Synara explicitly applies the complete Codex-based preset, including
+    // its native fonts and translucent material, rather than retaining Linear's style.
+    dark: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
+    light: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
   },
 };
 
@@ -327,12 +333,12 @@ const OVERLAY_OPACITY = 55;
 
 export const DEFAULT_THEME_STATE: ThemeState = {
   chromeThemes: {
-    dark: getCodeThemeSeed("codex", "dark"),
-    light: getCodeThemeSeed("codex", "light"),
+    dark: getCodeThemeSeed("synara", "dark"),
+    light: getCodeThemeSeed("synara", "light"),
   },
   codeThemeIds: {
-    dark: "codex",
-    light: "codex",
+    dark: "synara",
+    light: "synara",
   },
   systemUiFont: true,
   mode: "system",
@@ -444,7 +450,7 @@ export function normalizeWindowTranslucency(
 export function normalizeThemePack(value: unknown, variant: ThemeVariant): ThemePack {
   const pack = isRecord(value) ? value : {};
   return {
-    codeThemeId: normalizeCodeThemeId(pack.codeThemeId, variant),
+    codeThemeId: normalizeCodeThemeId(pack.codeThemeId, variant, "codex"),
     theme: normalizeChromeTheme(pack.theme, variant),
   };
 }
@@ -466,6 +472,8 @@ function hasStoredCustomUiFont(state: Record<string, unknown>): boolean {
 }
 
 export function normalizeThemeState(value: unknown): ThemeState {
+  // Missing fields in an existing store keep the old Codex defaults. Only a missing
+  // store or an explicit reset opts into the new Synara defaults.
   const state = isRecord(value) ? value : {};
   const codeThemeIds = isRecord(state.codeThemeIds) ? state.codeThemeIds : {};
   const chromeThemes = isRecord(state.chromeThemes) ? state.chromeThemes : {};
@@ -479,16 +487,20 @@ export function normalizeThemeState(value: unknown): ThemeState {
         ? normalizeChromeTheme(chromeThemes.dark, "dark")
         : isRecord(packs.dark)
           ? legacyDarkPack.theme
-          : DEFAULT_THEME_STATE.chromeThemes.dark,
+          : getCodeThemeSeed("codex", "dark"),
       light: isRecord(chromeThemes.light)
         ? normalizeChromeTheme(chromeThemes.light, "light")
         : isRecord(packs.light)
           ? legacyLightPack.theme
-          : DEFAULT_THEME_STATE.chromeThemes.light,
+          : getCodeThemeSeed("codex", "light"),
     },
     codeThemeIds: {
-      dark: normalizeCodeThemeId(codeThemeIds.dark ?? legacyDarkPack.codeThemeId, "dark"),
-      light: normalizeCodeThemeId(codeThemeIds.light ?? legacyLightPack.codeThemeId, "light"),
+      dark: normalizeCodeThemeId(codeThemeIds.dark ?? legacyDarkPack.codeThemeId, "dark", "codex"),
+      light: normalizeCodeThemeId(
+        codeThemeIds.light ?? legacyLightPack.codeThemeId,
+        "light",
+        "codex",
+      ),
     },
     mode: isThemeMode(state.mode) ? state.mode : DEFAULT_THEME_STATE.mode,
     // Preserve the UI font older theme states already rendered. New/default states use the
@@ -507,10 +519,7 @@ export function parseStoredThemeState(rawValue: string | null | undefined): Them
     return DEFAULT_THEME_STATE;
   }
   if (isThemeMode(rawValue)) {
-    return {
-      ...DEFAULT_THEME_STATE,
-      mode: rawValue,
-    };
+    return normalizeThemeState({ mode: rawValue });
   }
 
   try {
@@ -811,8 +820,8 @@ export function buildThemeCssVariables(
   pack: ThemePack,
   variant: ThemeVariant,
   options?: {
-    electron?: boolean;
-    isMac?: boolean;
+    /** How the desktop window backs glass; null or absent for an opaque window. */
+    windowTranslucency?: DesktopWindowTranslucency | null;
     systemUiFont?: boolean;
     translucency?: WindowTranslucency;
   },
@@ -820,14 +829,12 @@ export function buildThemeCssVariables(
   const resolvedTokens = buildResolvedThemeTokens(pack, variant);
   const codexVariables = resolvedTokens.codexVariables;
   const readCodexVariable = (name: string) => getRequiredVariable(codexVariables, name);
-  // The translucent shell relies on macOS window vibrancy as its backing
-  // material. Windows/Linux have no equivalent, so a translucent shell there
-  // leaves the transparent body and backdrop-filter surfaces bleeding through
-  // and (on fractional DPI) rendering blurry. Restrict translucency to macOS.
+  // The translucent shell needs something blurring the desktop behind the window: macOS
+  // vibrancy, or the Hyprland compositor. Elsewhere (Windows, other Linux sessions, the
+  // browser) the window is opaque, and a translucent shell would leave the transparent body
+  // and backdrop-filter surfaces bleeding through and (on fractional DPI) rendering blurry.
   const material: WindowMaterial =
-    options?.electron === true && options?.isMac === true && !pack.theme.opaqueWindows
-      ? "translucent"
-      : "opaque";
+    options?.windowTranslucency != null && !pack.theme.opaqueWindows ? "translucent" : "opaque";
   const warningColor = WARNING_COLOR_BY_VARIANT[variant];
   const translucency = options?.translucency ?? DEFAULT_WINDOW_TRANSLUCENCY_BY_VARIANT[variant];
   const translucentOpacity = translucency.opacity;
@@ -890,7 +897,7 @@ export function buildThemeCssVariables(
     // `.app-content-surface` in index.css.
     "--app-content-surface": wholeWindowGlass ? "transparent" : contentSurface,
     // Rail layout shell (top strip + rail): a solid tone on opaque windows, a sheer tint
-    // over macOS vibrancy so the glass still shows through (see index.css rail rules).
+    // over the desktop blur so the glass still shows through (see index.css rail rules).
     // Light keeps a denser tint so the shell stays a light grey over bright wallpapers.
     "--app-rail-shell-opacity": wholeWindowGlass
       ? "0%"
@@ -901,10 +908,10 @@ export function buildThemeCssVariables(
     // Raised-chrome fill over the body's coat when the whole window is glass. Empty elsewhere,
     // which leaves each surface's own fill in charge (see `.app-glass-raised` in index.css).
     "--app-glass-raised-surface": wholeWindowGlass ? raisedGlassSurface : "",
-    // Frosted blur only when the shell is translucent (macOS). On an opaque
+    // Frosted blur only when the shell is translucent. On an opaque
     // shell this promotes the surface to a GPU layer that Chromium rasterizes at
     // the wrong scale on fractional DPI (Windows), so text reads blurry until a
-    // repaint. Keep it "none" off macOS.
+    // repaint. Keep it "none" on opaque windows.
     // NOTE: this gates window-vibrancy frosting only. The composer's own glass
     // (`.chat-composer-surface`, index.css) frosts page content, not the window
     // material, so — like the floating menus — it stays on across platforms.

@@ -20,6 +20,7 @@ import {
   type ProviderInstanceEnvironment,
   ProviderInstanceId,
   GitHubInboxSort,
+  KeepAwakeMode,
   TrimmedNonEmptyString,
   ProviderKind,
   SidechatExpiry,
@@ -43,6 +44,8 @@ import {
 import type { SynaraDesktopFlavor } from "@synara/shared/desktopIdentity";
 import { codexAccountInstanceId } from "@synara/shared/providerInstances";
 import { useLocalStorage } from "./hooks/useLocalStorage";
+import { APP_SETTINGS_STORAGE_KEY } from "./appSettingsStorage";
+import { LANGUAGE_PREFERENCES, normalizeLanguagePreference } from "./i18n/locale";
 import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
 import { formatProviderModelOptionName, type ProviderModelOption } from "./providerModelOptions";
@@ -77,11 +80,39 @@ import {
   normalizeChatWidthMode as normalizeChatWidthModeValue,
 } from "./lib/chatWidth";
 
-const APP_SETTINGS_STORAGE_KEY = "synara:app-settings:v1";
 const SERVER_SETTINGS_MIGRATION_STORAGE_KEY = "synara:server-settings-migrated:v1";
 
 function hasCompletedServerSettingsMigration(): boolean {
   return globalThis.localStorage?.getItem(SERVER_SETTINGS_MIGRATION_STORAGE_KEY) === "1";
+}
+
+// Hubs ("studio") used to start hidden in the rail, and saved settings still carry that
+// default. The first launch after it became a default item shows it once; hiding it again
+// from Customize afterwards sticks.
+const HUBS_RAIL_DEFAULT_MIGRATION_STORAGE_KEY = "synara:hubs-rail-default:v1";
+
+/**
+ * Rewrites the stored settings once, before the app renders: every `useAppSettings` mount
+ * normalizes its own copy of the stored value, so a reveal applied by one of them would be
+ * written back over by the others.
+ */
+export function revealHubsRailItemOnce(storage: Storage | undefined = globalThis.localStorage) {
+  try {
+    if (!storage || storage.getItem(HUBS_RAIL_DEFAULT_MIGRATION_STORAGE_KEY) === "1") return;
+    storage.setItem(HUBS_RAIL_DEFAULT_MIGRATION_STORAGE_KEY, "1");
+    const raw = storage.getItem(APP_SETTINGS_STORAGE_KEY);
+    if (!raw) return;
+    const stored: unknown = JSON.parse(raw);
+    if (typeof stored !== "object" || stored === null || !("hiddenRailItems" in stored)) return;
+    const hidden = stored.hiddenRailItems;
+    if (!Array.isArray(hidden) || !hidden.includes("studio")) return;
+    storage.setItem(
+      APP_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ ...stored, hiddenRailItems: hidden.filter((id) => id !== "studio") }),
+    );
+  } catch {
+    // Unreadable storage keeps the saved rail as it is.
+  }
 }
 
 const MAX_CUSTOM_MODEL_COUNT = 32;
@@ -158,7 +189,7 @@ function persistedKnownIdList<const Ids extends ReadonlyArray<string>>(ids: Ids)
 }
 
 const RailOrderableItemIdList = persistedKnownIdList(RAIL_ORDERABLE_ITEM_IDS);
-/** Where Beta's Tasks entry opens: the to-do list or the Kanban board of chats. */
+/** Where the Tasks entry opens: the to-do list or the Kanban board of chats. */
 export const TasksViewMode = Schema.Literals(["list", "kanban"]);
 export type TasksViewMode = typeof TasksViewMode.Type;
 export const DEFAULT_TASKS_VIEW_MODE: TasksViewMode = "list";
@@ -309,6 +340,10 @@ function resolvePersistedProviderListEntry(provider: string): ProviderKind | und
 }
 
 const PersistedProviderKindList = persistedIdList(ProviderKind, resolvePersistedProviderListEntry);
+const isProviderInstanceId = Schema.is(ProviderInstanceId);
+const PersistedProviderInstanceIdList = persistedIdList(ProviderInstanceId, (value) =>
+  isProviderInstanceId(value) ? value : undefined,
+);
 
 const PersistedHiddenModels = Schema.Array(
   Schema.Struct({
@@ -335,8 +370,19 @@ const PersistedHiddenModels = Schema.Array(
 );
 
 export const AppSettingsSchema = Schema.Struct({
+  language: Schema.Unknown.pipe(
+    Schema.decodeTo(
+      Schema.Literals(LANGUAGE_PREFERENCES),
+      SchemaTransformation.transform({
+        decode: normalizeLanguagePreference,
+        encode: (value): unknown => value,
+      }),
+    ),
+    withDefaults(() => "system" as const),
+  ),
   claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   claudeEnableArtifacts: Schema.Boolean.pipe(withDefaults(() => false)),
+  claudeConfirmColdCacheResume: Schema.Boolean.pipe(withDefaults(() => false)),
   // Server-backed first-run marker; see ServerSettings.onboardingCompletedAt.
   onboardingCompletedAt: Schema.NullOr(Schema.String).pipe(withDefaults((): string | null => null)),
   claudeHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
@@ -376,6 +422,10 @@ export const AppSettingsSchema = Schema.Struct({
   openCodeExperimentalWebSockets: Schema.Boolean.pipe(withDefaults(() => false)),
   defaultThreadEnvMode: EnvMode.pipe(withDefaults(() => "local" as const satisfies EnvMode)),
   anchorSentMessagesToTop: Schema.Boolean.pipe(withDefaults(() => true)),
+  // When false, the desktop chat header shows the plain thread title instead of the
+  // open-thread tab strip.
+  showOpenThreadTabs: Schema.Boolean.pipe(withDefaults(() => true)),
+  showAsciiBackground: Schema.Boolean.pipe(withDefaults(() => true)),
   confirmThreadDelete: Schema.Boolean.pipe(withDefaults(() => true)),
   // Opt-in: archiving a task also releases its worktree when nothing else uses it.
   archiveDeletesOrphanedWorktree: Schema.Boolean.pipe(withDefaults(() => false)),
@@ -420,7 +470,7 @@ export const AppSettingsSchema = Schema.Struct({
   // Deprecated rename bridge from the Studio surface. Normalization migrates this
   // value onto `showGroupsSection` once and then omits the key.
   showStudioSection: Schema.optionalKey(Schema.Boolean),
-  // Beta-only: the view the Tasks entry opens, last picked in its List/Kanban switch.
+  // The view the Tasks entry opens, last picked in its List/Kanban switch.
   // Stable never reads it (Kanban is its only view).
   tasksViewMode: TasksViewMode.pipe(withDefaults(() => DEFAULT_TASKS_VIEW_MODE)),
   // Rail shortcuts the user added from the rail's "…" menu, in rail order:
@@ -443,10 +493,14 @@ export const AppSettingsSchema = Schema.Struct({
   // also write back here so the last explicit open/close survives reloads.
   environmentPanelDefaultOpen: Schema.Boolean.pipe(withDefaults(() => false)),
   showEnvironmentUsage: Schema.Boolean.pipe(withDefaults(() => true)),
-  // Providers whose usage ring sits at the bottom of the app rail (see AppRailUsage.logic for
-  // the cap). A ring only draws once its provider reports usage.
+  // Legacy provider selection, retained to migrate existing sidebar preferences.
   railUsageProviders: PersistedProviderKindList.pipe(
     withDefaults((): ReadonlyArray<ProviderKind> => ["codex", "claudeAgent"]),
+  ),
+  // Accounts whose usage rings sit at the bottom of the app rail. Null migrates the
+  // legacy provider ids to their default accounts; an empty list explicitly hides all rings.
+  railUsageInstanceIds: Schema.NullOr(PersistedProviderInstanceIdList).pipe(
+    withDefaults(() => null),
   ),
   railUsageWindow: RailUsageWindow.pipe(withDefaults(() => DEFAULT_RAIL_USAGE_WINDOW)),
   // Usage popovers (rail rings, chat header, branch toolbar) open on the limit rows only;
@@ -462,8 +516,16 @@ export const AppSettingsSchema = Schema.Struct({
   showEnvironmentEditor: Schema.Boolean.pipe(withDefaults(() => true)),
   showEnvironmentRecap: Schema.Boolean.pipe(withDefaults(() => true)),
   showEnvironmentPinned: Schema.Boolean.pipe(withDefaults(() => true)),
+  showEnvironmentSubagents: Schema.Boolean.pipe(withDefaults(() => true)),
   showEnvironmentInstructions: Schema.Boolean.pipe(withDefaults(() => false)),
   showEnvironmentNotepad: Schema.Boolean.pipe(withDefaults(() => false)),
+  // Project actions (scripts) section in the Environment panel. The chat top bar runs the
+  // selected project's actions; this section is where the first one gets created and edited.
+  showEnvironmentActions: Schema.Boolean.pipe(withDefaults(() => true)),
+  // Chat top bar: which action controls sit before the divider. Hiding one keeps its
+  // command reachable elsewhere (keybinding, Environment panel, sidebar thread menu).
+  showHeaderHandoff: Schema.Boolean.pipe(withDefaults(() => true)),
+  showHeaderActions: Schema.Boolean.pipe(withDefaults(() => true)),
   followUpBehavior: FollowUpBehavior.pipe(withDefaults(() => DEFAULT_FOLLOW_UP_BEHAVIOR)),
   voiceEnterBehavior: VoiceEnterBehavior.pipe(withDefaults(() => DEFAULT_VOICE_ENTER_BEHAVIOR)),
   enableAssistantStreaming: Schema.Boolean.pipe(withDefaults(() => true)),
@@ -483,6 +545,8 @@ export const AppSettingsSchema = Schema.Struct({
   ),
   autoOpenDevicePane: Schema.Boolean.pipe(withDefaults(() => true)),
   enableProviderUpdateChecks: Schema.Boolean.pipe(withDefaults(() => true)),
+  keepAwakeMode: KeepAwakeMode.pipe(withDefaults(() => "off" as const satisfies KeepAwakeMode)),
+  lowerProviderProcessPriority: Schema.Boolean.pipe(withDefaults(() => true)),
   enableNativeFontSmoothing: Schema.Boolean.pipe(withDefaults(getDefaultNativeFontSmoothing)),
   desktopAppIcon: DesktopAppIcon.pipe(withDefaults(() => "default" as const)),
   // Local desktop preference: frameless custom title bar on Windows/Linux.
@@ -534,6 +598,8 @@ export const AppSettingsSchema = Schema.Struct({
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     withDefaults(() => DEFAULT_SIDEBAR_THREAD_SORT_ORDER),
   ),
+  // With "updated_at" order, float working and unread chats above the rest.
+  sidebarThreadAttentionFirst: Schema.Boolean.pipe(withDefaults(() => true)),
   timestampFormat: TimestampFormat.pipe(withDefaults(() => DEFAULT_TIMESTAMP_FORMAT)),
   customCodexModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
   customClaudeModels: Schema.Array(Schema.String).pipe(withDefaults(() => [])),
@@ -982,7 +1048,8 @@ export function getProviderInstanceOptions(
   settings: Pick<
     AppSettings,
     "codexAccounts" | "codexHomePath" | "providerInstances" | "selectedCodexAccountId"
-  >,
+  > &
+    Partial<Pick<AppSettings, "disabledProviders">>,
 ): ProviderInstanceOption[] {
   const optionsById = new Map<ProviderInstanceId, ProviderInstanceOption>();
 
@@ -1040,18 +1107,23 @@ export function getProviderInstanceOptions(
     });
   }
 
-  return Array.from(optionsById.values()).toSorted((left, right) => {
-    const providerDelta =
-      PROVIDER_INSTANCE_PROVIDER_ORDER.indexOf(left.provider) -
-      PROVIDER_INSTANCE_PROVIDER_ORDER.indexOf(right.provider);
-    if (providerDelta !== 0) {
-      return providerDelta;
-    }
-    if (left.isDefault !== right.isDefault) {
-      return left.isDefault ? -1 : 1;
-    }
-    return left.label.localeCompare(right.label);
-  });
+  return Array.from(optionsById.values())
+    .map((option) => ({
+      ...option,
+      enabled: option.enabled && !settings.disabledProviders?.includes(option.provider),
+    }))
+    .toSorted((left, right) => {
+      const providerDelta =
+        PROVIDER_INSTANCE_PROVIDER_ORDER.indexOf(left.provider) -
+        PROVIDER_INSTANCE_PROVIDER_ORDER.indexOf(right.provider);
+      if (providerDelta !== 0) {
+        return providerDelta;
+      }
+      if (left.isDefault !== right.isDefault) {
+        return left.isDefault ? -1 : 1;
+      }
+      return left.label.localeCompare(right.label);
+    });
 }
 
 export function getUnsupportedProviderInstanceOptions(
@@ -1414,6 +1486,7 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     : DEFAULT_CODEX_ACCOUNT_ID;
   return {
     ...currentSettings,
+    railUsageInstanceIds: settings.railUsageInstanceIds ?? settings.railUsageProviders,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
     // Read the legacy Studio key once: it defaults to true, so only an explicit
     // `false` carries over onto the renamed Groups section.
@@ -1500,10 +1573,11 @@ export function didProviderCommandDiscoverySettingsChange(
   );
 }
 
-function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppSettings> {
+export function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppSettings> {
   return {
     claudeBinaryPath: settings.providers.claudeAgent.binaryPath,
     claudeEnableArtifacts: settings.providers.claudeAgent.enableArtifacts,
+    claudeConfirmColdCacheResume: settings.providers.claudeAgent.confirmColdCacheResume,
     claudeHomePath: settings.providers.claudeAgent.homePath,
     codexBinaryPath: settings.providers.codex.binaryPath,
     codexHomePath: settings.providers.codex.homePath,
@@ -1517,6 +1591,8 @@ function serverSettingsToAppSettings(settings: ServerSettingsView): Partial<AppS
     sidechatExpiry: settings.sidechatExpiry,
     enableAssistantStreaming: settings.enableAssistantStreaming,
     enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+    keepAwakeMode: settings.keepAwakeMode,
+    lowerProviderProcessPriority: settings.lowerProviderProcessPriority,
     antigravityBinaryPath: settings.providers.antigravity.binaryPath,
     grokBinaryPath: settings.providers.grok.binaryPath,
     droidBinaryPath: settings.providers.droid.binaryPath,
@@ -1652,6 +1728,16 @@ export function appSettingsPatchToServerSettingsPatch(
   if (hasOwn(patch, "enableProviderUpdateChecks")) {
     serverPatch.enableProviderUpdateChecks = Boolean(patch.enableProviderUpdateChecks);
   }
+  if (
+    patch.keepAwakeMode === "always" ||
+    patch.keepAwakeMode === "agent" ||
+    patch.keepAwakeMode === "off"
+  ) {
+    serverPatch.keepAwakeMode = patch.keepAwakeMode;
+  }
+  if (hasOwn(patch, "lowerProviderProcessPriority")) {
+    serverPatch.lowerProviderProcessPriority = Boolean(patch.lowerProviderProcessPriority);
+  }
   if (patch.defaultThreadEnvMode === "local" || patch.defaultThreadEnvMode === "worktree") {
     serverPatch.defaultThreadEnvMode = patch.defaultThreadEnvMode;
   }
@@ -1719,6 +1805,7 @@ export function appSettingsPatchToServerSettingsPatch(
   if (
     hasOwn(patch, "claudeBinaryPath") ||
     hasOwn(patch, "claudeEnableArtifacts") ||
+    hasOwn(patch, "claudeConfirmColdCacheResume") ||
     hasOwn(patch, "claudeHomePath") ||
     hasOwn(patch, "customClaudeModels")
   ) {
@@ -1726,6 +1813,9 @@ export function appSettingsPatchToServerSettingsPatch(
       ...(hasOwn(patch, "claudeBinaryPath") ? { binaryPath: patch.claudeBinaryPath ?? "" } : {}),
       ...(hasOwn(patch, "claudeEnableArtifacts")
         ? { enableArtifacts: Boolean(patch.claudeEnableArtifacts) }
+        : {}),
+      ...(hasOwn(patch, "claudeConfirmColdCacheResume")
+        ? { confirmColdCacheResume: Boolean(patch.claudeConfirmColdCacheResume) }
         : {}),
       ...(hasOwn(patch, "claudeHomePath") ? { homePath: patch.claudeHomePath ?? "" } : {}),
       ...(hasOwn(patch, "customClaudeModels")
@@ -1876,6 +1966,7 @@ export function buildInitialServerSettingsMigrationPatch(
     "enableAssistantStreaming",
     "enableProviderUpdateChecks",
     "devinBinaryPath",
+    "keepAwakeMode",
     "antigravityBinaryPath",
     "grokBinaryPath",
     "droidBinaryPath",

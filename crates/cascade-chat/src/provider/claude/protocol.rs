@@ -29,6 +29,8 @@ pub struct ClaudeLaunchOptions {
     pub additional_directories: Vec<String>,
     /// The flag-settings layer (`--settings <json>`).
     pub settings: Option<Map<String, Value>>,
+    /// `--mcp-config <json>`: the SDK's `mcpServers` (the agent gateway).
+    pub mcp_config: Option<String>,
 }
 
 /// Synara `CLAUDE_SETTING_SOURCES` (ClaudeAdapter.ts:1359)
@@ -79,6 +81,9 @@ pub fn launch_args(options: &ClaudeLaunchOptions) -> Vec<String> {
     }
     if let Some(settings) = &options.settings {
         args.extend(["--settings".to_owned(), Value::Object(settings.clone()).to_string()]);
+    }
+    if let Some(config) = &options.mcp_config {
+        args.extend(["--mcp-config".to_owned(), config.clone()]);
     }
     args
 }

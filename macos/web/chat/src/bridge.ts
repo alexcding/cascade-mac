@@ -16,6 +16,8 @@
 //                                            made, a thread link); the page shows one thread
 //       openSettings { path }                Synara's "Manage providers" link
 //       copy    { text }                     copy to the pasteboard (Synara's copy buttons)
+//       visualDocument { id, html }          an inline visual's built document, which the app
+//                                            serves its frame at cascade-chat://visual/<id>.html
 //       error   { message, stack? }          an uncaught error, for the app's log
 //       log     { level, message }           diagnostics (an RPC the app does not serve, a
 //                                            push that does not decode with Synara's schema)
@@ -177,6 +179,19 @@ export function cancelPending(method: string): void {
 
 export function emit(name: string, payload: Record<string, unknown> = {}): void {
   post({ kind: "event", name, payload });
+}
+
+/**
+ * Where an inline visual's frame loads its document: a URL of the app's scheme, which serves the
+ * document this hands it. Synara writes the document into the frame as `srcdoc`, but WebKit gives
+ * a srcdoc (or data:, or blob:) frame this page's content security policy, which allows no inline
+ * script; a document the app serves keeps only its own policy (SYNARA.md, shims).
+ */
+let nextVisualDocument = 1;
+export function visualDocumentURL(html: string): string {
+  const id = `${loadToken}-${nextVisualDocument++}`;
+  emit("visualDocument", { id, html });
+  return `cascade-chat://visual/${id}.html`;
 }
 
 export function onPush<T>(channel: PushChannel, listener: (payload: T) => void): () => void {

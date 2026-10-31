@@ -14,13 +14,11 @@ import {
 /**
  * Features that ship only in non-Stable builds. Keep a feature out of Stable
  * by adding its key here; promote it by deleting the entry. A provider's key
- * is its ProviderKind. "groups" is Groups (below);
- * "tasks" is the Tasks to-do list, which replaces Kanban in Beta while Stable
- * keeps Kanban.
+ * is its ProviderKind. "groups" is Groups (below).
  */
 export type BetaOnlyFeature = string;
 
-/** Groups: the coordinator, its threads, the Group panel and the Library. */
+/** Hubs (Stable and Beta): the coordinator, its threads, the Hub panel and Library. */
 export const GROUPS_BETA_FEATURE = "groups";
 
 /** Inbox (Stable and Beta): the Inbox page and its `stats.getRecap` RPC. */
@@ -35,7 +33,28 @@ export const AUDIO_TRAIL_BETA_FEATURE = "audio-trail";
 /** Auto-fix CI (Stable and Beta): the PR menu checkbox, RPCs, and check watcher. */
 export const PULL_REQUEST_AUTO_FIX_BETA_FEATURE = "pull-request-auto-fix";
 
-export const BETA_ONLY_FEATURES: readonly BetaOnlyFeature[] = [GROUPS_BETA_FEATURE, "tasks"];
+/**
+ * Inline visuals (Stable and Beta): the `synara_show_visual` agent tool,
+ * component-spec and sandboxed HTML transcript rows, and the document read.
+ */
+export const INLINE_VISUALS_BETA_FEATURE = "inline-visuals";
+
+/**
+ * Connectors (Stable and Beta): remote MCP servers the user signs in to from
+ * Settings, proxied to supported provider sessions through the agent gateway.
+ */
+export const MCP_CONNECTORS_BETA_FEATURE = "mcp-connectors";
+
+/**
+ * Native editor (Stable and Beta): the Code OSS engine behind file, diff and
+ * preview editing, its TypeScript language service and JavaScript debugger.
+ */
+export const NATIVE_EDITOR_BETA_FEATURE = "native-editor";
+
+/** Simplified Chinese interface, native menus and app-authored permission explanations. */
+export const CHINESE_UI_BETA_FEATURE = "chinese-ui";
+
+export const BETA_ONLY_FEATURES: readonly BetaOnlyFeature[] = [CHINESE_UI_BETA_FEATURE];
 
 /**
  * Whether a Beta-only feature is on for this host. Only the Stable

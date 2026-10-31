@@ -134,6 +134,14 @@ navigation controls. Files open in native editor tabs. The session toolbar can
 open its worktree in the configured IDE or Git client. Xcode projects also support
 scheme/destination selection and build, launch, and Stop controls.
 
+The pane's **Simulator** tab streams the session's simulator natively from the backend's
+device layer (`/api/device/*`): a device picker that lists running simulators first and boots
+a shut-down one, the attach phase while it comes up, a badge while an agent drives it, and a
+setup checklist when Xcode, its licence or an iOS runtime is missing. The video is H.264 read
+from a Unix socket into an `AVSampleBufferDisplayLayer`; clicks, drags and keys go back as taps,
+swipes, text and HID keys once the screen is clicked. A Run on a simulator, or an agent using
+one, opens the tab on that device. It streams only while the tab is on screen.
+
 Removing a session previews the affected work and requires separate confirmation
 before discarding uncommitted or untracked changes. Restart stops that session's
 shell after confirmation and resumes a saved agent conversation when an ID is

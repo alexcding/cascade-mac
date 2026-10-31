@@ -41,6 +41,7 @@ pub(crate) const CHAT_METHODS: &[&str] = &[
     "orchestration.getThreadDetailSnapshot",
     "orchestration.getTurnDiff",
     "orchestration.getFullThreadDiff",
+    "orchestration.getInlineVisual",
     "chat.listThreads",
     "chat.providerStatuses",
 ];

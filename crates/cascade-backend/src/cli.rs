@@ -587,8 +587,7 @@ fn build_search_path(shell: Option<&str>) -> String {
 }
 
 /// The search path as last built, and whether the shell probe had answered by then. Each value
-/// is leaked once so that callers can hold a `&'static str`: at start, when the probe answers,
-/// and whenever `refresh_search_path` finds that an install changed it.
+/// is leaked once so that callers can hold a `&'static str`: at start, and when the probe answers.
 static SEARCH_PATH: std::sync::RwLock<Option<(bool, &'static str)>> = std::sync::RwLock::new(None);
 
 fn probed_shell_path() -> Option<&'static str> {
@@ -605,20 +604,6 @@ fn search_path() -> &'static str {
     let path: &'static str = Box::leak(build_search_path(shell).into_boxed_str());
     *SEARCH_PATH.write().unwrap() = Some((shell.is_some(), path));
     path
-}
-
-/// Builds the search path again, for a tool installed since it was built into a directory that
-/// only a version manager knows: nvm and a keg-only Homebrew Node add one per version. True
-/// when that changed it. The login shell is not asked again; its PATH is read once at start.
-pub(crate) fn refresh_search_path() -> bool {
-    let shell = probed_shell_path();
-    let fresh = build_search_path(shell);
-    let mut current = SEARCH_PATH.write().unwrap();
-    if current.is_some_and(|(probed, path)| probed == shell.is_some() && path == fresh) {
-        return false;
-    }
-    *current = Some((shell.is_some(), Box::leak(fresh.into_boxed_str())));
-    true
 }
 
 /// Where version managers keep the tools they install, for a login shell that never set them
@@ -679,19 +664,6 @@ fn newest_version(names: Vec<String>, prefix: &str) -> Option<String> {
         })
         .max()
         .map(|(_, name)| name)
-}
-
-/// The executable `program` resolves to on the search path, if there is one.
-pub(crate) fn locate(program: &str) -> Option<std::path::PathBuf> {
-    use std::os::unix::fs::PermissionsExt;
-    let path = std::path::PathBuf::from(resolve(program, search_path()));
-    std::fs::metadata(&path)
-        .is_ok_and(|data| data.is_file() && data.permissions().mode() & 0o111 != 0)
-        .then_some(path)
-}
-
-pub(crate) fn installed(program: &str) -> bool {
-    locate(program).is_some()
 }
 
 /// Homebrew, plus the per-user directories the agent CLIs install into: the Claude Code
@@ -1195,15 +1167,6 @@ mod tests {
         assert!(!path.contains("v9.11.2") && !path.contains("node@20"));
         // No home: only the Homebrew kegs.
         assert_eq!(with_version_managers("/usr/bin", None, &|_| vec![]), "/usr/bin");
-    }
-
-    /// A rebuild that finds nothing new keeps the very path callers already hold.
-    #[test]
-    fn rebuilding_an_unchanged_search_path_keeps_it() {
-        let _ = refresh_search_path();
-        let held = search_path();
-        assert!(!refresh_search_path(), "nothing was installed, so nothing changed");
-        assert!(std::ptr::eq(search_path(), held));
     }
 
     // A program is resolved to its file before the spawn, so std never reaches for fork().

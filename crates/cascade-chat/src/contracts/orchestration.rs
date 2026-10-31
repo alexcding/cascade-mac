@@ -353,7 +353,8 @@ pub type CorrelationId = CommandId;
 /// Synara `ChatAttachmentId` (orchestration.ts:583)
 pub type ChatAttachmentId = String;
 
-/// Synara `ChatImageAttachment` (orchestration.ts:589), without its `type` literal.
+/// Synara `ChatImageAttachment` (orchestration.ts:589), without its `type` literal. Omitted:
+/// `sourcePath` (optional), which only Synara's server-owned assistant image snapshots carry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatImageAttachment {
@@ -1047,8 +1048,8 @@ pub struct ThreadUnarchiveCommand {
     pub thread_id: ThreadId,
 }
 
-// Omitted: `handoff`, `lastKnownPr`, `goal`, `goalStartBehavior`, `goalPaused`, `goalAchieved`
-// and `providerHandoff`.
+// Omitted: `handoff`, `lastKnownPr` and `providerHandoff`. Goals are not ported either; their
+// fields are read only so that a command setting one is refused (`decide_meta_update`).
 /// Synara `ThreadMetaUpdateCommand` (orchestration.ts:1518)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1148,6 +1149,14 @@ pub struct ThreadMetaUpdateCommand {
     pub pinned_messages: Option<ThreadPinnedMessages>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<ThreadNotes>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_start_behavior: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_paused: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_achieved: Option<Value>,
 }
 
 /// Synara `ThreadPinnedMessageAddCommand` (orchestration.ts:1560)
@@ -1346,7 +1355,8 @@ pub struct ThreadTaskBackgroundCommand {
     pub created_at: IsoDateTime,
 }
 
-// Omitted: `enableComputerControl`, `computerControlMode`, `computerControlGeneration`.
+// Omitted: `enableComputerControl`, `computerControlMode`, `computerControlGeneration`, and the
+// goal's optional `initialGoalStartedAt`.
 /// Synara `ThreadDispatchQueuedTurnCommand` (orchestration.ts:1738)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1923,7 +1933,8 @@ pub struct ThreadAsyncUserInputAnsweredPayload {
     pub response: AsyncUserInputResponse,
 }
 
-// Omitted: `enableComputerControl`, `computerControlMode`, `computerControlGeneration`.
+// Omitted: `enableComputerControl`, `computerControlMode`, `computerControlGeneration`, and the
+// goal's optional `initialGoalStartedAt`.
 /// Synara `ThreadTurnStartRequestedPayload` (orchestration.ts:2383)
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -2245,7 +2256,8 @@ pub struct ThreadMessagesImportCommand {
     pub created_at: IsoDateTime,
 }
 
-/// Synara `ThreadMessageAssistantDeltaCommand` (orchestration.ts:1932)
+/// Synara `ThreadMessageAssistantDeltaCommand` (orchestration.ts:1932), without the optional
+/// `attachments` of Synara's assistant image snapshots.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadMessageAssistantDeltaCommand {
@@ -2264,7 +2276,8 @@ pub struct ThreadMessageAssistantDeltaCommand {
     pub created_at: IsoDateTime,
 }
 
-/// Synara `ThreadMessageAssistantCompleteCommand` (orchestration.ts:1947)
+/// Synara `ThreadMessageAssistantCompleteCommand` (orchestration.ts:1947), without the optional
+/// `attachments` of Synara's assistant image snapshots.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadMessageAssistantCompleteCommand {

@@ -96,6 +96,10 @@ pub struct ProviderSessionStartInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_approve_synara_tools: Option<bool>,
     pub runtime_mode: RuntimeMode,
+    /// Cascade: the agent gateway this session's CLI is given, which Synara's adapters take from
+    /// its gateway service. Never serialized: it carries the thread's token.
+    #[serde(skip)]
+    pub agent_gateway: Option<crate::agent_gateway::GatewayConnection>,
 }
 
 /// Synara `ProviderSendTurnInput` (provider.ts:79)

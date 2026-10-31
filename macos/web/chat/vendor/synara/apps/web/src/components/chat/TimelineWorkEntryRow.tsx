@@ -19,6 +19,7 @@ import {
 
 import { basenameOfPath } from "~/file-icons";
 import type { TimestampFormat } from "../../appSettings";
+import { formatTimestamp } from "../../timestampFormat";
 import {
   ArrowUpCircleIcon,
   BackgroundTrayIcon,
@@ -30,6 +31,7 @@ import {
   ContextCompactionIcon,
   ComputerUseIcon,
   EyeIcon,
+  FileReadIcon,
   GitHubIcon,
   GlobeIcon,
   HammerIcon,
@@ -47,6 +49,7 @@ import {
 import { describeLinkChip } from "~/lib/linkChips";
 import { computerToolName, describeComputerToolCall } from "~/lib/computerToolPresentation";
 import { cn } from "~/lib/utils";
+import type { FastModeNotice } from "~/lib/fastModeState";
 import { formatThreadModelSummaryLabel, resolveThreadModelSummary } from "~/lib/threadModelSummary";
 
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
@@ -58,12 +61,16 @@ import {
   isReasoningUpdateWorkEntry,
 } from "./agentActivity.logic";
 import { AutomationCreatedCard } from "./AutomationCreatedCard";
+import { BackgroundTaskRow } from "./BackgroundTaskRow";
+import { getChatTranscriptTextStyle, INLINE_COMMAND_CHIP_CLASS_NAME } from "./chatTypography";
+import { SubagentRunCard } from "./SubagentRunCard";
 import { ConnectedComputerSetupRequiredCard } from "./ComputerSetupRequiredCard";
 import { ComputerControlDeniedCard } from "./ComputerControlDeniedCard";
 import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { LinkChipIcon } from "../LinkChipIcon";
+import { McpServerIcon } from "./McpServerIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { SynaraLogo } from "../SynaraLogo";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
@@ -76,7 +83,9 @@ import {
   isPrefixedToolArgumentSummary,
 } from "../../lib/toolArgumentSummary";
 import {
+  deriveCommandReadTargets,
   deriveFriendlyCommandTarget,
+  deriveLiteralCommand,
   deriveSynaraMcpToolTitle,
   extractWebFetchUrl,
   isGenericToolTitle,
@@ -86,12 +95,17 @@ import {
   sanitizeSynaraMcpToolPreview,
   type SynaraMcpToolStatus,
 } from "../../lib/toolCallLabel";
-import { formatLiveActivityMeta, useLiveActivityNow } from "../../lib/liveActivityPresentation";
+import {
+  formatLiveActivityMeta,
+  isLiveActivityInProgress,
+  useLiveActivityNow,
+} from "../../lib/liveActivityPresentation";
+import { deriveToolFailureSummary } from "../../lib/toolCallDetails";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../../lib/workspaceFileOpener";
+import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "../../lib/disclosureMotion";
 import { MUTED_LABEL_TEXT_CLASS_NAME, MUTED_LABEL_TEXT_COLOR } from "~/surfaceStyles";
+import { t, useTranslation } from "~/i18n";
 
-const TRANSCRIPT_DISCLOSURE_TRANSITION_MS = 220;
-const TRANSCRIPT_DISCLOSURE_CLEANUP_BUFFER_MS = 40;
 // Rest tone is the shared quiet-label gray (same one the composer pickers use for
 // their effort/thinking labels) so a tool row and the picker below it read as one
 // muted tone; hover still lifts the whole row to full foreground.
@@ -160,6 +174,7 @@ function extractFilePathFromDetail(detail: string): string | null {
 }
 
 function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
+  if (workEntry.monitorNotification) return null;
   if (isReasoningUpdateWorkEntry(workEntry)) {
     return formatAgentActivityEntryPreview(workEntry);
   }
@@ -219,19 +234,29 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
 }
 
 // Provider read tools (e.g. Claude's `Read`) arrive as generic dynamic tool calls
-// without a `file-read` requestKind, so match their tool name to surface the search icon
+// without a `file-read` requestKind, so match their tool name to surface the read icon
 // instead of the generic tool/wrench fallback.
 function isFileReadToolEntry(workEntry: TimelineWorkEntry): boolean {
   const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
   return name === "read" || name === "readfile" || name === "viewfile";
 }
 
-// Command rows reuse toolCallLabel's wrapper-aware classifier so wrapped git/gh
-// commands get the GitHub mark while ordinary commands keep the terminal icon.
+// Provider search tools (Claude's `Grep`/`Glob`) wear the magnifier like
+// search commands do.
+function isSearchToolEntry(workEntry: TimelineWorkEntry): boolean {
+  const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return name === "grep" || name === "glob";
+}
+
+// Command rows reuse toolCallLabel's wrapper-aware classifier so reads wear the
+// open book, searches the magnifier, wrapped git/gh commands the GitHub mark,
+// and ordinary commands keep the terminal icon.
 function commandWorkEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   const command = workEntry.command ?? workEntry.rawCommand;
   switch (command ? resolveCommandVisualKind(command) : "terminal") {
-    case "inspect":
+    case "read":
+      return FileReadIcon;
+    case "search":
       return SearchIcon;
     case "git":
     case "github":
@@ -247,12 +272,20 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.activityKind === "user-input.requested") return CircleQuestionIcon;
   if (workEntry.activityKind === "user-input.resolved") return ArrowUpCircleIcon;
   if (workEntry.activityKind === "context-compaction") return ContextCompactionIcon;
+  if (workEntry.activityKind === "checkpoint.baseline.skipped") return CircleAlertIcon;
   // "Moved to background" notices read as a tray drop, not a warning check.
   if (workEntry.nativeEventType === "background_tasks_changed") return BackgroundTrayIcon;
+  if (workEntry.monitorNotification)
+    return workEntry.monitorNotification.outcome === "failed" ? CircleAlertIcon : EyeIcon;
   if (workEntry.backgroundTaskCompletion) {
     return workEntry.backgroundTaskCompletion.taskType === "local_agent"
       ? AgentTaskIcon
       : BackgroundTrayIcon;
+  }
+  // A subagent's progress is its live status, not a finished step: never the
+  // success check, and a warning once it failed.
+  if (workEntry.subagentProgress) {
+    return workEntry.subagentProgress.outcome === "failed" ? CircleAlertIcon : AgentTaskIcon;
   }
   if (workEntry.providerHandoff) {
     return workEntry.providerHandoff.status === "failed" ? CircleAlertIcon : HandoffIcon;
@@ -264,7 +297,7 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   }
 
   if (workEntry.requestKind === "command") return commandWorkEntryIcon(workEntry);
-  if (workEntry.requestKind === "file-read") return SearchIcon;
+  if (workEntry.requestKind === "file-read") return FileReadIcon;
   if (workEntry.requestKind === "file-change") return PencilIcon;
   if (workEntry.requestKind === "tool") return McpIcon;
 
@@ -277,7 +310,8 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.itemType === "web_search") return WebSearchIcon;
   if (workEntry.itemType === "image_generation") return ZapIcon;
   if (workEntry.itemType === "image_view") return EyeIcon;
-  if (isFileReadToolEntry(workEntry)) return SearchIcon;
+  if (isFileReadToolEntry(workEntry)) return FileReadIcon;
+  if (isSearchToolEntry(workEntry)) return SearchIcon;
 
   switch (workEntry.itemType) {
     case "mcp_tool_call":
@@ -329,6 +363,7 @@ function isGitHubMcpToolCall(workEntry: TimelineWorkEntry): boolean {
 // pairs that the label humanizer renders as "Synara: ...".
 function toolWorkEntryStatus(workEntry: TimelineWorkEntry): SynaraMcpToolStatus {
   if (workEntry.toolStatus) return workEntry.toolStatus;
+  if (workEntry.liveActivity && isLiveActivityInProgress(workEntry.liveActivity)) return "running";
   return workEntry.activityKind !== undefined && workEntry.activityKind !== "tool.completed"
     ? "running"
     : "completed";
@@ -358,11 +393,11 @@ function isSynaraToolCall(workEntry: TimelineWorkEntry): boolean {
 // compact density so every tool-call line shares one height regardless of whether
 // it carries a disclosure chevron.
 export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolean {
-  if (isCodexActivityStatusWorkEntry(workEntry)) {
+  if (isCodexActivityStatusWorkEntry(workEntry) || workEntry.monitorNotification) {
     return true;
   }
-  // Commands stay compact even when surfaced with a non-terminal icon (read-only
-  // inspections like `cat` now use the file-read search icon).
+  // Commands stay compact even when surfaced with a non-terminal icon (reads like
+  // `cat` wear the file icon, searches the magnifier).
   if (workEntry.itemType === "command_execution" || workEntry.command || workEntry.rawCommand) {
     return true;
   }
@@ -373,8 +408,9 @@ export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolea
     EntryIcon === AgentTaskIcon ||
     EntryIcon === PencilIcon ||
     EntryIcon === SkillCubeIcon ||
-    // File-read / inspect rows (e.g. `Read …`) surface the search icon and have no
-    // disclosure chevron; keep them at the same compact height as command rows.
+    // File-read and search rows (e.g. `Read …`) have no disclosure chevron; keep
+    // them at the same compact height as command rows.
+    EntryIcon === FileReadIcon ||
     EntryIcon === SearchIcon
   );
 }
@@ -387,27 +423,32 @@ function capitalizePhrase(value: string): string {
   return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
 }
 
-function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+function toolWorkEntryHeading(workEntry: TimelineWorkEntry, translate: typeof t): string {
+  if (workEntry.displayToolTitle) return capitalizePhrase(workEntry.displayToolTitle);
   if (computerToolName(workEntry.toolName)) {
     // Work-log projection already resolves the action and target. The generic
     // MCP presentation would replace that with "Synara clicked the desktop".
     const title = normalizeCompactToolLabel(workEntry.toolTitle ?? "");
     if (title && !isGenericToolTitle(title) && !computerToolName(title))
       return capitalizePhrase(title);
-    return describeComputerToolCall({ toolName: workEntry.toolName, args: undefined })!.summary;
+    return describeComputerToolCall({ toolName: workEntry.toolName, args: undefined }, translate)!
+      .summary;
   }
   // Task progress is semantic copy, not a tool lifecycle status. Preserve the
   // trailing "completed" instead of passing it through the compact tool-label
   // normalizer, which intentionally strips lifecycle suffixes.
-  if (workEntry.activityKind === "turn.tasks.updated") {
+  if (workEntry.activityKind === "turn.tasks.updated" || workEntry.monitorNotification) {
     return capitalizePhrase(workEntry.label);
   }
-  const synaraTitle = deriveSynaraMcpToolTitle({
-    toolName: workEntry.toolName,
-    title: workEntry.toolTitle,
-    fallbackLabel: workEntry.label,
-    status: toolWorkEntryStatus(workEntry),
-  });
+  const synaraTitle = deriveSynaraMcpToolTitle(
+    {
+      toolName: workEntry.toolName,
+      title: workEntry.toolTitle,
+      fallbackLabel: workEntry.label,
+      status: toolWorkEntryStatus(workEntry),
+    },
+    translate,
+  );
   if (synaraTitle) {
     return synaraTitle;
   }
@@ -417,51 +458,136 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
   return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
 
-function combineWorkEntryDisplayText(heading: string, preview: string | null): string {
+function combineWorkEntryDisplayText(
+  heading: string,
+  preview: string | null,
+  translate: typeof t,
+): string {
   if (!preview) {
     return heading;
   }
   return normalizeToolTextForComparison(heading) === normalizeToolTextForComparison(preview)
     ? heading
-    : `${heading} ${preview}`;
+    : translate("chat:symbol7", { value0: heading, value1: preview });
 }
 
-// One sentence per row, live or settled: the tool's own verb plus what it acted
-// on ("Searched for foo in src"). Lifecycle state is never spelled out here —
-// the verb already carries the tense and `liveActivityMetaText` covers the rest.
-// Shared with the live tool-group line, which wears its newest call's sentence.
-function workEntryDisplayParts(workEntry: TimelineWorkEntry): {
+// Shell command rows read "Ran <command>" with the command verbatim; a plain
+// read of files says "Read <files>" instead, since that is exactly what it did.
+// A humanized guess ("Found current directory") is never shown. Approval and
+// status rows keep their own wording.
+function commandRowDisplay(
+  workEntry: TimelineWorkEntry,
+): { heading: string; object: string; literal: boolean } | null {
+  const command = workEntry.rawCommand ?? workEntry.command;
+  if (
+    (workEntry.tone !== "tool" && workEntry.toolStatus !== "failed") ||
+    !command ||
+    !(
+      workEntry.itemType === "command_execution" ||
+      workEntry.requestKind === "command" ||
+      workEntry.command
+    )
+  ) {
+    return null;
+  }
+  const running = toolWorkEntryStatus(workEntry) === "running";
+  const readTargets = deriveCommandReadTargets(command);
+  if (readTargets) {
+    return {
+      heading: running ? "chat:reading" : "chat:detail_read",
+      object: readTargets.join(", "),
+      literal: false,
+    };
+  }
+  const literal = deriveLiteralCommand(command);
+  return literal
+    ? { heading: running ? "chat:runStatus_running" : "chat:ran", object: literal, literal: true }
+    : null;
+}
+
+export interface WorkEntryDisplayParts {
   heading: string;
   preview: string | null;
   displayText: string;
-} {
+  // Verbatim command shown in mono after the heading, for shell command rows.
+  commandLiteral: string | null;
+}
+
+// Renders a row sentence: plain text, or the heading plus the command chip.
+export function renderWorkEntrySentence(parts: WorkEntryDisplayParts): ReactNode {
+  if (parts.commandLiteral === null) {
+    return parts.displayText;
+  }
+  return (
+    <>
+      {parts.heading}{" "}
+      <code className={INLINE_COMMAND_CHIP_CLASS_NAME} data-command-literal="true">
+        {parts.commandLiteral}
+      </code>
+    </>
+  );
+}
+
+// One sentence per row, live or settled: the tool's own verb plus what it acted
+// on ("Read calc.py", "Ran `ls`"). Lifecycle state is never spelled out here —
+// the verb already carries the tense and `liveActivityMetaText` covers the rest.
+// Shared with the live tool-group line, which wears its newest call's sentence.
+export function workEntryDisplayParts(
+  workEntry: TimelineWorkEntry,
+  translate: typeof t = t,
+): WorkEntryDisplayParts {
+  const commandDisplay = commandRowDisplay(workEntry);
+  if (commandDisplay) {
+    const heading = translate(commandDisplay.heading, { context: "command" });
+    return {
+      heading,
+      preview: commandDisplay.object,
+      displayText: `${heading} ${commandDisplay.object}`,
+      commandLiteral: commandDisplay.literal ? commandDisplay.object : null,
+    };
+  }
   const webFetchUrl = extractWebFetchUrl(workEntry);
-  const heading = toolWorkEntryHeading(workEntry);
+  const heading = toolWorkEntryHeading(workEntry, translate);
   const rawPreview = workEntryPreview(workEntry);
   const preview =
     !isGitHubMcpToolCall(workEntry) &&
     (isSynaraBrowserWorkEntry(workEntry) || isSynaraToolCall(workEntry))
-      ? sanitizeSynaraMcpToolPreview({
-          preview: rawPreview,
-          heading,
-          status: toolWorkEntryStatus(workEntry),
-        })
+      ? sanitizeSynaraMcpToolPreview(
+          {
+            preview: rawPreview,
+            heading,
+            status: toolWorkEntryStatus(workEntry),
+          },
+          translate,
+        )
       : rawPreview;
   const displayText = webFetchUrl
     ? describeLinkChip(webFetchUrl).label
     : (isReasoningUpdateWorkEntry(workEntry) || workEntry.activityKind === "tool.summary") &&
         preview
       ? preview
-      : combineWorkEntryDisplayText(heading, preview);
-  return { heading, preview, displayText };
-}
-
-export function workEntryDisplayText(workEntry: TimelineWorkEntry): string {
-  return workEntryDisplayParts(workEntry).displayText;
+      : combineWorkEntryDisplayText(heading, preview, translate);
+  return { heading, preview, displayText, commandLiteral: null };
 }
 
 function isFileChangeWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return isFileChangeWorkLogEntry(workEntry);
+}
+
+// Item-scoped reasoning and summaries keep full prose. Legacy reasoning groups
+// only carry a compact preview; their existing opener retains all original updates.
+function isProseWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return (
+    (isReasoningUpdateWorkEntry(workEntry) && Boolean(workEntry.toolCallId)) ||
+    workEntry.activityKind === "tool.summary"
+  );
+}
+
+function proseWorkEntryText(workEntry: TimelineWorkEntry, displayText: string): string | null {
+  const source = workEntry.detail ?? workEntry.preview ?? displayText;
+  // Codex summaries end in an empty `<!-- -->` block separator.
+  const text = source.replace(/<!--[\s\S]*?-->/gu, "").trim();
+  return text.length > 0 ? text : null;
 }
 
 function commandTooltipContent(command: string, displayText: string) {
@@ -469,11 +595,11 @@ function commandTooltipContent(command: string, displayText: string) {
     <div className="max-w-96 whitespace-pre-wrap leading-tight">
       <div className="space-y-2">
         <div className="space-y-0.5">
-          <div className="text-muted-foreground/70">Summary</div>
+          <div className="text-muted-foreground/70">{t("chat:timeline_summaryLabel")}</div>
           <div>{displayText}</div>
         </div>
         <div className="space-y-0.5">
-          <div className="text-muted-foreground/70">Raw call</div>
+          <div className="text-muted-foreground/70">{t("chat:timeline_rawCall")}</div>
           <code className="block whitespace-pre-wrap break-words font-chat-code text-chat-code text-foreground/92">
             {command}
           </code>
@@ -520,8 +646,10 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   chatMetaFontSizePx: number;
   textFontSizePx?: number;
   density?: "default" | "compact";
+  mutedProse?: boolean;
   fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
   markdownCwd: string | undefined;
+  threadId?: string | null | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   turnId?: TurnId;
   onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
@@ -531,6 +659,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onEnableComputerControl?: () => void;
   timestampFormat: TimestampFormat;
 }) {
+  const { t, formatLocale } = useTranslation();
+
   // Defaults are applied in the body (not in the destructuring pattern): a default
   // value inside a destructuring pattern makes React Compiler bail out on the whole
   // component, silently dropping memoization for every tool-call row.
@@ -539,8 +669,10 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     chatMetaFontSizePx,
     textFontSizePx: textFontSizePxProp,
     density: densityProp,
+    mutedProse,
     fileDiffStatByPath,
     markdownCwd,
+    threadId,
     onImageExpand,
     turnId,
     onOpenTurnDiff,
@@ -586,7 +718,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             : isMcpToolRow
               ? "mcp"
               : undefined;
-  const { heading, preview, displayText } = workEntryDisplayParts(workEntry);
+  const displayParts = workEntryDisplayParts(workEntry, t);
+  const { heading, preview, displayText } = displayParts;
   const showInlineAgentTaskPreview =
     workEntry.itemType === "collab_agent_tool_call" &&
     Boolean(preview) &&
@@ -603,6 +736,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   const hasToolDetails = Boolean(workEntry.toolDetails);
   const providerContextLifecycle = workEntry.providerContextLifecycle;
   const providerHandoff = workEntry.providerHandoff;
+  const monitorNotification = workEntry.monitorNotification;
   // File-read rows open the referenced file in the in-app viewer when the
   // hosting surface provides an opener (right-dock file pane / editor pane).
   const opener = useWorkspaceFileOpener();
@@ -617,10 +751,23 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     [workEntry],
   );
   const liveActivityNowMs = useLiveActivityNow(workEntry.liveActivity);
-  const liveActivityMetaText = workEntry.liveActivity
-    ? formatLiveActivityMeta(workEntry.liveActivity, liveActivityNowMs, {
-        subagent: workEntry.itemType === "collab_agent_tool_call",
-      })
+  // A failed call says so explicitly, with its exit code, instead of the
+  // generic lifecycle meta. The output itself stays behind the disclosure.
+  const failure =
+    toolWorkEntryStatus(workEntry) === "failed"
+      ? deriveToolFailureSummary(workEntry.toolDetails)
+      : null;
+  const liveActivityMetaText = failure
+    ? null
+    : workEntry.liveActivity
+      ? formatLiveActivityMeta(workEntry.liveActivity, liveActivityNowMs, {
+          subagent: workEntry.itemType === "collab_agent_tool_call",
+        })
+      : null;
+  const failureMetaText = failure
+    ? failure.exitCode !== null
+      ? `Failed · exit ${failure.exitCode}`
+      : "Failed"
     : null;
 
   // A computer-control denial renders as an actionable card (enable + retry)
@@ -650,6 +797,17 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     );
   }
 
+  // A background task keeps one row for its whole life. Kept after the hooks
+  // above so the early return never changes hook order.
+  if (workEntry.backgroundTask) {
+    return <BackgroundTaskRow task={workEntry.backgroundTask} fontSizePx={textFontSizePx} />;
+  }
+
+  // A turn's subagents fold into one entry that renders as the subagent card.
+  if (workEntry.subagentRun) {
+    return <SubagentRunCard workEntry={workEntry} />;
+  }
+
   // A created-automation row renders as its own card instead of a tool-call line.
   // Kept after the hooks above so the early return never changes hook order.
   const automation = workEntry.automation;
@@ -669,6 +827,28 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     );
   }
 
+  // Narration renders like the assistant's own text: full Markdown in the
+  // transcript type and color, with no glyph or disclosure.
+  const proseText = isProseWorkEntry(workEntry) ? proseWorkEntryText(workEntry, displayText) : null;
+  if (proseText !== null) {
+    return (
+      <div className="py-1" data-work-entry-prose="true">
+        <ChatMarkdown
+          text={proseText}
+          cwd={markdownCwd}
+          threadId={threadId}
+          directionMode="auto-blocks"
+          isStreaming={false}
+          style={{
+            ...getChatTranscriptTextStyle(textFontSizePx),
+            ...(mutedProse ? { color: MUTED_LABEL_TEXT_COLOR } : {}),
+          }}
+          onImageExpand={onImageExpand}
+        />
+      </div>
+    );
+  }
+
   const readFilePath =
     opener !== null &&
     !canOpenAgentActivity &&
@@ -682,6 +862,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     Boolean(
       providerContextLifecycle ||
       providerHandoff ||
+      monitorNotification ||
       workEntry.toolDetails ||
       (workEntry.liveActivity && !canOpenReadFile),
     );
@@ -779,6 +960,11 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 >
                   {webFetchUrl ? (
                     <LinkChipIcon url={webFetchUrl} className={compact ? "size-3.5" : "size-4"} />
+                  ) : isMcpToolRow && LeftIcon === McpIcon && workEntry.mcpServer ? (
+                    <McpServerIcon
+                      serverName={workEntry.mcpServer}
+                      className={compact ? "size-3.5" : "size-4"}
+                    />
                   ) : (
                     renderWorkEntryIcon(LeftIcon, compact ? "size-3.5" : "size-4")
                   )}
@@ -807,6 +993,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     <ChatMarkdown
                       text={preview ?? ""}
                       cwd={markdownCwd}
+                      threadId={threadId}
                       isStreaming={false}
                       className="leading-relaxed"
                       style={{
@@ -820,7 +1007,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 ) : (
                   <p
                     className={cn(
-                      compact ? "truncate leading-5" : "truncate leading-6",
+                      "truncate",
+                      compact ? "leading-5" : "leading-6",
                       // Match the leading icon's tone so the row reads as one muted unit, and
                       // brighten the whole row to foreground on hover/focus instead of a fill.
                       WORK_ROW_MUTED_HOVER_TONE["tool-row"],
@@ -830,9 +1018,17 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     data-codex-status-row={isCodexStatusRow ? "true" : undefined}
                     style={{ fontSize: `${rowFontSizePx}px` }}
                   >
-                    <span data-work-entry-display-text="true">{displayText}</span>
+                    <span data-work-entry-display-text="true">
+                      {renderWorkEntrySentence(displayParts)}
+                    </span>
                     {liveActivityMetaText ? (
                       <span data-live-activity-meta="true"> · {liveActivityMetaText}</span>
+                    ) : null}
+                    {failureMetaText ? (
+                      <span className="text-destructive" data-tool-failure-meta="true">
+                        {" "}
+                        · {failureMetaText}
+                      </span>
                     ) : null}
                   </p>
                 )}
@@ -845,7 +1041,19 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 details={workEntry.toolDetails}
                 activity={workEntry.liveActivity}
                 detailContent={
-                  providerContextLifecycle ? (
+                  monitorNotification ? (
+                    <div className="space-y-1 text-ui-sm">
+                      <time
+                        className="text-ui-xs text-muted-foreground"
+                        dateTime={workEntry.createdAt}
+                      >
+                        {formatTimestamp(workEntry.createdAt, timestampFormat, formatLocale)}
+                      </time>
+                      <pre className="whitespace-pre-wrap break-words font-chat-code">
+                        {monitorNotification.output}
+                      </pre>
+                    </div>
+                  ) : providerContextLifecycle ? (
                     <ProviderContextLifecycleDetails info={providerContextLifecycle} />
                   ) : providerHandoff ? (
                     <ProviderHandoffDetails info={providerHandoff} />
@@ -860,7 +1068,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             );
           }
 
-          const rowContent = (
+          return (
             <AgentActivityOpenSurface
               canOpen={canOpenAgentActivity || canOpenReadFile}
               compact={compact}
@@ -875,8 +1083,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               {rowContentChildren}
             </AgentActivityOpenSurface>
           );
-
-          return rowContent;
         })()
       )}
     </div>
@@ -894,6 +1100,8 @@ export function EditedFileRowContent(props: {
   fontSizePx: number;
   compact: boolean;
 }) {
+  const { t } = useTranslation();
+
   const { filePath, additions, deletions, fontSizePx, compact } = props;
   const hasStat = (additions ?? 0) + (deletions ?? 0) > 0;
   return (
@@ -912,7 +1120,7 @@ export function EditedFileRowContent(props: {
         className={cn("font-system-ui shrink-0", WORK_ROW_MUTED_HOVER_TONE["file-row"])}
         style={{ fontSize: `${fontSizePx}px` }}
       >
-        Edited
+        {t("chat:timeline_edited")}
       </span>
       <span
         className={cn(
@@ -982,21 +1190,25 @@ function providerContextLifecycleReasonLabel(
 ): string {
   switch (reason) {
     case "conversation-rebuilt":
-      return "Conversation rebuilt from a summary";
+      return t("chat:conversationRebuiltFromASummary");
+    case "fork-from-earlier-turn":
+      return t("chat:forkRebuiltUpToTheChosenTurn");
     case "fresh-session":
-      return "New session started";
+      return t("chat:newSessionStarted");
     case "interrupt-escalation":
-      return "Turn stop escalated to a session restart";
+      return t("chat:turnStopEscalatedToASessionRestart");
     case "native-history-unavailable":
-      return "Previous history unavailable";
+      return t("chat:previousHistoryUnavailable");
     case "native-resume-failed":
-      return "Could not resume the previous session";
+      return t("chat:couldNotResumeThePreviousSession");
   }
 }
 
 function ProviderContextLifecycleDetails(props: {
   info: NonNullable<TimelineWorkEntry["providerContextLifecycle"]>;
 }) {
+  const { t, formatLocale } = useTranslation();
+
   const { info } = props;
   const provider =
     PROVIDER_DESCRIPTORS.find((descriptor) => descriptor.kind === info.provider)?.displayName ??
@@ -1004,26 +1216,32 @@ function ProviderContextLifecycleDetails(props: {
   return (
     <div className="space-y-3" data-provider-context-lifecycle-details="true">
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
-        <dt className="text-muted-foreground/56">Provider</dt>
+        <dt className="text-muted-foreground/56">{t("workspace:models_customModelProvider")}</dt>
         <dd className="text-foreground/84">{provider}</dd>
-        <dt className="text-muted-foreground/56">Previous history</dt>
+        <dt className="text-muted-foreground/56">{t("chat:previousHistory")}</dt>
         <dd className="text-foreground/84">
-          {info.nativeHistory === "available" ? "Available" : "Lost"}
+          {info.nativeHistory === "available" ? t("chat:available") : t("chat:lost")}
         </dd>
-        <dt className="text-muted-foreground/56">Session restarted</dt>
-        <dd className="text-foreground/84">{info.sessionRestarted ? "Yes" : "No"}</dd>
-        <dt className="text-muted-foreground/56">Why</dt>
+        <dt className="text-muted-foreground/56">{t("chat:sessionRestarted")}</dt>
+        <dd className="text-foreground/84">
+          {info.sessionRestarted ? t("chat:common_yes") : t("chat:common_no")}
+        </dd>
+        <dt className="text-muted-foreground/56">{t("chat:why")}</dt>
         <dd className="text-foreground/84">
           {providerContextLifecycleReasonLabel(info.restartReason)}
         </dd>
-        <dt className="text-muted-foreground/56">Summary included</dt>
+        <dt className="text-muted-foreground/56">{t("chat:summaryIncluded")}</dt>
         <dd className="text-foreground/84">
-          {info.recapInjected ? `${info.recapCharacters.toLocaleString()} characters` : "No"}
+          {info.recapInjected
+            ? t("chat:characters", { value0: info.recapCharacters.toLocaleString(formatLocale) })
+            : t("chat:common_no")}
         </dd>
       </dl>
       {info.recapPreview ? (
         <section className="space-y-2">
-          <h3 className="text-ui-sm font-medium text-muted-foreground/56">Summary preview</h3>
+          <h3 className="text-ui-sm font-medium text-muted-foreground/56">
+            {t("chat:summaryPreview")}
+          </h3>
           <pre
             className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
             data-session-context-recap-preview="true"
@@ -1032,7 +1250,7 @@ function ProviderContextLifecycleDetails(props: {
           </pre>
           {info.recapPreviewTruncated ? (
             <p className="text-ui-xs text-muted-foreground/56">
-              Showing a short preview of the summary sent with your message.
+              {t("chat:showingAShortPreviewOfTheSummarySentWith")}
             </p>
           ) : null}
         </section>
@@ -1041,47 +1259,68 @@ function ProviderContextLifecycleDetails(props: {
   );
 }
 
-function providerModelLabel(selection: ModelSelection): string {
+function providerModelLabel(
+  selection: ModelSelection,
+  fastModeNotice: FastModeNotice | null | undefined,
+  translate: typeof t,
+): string {
   const displayName =
     PROVIDER_DESCRIPTORS.find((descriptor) => descriptor.kind === selection.provider)
       ?.displayName ?? selection.provider;
-  const summary = resolveThreadModelSummary(selection);
+  const summary = resolveThreadModelSummary(selection, undefined, translate);
   const modelLabel = summary
-    ? `${formatThreadModelSummaryLabel(summary)}${summary.fastMode ? " · Fast" : ""}`
+    ? translate("common:symbol6", {
+        value0: formatThreadModelSummaryLabel(summary),
+        value1: summary.fastMode
+          ? ` · ${fastModeNotice?.label ?? translate("chat:traitsPicker_fast")}`
+          : "",
+      })
     : selection.model;
-  return `${displayName} · ${modelLabel}`;
+  return translate("common:symbol9", { value0: displayName, value1: modelLabel });
 }
 
 export function ProviderHandoffDetails(props: {
   info: NonNullable<TimelineWorkEntry["providerHandoff"]>;
 }) {
+  const { t, formatLocale } = useTranslation();
+
   const { info } = props;
   return (
     <div className="space-y-3" data-provider-handoff-details="true">
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
-        <dt className="text-muted-foreground/56">From</dt>
-        <dd className="text-foreground/84">{providerModelLabel(info.sourceModelSelection)}</dd>
-        <dt className="text-muted-foreground/56">To</dt>
-        <dd className="text-foreground/84">{providerModelLabel(info.targetModelSelection)}</dd>
+        <dt className="text-muted-foreground/56">{t("chat:from")}</dt>
+        <dd className="text-foreground/84">
+          {providerModelLabel(info.sourceModelSelection, info.sourceFastModeNotice, t)}
+        </dd>
+        <dt className="text-muted-foreground/56">{t("chat:to")}</dt>
+        <dd className="text-foreground/84">
+          {providerModelLabel(info.targetModelSelection, info.targetFastModeNotice, t)}
+        </dd>
         {info.status === "failed" ? (
           <>
-            <dt className="text-muted-foreground/56">Error</dt>
+            <dt className="text-muted-foreground/56">{t("chat:providerUsage_error")}</dt>
             <dd className="text-foreground/84">
-              {info.failureDetail ?? "The session did not start."}
+              {info.failureDetail ?? t("chat:theSessionDidNotStart")}
             </dd>
           </>
         ) : (
           <>
-            <dt className="text-muted-foreground/56">Context</dt>
+            <dt className="text-muted-foreground/56">{t("chat:traitsPicker_context")}</dt>
             <dd className="text-foreground/84">
-              {info.contextText ? `${info.contextText.length.toLocaleString()} characters` : "None"}
+              {info.contextText
+                ? t("chat:characters", {
+                    value0: info.contextText.length.toLocaleString(formatLocale),
+                  })
+                : t("chat:none")}
             </dd>
           </>
         )}
       </dl>
       {info.status === "completed" && info.contextText ? (
         <section className="space-y-2">
-          <h3 className="text-ui-sm font-medium text-muted-foreground/56">Transferred context</h3>
+          <h3 className="text-ui-sm font-medium text-muted-foreground/56">
+            {t("chat:transferredContext")}
+          </h3>
           <pre
             className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
             data-provider-handoff-context="true"
@@ -1089,7 +1328,7 @@ export function ProviderHandoffDetails(props: {
             {info.contextText}
           </pre>
           <p className="text-ui-xs text-muted-foreground/56">
-            Sent ahead of your next message so the new model can continue this thread.
+            {t("chat:sentAheadOfYourNextMessageSoTheNew")}
           </p>
         </section>
       ) : null}
@@ -1151,7 +1390,7 @@ function ToolDetailsDisclosure(props: {
       cleanupTimeoutRef.current = window.setTimeout(() => {
         cleanupTimeoutRef.current = null;
         setRenderDetails(false);
-      }, TRANSCRIPT_DISCLOSURE_TRANSITION_MS + TRANSCRIPT_DISCLOSURE_CLEANUP_BUFFER_MS);
+      }, DISCLOSURE_TRANSITION_MS + DISCLOSURE_CLEANUP_BUFFER_MS);
     },
     [clearMotionTimers],
   );

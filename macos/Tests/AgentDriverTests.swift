@@ -37,6 +37,38 @@ import Testing
         #expect(try driver.switchInputs(to: haiku, effort: nil, in: catalog) == [.line("/model haiku")])
     }
 
+    /// The launch line goes through the terminal's shell, which fills in the port file and run id.
+    private static func shellWords(_ line: String) throws -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "for word in " + line + "; do printf '%s\\0' \"$word\"; done"]
+        process.environment = ["CASCADE_PORT_FILE": "/Data Dir/.server-port", "CASCADE_RUN_ID": "run-1"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        return output.split(separator: "\0", omittingEmptySubsequences: false).dropLast().map(String.init)
+    }
+
+    @Test func bothAgentsAreGivenTheGatewayThroughTheProxy() throws {
+        let proxy = "/Apps/Cas\"ca$de.app/cascade-mcp-proxy.sh"
+        let claude = try Self.shellWords(
+            SessionAgent.claude.command(sessionID: "id-1", fresh: true, prompt: "Fix the build", gatewayProxy: proxy) ?? "")
+        let flag = try #require(claude.first { $0.hasPrefix("--mcp-config=") })
+        // One value, joined: the option is variadic, and the prompt after it must stay the prompt.
+        #expect(claude.last == "Fix the build")
+        let config = try JSONSerialization.jsonObject(with: Data(flag.dropFirst("--mcp-config=".count).utf8)) as? [String: Any]
+        let server = (config?["mcpServers"] as? [String: Any])?["cascade"] as? [String: Any]
+        #expect(server?["command"] as? String == "/bin/sh")
+        #expect(server?["args"] as? [String] == [proxy, "/Data Dir/.server-port", "run-1"])
+
+        let codex = try Self.shellWords(SessionAgent.codex.command(sessionID: nil, gatewayProxy: proxy) ?? "")
+        #expect(codex.contains(#"mcp_servers.cascade.command="/bin/sh""#))
+        #expect(codex.contains(#"mcp_servers.cascade.args=["/Apps/Cas\"ca$de.app/cascade-mcp-proxy.sh","/Data Dir/.server-port","run-1"]"#))
+        #expect(SessionAgent.claude.command(sessionID: "id-1")?.contains("--mcp-config") == false, "Only when asked")
+    }
+
     @Test func claudeLaunchCarriesTheStatusLineWithoutTouchingUserSettings() throws {
         let line = AgentStatusLine(script: "/Apps/Cascade Dev.app/it's.sh", taskID: "task-1")
         let command = ClaudeDriver().launchCommand(sessionID: "new", fresh: true, selection: nil, effort: nil, statusLine: line)

@@ -13,7 +13,6 @@ struct WelcomeView: View {
                 case .welcome: ViewThatFits(in: .vertical) { WelcomeIntroPage(); ScrollView { WelcomeIntroPage() } }
                 case .tools: WelcomeToolsPage(model: model)
                 case .hooks: WelcomeHooksPage(model: model)
-                case .simulator: WelcomeSimulatorPage(model: model)
                 case .done: ViewThatFits(in: .vertical) { WelcomeDonePage(model: model); ScrollView { WelcomeDonePage(model: model) } }
                 }
             }
@@ -126,7 +125,7 @@ private struct WelcomeIntroPage: View {
             }
             .padding(.horizontal, 56).padding(.top, 20)
             Spacer(minLength: 0)
-            Text("Set up your tools, agent hooks, and optional Simulator preview. You can skip setup and return later.")
+            Text("Set up your tools and agent hooks. You can skip setup and return later.")
                 .font(.system(size: 12)).foregroundStyle(Theme.textTertiary).padding(.bottom, 16)
         }
     }
@@ -213,28 +212,6 @@ private struct WelcomeHooksPage: View {
         }
         Text("Show context usage for Claude Code sessions started outside Cascade. Sessions started here already report it. Your existing status line is preserved.")
             .font(.caption).foregroundStyle(Theme.textSecondary)
-    }
-}
-
-/// Optional, and says so: only iOS projects use it. The same card as Settings → Integrations.
-private struct WelcomeSimulatorPage: View {
-    let model: WelcomeViewModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            WelcomeHeader(title: "iOS Simulator preview",
-                          subtitle: "Optional for iOS projects: run an app in Simulator to interact with it beside your session.") {
-                // A run, arriving in the app's side panel.
-                HStack(spacing: 18) {
-                    WelcomeTerminalCard(lines: ["node --version", "v22"])
-                    Image(systemName: "arrow.right").font(.system(size: 20, weight: .medium)).foregroundStyle(Theme.accent)
-                    Image(systemName: model.simulatorPreviewReady == true ? "iphone" : "iphone.slash")
-                        .font(.system(size: 52, weight: .regular)).foregroundStyle(Theme.accent)
-                }
-            }
-            Form { SimulatorPreviewSection(model: model.clis) }
-                .formStyle(.grouped).scrollContentBackground(.hidden)
-        }
     }
 }
 

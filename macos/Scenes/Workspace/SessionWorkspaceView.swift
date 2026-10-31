@@ -355,8 +355,8 @@ struct SessionWorkspaceContextBody: View {
         } else if model.shownPane == .term, let page = context.activePage {
             // Not keyed by page: a new identity would rebuild the surface and re-parent the web views.
             BrowserPane(page: page, context: context, model: page.controls, workspace: model)
-        } else if model.shownPane == .simulator, let preview = model.simulatorPreview {
-            SimulatorPanelView(model: preview, openIntegrations: model.openHookSettings)
+        } else if model.shownPane == .simulator, let simulator = model.simulator {
+            SimulatorPanelView(model: simulator)
         } else if context.activeTool == .files {
             // Keyed by tab: each Files tab has its own tree, and a crumb's card left open belongs
             // to the tab it was opened in.

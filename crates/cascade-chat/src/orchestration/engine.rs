@@ -23,6 +23,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
+use serde_json::{json, Value};
 use tokio::{
     sync::{mpsc, oneshot},
     time::Instant,
@@ -86,6 +87,8 @@ pub struct ChatEngineConfig {
     /// What generates a chat's title from its first message; `None` keeps the first-message
     /// fallback title (`text_generation.rs`).
     pub text_generation: Option<Arc<dyn TextGeneration>>,
+    /// The MCP server each chat's CLI is given; `None` gives none.
+    pub agent_gateway: Option<Arc<dyn crate::agent_gateway::AgentGateway>>,
 }
 
 impl ChatEngineConfig {
@@ -98,6 +101,7 @@ impl ChatEngineConfig {
             publish,
             git: None,
             text_generation: None,
+            agent_gateway: None,
         }
     }
 }
@@ -162,6 +166,20 @@ enum Request {
     Shells { project: Option<String>, reply: oneshot::Sender<Result<Vec<OrchestrationThreadShell>>> },
     ShellSnapshot { reply: oneshot::Sender<Result<OrchestrationShellSnapshot>> },
     Conversations { reply: oneshot::Sender<Result<HashSet<String>>> },
+    RunningTurn { thread_id: ThreadId, reply: oneshot::Sender<Result<Option<TurnId>>> },
+    LiveTurnPatch {
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        checkpoint_ref: crate::contracts::base::CheckpointRef,
+        reply: oneshot::Sender<Option<String>>,
+    },
+    AppendTurnActivity {
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        command_id: crate::contracts::base::CommandId,
+        activity: OrchestrationThreadActivity,
+        reply: oneshot::Sender<Result<(), ChatError>>,
+    },
     Shutdown { reply: oneshot::Sender<()> },
 }
 
@@ -213,6 +231,7 @@ impl ChatEngine {
             sessions: HashMap::new(),
             generations: HashMap::new(),
             text_generation: config.text_generation,
+            agent_gateway: config.agent_gateway,
         };
         actor.settle_after_restart().await.context("settle the sessions of the last run")?;
         tokio::spawn(actor.run(inbox, internal_inbox, runtime));
@@ -320,7 +339,34 @@ impl ChatEngine {
     /// Synara `orchestration.getTurnDiff` (`CheckpointDiffQuery.getTurnDiff`).
     pub async fn turn_diff(&self, input: OrchestrationGetTurnDiffInput) -> Result<ThreadTurnDiff, CheckpointDiffError> {
         let thread = self.thread(input.thread_id.clone()).await.map_err(|e| CheckpointDiffError::Failed(format!("{e:#}")))?;
-        get_turn_diff(&self.checkpoints, thread.as_ref(), &input).await
+        // A running turn's live revision is read from the patch the provider streamed for it.
+        let live = thread
+            .as_ref()
+            .and_then(|t| t.checkpoints.iter().find(|c| c.checkpoint_turn_count == input.to_turn_count))
+            .filter(|c| c.checkpoint_ref.as_str().starts_with("provider-diff:"))
+            .map(|c| (c.turn_id.clone(), c.checkpoint_ref.clone()));
+        let live_patch = match live {
+            Some((turn_id, checkpoint_ref)) => {
+                let patch = self
+                    .ask(|reply| Request::LiveTurnPatch {
+                        thread_id: input.thread_id.clone(),
+                        turn_id: turn_id.clone(),
+                        checkpoint_ref: checkpoint_ref.clone(),
+                        reply,
+                    })
+                    .await
+                    .map_err(|e| CheckpointDiffError::Failed(format!("{e:#}")))?;
+                patch.map(|patch| (turn_id, checkpoint_ref, patch))
+            }
+            None => None,
+        };
+        get_turn_diff(&self.checkpoints, thread.as_ref(), &input, |turn_id, checkpoint_ref| {
+            live_patch
+                .as_ref()
+                .filter(|(turn, reference, _)| turn == turn_id && reference == checkpoint_ref)
+                .map(|(_, _, patch)| patch.clone())
+        })
+        .await
     }
 
     /// Synara `orchestration.getFullThreadDiff` (`CheckpointDiffQuery.getFullThreadDiff`).
@@ -345,6 +391,30 @@ impl ChatEngine {
         self.ask(|reply| Request::Conversations { reply }).await?
     }
 
+    /// The turn the thread runs now (its latest turn, while `running`), or `None`: what Synara's
+    /// agent gateway binds a tool call's write authority to (`mcpTransport.ts`
+    /// `callerWriteAuthority`).
+    pub async fn running_turn(&self, thread_id: ThreadId) -> Result<Option<TurnId>> {
+        self.ask(|reply| Request::RunningTurn { thread_id, reply }).await?
+    }
+
+    /// Appends `activity` to the thread for `turn_id`, as Synara's gateway does with
+    /// `thread.activity.append` once `assertCallerTurnActive` holds: refused unless that turn is
+    /// still the thread's running one, checked on the engine's task with the append, so a turn
+    /// that ended meanwhile gains no row. An activity of the same id already on the thread is an
+    /// identical retry, and succeeds without a second event (Synara's command-identity collision).
+    pub async fn append_turn_activity(
+        &self,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        command_id: crate::contracts::base::CommandId,
+        activity: OrchestrationThreadActivity,
+    ) -> Result<(), ChatError> {
+        self.ask(|reply| Request::AppendTurnActivity { thread_id, turn_id, command_id, activity, reply })
+            .await
+            .map_err(ChatError::Internal)?
+    }
+
     /// Stops every provider session and saves what is unsaved; the engine then stops.
     pub async fn shutdown(&self) {
         let _ = self.ask(|reply| Request::Shutdown { reply }).await;
@@ -361,9 +431,19 @@ pub(super) enum Internal {
         retried: bool,
         result: Result<ProviderTurnStartResult, String>,
     },
-    Interrupted { thread_id: ThreadId, turn_id: Option<TurnId>, outcome: CallOutcome },
+    /// `generation` is the session the interrupt went to and `latest_turn` the thread's latest
+    /// turn when it was asked: an outcome is fenced to that target (3f55b77ef).
+    Interrupted {
+        thread_id: ThreadId,
+        turn_id: Option<TurnId>,
+        generation: Option<String>,
+        latest_turn: Option<TurnId>,
+        outcome: CallOutcome,
+    },
     Responded { thread_id: ThreadId, approval: bool, request_id: String, command_id: Option<String>, error: String },
-    StopFailed { thread_id: ThreadId, detail: String },
+    /// `interrupt` is the interrupt failure a Stop held back while the stop could still retire
+    /// the session (b1dca5b25): reported only now that it could not.
+    StopFailed { thread_id: ThreadId, detail: String, interrupt: Option<InterruptFailure> },
     CheckpointCaptured(CapturedCheckpoint),
     Reverted { thread_id: ThreadId, turn_count: u64, result: Result<RevertOutcome, String> },
     /// A files-scope undo finished; on success, the checkpoint whose changes were taken back.
@@ -380,6 +460,12 @@ pub(super) enum CallOutcome {
     Ok,
     TimedOut,
     Failed(String),
+}
+
+/// A `provider.turn.interrupt.failed` row a Stop has not reported yet.
+pub(super) struct InterruptFailure {
+    pub detail: String,
+    pub turn_id: Option<TurnId>,
 }
 
 pub(super) struct CapturedCheckpoint {
@@ -516,6 +602,7 @@ pub(super) struct Actor {
     /// one are dropped (Synara's lifecycle-generation guard).
     pub generations: HashMap<ThreadId, String>,
     pub text_generation: Option<Arc<dyn TextGeneration>>,
+    pub agent_gateway: Option<Arc<dyn crate::agent_gateway::AgentGateway>>,
 }
 
 impl Actor {
@@ -602,6 +689,26 @@ impl Actor {
             Request::Conversations { reply } => {
                 let _ = reply.send(self.store.provider_conversation_ids().await);
             }
+            Request::RunningTurn { thread_id, reply } => {
+                let running = |thread: &OrchestrationThread| {
+                    thread
+                        .latest_turn
+                        .as_ref()
+                        .filter(|turn| thread.deleted_at.is_none() && turn.state == OrchestrationLatestTurnState::Running)
+                        .map(|turn| turn.turn_id.clone())
+                };
+                let answer = match self.entries.get(&thread_id) {
+                    Some(entry) => Ok(entry.thread.as_ref().and_then(running)),
+                    None => self.store.load_thread(thread_id).await.map(|thread| thread.as_ref().and_then(running)),
+                };
+                let _ = reply.send(answer);
+            }
+            Request::LiveTurnPatch { thread_id, turn_id, checkpoint_ref, reply } => {
+                let _ = reply.send(self.ingestion.live_turn_patch(&thread_id, &turn_id, &checkpoint_ref));
+            }
+            Request::AppendTurnActivity { thread_id, turn_id, command_id, activity, reply } => {
+                let _ = reply.send(self.append_turn_activity(thread_id, turn_id, command_id, activity).await);
+            }
             Request::Shutdown { .. } => unreachable!("handled by the loop"),
         }
     }
@@ -657,6 +764,51 @@ impl Actor {
             Ok(()) => Ok(DispatchResult { sequence }),
             Err(error) => Err(ChatError::Invalid(error.to_string())),
         }
+    }
+
+    async fn append_turn_activity(
+        &mut self,
+        thread_id: ThreadId,
+        turn_id: TurnId,
+        command_id: crate::contracts::base::CommandId,
+        activity: OrchestrationThreadActivity,
+    ) -> Result<(), ChatError> {
+        self.load(&thread_id).await.map_err(ChatError::Internal)?;
+        let outcome = match self.thread(&thread_id).filter(|thread| thread.deleted_at.is_none()) {
+            None => Err(ChatError::Invalid(format!("Thread '{thread_id}' does not exist."))),
+            Some(thread) => {
+                let running = thread
+                    .latest_turn
+                    .as_ref()
+                    .is_some_and(|turn| turn.turn_id == turn_id && turn.state == OrchestrationLatestTurnState::Running);
+                if !running {
+                    Err(ChatError::Invalid("The turn is no longer active.".into()))
+                } else if thread.activities.iter().any(|existing| existing.id == activity.id) {
+                    Ok(None)
+                } else {
+                    Ok(Some(()))
+                }
+            }
+        };
+        let outcome = match outcome {
+            Ok(Some(())) => {
+                let mut ctx = Ctx::new(thread_id.clone());
+                let command = InternalThreadCommand::ActivityAppend(ThreadActivityAppendCommand {
+                    require_unarchived: None,
+                    command_id,
+                    thread_id: thread_id.clone(),
+                    created_at: activity.created_at.clone(),
+                    activity,
+                });
+                let outcome = self.run_command(&mut ctx, command.into()).map_err(|error| ChatError::Invalid(error.to_string()));
+                self.commit(ctx).await;
+                outcome
+            }
+            Ok(None) => Ok(()),
+            Err(error) => Err(error),
+        };
+        self.forget_if_absent(&thread_id);
+        outcome
     }
 
     /// Subagent threads are reached only through their parent, so archiving, restoring or deleting
@@ -1115,12 +1267,27 @@ impl Actor {
     /// No CLI outlives the engine: a thread whose session was starting or running when the last
     /// run ended is settled as Synara settles a `session.exited` (stopped, its turn interrupted,
     /// its streaming text completed).
+    ///
+    /// Tasks a dead runtime left open are retired too (Synara `reconcileRestartStuckTurns`'s
+    /// orphaned tasks, startupTurnReconciliation.ts:581-611): on a thread whose session was not
+    /// stopped, or a subagent child of one (children share their root's runtime), each task
+    /// started before this run gets a `stopped` end carrying its launching call.
     async fn settle_after_restart(&mut self) -> Result<()> {
-        for shell in self.store.list_shells(None).await? {
+        // Work started by this run is live; everything opened before it is not.
+        let started_at = now_iso();
+        let shells = self.store.list_shells(None).await?;
+        let dead_runtime_thread_ids: HashSet<ThreadId> = shells
+            .iter()
+            .filter(|shell| shell.session.as_ref().is_some_and(|s| s.status != OrchestrationSessionStatus::Stopped))
+            .map(|shell| shell.id.clone())
+            .collect();
+        for shell in shells {
             let live = shell.session.as_ref().is_some_and(|s| {
                 matches!(s.status, OrchestrationSessionStatus::Starting | OrchestrationSessionStatus::Running)
             });
-            if !live {
+            let dead_runtime = dead_runtime_thread_ids.contains(&shell.id)
+                || shell.parent_thread_id.as_ref().is_some_and(|parent| dead_runtime_thread_ids.contains(parent));
+            if !live && !dead_runtime {
                 continue;
             }
             if let Err(error) = self.load(&shell.id).await {
@@ -1130,6 +1297,34 @@ impl Actor {
             let mut ctx = Ctx::new(shell.id.clone());
             let Some(thread) = self.entries.get(&shell.id).and_then(|e| e.thread.clone()) else { continue };
             let now = now_iso();
+            for command in plan_orphaned_task_commands(&thread, started_at.as_str(), now.as_str()) {
+                self.run_logged(&mut ctx, command);
+            }
+            if !live {
+                // No CLI outlived the last run: a session it left ready (or idle, or failed) is
+                // stopped now, once, so the next start does not read this thread again.
+                if let Some(session) = thread.session.clone().filter(|s| s.status != OrchestrationSessionStatus::Stopped) {
+                    self.run_logged(
+                        &mut ctx,
+                        InternalThreadCommand::SessionSet(ThreadSessionSetCommand {
+                            command_id: server_command_id("session-settle-restart"),
+                            thread_id: thread.id.clone(),
+                            session: OrchestrationSession {
+                                status: OrchestrationSessionStatus::Stopped,
+                                active_turn_id: None,
+                                updated_at: now.clone(),
+                                ..session
+                            },
+                            expected_session_status: None,
+                            expected_session_updated_at: None,
+                            created_at: now.clone(),
+                        }),
+                    );
+                }
+                self.commit(ctx).await;
+                self.evict_idle();
+                continue;
+            }
             for message in thread.messages.iter().filter(|m| m.streaming && m.role == OrchestrationMessageRole::Assistant) {
                 self.run_logged(
                     &mut ctx,
@@ -1162,6 +1357,7 @@ impl Actor {
                 );
             }
             self.commit(ctx).await;
+            self.evict_idle();
         }
         Ok(())
     }
@@ -1215,6 +1411,144 @@ impl Actor {
     pub(super) fn live_session(&self, thread_id: &ThreadId) -> Option<&LiveSession> {
         self.sessions.get(thread_id).filter(|live| live.handle.is_alive())
     }
+}
+
+/// A provider task a dead runtime left open, retired with a `stopped` end (Synara
+/// `RestartOrphanedTask`, startupTurnReconciliation.ts:273).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RestartOrphanedTask {
+    pub task_id: String,
+    pub tool_use_id: Option<String>,
+    pub workflow_task_id: Option<String>,
+    pub turn_id: Option<TurnId>,
+}
+
+struct OpenTask {
+    started_at: crate::contracts::base::IsoDateTime,
+    turn_id: Option<TurnId>,
+    // Present only while the task's own start is still open, so a re-listed task that already
+    // ended cannot rewrite its launching call's outcome.
+    tool_use_id: Option<String>,
+    workflow_task_id: Option<String>,
+}
+
+fn task_payload_string(record: Option<&Value>, key: &str) -> Option<String> {
+    record?.get(key)?.as_str().map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned)
+}
+
+/// Synara `findRestartOrphanedTasks` (startupTurnReconciliation.ts:309): tasks still open in a
+/// thread's activity log that started before this run. Provider runtimes live in-process, so
+/// none of them can still be running, and without an end the page keeps counting them as running
+/// agents or background work. A start, a "moved to background" patch or notice opens a task; a
+/// completion or a terminal/paused status patch closes it.
+pub(crate) fn find_restart_orphaned_tasks(
+    activities: &[OrchestrationThreadActivity],
+    started_before: &str,
+) -> Vec<RestartOrphanedTask> {
+    // Insertion order, as Synara's Map.
+    let mut open: Vec<(String, OpenTask)> = Vec::new();
+    fn open_if_unknown(open: &mut Vec<(String, OpenTask)>, task_id: String, activity: &OrchestrationThreadActivity) {
+        if !open.iter().any(|(id, _)| *id == task_id) {
+            open.push((
+                task_id,
+                OpenTask {
+                    started_at: activity.created_at.clone(),
+                    turn_id: activity.turn_id.clone(),
+                    tool_use_id: None,
+                    workflow_task_id: None,
+                },
+            ));
+        }
+    }
+    for activity in activities {
+        let payload = Some(&activity.payload).filter(|p| p.is_object());
+        if activity.kind == "runtime.warning" {
+            if payload.and_then(|p| p.get("nativeEventType")).and_then(Value::as_str) != Some("background_tasks_changed") {
+                continue;
+            }
+            let Some(tasks) = payload.and_then(|p| p.get("data")).and_then(|d| d.get("tasks")).and_then(Value::as_array) else {
+                continue;
+            };
+            for task in tasks {
+                if let Some(task_id) = task_payload_string(Some(task).filter(|t| t.is_object()), "task_id") {
+                    open_if_unknown(&mut open, task_id, activity);
+                }
+            }
+            continue;
+        }
+        let Some(task_id) = task_payload_string(payload, "taskId") else { continue };
+        match activity.kind.as_str() {
+            "task.started" => {
+                let task = OpenTask {
+                    started_at: activity.created_at.clone(),
+                    turn_id: activity.turn_id.clone(),
+                    tool_use_id: task_payload_string(payload, "toolUseId"),
+                    workflow_task_id: task_payload_string(payload, "workflowTaskId"),
+                };
+                match open.iter_mut().find(|(id, _)| *id == task_id) {
+                    Some((_, existing)) => *existing = task,
+                    None => open.push((task_id, task)),
+                }
+            }
+            "task.completed" => open.retain(|(id, _)| *id != task_id),
+            "task.updated" => {
+                let status = task_payload_string(payload, "status");
+                if matches!(status.as_deref(), Some("completed" | "failed" | "killed" | "paused")) {
+                    open.retain(|(id, _)| *id != task_id);
+                } else if payload.and_then(|p| p.get("isBackgrounded")) == Some(&Value::Bool(true)) {
+                    open_if_unknown(&mut open, task_id, activity);
+                }
+            }
+            _ => {}
+        }
+    }
+    open.into_iter()
+        .filter(|(_, task)| task.started_at.as_str() < started_before)
+        .map(|(task_id, task)| RestartOrphanedTask {
+            task_id,
+            tool_use_id: task.tool_use_id,
+            workflow_task_id: task.workflow_task_id,
+            turn_id: task.turn_id,
+        })
+        .collect()
+}
+
+/// Synara `planOrphanedTaskCommands` (startupTurnReconciliation.ts:370). Activities are ordered
+/// by sequence first, so the end continues the thread's sequence rather than sorting before its
+/// start.
+fn plan_orphaned_task_commands(thread: &OrchestrationThread, started_before: &str, now: &str) -> Vec<OrchestrationCommand> {
+    let last_sequence = thread.activities.iter().filter_map(|a| a.sequence).max();
+    find_restart_orphaned_tasks(&thread.activities, started_before)
+        .into_iter()
+        .enumerate()
+        .map(|(index, task)| {
+            let command_key = format!("restart-reconcile-task:{}:{}:{now}", thread.id, task.task_id);
+            let mut payload = json!({ "taskId": task.task_id, "status": "stopped" });
+            if let Some(tool_use_id) = task.tool_use_id {
+                payload["toolUseId"] = json!(tool_use_id);
+            }
+            if let Some(workflow_task_id) = task.workflow_task_id {
+                payload["workflowTaskId"] = json!(workflow_task_id);
+            }
+            InternalThreadCommand::ActivityAppend(ThreadActivityAppendCommand {
+                require_unarchived: None,
+                command_id: crate::contracts::base::CommandId::new(command_key.clone()),
+                thread_id: thread.id.clone(),
+                activity: OrchestrationThreadActivity {
+                    id: crate::contracts::base::EventId::new(command_key),
+                    tone: OrchestrationThreadActivityTone::Info,
+                    kind: "task.completed".into(),
+                    summary: "Task stopped".into(),
+                    payload,
+                    turn_id: task.turn_id,
+                    sequence: last_sequence.map(|last| last + 1 + index as u64),
+                    created_at: crate::contracts::base::IsoDateTime::new(now),
+                },
+                created_at: crate::contracts::base::IsoDateTime::new(now),
+            })
+            .into()
+        })
+        .collect()
 }
 
 /// A batch made only of streamed assistant text is saved on a timer rather than at once.
@@ -1348,5 +1682,81 @@ pub(super) fn send_turn_input(
         mentions: message.mentions.clone(),
         model_selection: Some(model_selection.clone()),
         interaction_mode: Some(interaction_mode),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BOOT: &str = "2026-06-13T09:00:30.000Z";
+
+    fn task(id: &str, kind: &str, payload: Value, sequence: u64, turn_id: Option<&str>) -> OrchestrationThreadActivity {
+        OrchestrationThreadActivity {
+            id: crate::contracts::base::EventId::new(id),
+            tone: OrchestrationThreadActivityTone::Info,
+            kind: kind.into(),
+            summary: kind.into(),
+            payload,
+            turn_id: turn_id.map(TurnId::new),
+            sequence: Some(sequence),
+            created_at: crate::contracts::base::IsoDateTime::new("2026-06-13T09:00:00.000Z"),
+        }
+    }
+
+    /// Synara startupTurnReconciliation.test.ts "keeps tasks opened before boot that never ended".
+    #[test]
+    fn keeps_tasks_opened_before_boot_that_never_ended() {
+        let activities = [
+            task("a", "task.started", json!({ "taskId": "agent", "toolUseId": "toolu_agent", "workflowTaskId": "wf" }), 1, Some("turn-1")),
+            task("b", "task.started", json!({ "taskId": "done" }), 2, None),
+            task("c", "task.completed", json!({ "taskId": "done", "status": "completed" }), 3, None),
+            task("d", "task.started", json!({ "taskId": "paused" }), 4, None),
+            task("e", "task.updated", json!({ "taskId": "paused", "status": "paused" }), 5, None),
+            task("f", "task.updated", json!({ "taskId": "moved", "isBackgrounded": true }), 6, None),
+            task(
+                "g",
+                "runtime.warning",
+                json!({ "nativeEventType": "background_tasks_changed", "data": { "tasks": [{ "task_id": "noticed", "task_type": "local_bash" }] } }),
+                7,
+                None,
+            ),
+        ];
+        let open = |task_id: &str| RestartOrphanedTask { task_id: task_id.into(), tool_use_id: None, workflow_task_id: None, turn_id: None };
+        assert_eq!(
+            find_restart_orphaned_tasks(&activities, BOOT),
+            [
+                RestartOrphanedTask {
+                    task_id: "agent".into(),
+                    tool_use_id: Some("toolu_agent".into()),
+                    workflow_task_id: Some("wf".into()),
+                    turn_id: Some(TurnId::new("turn-1")),
+                },
+                open("moved"),
+                open("noticed"),
+            ]
+        );
+    }
+
+    /// Synara "does not name the launching call of a task re-listed after it ended".
+    #[test]
+    fn a_task_relisted_after_it_ended_is_retired_without_its_launching_call() {
+        let activities = [
+            task("a", "task.started", json!({ "taskId": "agent", "toolUseId": "toolu_agent" }), 1, None),
+            task("b", "task.completed", json!({ "taskId": "agent", "status": "completed" }), 2, None),
+            task("c", "runtime.warning", json!({ "nativeEventType": "background_tasks_changed", "data": { "tasks": [{ "task_id": "agent" }] } }), 3, None),
+        ];
+        assert_eq!(
+            find_restart_orphaned_tasks(&activities, BOOT),
+            [RestartOrphanedTask { task_id: "agent".into(), tool_use_id: None, workflow_task_id: None, turn_id: None }]
+        );
+    }
+
+    /// Synara "leaves work started by this process alone".
+    #[test]
+    fn leaves_work_started_by_this_run_alone() {
+        let mut live = task("a", "task.started", json!({ "taskId": "live" }), 1, None);
+        live.created_at = crate::contracts::base::IsoDateTime::new(BOOT);
+        assert!(find_restart_orphaned_tasks(&[live], BOOT).is_empty());
     }
 }

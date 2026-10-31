@@ -49,6 +49,7 @@ use super::app_server_manager::{
     CodexAppServerSendTurnInput, CodexAppServerStartSessionInput,
 };
 use super::turn_input::CodexImageInputItem;
+use crate::orchestration::activity_projection::sanitize_user_facing_error_message;
 
 const PROVIDER: ProviderKind = ProviderKind::Codex;
 
@@ -60,10 +61,15 @@ const MAX_UNMAPPED_PROVIDER_PREVIEW_CHARS: usize = 2_000;
 const MAX_UNMAPPED_TRACKED_BURSTS: usize = 128;
 const REDACTED_VALUE: &str = "[REDACTED]";
 
-/// Synara `DIAGNOSTIC_ONLY_CODEX_METHODS` (CodexAdapter.ts:1097): configuration and lifecycle
-/// bookkeeping that belongs in native diagnostics, not the transcript.
-const DIAGNOSTIC_ONLY_CODEX_METHODS: &[&str] =
-    &["remoteControl/status/changed", "skills/changed", "session/threadOpenRequested"];
+/// Synara `DIAGNOSTIC_ONLY_CODEX_METHODS` (CodexAdapter.ts:1173): internal metadata and
+/// configuration/lifecycle bookkeeping stay in native diagnostics, not the transcript.
+const DIAGNOSTIC_ONLY_CODEX_METHODS: &[&str] = &[
+    "turn/moderationMetadata",
+    "item/autoApprovalReview/started",
+    "remoteControl/status/changed",
+    "skills/changed",
+    "session/threadOpenRequested",
+];
 
 /// The Codex adapter. `attachments_dir` is where chat attachments are stored by id (Synara's
 /// `serverConfig.attachmentsDir`); without one, a turn with attachments is refused.
@@ -335,18 +341,14 @@ fn start_session_input(input: &ProviderSessionStartInput) -> CodexAppServerStart
         fork_source_resume_cursor: input.fork_source_resume_cursor.clone(),
         provider_options: input.provider_options.clone(),
         runtime_mode: input.runtime_mode,
+        agent_gateway: input.agent_gateway.clone(),
     }
 }
 
-/// Synara `toRequestError` / `toMessage` (CodexAdapter.ts:165-250): the first line of the cause.
+/// Synara `toRequestError` / `toMessage` (CodexAdapter.ts:165-250): the cause made readable, its
+/// first line without an inline stack frame (the shared `sanitizeUserFacingErrorMessage`, 3f55b77ef).
 fn to_request_error(method: &str, cause: anyhow::Error) -> anyhow::Error {
-    let message = cause.to_string();
-    let first_line = message.trim().lines().next().unwrap_or_default().trim().to_string();
-    if first_line.is_empty() {
-        anyhow!("{method} failed")
-    } else {
-        anyhow!(first_line)
-    }
+    anyhow!(sanitize_user_facing_error_message(&cause.to_string(), &format!("{method} failed")))
 }
 
 fn synthetic_event(thread_id: &ThreadId, turn_id: Option<TurnId>, body: ProviderRuntimeEventBody) -> ProviderRuntimeEvent {
@@ -1259,13 +1261,22 @@ pub fn map_to_runtime_events(event: &ProviderEvent, canonical_thread_id: &Thread
                 tasks,
             }))
         }
-        "turn/diff/updated" => one(ProviderRuntimeEventBody::TurnDiffUpdated(TurnDiffUpdatedPayload {
-            unified_diff: as_str(payload, "unifiedDiff")
+        // Keep the cumulative body once (CodexAdapter.ts:1544): the raw payload records only its
+        // original UTF-8 size.
+        "turn/diff/updated" => {
+            let unified_diff = as_str(payload, "unifiedDiff")
                 .or_else(|| as_str(payload, "diff"))
                 .or_else(|| as_str(payload, "patch"))
                 .unwrap_or_default()
-                .to_string(),
-        })),
+                .to_string();
+            let mut event = base().minimal_raw().with(ProviderRuntimeEventBody::TurnDiffUpdated(TurnDiffUpdatedPayload {
+                unified_diff: unified_diff.clone(),
+            }));
+            if let Some(raw) = event.raw.as_mut() {
+                raw.payload = json!({ "unifiedDiffBytes": unified_diff.len() });
+            }
+            vec![event]
+        }
         "item/started" => map_item_lifecycle(event, canonical_thread_id, ItemLifecycle::Started).into_iter().collect(),
         "item/completed" => {
             let Some(source) = get(payload, "item").filter(|item| item.is_object()).or(payload) else {
@@ -1353,6 +1364,7 @@ pub fn map_to_runtime_events(event: &ProviderEvent, canonical_thread_id: &Thread
                         usage: None,
                         workflow_task_id: None,
                         workflow_agents: None,
+                        tool_use_id: None,
                     },
                 )));
             }
@@ -1404,6 +1416,21 @@ pub fn map_to_runtime_events(event: &ProviderEvent, canonical_thread_id: &Thread
             summary: as_trimmed(payload, "summary").unwrap_or("Deprecation notice").to_string(),
             details: as_trimmed(payload, "details").map(str::to_string),
         })),
+        // Synara `CODEX_RUNTIME_WARNING_METHODS` (CodexAdapter.ts:107, 1842): a guardian or
+        // runtime warning (a hook that needs attention) is a warning row; an approval review's
+        // approval is not news.
+        "guardianWarning" | "warning" => {
+            let message = as_trimmed(payload, "message");
+            if event.method == "guardianWarning" && message.is_some_and(|m| m.starts_with("Automatic approval review approved (")) {
+                return Vec::new();
+            }
+            vec![base().minimal_raw().with(ProviderRuntimeEventBody::RuntimeWarning(RuntimeWarningPayload {
+                message: message
+                    .map(|message| sanitize_unmapped_provider_detail_with(message, 2_000))
+                    .unwrap_or_else(|| "Codex runtime warning".into()),
+                detail: event.payload.as_ref().map(sanitize_unmapped_provider_data),
+            }))]
+        }
         "configWarning" => one(ProviderRuntimeEventBody::ConfigWarning(ConfigWarningPayload {
             summary: as_trimmed(payload, "summary").unwrap_or("Configuration warning").to_string(),
             details: as_trimmed(payload, "details").map(str::to_string),
@@ -1468,7 +1495,12 @@ fn truncate_text(value: &str, max_chars: usize) -> String {
 /// Synara `sanitizeUnmappedProviderDetail` (unmappedProviderEvents.ts:518), bounded but without
 /// Synara's in-text credential patterns.
 fn sanitize_unmapped_provider_detail(value: &str) -> String {
-    truncate_text(value, MAX_UNMAPPED_PROVIDER_DETAIL_CHARS)
+    sanitize_unmapped_provider_detail_with(value, MAX_UNMAPPED_PROVIDER_DETAIL_CHARS)
+}
+
+/// [`sanitize_unmapped_provider_detail`] with Synara's `maxChars`.
+fn sanitize_unmapped_provider_detail_with(value: &str, max_chars: usize) -> String {
+    truncate_text(value, max_chars)
 }
 
 /// Synara `sanitizeUnmappedProviderData` (unmappedProviderEvents.ts:505): sensitive keys are
@@ -1526,6 +1558,14 @@ fn is_sensitive_key(key: &str) -> bool {
 mod tests {
     use super::*;
     use crate::contracts::base::ProviderDriverKind;
+
+    /// 3f55b77ef: a request error reads as its cause's first line, without an inline stack frame.
+    #[test]
+    fn request_errors_are_readable() {
+        let error = to_request_error("turn/start", anyhow!("Model unavailable at handler (/app/codex.js:10:5)\nmore"));
+        assert_eq!(error.to_string(), "Model unavailable");
+        assert_eq!(to_request_error("turn/start", anyhow!("  ")).to_string(), "turn/start failed");
+    }
 
     fn notification(method: &str, payload: Value) -> ProviderEvent {
         ProviderEvent {
@@ -1623,6 +1663,7 @@ mod tests {
 
         let diff = map_to_runtime_events(&notification("turn/diff/updated", json!({ "diff": "--- a" })), &ThreadId::new("thread"));
         assert_eq!(kind(&diff[0]), "turn.diff.updated");
+        assert_eq!(diff[0].raw.as_ref().unwrap().payload, json!({ "unifiedDiffBytes": 5 }), "the body is kept once");
 
         let limits = map_to_runtime_events(
             &notification("account/rateLimits/updated", json!({ "rateLimits": { "primary": {} } })),
@@ -1666,6 +1707,74 @@ mod tests {
         assert_eq!(data, json!({ "apiKey": REDACTED_VALUE, "nested": { "accessToken": REDACTED_VALUE, "ok": 1 } }));
         let big = sanitize_unmapped_provider_data(&json!({ "text": "x".repeat(20_000) }));
         assert_eq!(big["__synaraTruncated"], true);
+    }
+
+    #[tokio::test]
+    async fn routine_codex_notifications_stay_out_of_the_activity_stream() {
+        let (provider_tx, provider_rx) = mpsc::channel(16);
+        let (sink, mut runtime) = mpsc::channel(16);
+        let forwarder = tokio::spawn(forward_runtime_events(provider_rx, sink));
+        let emit = |method: &str, kind: ProviderEventKind| {
+            let mut event = notification(method, json!({ "threadId": "thread", "turnId": "turn" }));
+            event.kind = kind;
+            if kind == ProviderEventKind::Error {
+                event.message = Some(format!("{method} failed"));
+            }
+            event
+        };
+        for (method, kind) in [
+            ("remoteControl/status/changed", ProviderEventKind::Notification),
+            ("skills/changed", ProviderEventKind::Notification),
+            ("item/autoApprovalReview/started", ProviderEventKind::Notification),
+            ("turn/moderationMetadata", ProviderEventKind::Notification),
+            ("turn/moderationMetadata", ProviderEventKind::Notification),
+            // Real errors and useful unknown events must survive the filter.
+            ("session/threadOpenRequested", ProviderEventKind::Error),
+            ("turn/moderationMetadata", ProviderEventKind::Error),
+            ("item/future/completed", ProviderEventKind::Notification),
+        ] {
+            provider_tx.send(emit(method, kind)).await.unwrap();
+        }
+        drop(provider_tx);
+        forwarder.await.unwrap();
+        let mut kinds = Vec::new();
+        while let Some(event) = runtime.recv().await {
+            if let ProviderRuntimeEventBody::EventUnmapped(payload) = &event.body {
+                assert_eq!(payload.native_type, "item/future/completed");
+            }
+            kinds.push(kind(&event));
+        }
+        assert_eq!(kinds, ["runtime.error", "runtime.error", "event.unmapped"]);
+    }
+
+    /// d5a91276b: Codex's guardian and runtime warnings are warning activities, named by their
+    /// method; an approval review's approval is dropped.
+    #[test]
+    fn retains_codex_guardian_and_runtime_warning_messages_as_warning_activities() {
+        let long = "Automatic approval review is unavailable. ".repeat(15).trim().to_owned();
+        for (method, message) in [("guardianWarning", long.as_str()), ("warning", "Hook needs attention")] {
+            let mut event = notification(method, json!({ "threadId": "native-thread-1", "message": format!("  {message}\n") }));
+            event.turn_id = None;
+            let events = map_to_runtime_events(&event, &ThreadId::new("thread"));
+            let [runtime] = events.as_slice() else { panic!("{events:?}") };
+            let ProviderRuntimeEventBody::RuntimeWarning(payload) = &runtime.body else { panic!("{runtime:?}") };
+            assert_eq!(payload.message, message);
+            assert_eq!(runtime.raw.as_ref().unwrap().payload, json!({}), "the raw payload is minimal");
+            let activities = crate::orchestration::activity_projection::project_provider_runtime_activities(runtime, None);
+            let [activity] = activities.as_slice() else { panic!("{activities:?}") };
+            assert_eq!(activity.kind, "runtime.warning");
+            assert_eq!(
+                activity.payload,
+                json!({
+                    "message": message,
+                    "detail": message,
+                    "nativeEventType": format!("codex.{method}"),
+                    "data": { "threadId": "native-thread-1", "message": format!("  {message}\n") },
+                })
+            );
+        }
+        let approved = notification("guardianWarning", json!({ "message": "Automatic approval review approved (risk: low): ok" }));
+        assert!(map_to_runtime_events(&approved, &ThreadId::new("thread")).is_empty());
     }
 
     #[test]

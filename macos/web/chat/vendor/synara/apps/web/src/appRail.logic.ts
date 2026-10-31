@@ -18,14 +18,11 @@ import {
 import { normalizeIdOrder, normalizeKnownIds, placeNewIdAfter } from "./lib/orderedIds";
 import type { SidebarNavItemId } from "./sidebarNavOrdering";
 import type { Space } from "./types";
+import { t } from "~/i18n";
 
 /** Rail items that switch the panel content instead of navigating. */
 export const RAIL_PANEL_ITEM_IDS = ["home", "spaces"] as const;
 export type RailPanelItemId = (typeof RAIL_PANEL_ITEM_IDS)[number];
-export const RAIL_PANEL_ITEM_LABELS: Record<RailPanelItemId, string> = {
-  home: "Home",
-  spaces: "Spaces",
-};
 /**
  * Rail items that navigate to a route. "New thread" stays in the panel, never the rail;
  * Inbox is available in Stable and Beta (see INBOX_ON).
@@ -34,8 +31,9 @@ export type RailRouteItemId = Exclude<SidebarNavItemId, "newThread"> | "studio" 
 export type RailItemId = RailPanelItemId | RailRouteItemId;
 
 /**
- * Rail items the user orders and hides from Customize. Settings stays pinned at the bottom;
- * Studio is also reachable from the "…" menu, so it starts hidden.
+ * Rail items the user orders and hides from Customize. Settings stays pinned at the bottom.
+ * Hubs ("studio") is shown by default like the rest; see HUBS_RAIL_DEFAULT_MIGRATION_STORAGE_KEY
+ * for settings saved while it started hidden.
  */
 export const RAIL_ORDERABLE_ITEM_IDS = [
   "home",
@@ -48,7 +46,7 @@ export const RAIL_ORDERABLE_ITEM_IDS = [
   "studio",
 ] as const;
 export type RailOrderableItemId = (typeof RAIL_ORDERABLE_ITEM_IDS)[number];
-export const DEFAULT_HIDDEN_RAIL_ITEMS: readonly RailOrderableItemId[] = ["studio"];
+export const DEFAULT_HIDDEN_RAIL_ITEMS: readonly RailOrderableItemId[] = [];
 
 const RAIL_ORDERABLE_ITEM_ID_SET: ReadonlySet<string> = new Set(RAIL_ORDERABLE_ITEM_IDS);
 
@@ -242,14 +240,17 @@ export interface RailSpacesSection<T> {
  * their empty state; an empty Void is dropped because it is only the unfiled bucket,
  * unless it is the only section there is.
  */
-export function buildRailSpacesSections<T>(input: {
-  items: ReadonlyArray<T>;
-  spaces: ReadonlyArray<Space>;
-  activeSpaceId: SpaceId | null;
-  spaceIdOf: (item: T) => SpaceId | null;
-  voidSpace: VoidSpacePresentation;
-}): RailSpacesSection<T>[] {
-  const groups = groupItemsBySpace(input);
+export function buildRailSpacesSections<T>(
+  input: {
+    items: ReadonlyArray<T>;
+    spaces: ReadonlyArray<Space>;
+    activeSpaceId: SpaceId | null;
+    spaceIdOf: (item: T) => SpaceId | null;
+    voidSpace: VoidSpacePresentation;
+  },
+  translate: typeof t = t,
+): RailSpacesSection<T>[] {
+  const groups = groupItemsBySpace(input, translate);
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
   const orderedKeys = new Set<string>();
   const sections: RailSpacesSection<T>[] = [];
@@ -261,7 +262,7 @@ export function buildRailSpacesSections<T>(input: {
     sections.push({
       key,
       spaceId,
-      name: group?.name ?? spaceDisplayName(spaceId, input.spaces, input.voidSpace),
+      name: group?.name ?? spaceDisplayName(spaceId, input.spaces, input.voidSpace, translate),
       items: group?.items ?? [],
     });
   }

@@ -140,6 +140,16 @@ pub enum Event {
     Remote { peer: String, relayed: Value },
     /// Whether a paired Mac answers changed: `connecting`, `online`, `offline`, `revoked` or `changed`.
     RemotePeer { peer: String, reach: &'static str },
+    /// What an owner's Simulator pane shows changed (`device::manager::OwnerDeviceState`). The
+    /// owner is the working folder the pane's session or chat works in.
+    Device { owner: String, state: Value },
+    /// An agent drove a device: the owner's Simulator pane should open on it. Once per owner and
+    /// device.
+    DeviceOpenPane {
+        owner: String,
+        udid: String,
+        reason: crate::device::manager::OpenPaneReason,
+    },
 }
 
 impl Event {
@@ -278,6 +288,18 @@ mod tests {
         assert_eq!(
             Value::from(Event::ChatRemoved { thread_id: "t".into() }),
             json!({"type":"chat-removed","threadId":"t"})
+        );
+        assert_eq!(
+            Value::from(Event::Device { owner: "/w".into(), state: json!({"version": 1}) }),
+            json!({"type":"device","owner":"/w","state":{"version":1}})
+        );
+        assert_eq!(
+            Value::from(Event::DeviceOpenPane {
+                owner: "/w".into(),
+                udid: "U".into(),
+                reason: crate::device::manager::OpenPaneReason::AgentLaunch
+            }),
+            json!({"type":"device-open-pane","owner":"/w","udid":"U","reason":"agent-launch"})
         );
     }
 }

@@ -9,8 +9,12 @@
 import { mergeSharedValue } from "./storageMerge";
 
 /** Synara's composer drafts (composerDraftDomain.ts COMPOSER_DRAFT_STORAGE_KEY): every thread's
- *  draft and queued follow-ups, persisted whole. */
-export const SHARED_KEYS: ReadonlySet<string> = new Set(["synara:composer-drafts:v1"]);
+ *  draft and queued follow-ups, persisted whole; and the turn diff's layout per thread
+ *  (diffRenderModeStore.ts THREAD_DIFF_RENDER_MODE_STORAGE_KEY), persisted whole the same way. */
+export const SHARED_KEYS: ReadonlySet<string> = new Set([
+  "synara:composer-drafts:v1",
+  "synara:diff-render-mode-by-thread:v1",
+]);
 
 function usable(storage: Storage | undefined): boolean {
   try {

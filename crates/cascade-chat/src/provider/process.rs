@@ -62,6 +62,16 @@ impl Spawner for ProcessSpawner {
             .process_group(0)
             .kill_on_drop(true);
         if let Some(cwd) = &spec.cwd {
+            // Synara `WorkingDirectoryNotFoundError` (packages/shared/src/platformProcess.ts):
+            // spawning into a missing folder fails with ENOENT, which reads as a missing CLI.
+            // Name the folder instead. Other stat failures are left to the spawn itself.
+            let missing = match std::fs::metadata(cwd) {
+                Ok(metadata) => !metadata.is_dir(),
+                Err(error) => error.kind() == io::ErrorKind::NotFound,
+            };
+            if missing {
+                return Err(io::Error::new(io::ErrorKind::NotFound, format!("Working directory not found: {}", cwd.display())));
+            }
             command.current_dir(cwd);
         }
         for key in &spec.env_remove {
@@ -266,6 +276,19 @@ mod tests {
     fn alive(pid: libc::pid_t) -> bool {
         // SAFETY: signal 0 only asks whether the process exists.
         unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// 4cd66c35d: a spawn into a folder that is gone names the folder, not a missing program.
+    #[tokio::test]
+    async fn a_missing_working_directory_is_reported_before_spawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        std::fs::write(&file, "").unwrap();
+        for cwd in [dir.path().join("gone"), file] {
+            let spec = SpawnSpec { program: "/bin/sh".into(), cwd: Some(cwd.clone()), ..SpawnSpec::default() };
+            let Err(error) = ProcessSpawner.spawn(&spec) else { panic!("spawned into {}", cwd.display()) };
+            assert_eq!(error.to_string(), format!("Working directory not found: {}", cwd.display()));
+        }
     }
 
     #[tokio::test]

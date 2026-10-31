@@ -35,6 +35,7 @@ extension AppViewModel: WorkspaceCoordinating {
         let title = context.id == "scratch" ? String(localized: "Terminal") : session?.label ?? String(localized: "Session")
         return SessionWorkspaceState(session: session, project: project, terminal: terminals[context.id],
             buildTerminal: terminals["build:\(context.sourceURL)"], build: buildModels[context.id],
+            simulator: simulatorModels[context.id],
             history: historyModels[context.id], diff: diffModels[context.id],
             appearance: shell.appearance, documentFont: shell.font(.diff), editorStyle: shell.editorStyle, terminalStyle: shell.terminalStyle, connected: connection == "Connected",
             changingSession: session.map { changingSessions.contains($0.id) } ?? false,

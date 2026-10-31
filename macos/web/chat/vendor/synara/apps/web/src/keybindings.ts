@@ -88,6 +88,21 @@ const whenModChordAllowed = whenOr(whenNotTerminalFocus, whenIdentifier("isMac")
 
 export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
+    command: "thread.archive",
+    shortcut: commandShortcut("a", { altKey: true, shiftKey: true }),
+    whenAst: whenModChordAllowed,
+  },
+  {
+    command: "thread.snooze",
+    shortcut: commandShortcut("s", { altKey: true, shiftKey: true }),
+    whenAst: whenModChordAllowed,
+  },
+  {
+    command: "thread.markUnread",
+    shortcut: commandShortcut("u", { altKey: true, shiftKey: true }),
+    whenAst: whenModChordAllowed,
+  },
+  {
     command: "sidechat.toggle",
     shortcut: commandShortcut("s", { altKey: true }),
     whenAst: whenModChordAllowed,
@@ -95,6 +110,11 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "sidebar.activity",
     shortcut: commandShortcut("u", { altKey: true }),
+    whenAst: whenModChordAllowed,
+  },
+  {
+    command: "chat.attention.next",
+    shortcut: commandShortcut("a", { altKey: true }),
     whenAst: whenModChordAllowed,
   },
   {
@@ -208,6 +228,16 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     whenAst: whenNotTerminalFocus,
   },
   {
+    command: "search.files",
+    shortcut: commandShortcut("p"),
+    whenAst: whenNotTerminalFocus,
+  },
+  {
+    command: "search.content",
+    shortcut: commandShortcut("f", { shiftKey: true }),
+    whenAst: whenNotTerminalFocus,
+  },
+  {
     command: "settings.usage",
     shortcut: commandShortcut("u", { shiftKey: true }),
     whenAst: whenNotTerminalFocus,
@@ -245,6 +275,13 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     command: "threadTab.previous",
     shortcut: commandShortcut("pageup", { ctrlKey: true, modKey: false }),
     whenAst: whenAnd(whenNotTerminalFocus, whenNot(whenIdentifier("isMac"))),
+  },
+  // Terminal focus keeps mod+w for terminal.close and the workspace keeps it for
+  // closeActive; everywhere else it closes the active open-thread tab.
+  {
+    command: "threadTab.close",
+    shortcut: commandShortcut("w"),
+    whenAst: whenAnd(whenNotTerminalFocus, whenNot(whenIdentifier("terminalWorkspaceOpen"))),
   },
   // Numbered space jumps target the switcher's visual tab order (mod+alt+1 = Void).
   // Same guard as the creation chords: Cmd+Alt never reaches the PTY on macOS, while
@@ -326,6 +363,32 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
   {
     command: "editor.file.save",
     shortcut: commandShortcut("s"),
+    whenAst: whenNotTerminalFocus,
+  },
+  // In-app code editor; mirrors the server defaults. F-keys take no `mod`, so they are
+  // the same chord on every platform. Go to symbol, Go to line and Show problems ship
+  // unassigned.
+  ...(
+    [
+      ["editor.commands", "f1", false],
+      ["editor.rename", "f2", false],
+      ["editor.goToDefinition", "f12", false],
+      ["editor.findReferences", "f12", true],
+      ["editor.debug.start", "f5", false],
+      ["editor.debug.stop", "f5", true],
+      ["editor.debug.toggleBreakpoint", "f9", false],
+      ["editor.debug.stepOver", "f10", false],
+      ["editor.debug.stepInto", "f11", false],
+      ["editor.debug.stepOut", "f11", true],
+    ] as const
+  ).map(([command, key, shiftKey]) => ({
+    command,
+    shortcut: commandShortcut(key, { shiftKey, modKey: false }),
+    whenAst: whenNotTerminalFocus,
+  })),
+  {
+    command: "editor.quickFix",
+    shortcut: commandShortcut("."),
     whenAst: whenNotTerminalFocus,
   },
 ];
@@ -549,7 +612,9 @@ export function findEffectiveKeybindingForCommand(
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {
     const binding = keybindings[index];
-    if (!binding || isUnassignedKeybinding(binding)) continue;
+    // Retired split bindings must not consume shell shortcuts from older configs.
+    if (!binding || isUnassignedKeybinding(binding) || binding.command.startsWith("terminal.split"))
+      continue;
     if (!matchesWhenClause(binding.whenAst, context)) continue;
 
     const conflictKey = shortcutConflictKey(binding.shortcut, platform);
@@ -610,7 +675,9 @@ function resolveShortcutCommandFromBindings(
 
   for (let index = keybindings.length - 1; index >= 0; index -= 1) {
     const binding = keybindings[index];
-    if (!binding || isUnassignedKeybinding(binding)) continue;
+    // Retired split bindings must not consume shell shortcuts from older configs.
+    if (!binding || isUnassignedKeybinding(binding) || binding.command.startsWith("terminal.split"))
+      continue;
     if (!matchesWhenClause(binding.whenAst, context)) continue;
     if (!matchesShortcut(event, binding.shortcut, platform)) continue;
     return binding.command;
@@ -812,6 +879,43 @@ export function isEditorFileSaveShortcut(
   options?: ShortcutMatchOptions,
 ): boolean {
   return matchesCommandShortcut(event, keybindings, "editor.file.save", options);
+}
+
+/** The built-in commands the in-app code editor runs from its own keydown handler. */
+export const EDITOR_SHORTCUT_COMMANDS = [
+  "editor.commands",
+  "editor.rename",
+  "editor.goToDefinition",
+  "editor.findReferences",
+  "editor.goToSymbol",
+  "editor.goToLine",
+  "editor.problems",
+  "editor.quickFix",
+  "editor.debug.start",
+  "editor.debug.stop",
+  "editor.debug.toggleBreakpoint",
+  "editor.debug.stepOver",
+  "editor.debug.stepInto",
+  "editor.debug.stepOut",
+] as const satisfies readonly KeybindingCommand[];
+export type EditorShortcutCommand = (typeof EDITOR_SHORTCUT_COMMANDS)[number];
+
+const EDITOR_SHORTCUT_COMMAND_SET: ReadonlySet<string> = new Set(EDITOR_SHORTCUT_COMMANDS);
+
+/**
+ * The code-editor command a key press runs, or null when it runs nothing or a command
+ * outside the editor. Resolves across every binding, so a chord another command holds
+ * stays with that command.
+ */
+export function resolveEditorShortcutCommand(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): EditorShortcutCommand | null {
+  const command = resolveShortcutCommand(event, keybindings, options);
+  return command !== null && EDITOR_SHORTCUT_COMMAND_SET.has(command)
+    ? (command as EditorShortcutCommand)
+    : null;
 }
 
 export function isTerminalClearShortcut(event: ShortcutEventLike): boolean {

@@ -35,6 +35,7 @@ export const FORWARDED = new Set([
   "orchestration.getTurnDiff",
   "orchestration.getFullThreadDiff",
   "orchestration.getShellSnapshot",
+  "orchestration.getInlineVisual",
   "provider.getComposerCapabilities",
   "provider.listCommands",
   "provider.listSkills",

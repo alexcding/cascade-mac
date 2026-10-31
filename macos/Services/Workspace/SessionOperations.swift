@@ -18,14 +18,17 @@ enum SessionAgent: String, CaseIterable, Identifiable, Sendable {
     /// `forking` is a fork's source, as the backend gave it, and the fork's worktree: the conversation
     /// starts as a copy of the source's, working in that worktree.
     /// `launch` is the model and effort a new conversation starts on; a resumed one keeps its own.
+    /// `gatewayProxy` is the app's `cascade-mcp-proxy.sh`: the agent is given the app's MCP server.
     func command(sessionID: String?, fresh: Bool = false, statusLine: AgentStatusLine? = nil, prompt: String? = nil,
-                 forking: (source: String, directory: String)? = nil, launch: AgentLaunchChoice? = nil) -> String? {
+                 forking: (source: String, directory: String)? = nil, launch: AgentLaunchChoice? = nil,
+                 gatewayProxy: String? = nil) -> String? {
         guard let driver else { return nil }
-        let command = if let forking {
+        var command = if let forking {
             driver.forkCommand(from: forking.source, in: forking.directory, sessionID: sessionID, statusLine: statusLine)
         } else {
             driver.launchCommand(sessionID: sessionID, fresh: fresh, selection: launch?.model, effort: launch?.effort, statusLine: statusLine)
         }
+        if let gatewayProxy { command += " " + driver.gatewayArguments(proxy: gatewayProxy) }
         guard let prompt = Self.launchPrompt(prompt) else { return command }
         return command + " " + Self.quotePrompt(prompt)
     }

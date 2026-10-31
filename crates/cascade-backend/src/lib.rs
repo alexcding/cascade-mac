@@ -3,10 +3,12 @@ mod automation;
 pub mod chat;
 pub mod cli;
 mod db;
+mod device;
 mod domain;
 mod error;
 pub mod event;
 mod fork;
+pub mod gateway;
 pub mod ffi;
 mod github;
 mod http_client;
@@ -21,7 +23,6 @@ mod remote;
 mod routes;
 mod sessions;
 mod settings_file;
-mod sim_preview;
 mod tickets;
 mod usage;
 mod warmup;
@@ -60,6 +61,10 @@ pub struct AppState {
     pub chat: Arc<chat::Chat>,
     /// The listener other Macs reach, while it is on (`remote`).
     pub remote: Arc<remote::Remote>,
+    /// The MCP server the agents are given (`gateway`), configured once the port is bound.
+    pub gateway: Arc<gateway::Gateway>,
+    /// The iOS Simulator device manager, once `start_devices` has started it.
+    pub device: Arc<device::service::Devices>,
 }
 
 /// How many events the broadcast keeps for a subscriber that has not read them yet. A chat thread
@@ -85,6 +90,8 @@ impl AppState {
             kept: Arc::new(kept::Kept::default()),
             chat: Arc::new(chat::Chat::default()),
             remote: Arc::new(remote::Remote::default()),
+            gateway: Arc::new(gateway::Gateway::default()),
+            device: Arc::new(device::service::Devices::default()),
         }
     }
 
@@ -115,6 +122,9 @@ pub async fn start_background(state: &AppState, port: u16) {
     remote::resume(state).await;
 }
 
+/// Starts the iOS Simulator device manager (`device::service::start`).
+pub use device::service::{start as start_devices, stop as stop_devices};
+
 pub fn build_app(state: AppState) -> Router {
     let no_store = SetResponseHeaderLayer::overriding(
         header::CACHE_CONTROL,
@@ -123,6 +133,10 @@ pub fn build_app(state: AppState) -> Router {
 
     Router::new()
         .route("/api/backend/health", get(routes::health))
+        .route(
+            gateway::MCP_PATH,
+            post(gateway::mcp::post).get(gateway::mcp::not_allowed).delete(gateway::mcp::not_allowed),
+        )
         .route(
             "/api/config",
             get(routes::get_config).post(routes::set_config),
@@ -187,10 +201,6 @@ pub fn build_app(state: AppState) -> Router {
             get(xcode::build_settings),
         )
         .route(
-            "/api/sim-preview",
-            post(sim_preview::start).delete(sim_preview::stop),
-        )
-        .route(
             "/api/ide/warmup",
             get(warmup::get_warmup).post(warmup::post_warmup),
         )
@@ -240,6 +250,18 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/agent/transcript", get(routes::agent_transcript))
         // Its own limit, past the router's: an attachment comes as base64 (`chat::RPC_BODY_LIMIT`).
         .route("/api/chat/rpc", post(chat::rpc).layer(DefaultBodyLimit::max(chat::RPC_BODY_LIMIT)))
+        .route("/api/device/state", post(device::routes::owner_state))
+        .route("/api/device/list", post(device::routes::list))
+        .route("/api/device/boot", post(device::routes::boot))
+        .route("/api/device/shutdown", post(device::routes::shutdown))
+        .route("/api/device/attach", post(device::routes::attach))
+        .route("/api/device/detach", post(device::routes::detach))
+        .route("/api/device/tap", post(device::routes::tap))
+        .route("/api/device/swipe", post(device::routes::swipe))
+        .route("/api/device/type", post(device::routes::type_text))
+        .route("/api/device/key", post(device::routes::key))
+        .route("/api/device/button", post(device::routes::button))
+        .route("/api/device/frames", post(device::routes::frames))
         .route("/api/agent/commands", get(agents::commands))
         .route("/api/agent/last-hook", get(integrations::last_hook))
         .route("/api/agent/permission", post(agents::permission::answer))

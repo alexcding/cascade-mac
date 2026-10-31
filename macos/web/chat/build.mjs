@@ -166,6 +166,8 @@ execFileSync(join(here, "node_modules/.bin/tailwindcss"), ["-i", join(here, "src
 const bundledCss = existsSync(join(out, "ChatPage.css")) ? readFileSync(join(out, "ChatPage.css"), "utf8") : "";
 writeFileSync(join(out, "ChatPage.css"), `${readFileSync(tailwindOut, "utf8")}\n${bundledCss}`);
 
+// No network (connect-src 'none'). The one frame the page may load is an inline visual's document,
+// which the app serves at cascade-chat://visual/<id>.html (shims/web/components/chat/InlineVisualFrame).
 writeFileSync(
   join(out, "ChatPage.html"),
   `<!doctype html>
@@ -173,7 +175,7 @@ writeFileSync(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src 'self' data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; media-src 'self' data: blob:; frame-src cascade-chat://visual; connect-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Conversation</title>
   <link rel="stylesheet" href="ChatPage.css">
   <script type="module" src="ChatPage.js"></script>

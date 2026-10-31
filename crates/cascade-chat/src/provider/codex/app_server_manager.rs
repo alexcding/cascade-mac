@@ -69,8 +69,16 @@ const BENIGN_ERROR_LOG_SNIPPETS: &[&str] = &[
     "state db missing rollout path for thread",
     "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
-const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS: &[&str] =
-    &["not found", "missing thread", "no such thread", "unknown thread", "does not exist"];
+const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS: &[&str] = &[
+    "not found",
+    // Codex writes a thread's rollout on its first turn, so a thread opened and
+    // restarted before any turn (e.g. right after a handoff) has nothing to resume.
+    "no rollout found",
+    "missing thread",
+    "no such thread",
+    "unknown thread",
+    "does not exist",
+];
 const CODEX_SPARK_MODEL: &str = "gpt-5.3-codex-spark";
 const CODEX_SPARK_DISABLED_PLAN_TYPES: &[&str] = &["free", "go", "plus"];
 /// Synara's fallback for a collaboration mode when no model is known
@@ -217,6 +225,8 @@ pub struct CodexAppServerStartSessionInput {
     pub fork_source_resume_cursor: Option<Value>,
     pub provider_options: Option<ProviderStartOptions>,
     pub runtime_mode: RuntimeMode,
+    /// The agent gateway, sent as the thread's `config` (codexAppServerManager.ts:1565).
+    pub agent_gateway: Option<crate::agent_gateway::GatewayConnection>,
 }
 
 /// What the session hears from its process, in the order it happened.
@@ -469,11 +479,16 @@ pub struct CodexThreadSessionOverrides {
     pub service_tier: Option<String>,
     pub cwd: String,
     pub mode: CodexThreadModeOverrides,
+    /// Synara `gatewayThreadConfig`: per-thread configuration, never written to the Codex home.
+    pub config: Option<Value>,
 }
 
 impl CodexThreadSessionOverrides {
     fn to_params(&self) -> Map<String, Value> {
         let mut params = Map::new();
+        if let Some(config) = &self.config {
+            params.insert("config".into(), config.clone());
+        }
         params.insert("model".into(), self.model.clone().map(Value::String).unwrap_or(Value::Null));
         if let Some(service_tier) = &self.service_tier {
             params.insert("serviceTier".into(), json!(service_tier));
@@ -943,6 +958,7 @@ impl CodexAppServerManager {
             service_tier: input.service_tier.clone(),
             cwd: self.session.cwd.clone().unwrap_or_default(),
             mode: map_codex_runtime_mode(input.runtime_mode),
+            config: input.agent_gateway.as_ref().map(crate::agent_gateway::codex_thread_config),
         };
         let thread_open_request = build_codex_thread_open_request(
             fork_source_thread_id.as_deref(),
@@ -1722,6 +1738,27 @@ impl CodexAppServerManager {
         event.payload = params.clone();
         self.emit_event(event).await;
 
+        // Keep late outcomes in history without releasing a newer native turn
+        // (codexAppServerManager.ts:4434): a terminal for an older turn can arrive after a newer
+        // one started, and only the current turn (or an unscoped terminal) settles the session.
+        let is_terminal_error = method == "error"
+            && !terminal_error_will_retry
+            && !terminal_error_message.as_deref().is_some_and(is_non_fatal_codex_error_message);
+        let is_terminal_parent_turn =
+            !route.is_child_conversation && (method == "turn/completed" || method == "turn/aborted" || is_terminal_error);
+        let applies_to_active_turn = match (&self.session.active_turn_id, &raw_route.turn_id) {
+            (Some(active), Some(event)) => active == event,
+            _ => true,
+        };
+        if is_terminal_parent_turn && !applies_to_active_turn {
+            // Clean the old review membership without touching the current owner, so a later
+            // exitedReviewMode cannot take that finished review for an active chain.
+            if let Some(turn_id) = &raw_route.turn_id {
+                self.review_turn_ids.remove(turn_id);
+            }
+            return;
+        }
+
         match method {
             "thread/started" => {
                 let started = normalize_provider_thread_id(read_string(read_object(params.as_ref(), "thread"), "id"));
@@ -2323,6 +2360,7 @@ mod tests {
             service_tier: None,
             cwd: "/work".into(),
             mode: map_codex_runtime_mode(RuntimeMode::ApprovalRequired),
+            config: None,
         };
         let start = build_codex_thread_open_request(None, None, &overrides).unwrap();
         assert_eq!(start.method, "thread/start");
@@ -2342,8 +2380,33 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_gateway_rides_in_the_threads_config() {
+        let connection = crate::agent_gateway::GatewayConnection {
+            name: "cascade".into(),
+            url: "http://127.0.0.1:9/mcp".into(),
+            bearer_token: "secret".into(),
+        };
+        let overrides = CodexThreadSessionOverrides {
+            model: None,
+            service_tier: None,
+            cwd: "/work".into(),
+            mode: map_codex_runtime_mode(RuntimeMode::ApprovalRequired),
+            config: Some(crate::agent_gateway::codex_thread_config(&connection)),
+        };
+        let start = build_codex_thread_open_request(None, Some("conv-1"), &overrides).unwrap();
+        assert_eq!(start.method, "thread/resume");
+        assert_eq!(
+            start.params["config"],
+            json!({ "mcp_servers": { "cascade": { "url": "http://127.0.0.1:9/mcp", "http_headers": { "Authorization": "Bearer secret" } } } })
+        );
+        assert!(!format!("{connection:?}").contains("secret"), "the token stays out of logs");
+    }
+
+    #[test]
     fn resume_errors_that_can_fall_back_are_recognised() {
         assert!(is_recoverable_thread_resume_error("thread/resume failed: thread not found"));
+        // A thread that never wrote a rollout (8cd655901).
+        assert!(is_recoverable_thread_resume_error("thread/resume failed: no rollout found for thread id 01a147ed"));
         assert!(!is_recoverable_thread_resume_error("thread/start failed: not found"));
         assert!(!is_recoverable_thread_resume_error("thread/resume failed: permission denied"));
         assert!(is_turn_already_idle_error("turn/interrupt failed: no active turn to interrupt"));

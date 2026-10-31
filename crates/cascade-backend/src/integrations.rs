@@ -419,32 +419,6 @@ fn lists_gh_webhook(extensions: &str) -> bool {
     })
 }
 
-/// Which installer put `path` there, for Settings to name: Homebrew's links point into its
-/// Cellar, so the link is followed first.
-fn install_source(path: &std::path::Path) -> &'static str {
-    let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    source_of(&real.to_string_lossy())
-}
-
-fn source_of(path: &str) -> &'static str {
-    const KNOWN: [(&str, &str); 9] = [
-        ("/Cellar/", "Homebrew"),
-        ("/opt/homebrew/", "Homebrew"),
-        ("/.nvm/", "nvm"),
-        ("/fnm/", "fnm"),
-        ("/.fnm/", "fnm"),
-        ("/.volta/", "Volta"),
-        ("/.asdf/", "asdf"),
-        ("/mise/", "mise"),
-        ("/.nodenv/", "nodenv"),
-    ];
-    KNOWN
-        .iter()
-        .find(|(marker, _)| path.contains(marker))
-        .map(|(_, name)| *name)
-        .unwrap_or(if path.starts_with("/usr/local/") { "installer" } else { "other" })
-}
-
 pub async fn cli_tools() -> ApiResult<Value> {
     async fn probe(program: &str, auth: Option<Vec<&str>>) -> Value {
         let present = cli::run(program, ["--version"], Duration::from_secs(4))
@@ -475,39 +449,14 @@ pub async fn cli_tools() -> ApiResult<Value> {
             .await
             .is_ok_and(|list| lists_gh_webhook(&list))
     };
-    // The simulator preview runs on Node, which must be recent enough for serve-sim. Found the
-    // way the user's terminal finds it, whichever way it was installed.
-    let node = async {
-        match cli::run("node", ["--version"], Duration::from_secs(4)).await {
-            Ok(version) => {
-                let supported = crate::sim_preview::node_supported(&version).unwrap_or(false);
-                let source = cli::locate("node").map(|path| install_source(&path));
-                json!({"present":true,"version":version.trim(),"supported":supported,"source":source})
-            }
-            Err(_) => json!({"present":false}),
-        }
-    };
     let agents = futures_util::future::join_all(Agent::ALL.map(|agent| probe(agent.profile().command, None)));
-    let (agents, gh, acli, gh_webhook, node) = tokio::join!(
+    let (agents, gh, acli, gh_webhook) = tokio::join!(
         agents,
         probe("gh", Some(vec!["auth", "status"])),
         probe("acli", Some(vec!["jira", "auth", "status"])),
-        gh_webhook,
-        node
+        gh_webhook
     );
-    // An installed serve-sim is used as is; without one, `npx` fetches it on first use. Either
-    // runs on Node, so `needs` names what is actually missing: Node first, then npx.
-    let installed = cli::installed("serve-sim");
-    let needs = if node["supported"] != json!(true) {
-        Some("node")
-    } else if !installed && !cli::installed("npx") {
-        Some("npx")
-    } else {
-        None
-    };
-    let serve_sim = json!({"present":needs.is_none(),"source":if installed { "installed" } else { "npx" },"needs":needs});
-    let mut found = json!({"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook},
-               "node":node,"serveSim":serve_sim,"brew":{"present":cli::installed("brew")}});
+    let mut found = json!({"gh":gh,"acli":acli,"ghWebhook":{"present":gh_webhook}});
     // Each agent's CLI under its own name.
     for (agent, probed) in Agent::ALL.into_iter().zip(agents) {
         found[agent.profile().id] = probed;
@@ -957,6 +906,11 @@ pub async fn turn_start(
     Query(query): Query<HookQuery>,
     Json(body): Json<Value>,
 ) -> StatusCode {
+    // The device layer leases the simulators a terminal agent uses to its turn, and releases
+    // them at the `Stop` after it.
+    if let Some(run) = query.run_id.as_deref().filter(|run| is_run_id(run)) {
+        crate::device::service::terminal_turn_started(&app, run);
+    }
     relay(app, query, body, "agent-turn-start").await
 }
 pub async fn session_start(
@@ -964,6 +918,11 @@ pub async fn session_start(
     Query(query): Query<HookQuery>,
     Json(body): Json<Value>,
 ) -> StatusCode {
+    // Claude compacts mid-turn (`source: compact`) under the same conversation: its turn goes on.
+    let compacted = body.get("source").and_then(Value::as_str) == Some("compact");
+    if let Some(run) = query.run_id.as_deref().filter(|run| is_run_id(run) && !compacted) {
+        crate::device::service::terminal_session_changed(&app, run);
+    }
     relay(app, query, body, "agent-session").await
 }
 pub async fn turn_done(
@@ -975,6 +934,9 @@ pub async fn turn_done(
     // done: it stays at work until the Stop after that agent reports, and nothing is told or kept.
     if query.cli.as_deref().and_then(Agent::of).is_some_and(|agent| agent.works_on(&body)) {
         return StatusCode::NO_CONTENT;
+    }
+    if let Some(run) = query.run_id.as_deref().filter(|run| is_run_id(run)) {
+        crate::device::service::terminal_turn_ended(&app, run);
     }
     relay(app, query, body, "agent-turn-done").await
 }
@@ -1162,19 +1124,6 @@ mod forwarder_tests {
         assert!(lists_gh_webhook("gh webhook\t\t\n")); // installed from a local checkout
         assert!(!lists_gh_webhook("gh dash\tdlvhdr/gh-dash\tv4\n"));
         assert!(!lists_gh_webhook(""));
-    }
-
-    #[test]
-    fn node_is_named_by_whichever_installer_put_it_there() {
-        assert_eq!(source_of("/opt/homebrew/Cellar/node/22.1.0/bin/node"), "Homebrew");
-        assert_eq!(source_of("/usr/local/Cellar/node@20/20.18.0/bin/node"), "Homebrew");
-        assert_eq!(source_of("/usr/local/bin/node"), "installer");
-        assert_eq!(source_of("/Users/me/.nvm/versions/node/v22.1.0/bin/node"), "nvm");
-        assert_eq!(source_of("/Users/me/Library/Application Support/fnm/node-versions/v22/installation/bin/node"), "fnm");
-        assert_eq!(source_of("/Users/me/.volta/tools/image/node/22.1.0/bin/node"), "Volta");
-        assert_eq!(source_of("/Users/me/.asdf/installs/nodejs/22.1.0/bin/node"), "asdf");
-        assert_eq!(source_of("/Users/me/.local/share/mise/installs/node/22/bin/node"), "mise");
-        assert_eq!(source_of("/somewhere/else/node"), "other");
     }
 
     #[test]

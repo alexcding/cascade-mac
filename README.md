@@ -48,8 +48,8 @@ queue, and Jira tickets one click away. It's free and open source under the
 
 ### Everything for the task in one window
 
-- **Browser, Files, and Diff** views sit next to the session's terminal, plus
-  **Simulator** while an iOS app runs.
+- **Browser, Files, and Diff** views sit next to the session's terminal, plus the
+  **Simulator**, live and under your mouse and keyboard.
 - **Browser.** Tabs, bookmarks, history, downloads, and find in page. Keep the pull
   request, ticket, or documentation beside the agent working on it. Block ads with
   uBlock Origin Lite from the App Store (**Settings → Browser**).
@@ -59,8 +59,9 @@ queue, and Jira tickets one click away. It's free and open source under the
   after a preview, search the branch history, and commit and push from the session.
   Cascade warns you when the branch is behind its upstream.
 - **Build and run Xcode projects.** Pick a scheme and destination, run with ⌘R, and
-  stop with ⌘.. Stream a booted iOS Simulator into the session to watch the app while
-  the agent works (needs Node.js 20 or later).
+  stop with ⌘.. The session's Simulator tab shows the device the app runs on, live, and
+  takes clicks, drags, and typing; an agent that drives a simulator opens it there too.
+  It needs only Xcode and an iOS runtime.
 
 ### A dashboard for what needs you
 
@@ -149,7 +150,6 @@ Cascade works with the tools you already use. Connect only the ones you need:
 | [Atlassian CLI (`acli`)](https://developer.atlassian.com/cloud/acli/guides/install-macos/) | Jira tickets and status transitions. Sign in with `acli jira auth login`. |
 | Jira API token | Sprint board columns and Fix Version automation. Add it in **Settings → Integrations**. |
 | [`gh-webhook`](https://github.com/cli/gh-webhook) | Sends GitHub's pull request events to Cascade as they happen, so pull requests refresh and automations run at once. Optional; without it pull requests refresh when you look at them. |
-| Node.js 20 or later | The iOS Simulator preview. |
 | [`ccusage`](https://github.com/ryoppippi/ccusage) | The AI spend figures. Cascade runs it through `bunx` or `npx` if it isn't installed. |
 
 The setup assistant on first launch checks your tools and offers agent hooks, which

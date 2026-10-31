@@ -105,6 +105,8 @@ public final class AppViewModel {
     /// Sessions a fork is being made of, so a second request waits for the first.
     @ObservationIgnored private var forkingSessions: Set<String> = []
     private(set) var buildModels: [String: BuildWorkspaceViewModel] = [:]
+    /// Each session context's Simulator pane, by context id.
+    private(set) var simulatorModels: [String: SimulatorPaneModel] = [:]
     private(set) var historyModels: [String: GitHistoryViewModel] = [:]
     private(set) var diffModels: [String: DiffViewModel] = [:]
     @ObservationIgnored private var pendingPins: Set<String> = []
@@ -993,6 +995,7 @@ public final class AppViewModel {
                 let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title)
                 warmIDE(for: session)
                 buildModel(for: session, context: context)?.warmDestinations()
+                simulatorModel(for: session, context: context)
                 openTerminal()
             } else { viewer.deactivate() }
         case .terminal:
@@ -1052,6 +1055,7 @@ public final class AppViewModel {
                 for record in removed {
                     let key = "task:\(record.id)"
                     buildModels.removeValue(forKey: key)?.disconnect()
+                    simulatorModels.removeValue(forKey: key)?.retire()
                     diffModels.removeValue(forKey: key)?.disconnect()
                     historyModels.removeValue(forKey: key)?.hide()
                     terminals.removeValue(forKey: "build:\(record.url)")?.disconnect()
@@ -1098,11 +1102,44 @@ public final class AppViewModel {
             shell = created
             return created
         })
-        model.onSimulatorRun = { [weak context] in context?.setPane(.simulator) }
+        model.onSimulatorRun = { [weak self, weak context] udid in
+            guard let self, let context, let simulator = simulatorModel(for: record, context: context) else { return }
+            simulator.attach(udid: udid)
+            context.setPane(.simulator)
+        }
         buildModels[context.id] = model
         // Its Simulator panel streams only while the workspace says it is on screen.
         context.workspaceViewModel?.documentStateChanged()
         return model
+    }
+
+    /// The session's Simulator pane, made the first time the session is shown or asked for one.
+    @discardableResult func simulatorModel(for record: WorkspaceSession, context: WorkspaceContext) -> SimulatorPaneModel? {
+        if let existing = simulatorModels[context.id] { return existing }
+        guard let api, !record.worktree.isEmpty, viewer.contexts[context.id] === context else { return nil }
+        let model = workspaceFactory.simulator(api: api, owner: record.worktree)
+        simulatorModels[context.id] = model
+        // It streams only while the workspace says it is on screen.
+        context.workspaceViewModel?.documentStateChanged()
+        return model
+    }
+
+    /// A `device` event goes to the pane of the session working in its owner folder; an agent's
+    /// `device-open-pane` also opens that session's Simulator tab, when the session is open here.
+    private func receiveDevice(_ event: ServerEvent) {
+        guard ["device", "device-open-pane"].contains(event.type), let owner = event.owner.map(deviceOwner) else { return }
+        let matching = sessions.filter { !$0.worktree.isEmpty && deviceOwner($0.worktree) == owner }
+        for session in matching {
+            let key = "task:\(session.id)"
+            if event.type == "device" {
+                if let state = event.deviceState { simulatorModels[key]?.receive(state) }
+                continue
+            }
+            guard let context = viewer.contexts[key], let udid = event.udid,
+                  let simulator = simulatorModel(for: session, context: context) else { continue }
+            simulator.agentOpened(udid: udid)
+            context.setPane(.simulator)
+        }
     }
 
     /// Whether a removal is under way for this session. The pane tells that from a terminal that
@@ -1130,6 +1167,7 @@ public final class AppViewModel {
         for id in ids {
             workspaceLaunch.cancel(sessionID: id)
             buildModels.removeValue(forKey: "task:\(id)")?.disconnect()
+            simulatorModels.removeValue(forKey: "task:\(id)")?.retire()
         }
         // The sessions' pane shells go with them, those not shown since a relaunch included.
         let shellPrefixes = ids.map { Self.shellPrefix(contextID: "task:\($0)") }
@@ -1264,6 +1302,9 @@ public final class AppViewModel {
         let script = Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh")
             ?? Bundle.main.url(forResource: "cascade-statusline", withExtension: "sh", subdirectory: "AgentStatusLine")
         let statusLine = script.map { AgentStatusLine(script: $0.path, taskID: latest.id) }
+        // The app's MCP server (inline visuals, the iOS Simulator tools), reached through its proxy.
+        let gatewayProxy = (Bundle.main.url(forResource: "cascade-mcp-proxy", withExtension: "sh")
+            ?? Bundle.main.url(forResource: "cascade-mcp-proxy", withExtension: "sh", subdirectory: "AgentGateway"))?.path
         // The composer's prompt opens the conversation; a scheduled automation's run may also give
         // one to a resumed conversation, which both CLIs take the same way. It is kept until that
         // launch has started, so a launch that fails before it can try again with it.
@@ -1281,7 +1322,7 @@ public final class AppViewModel {
         // Start's model and effort hold for the conversation it opens, never one resumed or forked.
         let choice = !resuming && forking == nil ? launchChoices[latest.id] : nil
         return agent.command(sessionID: id, fresh: firstLaunch, statusLine: statusLine, prompt: prompt, forking: forking,
-                             launch: choice).map {
+                             launch: choice, gatewayProxy: gatewayProxy).map {
             AgentLaunch(command: $0, agent: agent, resuming: resuming, reservedID: reservedID, prompted: prompt != nil)
         }
     }
@@ -1766,9 +1807,6 @@ public final class AppViewModel {
             for terminal in terminals.values { await terminal.stopConnecting() }
             try await terminalControl.stopExisting()
             for terminal in terminals.values { terminal.disconnect() }
-            // Simulator streams go with the shells. serve-sim cannot tell ours from a stream started in
-            // a terminal, so Quit stops those too.
-            if let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
         }
         // A page visited just before quitting would otherwise miss the debounced write.
         await viewer.browserHistory.flush()
@@ -2131,6 +2169,7 @@ public final class AppViewModel {
             todayActivity.activityReceived()
         }
         ideWarmup.receive(event)
+        receiveDevice(event)
         receiveChat(event)
         receiveRemote(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
@@ -2201,12 +2240,11 @@ public final class AppViewModel {
         chatService = nil
         connectRemote(nil)
         coordinator.newSession?.chatServiceChanged()
-        // A backend switch leaves no handle on this backend's streams, so they go with it. Only
-        // when a panel asked for one: stopping runs serve-sim, which a Mac without it pays for.
-        let streamed = buildModels.values.contains { $0.preview?.udid != nil }
         for model in buildModels.values { model.disconnect() }
         buildModels.removeAll()
-        if streamed, let api { await workspaceFactory.simulatorPreview(api: api).stopAll() }
+        // The backend stops its simulators' streams itself as it stops.
+        for model in simulatorModels.values { model.retire() }
+        simulatorModels.removeAll()
         for model in diffModels.values { model.disconnect() }
         diffModels.removeAll()
         for model in historyModels.values { model.hide() }

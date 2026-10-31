@@ -2,10 +2,9 @@ import Foundation
 import Observation
 
 /// The first-run welcome: what Cascade needs from the machine, in the order a new user can fix
-/// it — the tools first, then the hooks that only make sense once an agent is installed, then
-/// the optional Simulator preview for iOS projects.
+/// it — the tools first, then the hooks that only make sense once an agent is installed.
 @MainActor @Observable final class WelcomeViewModel {
-    enum Page: Int, CaseIterable { case welcome, tools, hooks, simulator, done }
+    enum Page: Int, CaseIterable { case welcome, tools, hooks, done }
     enum Action: Equatable { case finished }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
     let clis: CLISettingsViewModel
@@ -44,11 +43,7 @@ import Observation
     func canChangeHook(_ cli: ManagedCLI) -> Bool { !retired && present(cli) != false && clis.canChange(cli) }
     var canChangeStatusLine: Bool { !retired && present(.claude) != false && clis.canChangeStatusLine }
 
-    /// Whether the Simulator panel can stream here. Nil until the probe answers.
-    var simulatorPreviewReady: Bool? { present(.serveSim) }
-
     /// What the last page reports as still open. Empty means everything the app can see is set up.
-    /// The Simulator preview is optional — only iOS projects use it — so it is never listed.
     var remaining: [String] {
         var items: [String] = []
         for cli in ManagedCLI.required {

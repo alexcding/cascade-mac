@@ -337,6 +337,29 @@ their own, and report back through one message handler.
 
 Do not add a third page, and do not give either page a way to reach the backend.
 
+## The Simulator pane
+
+The pane's Simulator tab is native: no page and no Node. The backend's device layer
+(`crates/cascade-backend/src/device/`, Synara's simulator stack; `device/SYNARA.md`) owns which
+device each owner watches, boots and streams it, and takes input, on `POST /api/device/*`. An
+owner is a session's worktree, so the session's pane, its terminal agent and its chats share one
+attachment. `SimulatorPaneModel` (`Services/Workspace/SimulatorPane.swift`, one per session
+context, `AppViewModel.simulatorModels`) shows the newest `OwnerDeviceState` — answered by a route
+or pushed as a `device` event, an older `version` never over a newer — and the device picker, the
+attach phase, the agent's badge and the setup checklist a Mac without Xcode or a runtime gets
+come from it. The video is H.264 over a Unix socket per device (`/api/device/frames` names it),
+read off the main actor (`DeviceStream.swift` `DeviceFrameConnection`: length-prefixed records,
+Synara's keyframe gate, Annex B to AVCC) into an `AVSampleBufferDisplayLayer` the model keeps
+(`DeviceScreenView`); a renderer that fails is flushed and the backend asked for a keyframe, and a
+socket that closes is opened again. The stream runs while the tab is on screen in the session on
+screen, and a few seconds after, so switching back is instant. A click is a tap and a drag a
+swipe, in device points (`DeviceInputMapping`); typing goes as text and other keys as HID usages,
+⌘⇧H, ⌘L and ⌘↑/↓ as the hardware buttons, all in order, and only once the screen was clicked, so
+the terminal keeps the keyboard otherwise. A Run on a simulator attaches its device and opens the
+tab (`BuildWorkspaceViewModel.onSimulatorRun`); a `device-open-pane` event opens it in the session
+working in that folder. Removing a session's record detaches its owner (`owner_removed`), and
+deleting a session's own simulator shuts it down through the device manager first.
+
 ## Chat sessions
 
 A chat is an agent CLI driven headlessly over its JSON protocol: `claude` over stream-json,
@@ -470,8 +493,9 @@ user collapses from the divider is told back to the workspace.
   the pane shows; closing a tab selects its nearest neighbour. Diff's tab goes through the app, which loads the changes first, and over it
   the pane's next row is its review controls (`ReviewBar`: Changes/History, Commit and Push, the
   changed files' toggle); over a web page that row is its navigation and address (`.address`),
-  whose suggestions hang under it. A simulator run opens the Simulator's tab, which closes when
-  the preview ends. A blank page is a New Tab in the strip, and its start page offers the tools; the
+  whose suggestions hang under it. Over the Simulator that row is its device picker, the agent's
+  badge and the hardware buttons (`SimulatorBar`); a simulator Run, or an agent's
+  `device-open-pane`, opens the Simulator's tab (see "The Simulator pane"). A blank page is a New Tab in the strip, and its start page offers the tools; the
   one the pane opens for itself when it has no tab is its empty state, not a tab
   (`WorkspaceContext.stripTabs`) — no tab and no New Tab button — until something is typed in it; the Files explorer is a Files tab that stays
   open, and each file picked there opens in a tab of its own. Files, Terminal and Chat are the tools

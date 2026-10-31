@@ -125,6 +125,8 @@ pub async fn delete_task(
         // A pane's chats are the worktree's, so they go once no session works there.
         if !worktree.is_empty() {
             crate::chat::delete_worktree_chats(&state, &worktree).await;
+            // So is whatever its Simulator pane watched (Synara `handleThreadRemoved`).
+            crate::device::service::owner_removed(&state, &worktree).await;
         }
         discard_simulators(&state, vec![made_sim]).await;
     }
@@ -144,7 +146,7 @@ async fn discard_simulators(state: &AppState, made: Vec<String>) {
     };
     for sim in made {
         if !tasks.iter().any(|task| task.run_sim == sim) {
-            tokio::spawn(crate::xcode::discard_simulator(sim));
+            tokio::spawn(crate::xcode::discard_simulator(state.clone(), sim));
         }
     }
 }

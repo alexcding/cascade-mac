@@ -12,7 +12,7 @@ use cascade_chat::{
         base::{ThreadId, TurnId},
         orchestration::{
             ClientThreadCommand, OrchestrationCheckpointStatus, OrchestrationLatestTurnState, OrchestrationMessageRole,
-            OrchestrationMessageSource, OrchestrationSessionStatus, OrchestrationThread,
+            OrchestrationMessageSource, OrchestrationSessionStatus, OrchestrationThread, RuntimeMode,
         },
     },
     provider::process::{ScriptedChild, ScriptedSpawner},
@@ -42,6 +42,7 @@ async fn start(data_dir: &Path, spawner: &ScriptedSpawner) -> (ChatEngine, Publi
         publish: Arc::new(move |event| sink.lock().unwrap().push(event)),
         git: None,
         text_generation: None,
+        agent_gateway: None,
     })
     .await
     .unwrap();
@@ -108,6 +109,18 @@ async fn wait_for(engine: &ChatEngine, thread: &str, what: &str, done: impl Fn(&
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+}
+
+/// `thread` as a new engine reads it back: the same, but for its session, which no CLI outlived
+/// and the start stopped.
+fn stopped_on_restart(thread: &OrchestrationThread, read_back: &OrchestrationThread) -> OrchestrationThread {
+    let mut expected = thread.clone();
+    let session = expected.session.as_mut().expect("a session");
+    session.status = OrchestrationSessionStatus::Stopped;
+    session.active_turn_id = None;
+    session.updated_at = read_back.session.as_ref().unwrap().updated_at.clone();
+    expected.updated_at = read_back.updated_at.clone();
+    expected
 }
 
 fn running(thread: &OrchestrationThread) -> bool {
@@ -319,16 +332,48 @@ async fn a_claude_turn_with_an_approval_runs_end_to_end() {
     engine.shutdown().await;
     let (reopened, republished) = start(data.path(), &ScriptedSpawner::new()).await;
     let read_back = reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap();
-    assert_eq!(read_back, done);
+    assert_eq!(read_back, stopped_on_restart(&done, &read_back));
     let next = reopened
         .dispatch(command(json!({
             "type": "thread.meta.update", "commandId": "rename", "threadId": thread, "title": "Renamed",
         })))
         .await
         .unwrap();
-    assert_eq!(next.sequence, *sequences.last().unwrap() + 1);
-    assert_eq!(published_sequences(&republished, thread), [next.sequence]);
+    // The start's stop of the session is the one event between.
+    let settled = *sequences.last().unwrap() + 1;
+    assert_eq!(next.sequence, settled + 1);
+    assert_eq!(published_sequences(&republished, thread), [settled, next.sequence]);
     reopened.shutdown().await;
+}
+
+#[tokio::test]
+async fn changing_access_on_an_idle_chat_leaves_its_session_settled() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    git_init(workspace.path());
+    let spawner = ScriptedSpawner::new();
+    let (engine, _published) = start(data.path(), &spawner).await;
+    let thread = "thread-access";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Go", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    play_claude_turn(&engine, &mut cli, thread).await;
+
+    engine
+        .dispatch(command(json!({
+            "type": "thread.runtime-mode.set", "commandId": "cmd-mode", "threadId": thread,
+            "runtimeMode": "full-access", "createdAt": T0,
+        })))
+        .await
+        .unwrap();
+    // The mode waits for the next turn: no CLI is started now and the session stays ready,
+    // rather than showing `starting` with no turn.
+    assert!(timeout(Duration::from_millis(300), spawner.next()).await.is_err(), "the session was restarted");
+    let after = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_eq!(after.runtime_mode, RuntimeMode::FullAccess);
+    assert_eq!(after.session.unwrap().status, OrchestrationSessionStatus::Ready);
+    engine.shutdown().await;
 }
 
 #[tokio::test]
@@ -356,6 +401,32 @@ async fn a_running_session_is_settled_when_the_engine_starts_again() {
     assert_eq!(after.messages.len(), before.messages.len());
     assert!(!published_sequences(&published, thread).is_empty(), "the settling is published");
     reopened.shutdown().await;
+}
+
+/// A session the last run left ready has no CLI now: the next start stops it once, so the start
+/// after that does not read the thread again, and its finished turn stays as it was.
+#[tokio::test]
+async fn a_ready_session_is_stopped_once_when_the_engine_starts_again() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-ready";
+    let (_cli, _exit) = thread_after_one_turn(&engine, &spawner, workspace.path(), thread).await;
+    let before = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_ne!(before.session.as_ref().unwrap().status, OrchestrationSessionStatus::Stopped);
+    engine.shutdown().await;
+
+    let (reopened, _) = start(data.path(), &ScriptedSpawner::new()).await;
+    let after = reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_eq!(after.session.as_ref().unwrap().status, OrchestrationSessionStatus::Stopped);
+    assert_eq!(after.latest_turn, before.latest_turn, "the finished turn is left as it was");
+    assert_eq!(after.messages, before.messages);
+    reopened.shutdown().await;
+
+    let (again, published) = start(data.path(), &ScriptedSpawner::new()).await;
+    assert!(published_sequences(&published, thread).is_empty(), "a stopped thread is not settled again");
+    again.shutdown().await;
 }
 
 #[tokio::test]
@@ -396,6 +467,242 @@ async fn an_interrupt_settles_the_running_turn() {
     assert_eq!(session.active_turn_id, None);
     assert_ne!(session.status, OrchestrationSessionStatus::Running);
     assert!(!done.activities.iter().any(|a| a.kind == "provider.turn.interrupt.failed"));
+    engine.shutdown().await;
+}
+
+fn interrupt(thread: &str, command_id: &str) -> ClientThreadCommand {
+    command(json!({ "type": "thread.turn.interrupt", "commandId": command_id, "threadId": thread, "createdAt": T0 }))
+}
+
+fn interrupt_failures(thread: &OrchestrationThread) -> Vec<&cascade_chat::contracts::orchestration::OrchestrationThreadActivity> {
+    thread.activities.iter().filter(|a| a.kind == "provider.turn.interrupt.failed").collect()
+}
+
+/// 3f55b77ef: an interrupt's late failure belongs to the turn it was for. When that turn ended
+/// meanwhile and the queued one started, the new turn is neither settled nor stopped by it.
+#[tokio::test]
+async fn a_late_interrupt_failure_leaves_the_next_turn_running() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-late-interrupt";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Count to a million", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let first = wait_for(&engine, thread, "the first turn to run", running).await.session.unwrap().active_turn_id.unwrap();
+    engine.dispatch(turn_start(thread, "msg-2", "Then the second thing", "queue")).await.unwrap();
+
+    engine.dispatch(interrupt(thread, "stop-first")).await.unwrap();
+    let request = cli.read_until("the interrupt", |v| v["request"]["subtype"] == "interrupt").await;
+    // The first turn ends on its own before the CLI answers the interrupt, and the queued one starts.
+    cli.write_line(&claude_result("result-first", "success")).await;
+    let second = cli.read_user_message().await;
+    assert_eq!(second["message"]["content"][0]["text"], "Then the second thing");
+    let second = wait_for(&engine, thread, "the second turn to run", |t| {
+        running(t) && t.session.as_ref().unwrap().active_turn_id.as_ref() != Some(&first)
+    })
+    .await
+    .session
+    .unwrap()
+    .active_turn_id
+    .unwrap();
+    // Only now does the CLI refuse the interrupt.
+    cli.write_line(
+        &json!({ "type": "control_response", "response": { "subtype": "error", "request_id": request["request_id"], "error": "no turn to interrupt" } })
+            .to_string(),
+    )
+    .await;
+    let reported = wait_for(&engine, thread, "the interrupt's failure", |t| !interrupt_failures(t).is_empty()).await;
+    let session = reported.session.clone().unwrap();
+    assert_eq!(session.status, OrchestrationSessionStatus::Running, "{session:?}");
+    assert_eq!(session.active_turn_id, Some(second));
+    engine.shutdown().await;
+}
+
+/// 3f55b77ef: a Stop of a thread with nothing running (a second click, one that raced the
+/// turn's end) asks no provider and shows no error.
+#[tokio::test]
+async fn stopping_a_settled_thread_shows_no_error() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-settled-stop";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Say hi", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    cli.write_line(&claude_result("result-1", "success")).await;
+    wait_for(&engine, thread, "the turn's end", turn_completed).await;
+    engine
+        .dispatch(command(json!({ "type": "thread.session.stop", "commandId": "stop-session", "threadId": thread, "createdAt": T0 })))
+        .await
+        .unwrap();
+    cli.expect_closed().await;
+    wait_for(&engine, thread, "the stopped session", |t| {
+        t.session.as_ref().is_some_and(|s| s.status == OrchestrationSessionStatus::Stopped)
+    })
+    .await;
+
+    engine.dispatch(interrupt(thread, "stop-again")).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let after = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert!(interrupt_failures(&after).is_empty(), "{:#?}", interrupt_failures(&after));
+    assert_eq!(after.session.unwrap().status, OrchestrationSessionStatus::Stopped);
+    engine.shutdown().await;
+}
+
+/// Claude, but an interrupt is never answered, so the engine's own interrupt timeout runs out.
+struct DeafToInterrupts(cascade_chat::provider::claude::ClaudeAdapter);
+
+impl cascade_chat::provider::adapter::ProviderAdapter for DeafToInterrupts {
+    fn provider(&self) -> cascade_chat::contracts::orchestration::ProviderKind {
+        self.0.provider()
+    }
+
+    fn capabilities(&self) -> cascade_chat::provider::adapter::ProviderAdapterCapabilities {
+        self.0.capabilities()
+    }
+
+    fn models(&self) -> Vec<cascade_chat::provider::adapter::ProviderModel> {
+        self.0.models()
+    }
+
+    fn start_session(
+        &self,
+        input: cascade_chat::contracts::provider::ProviderSessionStartInput,
+        events: cascade_chat::provider::adapter::EventSink,
+        spawner: Arc<dyn cascade_chat::provider::process::Spawner>,
+    ) -> cascade_chat::provider::adapter::ProviderSessionHandle {
+        use cascade_chat::provider::adapter::{ProviderSessionHandle, SessionCommand};
+        let inner = self.0.start_session(input, events, spawner);
+        let thread_id = inner.thread_id.clone();
+        let (commands, mut inbox) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let mut unanswered = Vec::new();
+            while let Some(command) = inbox.recv().await {
+                let inner = inner.clone();
+                match command {
+                    SessionCommand::InterruptTurn { reply, .. } => unanswered.push(reply),
+                    SessionCommand::Stop { reply } => {
+                        let _ = reply.send(inner.stop().await);
+                        break;
+                    }
+                    SessionCommand::SendTurn { input, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.send_turn(input).await); });
+                    }
+                    SessionCommand::SteerTurn { input, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.steer_turn(input).await); });
+                    }
+                    SessionCommand::StartReview { target, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.start_review(target).await); });
+                    }
+                    SessionCommand::RespondToRequest { request_id, decision, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.respond_to_request(request_id, decision).await); });
+                    }
+                    SessionCommand::RespondToUserInput { request_id, answers, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.respond_to_user_input(request_id, answers).await); });
+                    }
+                    SessionCommand::SetRuntimeMode { mode, reply } => {
+                        tokio::spawn(async move { let _ = reply.send(inner.set_runtime_mode(mode).await); });
+                    }
+                }
+            }
+        });
+        ProviderSessionHandle::new(thread_id, commands)
+    }
+}
+
+/// b1dca5b25: a Stop whose interrupt the Claude CLI never acknowledges stops the session, and a
+/// session that stopped is the Stop done: no interrupt failure is shown.
+#[tokio::test]
+async fn a_claude_stop_that_retires_the_session_reports_no_interrupt_failure() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let published: Published = Arc::default();
+    let sink = published.clone();
+    let engine = ChatEngine::start(ChatEngineConfig {
+        data_dir: data.path().to_path_buf(),
+        spawner: Arc::new(spawner.clone()),
+        adapters: Some(vec![Arc::new(DeafToInterrupts(cascade_chat::provider::claude::ClaudeAdapter::new(
+            data.path().join("attachments"),
+        )))]),
+        publish: Arc::new(move |event| sink.lock().unwrap().push(event)),
+        git: None,
+        text_generation: None,
+        agent_gateway: None,
+    })
+    .await
+    .unwrap();
+    let thread = "thread-deaf-stop";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Count to a million", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    wait_for(&engine, thread, "the turn to run", running).await;
+
+    engine.dispatch(interrupt(thread, "stop-it")).await.unwrap();
+    // The engine waits out its interrupt timeout (10 s), then stops the session.
+    tokio::time::sleep(Duration::from_secs(8)).await;
+    cli.expect_closed().await;
+    let stopped = wait_for(&engine, thread, "the stopped session", |t| {
+        t.session.as_ref().is_some_and(|s| s.status == OrchestrationSessionStatus::Stopped && s.active_turn_id.is_none())
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let after = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap_or(stopped);
+    assert!(interrupt_failures(&after).is_empty(), "{:#?}", interrupt_failures(&after));
+    assert!(!after.activities.iter().any(|a| a.kind == "provider.session.stop.failed"));
+    engine.shutdown().await;
+}
+
+/// An interrupted turn keeps status missing but its end is captured: its exact start/end pair is
+/// still a readable single-turn diff (94407ef8e `isCapturedInterruptedSnapshot`).
+#[tokio::test]
+async fn an_interrupted_turns_captured_diff_is_readable() {
+    use cascade_chat::contracts::orchestration::{OrchestrationCheckpointStatus, OrchestrationGetTurnDiffInput};
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    git_init(workspace.path());
+    std::fs::write(workspace.path().join("README.md"), "hello\n").unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-interrupted-diff";
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Write the probe", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    wait_for(&engine, thread, "the turn to run", running).await;
+    std::fs::write(workspace.path().join("probe.txt"), "hi\n").unwrap();
+    engine
+        .dispatch(command(json!({ "type": "thread.turn.interrupt", "commandId": "stop-it", "threadId": thread, "createdAt": T0 })))
+        .await
+        .unwrap();
+    let interrupt = cli.read_until("the interrupt", |v| v["request"]["subtype"] == "interrupt").await;
+    cli.write_line(
+        &json!({ "type": "control_response", "response": { "subtype": "success", "request_id": interrupt["request_id"], "response": {} } })
+            .to_string(),
+    )
+    .await;
+    cli.write_line(&claude_result("result-interrupted", "error_during_execution")).await;
+    let done = wait_for(&engine, thread, "the interrupted turn's checkpoint", |t| {
+        t.checkpoints.iter().any(|c| c.checkpoint_turn_count == 1 && c.checkpoint_ref.as_str().ends_with("/turn/1"))
+    })
+    .await;
+    assert_eq!(done.checkpoints[0].status, OrchestrationCheckpointStatus::Missing);
+    let diff = engine
+        .turn_diff(OrchestrationGetTurnDiffInput {
+            thread_id: ThreadId::new(thread),
+            from_turn_count: 0,
+            to_turn_count: 1,
+            ignore_whitespace: None,
+        })
+        .await
+        .unwrap();
+    assert!(diff.diff.contains("diff --git a/probe.txt b/probe.txt"), "{}", diff.diff);
     engine.shutdown().await;
 }
 
@@ -638,7 +945,8 @@ async fn a_codex_turn_with_an_approval_runs_end_to_end() {
     engine.shutdown().await;
     timeout(WAIT, script).await.expect("the recording did not finish").unwrap();
     let (reopened, _) = start(data.path(), &ScriptedSpawner::new()).await;
-    assert_eq!(reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap(), done);
+    let read_back = reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_eq!(read_back, stopped_on_restart(&done, &read_back));
     reopened.shutdown().await;
 }
 
@@ -1406,6 +1714,61 @@ async fn a_codex_turn_with_a_review_target_runs_a_native_review() {
 
 // --- diffs, shells and attachments ---
 
+/// A running Codex turn's diff is the cumulative patch Codex streamed for it, read against the
+/// turn's start, not today's folder; each revision is a placeholder of its own (99b090d91,
+/// 94407ef8e).
+#[tokio::test]
+async fn a_running_codex_turn_serves_its_streamed_patch_as_its_diff() {
+    use cascade_chat::contracts::orchestration::OrchestrationGetTurnDiffInput;
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    git_init(workspace.path());
+    std::fs::write(workspace.path().join("README.md"), "hello\n").unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-codex-live-diff";
+    engine.dispatch(create_thread(thread, "codex", "gpt-6-astra", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Edit the README", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the engine started no CLI");
+    let mut cli = CodexCli { from_engine: BufReader::new(child.stdin).lines(), to_engine: child.stdout };
+    let recorded = |id: i64| -> Value {
+        serde_json::from_str(CODEX_FIXTURE.lines().find(|l| l.starts_with(&format!("{{\"id\":{id},"))).unwrap()).unwrap()
+    };
+    let initialize = cli.expect_request("initialize").await;
+    cli.write(&json!({ "id": initialize["id"], "result": recorded(1)["result"] })).await;
+    let open = cli.expect_request("thread/start").await;
+    cli.write(&json!({ "id": open["id"], "result": recorded(2)["result"] })).await;
+    let provider_thread = recorded(2)["result"]["thread"]["id"].clone();
+    let start = cli.expect_request("turn/start").await;
+    let turn = "turn-live";
+    cli.write(&json!({ "id": start["id"], "result": { "turn": { "id": turn, "items": [], "status": "inProgress" } } })).await;
+    cli.write(&json!({ "method": "turn/started", "params": { "threadId": provider_thread, "turn": { "id": turn, "status": "inProgress" } } })).await;
+    wait_for(&engine, thread, "the turn to run", running).await;
+    let input = OrchestrationGetTurnDiffInput {
+        thread_id: ThreadId::new(thread),
+        from_turn_count: 0,
+        to_turn_count: 1,
+        ignore_whitespace: Some(false),
+    };
+
+    let patch = |line: &str| format!("diff --git a/README.md b/README.md\n--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-hello\n+{line}\n");
+    let mut refs = Vec::new();
+    for line in ["hello live", "hello again"] {
+        cli.write(&json!({ "method": "turn/diff/updated", "params": { "threadId": provider_thread, "turnId": turn, "diff": patch(line) } })).await;
+        let placeholder = wait_for(&engine, thread, "the live revision", |t| {
+            t.checkpoints.iter().any(|c| c.checkpoint_ref.as_str().starts_with("provider-diff:") && !refs.contains(&c.checkpoint_ref))
+        })
+        .await;
+        refs.push(placeholder.checkpoints[0].checkpoint_ref.clone());
+        let diff = engine.turn_diff(input.clone()).await.unwrap();
+        assert!(diff.diff.contains(&format!("+{line}")), "{}", diff.diff);
+        assert!(diff.diff.contains("diff --git a/README.md b/README.md"), "{}", diff.diff);
+    }
+    assert_ne!(refs[0], refs[1], "each revision is a ref of its own");
+    assert_eq!(std::fs::read_to_string(workspace.path().join("README.md")).unwrap(), "hello\n", "read from the patch, not the folder");
+    engine.shutdown().await;
+}
+
 #[tokio::test]
 async fn turn_and_thread_diffs_come_from_the_checkpoint_refs() {
     use cascade_chat::{
@@ -1535,6 +1898,12 @@ async fn a_claude_subagent_gets_a_read_only_child_thread() {
     assert_eq!(done.title, "List files in current directory [general-purpose]");
     assert_eq!(serde_json::to_value(done.creation_source).unwrap(), "provider_native");
     assert_eq!(done.worktree_path, parent.worktree_path);
+    // The model the subagent ran on (its own assistant messages), not the parent's (1b4252570);
+    // the parent keeps the person's selection.
+    let model = |t: &OrchestrationThread| serde_json::to_value(&t.model_selection).unwrap();
+    assert_eq!(model(&done)["model"], "claude-sonnet-5-5");
+    assert_eq!(model(&done)["provider"], "claudeAgent");
+    assert_eq!(model(&parent)["model"], "haiku");
     let child_text: Vec<&str> = done
         .messages
         .iter()
@@ -1617,6 +1986,57 @@ async fn a_running_subagent_thread_is_settled_when_the_engine_starts_again() {
     assert_eq!(session.active_turn_id, None);
     assert_eq!(after.latest_turn.unwrap().state, OrchestrationLatestTurnState::Interrupted);
     assert!(after.messages.iter().all(|m| !m.streaming));
+    // The subagent's task ends as stopped on its parent, naming its launching call, so the page
+    // stops counting it as a running agent (a8ba57587).
+    let parent = reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    let started = parent.activities.iter().find(|a| a.kind == "task.started").expect("the task's start");
+    let ends: Vec<_> = parent
+        .activities
+        .iter()
+        .filter(|a| a.kind == "task.completed" && a.payload["taskId"] == started.payload["taskId"])
+        .collect();
+    assert_eq!(ends.len(), 1, "{:?}", parent.activities.iter().map(|a| (&a.kind, &a.payload)).collect::<Vec<_>>());
+    assert_eq!(ends[0].payload["status"], "stopped");
+    assert_eq!(ends[0].payload["toolUseId"], SUBAGENT_TOOL);
+    assert!(ends[0].sequence > started.sequence, "the end sorts after its start");
+    reopened.shutdown().await;
+}
+
+/// Stopping a session with a subagent at work ends its task as stopped, naming the launching
+/// call, so the parent's card and the page's "agents running" count see it end (a8ba57587).
+#[tokio::test]
+async fn stopping_a_session_retires_its_live_subagent_task_with_its_launching_call() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-parent-stop";
+    let child = format!("subagent:{thread}:{SUBAGENT_TOOL}");
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Use the Agent tool to list the files", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let lines: Vec<&str> = SUBAGENT_FIXTURE.lines().filter(|l| !l.trim().is_empty()).collect();
+    let approval = lines.iter().position(|l| l.contains("\"can_use_tool\"")).unwrap();
+    cli.write_lines(&lines[..=approval]).await;
+    wait_for(&engine, &child, "the child to run", running).await;
+
+    engine
+        .dispatch(command(json!({ "type": "thread.session.stop", "commandId": "stop", "threadId": thread, "createdAt": "2026-10-23T10:00:00.000Z" })))
+        .await
+        .unwrap();
+    let parent = wait_for(&engine, thread, "the task's stopped end", |t| t.activities.iter().any(|a| a.kind == "task.completed")).await;
+    let ends: Vec<_> = parent.activities.iter().filter(|a| a.kind == "task.completed").collect();
+    assert_eq!(ends.len(), 1);
+    assert_eq!(ends[0].payload["status"], "stopped");
+    assert_eq!(ends[0].payload["taskId"], "a38b7bd2324a4a267");
+    assert_eq!(ends[0].payload["toolUseId"], SUBAGENT_TOOL);
+    engine.shutdown().await;
+
+    // A clean stop left nothing open: the next run retires nothing more.
+    let (reopened, _) = start(data.path(), &ScriptedSpawner::new()).await;
+    let after = reopened.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_eq!(after.activities.iter().filter(|a| a.kind == "task.completed").count(), 1);
     reopened.shutdown().await;
 }
 
@@ -1950,6 +2370,7 @@ async fn live_knowledge_of_a_claude_conversation() {
         publish: Arc::new(|_| {}),
         git: None,
         text_generation: None,
+        agent_gateway: None,
     })
     .await
     .unwrap();
@@ -1998,6 +2419,7 @@ async fn live_revert_takes_back_only_the_chats_turn() {
         publish: Arc::new(|_| {}),
         git: None,
         text_generation: None,
+        agent_gateway: None,
     })
     .await
     .unwrap();
@@ -2081,6 +2503,7 @@ async fn start_with_titles(data_dir: &Path, spawner: &ScriptedSpawner, titles: &
         publish: Arc::new(|_| {}),
         git: None,
         text_generation: Some(Arc::new(titles.clone())),
+        agent_gateway: None,
     })
     .await
     .unwrap()
@@ -2201,6 +2624,7 @@ async fn a_message_sent_while_the_first_turn_is_still_starting_waits_for_it() {
         publish: Arc::new(move |event| sink.lock().unwrap().push(event)),
         git: Some(Arc::new(git.clone())),
         text_generation: None,
+        agent_gateway: None,
     })
     .await
     .unwrap();
@@ -2231,4 +2655,60 @@ async fn a_message_sent_while_the_first_turn_is_still_starting_waits_for_it() {
     assert_eq!(completed.len(), 2, "one turn per message, none closed empty: {completed:?}");
     assert_eq!(completed[0].as_ref(), Some(&first_turn));
     engine.shutdown().await;
+}
+
+/// Cascade's agent gateway (Synara's `thread.activity.append` behind `assertCallerTurnActive`):
+/// an activity lands only on the turn that runs, once, and a turn that ended takes none.
+#[tokio::test]
+async fn an_activity_is_appended_only_to_the_running_turn() {
+    use cascade_chat::contracts::{base::CommandId, orchestration::OrchestrationThreadActivity};
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    git_init(workspace.path());
+    let spawner = ScriptedSpawner::new();
+    let (engine, published) = start(data.path(), &spawner).await;
+    let thread = "thread-visual";
+    let id = || ThreadId::new(thread);
+    let activity = |id: &str, turn: &TurnId| -> OrchestrationThreadActivity {
+        serde_json::from_value(json!({
+            "id": id, "tone": "info", "kind": "visual.shown", "summary": "Visual: Latency",
+            "payload": { "visualId": "vis_0123456789abcdef0123456789abcdef" }, "turnId": turn, "createdAt": T0,
+        }))
+        .unwrap()
+    };
+
+    engine.dispatch(create_thread(thread, "claudeAgent", "haiku", workspace.path())).await.unwrap();
+    assert_eq!(engine.running_turn(id()).await.unwrap(), None, "no turn yet");
+    assert_eq!(engine.running_turn(ThreadId::new("nowhere")).await.unwrap(), None);
+    engine.dispatch(turn_start(thread, "msg-1", "Show a chart.", "queue")).await.unwrap();
+    let (mut cli, _exit) = ClaudeCli::spawned(&spawner).await;
+    cli.read_user_message().await;
+    let running_thread = wait_for(&engine, thread, "the turn to run", |t| {
+        running(t) && t.latest_turn.as_ref().is_some_and(|turn| turn.state == OrchestrationLatestTurnState::Running)
+    })
+    .await;
+    let turn = running_thread.latest_turn.unwrap().turn_id;
+    assert_eq!(engine.running_turn(id()).await.unwrap(), Some(turn.clone()));
+
+    // Another turn's authority is refused.
+    let other = TurnId::new("turn-other");
+    let refused = engine.append_turn_activity(id(), other.clone(), CommandId::new("c-0"), activity("a-0", &other)).await;
+    assert!(matches!(refused, Err(ChatError::Invalid(message)) if message.contains("no longer active")));
+
+    let before = published_sequences(&published, thread).len();
+    engine.append_turn_activity(id(), turn.clone(), CommandId::new("c-1"), activity("a-1", &turn)).await.unwrap();
+    // An identical retry is the same row, with no second event.
+    engine.append_turn_activity(id(), turn.clone(), CommandId::new("c-1"), activity("a-1", &turn)).await.unwrap();
+    assert_eq!(published_sequences(&published, thread).len(), before + 1);
+    let shown = engine.thread(id()).await.unwrap().unwrap();
+    let rows: Vec<_> = shown.activities.iter().filter(|a| a.kind == "visual.shown").collect();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].turn_id.as_ref(), Some(&turn));
+
+    play_claude_turn(&engine, &mut cli, thread).await;
+    assert_eq!(engine.running_turn(id()).await.unwrap(), None, "the turn ended");
+    let late = engine.append_turn_activity(id(), turn.clone(), CommandId::new("c-2"), activity("a-2", &turn)).await;
+    assert!(matches!(late, Err(ChatError::Invalid(_))), "a turn that ended takes no row");
+    let missing = engine.append_turn_activity(ThreadId::new("nowhere"), turn.clone(), CommandId::new("c-3"), activity("a-3", &turn)).await;
+    assert!(matches!(missing, Err(ChatError::Invalid(_))));
 }

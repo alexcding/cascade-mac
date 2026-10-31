@@ -24,7 +24,7 @@
 //! repository and whether a provider's live diff can be parsed are asked of
 //! [`IngestionEnvironment`].
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use serde_json::{json, Map, Value};
 
@@ -39,7 +39,7 @@ use crate::contracts::provider_runtime::{
 };
 
 use super::activity_projection::{
-    js_len, project_provider_runtime_activities, provider_activity_update_dedupe_key,
+    js_len, project_provider_runtime_activities, provider_activity_update_dedupe_key, provider_runtime_command_progress_key,
     provider_activity_update_fingerprint, readable_reasoning_detail, runtime_payload_record,
     runtime_turn_state, wire,
 };
@@ -64,6 +64,8 @@ const MAX_BUFFERED_ASSISTANT_CHARS: usize = 24_000;
 const MAX_BUFFERED_PROPOSED_PLAN_CHARS: usize = 64_000;
 const MAX_BUFFERED_TOOL_OUTPUT_CHARS: usize = 24_000;
 const MAX_BUFFERED_REASONING_SUMMARY_CHARS: usize = 8_000;
+/// Synara `BUFFERED_REASONING_SUMMARY_BY_KEY_CACHE_CAPACITY`, the bound of `stableActivityById`.
+const STABLE_ACTIVITY_CACHE_CAPACITY: usize = 2_048;
 const MAX_BUFFERED_REASONING_SUMMARY_PARTS: i64 = 24;
 const REASONING_PREVIEW_INTERVAL_MS: i64 = 250;
 const BUFFERED_TEXT_TRUNCATION_MARKER: &str = "... [truncated]";
@@ -104,6 +106,10 @@ struct ProviderDiffPlaceholder {
     checkpoint_ref: CheckpointRef,
     checkpoint_turn_count: u64,
     files: Vec<OrchestrationCheckpointFile>,
+    /// The cumulative patch of the revision `checkpoint_ref` names. Synara reads it back from its
+    /// runtime event journal by the ref's event id (CheckpointDiffQuery.ts:205); there is no
+    /// journal here, so the running turn's latest revision is kept with its placeholder.
+    unified_diff: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -142,7 +148,10 @@ pub struct ProviderRuntimeIngestion {
     buffered_proposed_plan_by_id: HashMap<String, (String, String)>,
     buffered_tool_output_by_key: HashMap<String, BufferedToolOutput>,
     buffered_reasoning_summary_by_key: BTreeMap<String, BufferedReasoningSummary>,
-    claude_reasoning_activity_by_id: HashMap<EventId, OrchestrationThreadActivity>,
+    /// Keeps a row's identity after its buffer is consumed; on a miss the thread's stored activity
+    /// stands in, so the oldest entries go first past `STABLE_ACTIVITY_CACHE_CAPACITY`.
+    stable_activity_by_id: HashMap<EventId, OrchestrationThreadActivity>,
+    stable_activity_order: VecDeque<EventId>,
     pending_generated_images_by_turn_key: HashMap<String, Vec<String>>,
     latest_activity_update_fingerprint_by_key: HashMap<String, String>,
     provider_diff_placeholders: HashMap<String, ProviderDiffPlaceholder>,
@@ -1208,6 +1217,12 @@ impl ProviderRuntimeIngestion {
         self.upsert_proposed_plan(event, thread_id, thread_proposed_plans, plan_id, turn_id, Some(&markdown), &created_at, updated_at);
     }
 
+    /// Synara `getTrackedAssistantTurnIdsForThread`
+    fn tracked_assistant_turn_ids_for_thread(&self, thread_id: &ThreadId) -> Vec<TurnId> {
+        let prefix = format!("{thread_id}:");
+        self.turn_message_ids_by_turn_key.keys().filter_map(|key| key.strip_prefix(&prefix)).map(TurnId::new).collect()
+    }
+
     fn clear_turn_state_for_session(&mut self, thread_id: &ThreadId) {
         let prefix = format!("{thread_id}:");
         let keys: Vec<String> = self.turn_message_ids_by_turn_key.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
@@ -1258,8 +1273,8 @@ impl ProviderRuntimeIngestion {
     }
 
     /// Synara `dispatchActivityUpdate`: append an activity unless it repeats the last update
-    /// under the same dedupe key; a Claude reasoning row keeps its first position and never
-    /// reopens once final.
+    /// under the same dedupe key; a Claude reasoning row, and a command's progress row
+    /// (3f55b77ef), keeps its first position and never reopens once final.
     fn dispatch_activity_update(
         &mut self,
         event: &ProviderRuntimeEvent,
@@ -1268,14 +1283,15 @@ impl ProviderRuntimeIngestion {
     ) {
         let is_claude_reasoning = event.provider.as_str() == "claudeAgent"
             && matches!(&event.body, ProviderRuntimeEventBody::ItemUpdated(p) | ProviderRuntimeEventBody::ItemCompleted(p) if p.item_type == CanonicalItemType::Reasoning);
-        if is_claude_reasoning {
+        let has_stable_activity = is_claude_reasoning || provider_runtime_command_progress_key(event).is_some();
+        if has_stable_activity {
             let previous = self
-                .claude_reasoning_activity_by_id
+                .stable_activity_by_id
                 .get(&activity.id)
                 .cloned()
                 .or_else(|| thread.activities.iter().find(|a| a.id == activity.id).cloned());
             if let Some(previous) = previous {
-                self.claude_reasoning_activity_by_id.insert(activity.id.clone(), previous.clone());
+                self.remember_stable_activity(previous.clone());
                 let previous_status = previous.payload.get("status").and_then(Value::as_str);
                 let status = activity.payload.get("status").and_then(Value::as_str);
                 if previous_status == Some("failed") || (previous_status == Some("completed") && status != Some("completed")) {
@@ -1303,11 +1319,22 @@ impl ProviderRuntimeIngestion {
             created_at: activity.created_at.clone(),
             activity: activity.clone(),
         }));
-        if is_claude_reasoning {
-            self.claude_reasoning_activity_by_id.insert(activity.id.clone(), activity);
+        if has_stable_activity {
+            self.remember_stable_activity(activity);
         }
         if let (Some(key), Some(fingerprint)) = (key, fingerprint) {
             self.latest_activity_update_fingerprint_by_key.insert(key, fingerprint);
+        }
+    }
+
+    fn remember_stable_activity(&mut self, activity: OrchestrationThreadActivity) {
+        if self.stable_activity_by_id.insert(activity.id.clone(), activity.clone()).is_none() {
+            self.stable_activity_order.push_back(activity.id);
+            while self.stable_activity_order.len() > STABLE_ACTIVITY_CACHE_CAPACITY {
+                if let Some(oldest) = self.stable_activity_order.pop_front() {
+                    self.stable_activity_by_id.remove(&oldest);
+                }
+            }
         }
     }
 
@@ -1764,6 +1791,20 @@ impl ProviderRuntimeIngestion {
                 self.flush_pending_generated_images_for_turn(event, thread, &turn_id, now);
                 self.provider_diff_placeholders.remove(&provider_turn_key(&thread.id, &turn_id));
             }
+            // A session stop settles the session (no active turn) before the runtime exits, and
+            // an exit can name no turn, so the turn resolved above can be missing. Every turn
+            // still tracked for this thread died with the session: finalize its messages before
+            // the buffers below are dropped, or their text is lost and they stay streaming.
+            for orphaned_turn_id in self.tracked_assistant_turn_ids_for_thread(&thread.id) {
+                self.finalize_buffered_assistant_messages_for_turn(
+                    event,
+                    &thread.id,
+                    &orphaned_turn_id,
+                    now,
+                    "assistant-complete-session-exit",
+                    "assistant-delta-session-exit",
+                );
+            }
             self.clear_turn_state_for_session(&thread.id);
         }
 
@@ -1823,7 +1864,39 @@ impl ProviderRuntimeIngestion {
                     subagent_role: None,
                     pinned_messages: None,
                     notes: None,
+                    goal: None,
+                    goal_start_behavior: None,
+                    goal_paused: None,
+                    goal_achieved: None,
                 })));
+            }
+        }
+
+        // A native subagent's resolved model (agent definition, env or tool input) only shows up
+        // in its own messages (PRI:3596). Child threads only: the parent's model is the user's
+        // selection.
+        if let B::ThreadMetadataUpdated(payload) = &event.body {
+            let resolved_model =
+                payload.metadata.as_ref().and_then(|m| m.get("model")).and_then(Value::as_str).filter(|m| !m.is_empty());
+            if let Some(resolved_model) = resolved_model.filter(|_| {
+                thread.parent_thread_id.is_some() && thread.creation_source == Some(ThreadCreationSource::ProviderNative)
+            }) {
+                let mut selection = serde_json::to_value(&thread.model_selection).unwrap_or(Value::Null);
+                if selection.get("model").and_then(Value::as_str) != Some(resolved_model) {
+                    if let Some(object) = selection.as_object_mut() {
+                        object.insert("model".into(), json!(resolved_model));
+                    }
+                    let command = json!({
+                        "type": "thread.meta.update",
+                        "commandId": provider_command_id(event, "subagent-thread-model-update", thread.id.as_str()),
+                        "threadId": thread.id,
+                        "modelSelection": selection,
+                    });
+                    match serde_json::from_value::<ClientThreadCommand>(command) {
+                        Ok(command) => self.out.push(OrchestrationCommand::Client(command)),
+                        Err(error) => tracing::error!("chat: a subagent model update did not build: {error}"),
+                    }
+                }
             }
         }
 
@@ -1995,6 +2068,7 @@ impl ProviderRuntimeIngestion {
                 checkpoint_ref: c.checkpoint_ref.clone(),
                 checkpoint_turn_count: c.checkpoint_turn_count,
                 files: c.files.clone(),
+                unified_diff: None,
             }
         });
         if existing.is_some() && existing_placeholder.is_none() {
@@ -2008,10 +2082,15 @@ impl ProviderRuntimeIngestion {
             .or_else(|| tracked.as_ref().map(|t| t.files.clone()))
             .or_else(|| existing.map(|c| c.files.clone()))
             .unwrap_or_default();
-        let checkpoint_ref = live
-            .as_ref()
-            .map(|p| p.checkpoint_ref.clone())
-            .unwrap_or_else(|| CheckpointRef::new(format!("provider-diff:{}", event.event_id)));
+        // Each parsed revision is a ref of its own (99b090d91), so a diff read names the exact
+        // patch it shows; a provider whose patch is not parsed keeps its first placeholder.
+        let checkpoint_ref = if can_parse {
+            CheckpointRef::new(format!("provider-diff:{}", event.event_id))
+        } else {
+            live.as_ref()
+                .map(|p| p.checkpoint_ref.clone())
+                .unwrap_or_else(|| CheckpointRef::new(format!("provider-diff:{}", event.event_id)))
+        };
         let checkpoint_turn_count = live.as_ref().map(|p| p.checkpoint_turn_count).unwrap_or(max_turn_count + 1);
         self.dispatch(InternalThreadCommand::TurnDiffComplete(ThreadTurnDiffCompleteCommand {
             command_id: provider_command_id(event, "thread-turn-diff-complete", &format!("{}:{}", thread.id, turn_id)),
@@ -2028,8 +2107,30 @@ impl ProviderRuntimeIngestion {
             created_at: event.created_at.clone(),
         }));
         if can_parse {
-            self.provider_diff_placeholders.insert(key, ProviderDiffPlaceholder { checkpoint_ref, checkpoint_turn_count, files });
+            self.provider_diff_placeholders.insert(
+                key,
+                ProviderDiffPlaceholder {
+                    checkpoint_ref,
+                    checkpoint_turn_count,
+                    files,
+                    // A patch over the diff cap could not be read back anyway
+                    // (`CheckpointStore::diff_provider_patch` refuses it): it is not kept.
+                    unified_diff: (event.provider.as_str() == "codex"
+                        && unified_diff.len() <= crate::checkpointing::store::CHECKPOINT_DIFF_MAX_OUTPUT_BYTES)
+                        .then(|| unified_diff.to_owned()),
+                },
+            );
         }
+    }
+
+    /// The cumulative patch of a running turn's live revision `checkpoint_ref` (a
+    /// `provider-diff:` placeholder), only while it is that turn's latest: never a newer or
+    /// another turn's revision. Codex's cumulative patches only, as Synara.
+    pub fn live_turn_patch(&self, thread_id: &ThreadId, turn_id: &TurnId, checkpoint_ref: &CheckpointRef) -> Option<String> {
+        self.provider_diff_placeholders
+            .get(&provider_turn_key(thread_id, turn_id))
+            .filter(|placeholder| placeholder.checkpoint_ref == *checkpoint_ref)
+            .and_then(|placeholder| placeholder.unified_diff.clone())
     }
 
     /// Synara `processDomainEvent`: the orchestration events ingestion listens to. A requested
@@ -2274,6 +2375,27 @@ mod tests {
             event[key] = value.clone();
         }
         event
+    }
+
+    /// A running Codex turn's patch is kept for its diff read only while it is within the diff
+    /// cap, and only for the revision its placeholder names.
+    #[test]
+    fn a_live_codex_patch_is_kept_only_within_the_diff_cap() {
+        let mut h = Harness::new();
+        h.ingestion = ProviderRuntimeIngestion::with_environment(IngestionEnvironment {
+            is_git_repo: Box::new(|_| true),
+            supports_live_turn_diff_patch: Box::new(|_| true),
+        });
+        h.feed(runtime("e1", "2026-10-05T10:00:01.000Z", "turn.started", json!({}), json!({})));
+        let patch = "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n";
+        let (thread, turn) = (ThreadId::new("thread-1"), TurnId::new("turn-1"));
+        h.feed(runtime("e2", "2026-10-05T10:00:02.000Z", "turn.diff.updated", json!({}), json!({ "unifiedDiff": patch })));
+        let small = CheckpointRef::new("provider-diff:e2");
+        assert_eq!(h.ingestion.live_turn_patch(&thread, &turn, &small).as_deref(), Some(patch));
+        let big = format!("{patch}{}", "+x\n".repeat(crate::checkpointing::store::CHECKPOINT_DIFF_MAX_OUTPUT_BYTES / 3 + 1));
+        h.feed(runtime("e3", "2026-10-05T10:00:03.000Z", "turn.diff.updated", json!({}), json!({ "unifiedDiff": big })));
+        assert_eq!(h.ingestion.live_turn_patch(&thread, &turn, &small), None, "an older revision is never handed out");
+        assert_eq!(h.ingestion.live_turn_patch(&thread, &turn, &CheckpointRef::new("provider-diff:e3")), None);
     }
 
     #[test]
@@ -2537,6 +2659,21 @@ mod tests {
     }
 
     #[test]
+    fn a_session_exit_naming_another_turn_still_finalizes_streaming_messages() {
+        let mut h = Harness::new();
+        h.feed(runtime("e1", "2026-10-05T10:00:01.000Z", "turn.started", json!({}), json!({})));
+        h.feed(runtime("e2", "2026-10-05T10:00:02.000Z", "content.delta", json!({ "itemId": "m" }), json!({ "streamKind": "assistant_text", "delta": "Half" })));
+        assert!(h.thread.as_ref().unwrap().messages.iter().any(|m| m.id.as_str() == "assistant:m" && m.streaming));
+        // The exit names a turn the message was not tracked under, as an exit that follows a
+        // settled stop can: the message still dies with the session.
+        h.feed(runtime("e3", "2026-10-05T10:00:03.000Z", "session.exited", json!({ "turnId": "turn-gone" }), json!({ "exitKind": "graceful" })));
+        let thread = h.thread.unwrap();
+        let message = thread.messages.iter().find(|m| m.id.as_str() == "assistant:m").unwrap();
+        assert_eq!(message.text, "Half");
+        assert!(!message.streaming, "a message is not left streaming after its session ends");
+    }
+
+    #[test]
     fn runtime_errors_mark_the_session() {
         let mut h = Harness::new();
         h.feed(runtime("e1", "2026-10-05T10:00:01.000Z", "turn.started", json!({}), json!({})));
@@ -2568,6 +2705,81 @@ mod tests {
         let progress = |id: &str| runtime(id, "2026-10-05T10:00:01.000Z", "tool.progress", json!({}), json!({ "toolUseId": "t1", "toolName": "mcp" }));
         assert_eq!(h.feed(progress("p1")).len(), 1);
         assert!(h.feed(progress("p2")).is_empty());
+    }
+
+    #[test]
+    fn the_stable_activity_cache_keeps_only_its_newest_rows() {
+        let mut ingestion = ProviderRuntimeIngestion::default();
+        let activity = |index: usize| OrchestrationThreadActivity {
+            id: EventId::new(format!("row-{index}")),
+            tone: OrchestrationThreadActivityTone::Tool,
+            kind: "tool.updated".into(),
+            summary: "Run tests".into(),
+            payload: json!({}),
+            turn_id: None,
+            sequence: None,
+            created_at: IsoDateTime::new("2026-10-06T12:00:00.000Z"),
+        };
+        for index in 0..STABLE_ACTIVITY_CACHE_CAPACITY + 10 {
+            ingestion.remember_stable_activity(activity(index));
+            ingestion.remember_stable_activity(activity(index));
+        }
+        assert_eq!(ingestion.stable_activity_by_id.len(), STABLE_ACTIVITY_CACHE_CAPACITY);
+        assert_eq!(ingestion.stable_activity_order.len(), STABLE_ACTIVITY_CACHE_CAPACITY);
+        assert!(!ingestion.stable_activity_by_id.contains_key(&EventId::new("row-9")));
+        assert!(ingestion.stable_activity_by_id.contains_key(&EventId::new("row-10")));
+    }
+
+    /// 3f55b77ef (ProviderRuntimeIngestion.test.ts "updates one long-command progress row"): a
+    /// command's elapsed-time updates replace one row, which keeps its first place; a replacement
+    /// runtime or another turn gets a row of its own.
+    #[test]
+    fn a_long_commands_progress_updates_one_row() {
+        for provider in ["codex", "claudeAgent"] {
+            let mut h = Harness::new();
+            let progress = |index: u64, turn: &str, generation: Option<&str>| {
+                let at = format!("2026-10-06T12:00:0{index}.000Z");
+                let mut event = if provider == "codex" {
+                    runtime(
+                        &format!("progress-{index}{}", generation.unwrap_or_default()),
+                        &at,
+                        "item.updated",
+                        json!({ "itemId": "long-command" }),
+                        json!({ "itemType": "command_execution", "status": "inProgress", "title": "Run tests", "data": { "elapsedSeconds": index } }),
+                    )
+                } else {
+                    runtime(
+                        &format!("progress-{index}{}", generation.unwrap_or_default()),
+                        &at,
+                        "tool.progress",
+                        json!({}),
+                        json!({ "toolUseId": "long-command", "toolName": "Bash", "elapsedSeconds": index }),
+                    )
+                };
+                event["provider"] = json!(provider);
+                event["turnId"] = json!(turn);
+                if let Some(generation) = generation {
+                    event["lifecycleGeneration"] = json!(generation);
+                }
+                event
+            };
+            let rows = |h: &Harness| -> Vec<OrchestrationThreadActivity> {
+                h.thread.as_ref().unwrap().activities.iter().filter(|a| a.kind == "tool.updated").cloned().collect()
+            };
+            for index in 0..3 {
+                h.feed(progress(index, "long-command-turn", None));
+            }
+            let updated = rows(&h);
+            assert_eq!(updated.len(), 1, "{provider}: {updated:#?}");
+            assert_eq!(updated[0].created_at.as_str(), "2026-10-06T12:00:00.000Z");
+            assert_eq!(updated[0].payload["data"]["elapsedSeconds"].as_f64(), Some(2.0));
+            // A replacement runtime may reuse ids and send an identical snapshot: a row of its own.
+            h.feed(progress(2, "long-command-turn", Some("replacement-runtime")));
+            assert_eq!(rows(&h).len(), 2, "{provider}");
+            // Another turn may reuse the provider's item id: a row of its own.
+            h.feed(progress(3, "next-command-turn", None));
+            assert_eq!(rows(&h).len(), 3, "{provider}");
+        }
     }
 
     #[test]
