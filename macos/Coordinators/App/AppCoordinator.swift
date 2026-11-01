@@ -206,6 +206,10 @@ import Observation
             if let chat = chatCoordinator, chat.destination == destination { return .chatCoordinator(chat) }
             return .unavailable(title: rootModel?.title ?? String(localized: "Chat"),
                                 message: String(localized: "The other Mac has not answered yet. Open Settings → Remote to look for it."))
+        case .remoteSession(let peer, let session):
+            if let model = rootRuntime?.remoteTerminal(peer: peer, session: session) { return .remoteTerminal(model) }
+            return .unavailable(title: rootModel?.title ?? String(localized: "Session"),
+                                message: String(localized: "The other Mac has not answered yet. Open Settings → Remote to look for it."))
         // A workspace selection shows its coordinator once the viewer has activated the
         // context and a coordinator is bound to it; until then, the root placeholder.
         case .terminal:

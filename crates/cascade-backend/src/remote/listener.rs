@@ -28,7 +28,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tower::Service;
 use tower_http::set_header::SetResponseHeaderLayer;
 
-use super::{pairing, store};
+use super::{pairing, store, terminal};
 use crate::{
     chat::{self, RpcError},
     error::ApiError,
@@ -144,6 +144,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/projects", get(projects))
         .route("/api/stream", get(stream))
         .route("/api/chat/rpc", post(chat_rpc))
+        .route("/api/terminal", get(open_terminal))
         // Every route above needs a token; the two below are how a Mac gets one, and answer only
         // while the host's pairing window is open (`pairing`).
         .route_layer(middleware::from_fn_with_state(state.clone(), authorize))
@@ -269,6 +270,81 @@ async fn chat_rpc(State(app): State<AppState>, request: Result<Json<chat::RpcReq
     chat::answer(&app, request).await
 }
 
+/// `GET /api/terminal` with `Upgrade: cascade-pty`: the connection becomes a filtered line to
+/// this Mac's terminal daemon (`terminal`), until it closes or its client is revoked.
+async fn open_terminal(State(state): State<AppState>, Extension(Client(id)): Extension<Client>, mut request: Request) -> Response {
+    let asked = request.headers().get(header::UPGRADE).and_then(|value| value.to_str().ok()) == Some(terminal::UPGRADE);
+    if !asked {
+        return ApiError::status(StatusCode::UPGRADE_REQUIRED, "upgrade to cascade-pty").into_response();
+    }
+    // Heard from before the client is checked again below, so a revocation in between is not missed.
+    let mut revoked = state.remote.revocations();
+    let turned_off = state.remote.turned_off();
+    let Some(upgrade) = request.extensions_mut().remove::<hyper::upgrade::OnUpgrade>() else {
+        return ApiError::bad_request("cannot upgrade this connection").into_response();
+    };
+    let Ok(slot) = state.remote.terminals.clone().try_acquire_owned() else {
+        super::log_seldom(&state, "error", "client_terminal_refused", json!({ "client": id, "limit": terminal::TERMINALS }));
+        return ApiError::status(StatusCode::SERVICE_UNAVAILABLE, "too many terminals open from other Macs").into_response();
+    };
+    let daemon = match terminal::connect_daemon(&state).await {
+        Ok(daemon) => daemon,
+        Err(error) => {
+            super::log(&state, "error", "client_terminal_failed", json!({ "client": id, "error": error.to_string() }));
+            return ApiError::status(StatusCode::SERVICE_UNAVAILABLE, "this Mac's terminals are not available").into_response();
+        }
+    };
+    match store::client_exists(&state.db, &id).await {
+        Ok(true) => super::log(&state, "info", "client_terminal", json!({ "client": id })),
+        Ok(false) => return ApiError::status(StatusCode::UNAUTHORIZED, "unauthorized").into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
+    }
+    let db = state.db.clone();
+    let client = id.clone();
+    let revocation = async move {
+        loop {
+            match revoked.recv().await {
+                Ok(gone) if gone == client => return,
+                Ok(_) => {}
+                Err(RecvError::Closed) => return,
+                Err(RecvError::Lagged(_)) => {
+                    if !store::client_exists(&db, &client).await.unwrap_or(false) {
+                        return;
+                    }
+                }
+            }
+        }
+    };
+    // Ends with its client's revocation or the listener turned off, whichever comes first.
+    let ended = async move {
+        tokio::select! {
+            _ = revocation => {}
+            _ = turned_off => {}
+        }
+    };
+    tokio::spawn(async move {
+        let _slot = slot;
+        let Ok(upgraded) = upgrade.await else { return };
+        terminal::relay(state, TokioIo::new(upgraded), daemon, ended).await;
+    });
+    Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(header::CONNECTION, "upgrade")
+        .header(header::UPGRADE, terminal::UPGRADE)
+        .body(axum::body::Body::empty())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// TCP keepalive: a Mac that slept or left the network without closing its connection is found
+/// gone within about a minute, so an open terminal does not hold its slot for ever.
+pub(crate) fn keep_alive(stream: &tokio::net::TcpStream) {
+    let probes = socket2::TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(10))
+        .with_retries(3);
+    let _ = socket2::SockRef::from(stream).set_tcp_keepalive(&probes);
+}
+
 /// Serves `router` over TLS on `listener` until the task running it is aborted, which ends every
 /// connection with it: a stream never finishes by itself, so it is never waited for.
 pub(crate) async fn serve(state: AppState, listener: TcpListener, tls: rustls::ServerConfig, router: Router) {
@@ -288,6 +364,7 @@ pub(crate) async fn serve(state: AppState, listener: TcpListener, tls: rustls::S
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 };
+                keep_alive(&stream);
                 let Some(source) = sources.take(peer.ip()) else {
                     turned_away(peer, "per address or network");
                     continue;
@@ -305,6 +382,8 @@ pub(crate) async fn serve(state: AppState, listener: TcpListener, tls: rustls::S
                         .timer(TokioTimer::new())
                         .header_read_timeout(HEADER_READ)
                         .serve_connection(TokioIo::new(tls), service)
+                        // A terminal (`/api/terminal`) leaves HTTP for the daemon's protocol.
+                        .with_upgrades()
                         .await;
                 });
             }

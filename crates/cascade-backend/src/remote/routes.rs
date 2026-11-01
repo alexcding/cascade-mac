@@ -167,3 +167,74 @@ pub async fn forget_peer(State(state): State<AppState>, headers: HeaderMap, Path
     state.publish(crate::Event::RemotePeers);
     Ok(Json(json!({ "ok": true })))
 }
+
+/// How long the app has to connect to a terminal socket it was given before it is taken down.
+const TERMINAL_ACCEPT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// `POST /api/remote/peers/{id}/terminal` → `{socket}`: opens a connection to the peer's terminal
+/// daemon and offers it on a Unix socket of its own, which the app's terminal client connects to
+/// as it would to its own daemon. The socket takes one connection, in a folder only this user can
+/// enter, and is removed once taken or after `TERMINAL_ACCEPT`.
+pub async fn open_peer_terminal(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Response {
+    if let Err(error) = local_only(&headers) {
+        return error.into_response();
+    }
+    let peer = match links::terminal(&state, &id).await {
+        Ok(Some(peer)) => peer,
+        Ok(None) => return ApiError::not_found("No such Mac").into_response(),
+        Err(error) => return ApiError::status(axum::http::StatusCode::BAD_GATEWAY, format!("{error:#}")).into_response(),
+    };
+    let (path, listener) = match terminal_socket() {
+        Ok(opened) => opened,
+        Err(error) => return ApiError::internal(error).into_response(),
+    };
+    let socket = path.clone();
+    tokio::spawn(async move {
+        let accepted = tokio::time::timeout(TERMINAL_ACCEPT, listener.accept()).await;
+        let _ = std::fs::remove_file(&socket);
+        let Ok(Ok((mut app, _))) = accepted else { return };
+        let mut peer = peer;
+        let _ = tokio::io::copy_bidirectional(&mut app, &mut peer).await;
+    });
+    Json(json!({ "socket": path })).into_response()
+}
+
+/// A fresh socket path in this process's private folder (`0700`), short enough for `sun_path`.
+fn terminal_socket() -> std::io::Result<(std::path::PathBuf, tokio::net::UnixListener)> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let folder = std::env::temp_dir().join(format!("cascade-rt-{}", std::process::id()));
+    match std::fs::DirBuilder::new().mode(0o700).create(&folder) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    // A folder someone else made, or opened up, is not ours to offer a terminal in.
+    let metadata = std::fs::symlink_metadata(&folder)?;
+    use std::os::unix::fs::MetadataExt;
+    if !metadata.is_dir() || metadata.uid() != unsafe { libc::getuid() } || metadata.permissions().mode() & 0o077 != 0 {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "the terminal socket folder is not private"));
+    }
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|time| time.subsec_nanos()).unwrap_or(0);
+    let name = format!("{:x}-{:x}.sock", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed), nonce);
+    let path = folder.join(name);
+    let listener = tokio::net::UnixListener::bind(&path)?;
+    Ok((path, listener))
+}
+
+#[derive(Deserialize)]
+pub struct DaemonBody {
+    socket: String,
+}
+
+/// `POST /api/remote/terminal-daemon` `{socket}`: where the app's terminal daemon listens, which
+/// a paired Mac's terminals are relayed to (`terminal`). Said by the app once it is connected.
+pub async fn set_terminal_daemon(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<DaemonBody>) -> ApiResult<Value> {
+    local_only(&headers)?;
+    let path = std::path::PathBuf::from(&body.socket);
+    if !path.is_absolute() {
+        return Err(ApiError::bad_request("the terminal daemon's socket must be an absolute path"));
+    }
+    *state.remote.daemon.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path);
+    Ok(Json(json!({})))
+}

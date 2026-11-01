@@ -135,3 +135,53 @@ pub(crate) async fn request(
     }
     Ok((status, serde_json::from_slice(&bytes).unwrap_or(Value::Null)))
 }
+
+/// A connection to the other Mac's terminal daemon (`terminal`), upgraded from `GET path`: what
+/// is written to it and read from it is the daemon's protocol, through the other Mac's filter.
+pub(crate) type Upgraded = TokioIo<hyper::upgrade::Upgraded>;
+
+/// Opens `path` with `Upgrade: <protocol>` and answers the upgraded connection; an answer other
+/// than `101` is the status it came with, for the caller to read.
+pub(crate) async fn upgrade(
+    address: &str,
+    tls: rustls::ClientConfig,
+    path: &str,
+    protocol: &str,
+    token: &str,
+) -> Result<std::result::Result<Upgraded, StatusCode>> {
+    let stream = tokio::time::timeout(CONNECT, async {
+        let tcp = TcpStream::connect(address).await.with_context(|| format!("connect to {address}"))?;
+        // A terminal stays open for as long as it is looked at: a Mac gone without a word is found.
+        super::listener::keep_alive(&tcp);
+        let name = ServerName::try_from("cascade")?;
+        match TlsConnector::from(Arc::new(tls)).connect(name, tcp).await {
+            Ok(stream) => Ok(stream),
+            Err(error) if not_pinned(&error) => Err(anyhow::Error::new(CertificateChanged)),
+            Err(error) => Err(anyhow::Error::new(error).context("TLS with the other Mac")),
+        }
+    })
+    .await
+    .context("the other Mac did not answer")??;
+    tokio::time::timeout(EXCHANGE, async {
+        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream)).await?;
+        // Runs until the upgrade hands the connection over, then ends by itself.
+        tokio::spawn(async move {
+            let _ = connection.with_upgrades().await;
+        });
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri(path)
+            .header(header::HOST, "cascade")
+            .header(header::CONNECTION, "upgrade")
+            .header(header::UPGRADE, protocol)
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(Full::new(Bytes::new()))?;
+        let response = sender.send_request(request).await?;
+        if response.status() != StatusCode::SWITCHING_PROTOCOLS {
+            return Ok(Err(response.status()));
+        }
+        Ok(Ok(TokioIo::new(hyper::upgrade::on(response).await.context("the other Mac's terminal")?)))
+    })
+    .await
+    .context("the other Mac stopped answering")?
+}

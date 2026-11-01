@@ -39,6 +39,9 @@ final class TerminalPipe: @unchecked Sendable {
     private var latestViewport: InMemoryTerminalViewport?
     private var ownsGeometryResponses = false
     private var ownsAppearanceResponses = false
+    /// Another Mac's terminal (`TerminalSession.remote`): its size and colours are that Mac's, so
+    /// this pipe never asks to change them; the view shows the terminal at the size it is given.
+    private var guest = false
     private var latestAppearance: PtyAppearance?
     private let error: @Sendable (String) -> Void
     private let exited: @Sendable (Int) -> Void
@@ -58,9 +61,10 @@ final class TerminalPipe: @unchecked Sendable {
         }, appearance: { [weak self] in self?.appearanceChanged($0) }, suppressesPixelOnlyResizes: false)
     }
 
-    func bind(client: PtydClient, id: String, geometryOwned: Bool = false, appearanceOwned: Bool = false) {
+    func bind(client: PtydClient, id: String, geometryOwned: Bool = false, appearanceOwned: Bool = false, guest: Bool = false) {
         lock.lock()
         self.client = client; termID = id
+        self.guest = guest
         ownsGeometryResponses = geometryOwned
         ownsAppearanceResponses = appearanceOwned
         input?.close()
@@ -89,7 +93,7 @@ final class TerminalPipe: @unchecked Sendable {
         do { try appearance.validate() }
         catch { failLocked(error.localizedDescription); return }
         latestAppearance = appearance
-        guard ownsAppearanceResponses, let client, let termID else { return }
+        guard ownsAppearanceResponses, !guest, let client, let termID else { return }
         client.sendAcknowledged(.init(op: "appearance", term: termID, appearance: appearance)) { [weak self] result in
             guard case .failure(let error) = result, let self else { return }
             self.lock.lock(); self.failLocked(error.localizedDescription); self.lock.unlock()
@@ -412,7 +416,7 @@ final class TerminalPipe: @unchecked Sendable {
         defer { lock.unlock() }
         let previous = latestViewport
         latestViewport = viewport
-        guard !failed, termID != nil, let client else { return }
+        guard !failed, !guest, termID != nil, let client else { return }
         if let previous {
             let unchanged = ownsGeometryResponses ? PtyGeometry(previous) == PtyGeometry(viewport)
                 : previous.columns == viewport.columns && previous.rows == viewport.rows

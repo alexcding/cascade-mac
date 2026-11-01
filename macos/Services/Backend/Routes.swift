@@ -162,6 +162,15 @@ public enum Routes {
     public static func remotePeerChatRPC(_ value: String) -> String {
         "/api/remote/peers/\(encodeComponent(value))/chat/rpc"
     }
+    public static let REMOTE_TERMINAL_DAEMON = "/api/remote/terminal-daemon"
+    public static let REMOTE_PEER_PROJECTS = "/api/remote/peers/:id/projects"
+    public static func remotePeerProjects(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/projects"
+    }
+    public static let REMOTE_PEER_TERMINAL = "/api/remote/peers/:id/terminal"
+    public static func remotePeerTerminal(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/terminal"
+    }
     public static let WEBHOOK_GITHUB = "/webhook/github"
     public static let CLI_TOOLS = "/api/cli-tools"
     public static let AGENT_HOOKS = "/api/agent-hooks"

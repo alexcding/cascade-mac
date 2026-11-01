@@ -10,6 +10,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     private var _peers: [RemotePeer] = []
     private var _sessions: [String: [WorkspaceSession]] = [:]
     private var _chats: [String: [JSONValue]] = [:]
+    private var _projects: [String: [RemoteProject]] = [:]
     private var _calls: [String] = []
     private var _paired: RemotePeer?
     private var _pairingSeconds = 300
@@ -19,6 +20,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     func set(sessions: [WorkspaceSession], chats: [JSONValue], for peer: String) {
         lock.withLock { _sessions[peer] = sessions; _chats[peer] = chats }
     }
+    func set(projects: [RemoteProject], for peer: String) { lock.withLock { _projects[peer] = projects } }
     func pairs(as peer: RemotePeer) { lock.withLock { _paired = peer } }
     func pairingLasts(_ seconds: Int) { lock.withLock { _pairingSeconds = seconds } }
     private func log(_ call: String) { lock.withLock { _calls.append(call) } }
@@ -44,6 +46,15 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     func sessions(peer id: String) async throws -> [WorkspaceSession] {
         log("sessions \(id)")
         return lock.withLock { _sessions[id] ?? [] }
+    }
+    func projects(peer id: String) async throws -> [RemoteProject] {
+        log("projects \(id)")
+        return lock.withLock { _projects[id] ?? [] }
+    }
+    func setTerminalDaemon(socket: String) async throws { log("daemon \(socket)") }
+    func openTerminal(peer id: String) async throws -> String {
+        log("terminal \(id)")
+        return "/tmp/remote-\(id).sock"
     }
     func chat(peer id: String) -> any ChatServing {
         RemoteChat { [weak self] method in
@@ -117,13 +128,29 @@ private func event(_ json: String) throws -> ServerEvent {
     let tail = entries.suffix(3)
     #expect(tail.map(\.id) == ["label:remote:ab", "remote-session:ab:s1", "remote-chat:ab:t1"])
     #expect(tail.map(\.title) == ["Mac mini", "repo-s1", "Fix it"], "a session by its label, as this Mac's are")
-    // A session runs on the other Mac: listed, not opened. A chat opens read-only.
-    #expect(tail.map(\.destination) == [nil, nil, .remoteChat(peer: "ab", thread: "t1")])
+    // A session opens its terminal on the other Mac; a chat opens read-only.
+    #expect(tail.map(\.destination) == [nil, .remoteSession(peer: "ab", session: "s1"), .remoteChat(peer: "ab", thread: "t1")])
     // Nothing names a path of this Mac's, so nothing offers Finder.
     #expect(tail.allSatisfy { $0.detail.isEmpty })
 
     let offline = SidebarEntry.make(projects: [], sessions: [], remote: [SidebarRemoteSection(peer: RemotePeer(id: "ab", name: "Mac mini"))])
     #expect(offline.last?.title == "Mac mini · Offline")
+}
+
+@MainActor @Test func aPairedMacsSessionsAreListedUnderItsProjects() {
+    let peer = RemotePeer(id: "ab", name: "Mac mini", reach: .online)
+    let orphan = WorkspaceSession(id: "s3", projectId: "gone", workspace: "/Users/other/old", worktree: "/Users/other/old-s3",
+                                  title: "Old", branch: "b", url: "", createdAt: nil, pinned: false)
+    let entries = SidebarEntry.make(projects: [], sessions: [], remote: [
+        SidebarRemoteSection(peer: peer, sessions: [session("s1", title: "Build"), session("s2", title: "Test"), orphan],
+                             projects: [RemoteProject(id: "p", name: "cascade-mac"), RemoteProject(id: "empty", name: "Nothing open")])
+    ])
+    let section = Array(entries.drop { $0.id != "label:remote:ab" })
+    // A project with no session there is not listed; a session of no listed project follows the folders.
+    #expect(section.map(\.id) == ["label:remote:ab", "remote-project:ab:p", "remote-session:ab:s3"])
+    let folder = section[1]
+    #expect(folder.title == "cascade-mac" && folder.role == .project && folder.destination == nil)
+    #expect(folder.children.map(\.destination) == [.remoteSession(peer: "ab", session: "s1"), .remoteSession(peer: "ab", session: "s2")])
 }
 
 // MARK: - The paired Macs' lists

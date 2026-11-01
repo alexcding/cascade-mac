@@ -20,6 +20,7 @@ enum Destination: Hashable {
     case project(ProjectPageViewModel)
     case sessionWorkspace(SessionWorkspaceViewModel, WorkspaceContext)
     case chat(ChatViewModel)
+    case remoteTerminal(RemoteTerminalModel)
 
     // MARK: Root placeholders; the root model resolves their live state
 
@@ -78,6 +79,8 @@ extension Destination {
             SessionWorkspaceView(context: context, model: viewModel)
         case .chat(let viewModel):
             ChatView(model: viewModel)
+        case .remoteTerminal(let model):
+            RemoteTerminalView(model: model).id(ObjectIdentifier(model))
 
         // Root placeholders
         case .terminal(let root):
@@ -139,6 +142,9 @@ extension Destination {
             // The agent's mark and the chat's title.
             let model = coordinator.model
             return WindowToolbar(leading: [.init("title", style: .plain, priority: .high) { ChatToolbarTitle(model: model) }])
+        case .remoteTerminal(let model):
+            // The session, and the Mac it runs on.
+            return WindowToolbar(leading: [.title(String(localized: "\(model.title) · \(model.macName)"))])
         case .terminal(let root), .session(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):

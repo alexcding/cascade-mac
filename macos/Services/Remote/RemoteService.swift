@@ -71,6 +71,13 @@ protocol RemoteServing: Sendable {
     /// Tries a paired Mac again, at `address` first when Bonjour sees it there.
     func connect(peer id: String, address: String?) async throws
     func sessions(peer id: String) async throws -> [WorkspaceSession]
+    /// The paired Mac's projects, name and icon only: its sessions are listed under them.
+    func projects(peer id: String) async throws -> [RemoteProject]
+    /// Opens a connection to the paired Mac's session terminals and answers the local socket the
+    /// app's terminal client connects to, once, as to its own daemon (`TerminalSession.remote`).
+    func openTerminal(peer id: String) async throws -> String
+    /// Tells the backend where this app's terminal daemon listens, for paired Macs' terminals.
+    func setTerminalDaemon(socket: String) async throws
     /// The paired Mac's chat engine, through this Mac's backend; the other Mac answers only reads.
     func chat(peer id: String) -> any ChatServing
 }
@@ -112,5 +119,30 @@ struct APIRemoteService: RemoteServing {
     func sessions(peer id: String) async throws -> [WorkspaceSession] {
         try await api.get(Routes.remotePeerTasks(id), timeout: 20)
     }
+    func projects(peer id: String) async throws -> [RemoteProject] {
+        try await api.get(Routes.remotePeerProjects(id), timeout: 20)
+    }
+    func openTerminal(peer id: String) async throws -> String {
+        struct Opened: Decodable, Sendable { let socket: String }
+        let opened: Opened = try await api.request(Routes.remotePeerTerminal(id), method: "POST", body: Empty(), timeout: 30)
+        return opened.socket
+    }
+    func setTerminalDaemon(socket: String) async throws {
+        let _: OK = try await api.request(Routes.REMOTE_TERMINAL_DAEMON, method: "POST", body: ["socket": socket])
+    }
     func chat(peer id: String) -> any ChatServing { APIChatService(api: api, path: Routes.remotePeerChatRPC(id)) }
+}
+
+/// A paired Mac's project, as it shows one to this Mac: no path, repository or Jira.
+struct RemoteProject: Codable, Equatable, Sendable, Identifiable {
+    let id: String
+    let name: String
+    var icon: String?
+}
+
+/// Where a remote session's terminal is reached (`TerminalSession.remote`): the Mac's name, for
+/// what the terminal says, and a fresh relayed socket for each connect.
+struct RemoteTerminalSource: Sendable {
+    let name: String
+    let socket: @Sendable () async throws -> String
 }

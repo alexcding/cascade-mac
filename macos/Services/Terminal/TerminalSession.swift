@@ -98,6 +98,11 @@ final class TerminalSession: Identifiable {
     /// The CLI this app launched in it, by its driver's id.
     @ObservationIgnored var launchedAgent: String?
     @ObservationIgnored var launchedAgentForeground: ForegroundProcess?
+    /// Another Mac's session terminal, reached through a socket the backend relays to that Mac's
+    /// daemon (`RemoteServing.openTerminal`), asked for again on each connect: this session only
+    /// attaches to the terminal there and types into it. It never creates one, and never changes
+    /// its size or colours, which stay that Mac's.
+    @ObservationIgnored var remote: RemoteTerminalSource?
 
     init(pairKey: String = "native-terminal-spike", cwd: String = FileManager.default.homeDirectoryForCurrentUser.path, paired: Bool = false,
          configuration: PtydConfiguration? = nil, shellPath: String? = nil,
@@ -226,8 +231,9 @@ final class TerminalSession: Identifiable {
         guard pipe.memory.enableGeometryCallbacks() else {
             throw PtyError.connection(String(localized: "Ghostty could not report complete terminal geometry."))
         }
-        let config = try configuration ?? configurationProvider()
-        let host = PtydHost(configuration: config)
+        let remote = self.remote
+        let config = remote == nil ? try configuration ?? configurationProvider() : nil
+        let host = config.map { PtydHost(configuration: $0) }
         self.host = host
         let pipe = self.pipe!
         let client = PtydClient(onEvent: { pipe.receive($0) }, onDisconnect: { [weak self] failure in
@@ -240,8 +246,18 @@ final class TerminalSession: Identifiable {
         self.client = client
         // Reconnect only to the existing daemon. Never spawn a replacement
         // daemon or shell to hide the loss of the original process.
-        if reconnecting { hello = try await client.connect(path: config.socketPath) }
-        else { hello = try await host.connect(client: client) }
+        if let remote {
+            let socket: String
+            do { socket = try await remote.socket() }
+            // The other Mac not answering yet is a lost connection, retried as one is; a first
+            // connect says why.
+            catch where reconnecting { throw PtyError.closed }
+            hello = try await client.connect(path: socket)
+        }
+        else if let config, let host {
+            if reconnecting { hello = try await client.connect(path: config.socketPath) }
+            else { hello = try await host.connect(client: client) }
+        }
         try hello?.validateByteTransport()
         try hello?.validateInputAcknowledgements()
         try hello?.validateSnapshots()
@@ -263,6 +279,8 @@ final class TerminalSession: Identifiable {
         } else if let existing = terminals.first(where: { $0.pairKey == pairKey && $0.paired == paired }) {
             info = existing
             created = false
+        } else if let remote {
+            throw PtyError.connection(String(localized: "This session's terminal is not running on \(remote.name). Start it there."))
         } else {
             try negotiated.validateIdentityResponseOwner()
             try negotiated.validateShellIntegration()
@@ -302,9 +320,12 @@ final class TerminalSession: Identifiable {
             _ = try pipe.prepareAppearance()
         }
         pipe.bind(client: client, id: info.id, geometryOwned: info.geometryResponseOwner != nil,
-                  appearanceOwned: info.appearanceResponseOwner != nil)
-        if info.appearanceResponseOwner != nil { try await pipe.synchronizeAppearance() }
-        try await pipe.synchronizeGrid()
+                  appearanceOwned: info.appearanceResponseOwner != nil, guest: remote != nil)
+        // Another Mac's terminal keeps its size and colours: the snapshot brings both.
+        if remote == nil {
+            if info.appearanceResponseOwner != nil { try await pipe.synchronizeAppearance() }
+            try await pipe.synchronizeGrid()
+        }
         connectionState = .restoring
         let snapshot = try await PtySnapshotDownloader(client: client).fetch(term: info.id)
         try await pipe.attach(snapshot, daemonOwnsStateResponses: true,

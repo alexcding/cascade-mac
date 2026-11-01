@@ -39,23 +39,15 @@ struct RemoteSettingsView: View {
                 }
                 ForEach(model.nearby, id: \.id) { sighting in
                     SettingsRow(title: sighting.name, caption: String(localized: "Nearby, not paired")) {
-                        if pairingWith == sighting.id { codeField(address: sighting.address) } else {
-                            Button("Pair…") { pairingWith = sighting.id; code = "" }.disabled(model.pairing)
-                        }
+                        pairToggle(sighting.id)
                     }
+                    if pairingWith == sighting.id { entryRow(address: sighting.address) }
                 }
                 SettingsRow(title: String(localized: "Pair by address"),
                             caption: String(localized: "For a Mac this one cannot find: its name or IP address and the port it shows.")) {
-                    if pairingWith == Self.manual {
-                        HStack {
-                            TextField("mac-mini.local:52000", text: $address).frame(minWidth: 160)
-                                .accessibilityIdentifier("settings-remote-address")
-                            codeField(address: address)
-                        }
-                    } else {
-                        Button("Pair…") { pairingWith = Self.manual; code = "" }.disabled(model.pairing)
-                    }
+                    pairToggle(Self.manual)
                 }
+                if pairingWith == Self.manual { entryRow(address: address, typed: true) }
                 if let error = model.pairError {
                     Text(error).foregroundStyle(Theme.danger).textSelection(.enabled)
                 }
@@ -99,16 +91,32 @@ struct RemoteSettingsView: View {
         }
     }
 
-    private func codeField(address: String) -> some View {
+    /// The row's control: Pair… opens the entry under it, Cancel closes it.
+    @ViewBuilder private func pairToggle(_ id: String) -> some View {
+        if pairingWith == id {
+            Button("Cancel") { pairingWith = nil }.disabled(model.pairing)
+        } else {
+            Button("Pair…") { pairingWith = id; code = "" }.disabled(model.pairing)
+        }
+    }
+
+    /// The code (and for a typed Mac its address) on a line of its own under its row: in the row's
+    /// control column the fields and buttons do not fit the window and are cut off.
+    private func entryRow(address: String, typed: Bool = false) -> some View {
         HStack {
-            TextField("123456", text: $code).frame(width: 80).monospacedDigit()
+            if typed {
+                TextField("Address", text: $address, prompt: Text("mac-mini.local:52000"))
+                    .labelsHidden().accessibilityIdentifier("settings-remote-address")
+            }
+            TextField("Code", text: $code, prompt: Text("123456"))
+                .labelsHidden().frame(width: 90).monospacedDigit()
                 .accessibilityIdentifier("settings-remote-code-entry")
                 .onSubmit { submit(address: address) }
+            if !typed { Spacer() }
             if model.pairing { ProgressView().controlSize(.small) } else {
                 Button("Pair") { submit(address: address) }
                     .disabled(code.filter(\.isNumber).count != 6 || address.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            Button("Cancel") { pairingWith = nil }.disabled(model.pairing)
         }
     }
 

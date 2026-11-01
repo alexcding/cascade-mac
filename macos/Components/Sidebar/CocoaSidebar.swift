@@ -1008,13 +1008,16 @@ enum SidebarMetrics {
         icon.contentTintColor = iconColor
         forkMark.contentTintColor = iconColor
         switch entry.role {
-        // A folder's Settings and New Task show under the pointer.
+        // A folder's Settings and New Task show under the pointer: this Mac's folders only, a paired
+        // Mac's having nothing here to set or start.
         case .project:
-            accessory.isHidden = !hovered; settings.isHidden = !hovered; dot.isHidden = true
+            let actionable = entry.projectID != nil
+            accessory.isHidden = !hovered || !actionable; settings.isHidden = !hovered || !actionable; dot.isHidden = true
         // The pin shows in the trailing slot under the pointer, and the ⌘-held hint takes it. The status
         // dot leads the row, always shown.
+        // A paired Mac's session is not pinned here: it has no pin.
         case .session:
-            accessory.isHidden = !hovered || !shortcut.isHidden
+            accessory.isHidden = !hovered || !shortcut.isHidden || entry.sessionID == nil
             dot.isHidden = false
         case .chat:
             accessory.isHidden = true
@@ -1056,6 +1059,8 @@ enum SidebarMetrics {
                     self?.onToggleExpanded(); return true
                 })
             }
+        }
+        if isProject, entry.projectID != nil {
             actions.append(.init(name: String(localized: "Project Settings")) { [weak self] in
                 guard let id = self?.entry.projectID else { return false }
                 self?.onProjectSettings(id); return true

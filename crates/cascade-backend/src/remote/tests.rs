@@ -767,3 +767,125 @@ fn one_network_cannot_take_more_than_its_share() {
     drop((held, one));
     assert!(sources.take(ip("2001:db8:0:1::ff")).is_some() && sources.take(ip("10.0.0.1")).is_some(), "given back");
 }
+
+// ---- terminals -------------------------------------------------------------------------------
+
+/// A terminal daemon that answers as `cascade-ptyd` does, for the ops a paired Mac may send, and
+/// tells the test every request that reached it.
+fn fake_daemon(path: &std::path::Path) -> tokio::sync::mpsc::UnboundedReceiver<Value> {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let listener = tokio::net::UnixListener::bind(path).unwrap();
+    let (heard, hears) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let heard = heard.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = stream.into_split();
+                let mut lines = BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let _ = heard.send(request.clone());
+                    // As the daemon does: a request without an id gets no answer.
+                    if request.get("id").is_none() {
+                        continue;
+                    }
+                    let ok = match request["op"].as_str().unwrap() {
+                        "hello" => json!({ "protocol": 2, "eventScope": request["eventScope"] }),
+                        "list" => json!([
+                            { "id": "pty1", "pairKey": "session-1", "paired": true },
+                            { "id": "pty2", "pairKey": "shell:task:session-1:1", "paired": false },
+                        ]),
+                        _ => Value::Null,
+                    };
+                    let mut out = json!({ "id": request["id"], "ok": ok }).to_string();
+                    if request["op"] == "attach" {
+                        out.push('\n');
+                        out.push_str(&json!({ "ev": "data", "id": "pty1", "bytes": "aGk=", "seq": 1 }).to_string());
+                    }
+                    out.push('\n');
+                    if write.write_all(out.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    hears
+}
+
+#[tokio::test]
+async fn the_app_types_into_a_peers_session_terminal_through_its_own_socket() {
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let session = crate::domain::Session { id: "session-1".into(), project_id: "p".into(), workspace: "/w".into(), worktree: "/w".into(), cli: "claude".into(), ..Default::default() };
+    assert!(host.db.upsert_task(&session).await.unwrap());
+    let daemon_dir = tempfile::tempdir().unwrap();
+    let daemon = daemon_dir.path().join("d.sock");
+    let mut heard = fake_daemon(&daemon);
+    *host.remote.daemon.lock().unwrap() = Some(daemon);
+
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let router = crate::build_app(other.clone());
+    let response = router.clone().oneshot(Request::post(format!("/api/remote/peers/{id}/terminal")).body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body = axum::body::to_bytes(response.into_body(), 1 << 16).await.unwrap();
+    let socket: Value = serde_json::from_slice(&body).unwrap();
+    let path = std::path::PathBuf::from(socket["socket"].as_str().unwrap());
+
+    let stream = tokio::net::UnixStream::connect(&path).await.unwrap();
+    let (read, mut write) = stream.into_split();
+    let mut lines = BufReader::new(read).lines();
+    let next = async |lines: &mut tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>| -> Value {
+        let line = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.unwrap().unwrap().unwrap();
+        serde_json::from_str(&line).unwrap()
+    };
+    macro_rules! ask {
+        ($request:expr) => {{
+            write.write_all(format!("{}\n", $request).as_bytes()).await.unwrap();
+            next(&mut lines).await
+        }};
+    }
+
+    // The scope is narrowed whatever was asked.
+    assert_eq!(ask!(json!({ "id": 1, "op": "hello", "eventScope": "all" }))["ok"]["eventScope"], "attached");
+    // Only the session's own terminal is listed, and only it may be named.
+    let listed = ask!(json!({ "id": 2, "op": "list" }));
+    assert_eq!(listed["ok"], json!([{ "id": "pty1", "pairKey": "session-1", "paired": true }]));
+    assert_eq!(ask!(json!({ "id": 3, "op": "attach", "term": "pty2" }))["err"], "not a session terminal of this Mac");
+    assert_eq!(ask!(json!({ "id": 4, "op": "resize", "term": "pty1", "cols": 10, "rows": 5 }))["err"], "not allowed from another Mac");
+    assert_eq!(ask!(json!({ "id": 5, "op": "create", "opts": {} }))["err"], "not allowed from another Mac");
+    assert_eq!(ask!(json!({ "id": 6, "op": "attach", "term": "pty1" }))["ok"], Value::Null);
+    let event = next(&mut lines).await;
+    assert_eq!(event["ev"], "data");
+    assert_eq!(ask!(json!({ "id": 7, "op": "write", "term": "pty1", "data": "ls\r" }))["ok"], Value::Null);
+
+    // What reached the daemon: nothing it refused.
+    let mut requests = Vec::new();
+    while let Ok(request) = heard.try_recv() {
+        requests.push(request);
+    }
+    // The relay's own narrowing hello first, wanting no answer; then the app's.
+    assert_eq!(requests[0], json!({ "op": "hello", "eventScope": "attached" }));
+    let ops: Vec<&str> = requests.iter().map(|request| request["op"].as_str().unwrap()).collect();
+    assert_eq!(ops, ["hello", "hello", "list", "attach", "write"]);
+    // The socket took its one connection and is gone.
+    assert!(!path.exists());
+
+    // Turning the listener off ends the terminal too.
+    super::disable(&host).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(5), lines.next_line()).await.expect("the terminal stayed open");
+    assert!(matches!(ended, Ok(None) | Err(_)), "{ended:?}");
+}
+
+#[tokio::test]
+async fn a_host_without_a_terminal_daemon_says_so() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (_host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let error = match links::terminal(&other, &id).await {
+        Ok(_) => panic!("opened a terminal with no daemon"),
+        Err(error) => error,
+    };
+    assert!(format!("{error:#}").contains("cannot open its terminals"), "{error:#}");
+}

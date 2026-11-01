@@ -11,6 +11,7 @@ mod listener;
 mod pairing;
 pub(crate) mod routes;
 mod store;
+pub(crate) mod terminal;
 #[cfg(test)]
 mod tests;
 
@@ -48,6 +49,15 @@ pub struct Remote {
     log: std::sync::OnceLock<mpsc::UnboundedSender<(&'static str, &'static str, Value)>>,
     /// Each `log_seldom` kind: when it was last written, and how many were held back since.
     seldom: std::sync::Mutex<std::collections::HashMap<&'static str, Seldom>>,
+    /// The terminals paired Macs hold open here (`terminal`), at most `terminal::TERMINALS`. An
+    /// upgraded connection leaves the listener's own count, so this is what bounds them.
+    terminals: std::sync::Arc<tokio::sync::Semaphore>,
+    /// Counts the times the listener was turned off: an open terminal ends when it moves, since
+    /// an upgraded connection is no longer the listener's to end.
+    stopped: tokio::sync::watch::Sender<u64>,
+    /// Where the app's terminal daemon listens, as the app said (`routes::set_terminal_daemon`);
+    /// until it says, no terminal is offered. A short lock.
+    pub(crate) daemon: std::sync::Mutex<Option<std::path::PathBuf>>,
 }
 
 struct Running {
@@ -63,7 +73,7 @@ impl Drop for Running {
 
 impl Default for Remote {
     fn default() -> Self {
-        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default(), replacing: Default::default(), log: Default::default(), seldom: Default::default() }
+        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default(), replacing: Default::default(), log: Default::default(), seldom: Default::default(), terminals: std::sync::Arc::new(tokio::sync::Semaphore::new(terminal::TERMINALS)), stopped: tokio::sync::watch::channel(0).0, daemon: Default::default() }
     }
 }
 
@@ -77,6 +87,14 @@ pub struct Status {
 }
 
 impl Remote {
+    /// Resolves once the listener is next turned off.
+    pub(crate) fn turned_off(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let mut stopped = self.stopped.subscribe();
+        async move {
+            let _ = stopped.changed().await;
+        }
+    }
+
     pub(crate) fn revocations(&self) -> broadcast::Receiver<String> {
         self.revoked.subscribe()
     }
@@ -205,6 +223,7 @@ pub async fn disable(state: &AppState) -> Result<Status> {
     let mut running = state.remote.running.lock().await;
     pairing::close(state);
     if running.take().is_some() {
+        state.remote.stopped.send_modify(|count| *count += 1);
         log(state, "info", "listener_off", json!({}));
         state.publish(Event::RemoteHost);
     }

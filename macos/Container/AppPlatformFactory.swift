@@ -41,9 +41,12 @@ struct NativeTerminalRuntimeControl: TerminalRuntimeControlling {
                      session: @escaping (OpenPageRequest) -> PageSessionMark?) -> any PageActionServing
     /// Says once that sidebar tabs are gone, where an earlier build left its `tabs.json`.
     func sidebarTabsRemovalNotice() -> String?
+    /// Where this app's terminal daemon listens, which the backend relays paired Macs' terminals to.
+    func terminalDaemonSocket() -> String?
 }
 
 extension AppPlatformFactory {
+    func terminalDaemonSocket() -> String? { nil }
     func pageActions(open: @escaping (OpenPageRequest) async throws -> Void) -> any PageActionServing {
         pageActions(open: open, session: { _ in nil })
     }
@@ -85,6 +88,7 @@ extension AppPlatformFactory {
     func sidebarTabsRemovalNotice() -> String? {
         SidebarTabsRemovalNotice(defaults: .standard, tabsFile: (try? configuration().directory)?.appendingPathComponent("tabs.json")).take()
     }
+    func terminalDaemonSocket() -> String? { try? configuration().socketPath }
     func terminal(_ request: AppTerminalRequest) -> TerminalSession {
         TerminalSession(pairKey: request.key, cwd: request.directory, paired: request.paired, configurationProvider: configuration)
     }

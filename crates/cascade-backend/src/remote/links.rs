@@ -396,3 +396,41 @@ pub async fn forward(
     }
     Err(failure)
 }
+
+/// Opens a terminal connection to the peer (`terminal`), at the first of its addresses that
+/// answers; None for a peer not paired. A `401` marks the peer revoked, another certificate marks
+/// it changed, as for `forward`.
+pub async fn terminal(state: &AppState, id: &str) -> Result<Option<client::Upgraded>> {
+    let Some((peer, token)) = peer(state, id).await? else { return Ok(None) };
+    let mut failure = None;
+    for address in &peer.addresses {
+        let tls = identity::pinned_client_config(&peer.id)?;
+        match client::upgrade(address, tls, "/api/terminal", super::terminal::UPGRADE, &token).await {
+            Ok(Ok(upgraded)) => return Ok(Some(upgraded)),
+            Ok(Err(StatusCode::UNAUTHORIZED)) => {
+                set_reach(state, id, None, Reach::Revoked);
+                anyhow::bail!("{} removed this Mac; pair it again", peer.name);
+            }
+            // An older Cascade there has no terminals to give (`404`), or it has none free.
+            Ok(Err(status)) => {
+                super::log(state, "error", "peer_terminal_refused", json!({ "peer": super::short(id), "name": peer.name, "status": status.as_u16() }));
+                anyhow::bail!(match status {
+                    StatusCode::NOT_FOUND => format!("{} runs a Cascade without remote terminals; update it", peer.name),
+                    StatusCode::SERVICE_UNAVAILABLE => format!("{} cannot open its terminals now", peer.name),
+                    other => format!("{} refused the terminal ({other})", peer.name),
+                });
+            }
+            Err(error) => {
+                if failure.as_ref().is_none_or(|failure: &anyhow::Error| !failure.is::<client::CertificateChanged>()) {
+                    failure = Some(error);
+                }
+            }
+        }
+    }
+    let failure = failure.unwrap_or_else(|| anyhow::anyhow!("no address for {}", peer.name));
+    super::log(state, "error", "peer_terminal_failed", json!({ "peer": super::short(id), "name": peer.name, "error": format!("{failure:#}") }));
+    if failure.is::<client::CertificateChanged>() {
+        set_reach(state, id, None, Reach::Changed);
+    }
+    Err(failure)
+}

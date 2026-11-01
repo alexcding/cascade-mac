@@ -13,6 +13,8 @@ import Foundation
     func movePinned(_ id: String, before: String?)
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel?
     func openGitClient(_ id: String)
+    /// A paired Mac's session's terminal screen, or nil while that Mac has not listed it.
+    func remoteTerminal(peer: String, session: String) -> RemoteTerminalModel?
     func renameSession(_ id: String, to name: String)
     func forkSession(_ id: String)
     func reattachSession(_ id: String)
@@ -28,6 +30,7 @@ import Foundation
 }
 
 extension RootCoordinating {
+    func remoteTerminal(peer: String, session: String) -> RemoteTerminalModel? { nil }
     func moveProject(_ id: String, before: String?) {}
     func moveSession(_ id: String, before: String?) {}
     func movePinned(_ id: String, before: String?) {}

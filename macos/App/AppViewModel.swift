@@ -32,6 +32,10 @@ public final class AppViewModel {
     let chats = ChatListStore()
     /// The Macs this one paired with, and their sessions and chats (`AppViewModel+Remote`).
     let remotePeers = RemotePeersStore()
+    /// The paired Macs' sessions opened here, by `remoteTerminalKey`: each keeps its connection
+    /// while another screen is shown, as a session's terminal here does, until the session or its
+    /// Mac goes (`pruneRemoteTerminals`).
+    @ObservationIgnored var remoteTerminals: [String: RemoteTerminalModel] = [:]
     /// This Mac on Bonjour while other Macs may connect, and what it advertises (`advertiseHost`).
     @ObservationIgnored var hostAdvertiser: (key: String, advertiser: RemoteAdvertiser)?
     /// The chat backend while connected; a chat page looks it up for each request.
@@ -54,7 +58,7 @@ public final class AppViewModel {
     @ObservationIgnored public private(set) var refreshInterval: TimeInterval = 60
     /// The sidebar bell's "Today" popover.
     let todayActivity = TodayActivityViewModel()
-    @ObservationIgnored private let platformFactory: any AppPlatformFactory
+    @ObservationIgnored let platformFactory: any AppPlatformFactory
     @ObservationIgnored private let terminalControl: any TerminalRuntimeControlling
     @ObservationIgnored private let processes: any ProcessSampling
     @ObservationIgnored private let sessionPool: SessionPool
@@ -207,7 +211,7 @@ public final class AppViewModel {
             coordinator.appearance = shell.appearance
             updateWorkspaceDocumentState()
         }
-        shell.terminalStyleChanged = { [weak self] in self?.updateWorkspaceTerminalState() }
+        shell.terminalStyleChanged = { [weak self] in self?.updateWorkspaceTerminalState(); self?.restyleRemoteTerminals() }
         shell.windowBackgroundChanged = { [weak self] in
             guard let self else { return }
             coordinator.windowBackdrop = shell.windowBackdrop

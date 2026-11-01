@@ -10,6 +10,7 @@ import Observation
 @MainActor @Observable final class RemotePeersStore {
     private(set) var peers: [RemotePeer] = []
     private(set) var sessions: [String: [WorkspaceSession]] = [:]
+    private(set) var projects: [String: [RemoteProject]] = [:]
     private(set) var chats: [String: [String: ChatThreadShell]] = [:]
     @ObservationIgnored private(set) var service: (any RemoteServing)?
     @ObservationIgnored private var generation = UUID()
@@ -27,7 +28,7 @@ import Observation
         peersTask?.cancel(); peersTask = nil
         reading.values.forEach { $0.cancel() }; reading = [:]; again = []
         if service == nil {
-            peers = []; sessions = [:]; chats = [:]
+            peers = []; sessions = [:]; projects = [:]; chats = [:]
             return
         }
         reload()
@@ -46,6 +47,7 @@ import Observation
             if peers != listed { peers = listed }
             let ids = Set(listed.map(\.id))
             sessions = sessions.filter { ids.contains($0.key) }
+            projects = projects.filter { ids.contains($0.key) }
             chats = chats.filter { ids.contains($0.key) }
             for peer in listed where peer.reach == .online { read(peer.id) }
             onRead()
@@ -105,12 +107,14 @@ import Observation
         let generation = self.generation
         reading[id] = Task { [weak self] in
             async let listedSessions = try? service.sessions(peer: id)
+            async let listedProjects = try? service.projects(peer: id)
             async let listedChats = try? service.chat(peer: id).listThreads()
-            let (newSessions, newChats) = await (listedSessions, listedChats)
+            let (newSessions, newProjects, newChats) = await (listedSessions, listedProjects, listedChats)
             guard let self, self.generation == generation else { return }
             reading[id] = nil
             if peer(id) != nil {
                 if let newSessions, sessions[id] != newSessions { sessions[id] = newSessions }
+                if let newProjects, projects[id] != newProjects { projects[id] = newProjects }
                 if let newChats {
                     let byID = Dictionary(newChats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                     if chats[id] != byID { chats[id] = byID }
