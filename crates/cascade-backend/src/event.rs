@@ -34,9 +34,10 @@ pub enum Event {
         project: Option<String>,
         args: Value,
     },
-    /// The app's answer to a paired Mac's command, which the paired Macs hear.
+    /// The app's answer to a paired Mac's command, which that Mac alone hears (`client`).
     SessionCommandDone {
         key: String,
+        client: String,
         ok: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,

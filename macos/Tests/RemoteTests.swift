@@ -315,6 +315,15 @@ private func event(_ json: String) throws -> ServerEvent {
     #expect(model.completed)
     #expect(asked.commands == [RemoteCommand(op: "removal", task: "s1"),
                                RemoteCommand(op: "remove", task: "s1", args: ["sessions": ["s1", "s2"]])])
+
+    // This Mac's list is behind that Mac's: what that Mac planned is what it is asked to remove.
+    asked.commands = []
+    let behind = SessionRemovalViewModel(service: removal, record: sessions[0], projects: [], sessions: [sessions[0]],
+                                         didRemove: { _ in }, finished: {})
+    await behind.load()
+    await behind.remove()
+    #expect(behind.completed)
+    #expect(asked.commands.last == RemoteCommand(op: "remove", task: "s1", args: ["sessions": ["s1", "s2"]]))
 }
 
 // MARK: - The paired Macs' lists

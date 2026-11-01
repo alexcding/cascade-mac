@@ -105,6 +105,13 @@ public final class AppViewModel {
     /// Sessions a paired Mac started here, running with no screen of this Mac showing them.
     @ObservationIgnored let unseenTerminals = UnseenTerminals()
     @ObservationIgnored private var startingUnseen: [String: Task<Void, Error>] = [:]
+    /// Paired Macs' sessions made from here and opened before their Mac lists them (`peer/session`):
+    /// a list read before they were made does not send the screen away.
+    @ObservationIgnored var awaitingListing: [String: Date] = [:]
+    /// Why a paired Mac's session could not be started there, for its next screen to say.
+    @ObservationIgnored var remoteStartErrors: [String: String] = [:]
+    /// Each paired Mac's sessions as last pruned for (`pruneRemoteChoices`).
+    @ObservationIgnored var prunedRemoteSessions: [String: Set<String>] = [:]
     var projectModels: [String: ProjectPageViewModel] { coordinator.projectModels }
     private(set) var changingSessions: Set<String> = []
     /// Pane Terminal tabs' shells being ended, by key.
@@ -1641,7 +1648,7 @@ public final class AppViewModel {
                     if let warning = forked?["warning"]?.string {
                         self.error = String(localized: "Forked, but not all of its uncommitted work came across: \(warning)")
                     }
-                    select(.remoteSession(peer: peer, session: new))
+                    selectWhenListed(peer: peer, session: new)
                 } catch {
                     self?.error = String(localized: "Could not fork session: \(error.localizedDescription)")
                 }
@@ -1695,7 +1702,7 @@ public final class AppViewModel {
             Task { [weak self] in
                 do {
                     try await self?.startRemoteSession(peer: peer, session: session)
-                    if let model = self?.remoteTerminals["\(peer)/\(session)"], model.isOver { model.onReconnect() }
+                    if let model = self?.remoteTerminals["\(peer)/\(session)"], model.isOver { model.onReconnect(nil) }
                     self?.select(.remoteSession(peer: peer, session: session))
                 } catch {
                     self?.error = String(localized: "Could not start the session: \(error.localizedDescription)")
@@ -1837,15 +1844,13 @@ public final class AppViewModel {
 
     /// New Task on a paired Mac's project: made there, its agent started there, opened here.
     func newRemoteTask(_ key: String, _ task: RemoteNewTask) {
-        let parts = key.split(separator: ":", maxSplits: 2).map(String.init)
-        guard parts.count == 3, parts[0] == "remote-project" else { return }
-        let (peer, project) = (parts[1], parts[2])
+        guard let (peer, project) = Self.remoteRow(key, kind: "remote-project") else { return }
         Task { [weak self] in
             do {
                 let made = try await self?.remotePeers.perform(peer: peer, RemoteCommand(
                     op: "create", project: project,
                     args: ["branch": .string(task.branch), "cli": .string(task.agent.rawValue), "prompt": .string(task.prompt)]))
-                if let new = made?["task"]?.string { self?.select(.remoteSession(peer: peer, session: new)) }
+                if let new = made?["task"]?.string { self?.selectWhenListed(peer: peer, session: new) }
             } catch {
                 self?.error = String(localized: "Could not create the task: \(error.localizedDescription)")
             }
@@ -1974,12 +1979,18 @@ public final class AppViewModel {
             unseenTerminals.mount(terminal, key: key, size: Self.unseenTerminalSize)
             await terminal.start()
         }
-        for _ in 0..<200 {
-            if terminal.isLive { return }
-            if let error = terminal.error { throw BackendError.operation(error) }
-            try await Task.sleep(for: .milliseconds(100))
+        do {
+            for _ in 0..<200 {
+                if terminal.isLive { return }
+                if let error = terminal.error { throw BackendError.operation(error) }
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            throw BackendError.operation(String(localized: "The session did not start in time."))
+        } catch {
+            // Not left mounted where nothing shows it: opened here, it shows what went wrong.
+            unseenTerminals.release(key)
+            throw error
         }
-        throw BackendError.operation(String(localized: "The session did not start in time."))
     }
 
     public func quit() async throws { try await prepareToTerminate() }

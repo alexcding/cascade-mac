@@ -620,6 +620,9 @@ async fn a_peer_renames_a_session_here_and_asks_the_app_for_the_rest() {
     // Not a session there, or not something a paired Mac may ask: refused.
     assert_eq!(post(router.clone(), command.clone(), json!({ "op": "rename", "task": "nope", "args": { "name": "x" } })).await.0, 404);
     assert_eq!(post(router.clone(), command.clone(), json!({ "op": "kill", "task": "session-1" })).await.0, 403);
+    // What may be asked is checked before what it names: a refused op says nothing of sessions.
+    assert_eq!(post(router.clone(), command.clone(), json!({ "op": "kill", "task": "nope" })).await.0, 403);
+    assert_eq!(post(router.clone(), command.clone(), json!({ "op": "rename" })).await.0, 400);
 
     // Anything else goes to that Mac's app, which answers by the key.
     let mut events = host.events.subscribe();
@@ -629,7 +632,12 @@ async fn a_peer_renames_a_session_here_and_asks_the_app_for_the_rest() {
     assert_eq!(events.recv().await.unwrap(), json!({ "type": "remote-command", "key": key, "op": "start", "task": "session-1", "args": null }));
     let (code, _) = post(crate::build_app(host.clone()), "/api/remote/command-result".into(), json!({ "key": key, "ok": true })).await;
     assert_eq!(code, 200);
-    assert_eq!(events.recv().await.unwrap(), json!({ "type": "session-command-done", "key": key, "ok": true, "data": null }));
+    let done = events.recv().await.unwrap();
+    assert_eq!((done["type"].as_str(), done["key"].as_str(), done["ok"].as_bool()), (Some("session-command-done"), Some(key.as_str()), Some(true)));
+    assert!(done["client"].as_str().is_some_and(|client| !client.is_empty()), "kept for the asking Mac's stream alone: {done}");
+    // An answer to nothing asked, or answered twice, is told to nobody.
+    assert_eq!(post(crate::build_app(host.clone()), "/api/remote/command-result".into(), json!({ "key": key, "ok": true })).await.0, 200);
+    assert!(events.try_recv().is_err());
 }
 
 #[tokio::test]

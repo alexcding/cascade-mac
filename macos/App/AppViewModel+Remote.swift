@@ -29,9 +29,20 @@ extension AppViewModel {
 
     /// A paired Mac's session row's id (`SidebarEntry.sessionKey`), read back as the Mac and session.
     static func remoteSession(_ key: String) -> (peer: String, session: String)? {
+        remoteRow(key, kind: "remote-session").map { ($0.peer, $0.id) }
+    }
+
+    /// A paired Mac's row id, `<kind>:<peer>:<id>`, read back as the Mac and the session or project.
+    static func remoteRow(_ key: String, kind: String) -> (peer: String, id: String)? {
         let parts = key.split(separator: ":", maxSplits: 2).map(String.init)
-        guard parts.count == 3, parts[0] == "remote-session", !parts[1].isEmpty, !parts[2].isEmpty else { return nil }
+        guard parts.count == 3, parts[0] == kind, !parts[1].isEmpty, !parts[2].isEmpty else { return nil }
         return (parts[1], parts[2])
+    }
+
+    /// Opens a session just made on a paired Mac, which its list may not have yet.
+    func selectWhenListed(peer: String, session: String) {
+        if remotePeers.sessions[peer]?.contains(where: { $0.id == session }) != true { awaitingListing["\(peer)/\(session)"] = Date() }
+        select(.remoteSession(peer: peer, session: session))
     }
 
     /// Asks a paired Mac to start a session's terminal and agent there, off its screen.
@@ -48,6 +59,37 @@ extension AppViewModel {
         let service = RemoteSessionRemoval(perform: { command in try await store.perform(peer: peer, command) })
         return workspaceFactory.removal(service: service, record: record, projects: [], sessions: sessions,
                                         didRemove: { _ in }, finished: {})
+    }
+
+    /// What this Mac keeps of paired Macs' sessions and folders, pins and Chat or Terminal, goes
+    /// with them: a Mac forgotten takes all of its, a list read takes those of what it no longer has.
+    private func pruneRemoteChoices() {
+        let paired = Set(remotePeers.peers.map(\.id))
+        func listed(_ key: String) -> Bool {
+            if let (peer, id) = Self.remoteRow(key, kind: "remote-session") {
+                guard paired.contains(peer) else { return false }
+                return remotePeers.sessions[peer].map { $0.contains { $0.id == id } } ?? true
+            }
+            if let (peer, id) = Self.remoteRow(key, kind: "remote-project") {
+                guard paired.contains(peer) else { return false }
+                return remotePeers.projects[peer].map { $0.contains { $0.id == id } } ?? true
+            }
+            return false
+        }
+        let kept = remotePins.filter(listed)
+        if kept != remotePins { remotePins = kept; UserDefaults.standard.set(kept.sorted(), forKey: Self.remotePinsKey) }
+        // Chat or Terminal choices are looked through only when a Mac's sessions changed.
+        var sessions = remotePeers.sessions.mapValues { Set($0.map(\.id)) }.filter { paired.contains($0.key) }
+        // The paired Macs count too: one forgotten unread changes nothing else.
+        for peer in paired where sessions[peer] == nil { sessions[peer] = [] }
+        guard sessions != prunedRemoteSessions else { return }
+        prunedRemoteSessions = sessions
+        let defaults = UserDefaults.standard
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(RemoteTerminalModel.chatModePrefix) {
+            let rest = key.dropFirst(RemoteTerminalModel.chatModePrefix.count).split(separator: ".", maxSplits: 1).map(String.init)
+            guard rest.count == 2, !listed("remote-session:\(rest[0]):\(rest[1])") else { continue }
+            defaults.removeObject(forKey: key)
+        }
     }
 
     /// Pins or unpins a paired Mac's session or folder, on this Mac only: it stays in that Mac's
@@ -145,11 +187,14 @@ extension AppViewModel {
             }
         }
         model.onStart = { [weak self] in try await self?.startRemoteSession(peer: peer, session: id) }
-        model.onReconnect = { [weak self] in
+        model.onReconnect = { [weak self] startError in
             guard let self else { return }
             if remoteTerminals[key] === model { model.retire(); remoteTerminals[key] = nil }
+            // Said by the screen that follows, the one on screen now; one left is not kept for later.
+            if let startError, selection == .remoteSession(peer: peer, session: id) { remoteStartErrors[key] = startError }
             coordinator.refreshRoot()
         }
+        model.startError = remoteStartErrors.removeValue(forKey: key)
         remoteTerminals[key] = model
         if model.chosenChat { model.setChatShown(true) }
         return model
@@ -236,15 +281,25 @@ extension AppViewModel {
     /// forgotten leaves.
     private func remoteRead() {
         pruneRemoteTerminals()
-        // A Mac forgotten takes its pins here with it.
-        let paired = remotePeers.peers.map(\.id)
-        let kept = remotePins.filter { key in paired.contains { key.contains(":\($0):") } }
-        if kept != remotePins { remotePins = kept; UserDefaults.standard.set(kept.sorted(), forKey: Self.remotePinsKey) }
+        pruneRemoteChoices()
+        // A session made from here is waited for while it is on screen, unlisted, for a minute at
+        // most: listed, left, or never listed, it is not waited for any more.
+        let shown: String? = if case .remoteSession(let peer, let session) = selection { "\(peer)/\(session)" } else { nil }
+        awaitingListing = awaitingListing.filter { key, since in
+            let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
+            let listed = parts.count == 2 && remotePeers.sessions[parts[0]]?.contains { $0.id == parts[1] } == true
+            return key == shown && !listed && Date().timeIntervalSince(since) < 60
+        }
         if case .remoteSession(let peer, let session) = selection {
             if remotePeers.peer(peer) == nil { select(.overview); return }
             guard let listed = remotePeers.sessions[peer] else { return }
-            // Selected before its Mac listed it, its screen comes now; removed there, it leaves.
-            if listed.contains(where: { $0.id == session }) { coordinator.refreshRoot() } else { select(.overview) }
+            // Selected before its Mac listed it, its screen comes now; removed there, it leaves. One
+            // made from here waits for a list that has it.
+            if listed.contains(where: { $0.id == session }) {
+                coordinator.refreshRoot()
+            } else if awaitingListing["\(peer)/\(session)"] == nil {
+                select(.overview)
+            }
             return
         }
         guard case .remoteChat(let peer, let thread) = selection else { return }

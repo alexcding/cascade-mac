@@ -9,6 +9,9 @@ struct SessionRemovalPlan: Sendable {
     /// The chats started in the pane of a session on the folder, as another Mac counted them for
     /// its own session; nil for this Mac's, which the app counts (`paneChats`).
     var paneChats: Int? = nil
+    /// The sessions another Mac's plan names, as it named them: removed as confirmed, even when
+    /// this Mac's list of them is behind.
+    var remoteIDs: [String]? = nil
     var pairKeys: Set<String> {
         Set(sessions.flatMap { [$0.id, "build:\($0.url)"] })
     }
@@ -72,16 +75,17 @@ struct RemoteSessionRemoval: SessionRemoving {
 
     func prepare(record: WorkspaceSession, projects: [Project], sessions: [WorkspaceSession]) async throws -> SessionRemovalPlan {
         let plan = try await perform(RemoteCommand(op: "removal", task: record.id))
-        let ids = Set(plan["sessions"]?.array?.compactMap(\.string) ?? [record.id])
-        return .init(record: record, sessions: sessions.filter { ids.contains($0.id) }.isEmpty ? [record] : sessions.filter { ids.contains($0.id) },
+        let ids = plan["sessions"]?.array?.compactMap(\.string) ?? [record.id]
+        let listed = sessions.filter { ids.contains($0.id) }
+        return .init(record: record, sessions: listed.isEmpty ? [record] : listed,
                      removesWorktree: plan["removesWorktree"]?.bool == true,
                      holders: plan["holders"]?.array?.compactMap(\.string) ?? [],
-                     paneChats: plan["paneChats"]?.number.map { Int($0) } ?? 0)
+                     paneChats: plan["paneChats"]?.number.map { Int($0) } ?? 0, remoteIDs: ids)
     }
 
     func remove(_ plan: SessionRemovalPlan) async throws {
         _ = try await perform(RemoteCommand(op: "remove", task: plan.record.id,
-                                            args: ["sessions": .array(plan.sessions.map { .string($0.id) })]))
+                                            args: ["sessions": .array((plan.remoteIDs ?? plan.sessions.map(\.id)).map { .string($0) })]))
     }
 }
 

@@ -62,6 +62,9 @@ pub struct Remote {
     /// Each session's agent state as the app draws it (live, working, waiting for you), for paired
     /// Macs' sidebars: the backend does not know it, the app tells it (`routes::set_session_status`).
     pub(crate) statuses: std::sync::Mutex<serde_json::Map<String, serde_json::Value>>,
+    /// Commands handed to the app (`commands`), by key: the paired Mac that asked, which alone
+    /// hears the answer.
+    pub(crate) commands: std::sync::Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>,
 }
 
 struct Running {
@@ -77,7 +80,7 @@ impl Drop for Running {
 
 impl Default for Remote {
     fn default() -> Self {
-        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default(), replacing: Default::default(), log: Default::default(), seldom: Default::default(), terminals: std::sync::Arc::new(tokio::sync::Semaphore::new(terminal::TERMINALS)), stopped: tokio::sync::watch::channel(0).0, daemon: Default::default(), statuses: Default::default() }
+        Self { running: Mutex::new(None), revoked: broadcast::channel(16).0, pairing: std::sync::Mutex::new(None), links: links::Links::default(), replacing: Default::default(), log: Default::default(), seldom: Default::default(), terminals: std::sync::Arc::new(tokio::sync::Semaphore::new(terminal::TERMINALS)), stopped: tokio::sync::watch::channel(0).0, daemon: Default::default(), statuses: Default::default(), commands: Default::default() }
     }
 }
 

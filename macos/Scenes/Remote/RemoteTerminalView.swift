@@ -17,13 +17,15 @@ import SwiftUI
     private(set) var chat: TranscriptChatModel?
     @ObservationIgnored private var retired = false
     /// Asks the app for a fresh connection, after this one failed or its terminal ended.
-    @ObservationIgnored var onReconnect: () -> Void = {}
+    /// Given why a start there failed, if it did, for the screen that follows to say.
+    @ObservationIgnored var onReconnect: (_ startError: String?) -> Void = { _ in }
     /// Asks that Mac to start the session's terminal and agent there, as Reattach does, when it
     /// is not running; nothing when it is.
     @ObservationIgnored var onStart: () async throws -> Void = {}
     /// Starting it there, and why that failed.
     private(set) var starting = false
-    private(set) var startError: String?
+    /// Why the last start there failed, said until the next one.
+    var startError: String?
     /// Makes the chat on first show; nil for a session that runs no agent.
     @ObservationIgnored var makeChat: (() -> TranscriptChatModel)?
     /// The agent's state as that Mac's app last reported it.
@@ -39,7 +41,8 @@ import SwiftUI
     }
 
     var canShowChat: Bool { !retired && makeChat != nil }
-    private var chatModeKey: String { "remote.chatMode.\(peer).\(sessionID)" }
+    static let chatModePrefix = "remote.chatMode."
+    private var chatModeKey: String { "\(Self.chatModePrefix)\(peer).\(sessionID)" }
     /// Chat or Terminal, as last chosen for this session here.
     var chosenChat: Bool { UserDefaults.standard.bool(forKey: chatModeKey) }
 
@@ -86,10 +89,10 @@ import SwiftUI
                 do { try await onStart() } catch { startError = error.localizedDescription }
             }
             starting = false
-            // A start that failed still attaches to a terminal attached before: an older Cascade
-            // there, or one busy with the session, may yet have it running.
-            guard !retired, startError == nil || !neverAttached else { return }
-            onReconnect()
+            // Attached afresh even when the start failed: an older Cascade there cannot be asked
+            // to start it, and may yet run it; attaching says why when it does not.
+            guard !retired else { return }
+            onReconnect(startError)
         }
     }
 

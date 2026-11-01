@@ -268,6 +268,7 @@ async fn projects(State(state): State<AppState>) -> Result<Json<Value>, ApiError
 
 /// The loopback stream's events, only those in `EVENTS`, until this client is revoked.
 async fn stream(State(state): State<AppState>, Extension(Client(id)): Extension<Client>) -> Response {
+    let listener = id.clone();
     // Listening before looking again: a revoke between `authorize` and here is seen either way.
     let mut revoked = state.remote.revocations();
     match store::client_exists(&state.db, &id).await {
@@ -294,12 +295,20 @@ async fn stream(State(state): State<AppState>, Extension(Client(id)): Extension<
     let initial = futures_util::stream::once(async {
         Ok::<_, Infallible>(Event::default().comment("connected").retry(Duration::from_secs(1)))
     });
-    let events = BroadcastStream::new(state.events.subscribe()).filter_map(|message| async move {
+    let events = BroadcastStream::new(state.events.subscribe()).filter_map(move |message| {
+        let listener = listener.clone();
+        async move {
         match message {
+            // An answer to a command goes to the Mac that asked, without saying who that was.
+            Ok(mut value) if value["type"] == "session-command-done" => (value["client"].as_str() == Some(listener.as_str())).then(|| {
+                if let Some(fields) = value.as_object_mut() { fields.remove("client"); }
+                Ok(Event::default().data(value.to_string()))
+            }),
             Ok(value) => EVENTS
                 .contains(&value["type"].as_str().unwrap_or_default())
                 .then(|| Ok(Event::default().data(value.to_string()))),
             Err(_) => Some(Ok(Event::default().data(crate::Event::lagged()))),
+        }
         }
     });
     Sse::new(initial.chain(events).take_until(Box::pin(ended)))
