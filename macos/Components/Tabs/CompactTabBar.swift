@@ -195,6 +195,17 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
     @State private var trailingWidths: [ID: CGFloat] = [:]
     @State private var drag: TabDrag?
     private let pillSpace = "compact-tab-pill"
+    /// Whose tabs these are. A tab is folded away only when it closes among the same ones: another
+    /// session's tabs replacing these are not closes.
+    let scope: AnyHashable
+    /// A flat strip's closed tabs, still drawn while their slots fold shut. SwiftUI takes a removed
+    /// view's slot at once, so its neighbours slid over it while it folded; kept in the row, its slot
+    /// narrows as an opening tab's widens, and the tabs after it follow its edge.
+    @State private var leaving: [ID: Leaving] = [:]
+    /// The tabs as last drawn, and whose they were, to tell where a closed one stood.
+    @State private var seen: [ID] = []
+    @State private var seenScope: AnyHashable?
+    private struct Leaving { let after: ID?; let index: Int; let width: CGFloat?; var folded = false }
 
     /// The unselected tab a gesture has asked to select, so that it asks once and not per event.
     @State private var picked: ID?
@@ -225,15 +236,15 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
 
     init(ids: [ID], activeID: ID?, available: CGFloat, maxTabWidth: CGFloat = CompactTabMetrics.maxTabWidth,
          select: @escaping (ID) -> Void, move: @escaping (ID, ID?) -> Void,
-         canMove: @escaping (ID) -> Bool = { _ in true }, @ViewBuilder tab: @escaping (ID, Bool) -> Tab) {
-        allIDs = ids; self.activeID = activeID; self.available = available; self.maxTabWidth = maxTabWidth
+         canMove: @escaping (ID) -> Bool = { _ in true }, scope: AnyHashable = 0, @ViewBuilder tab: @escaping (ID, Bool) -> Tab) {
+        allIDs = ids; self.activeID = activeID; self.available = available; self.maxTabWidth = maxTabWidth; self.scope = scope
         self.select = select; self.move = move; self.canMove = canMove; self.tab = tab
     }
 
     var body: some View {
         let layout = CompactTabLayout(ids: allIDs, activeID: activeID, available: available,
                                       minTitled: style == .flat ? CompactTabMetrics.minFlatTitledTabWidth : CompactTabMetrics.minTitledTabWidth)
-        let ids = layout.visible
+        let ids = drawn(layout.visible)
         // A flat strip keeps its row when it has no tabs, so its last tab folds away as any other
         // closes; replacing the row with a placeholder faded the tab out with it.
         if ids.isEmpty, style != .flat {
@@ -246,9 +257,14 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                 ForEach(ids, id: \.self) { id in
                     let iconOnly = layout.iconOnly && id != activeID
                     let previous = ids.firstIndex(of: id).flatMap { $0 > 0 ? ids[$0 - 1] : nil }
+                    let gone = closed(id)
                     tab(id, iconOnly)
+                        .allowsHitTesting(!gone)
                         .onPreferenceChange(CompactTabTrailingWidth.self) { trailingWidths[id] = $0 }
                         .frame(maxWidth: iconOnly ? CompactTabMetrics.iconTabWidth : maxTabWidth)
+                        // A closing tab keeps the width it had, so its title is cut as its slot
+                        // narrows rather than squeezed into an ellipsis.
+                        .frame(width: gone ? departing(id)?.width : nil)
                         // Behind its own tab, inside the transition, so a tab that slides in or out
                         // carries its capsule with it. One capsule gliding between slots arrives
                         // after the tab does, and the field's text shows outside it on the way.
@@ -266,7 +282,9 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                         // at once, so that only the tabs making way are seen to slide.
                         .offset(x: drag.flatMap { $0.id == id ? $0.pointer - $0.origin - $0.shift : nil } ?? 0)
                         .transaction { if drag?.id == id { $0.animation = nil } }
-                        .simultaneousGesture(reorder(id, titled: !iconOnly, among: ids), including: canMove(id) ? .all : .subviews)
+                        .simultaneousGesture(reorder(id, titled: !iconOnly, among: ids), including: canMove(id) && !gone ? .all : .subviews)
+                        // Always applied, so a tab closing keeps its identity and only its fraction moves.
+                        .modifier(TabExpand(fraction: leaving[id]?.folded == true ? 0 : 1))
                         // After the modifiers above: set before them, it never reached the ForEach,
                         // and every tab came and went by the default fade.
                         .transition(transition)
@@ -277,12 +295,63 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
             }
             .coordinateSpace(.named(pillSpace))
             .onChange(of: ids) { _, ids in frames = frames.filter { ids.contains($0.key) } }
+            .onChange(of: allIDs, initial: true) { _, _ in fold(layout.visible) }
             .modifier(PillShape(style: style))
         }
     }
 }
 
 extension CompactTabPill {
+    /// Whether `id` is a tab that has closed and is folding away.
+    private func closed(_ id: ID) -> Bool { !allIDs.contains(id) }
+
+    /// Where a closed tab stood and how wide it was, before `fold` has recorded it too.
+    private func departing(_ id: ID) -> Leaving? {
+        if let place = leaving[id] { return place }
+        guard let index = seen.firstIndex(of: id) else { return nil }
+        return Leaving(after: index > 0 ? seen[index - 1] : nil, index: index, width: frames[id]?.width)
+    }
+
+    /// The tabs to draw: those shown, and each closed one still folding, where it stood. Asked before
+    /// `fold` hears of a close too, so a closed tab never leaves its slot for a frame first.
+    private func drawn(_ visible: [ID]) -> [ID] {
+        guard style == .flat, seenScope == scope else { return visible }
+        var gone = leaving
+        for (index, id) in seen.enumerated() where !allIDs.contains(id) && gone[id] == nil {
+            gone[id] = Leaving(after: index > 0 ? seen[index - 1] : nil, index: index, width: frames[id]?.width)
+        }
+        var ids = visible
+        for (id, place) in gone.sorted(by: { $0.value.index < $1.value.index }) where !ids.contains(id) {
+            let at = place.after.flatMap { ids.firstIndex(of: $0).map { $0 + 1 } } ?? min(place.index, ids.count)
+            ids.insert(id, at: at)
+        }
+        return ids
+    }
+
+    /// Folds the tabs that just closed, and forgets them once folded. Another scope's tabs fold nothing.
+    private func fold(_ visible: [ID]) {
+        guard style == .flat else { return }
+        guard seenScope == scope else {
+            leaving = [:]; seen = visible; seenScope = scope
+            return
+        }
+        // A closed tab opened again before it folded is a tab again.
+        leaving = leaving.filter { !allIDs.contains($0.key) }
+        let shown = drawn(visible)
+        let closing = shown.filter { !allIDs.contains($0) && leaving[$0] == nil }
+        for id in closing {
+            let index = seen.firstIndex(of: id) ?? 0
+            leaving[id] = Leaving(after: index > 0 ? seen[index - 1] : nil, index: index, width: frames[id]?.width)
+        }
+        seen = visible
+        guard !closing.isEmpty else { return }
+        withAnimation(.snappy(duration: 0.3)) {
+            for id in closing { leaving[id]?.folded = true }
+        } completion: {
+            for id in closing { leaving[id] = nil }
+        }
+    }
+
     /// Safari's tab drag. The tab follows the pointer along the pill and takes the place of each
     /// neighbour whose middle the pointer crosses. It needs a few points of travel to begin, so a
     /// click still selects.

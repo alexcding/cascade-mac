@@ -115,7 +115,8 @@ struct BrowserCompactTabBar: View {
                            : part == .tabs ? CompactTabMetrics.maxStripTabWidth : CompactTabMetrics.maxWebTabWidth,
                        select: { id in context.tab(id).map(model.selectTab) }, move: model.moveTab,
                        // A drag in the address field selects its text: the tab being edited stays put.
-                       canMove: { part != .address && !(editingAddress && $0 == context.activeID) }) { id, iconOnly in
+                       canMove: { part != .address && !(editingAddress && $0 == context.activeID) },
+                       scope: context.id) { id, iconOnly in
             if let page = pages.first(where: { $0.id == id }) {
                 CompactTab(page: page, bookmarks: context.bookmarks, active: page.id == context.activeID,
                            searchesFiles: root != nil,
