@@ -205,6 +205,11 @@ impl HelperClient {
         }
     }
 
+    /// Whether `other` is a handle on this same helper process.
+    pub fn same_process(&self, other: &HelperClient) -> bool {
+        Arc::ptr_eq(&self.shared, &other.shared)
+    }
+
     /// Whether a process is up and has not exited.
     pub fn running(&self) -> bool {
         let state = self.shared.state.lock().unwrap();

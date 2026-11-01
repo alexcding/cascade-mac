@@ -431,6 +431,15 @@ impl IosSimulatorBackend {
             return Err(simctl_error("boot", &result));
         }
         self.simctl(&["bootstatus", udid], BOOT_TIMEOUT, &[]).await?;
+        // A boot that booted is a new display, whichever way the last one ended, a shutdown
+        // outside Cascade (xcodebuild test, simctl) included, which no hook here hears: the next
+        // attach rebinds. Dropped once the boot is done, so an attach made while it ran, against
+        // the display on its way out, goes too; a device that was already up keeps its own.
+        if result.succeeded() {
+            if let Some(helper) = self.current_helper() {
+                helper.invalidate_attachment(udid);
+            }
+        }
         let devices = self.list_devices_unchecked().await;
         let mut device = devices
             .into_iter()
@@ -1017,7 +1026,8 @@ impl IosSimulatorBackend {
             if !is_stale_descriptor_error(&error.message) {
                 return Err(helper_error(&error));
             }
-            self.attached_helper(udid, true).await?;
+            // The helper it answers with, which is a new one if the old one had stalled.
+            let helper = self.attached_helper(udid, true).await?;
             helper.start_stream(udid).await.map_err(|error| helper_error(&error))?;
         }
         self.state.lock().unwrap().streaming_udid = Some(udid.to_owned());
@@ -1406,13 +1416,22 @@ impl IosSimulatorBackend {
     /// The helper bound to `udid`. Every input and read acts on the helper's one attachment, so
     /// each call asserts it; `attach` is a no-op when the device is already the attached one.
     async fn attached_helper(&self, udid: &str, force: bool) -> DeviceResult<HelperClient> {
-        let helper = self.require_helper().await?;
+        let mut helper = self.require_helper().await?;
         let attachment = match helper.attach(udid, force).await {
             Ok(attachment) => attachment,
             // A device can be rebooted outside Cascade, which no hook here observes; a
             // dead-descriptor failure is retried once with a forced re-attach.
             Err(error) if is_stale_descriptor_error(&error.message) => {
                 helper.attach(udid, true).await.map_err(|error| helper_error(&error))?
+            }
+            // A helper that lived through the device's reboot can stall on attach for good, while
+            // a new process, holding nothing of the old boot, attaches at once: replaced and
+            // asked once more. Cascade's own; Synara's backend lets the timeout stand.
+            // Not forced: a new process holds no attachment, and a caller that timed out alongside
+            // the one that replaced it takes the attachment that one made rather than redo it.
+            Err(error) if error.code == "helper_timeout" => {
+                helper = self.replace_helper(&helper).await?;
+                helper.attach(udid, false).await.map_err(|error| helper_error(&error))?
             }
             Err(error) => return Err(helper_error(&error)),
         };
@@ -1421,6 +1440,25 @@ impl IosSimulatorBackend {
             DeviceGeometry { point_width: attachment.point_width, point_height: attachment.point_height, scale: attachment.scale },
         );
         Ok(helper)
+    }
+
+    /// A new helper in place of `stuck`, unless a caller arriving with it already replaced it. A
+    /// stream the old one carried is reported interrupted, so the manager brings it up again on
+    /// the new one.
+    async fn replace_helper(&self, stuck: &HelperClient) -> DeviceResult<HelperClient> {
+        let _starting = self.helper_start.lock().await;
+        if let Some(current) = self.current_helper().filter(|current| !current.same_process(stuck) && current.running()) {
+            return Ok(current);
+        }
+        let streaming = self.state.lock().unwrap().streaming_udid.take();
+        // The old one is gone either way, so its stream is told interrupted even if no new one
+        // starts.
+        let helper = self.start_helper().await;
+        if let Some(udid) = streaming {
+            let reason = "The device helper stopped answering and was restarted".to_owned();
+            let _ = self.interruptions.send(DeviceStreamInterruption { udid, reason });
+        }
+        helper
     }
 
     async fn require_helper(&self) -> DeviceResult<HelperClient> {

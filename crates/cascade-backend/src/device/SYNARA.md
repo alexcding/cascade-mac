@@ -56,6 +56,11 @@ profile is read from. No app-bundle resource is involved.
 
 ## Deliberate differences
 
+- **A reboot outside Cascade does not wedge the helper.** `boot` drops the helper's attachment as
+  `shutdown` does, since a shutdown made elsewhere (`xcodebuild test`, `simctl`) left it bound to a
+  boot that is gone. An `attach` that times out replaces the helper process and is asked once more
+  (`ios_simulator.rs` `replace_helper`): a helper that lived through a reboot was seen to stall on
+  attach for good, behind a message blaming the sandbox. Synara lets both stand.
 - **A drag follows the pointer.** Synara's pane sends a drag as one `swipe` on release, so the
   screen replays it afterwards. Cascade's pane holds the finger down through the helper's own
   `touch` method once a press moves past a tap: `POST /api/device/touch {udid, phase, x, y}`

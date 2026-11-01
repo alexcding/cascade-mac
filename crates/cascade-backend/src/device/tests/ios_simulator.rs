@@ -118,6 +118,8 @@ fn millis(iso: &str) -> i64 {
 enum Reply {
     Ok(Value),
     Error(i64, String),
+    /// Never answered: a helper stalled on the request.
+    Hang,
 }
 
 impl Reply {
@@ -233,6 +235,7 @@ fn play_helper(spawner: ScriptedSpawner, side: Arc<HelperSide>) {
                     side.requests.lock().unwrap().push((method.clone(), params.clone()));
                     let reply = (side.handler.lock().unwrap())(&method, &params);
                     let answer = match reply {
+                        Reply::Hang => continue,
                         Reply::Ok(result) => json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }),
                         Reply::Error(code, message) => {
                             json!({ "jsonrpc": "2.0", "id": request["id"], "error": { "code": code, "message": message } })
@@ -1322,6 +1325,56 @@ mod helper_process {
         // state that needs a forced one.
         assert_eq!(rig.helper.count("attach"), 3);
         assert_eq!(rig.helper.count("tap"), 3);
+    }
+
+    #[tokio::test]
+    async fn a_boot_drops_the_attachment_a_shutdown_outside_cascade_left() {
+        let (rig, backend, simulator) = rig();
+
+        cli::scoped(runner(), async {
+            backend.tap(DEVICE, 10.0, 10.0, None).await.unwrap();
+            // xcodebuild test shut it down; Cascade boots it again.
+            simulator.reboot();
+            backend.boot(DEVICE).await.unwrap();
+            backend.tap(DEVICE, 20.0, 20.0, None).await.unwrap();
+        })
+        .await;
+
+        // A clean attach after the boot: no tap refused on the old boot's attachment first.
+        assert_eq!(rig.helper.count("attach"), 2);
+        assert_eq!(rig.helper.count("tap"), 2);
+    }
+
+    #[tokio::test]
+    async fn a_helper_stalled_on_attach_is_replaced_and_the_attach_asked_again() {
+        let rig = Rig::new();
+        rig.install_helper();
+        let attaches = Arc::new(AtomicUsize::new(0));
+        let counted = attaches.clone();
+        rig.helper.on_request(move |method, _| {
+            // The first helper never answers its attach, as one that lived through a reboot did.
+            if method == "attach" && counted.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Reply::Hang;
+            }
+            default_reply(method)
+        });
+        let mut options = rig.options();
+        options.request_timeout = Duration::from_millis(200);
+        let backend = IosSimulatorBackend::new(options);
+
+        cli::scoped(runner(), backend.tap(DEVICE, 10.0, 10.0, None)).await.unwrap();
+
+        assert_eq!(rig.helper.helper_spawns(), 2, "a second helper process");
+        assert_eq!(attaches.load(Ordering::SeqCst), 2);
+        assert_eq!(rig.helper.count("tap"), 1);
+        // The stalled one was shut down, not left running beside the new one.
+        for _ in 0..100 {
+            if rig.helper.closed.load(Ordering::SeqCst) >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(rig.helper.closed.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
