@@ -13,6 +13,7 @@ struct SidebarView: View {
                          pinnedIDs: viewModel.pinnedIDs, forkableIDs: viewModel.forkableIDs, sessionShortcuts: viewModel.sessionShortcuts,
                          onSelect: viewModel.select, onTogglePin: viewModel.togglePin,
                          onNewTask: viewModel.newTask(in:),
+                         onNewRemoteTask: viewModel.newRemoteTask,
                          onMoveProject: viewModel.moveProject, onMoveSession: viewModel.moveSession, onMovePinned: viewModel.movePinned,
                          onRemoveSession: viewModel.removeSession,
                          onRenameSession: viewModel.renameSession, onForkSession: viewModel.forkSession,

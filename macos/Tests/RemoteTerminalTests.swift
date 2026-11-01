@@ -84,3 +84,42 @@ import Testing
     let terminals: [PtyInfo] = try await control.request(.init(op: "list"))
     #expect(terminals.isEmpty, "nothing was created")
 }
+
+// A session a paired Mac starts here (`AppViewModel.startUnseen`): started with no screen showing
+// it, then shown here, the same shell.
+@MainActor @Test(.timeLimit(.minutes(1))) func aSessionStartedForAPairedMacRunsUnseenUntilAScreenHereShowsIt() async throws {
+    _ = NSApplication.shared
+    let fixture = try DaemonFixture()
+    defer { fixture.remove() }
+    let control = PtydClient(onEvent: { _ in })
+    let daemon = try await PtydHost(configuration: fixture.config).connect(client: control).pid
+    defer { control.close(); _ = kill(daemon, SIGTERM) }
+
+    let terminal = TerminalSession(pairKey: "session-u", cwd: fixture.directory.path, paired: true,
+                                   configuration: fixture.config, shellPath: fixture.shell)
+    defer { terminal.disconnect() }
+    let unseen = UnseenTerminals()
+    unseen.mount(terminal, key: "task:session-u", size: NSSize(width: 900, height: 500))
+    await terminal.start()
+    try await terminal.waitUntilReady()
+    #expect(terminal.isLive && unseen.contains("task:session-u"))
+    let shell = terminal.shellPID
+
+    // A screen here shows it: the hidden window lets the view go, and the screen takes it.
+    unseen.release("task:session-u")
+    #expect(!unseen.contains("task:session-u"))
+    let window = mountOffscreen(terminal)
+    defer { window.contentView = nil; window.close() }
+    try await terminal.writeAgentInput("echo UNSEEN_$((40+2))\r")
+    for _ in 0..<200 {
+        if await terminal.viewportText()?.contains("UNSEEN_42") == true { break }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(await terminal.viewportText()?.contains("UNSEEN_42") == true)
+    #expect(terminal.shellPID == shell, "the same shell")
+
+    // A terminal replaced or gone under its key is let go.
+    unseen.mount(terminal, key: "task:session-u", size: NSSize(width: 900, height: 500))
+    unseen.keep([:])
+    #expect(!unseen.contains("task:session-u"))
+}

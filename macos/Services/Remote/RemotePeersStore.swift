@@ -21,6 +21,11 @@ import Observation
     @ObservationIgnored private var reading: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var again: Set<String> = []
     @ObservationIgnored private var peersTask: Task<Void, Never>?
+    /// Commands handed to a Mac's app, waiting on its answer; and answers heard before their
+    /// command's own answer came back, which can happen when the app is quick. A Mac tells every
+    /// Mac paired with it each answer, so one nobody here waits on is kept only for a minute.
+    @ObservationIgnored private var commandWaiters: [String: CheckedContinuation<JSONValue, Error>] = [:]
+    @ObservationIgnored private var commandsDone: [String: (outcome: Result<JSONValue, Error>, at: Date)] = [:]
     @ObservationIgnored private var readingStates: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var statesAgain: Set<String> = []
     /// After the paired Macs or one Mac's lists were read: the app opens a chat selected before
@@ -33,6 +38,8 @@ import Observation
         peersTask?.cancel(); peersTask = nil
         reading.values.forEach { $0.cancel() }; reading = [:]; again = []
         readingStates.values.forEach { $0.cancel() }; readingStates = [:]; statesAgain = []
+        let waiters = commandWaiters; commandWaiters = [:]; commandsDone = [:]
+        for waiter in waiters.values { waiter.resume(throwing: CancellationError()) }
         if service == nil {
             peers = []; sessions = [:]; projects = [:]; states = [:]; chats = [:]
             return
@@ -95,6 +102,17 @@ import Observation
                 read(id)
             case "session-status":
                 readStates(id)
+            case "session-command-done":
+                guard let key = relayed["key"]?.string else { return true }
+                let outcome: Result<JSONValue, Error> = relayed["ok"]?.bool == true
+                    ? .success(relayed["data"] ?? .null)
+                    : .failure(BackendError.operation(relayed["error"]?.string ?? String(localized: "\(peer(id)?.name ?? "The other Mac") could not do it.")))
+                if let waiter = commandWaiters.removeValue(forKey: key) { waiter.resume(with: outcome) }
+                else {
+                    let now = Date()
+                    commandsDone = commandsDone.filter { now.timeIntervalSince($0.value.at) < 60 }
+                    commandsDone[key] = (outcome, now)
+                }
             case "chat-shell":
                 guard let shell = relayed["shell"].flatMap({ try? $0.decode(ChatThreadShell.self) }) else { return true }
                 if chats[id]?[shell.id] != shell { chats[id, default: [:]][shell.id] = shell }
@@ -150,6 +168,31 @@ import Observation
             if peer(id) != nil, let listed, states[id] != listed { states[id] = listed }
             if statesAgain.remove(id) != nil { readStates(id) }
         }
+    }
+
+    /// Asks a Mac to do something with a session or a project there, and waits until it did: at
+    /// once for a rename, or until its app answers, for as long as `wait` at most.
+    func perform(peer id: String, _ command: RemoteCommand, wait: Duration = .seconds(180)) async throws -> JSONValue {
+        guard let service else { throw BackendError.operation(String(localized: "Connect to the backend first.")) }
+        let accepted = try await service.command(peer: id, command)
+        guard let key = accepted.key else { return .null }
+        if let early = commandsDone.removeValue(forKey: key) { return try early.outcome.get() }
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: wait)
+            guard !Task.isCancelled else { return }
+            self?.endWait(key, BackendError.operation(String(localized: "\(self?.peer(id)?.name ?? "The other Mac") did not answer.")))
+        }
+        defer { timeout.cancel() }
+        // Cancelled, the wait ends; what the Mac does goes on there.
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { commandWaiters[key] = $0 }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.endWait(key, CancellationError()) }
+        }
+    }
+
+    private func endWait(_ key: String, _ error: Error) {
+        commandWaiters.removeValue(forKey: key)?.resume(throwing: error)
     }
 
     /// Waits for the reads under way, for tests.

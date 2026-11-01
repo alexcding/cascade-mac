@@ -596,6 +596,43 @@ async fn a_peer_reads_a_sessions_transcript_named_by_the_session_alone() {
 }
 
 #[tokio::test]
+async fn a_peer_renames_a_session_here_and_asks_the_app_for_the_rest() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let session = crate::domain::Session { id: "session-1".into(), project_id: "p".into(), workspace: "/w".into(), worktree: "/w".into(), cli: "claude".into(), ..Default::default() };
+    assert!(host.db.upsert_task(&session).await.unwrap());
+    let router = crate::build_app(other.clone());
+    let post = |router: axum::Router, path: String, body: Value| async move {
+        let request = Request::post(path).header("content-type", "application/json").body(Body::from(body.to_string())).unwrap();
+        let response = router.oneshot(request).await.unwrap();
+        let code = response.status().as_u16();
+        let bytes = http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes();
+        (code, serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null))
+    };
+    let command = format!("/api/remote/peers/{id}/session-command");
+
+    // A rename is done there at once.
+    let (code, _) = post(router.clone(), command.clone(), json!({ "op": "rename", "task": "session-1", "args": { "name": " Build " } })).await;
+    assert_eq!(code, 200);
+    assert_eq!(host.db.task("session-1").await.unwrap().unwrap().name, "Build");
+    // Not a session there, or not something a paired Mac may ask: refused.
+    assert_eq!(post(router.clone(), command.clone(), json!({ "op": "rename", "task": "nope", "args": { "name": "x" } })).await.0, 404);
+    assert_eq!(post(router.clone(), command.clone(), json!({ "op": "kill", "task": "session-1" })).await.0, 403);
+
+    // Anything else goes to that Mac's app, which answers by the key.
+    let mut events = host.events.subscribe();
+    let (code, accepted) = post(router.clone(), command.clone(), json!({ "op": "start", "task": "session-1" })).await;
+    assert_eq!(code, 202);
+    let key = accepted["key"].as_str().unwrap().to_string();
+    assert_eq!(events.recv().await.unwrap(), json!({ "type": "remote-command", "key": key, "op": "start", "task": "session-1", "args": null }));
+    let (code, _) = post(crate::build_app(host.clone()), "/api/remote/command-result".into(), json!({ "key": key, "ok": true })).await;
+    assert_eq!(code, 200);
+    assert_eq!(events.recv().await.unwrap(), json!({ "type": "session-command-done", "key": key, "ok": true, "data": null }));
+}
+
+#[tokio::test]
 async fn a_peer_gone_offline_is_tried_again_only_when_someone_looks_for_it() {
     let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;

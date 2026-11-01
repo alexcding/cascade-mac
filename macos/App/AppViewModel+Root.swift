@@ -15,6 +15,7 @@ extension AppViewModel: RootCoordinating, ProjectCoordinating, NewSessionCoordin
     /// Sidebar right-click Remove Session. Same sheet the workspace toolbar opens, so a session
     /// can be removed without first opening it.
     func makeSessionRemoval(_ id: String) -> SessionRemovalViewModel? {
+        if let (peer, session) = Self.remoteSession(id) { return remoteRemoval(peer: peer, session: session) }
         guard let session = sessions.first(where: { $0.id == id }), !changingSessions.contains(id) else { return nil }
         return removalModel(for: session)
     }

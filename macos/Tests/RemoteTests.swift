@@ -68,6 +68,23 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
         log("thread \(id) \(session)")
         return ["revision": "", "snapshot": .null]
     }
+    private(set) var commands: [RemoteCommand] = []
+    private var _commandAnswer = RemoteCommandAccepted(done: true, key: nil)
+    var commandAnswer: RemoteCommandAccepted {
+        get { lock.withLock { _commandAnswer } }
+        set { lock.withLock { _commandAnswer = newValue } }
+    }
+    /// Run as a command is accepted, before its answer is returned.
+    var onCommand: @Sendable (RemoteCommand) -> Void = { _ in }
+    private(set) var results: [(key: String, ok: Bool, error: String?)] = []
+    func command(peer id: String, _ command: RemoteCommand) async throws -> RemoteCommandAccepted {
+        lock.withLock { commands.append(command) }
+        onCommand(command)
+        return commandAnswer
+    }
+    func commandResult(key: String, ok: Bool, error: String?, data: JSONValue?) async throws {
+        lock.withLock { results.append((key, ok, error)) }
+    }
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
         lock.withLock { reported.append(sessions) }
     }
@@ -226,6 +243,78 @@ private func event(_ json: String) throws -> ServerEvent {
 
     model.setChatShown(false)
     #expect(!model.showsChat && !terminal.coveredByChat && !model.chosenChat)
+}
+
+@MainActor @Test func aPairedMacsRowsPinnedHereStayFirstInItsSection() {
+    let peer = RemotePeer(id: "ab", name: "Mac mini", reach: .online)
+    let other = WorkspaceSession(id: "s3", projectId: "q", workspace: "/q", worktree: "/q-s3",
+                                 title: "Docs", branch: "b", url: "", createdAt: nil, pinned: false)
+    let section = SidebarRemoteSection(
+        peer: peer, sessions: [session("s1", title: "Build"), session("s2", title: "Test"), other],
+        projects: [RemoteProject(id: "p", name: "cascade-mac"), RemoteProject(id: "q", name: "docs")],
+        pinned: ["remote-session:ab:s2", "remote-project:ab:q"])
+    let entries = SidebarEntry.make(projects: [], sessions: [], remote: [section])
+    let rows = Array(entries.drop { $0.id != "label:remote:ab" }.dropFirst())
+    // Within the Mac's section: the pinned session, then the pinned folder, then the rest.
+    #expect(rows.map(\.id) == ["remote-session:ab:s2", "remote-project:ab:q", "remote-project:ab:p"])
+    guard case .session(_, let pinned) = rows[0].role else { Issue.record("not a session"); return }
+    #expect(pinned)
+    #expect(rows[2].children.map(\.id) == ["remote-session:ab:s1"], "a pinned session leaves its folder")
+    #expect(rows.map(\.pinKey) == ["remote-session:ab:s2", "remote-project:ab:q", "remote-project:ab:p"])
+    #expect(!entries.contains { $0.id == "label:pinned" }, "nothing moves to this Mac's Pinned")
+}
+
+@MainActor @Test func aCommandToAPairedMacWaitsForItsAppsAnswerByItsKey() async throws {
+    let remote = FakeRemote()
+    remote.set(peers: [RemotePeer(id: "ab", name: "Mac mini", reach: .online)])
+    let store = RemotePeersStore()
+    store.connect(remote)
+    await store.settle()
+
+    // Done there at once: a rename.
+    #expect(try await store.perform(peer: "ab", RemoteCommand(op: "rename", task: "s1", args: ["name": "Build"])) == .null)
+    #expect(remote.commands.last == RemoteCommand(op: "rename", task: "s1", args: ["name": "Build"]))
+
+    // Handed to its app: answered by the key, later.
+    remote.commandAnswer = RemoteCommandAccepted(done: nil, key: "k1")
+    async let started = store.perform(peer: "ab", RemoteCommand(op: "start", task: "s1"))
+    try await Task.sleep(for: .milliseconds(50))
+    store.receive(try event(#"{"type":"remote","peer":"ab","relayed":{"type":"session-command-done","key":"k1","ok":true,"data":{"live":true}}}"#))
+    #expect(try await started == ["live": true])
+
+    // Its answer heard before the command's own reply came back.
+    remote.commandAnswer = RemoteCommandAccepted(done: nil, key: "k2")
+    remote.onCommand = { [store] _ in
+        Task { @MainActor in
+            store.receive(try event(#"{"type":"remote","peer":"ab","relayed":{"type":"session-command-done","key":"k2","ok":false,"error":"Not now"}}"#))
+        }
+    }
+    await #expect(throws: BackendError.self) { try await store.perform(peer: "ab", RemoteCommand(op: "remove", task: "s1"), wait: .seconds(2)) }
+
+    // No answer: it gives up.
+    remote.onCommand = { _ in }
+    remote.commandAnswer = RemoteCommandAccepted(done: nil, key: "k3")
+    await #expect(throws: BackendError.self) { try await store.perform(peer: "ab", RemoteCommand(op: "fork", task: "s1"), wait: .milliseconds(100)) }
+}
+
+@MainActor @Test func removingAPairedMacsSessionShowsThatMacsPlanAndRemovesWhatItShowed() async throws {
+    final class Asked: @unchecked Sendable { var commands: [RemoteCommand] = [] }
+    let asked = Asked()
+    let removal = RemoteSessionRemoval(perform: { command in
+        asked.commands.append(command)
+        return command.op == "removal" ? ["sessions": ["s1", "s2"], "removesWorktree": true, "holders": ["Xcode (PID 7)"]] : .null
+    })
+    let sessions = [session("s1", title: "Build"), session("s2", title: "Test"), session("s3", title: "Docs")]
+    let model = SessionRemovalViewModel(service: removal, record: sessions[0], projects: [], sessions: sessions,
+                                        didRemove: { _ in }, finished: {})
+    await model.load()
+    let plan = try #require(model.plan)
+    #expect(plan.removesWorktree && plan.sessions.map(\.id) == ["s1", "s2"] && plan.holders == ["Xcode (PID 7)"])
+    #expect(model.promptMessage.contains("2 tasks use this folder"))
+    await model.remove()
+    #expect(model.completed)
+    #expect(asked.commands == [RemoteCommand(op: "removal", task: "s1"),
+                               RemoteCommand(op: "remove", task: "s1", args: ["sessions": ["s1", "s2"]])])
 }
 
 // MARK: - The paired Macs' lists

@@ -15,7 +15,7 @@ public final class AppViewModel {
     @ObservationIgnored private let welcomeFactory: any WelcomeFeatureFactory
     @ObservationIgnored private let welcomeStore: any WelcomePersisting
     @ObservationIgnored let desktop: any DesktopActions
-    @ObservationIgnored private let workspaceFactory: any WorkspaceFeatureFactory
+    @ObservationIgnored let workspaceFactory: any WorkspaceFeatureFactory
     @ObservationIgnored private let projectFactory: any ProjectFeatureFactory
     @ObservationIgnored private let documentFactory: any DocumentFeatureFactory
     @ObservationIgnored private let trayFactory: any TrayFeatureFactory
@@ -39,6 +39,8 @@ public final class AppViewModel {
     /// The sessions' agent states the sidebar last drew, and the ones last told to the backend for
     /// paired Macs (`reportSessionStates`); nil once the backend changed, so they are told again.
     @ObservationIgnored var sidebarStates: [String: RemoteSessionStatus] = [:]
+    /// Paired Macs' sessions and folders pinned on this Mac (`toggleRemotePin`).
+    var remotePins = Set(UserDefaults.standard.stringArray(forKey: AppViewModel.remotePinsKey) ?? [])
     @ObservationIgnored var reportedStates: [String: RemoteSessionStatus]?
     @ObservationIgnored var reportingStates: Task<Void, Never>?
     /// This Mac on Bonjour while other Macs may connect, and what it advertises (`advertiseHost`).
@@ -98,8 +100,11 @@ public final class AppViewModel {
     }
     var selection: SidebarDestination { coordinator.selection }
     private(set) var terminals: [String: TerminalSession] = [:] {
-        didSet { updateWorkspaceTerminalState() }
+        didSet { updateWorkspaceTerminalState(); unseenTerminals.keep(terminals) }
     }
+    /// Sessions a paired Mac started here, running with no screen of this Mac showing them.
+    @ObservationIgnored let unseenTerminals = UnseenTerminals()
+    @ObservationIgnored private var startingUnseen: [String: Task<Void, Error>] = [:]
     var projectModels: [String: ProjectPageViewModel] { coordinator.projectModels }
     private(set) var changingSessions: Set<String> = []
     /// Pane Terminal tabs' shells being ended, by key.
@@ -295,7 +300,8 @@ public final class AppViewModel {
         // The Pinned section's rows, read off the entries rather than sorted out again.
         let pinnedIDs = Set(entries.filter { $0.id.hasPrefix("pin:") }.compactMap { $0.sessionID ?? $0.projectID })
         if sidebarEntries != entries { sidebarEntries = entries }
-        if sidebarPinnedIDs != pinnedIDs { sidebarPinnedIDs = pinnedIDs }
+        let allPinned = pinnedIDs.union(remotePins)
+        if sidebarPinnedIDs != allPinned { sidebarPinnedIDs = allPinned }
         reportSessionStates()
     }
 
@@ -1008,6 +1014,9 @@ public final class AppViewModel {
             viewer.deactivate()
             coordinator.newSession?.update(projects: projects)
         case .session(let id):
+            // Shown here now, however it was chosen: the screen takes the terminal's view from
+            // where a paired Mac started it.
+            unseenTerminals.release("task:\(id)")
             if let session = sessions.first(where: { $0.id == id }) {
                 sessionPool.shown(id)
                 let context = viewer.select(id: "task:\(id)", url: session.url, title: session.title)
@@ -1623,6 +1632,22 @@ public final class AppViewModel {
     /// this one with the next number, whose agent carries this one's conversation on in a copy of
     /// its worktree. The backend makes the worktree and the record; the fork opens like any new one.
     func forkSession(_ id: String) {
+        if let (peer, session) = Self.remoteSession(id) {
+            // Forked there, started there off its screen, and opened here once its Mac lists it.
+            Task { [weak self] in
+                do {
+                    let forked = try await self?.remotePeers.perform(peer: peer, RemoteCommand(op: "fork", task: session))
+                    guard let self, let new = forked?["task"]?.string else { return }
+                    if let warning = forked?["warning"]?.string {
+                        self.error = String(localized: "Forked, but not all of its uncommitted work came across: \(warning)")
+                    }
+                    select(.remoteSession(peer: peer, session: new))
+                } catch {
+                    self?.error = String(localized: "Could not fork session: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
         guard let operations = sessionOperations, let record = sessions.first(where: { $0.id == id }),
               record.agent.driver != nil, !changingSessions.contains(id), forkingSessions.insert(id).inserted else { return }
         Task {
@@ -1665,6 +1690,19 @@ public final class AppViewModel {
     /// agent resuming as a stopped session's does when opened. The session is shown, since a
     /// terminal attaches from its pane.
     func reattachSession(_ id: String) {
+        if let (peer, session) = Self.remoteSession(id) {
+            // Started there, then opened here, attaching to it.
+            Task { [weak self] in
+                do {
+                    try await self?.startRemoteSession(peer: peer, session: session)
+                    if let model = self?.remoteTerminals["\(peer)/\(session)"], model.isOver { model.onReconnect() }
+                    self?.select(.remoteSession(peer: peer, session: session))
+                } catch {
+                    self?.error = String(localized: "Could not start the session: \(error.localizedDescription)")
+                }
+            }
+            return
+        }
         let key = "task:\(id)"
         guard terminals[key]?.isLive != true, sessions.contains(where: { $0.id == id }),
               changingSessions.insert(id).inserted else { return }
@@ -1741,6 +1779,7 @@ public final class AppViewModel {
     /// Pins or unpins a session, or a project, in the sidebar's Pinned section. A project's pin is
     /// the sidebar's own arrangement, kept by the app; a session's is the backend's.
     func togglePin(_ id: String) {
+        if id.hasPrefix("remote-session:") || id.hasPrefix("remote-project:") { toggleRemotePin(id); return }
         let pinnedOrder = { SidebarEntry.pins(projects: self.projects, sessions: self.sessions, order: self.sidebarOrder).map(\.id) }
         if projects.contains(where: { $0.id == id }) {
             sidebarOrder = sidebarOrder.pinning(id, pinned: !sidebarOrder.pinnedProjects.contains(id), shown: pinnedOrder(), project: true)
@@ -1763,6 +1802,7 @@ public final class AppViewModel {
     /// branch, agent and build settings are untouched; an empty name shows the folder again.
     /// The row updates at once and goes back if the backend refuses.
     func renameSession(_ id: String, to name: String) {
+        if let (peer, session) = Self.remoteSession(id) { renameRemoteSession(peer: peer, session: session, to: name); return }
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let api, let index = sessions.firstIndex(where: { $0.id == id }), (sessions[index].name ?? "") != name else { return }
         struct Payload: Encodable, Sendable { let name: String }
@@ -1779,6 +1819,167 @@ public final class AppViewModel {
                 self.error = String(localized: "Could not rename session: \(error.localizedDescription)")
             }
         }
+    }
+
+    /// Renames a paired Mac's session there; its list says the new name once it is saved.
+    func renameRemoteSession(peer: String, session: String, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { [weak self] in
+            do {
+                _ = try await self?.remotePeers.perform(peer: peer, RemoteCommand(op: "rename", task: session, args: ["name": .string(name)]))
+            } catch {
+                self?.error = String(localized: "Could not rename session: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    // MARK: A paired Mac's commands
+
+    /// New Task on a paired Mac's project: made there, its agent started there, opened here.
+    func newRemoteTask(_ key: String, _ task: RemoteNewTask) {
+        let parts = key.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, parts[0] == "remote-project" else { return }
+        let (peer, project) = (parts[1], parts[2])
+        Task { [weak self] in
+            do {
+                let made = try await self?.remotePeers.perform(peer: peer, RemoteCommand(
+                    op: "create", project: project,
+                    args: ["branch": .string(task.branch), "cli": .string(task.agent.rawValue), "prompt": .string(task.prompt)]))
+                if let new = made?["task"]?.string { self?.select(.remoteSession(peer: peer, session: new)) }
+            } catch {
+                self?.error = String(localized: "Could not create the task: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// A paired Mac asks this app to do something with a session here (`remote::commands`): done
+    /// as this Mac's own menu does it, and answered by the command's key.
+    private func receiveRemoteCommand(_ event: ServerEvent) {
+        guard event.type == "remote-command", let key = event.key, let op = event.op, let service = remotePeers.service else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let data = try await performRemoteCommand(op: op, task: event.task, project: event.project, args: event.args ?? .null)
+                try? await service.commandResult(key: key, ok: true, error: nil, data: data)
+            } catch {
+                try? await service.commandResult(key: key, ok: false, error: error.localizedDescription, data: nil)
+            }
+        }
+    }
+
+    private func performRemoteCommand(op: String, task: String?, project: String?, args: JSONValue) async throws -> JSONValue? {
+        switch op {
+        case "start":
+            guard let task else { break }
+            try await startUnseen(task)
+            return nil
+        case "removal", "remove":
+            guard let task, let record = sessions.first(where: { $0.id == task }), let model = removalModel(for: record) else {
+                throw BackendError.operation(String(localized: "That session is not on this Mac any more."))
+            }
+            await model.load()
+            guard let plan = model.plan else { throw BackendError.operation(model.error ?? String(localized: "The removal could not be prepared.")) }
+            let ids = plan.sessions.map(\.id)
+            if op == "removal" {
+                return ["sessions": .array(ids.map { .string($0) }), "removesWorktree": .bool(plan.removesWorktree),
+                        "holders": .array(plan.holders.map { .string($0) }), "paneChats": .number(Double(model.paneChats))]
+            }
+            // As confirmed there: the sessions on the folder are the ones it was shown.
+            guard Set(ids) == Set(args["sessions"]?.array?.compactMap(\.string) ?? []) else {
+                throw BackendError.operation(String(localized: "Tasks using this worktree changed. Close this dialog and review removal again."))
+            }
+            await model.remove()
+            guard model.completed else { throw BackendError.operation(model.error ?? String(localized: "The session could not be removed.")) }
+            return nil
+        case "fork":
+            guard let task, let operations = sessionOperations, let record = sessions.first(where: { $0.id == task }),
+                  record.agent.driver != nil else {
+                throw BackendError.operation(String(localized: "That session cannot be forked on this Mac."))
+            }
+            guard !changingSessions.contains(task) else {
+                throw BackendError.operation(String(localized: "The session is being changed on this Mac. Try again."))
+            }
+            guard forkingSessions.insert(task).inserted else {
+                throw BackendError.operation(String(localized: "The session is already being forked."))
+            }
+            let forked: ForkedSession
+            do {
+                defer { forkingSessions.remove(task) }
+                forked = try await operations.fork(record)
+            }
+            if !sessions.contains(where: { $0.id == forked.task.id }) { sessions.append(forked.task) }
+            refresh()
+            // As this Mac's Fork starts it, but with no screen here showing it.
+            try await startUnseen(forked.task.id, fresh: true)
+            var answer: [String: JSONValue] = ["task": .string(forked.task.id)]
+            if let warning = forked.warning { answer["warning"] = .string(warning) }
+            return .object(answer)
+        case "create":
+            guard let project, let record = projects.first(where: { $0.id == project }), let operations = sessionOperations else {
+                throw BackendError.operation(String(localized: "That project is not on this Mac any more."))
+            }
+            var draft = SessionDraft()
+            draft.branch = args["branch"]?.string ?? ""
+            draft.agent = SessionAgent(rawValue: args["cli"]?.string ?? "") ?? .claude
+            let made = try await operations.create(project: record, draft: draft)
+            if !sessions.contains(where: { $0.id == made.id }) { sessions.append(made) }
+            if let prompt = args["prompt"]?.string, !prompt.isEmpty { launchPrompts[made.id] = prompt }
+            refresh()
+            // As this Mac's New Task starts it, but with no screen here showing it.
+            try await startUnseen(made.id, fresh: true)
+            return ["task": .string(made.id)]
+        default: break
+        }
+        throw BackendError.operation(String(localized: "This Mac's Cascade cannot do that."))
+    }
+
+    /// The size a session started for a paired Mac starts at here: its terminal is that size until
+    /// a screen of this Mac shows it, and takes that screen's size then.
+    static let unseenTerminalSize = NSSize(width: 1000, height: 640)
+
+    /// Starts a session's terminal and agent for a paired Mac, as Reattach does, but with no screen
+    /// here showing it: this Mac's window stays on what it shows. Answers once it runs.
+    func startUnseen(_ id: String, fresh: Bool = false) async throws {
+        // A start of it under way, for another Mac or this one's: waited on, not started again.
+        if let starting = startingUnseen[id] { return try await starting.value }
+        let start = Task { try await startingUnseenNow(id, fresh: fresh) }
+        startingUnseen[id] = start
+        defer { if startingUnseen[id] == start { startingUnseen[id] = nil } }
+        try await start.value
+    }
+
+    private func startingUnseenNow(_ id: String, fresh: Bool) async throws {
+        let key = "task:\(id)"
+        guard sessions.contains(where: { $0.id == id }) else {
+            throw BackendError.operation(String(localized: "That session is not on this Mac any more."))
+        }
+        if terminals[key]?.isLive == true { return }
+        guard changingSessions.insert(id).inserted else {
+            throw BackendError.operation(String(localized: "The session is being changed on this Mac. Try again."))
+        }
+        let terminal: TerminalSession
+        do {
+            defer { changingSessions.remove(id) }
+            await terminals[key]?.stopConnecting()
+            guard let record = sessions.first(where: { $0.id == id }) else {
+                throw BackendError.operation(String(localized: "That session is not on this Mac any more."))
+            }
+            terminal = makeTerminal(record, fresh: fresh)
+            terminals[key] = terminal
+            // Recent to the memory pool, as one just opened is: a paired Mac is using it.
+            sessionPool.shown(id)
+        }
+        // On screen here, it starts as a session shown here does; otherwise in a window never shown.
+        if selection != .session(id) {
+            unseenTerminals.mount(terminal, key: key, size: Self.unseenTerminalSize)
+            await terminal.start()
+        }
+        for _ in 0..<200 {
+            if terminal.isLive { return }
+            if let error = terminal.error { throw BackendError.operation(error) }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw BackendError.operation(String(localized: "The session did not start in time."))
     }
 
     public func quit() async throws { try await prepareToTerminate() }
@@ -1810,6 +2011,7 @@ public final class AppViewModel {
     }
 
     private func prepareToTerminate(keepingShells: Bool = false) async throws {
+        unseenTerminals.releaseAll()
         let browserDialogs = coordinator.browserDialogCoordinator
         let browserWasEnabled = browserDialogs.enabled
         let picker = viewer.fileOpenCoordinator
@@ -2190,6 +2392,7 @@ public final class AppViewModel {
         receiveDevice(event)
         receiveChat(event)
         receiveRemote(event)
+        receiveRemoteCommand(event)
         if event.type == "automations" { automation?.receive(scope: event.scope) }
         if event.type == "automation-launch", let taskID = event.taskId, let prompt = event.prompt,
            let automationID = event.automationId, let key = event.key {

@@ -6,6 +6,9 @@ struct SessionRemovalPlan: Sendable {
     let sessions: [WorkspaceSession]
     let removesWorktree: Bool
     let holders: [String]
+    /// The chats started in the pane of a session on the folder, as another Mac counted them for
+    /// its own session; nil for this Mac's, which the app counts (`paneChats`).
+    var paneChats: Int? = nil
     var pairKeys: Set<String> {
         Set(sessions.flatMap { [$0.id, "build:\($0.url)"] })
     }
@@ -61,6 +64,27 @@ struct SessionRemovalService: SessionRemoving {
     }
 }
 
+/// Removing a paired Mac's session: that Mac's app prepares the plan as its own Remove does
+/// (`removal`), and removes it as planned (`remove`), refusing when the sessions on the folder
+/// changed meanwhile. The confirmation shown here is the one shown there.
+struct RemoteSessionRemoval: SessionRemoving {
+    let perform: @Sendable (RemoteCommand) async throws -> JSONValue
+
+    func prepare(record: WorkspaceSession, projects: [Project], sessions: [WorkspaceSession]) async throws -> SessionRemovalPlan {
+        let plan = try await perform(RemoteCommand(op: "removal", task: record.id))
+        let ids = Set(plan["sessions"]?.array?.compactMap(\.string) ?? [record.id])
+        return .init(record: record, sessions: sessions.filter { ids.contains($0.id) }.isEmpty ? [record] : sessions.filter { ids.contains($0.id) },
+                     removesWorktree: plan["removesWorktree"]?.bool == true,
+                     holders: plan["holders"]?.array?.compactMap(\.string) ?? [],
+                     paneChats: plan["paneChats"]?.number.map { Int($0) } ?? 0)
+    }
+
+    func remove(_ plan: SessionRemovalPlan) async throws {
+        _ = try await perform(RemoteCommand(op: "remove", task: plan.record.id,
+                                            args: ["sessions": .array(plan.sessions.map { .string($0.id) })]))
+    }
+}
+
 @MainActor @Observable final class SessionRemovalViewModel {
     enum Action { case removed([WorkspaceSession]) }
     @ObservationIgnored var onAction: (Action) -> Void = { _ in }
@@ -109,6 +133,7 @@ struct SessionRemovalService: SessionRemoving {
         // and a forgotten task's only when no other works there.
         let last = plan.removesWorktree
             || !sessions.contains { $0.id != plan.record.id && SessionRemovalPlan.path($0.worktree) == SessionRemovalPlan.path(plan.record.worktree) }
+        let paneChats = plan.paneChats ?? self.paneChats
         if paneChats > 0, last {
             lines.append(paneChats == 1 ? String(localized: "The chat started in its pane is deleted too.")
                          : String(localized: "The \(paneChats) chats started in its pane are deleted too."))

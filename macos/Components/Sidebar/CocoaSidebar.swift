@@ -20,6 +20,7 @@ struct CocoaSidebar: NSViewRepresentable {
     let onTogglePin: (String) -> Void
     /// A project row's hover New Task, at the trailing edge.
     var onNewTask: (String) -> Void = { _ in }
+    var onNewRemoteTask: (String, RemoteNewTask) -> Void = { _, _ in }
     var onMoveProject: (String, String?) -> Void = { _, _ in }
     var onMoveSession: (String, String?) -> Void = { _, _ in }
     var onMovePinned: (String, String?) -> Void = { _, _ in }
@@ -404,7 +405,27 @@ struct CocoaSidebar: NSViewRepresentable {
                 item.target = self; item.representedObject = node
                 menu.addItem(item)
             }
+            // A paired Mac's folder, which opens nothing: pinned on this Mac, within its section.
+            if node.entry.id.hasPrefix("remote-project:") {
+                add("New Task…", action: #selector(newRemoteTask(_:)))
+                add(parent.pinnedIDs.contains(node.entry.id) ? "Unpin" : "Pin", action: #selector(togglePin(_:)))
+                return menu
+            }
             guard let destination = node.entry.destination else { return nil }
+            // A paired Mac's session: what its own menu there does, done there; its pin is this Mac's.
+            if case .remoteSession = destination {
+                if case .session(let status, _) = node.entry.role, !status.live, !status.busy {
+                    add("Reattach", action: #selector(reattachSession(_:)))
+                }
+                add("Rename…", action: #selector(renameSession(_:)))
+                add(parent.pinnedIDs.contains(node.entry.id) ? "Unpin" : "Pin", action: #selector(togglePin(_:)))
+                add("Remove…", action: #selector(removeSession(_:)))
+                if case .session(let status, _) = node.entry.role, SessionAgent(rawValue: status.cli ?? "")?.driver != nil {
+                    menu.addItem(.separator())
+                    add("Fork", action: #selector(forkSession(_:)))
+                }
+                return menu
+            }
             // A folder's hover gear and New Task, for the keyboard and for anyone who opens its menu instead.
             if case .project(let id) = destination {
                 add("Project Settings", action: #selector(projectSettings(_:)))
@@ -489,13 +510,13 @@ struct CocoaSidebar: NSViewRepresentable {
         }
 
         @objc private func togglePin(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, let id = node.entry.sessionID ?? node.entry.projectID else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.pinKey else { return }
             parent.onTogglePin(id)
         }
         /// The system's own text prompt, as a sheet on the sidebar's window. An empty name puts
         /// the worktree folder back; whether anything changed is the app's to decide.
         @objc private func renameSession(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.sessionKey else { return }
             let alert = NSAlert()
             alert.window.setAccessibilityIdentifier("rename-session-dialog")
             alert.messageText = String(localized: "Rename Task")
@@ -523,21 +544,62 @@ struct CocoaSidebar: NSViewRepresentable {
         }
         /// No prompt: the fork is named after this session with the next number, and opens at once.
         @objc private func forkSession(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.sessionKey else { return }
             parent.onForkSession(id)
         }
         @objc private func reattachSession(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.sessionKey else { return }
             parent.onReattachSession(id)
         }
         @objc private func removeSession(_ sender: NSMenuItem) {
-            guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
+            guard let node = sender.representedObject as? Node, let id = node.entry.sessionKey else { return }
             parent.onRemoveSession(id)
         }
         @objc private func openGitClient(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, case .session(let id) = node.entry.destination else { return }
             parent.onOpenGitClient(id)
         }
+        /// A paired Mac's folder's New Task: the branch, the agent and a first message, as a sheet;
+        /// the session is made there and its agent started there.
+        @objc private func newRemoteTask(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? Node, node.entry.id.hasPrefix("remote-project:") else { return }
+            let key = node.entry.id
+            let alert = NSAlert()
+            alert.window.setAccessibilityIdentifier("remote-new-task-dialog")
+            alert.messageText = String(localized: "New Task in \(node.entry.title)")
+            alert.informativeText = String(localized: "Made on the other Mac, on a new branch, with its agent started there.")
+            alert.addButton(withTitle: String(localized: "Create"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            let branch = NSTextField(string: "")
+            branch.placeholderString = String(localized: "New branch name")
+            branch.setAccessibilityIdentifier("remote-new-task-branch")
+            let agents = SessionAgent.allCases.filter { $0.driver != nil }
+            let agent = NSPopUpButton(frame: .zero, pullsDown: false)
+            agent.addItems(withTitles: agents.map(\.label))
+            agent.setAccessibilityIdentifier("remote-new-task-agent")
+            let prompt = NSTextField(string: "")
+            prompt.placeholderString = String(localized: "First message (optional)")
+            prompt.setAccessibilityIdentifier("remote-new-task-prompt")
+            let stack = NSStackView(views: [branch, agent, prompt])
+            stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
+            stack.frame = NSRect(x: 0, y: 0, width: 300, height: 90)
+            for field in [branch, prompt] { field.widthAnchor.constraint(equalToConstant: 300).isActive = true }
+            alert.accessoryView = stack
+            let create = { [weak self] (response: NSApplication.ModalResponse) in
+                let name = branch.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard response == .alertFirstButtonReturn, !name.isEmpty, agents.indices.contains(agent.indexOfSelectedItem) else { return }
+                self?.parent.onNewRemoteTask(key, RemoteNewTask(branch: name, agent: agents[agent.indexOfSelectedItem],
+                                                                 prompt: prompt.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }
+            if let window = outline?.window {
+                alert.beginSheetModal(for: window, completionHandler: create)
+                alert.window.makeFirstResponder(branch)
+            } else {
+                alert.window.initialFirstResponder = branch
+                create(alert.runModal())
+            }
+        }
+
         @objc private func newTask(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? Node, let id = node.entry.projectID else { return }
             parent.onNewTask(id)
@@ -1015,9 +1077,9 @@ enum SidebarMetrics {
             accessory.isHidden = !hovered || !actionable; settings.isHidden = !hovered || !actionable; dot.isHidden = true
         // The pin shows in the trailing slot under the pointer, and the ⌘-held hint takes it. The status
         // dot leads the row, always shown.
-        // A paired Mac's session is not pinned here: it has no pin.
+        // A paired Mac's session is pinned on this Mac, within its section.
         case .session:
-            accessory.isHidden = !hovered || !shortcut.isHidden || entry.sessionID == nil
+            accessory.isHidden = !hovered || !shortcut.isHidden || entry.pinKey == nil
             dot.isHidden = false
         case .chat:
             accessory.isHidden = true
@@ -1037,7 +1099,7 @@ enum SidebarMetrics {
 
     @objc private func accessoryPressed() {
         if let id = entry.projectID { onNewTask(id) }
-        else if let id = entry.sessionID { onTogglePin(id) }
+        else if case .session = entry.role, let id = entry.pinKey { onTogglePin(id) }
     }
 
     @objc private func settingsPressed() {

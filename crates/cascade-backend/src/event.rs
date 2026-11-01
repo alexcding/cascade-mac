@@ -23,6 +23,25 @@ pub enum Event {
     JiraSync { id: String },
     /// The session records changed.
     Tasks,
+    /// A paired Mac asks this Mac's app to do something with a session (`remote::commands`); the
+    /// app answers through `POST /api/remote/command-result` with `key`.
+    RemoteCommand {
+        key: String,
+        op: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        task: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+        args: Value,
+    },
+    /// The app's answer to a paired Mac's command, which the paired Macs hear.
+    SessionCommandDone {
+        key: String,
+        ok: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+        data: Value,
+    },
     /// The sessions' agent states the app reported changed (`POST /api/remote/session-status`),
     /// for paired Macs to read again.
     SessionStatus,

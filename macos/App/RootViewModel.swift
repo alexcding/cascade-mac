@@ -39,6 +39,8 @@ import Observation
         case reattachSession(String)
         /// A project row's hover New Task.
         case newTask(String)
+        /// A paired Mac's folder's New Task, with what its form asked.
+        case newRemoteTask(String, RemoteNewTask)
         case renameChat(String, name: String)
         case deleteChat(String)
         case openActivityLink(OpenPageRequest)
@@ -119,6 +121,7 @@ import Observation
     func newSession() { if canCreateSession { onAction(.command(.newSession)) } }
     /// A project row's hover pencil: New Task on that project, wherever the window is.
     func newTask(in projectID: String) { onAction(.newTask(projectID)) }
+    func newRemoteTask(_ key: String, _ task: RemoteNewTask) { onAction(.newRemoteTask(key, task)) }
     func refresh() { if canRefresh { onAction(.command(.refresh)) } }
     /// A chat row's Rename…, with the title typed into the prompt.
     func renameChat(_ id: String, to name: String) { onAction(.renameChat(id, name: name)) }

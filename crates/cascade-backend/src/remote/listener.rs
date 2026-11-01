@@ -47,7 +47,7 @@ pub(crate) const CHAT_METHODS: &[&str] = &[
 ];
 
 /// The events a paired Mac's stream carries (`Event`'s `type`s).
-pub(crate) const EVENTS: &[&str] = &["tasks", "session-status", "chat-thread", "chat-shell", "chat-removed", "reload"];
+pub(crate) const EVENTS: &[&str] = &["tasks", "session-status", "session-command-done", "chat-thread", "chat-shell", "chat-removed", "reload"];
 
 /// How often an idle stream says it is alive; a paired Mac drops one silent for three times as
 /// long (`links::SILENT`).
@@ -144,6 +144,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/projects", get(projects))
         .route("/api/session-status", get(session_status))
         .route("/api/session-transcript", get(session_transcript))
+        .route("/api/session-command", post(session_command))
         .route("/api/stream", get(stream))
         .route("/api/chat/rpc", post(chat_rpc))
         .route("/api/terminal", get(open_terminal))
@@ -213,6 +214,14 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, ApiError> 
 /// Each session's agent state as this Mac's app draws it, by session id.
 async fn session_status(State(state): State<AppState>) -> Json<Value> {
     Json(Value::Object(state.remote.statuses.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()))
+}
+
+/// A paired Mac's command for a session or project here (`commands::run`).
+async fn session_command(State(state): State<AppState>, Extension(Client(id)): Extension<Client>, command: Result<Json<super::commands::Command>, JsonRejection>) -> Response {
+    match command {
+        Ok(Json(command)) => super::commands::run(&state, &id, command).await,
+        Err(rejection) => ApiError::bad_request(rejection.body_text()).into_response(),
+    }
 }
 
 /// What a paired Mac names a session's transcript by: the session, never a folder, a CLI or a

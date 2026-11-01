@@ -18,6 +18,12 @@ import SwiftUI
     @ObservationIgnored private var retired = false
     /// Asks the app for a fresh connection, after this one failed or its terminal ended.
     @ObservationIgnored var onReconnect: () -> Void = {}
+    /// Asks that Mac to start the session's terminal and agent there, as Reattach does, when it
+    /// is not running; nothing when it is.
+    @ObservationIgnored var onStart: () async throws -> Void = {}
+    /// Starting it there, and why that failed.
+    private(set) var starting = false
+    private(set) var startError: String?
     /// Makes the chat on first show; nil for a session that runs no agent.
     @ObservationIgnored var makeChat: (() -> TranscriptChatModel)?
     /// The agent's state as that Mac's app last reported it.
@@ -66,9 +72,25 @@ import SwiftUI
         }
     }
 
+    /// Never attached: the session is not running there, so it is started first.
+    var neverAttached: Bool { terminal.shellPID == nil }
+
+    /// Starts the session there if it is not running, then attaches afresh.
     func reconnect() {
-        guard !retired else { return }
-        onReconnect()
+        guard !retired, !starting else { return }
+        starting = true; startError = nil
+        Task { [weak self] in
+            guard let self else { return }
+            // Running there, as that Mac says, it is only attached to again.
+            if agentState()?.live != true {
+                do { try await onStart() } catch { startError = error.localizedDescription }
+            }
+            starting = false
+            // A start that failed still attaches to a terminal attached before: an older Cascade
+            // there, or one busy with the session, may yet have it running.
+            guard !retired, startError == nil || !neverAttached else { return }
+            onReconnect()
+        }
     }
 
     /// The session or its Mac is gone: the connection ends and the model is done.
@@ -96,9 +118,17 @@ struct RemoteTerminalView: View {
             }
             .overlay(alignment: .bottom) {
                 if model.isOver {
-                    Button(String(localized: "Reconnect")) { model.reconnect() }
+                    VStack(spacing: 8) {
+                        if let error = model.startError {
+                            Text(error).font(.caption).foregroundStyle(Theme.danger)
+                        }
+                        Button(model.neverAttached ? String(localized: "Start on \(model.macName)") : String(localized: "Reconnect")) {
+                            model.reconnect()
+                        }
+                        .disabled(model.starting)
                         .accessibilityIdentifier("remote-terminal-reconnect")
-                        .padding(16)
+                    }
+                    .padding(16)
                 }
             }
             .accessibilityIdentifier("remote-terminal")

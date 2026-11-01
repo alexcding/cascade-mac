@@ -11,6 +11,7 @@ mod listener;
 mod pairing;
 pub(crate) mod routes;
 mod store;
+pub(crate) mod commands;
 pub(crate) mod terminal;
 #[cfg(test)]
 mod tests;

@@ -85,6 +85,9 @@ struct SidebarRemoteSection: Equatable {
     /// are drawn live, as opening one is how to find out.
     var states: [String: RemoteSessionStatus]? = nil
     var chats: [ChatThreadShell] = []
+    /// Its rows pinned on this Mac, by row id (`SidebarEntry.pinKey`): listed first in its section,
+    /// never moved out of it, and not told to that Mac.
+    var pinned: Set<String> = []
 }
 
 struct SidebarEntry: Equatable {
@@ -118,6 +121,13 @@ struct SidebarEntry: Equatable {
     var destinations: [SidebarDestination] { destination.map { [$0] } ?? [] }
     var sessionID: String? { if case .session(let id) = destination { id } else { nil } }
     var projectID: String? { if case .project(let id) = destination { id } else { nil } }
+    /// A paired Mac's session or project folder, by its row id: what pins it on this Mac.
+    var remoteKey: String? { id.hasPrefix("remote-session:") || id.hasPrefix("remote-project:") ? id : nil }
+    /// What a session's menu names it by: this Mac's session id, or a paired Mac's session row id
+    /// (`AppViewModel.remoteSession(_:)` reads it back).
+    var sessionKey: String? { sessionID ?? (id.hasPrefix("remote-session:") ? id : nil) }
+    /// What Pin and Unpin name the row by: this Mac's session or project, or a paired Mac's row.
+    var pinKey: String? { sessionID ?? projectID ?? remoteKey }
     var chatID: String? { if case .chat(let id) = destination { id } else { nil } }
 
     /// Dashboard, Pinned sessions and projects, then the Projects heading with each folder's unpinned sessions
@@ -197,9 +207,10 @@ struct SidebarEntry: Equatable {
         return result
     }
 
-    /// A paired Mac's heading and rows: its projects, each a folder of its sessions as this Mac's
-    /// are, then sessions of no project it listed, then its chats. Nothing in them is this Mac's:
-    /// no row names a local path, so none offers Finder; a session opens its terminal there.
+    /// A paired Mac's heading and rows: what is pinned on this Mac first (its sessions, then its
+    /// folders), then its projects, each a folder of its sessions as this Mac's are, then sessions
+    /// of no project it listed, then its chats. Nothing in them is this Mac's: no row names a local
+    /// path, so none offers Finder; a session opens its terminal there.
     static func remoteSection(_ section: SidebarRemoteSection) -> [Self] {
         let peer = section.peer
         let state: String? = switch peer.reach {
@@ -217,19 +228,27 @@ struct SidebarEntry: Equatable {
                 return SidebarSessionStatus(live: state.live, busy: state.busy, needsInput: state.needsInput,
                                             cli: state.cli ?? session.cli)
             } ?? SidebarSessionStatus(live: true, cli: session.cli)
-            return Self(id: "remote-session:\(peer.id):\(session.id)", title: session.label, symbol: "",
+            let id = "remote-session:\(peer.id):\(session.id)"
+            return Self(id: id, title: session.label, symbol: "",
                         destination: .remoteSession(peer: peer.id, session: session.id),
-                        role: .session(state, pinned: false))
+                        role: .session(state, pinned: section.pinned.contains(id)))
                 .withTip(String(localized: "Runs on \(peer.name): \(session.worktree)"))
         }
-        let listed = Set(section.projects.map(\.id))
-        for project in section.projects {
-            let sessions = section.sessions.filter { $0.projectId == project.id }
-            guard !sessions.isEmpty else { continue }
-            result.append(Self(id: "remote-project:\(peer.id):\(project.id)", title: project.name,
-                               symbol: Project.symbol(for: project.icon), children: sessions.map(sessionRow), role: .project))
+        let pinnedSession = { (session: WorkspaceSession) in section.pinned.contains("remote-session:\(peer.id):\(session.id)") }
+        result += section.sessions.filter(pinnedSession).map(sessionRow)
+        let unpinned = section.sessions.filter { !pinnedSession($0) }
+        // A folder lists its sessions not pinned; one pinned stays while any session of it is listed.
+        let folders = section.projects.compactMap { project -> (pinned: Bool, entry: Self)? in
+            let id = "remote-project:\(peer.id):\(project.id)"
+            let pinned = section.pinned.contains(id)
+            let sessions = unpinned.filter { $0.projectId == project.id }
+            guard !sessions.isEmpty || (pinned && section.sessions.contains { $0.projectId == project.id }) else { return nil }
+            return (pinned, Self(id: id, title: project.name, symbol: Project.symbol(for: project.icon),
+                                 children: sessions.map(sessionRow), role: .project))
         }
-        result += section.sessions.filter { !listed.contains($0.projectId) }.map(sessionRow)
+        result += folders.filter(\.pinned).map(\.entry) + folders.filter { !$0.pinned }.map(\.entry)
+        let listed = Set(section.projects.map(\.id))
+        result += unpinned.filter { !listed.contains($0.projectId) }.map(sessionRow)
         result += section.chats.map { chat in
             let status = SidebarChatStatus(working: chat.working, needsInput: chat.needsInput, cli: chat.cli)
             return Self(id: "remote-chat:\(peer.id):\(chat.id)", title: chat.label, symbol: "chat",

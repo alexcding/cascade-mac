@@ -80,6 +80,11 @@ protocol RemoteServing: Sendable {
     /// page's read-only thread (`{revision, snapshot}`).
     func sessionTranscript(peer id: String, session: String, since: String?) async throws -> AgentTranscript
     func sessionTranscriptThread(peer id: String, session: String, threadID: String, since: String?) async throws -> JSONValue
+    /// Asks a paired Mac to do something with a session or project there (`RemoteCommand`): done
+    /// at once (a rename), or handed to its app, whose answer comes as `session-command-done`.
+    func command(peer id: String, _ command: RemoteCommand) async throws -> RemoteCommandAccepted
+    /// This app's answer to a paired Mac's command, by its key.
+    func commandResult(key: String, ok: Bool, error: String?, data: JSONValue?) async throws
     /// Tells the backend this Mac's sessions' agent states, for paired Macs' sidebars.
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws
     /// Opens a connection to the paired Mac's session terminals and answers the local socket the
@@ -144,6 +149,13 @@ struct APIRemoteService: RemoteServing {
         if let since { query["since"] = since }
         return try await api.get(APIClient.query(Routes.remotePeerSessionTranscript(id), query), timeout: 20)
     }
+    func command(peer id: String, _ command: RemoteCommand) async throws -> RemoteCommandAccepted {
+        try await api.request(Routes.remotePeerSessionCommand(id), method: "POST", body: command, timeout: 20)
+    }
+    func commandResult(key: String, ok: Bool, error: String?, data: JSONValue?) async throws {
+        struct Body: Encodable, Sendable { let key: String; let ok: Bool; let error: String?; let data: JSONValue? }
+        let _: OK = try await api.request(Routes.REMOTE_COMMAND_RESULT, method: "POST", body: Body(key: key, ok: ok, error: error, data: data))
+    }
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
         let _: OK = try await api.request(Routes.REMOTE_SESSION_STATUS, method: "POST", body: ["sessions": sessions])
     }
@@ -156,6 +168,29 @@ struct APIRemoteService: RemoteServing {
         let _: OK = try await api.request(Routes.REMOTE_TERMINAL_DAEMON, method: "POST", body: ["socket": socket])
     }
     func chat(peer id: String) -> any ChatServing { APIChatService(api: api, path: Routes.remotePeerChatRPC(id)) }
+}
+
+/// What a paired Mac is asked to do with a session (`task`) or in a project there: `rename`
+/// (args `name`), `start`, `removal` (what removing would lose), `remove`, `fork`, `create`.
+struct RemoteCommand: Encodable, Sendable, Equatable {
+    var op: String
+    var task: String?
+    var project: String?
+    var args: [String: JSONValue] = [:]
+}
+
+/// New Task on a paired Mac's project: a session there on a new branch, its agent started there
+/// with the first message, if one is given.
+struct RemoteNewTask: Equatable, Sendable {
+    var branch: String
+    var agent: SessionAgent
+    var prompt: String
+}
+
+/// A paired Mac's answer to a command: done, or handed to its app under `key`.
+struct RemoteCommandAccepted: Decodable, Sendable {
+    var done: Bool?
+    var key: String?
 }
 
 /// A session's agent state as its Mac's app draws it: its terminal running, its agent working,

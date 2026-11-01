@@ -20,6 +20,8 @@ import Foundation
     func reattachSession(_ id: String)
     func focusSession(_ id: String)
     func newTask(in projectID: String)
+    /// New Task on a paired Mac's project folder (`remote-project:<peer>:<project>`).
+    func newRemoteTask(_ key: String, _ task: RemoteNewTask)
     func openProjectSettings(_ projectID: String)
     /// A session, from Projects: shown, with the keyboard on its agent.
     func openSession(_ id: String)
@@ -41,6 +43,7 @@ extension RootCoordinating {
     func reattachSession(_ id: String) {}
     func focusSession(_ id: String) {}
     func newTask(in projectID: String) {}
+    func newRemoteTask(_ key: String, _ task: RemoteNewTask) {}
     func openProjectSettings(_ projectID: String) {}
     func openSession(_ id: String) {}
     func renameChat(_ id: String, to name: String) {}
@@ -86,6 +89,7 @@ extension AppCoordinator {
         case .reattachSession(let id): rootRuntime?.reattachSession(id)
         case .focusSession(let id): rootRuntime?.focusSession(id)
         case .newTask(let id): rootRuntime?.newTask(in: id)
+        case .newRemoteTask(let key, let task): rootRuntime?.newRemoteTask(key, task)
         case .renameChat(let id, let name): rootRuntime?.renameChat(id, to: name)
         case .deleteChat(let id): rootRuntime?.deleteChat(id)
         case .openActivityLink(let request): rootRuntime?.openActivityLink(request)

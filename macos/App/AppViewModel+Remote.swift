@@ -27,6 +27,37 @@ extension AppViewModel {
         }
     }
 
+    /// A paired Mac's session row's id (`SidebarEntry.sessionKey`), read back as the Mac and session.
+    static func remoteSession(_ key: String) -> (peer: String, session: String)? {
+        let parts = key.split(separator: ":", maxSplits: 2).map(String.init)
+        guard parts.count == 3, parts[0] == "remote-session", !parts[1].isEmpty, !parts[2].isEmpty else { return nil }
+        return (parts[1], parts[2])
+    }
+
+    /// Asks a paired Mac to start a session's terminal and agent there, off its screen.
+    func startRemoteSession(peer: String, session: String) async throws {
+        _ = try await remotePeers.perform(peer: peer, RemoteCommand(op: "start", task: session), wait: .seconds(40))
+    }
+
+    /// Remove… for a paired Mac's session: that Mac's own confirmation, shown here, and its own
+    /// removal, done there. Its list says when the session is gone.
+    func remoteRemoval(peer: String, session id: String) -> SessionRemovalViewModel? {
+        guard remotePeers.service != nil, let sessions = remotePeers.sessions[peer],
+              let record = sessions.first(where: { $0.id == id }) else { return nil }
+        let store = remotePeers
+        let service = RemoteSessionRemoval(perform: { command in try await store.perform(peer: peer, command) })
+        return workspaceFactory.removal(service: service, record: record, projects: [], sessions: sessions,
+                                        didRemove: { _ in }, finished: {})
+    }
+
+    /// Pins or unpins a paired Mac's session or folder, on this Mac only: it stays in that Mac's
+    /// section, at its top.
+    func toggleRemotePin(_ key: String) {
+        if remotePins.remove(key) == nil { remotePins.insert(key) }
+        UserDefaults.standard.set(remotePins.sorted(), forKey: Self.remotePinsKey)
+    }
+    static let remotePinsKey = "remote.pins"
+
     /// Tells the backend this Mac's sessions' agent states, as the sidebar draws them, when they
     /// changed: a paired Mac draws its row of each session the same. One report at a time, so they
     /// arrive in order; a change made meanwhile is told when it is done. One that fails is told
@@ -65,7 +96,8 @@ extension AppViewModel {
             SidebarRemoteSection(peer: peer, sessions: remotePeers.sessions[peer.id] ?? [],
                                  projects: remotePeers.projects[peer.id] ?? [],
                                  states: remotePeers.states[peer.id],
-                                 chats: remotePeers.visibleChats(peer.id))
+                                 chats: remotePeers.visibleChats(peer.id),
+                                 pinned: remotePins.filter { $0.contains(":\(peer.id):") })
         }
     }
 
@@ -112,6 +144,7 @@ extension AppViewModel {
                                 openLink: { url in self?.desktop.openBrowser(url); return true })
             }
         }
+        model.onStart = { [weak self] in try await self?.startRemoteSession(peer: peer, session: id) }
         model.onReconnect = { [weak self] in
             guard let self else { return }
             if remoteTerminals[key] === model { model.retire(); remoteTerminals[key] = nil }
@@ -203,6 +236,10 @@ extension AppViewModel {
     /// forgotten leaves.
     private func remoteRead() {
         pruneRemoteTerminals()
+        // A Mac forgotten takes its pins here with it.
+        let paired = remotePeers.peers.map(\.id)
+        let kept = remotePins.filter { key in paired.contains { key.contains(":\($0):") } }
+        if kept != remotePins { remotePins = kept; UserDefaults.standard.set(kept.sorted(), forKey: Self.remotePinsKey) }
         if case .remoteSession(let peer, let session) = selection {
             if remotePeers.peer(peer) == nil { select(.overview); return }
             guard let listed = remotePeers.sessions[peer] else { return }

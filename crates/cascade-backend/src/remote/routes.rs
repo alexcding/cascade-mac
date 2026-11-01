@@ -126,6 +126,22 @@ pub async fn peer_session_transcript(State(state): State<AppState>, headers: Hea
     forward(&state, &id, Method::GET, &path, None).await
 }
 
+/// A command for a paired Mac's session or project (`commands`), answered at once; what its app
+/// did is told later as `session-command-done`.
+pub async fn peer_session_command(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<Value>) -> Response {
+    if let Err(error) = local_only(&headers) {
+        return error.into_response();
+    }
+    forward(&state, &id, Method::POST, "/api/session-command", Some(&body)).await
+}
+
+/// This app's answer to a paired Mac's command (`Event::RemoteCommand`).
+pub async fn command_result(State(state): State<AppState>, headers: HeaderMap, Json(done): Json<super::commands::Done>) -> ApiResult<Value> {
+    local_only(&headers)?;
+    super::commands::done(&state, done);
+    Ok(Json(json!({})))
+}
+
 pub async fn peer_session_status(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     forward(&state, &id, Method::GET, "/api/session-status", None).await
 }

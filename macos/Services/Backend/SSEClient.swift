@@ -58,6 +58,12 @@ public struct ServerEvent: Decodable, Sendable, Equatable {
     var peer: String? = nil
     var relayed: JSONValue? = nil
     var reach: String? = nil
+    /// `remote-command`: what a paired Mac asks this app to do (`op`), with the session (`task`) or
+    /// the project it is about and the op's own fields; answered by `key`.
+    var op: String? = nil
+    var task: String? = nil
+    var project: String? = nil
+    var args: JSONValue? = nil
     /// `device` and `device-open-pane`: the working folder whose Simulator pane it is about (a
     /// session's worktree). `device` carries the pane's new `OwnerDeviceState` under `state`, read
     /// as it comes since `worktree-setup` names a plain string `state`; `device-open-pane` the
