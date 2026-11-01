@@ -357,6 +357,8 @@ pub async fn forward(
     path: &str,
     body: Option<&Value>,
 ) -> Result<Option<(StatusCode, Value)>> {
+    // A Chat mode reads its transcript every few seconds: what goes wrong with it is told seldom.
+    let log = if path.starts_with("/api/session-transcript") { super::log_seldom } else { super::log };
     let Some((peer, token)) = peer(state, id).await? else { return Ok(None) };
     let mut failure = None;
     for address in &peer.addresses {
@@ -371,7 +373,7 @@ pub async fn forward(
                     // A refusal is the other Mac's list at work (a read-only page asks for more);
                     // anything else went wrong there.
                     let level = if answer.0 == StatusCode::FORBIDDEN { "info" } else { "error" };
-                    super::log(state, level, "peer_request_refused", json!({
+                    log(state, level, "peer_request_refused", json!({
                         "peer": super::short(id), "name": peer.name, "path": path, "status": answer.0.as_u16(),
                         // What it said, not a whole body it may have sent.
                         "answer": answer.1.get("error").cloned().unwrap_or_else(|| json!(answer.1.to_string().chars().take(1000).collect::<String>())),
@@ -388,7 +390,7 @@ pub async fn forward(
         }
     }
     let failure = failure.unwrap_or_else(|| anyhow::anyhow!("no address for {}", peer.name));
-    super::log(state, "error", "peer_request_failed", json!({
+    log(state, "error", "peer_request_failed", json!({
         "peer": super::short(id), "name": peer.name, "path": path, "addresses": peer.addresses, "error": format!("{failure:#}"),
     }));
     if failure.is::<client::CertificateChanged>() {

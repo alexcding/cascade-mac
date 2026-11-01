@@ -5,7 +5,7 @@
 use std::{collections::HashMap, convert::Infallible, net::IpAddr, sync::Arc, time::Duration};
 
 use axum::{
-    extract::{rejection::JsonRejection, DefaultBodyLimit, Request, State},
+    extract::{rejection::JsonRejection, DefaultBodyLimit, Query, Request, State},
     http::{header, HeaderValue, StatusCode},
     middleware::{self, Next},
     response::{
@@ -143,6 +143,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/tasks", get(routes::get_tasks))
         .route("/api/projects", get(projects))
         .route("/api/session-status", get(session_status))
+        .route("/api/session-transcript", get(session_transcript))
         .route("/api/stream", get(stream))
         .route("/api/chat/rpc", post(chat_rpc))
         .route("/api/terminal", get(open_terminal))
@@ -212,6 +213,41 @@ async fn health(State(state): State<AppState>) -> Result<Json<Value>, ApiError> 
 /// Each session's agent state as this Mac's app draws it, by session id.
 async fn session_status(State(state): State<AppState>) -> Json<Value> {
     Json(Value::Object(state.remote.statuses.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()))
+}
+
+/// What a paired Mac names a session's transcript by: the session, never a folder, a CLI or a
+/// conversation, so it reads only its sessions' conversations.
+#[derive(serde::Deserialize)]
+struct SessionTranscript {
+    task: String,
+    #[serde(default)]
+    since: Option<String>,
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default, rename = "threadId")]
+    thread_id: Option<String>,
+}
+
+/// A session's conversation, as its Chat mode reads it here (`routes::agent_transcript`): the
+/// folder and the CLI are the session's record's, the conversation and the terminal (for the
+/// approval it waits on) the ones this Mac's app last reported for it (`Remote.statuses`).
+async fn session_transcript(State(state): State<AppState>, Query(asked): Query<SessionTranscript>) -> Response {
+    let session = match state.db.task(&asked.task).await {
+        Ok(Some(session)) if !session.cli.is_empty() && session.worktree.starts_with('/') => session,
+        Ok(_) => return ApiError::not_found("No such session").into_response(),
+        Err(error) => return ApiError::from(error).into_response(),
+    };
+    let reported = state.remote.statuses.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&session.id).cloned();
+    let reported = |key: &str| reported.as_ref().and_then(|state| state[key].as_str()).filter(|value| !value.is_empty()).map(str::to_string);
+    let conversation = reported("conversation").or_else(|| Some(session.session_id.clone()).filter(|id| !id.is_empty()));
+    let query = serde_json::from_value(json!({
+        "cli": session.cli, "worktree": session.worktree, "since": asked.since, "session": conversation,
+        "format": asked.format, "runId": reported("runId"), "threadId": asked.thread_id, "projectId": session.project_id,
+    }));
+    match query {
+        Ok(query) => routes::agent_transcript(State(state), Query(query)).await.into_response(),
+        Err(error) => ApiError::bad_request(error.to_string()).into_response(),
+    }
 }
 
 /// Each project's name and icon, for the label beside a remote session; nothing of its paths,

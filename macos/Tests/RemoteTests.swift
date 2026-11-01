@@ -60,6 +60,14 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
         guard let states = lock.withLock({ _states[id] }) else { throw BackendError.http(404) }
         return states
     }
+    func sessionTranscript(peer id: String, session: String, since: String?) async throws -> AgentTranscript {
+        log("transcript \(id) \(session)")
+        return AgentTranscript(revision: "", turns: [], hooks: nil)
+    }
+    func sessionTranscriptThread(peer id: String, session: String, threadID: String, since: String?) async throws -> JSONValue {
+        log("thread \(id) \(session)")
+        return ["revision": "", "snapshot": .null]
+    }
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
         lock.withLock { reported.append(sessions) }
     }
@@ -196,6 +204,28 @@ private func event(_ json: String) throws -> ServerEvent {
     let row = try #require(SidebarEntry.remoteSection(older).first { $0.destination == .remoteSession(peer: "ab", session: "s1") })
     guard case .session(let state, _) = row.role else { Issue.record("not a session row"); return }
     #expect(state.live && !state.busy)
+}
+
+@MainActor @Test func aPairedMacsSessionShowsItsConversationAsAChatThatTypesIntoItsTerminal() async throws {
+    let remote = FakeRemote()
+    let terminal = TerminalSession(pairKey: "s1", cwd: "/elsewhere", paired: true)
+    let model = RemoteTerminalModel(peer: "ab", session: session("s1", title: "Build"), macName: "Mac mini", terminal: terminal)
+    defer { model.retire(); UserDefaults.standard.removeObject(forKey: "remote.chatMode.ab.s1") }
+    #expect(!model.canShowChat, "no agent, no chat")
+    model.makeChat = {
+        AppViewModel.remoteChat(peer: "ab", session: session("s1", title: "Build"), cli: "claude", service: remote,
+                                terminal: terminal, showTerminal: { model.setChatShown(false) }, openLink: { _ in true })
+    }
+    model.setChatShown(true)
+    let chat = try #require(model.chat)
+    #expect(model.showsChat && terminal.coveredByChat && model.chosenChat)
+    // Files here are not that Mac's, and the session is forked there.
+    #expect(!chat.canAttach && !chat.forks)
+    await chat.refresh()
+    #expect(remote.calls.contains("transcript ab s1"), "read from that Mac, by the session")
+
+    model.setChatShown(false)
+    #expect(!model.showsChat && !terminal.coveredByChat && !model.chosenChat)
 }
 
 // MARK: - The paired Macs' lists

@@ -9,16 +9,40 @@ import SwiftUI
     let terminal: TerminalSession
     private(set) var title: String
     private(set) var macName: String
+    /// What the empty message field reads in Chat.
+    let placeholder: String
+    /// The conversation as a chat over the terminal, as a session's Chat mode on this Mac is: read
+    /// from that Mac's transcript, typed into its terminal here.
+    private(set) var showsChat = false
+    private(set) var chat: TranscriptChatModel?
     @ObservationIgnored private var retired = false
     /// Asks the app for a fresh connection, after this one failed or its terminal ended.
     @ObservationIgnored var onReconnect: () -> Void = {}
+    /// Makes the chat on first show; nil for a session that runs no agent.
+    @ObservationIgnored var makeChat: (() -> TranscriptChatModel)?
+    /// The agent's state as that Mac's app last reported it.
+    @ObservationIgnored var agentState: () -> RemoteSessionStatus? = { nil }
 
     init(peer: String, session: WorkspaceSession, macName: String, terminal: TerminalSession) {
         self.peer = peer
         sessionID = session.id
         title = session.label
+        placeholder = session.agent.chatPlaceholder
         self.macName = macName
         self.terminal = terminal
+    }
+
+    var canShowChat: Bool { !retired && makeChat != nil }
+    private var chatModeKey: String { "remote.chatMode.\(peer).\(sessionID)" }
+    /// Chat or Terminal, as last chosen for this session here.
+    var chosenChat: Bool { UserDefaults.standard.bool(forKey: chatModeKey) }
+
+    func setChatShown(_ shown: Bool) {
+        guard canShowChat else { return }
+        UserDefaults.standard.set(shown, forKey: chatModeKey)
+        if shown, chat == nil { chat = makeChat?() }
+        terminal.coveredByChat = shown
+        if showsChat != shown { showsChat = shown }
     }
 
     func update(session: WorkspaceSession, macName: String) {
@@ -51,6 +75,7 @@ import SwiftUI
     func retire() {
         guard !retired else { return }
         retired = true
+        chat?.retire()
         terminal.disconnect()
     }
 }
@@ -60,6 +85,15 @@ struct RemoteTerminalView: View {
 
     var body: some View {
         TerminalPane(session: model.terminal)
+            .allowsHitTesting(!model.showsChat)
+            .overlay(alignment: .top) {
+                if model.showsChat, let chat = model.chat {
+                    let state = model.agentState()
+                    TranscriptChatOverlay(chat: chat, workspace: nil, busy: state?.busy == true, idle: state?.idle == true,
+                                          asking: state?.needsInput == true, startedAt: nil, active: true,
+                                          placeholder: model.placeholder)
+                }
+            }
             .overlay(alignment: .bottom) {
                 if model.isOver {
                     Button(String(localized: "Reconnect")) { model.reconnect() }

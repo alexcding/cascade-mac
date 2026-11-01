@@ -179,8 +179,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private let openLink: (URL) -> Bool
     /// Opens a file the conversation names, at a line when it gives one.
     @ObservationIgnored private let openFile: (_ path: String, _ line: Int?) -> Void
-    /// Fork Session: a new session carrying this conversation on.
-    @ObservationIgnored private let forkSession: () -> Void
+    /// Fork Session: a new session carrying this conversation on; none for another Mac's session.
+    @ObservationIgnored private let forkSession: (() -> Void)?
+    /// Files on this Mac can go with a message: not to another Mac's agent, which cannot read them.
+    let takesFiles: Bool
     @ObservationIgnored private let thread: Thread
     @ObservationIgnored private let makePage: (ChatPageContext, any ChatPageBackend) -> ChatPageModel
     /// The thread's revision as last read, which the next read passes as `since`.
@@ -192,6 +194,10 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     @ObservationIgnored private var readingThread = false
     @ObservationIgnored private var watchedRun: String?
     @ObservationIgnored private var polling: Task<Void, Never>?
+    /// How often the transcript is read while shown: each read is a request to another Mac for
+    /// that Mac's session.
+    @ObservationIgnored private let interval: Duration
+    @ObservationIgnored private var failedReads = 0
     @ObservationIgnored private var busy = false
     @ObservationIgnored private var idle = false
     /// An approval or a question may be up in the terminal, which typed keys would answer.
@@ -240,7 +246,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
          showTerminal: @escaping () -> Void = {},
          openLink: @escaping (URL) -> Bool = { _ in false },
          openFile: @escaping (_ path: String, _ line: Int?) -> Void = { _, _ in },
-         fork: @escaping () -> Void = {},
+         fork: (() -> Void)? = {},
+         takesFiles: Bool = true,
+         interval: Duration = .seconds(1),
          makePage: @escaping (ChatPageContext, any ChatPageBackend) -> ChatPageModel = { ChatPageModel(context: $0, backend: $1) }) {
         self.agentName = agentName
         self.load = load
@@ -254,6 +262,8 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         self.openLink = openLink
         self.openFile = openFile
         self.forkSession = fork
+        self.takesFiles = takesFiles
+        self.interval = interval
         self.makePage = makePage
     }
 
@@ -262,7 +272,7 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
             && (!attachments.isEmpty || !ChatCompletion.text(of: draft).isEmpty)
     }
     /// Files can be added until a message is held; the held one keeps its own.
-    var canAttach: Bool { !retired && queuedPrompt == nil }
+    var canAttach: Bool { !retired && takesFiles && queuedPrompt == nil }
 
     /// Places files at the caret, or at the end with no caret; a file already in the message is
     /// not placed twice.
@@ -317,8 +327,9 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
     }
 
     /// Fork Session is offered once the agent has answered: there is a conversation to carry on.
-    var canFork: Bool { !retired && turns.contains { $0.role == .assistant } }
-    func fork() { if canFork { forkSession() } }
+    var forks: Bool { forkSession != nil }
+    var canFork: Bool { !retired && forks && turns.contains { $0.role == .assistant } }
+    func fork() { if canFork { forkSession?() } }
 
     /// Polls only while shown. An unchanged transcript answers with its revision alone.
     func appear() {
@@ -342,9 +353,14 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         // Holds the model only while it polls, so a model nobody keeps ends its loop.
         polling = Task { [weak self] in
             while !Task.isCancelled, await self?.poll() == true {
-                try? await Task.sleep(for: .seconds(1))
+                try? await Task.sleep(for: self?.pollDelay ?? .seconds(1))
             }
         }
+    }
+
+    /// The poll's pace: its interval, doubled with each read in a row that failed, to half a minute.
+    private var pollDelay: Duration {
+        failedReads == 0 ? interval : min(interval * (1 << min(failedReads, 5)), .seconds(30))
     }
 
     private func poll() async -> Bool {
@@ -529,11 +545,13 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
                 pendingPrompt = nil
             }
             revision = transcript.revision
+            failedReads = 0
             hooks = transcript.hooks
             profile = transcript.agent
             error = nil
         } catch {
             guard !retired else { return }
+            failedReads += 1
             self.error = error.localizedDescription
         }
         loaded = true
@@ -732,5 +750,48 @@ struct ChatAttachment: Equatable, Identifiable, Sendable {
         disappear()
         page?.retire()
         page = nil
+    }
+}
+
+extension TranscriptChatModel {
+    /// Types a message into the agent's terminal, the one `terminal` answers at the time: its files
+    /// first, pasted as a drop onto the terminal pastes them, then the text, then Enter.
+    static func typing(into terminal: @escaping @MainActor () -> TerminalSession?) -> Deliver {
+        { text, files, clear in
+            guard let terminal = terminal() else { throw BackendError.operation(String(localized: "The terminal is not open.")) }
+            // A message ending in an @ mention gets a space, which closes the file list the
+            // CLI opened for it: Enter on that list picks a file instead of sending.
+            let text = ChatCompletion.endsInMention(text) ? text + " " : text
+            // A command must open the line, so its files follow it, as its arguments. Any
+            // other message has them go first, pasted as a drop onto the terminal pastes
+            // them, so the agent attaches them before the message is typed after them.
+            let command = text.hasPrefix("/")
+            let joined = files.map(\.path).joined(separator: " ")
+            // Everything is checked before anything is typed, so a message the terminal
+            // refuses leaves nothing half-written in the agent's prompt.
+            let paths = try files.isEmpty ? nil : TerminalSession.paste(command ? " " + joined : joined + " ")
+            let pasted = try text.isEmpty ? nil : TerminalSession.paste(text)
+            let multiline = text.contains("\n")
+            if let paths, !command {
+                try await clear()
+                try await terminal.writeAgentInput(paths)
+                try await Task.sleep(for: .milliseconds(600))
+            }
+            // One line is typed like the agent controls type a command. Several need a
+            // bracketed paste, and Claude Code takes an Enter that follows a paste closely
+            // as part of it, so that Enter waits until the paste has settled.
+            if let pasted {
+                try await clear()
+                try await terminal.writeAgentInput(multiline ? pasted : text)
+                try await Task.sleep(for: .milliseconds(multiline ? 600 : 60))
+            }
+            if let paths, command {
+                try await clear()
+                try await terminal.writeAgentInput(paths)
+                try await Task.sleep(for: .milliseconds(600))
+            }
+            try await clear()
+            try await terminal.writeAgentInput("\r")
+        }
     }
 }

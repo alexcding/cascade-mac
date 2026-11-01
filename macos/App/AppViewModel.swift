@@ -350,15 +350,22 @@ public final class AppViewModel {
         // between the CLI's turn hooks, done once a turn ends until the session is shown
         // (`acknowledgeShownSession`).
         var status: [String: SidebarSessionStatus] = [:]
+        var states: [String: RemoteSessionStatus] = [:]
         for session in sessions {
             let terminal = terminals["task:\(session.id)"]
             let turns = terminal?.agentTurns
-            status[session.id] = SidebarSessionStatus(
+            let state = SidebarSessionStatus(
                 live: terminal?.isLive ?? false, busy: terminal?.agentBusy == true,
                 needsInput: turns?.needsInput == true, done: turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id),
                 cli: turns?.cli ?? session.cli)
+            status[session.id] = state
+            // For paired Macs: the row's state, and what their Chat mode reads the session by.
+            states[session.id] = RemoteSessionStatus(
+                live: state.live, busy: state.busy, needsInput: state.needsInput, idle: turns?.idle == true, cli: state.cli,
+                conversation: [turns?.sessionID, session.sessionId].compactMap { $0 }.first { !$0.isEmpty },
+                runID: terminal?.termID)
         }
-        sidebarStates = status.mapValues { RemoteSessionStatus(live: $0.live, busy: $0.busy, needsInput: $0.needsInput, cli: $0.cli) }
+        sidebarStates = states
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
                                  chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
                                  remote: remoteSections())

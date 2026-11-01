@@ -39,8 +39,11 @@ final class TerminalPipe: @unchecked Sendable {
     private var latestViewport: InMemoryTerminalViewport?
     private var ownsGeometryResponses = false
     private var ownsAppearanceResponses = false
-    /// Another Mac's terminal (`TerminalSession.remote`): its size and colours are that Mac's, so
-    /// this pipe never asks to change them; the view shows the terminal at the size it is given.
+    /// Another Mac's terminal (`TerminalSession.remote`): its size is that Mac's, so this pipe never
+    /// asks to change it, and the view shows the terminal at the size it is given. Its colours are
+    /// this Mac's theme: the ones that Mac's app gave it are not applied here, as its font is not.
+    /// A program there asking for the colours (OSC 10/11, the colour-scheme report) is still
+    /// answered by that Mac's daemon with that Mac's: the program runs there.
     private var guest = false
     private var latestAppearance: PtyAppearance?
     private let error: @Sendable (String) -> Void
@@ -202,7 +205,8 @@ final class TerminalPipe: @unchecked Sendable {
             throw PtyError.connection(String(localized: "Terminal state response ownership could not be configured."))
         }
         if let appearance = snapshot.header.appearance {
-            guard memory.applyHostAppearance(appearance.values), memory.enableHostAppearanceResponses() else {
+            let ownColors = lock.withLock { guest }
+            guard ownColors || memory.applyHostAppearance(appearance.values), memory.enableHostAppearanceResponses() else {
                 throw PtyError.connection(String(localized: "Terminal color response ownership could not be configured."))
             }
         }
@@ -298,10 +302,11 @@ final class TerminalPipe: @unchecked Sendable {
                 }
                 do { try appearance.validate() } catch { failLocked(error.localizedDescription); return }
                 lastStateSequence = next
+                let ownColors = guest
                 outputQueue.async { [self] in
                     lock.lock(); let active = !failed; lock.unlock()
                     guard active else { return }
-                    let applied = memory.applyHostAppearance(appearance.values)
+                    let applied = ownColors || memory.applyHostAppearance(appearance.values)
                     lock.lock(); defer { lock.unlock() }
                     if !applied { failLocked(String(localized: "The terminal could not apply its ordered color change.")) }
                     consumedLocked(0)

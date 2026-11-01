@@ -104,13 +104,48 @@ extension AppViewModel {
             self?.desktop.openBrowser(url)
         }
         let model = RemoteTerminalModel(peer: peer, session: session, macName: mac.name, terminal: terminal)
+        model.agentState = { [weak self] in self?.remotePeers.states[peer]?[id] }
+        if let cli = session.cli, !cli.isEmpty {
+            model.makeChat = { [weak self, weak model] in
+                Self.remoteChat(peer: peer, session: session, cli: cli, service: service, terminal: terminal,
+                                showTerminal: { model?.setChatShown(false) },
+                                openLink: { url in self?.desktop.openBrowser(url); return true })
+            }
+        }
         model.onReconnect = { [weak self] in
             guard let self else { return }
             if remoteTerminals[key] === model { model.retire(); remoteTerminals[key] = nil }
             coordinator.refreshRoot()
         }
         remoteTerminals[key] = model
+        if model.chosenChat { model.setChatShown(true) }
         return model
+    }
+
+    /// A paired Mac's session's Chat mode: its conversation as that Mac's transcript has it, and a
+    /// message typed into its terminal from here. Files on this Mac do not go with a message, nor
+    /// is the session forked or its approval answered here: that Mac's terminal answers it.
+    static func remoteChat(peer: String, session: WorkspaceSession, cli: String, service: any RemoteServing,
+                                   terminal: TerminalSession, showTerminal: @escaping () -> Void,
+                                   openLink: @escaping (URL) -> Bool) -> TranscriptChatModel {
+        let threadID = "transcript-\(session.id)"
+        return TranscriptChatModel(
+            agentName: SessionAgent(rawValue: cli)?.label ?? cli.capitalized,
+            load: { since in try await service.sessionTranscript(peer: peer, session: session.id, since: since) },
+            deliver: TranscriptChatModel.typing(into: { terminal }),
+            permissions: .init(
+                runID: { nil }, watch: { _, _ in }, unwatch: { _ in },
+                answer: { _, _ in throw BackendError.operation(String(localized: "Answer it in the terminal.")) }),
+            thread: .init(
+                context: ChatPageContext(threadId: threadID, projectId: session.projectId, cwd: session.worktree,
+                                         projectName: "", readOnly: true),
+                read: { since in try await service.sessionTranscriptThread(peer: peer, session: session.id, threadID: threadID, since: since) }),
+            showTerminal: showTerminal,
+            // Only a web link is followed: a file it names is on the other Mac.
+            openLink: { url in ["http", "https"].contains(url.scheme?.lowercased()) ? openLink(url) : true },
+            fork: nil,
+            takesFiles: false,
+            interval: .seconds(2))
     }
 
     /// Ends the terminals of sessions their Mac no longer lists, and of Macs forgotten.

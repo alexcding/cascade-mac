@@ -2,7 +2,7 @@
 //! A page in a browser is turned away from the ones that change something (`foreign_origin`).
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, RawQuery, State},
     http::{HeaderMap, Method},
     response::{IntoResponse, Response},
     Json,
@@ -112,6 +112,18 @@ pub async fn peer_tasks(State(state): State<AppState>, Path(id): Path<String>) -
 
 pub async fn peer_projects(State(state): State<AppState>, Path(id): Path<String>) -> Response {
     forward(&state, &id, Method::GET, "/api/projects", None).await
+}
+
+/// A paired Mac's session's transcript, named by the session (`listener::session_transcript`).
+pub async fn peer_session_transcript(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
+    if let Err(error) = local_only(&headers) {
+        return error.into_response();
+    }
+    let path = match query {
+        Some(query) => format!("/api/session-transcript?{query}"),
+        None => "/api/session-transcript".to_string(),
+    };
+    forward(&state, &id, Method::GET, &path, None).await
 }
 
 pub async fn peer_session_status(State(state): State<AppState>, Path(id): Path<String>) -> Response {

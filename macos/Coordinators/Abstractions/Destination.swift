@@ -143,8 +143,15 @@ extension Destination {
             let model = coordinator.model
             return WindowToolbar(leading: [.init("title", style: .plain, priority: .high) { ChatToolbarTitle(model: model) }])
         case .remoteTerminal(let model):
-            // The session, and the Mac it runs on.
-            return WindowToolbar(leading: [.title(String(localized: "\(model.title) · \(model.macName)"))])
+            // The session, and the Mac it runs on; Terminal / Chat as for a session here.
+            var toolbar = WindowToolbar(leading: [.title(String(localized: "\(model.title) · \(model.macName)"))])
+            if model.canShowChat {
+                toolbar.trailing = [.picker("agent-mode", label: String(localized: "Terminal / Chat"), choices: [
+                    .init(title: String(localized: "Terminal"), symbol: "terminal"),
+                    .init(title: String(localized: "Chat"), symbol: "bubble.left.and.bubble.right"),
+                ], selected: model.showsChat ? 1 : 0) { model.setChatShown($0 == 1) }]
+            }
+            return toolbar
         case .terminal(let root), .session(_, let root):
             return WindowToolbar(leading: [.title(root.title)])
         case .unavailable(let title, _):

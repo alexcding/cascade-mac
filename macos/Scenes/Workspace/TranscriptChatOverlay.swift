@@ -11,8 +11,9 @@ import UniformTypeIdentifiers
 struct TranscriptChatOverlay: View {
     @Bindable var chat: TranscriptChatModel
     /// The session, for its agent's model: the composer's model button opens the model panel on
-    /// it, as the chat page's composer does.
-    let workspace: SessionWorkspaceViewModel
+    /// it, as the chat page's composer does. None for another Mac's session, whose model is named
+    /// only, as switching it is that Mac's.
+    let workspace: SessionWorkspaceViewModel?
     let busy: Bool
     /// Known to be at its prompt, where typing is safe.
     let idle: Bool
@@ -70,6 +71,15 @@ struct TranscriptChatOverlay: View {
     /// The model as the page's composer has it: the agent's mark, the model and its effort, a
     /// button that opens the model panel on the session's agent, the same panel as the chat page's.
     @ViewBuilder private var modelButton: some View {
+        if let workspace {
+            modelButton(workspace)
+        } else {
+            Text(modelName).font(.caption).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                .accessibilityIdentifier("transcript-chat-agent")
+        }
+    }
+
+    @ViewBuilder private func modelButton(_ workspace: SessionWorkspaceViewModel) -> some View {
         let agent = workspace.session?.agent ?? .shell
         let running = workspace.agentSelection
         let listed = running.flatMap { workspace.agentCatalog.model($0.model) }
@@ -85,6 +95,18 @@ struct TranscriptChatOverlay: View {
                             onEffort: { level in if let listed { workspace.switchAgent(to: AgentSelection(model: listed.id, effort: level)) } },
                             onReset: { if let listed { workspace.switchAgent(to: AgentSelection(model: listed.id, effort: listed.defaultEffort)) } })
         }
+    }
+
+    private var forkButton: some View {
+        Button { chat.fork() } label: {
+            Image(systemName: "arrow.triangle.branch").font(.system(size: 14, weight: .medium))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.textSecondary)
+        .disabled(!chat.canFork)
+        .help(String(localized: "Fork Session: a new session that carries this conversation on"))
+        .accessibilityLabel(String(localized: "Fork Session"))
+        .accessibilityIdentifier("transcript-chat-fork")
     }
 
     /// Take a held message back, or push it on.
@@ -132,18 +154,12 @@ struct TranscriptChatOverlay: View {
                                   placeholder: placeholder,
                                   dropTargeted: $dropTargeted)
                 HStack(spacing: 12) {
-                    ChatAttachButton(chat: chat,
-                                     help: String(localized: "Attach files to your message. Remove a file’s chip to detach it."),
-                                     identifier: "transcript-chat-attach")
-                    Button { chat.fork() } label: {
-                        Image(systemName: "arrow.triangle.branch").font(.system(size: 14, weight: .medium))
+                    if chat.takesFiles {
+                        ChatAttachButton(chat: chat,
+                                         help: String(localized: "Attach files to your message. Remove a file’s chip to detach it."),
+                                         identifier: "transcript-chat-attach")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.textSecondary)
-                    .disabled(!chat.canFork)
-                    .help(String(localized: "Fork Session: a new session that carries this conversation on"))
-                    .accessibilityLabel(String(localized: "Fork Session"))
-                    .accessibilityIdentifier("transcript-chat-fork")
+                    if chat.forks { forkButton }
                     Spacer()
                     modelButton
                     Button {

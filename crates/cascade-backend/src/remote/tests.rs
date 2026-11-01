@@ -576,6 +576,26 @@ async fn a_peer_reads_the_session_states_the_hosts_app_reported() {
 }
 
 #[tokio::test]
+async fn a_peer_reads_a_sessions_transcript_named_by_the_session_alone() {
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let worktree = host_dir.path().join("wt");
+    let session = crate::domain::Session { id: "session-1".into(), project_id: "p".into(), workspace: "/w".into(),
+                                           worktree: worktree.to_string_lossy().into(), cli: "claude".into(), ..Default::default() };
+    assert!(host.db.upsert_task(&session).await.unwrap());
+    let router = crate::build_app(other.clone());
+
+    // Not a session there: refused, whatever folder the query names.
+    let (code, _) = get(&router, &format!("/api/remote/peers/{id}/session-transcript?task=nope&worktree=/etc&cli=claude")).await;
+    assert_eq!(code, 404);
+    // A session: its transcript, empty while its agent has written none.
+    let (code, transcript) = get(&router, &format!("/api/remote/peers/{id}/session-transcript?task=session-1")).await;
+    assert_eq!((code, transcript["turns"].clone()), (200, json!([])), "{transcript}");
+    let (code, thread) = get(&router, &format!("/api/remote/peers/{id}/session-transcript?task=session-1&format=thread&threadId=transcript-session-1")).await;
+    assert_eq!(code, 200, "{thread}");
+}
+
+#[tokio::test]
 async fn a_peer_gone_offline_is_tried_again_only_when_someone_looks_for_it() {
     let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;

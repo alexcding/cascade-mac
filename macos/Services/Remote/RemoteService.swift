@@ -76,6 +76,10 @@ protocol RemoteServing: Sendable {
     /// Each of the paired Mac's sessions' agent states, as its app draws them; an older Cascade
     /// there does not serve them, and the read fails.
     func sessionStatus(peer id: String) async throws -> [String: RemoteSessionStatus]
+    /// A paired Mac's session's conversation, named by the session; with `thread`, as the chat
+    /// page's read-only thread (`{revision, snapshot}`).
+    func sessionTranscript(peer id: String, session: String, since: String?) async throws -> AgentTranscript
+    func sessionTranscriptThread(peer id: String, session: String, threadID: String, since: String?) async throws -> JSONValue
     /// Tells the backend this Mac's sessions' agent states, for paired Macs' sidebars.
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws
     /// Opens a connection to the paired Mac's session terminals and answers the local socket the
@@ -130,6 +134,16 @@ struct APIRemoteService: RemoteServing {
     func sessionStatus(peer id: String) async throws -> [String: RemoteSessionStatus] {
         try await api.get(Routes.remotePeerSessionStatus(id), timeout: 20)
     }
+    func sessionTranscript(peer id: String, session: String, since: String?) async throws -> AgentTranscript {
+        var query = ["task": session]
+        if let since { query["since"] = since }
+        return try await api.get(APIClient.query(Routes.remotePeerSessionTranscript(id), query), timeout: 20)
+    }
+    func sessionTranscriptThread(peer id: String, session: String, threadID: String, since: String?) async throws -> JSONValue {
+        var query = ["task": session, "format": "thread", "threadId": threadID]
+        if let since { query["since"] = since }
+        return try await api.get(APIClient.query(Routes.remotePeerSessionTranscript(id), query), timeout: 20)
+    }
     func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
         let _: OK = try await api.request(Routes.REMOTE_SESSION_STATUS, method: "POST", body: ["sessions": sessions])
     }
@@ -150,7 +164,15 @@ struct RemoteSessionStatus: Codable, Equatable, Sendable {
     var live = false
     var busy = false
     var needsInput = false
+    /// Known to be at its prompt, as its hooks said.
+    var idle = false
     var cli: String?
+    /// The agent's conversation, and the terminal it runs in: the host reads the session's
+    /// transcript by them (`listener::session_transcript`).
+    var conversation: String?
+    var runID: String?
+
+    enum CodingKeys: String, CodingKey { case live, busy, needsInput, idle, cli, conversation, runID = "runId" }
 }
 
 /// A paired Mac's project, as it shows one to this Mac: no path, repository or Jira.
