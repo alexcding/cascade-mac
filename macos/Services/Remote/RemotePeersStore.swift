@@ -11,6 +11,9 @@ import Observation
     private(set) var peers: [RemotePeer] = []
     private(set) var sessions: [String: [WorkspaceSession]] = [:]
     private(set) var projects: [String: [RemoteProject]] = [:]
+    /// Each Mac's sessions' agent states, by session id; none for a Mac that does not report them
+    /// (an older Cascade: its read fails, as one that cannot be reached does, and nothing is kept).
+    private(set) var states: [String: [String: RemoteSessionStatus]] = [:]
     private(set) var chats: [String: [String: ChatThreadShell]] = [:]
     @ObservationIgnored private(set) var service: (any RemoteServing)?
     @ObservationIgnored private var generation = UUID()
@@ -18,6 +21,8 @@ import Observation
     @ObservationIgnored private var reading: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var again: Set<String> = []
     @ObservationIgnored private var peersTask: Task<Void, Never>?
+    @ObservationIgnored private var readingStates: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored private var statesAgain: Set<String> = []
     /// After the paired Macs or one Mac's lists were read: the app opens a chat selected before
     /// it was listed, and closes one whose Mac was forgotten.
     @ObservationIgnored var onRead: () -> Void = {}
@@ -27,8 +32,9 @@ import Observation
         generation = UUID()
         peersTask?.cancel(); peersTask = nil
         reading.values.forEach { $0.cancel() }; reading = [:]; again = []
+        readingStates.values.forEach { $0.cancel() }; readingStates = [:]; statesAgain = []
         if service == nil {
-            peers = []; sessions = [:]; projects = [:]; chats = [:]
+            peers = []; sessions = [:]; projects = [:]; states = [:]; chats = [:]
             return
         }
         reload()
@@ -48,6 +54,7 @@ import Observation
             let ids = Set(listed.map(\.id))
             sessions = sessions.filter { ids.contains($0.key) }
             projects = projects.filter { ids.contains($0.key) }
+            states = states.filter { ids.contains($0.key) }
             chats = chats.filter { ids.contains($0.key) }
             for peer in listed where peer.reach == .online { read(peer.id) }
             onRead()
@@ -86,6 +93,8 @@ import Observation
             switch relayed["type"]?.string {
             case "tasks", "reload":
                 read(id)
+            case "session-status":
+                readStates(id)
             case "chat-shell":
                 guard let shell = relayed["shell"].flatMap({ try? $0.decode(ChatThreadShell.self) }) else { return true }
                 if chats[id]?[shell.id] != shell { chats[id, default: [:]][shell.id] = shell }
@@ -104,6 +113,9 @@ import Observation
     private func read(_ id: String) {
         guard let service else { return }
         if reading[id] != nil { again.insert(id); return }
+        // The states by their own reads, one at a time: answered with the lists, a slow list
+        // could set an older answer over a newer one.
+        readStates(id)
         let generation = self.generation
         reading[id] = Task { [weak self] in
             async let listedSessions = try? service.sessions(peer: id)
@@ -125,9 +137,25 @@ import Observation
         }
     }
 
+    /// Reads a Mac's sessions' agent states again, as it said they changed; a change heard while
+    /// one is read is read once more after it.
+    private func readStates(_ id: String) {
+        guard let service else { return }
+        if readingStates[id] != nil { statesAgain.insert(id); return }
+        let generation = self.generation
+        readingStates[id] = Task { [weak self] in
+            let listed = try? await service.sessionStatus(peer: id)
+            guard let self, self.generation == generation else { return }
+            readingStates[id] = nil
+            if peer(id) != nil, let listed, states[id] != listed { states[id] = listed }
+            if statesAgain.remove(id) != nil { readStates(id) }
+        }
+    }
+
     /// Waits for the reads under way, for tests.
     func settle() async {
         await peersTask?.value
         while let next = reading.values.first { await next.value }
+        while let next = readingStates.values.first { await next.value }
     }
 }

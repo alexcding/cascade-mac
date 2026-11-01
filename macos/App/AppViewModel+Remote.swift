@@ -9,6 +9,8 @@ extension AppViewModel {
         // makes them anew.
         for model in remoteTerminals.values { model.retire() }
         remoteTerminals = [:]
+        reportingStates?.cancel(); reportingStates = nil
+        reportedStates = nil
         remotePeers.onRead = { [weak self] in self?.remoteRead() }
         remotePeers.connect(service)
         settings?.remote.onStatus = { [weak self] in self?.advertiseHost($0) }
@@ -19,8 +21,27 @@ extension AppViewModel {
         Task { [weak self] in
             // Before anything else: a paired Mac may open a session's terminal as soon as it can.
             if let daemon { try? await service.setTerminalDaemon(socket: daemon) }
+            self?.reportSessionStates()
             guard let status = try? await service.status(), let self, remotePeers.service != nil else { return }
             advertiseHost(status)
+        }
+    }
+
+    /// Tells the backend this Mac's sessions' agent states, as the sidebar draws them, when they
+    /// changed: a paired Mac draws its row of each session the same. One report at a time, so they
+    /// arrive in order; a change made meanwhile is told when it is done. One that fails is told
+    /// again with the next change.
+    func reportSessionStates() {
+        guard reportingStates == nil, let service = remotePeers.service, reportedStates != sidebarStates else { return }
+        let states = sidebarStates
+        reportedStates = states
+        reportingStates = Task { [weak self] in
+            let told = (try? await service.setSessionStatus(states)) != nil
+            // Cancelled by a new backend, which has its own report.
+            guard let self, !Task.isCancelled else { return }
+            reportingStates = nil
+            if !told, reportedStates == states { reportedStates = nil; return }
+            reportSessionStates()
         }
     }
 
@@ -43,6 +64,7 @@ extension AppViewModel {
         remotePeers.peers.map { peer in
             SidebarRemoteSection(peer: peer, sessions: remotePeers.sessions[peer.id] ?? [],
                                  projects: remotePeers.projects[peer.id] ?? [],
+                                 states: remotePeers.states[peer.id],
                                  chats: remotePeers.visibleChats(peer.id))
         }
     }

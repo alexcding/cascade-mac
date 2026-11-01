@@ -242,6 +242,8 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/remote/peers/{id}/connect", post(remote::routes::connect_peer))
         .route("/api/remote/peers/{id}/tasks", get(remote::routes::peer_tasks))
         .route("/api/remote/peers/{id}/projects", get(remote::routes::peer_projects))
+        .route("/api/remote/peers/{id}/session-status", get(remote::routes::peer_session_status))
+        .route("/api/remote/session-status", post(remote::routes::set_session_status))
         .route("/api/remote/peers/{id}/chat/rpc", post(remote::routes::peer_chat_rpc))
         .route("/api/remote/peers/{id}/terminal", post(remote::routes::open_peer_terminal))
         .route("/api/remote/terminal-daemon", post(remote::routes::set_terminal_daemon))

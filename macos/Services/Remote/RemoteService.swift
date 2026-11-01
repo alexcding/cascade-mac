@@ -73,6 +73,11 @@ protocol RemoteServing: Sendable {
     func sessions(peer id: String) async throws -> [WorkspaceSession]
     /// The paired Mac's projects, name and icon only: its sessions are listed under them.
     func projects(peer id: String) async throws -> [RemoteProject]
+    /// Each of the paired Mac's sessions' agent states, as its app draws them; an older Cascade
+    /// there does not serve them, and the read fails.
+    func sessionStatus(peer id: String) async throws -> [String: RemoteSessionStatus]
+    /// Tells the backend this Mac's sessions' agent states, for paired Macs' sidebars.
+    func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws
     /// Opens a connection to the paired Mac's session terminals and answers the local socket the
     /// app's terminal client connects to, once, as to its own daemon (`TerminalSession.remote`).
     func openTerminal(peer id: String) async throws -> String
@@ -122,6 +127,12 @@ struct APIRemoteService: RemoteServing {
     func projects(peer id: String) async throws -> [RemoteProject] {
         try await api.get(Routes.remotePeerProjects(id), timeout: 20)
     }
+    func sessionStatus(peer id: String) async throws -> [String: RemoteSessionStatus] {
+        try await api.get(Routes.remotePeerSessionStatus(id), timeout: 20)
+    }
+    func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
+        let _: OK = try await api.request(Routes.REMOTE_SESSION_STATUS, method: "POST", body: ["sessions": sessions])
+    }
     func openTerminal(peer id: String) async throws -> String {
         struct Opened: Decodable, Sendable { let socket: String }
         let opened: Opened = try await api.request(Routes.remotePeerTerminal(id), method: "POST", body: Empty(), timeout: 30)
@@ -131,6 +142,15 @@ struct APIRemoteService: RemoteServing {
         let _: OK = try await api.request(Routes.REMOTE_TERMINAL_DAEMON, method: "POST", body: ["socket": socket])
     }
     func chat(peer id: String) -> any ChatServing { APIChatService(api: api, path: Routes.remotePeerChatRPC(id)) }
+}
+
+/// A session's agent state as its Mac's app draws it: its terminal running, its agent working,
+/// or waiting for an answer.
+struct RemoteSessionStatus: Codable, Equatable, Sendable {
+    var live = false
+    var busy = false
+    var needsInput = false
+    var cli: String?
 }
 
 /// A paired Mac's project, as it shows one to this Mac: no path, repository or Jira.

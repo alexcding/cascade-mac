@@ -81,6 +81,9 @@ struct SidebarRemoteSection: Equatable {
     let peer: RemotePeer
     var sessions: [WorkspaceSession] = []
     var projects: [RemoteProject] = []
+    /// Its sessions' agent states by id; nil from a Mac that does not report them, whose sessions
+    /// are drawn live, as opening one is how to find out.
+    var states: [String: RemoteSessionStatus]? = nil
     var chats: [ChatThreadShell] = []
 }
 
@@ -209,9 +212,14 @@ struct SidebarEntry: Equatable {
         var result = [Self(id: "label:remote:\(peer.id)", title: state.map { "\(peer.name) · \($0)" } ?? peer.name,
                            symbol: "", role: .label)]
         func sessionRow(_ session: WorkspaceSession) -> Self {
-            Self(id: "remote-session:\(peer.id):\(session.id)", title: session.label, symbol: "",
-                 destination: .remoteSession(peer: peer.id, session: session.id),
-                 role: .session(SidebarSessionStatus(live: true, cli: session.cli), pinned: false))
+            let state = section.states.map { states in
+                let state = states[session.id] ?? RemoteSessionStatus()
+                return SidebarSessionStatus(live: state.live, busy: state.busy, needsInput: state.needsInput,
+                                            cli: state.cli ?? session.cli)
+            } ?? SidebarSessionStatus(live: true, cli: session.cli)
+            return Self(id: "remote-session:\(peer.id):\(session.id)", title: session.label, symbol: "",
+                        destination: .remoteSession(peer: peer.id, session: session.id),
+                        role: .session(state, pinned: false))
                 .withTip(String(localized: "Runs on \(peer.name): \(session.worktree)"))
         }
         let listed = Set(section.projects.map(\.id))
@@ -219,7 +227,7 @@ struct SidebarEntry: Equatable {
             let sessions = section.sessions.filter { $0.projectId == project.id }
             guard !sessions.isEmpty else { continue }
             result.append(Self(id: "remote-project:\(peer.id):\(project.id)", title: project.name,
-                               symbol: project.icon ?? "", children: sessions.map(sessionRow), role: .project))
+                               symbol: Project.symbol(for: project.icon), children: sessions.map(sessionRow), role: .project))
         }
         result += section.sessions.filter { !listed.contains($0.projectId) }.map(sessionRow)
         result += section.chats.map { chat in

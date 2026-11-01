@@ -36,6 +36,11 @@ public final class AppViewModel {
     /// while another screen is shown, as a session's terminal here does, until the session or its
     /// Mac goes (`pruneRemoteTerminals`).
     @ObservationIgnored var remoteTerminals: [String: RemoteTerminalModel] = [:]
+    /// The sessions' agent states the sidebar last drew, and the ones last told to the backend for
+    /// paired Macs (`reportSessionStates`); nil once the backend changed, so they are told again.
+    @ObservationIgnored var sidebarStates: [String: RemoteSessionStatus] = [:]
+    @ObservationIgnored var reportedStates: [String: RemoteSessionStatus]?
+    @ObservationIgnored var reportingStates: Task<Void, Never>?
     /// This Mac on Bonjour while other Macs may connect, and what it advertises (`advertiseHost`).
     @ObservationIgnored var hostAdvertiser: (key: String, advertiser: RemoteAdvertiser)?
     /// The chat backend while connected; a chat page looks it up for each request.
@@ -291,6 +296,7 @@ public final class AppViewModel {
         let pinnedIDs = Set(entries.filter { $0.id.hasPrefix("pin:") }.compactMap { $0.sessionID ?? $0.projectID })
         if sidebarEntries != entries { sidebarEntries = entries }
         if sidebarPinnedIDs != pinnedIDs { sidebarPinnedIDs = pinnedIDs }
+        reportSessionStates()
     }
 
     /// Projects' lanes follow the sessions and their terminals, the agents' calls too: in a loop of
@@ -352,6 +358,7 @@ public final class AppViewModel {
                 needsInput: turns?.needsInput == true, done: turns?.finishedUnseen == true || finishedUnseenStopped.contains(session.id),
                 cli: turns?.cli ?? session.cli)
         }
+        sidebarStates = status.mapValues { RemoteSessionStatus(live: $0.live, busy: $0.busy, needsInput: $0.needsInput, cli: $0.cli) }
         return SidebarEntry.make(projects: projects, sessions: sessions, status: status, order: sidebarOrder,
                                  chats: chats.visible(excludingWorktrees: sessionChatWorktrees),
                                  remote: remoteSections())

@@ -23,6 +23,9 @@ pub enum Event {
     JiraSync { id: String },
     /// The session records changed.
     Tasks,
+    /// The sessions' agent states the app reported changed (`POST /api/remote/session-status`),
+    /// for paired Macs to read again.
+    SessionStatus,
     /// The backend's config changed.
     Config,
     /// A review was acknowledged.

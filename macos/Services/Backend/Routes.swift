@@ -168,6 +168,11 @@ public enum Routes {
     public static func remotePeerProjects(_ value: String) -> String {
         "/api/remote/peers/\(encodeComponent(value))/projects"
     }
+    public static let REMOTE_SESSION_STATUS = "/api/remote/session-status"
+    public static let REMOTE_PEER_SESSION_STATUS = "/api/remote/peers/:id/session-status"
+    public static func remotePeerSessionStatus(_ value: String) -> String {
+        "/api/remote/peers/\(encodeComponent(value))/session-status"
+    }
     public static let REMOTE_PEER_TERMINAL = "/api/remote/peers/:id/terminal"
     public static func remotePeerTerminal(_ value: String) -> String {
         "/api/remote/peers/\(encodeComponent(value))/terminal"

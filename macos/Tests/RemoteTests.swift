@@ -11,6 +11,8 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
     private var _sessions: [String: [WorkspaceSession]] = [:]
     private var _chats: [String: [JSONValue]] = [:]
     private var _projects: [String: [RemoteProject]] = [:]
+    private var _states: [String: [String: RemoteSessionStatus]] = [:]
+    private(set) var reported: [[String: RemoteSessionStatus]] = []
     private var _calls: [String] = []
     private var _paired: RemotePeer?
     private var _pairingSeconds = 300
@@ -21,6 +23,7 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
         lock.withLock { _sessions[peer] = sessions; _chats[peer] = chats }
     }
     func set(projects: [RemoteProject], for peer: String) { lock.withLock { _projects[peer] = projects } }
+    func set(states: [String: RemoteSessionStatus], for peer: String) { lock.withLock { _states[peer] = states } }
     func pairs(as peer: RemotePeer) { lock.withLock { _paired = peer } }
     func pairingLasts(_ seconds: Int) { lock.withLock { _pairingSeconds = seconds } }
     private func log(_ call: String) { lock.withLock { _calls.append(call) } }
@@ -52,6 +55,14 @@ private final class FakeRemote: RemoteServing, @unchecked Sendable {
         return lock.withLock { _projects[id] ?? [] }
     }
     func setTerminalDaemon(socket: String) async throws { log("daemon \(socket)") }
+    func sessionStatus(peer id: String) async throws -> [String: RemoteSessionStatus] {
+        log("states \(id)")
+        guard let states = lock.withLock({ _states[id] }) else { throw BackendError.http(404) }
+        return states
+    }
+    func setSessionStatus(_ sessions: [String: RemoteSessionStatus]) async throws {
+        lock.withLock { reported.append(sessions) }
+    }
     func openTerminal(peer id: String) async throws -> String {
         log("terminal \(id)")
         return "/tmp/remote-\(id).sock"
@@ -151,6 +162,40 @@ private func event(_ json: String) throws -> ServerEvent {
     let folder = section[1]
     #expect(folder.title == "cascade-mac" && folder.role == .project && folder.destination == nil)
     #expect(folder.children.map(\.destination) == [.remoteSession(peer: "ab", session: "s1"), .remoteSession(peer: "ab", session: "s2")])
+}
+
+@MainActor @Test func aPairedMacsSessionsAreDrawnInTheStateItsAppReports() async throws {
+    let peer = RemotePeer(id: "ab", name: "Mac mini", reach: .online)
+    let remote = FakeRemote()
+    remote.set(peers: [peer])
+    remote.set(sessions: [session("s1", title: "Build"), session("s2", title: "Test")], chats: [], for: "ab")
+    remote.set(states: ["s1": RemoteSessionStatus(live: true, busy: true)], for: "ab")
+    let store = RemotePeersStore()
+    store.connect(remote)
+    await store.settle()
+    func states() -> [String: SidebarSessionStatus] {
+        let section = SidebarRemoteSection(peer: peer, sessions: store.sessions["ab"] ?? [], states: store.states["ab"])
+        var drawn: [String: SidebarSessionStatus] = [:]
+        for entry in SidebarEntry.remoteSection(section) {
+            if case .session(let state, _) = entry.role, case .remoteSession(_, let id)? = entry.destination { drawn[id] = state }
+        }
+        return drawn
+    }
+    // Working there; not listed there, so stopped.
+    #expect(states()["s1"]?.busy == true && states()["s1"]?.live == true)
+    #expect(states()["s2"]?.live == false)
+
+    // It says they changed: read again.
+    remote.set(states: ["s2": RemoteSessionStatus(live: true, needsInput: true)], for: "ab")
+    store.receive(try event(#"{"type":"remote","peer":"ab","relayed":{"type":"session-status"}}"#))
+    await store.settle()
+    #expect(states()["s1"]?.live == false && states()["s2"]?.needsInput == true)
+
+    // An older Cascade there reports none: drawn live, as opening one is how to find out.
+    let older = SidebarRemoteSection(peer: peer, sessions: [session("s1", title: "Build")])
+    let row = try #require(SidebarEntry.remoteSection(older).first { $0.destination == .remoteSession(peer: "ab", session: "s1") })
+    guard case .session(let state, _) = row.role else { Issue.record("not a session row"); return }
+    #expect(state.live && !state.busy)
 }
 
 // MARK: - The paired Macs' lists

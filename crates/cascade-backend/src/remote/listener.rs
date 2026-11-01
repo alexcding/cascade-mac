@@ -47,7 +47,7 @@ pub(crate) const CHAT_METHODS: &[&str] = &[
 ];
 
 /// The events a paired Mac's stream carries (`Event`'s `type`s).
-pub(crate) const EVENTS: &[&str] = &["tasks", "chat-thread", "chat-shell", "chat-removed", "reload"];
+pub(crate) const EVENTS: &[&str] = &["tasks", "session-status", "chat-thread", "chat-shell", "chat-removed", "reload"];
 
 /// How often an idle stream says it is alive; a paired Mac drops one silent for three times as
 /// long (`links::SILENT`).
@@ -142,6 +142,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/backend/health", get(health))
         .route("/api/tasks", get(routes::get_tasks))
         .route("/api/projects", get(projects))
+        .route("/api/session-status", get(session_status))
         .route("/api/stream", get(stream))
         .route("/api/chat/rpc", post(chat_rpc))
         .route("/api/terminal", get(open_terminal))
@@ -206,6 +207,11 @@ async fn authorize(State(state): State<AppState>, mut request: Request, next: Ne
 async fn health(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
     let id = store::host(&state.db).await?.map(|host| host.identity.fingerprint());
     Ok(Json(json!({ "service": "cascade", "protocol": 1, "id": id, "instanceId": state.instance_id })))
+}
+
+/// Each session's agent state as this Mac's app draws it, by session id.
+async fn session_status(State(state): State<AppState>) -> Json<Value> {
+    Json(Value::Object(state.remote.statuses.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()))
 }
 
 /// Each project's name and icon, for the label beside a remote session; nothing of its paths,

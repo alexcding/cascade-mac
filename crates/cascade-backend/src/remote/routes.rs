@@ -114,6 +114,31 @@ pub async fn peer_projects(State(state): State<AppState>, Path(id): Path<String>
     forward(&state, &id, Method::GET, "/api/projects", None).await
 }
 
+pub async fn peer_session_status(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    forward(&state, &id, Method::GET, "/api/session-status", None).await
+}
+
+/// The app's sessions' agent states, by session id, for paired Macs (`listener::session_status`).
+/// Told again only when they changed; a change is announced to them as `session-status`.
+pub async fn set_session_status(State(state): State<AppState>, headers: HeaderMap, Json(body): Json<StatusBody>) -> ApiResult<Value> {
+    local_only(&headers)?;
+    let changed = {
+        let mut statuses = state.remote.statuses.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *statuses != body.sessions;
+        *statuses = body.sessions;
+        changed
+    };
+    if changed {
+        state.publish(crate::Event::SessionStatus);
+    }
+    Ok(Json(json!({})))
+}
+
+#[derive(Deserialize)]
+pub struct StatusBody {
+    sessions: serde_json::Map<String, Value>,
+}
+
 /// The chat page's calls for a remote session, which the peer answers or refuses by its own
 /// list (`listener::CHAT_METHODS`).
 pub async fn peer_chat_rpc(State(state): State<AppState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<Value>) -> Response {

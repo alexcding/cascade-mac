@@ -549,6 +549,33 @@ async fn the_app_reads_a_peers_sessions_projects_and_chat_through_its_own_backen
 }
 
 #[tokio::test]
+async fn a_peer_reads_the_session_states_the_hosts_app_reported() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
+    let router = crate::build_app(other.clone());
+    assert_eq!(get(&router, &format!("/api/remote/peers/{id}/session-status")).await, (200, json!({})));
+
+    let mut events = host.events.subscribe();
+    let report = |body: Value| {
+        let host = crate::build_app(host.clone());
+        async move {
+            let request = Request::post("/api/remote/session-status").header("content-type", "application/json")
+                .body(Body::from(body.to_string())).unwrap();
+            host.oneshot(request).await.unwrap().status().as_u16()
+        }
+    };
+    let states = json!({ "s1": { "live": true, "busy": true, "needsInput": false } });
+    assert_eq!(report(json!({ "sessions": states })).await, 200);
+    assert_eq!(events.recv().await.unwrap(), json!({ "type": "session-status" }));
+    assert_eq!(get(&router, &format!("/api/remote/peers/{id}/session-status")).await, (200, states.clone()));
+    // The same states again are not a change.
+    assert_eq!(report(json!({ "sessions": states })).await, 200);
+    assert!(events.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn a_peer_gone_offline_is_tried_again_only_when_someone_looks_for_it() {
     let (host_dir, client_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (host, _status, other, id) = paired(host_dir.path(), client_dir.path()).await;
