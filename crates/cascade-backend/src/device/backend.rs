@@ -130,6 +130,25 @@ pub struct DeviceSwipeGesture {
     pub edge: Option<DeviceTouchEdge>,
 }
 
+/// One step of a touch the user is making by hand, sent as it happens so the screen follows the
+/// pointer. Cascade's own: Synara's pane sends a drag as one swipe on release.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceTouchPhase {
+    Down,
+    Move,
+    Up,
+}
+
+impl DeviceTouchPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Down => "down",
+            Self::Move => "move",
+            Self::Up => "up",
+        }
+    }
+}
+
 /// A screenshot, plus the full-resolution bytes when a proof copy was asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DeviceScreenshotCapture {
@@ -295,6 +314,8 @@ pub trait DeviceBackend: Send + Sync {
     /// `hold_ms` above ~500 is a long press.
     fn tap<'a>(&'a self, udid: &'a str, x: f64, y: f64, hold_ms: Option<u32>) -> BoxFuture<'a, DeviceResult<()>>;
     fn swipe<'a>(&'a self, udid: &'a str, gesture: DeviceSwipeGesture) -> BoxFuture<'a, DeviceResult<()>>;
+    /// One step of a live touch, in device points.
+    fn touch<'a>(&'a self, udid: &'a str, phase: DeviceTouchPhase, x: f64, y: f64) -> BoxFuture<'a, DeviceResult<()>>;
     /// Keystrokes through HID. Only printable ASCII has a key, and the guest resolves keys through
     /// its own hardware keyboard layout, so a caller that needs exact text checks
     /// `uses_us_keyboard_layout` or uses `set_focused_value`.

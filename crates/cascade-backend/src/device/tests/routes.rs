@@ -18,7 +18,7 @@ use tower::ServiceExt;
 use super::fake::{FakeCall, FakeDeviceBackend, DEVICE_A, DEVICE_B};
 use crate::{
     device::{
-        backend::DeviceBackend,
+        backend::{DeviceBackend, DeviceTouchPhase},
         frame::decode_device_frame,
         manager::{DeviceManager, DeviceManagerOptions},
     },
@@ -121,6 +121,15 @@ async fn the_pane_reads_its_state_and_drives_the_device_through_its_routes() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(matches!(app.backend.last_call(), Some(FakeCall::Swipe { gesture, .. }) if gesture.duration_ms == 250 && gesture.edge.is_none()));
+    // A drag by hand: each step as it happens, and a phase it does not know is refused.
+    for (phase, y) in [("down", 600), ("move", 400), ("up", 200)] {
+        let (status, _) = post(&app.router, "/api/device/touch", json!({ "udid": DEVICE_A, "phase": phase, "x": 200, "y": y })).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    assert_eq!(app.backend.last_call(), Some(FakeCall::Touch { udid: DEVICE_A.into(), phase: DeviceTouchPhase::Up, x: 200.0, y: 200.0 }));
+    assert_eq!(app.backend.count("touch"), 3);
+    let (status, _) = post(&app.router, "/api/device/touch", json!({ "udid": DEVICE_A, "phase": "hover", "x": 1, "y": 1 })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     post(&app.router, "/api/device/type", json!({ "udid": DEVICE_A, "text": "hi" })).await;
     assert_eq!(app.backend.last_call(), Some(FakeCall::TypeText { udid: DEVICE_A.into(), text: "hi".into() }));
     let (status, _) =

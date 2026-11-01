@@ -483,10 +483,15 @@ enum DeviceInputMapping {
         return CGSize(width: (frame.width / scale).rounded(), height: (frame.height / scale).rounded())
     }
 
+    /// Whether a press that went down at `from` and is now at `to` has moved past a tap.
+    static func leavesTap(from: CGPoint, to: CGPoint) -> Bool {
+        hypot(to.x - from.x, to.y - from.y) > tapMovementThreshold
+    }
+
     static func gesture(from: CGPoint?, to: CGPoint?, durationMs: Double) -> Gesture? {
         guard let from else { return nil }
         guard let to else { return .tap(from) }
-        if hypot(to.x - from.x, to.y - from.y) <= tapMovementThreshold { return .tap(to) }
+        if !leavesTap(from: from, to: to) { return .tap(to) }
         // A zero-length swipe is a flick of infinite speed, which the helper refuses: one frame's worth.
         return .swipe(from: from, to: to, durationMs: min(max(16, Int(durationMs.rounded())), 10_000))
     }

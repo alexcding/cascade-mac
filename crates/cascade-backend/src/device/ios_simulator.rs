@@ -44,7 +44,7 @@ use super::{
         fit_device_message, BoxFuture, DeviceBackend, DeviceBackendError, DeviceConfiguration, DeviceFrameRecord,
         DeviceKeyEvent, DeviceLaunchOptions, DeviceListOptions, DeviceLogQuery, DeviceLogResult, DevicePrivacyAction,
         DeviceResult, DeviceScreenshotCapture, DeviceScreenshotOptions, DeviceScreenshotResolution,
-        DeviceStreamInterruption, DeviceSwipeGesture, DeviceTypeTextOutcome,
+        DeviceStreamInterruption, DeviceSwipeGesture, DeviceTouchPhase, DeviceTypeTextOutcome,
     },
     cache::{
         device_helper_cache_key, device_helper_cache_root, key_directory, materialize_sources_blocking, vendored_source_revision,
@@ -776,6 +776,17 @@ impl IosSimulatorBackend {
                 params["holdMs"] = json!(hold_ms);
             }
             Ok(params)
+        })
+        .await
+        .map(drop)
+    }
+
+    /// One step of a live touch: the helper's `touch`, which holds the finger down from `down`
+    /// until `up`, each `move` moving it.
+    pub async fn touch(&self, udid: &str, phase: DeviceTouchPhase, x: f64, y: f64) -> DeviceResult<()> {
+        self.inject_input(udid, methods::TOUCH, |helper| {
+            let (x, y) = helper.normalize(x, y)?;
+            Ok(json!({ "phase": phase.as_str(), "x": x, "y": y }))
         })
         .await
         .map(drop)
@@ -1999,6 +2010,10 @@ impl DeviceBackend for IosSimulatorBackend {
 
     fn swipe<'a>(&'a self, udid: &'a str, gesture: DeviceSwipeGesture) -> BoxFuture<'a, DeviceResult<()>> {
         Box::pin(IosSimulatorBackend::swipe(self, udid, gesture))
+    }
+
+    fn touch<'a>(&'a self, udid: &'a str, phase: DeviceTouchPhase, x: f64, y: f64) -> BoxFuture<'a, DeviceResult<()>> {
+        Box::pin(IosSimulatorBackend::touch(self, udid, phase, x, y))
     }
 
     fn type_text<'a>(&'a self, udid: &'a str, text: &'a str) -> BoxFuture<'a, DeviceResult<DeviceTypeTextOutcome>> {

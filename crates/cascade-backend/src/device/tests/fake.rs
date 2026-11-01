@@ -16,7 +16,7 @@ use crate::device::{
     backend::{
         BoxFuture, DeviceBackend, DeviceBackendError, DeviceConfiguration, DeviceFrameRecord, DeviceKeyEvent,
         DeviceLaunchOptions, DeviceListOptions, DeviceLogQuery, DeviceLogResult, DeviceResult, DeviceScreenshotCapture,
-        DeviceScreenshotOptions, DeviceStreamFrame, DeviceStreamInterruption, DeviceSwipeGesture, DeviceTypeTextOutcome,
+        DeviceScreenshotOptions, DeviceStreamFrame, DeviceStreamInterruption, DeviceSwipeGesture, DeviceTouchPhase, DeviceTypeTextOutcome,
     },
     contracts::{
         DeviceAvailability, DeviceBootSource, DeviceDescribeUiResult, DeviceDescriptor, DeviceGeometry, DeviceHardwareButton,
@@ -53,6 +53,7 @@ pub enum FakeCall {
     OpenUrl { udid: String, url: String },
     Tap { udid: String, x: f64, y: f64, hold_ms: Option<u32> },
     Swipe { udid: String, gesture: DeviceSwipeGesture },
+    Touch { udid: String, phase: DeviceTouchPhase, x: f64, y: f64 },
     TypeText { udid: String, text: String },
     SetFocusedValue { udid: String, value: String },
     Configure { udid: String, configuration: DeviceConfiguration },
@@ -77,6 +78,7 @@ impl FakeCall {
             Self::OpenUrl { .. } => "openUrl",
             Self::Tap { .. } => "tap",
             Self::Swipe { .. } => "swipe",
+            Self::Touch { .. } => "touch",
             Self::TypeText { .. } => "typeText",
             Self::SetFocusedValue { .. } => "setFocusedValue",
             Self::Configure { .. } => "configure",
@@ -108,6 +110,7 @@ impl FakeCall {
             | Self::OpenUrl { udid, .. }
             | Self::Tap { udid, .. }
             | Self::Swipe { udid, .. }
+            | Self::Touch { udid, .. }
             | Self::TypeText { udid, .. }
             | Self::SetFocusedValue { udid, .. }
             | Self::Configure { udid, .. }
@@ -585,6 +588,13 @@ impl DeviceBackend for FakeDeviceBackend {
     fn tap<'a>(&'a self, udid: &'a str, x: f64, y: f64, hold_ms: Option<u32>) -> BoxFuture<'a, DeviceResult<()>> {
         Box::pin(async move {
             self.record(FakeCall::Tap { udid: udid.to_owned(), x, y, hold_ms })?;
+            self.require_booted(udid).map(|_| ())
+        })
+    }
+
+    fn touch<'a>(&'a self, udid: &'a str, phase: DeviceTouchPhase, x: f64, y: f64) -> BoxFuture<'a, DeviceResult<()>> {
+        Box::pin(async move {
+            self.record(FakeCall::Touch { udid: udid.to_owned(), phase, x, y })?;
             self.require_booted(udid).map(|_| ())
         })
     }

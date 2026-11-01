@@ -260,6 +260,7 @@ pub fn build_app(state: AppState) -> Router {
         .route("/api/device/detach", post(device::routes::detach))
         .route("/api/device/tap", post(device::routes::tap))
         .route("/api/device/swipe", post(device::routes::swipe))
+        .route("/api/device/touch", post(device::routes::touch))
         .route("/api/device/type", post(device::routes::type_text))
         .route("/api/device/key", post(device::routes::key))
         .route("/api/device/button", post(device::routes::button))

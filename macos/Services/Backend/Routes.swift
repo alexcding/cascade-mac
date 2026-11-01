@@ -44,6 +44,7 @@ public enum Routes {
     public static let DEVICE_DETACH = "/api/device/detach"
     public static let DEVICE_TAP = "/api/device/tap"
     public static let DEVICE_SWIPE = "/api/device/swipe"
+    public static let DEVICE_TOUCH = "/api/device/touch"
     public static let DEVICE_TYPE = "/api/device/type"
     public static let DEVICE_KEY = "/api/device/key"
     public static let DEVICE_BUTTON = "/api/device/button"

@@ -219,6 +219,9 @@ func deviceOwner(_ folder: String) -> String {
     return String(cString: resolved)
 }
 
+/// A finger going down, moving and lifting, as `POST /api/device/touch` takes it.
+enum DeviceTouchPhase: String, Encodable, Sendable { case down, move, up }
+
 protocol DeviceServing: Sendable {
     func state(owner: String) async throws -> OwnerDeviceState
     func boot(udid: String) async throws -> DeviceBootResult
@@ -229,6 +232,8 @@ protocol DeviceServing: Sendable {
     /// Device points.
     func tap(udid: String, at point: CGPoint) async throws
     func swipe(udid: String, from: CGPoint, to: CGPoint, durationMs: Int) async throws
+    /// One step of a drag made by hand, sent as it happens.
+    func touch(udid: String, phase: DeviceTouchPhase, at point: CGPoint) async throws
     func type(udid: String, text: String) async throws
     func key(udid: String, usage: UInt16, modifiers: [DeviceKeyboard.Modifier], down: Bool) async throws
     func press(udid: String, button: DeviceKeyboard.Button) async throws
@@ -247,6 +252,7 @@ struct APIDeviceService: DeviceServing {
     private struct Swipe: Encodable, Sendable {
         let udid: String; let fromX: Double; let fromY: Double; let toX: Double; let toY: Double; let durationMs: Int
     }
+    private struct Touch: Encodable, Sendable { let udid: String; let phase: DeviceTouchPhase; let x: Double; let y: Double }
     private struct TypeText: Encodable, Sendable { let udid: String; let text: String }
     private struct Key: Encodable, Sendable {
         let udid: String; let keyCode: UInt16; let modifiers: [DeviceKeyboard.Modifier]; let direction: String
@@ -275,6 +281,10 @@ struct APIDeviceService: DeviceServing {
     func swipe(udid: String, from: CGPoint, to: CGPoint, durationMs: Int) async throws {
         let body = Swipe(udid: udid, fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, durationMs: durationMs)
         let _: Nothing = try await api.request(Routes.DEVICE_SWIPE, method: "POST", body: body, timeout: 30)
+    }
+    func touch(udid: String, phase: DeviceTouchPhase, at point: CGPoint) async throws {
+        let body = Touch(udid: udid, phase: phase, x: point.x, y: point.y)
+        let _: Nothing = try await api.request(Routes.DEVICE_TOUCH, method: "POST", body: body, timeout: 20)
     }
     func type(udid: String, text: String) async throws {
         let _: Nothing = try await api.request(Routes.DEVICE_TYPE, method: "POST", body: TypeText(udid: udid, text: text), timeout: 30)

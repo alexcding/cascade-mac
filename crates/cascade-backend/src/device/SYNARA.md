@@ -56,6 +56,12 @@ profile is read from. No app-bundle resource is involved.
 
 ## Deliberate differences
 
+- **A drag follows the pointer.** Synara's pane sends a drag as one `swipe` on release, so the
+  screen replays it afterwards. Cascade's pane holds the finger down through the helper's own
+  `touch` method once a press moves past a tap: `POST /api/device/touch {udid, phase, x, y}`
+  (`routes.rs` `touch`, `DeviceBackend::touch`), its moves sent one at a time and folded into the
+  newest while one is in flight (`SimulatorPaneModel.handle`). A press released before it moved is
+  still a tap, or a swipe if no drag was seen.
 - **Names.** Cache root `~/Library/Caches/Cascade/device-helper/<key>/` (override
   `CASCADE_DEVICE_HELPER_CACHE`), with the sources beside the binary in `<key>/source/`; the binary
   keeps Synara's name, `synara-device-helper`, since `build.sh` writes it. Sandbox opt-out

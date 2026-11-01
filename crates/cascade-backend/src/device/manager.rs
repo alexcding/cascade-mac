@@ -36,7 +36,7 @@ use super::{
     backend::{
         fit_device_message, DeviceBackend, DeviceBackendError, DeviceConfiguration, DeviceKeyDirection, DeviceKeyEvent,
         DeviceLaunchOptions, DeviceListOptions, DeviceLogQuery, DeviceLogResult, DeviceResult, DeviceScreenshotCapture,
-        DeviceScreenshotOptions, DeviceSwipeGesture, DeviceTypeTextOutcome,
+        DeviceScreenshotOptions, DeviceSwipeGesture, DeviceTouchPhase, DeviceTypeTextOutcome,
     },
     boot_ownership::{orphaned_boot_udids, BootOwnershipStore},
     contracts::{
@@ -1783,6 +1783,10 @@ impl DeviceManager {
 
     pub async fn swipe(&self, udid: &str, gesture: DeviceSwipeGesture) -> DeviceResult<()> {
         self.with_device_action(udid, self.shared.backend.swipe(udid, gesture)).await
+    }
+
+    pub async fn touch(&self, udid: &str, phase: DeviceTouchPhase, x: f64, y: f64) -> DeviceResult<()> {
+        self.with_device_action(udid, self.shared.backend.touch(udid, phase, x, y)).await
     }
 
     pub async fn type_text(&self, udid: &str, text: &str) -> DeviceResult<DeviceTypeTextOutcome> {

@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
-    backend::{DeviceKeyDirection, DeviceKeyEvent, DeviceSwipeGesture},
+    backend::{DeviceKeyDirection, DeviceKeyEvent, DeviceSwipeGesture, DeviceTouchPhase},
     contracts::{
         DeviceAvailability, DeviceHardwareButton, DeviceKeyModifier, DEVICE_COORDINATE_MAX, DEVICE_SWIPE_DURATION_MAX_MS,
     },
@@ -203,6 +203,30 @@ pub async fn swipe(State(state): State<AppState>, Json(body): Json<SwipeBody>) -
         edge: None,
     };
     manager(&state)?.swipe(&udid, gesture).await.map_err(failed)?;
+    Ok(Json(json!({})))
+}
+
+#[derive(Deserialize)]
+pub struct TouchBody {
+    udid: String,
+    phase: String,
+    x: f64,
+    y: f64,
+}
+
+/// `POST /api/device/touch {udid, phase, x, y}`: one step of a drag the user is making, `phase`
+/// `down`, `move` or `up`, so the screen follows the pointer rather than replaying the drag after
+/// it ends. Cascade's own; the pane sends a drag's steps in order, one at a time.
+pub async fn touch(State(state): State<AppState>, Json(body): Json<TouchBody>) -> ApiResult {
+    let udid = udid(&body.udid)?;
+    let phase = match body.phase.as_str() {
+        "down" => DeviceTouchPhase::Down,
+        "move" => DeviceTouchPhase::Move,
+        "up" => DeviceTouchPhase::Up,
+        _ => return Err(ApiError::bad_request("phase must be one of down, move, up")),
+    };
+    let (x, y) = (coordinate("x", body.x)?, coordinate("y", body.y)?);
+    manager(&state)?.touch(&udid, phase, x, y).await.map_err(failed)?;
     Ok(Json(json!({})))
 }
 

@@ -371,20 +371,70 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
     /// so a fast typist's keys land in order.
     @ObservationIgnored private var inputTail: Task<Void, Never>?
 
+    /// The press under way: where it went down, in device points, and whether it has moved past a
+    /// tap and so is held down on the device, following the pointer.
+    private struct Press {
+        let id: Int; let udid: String; let start: CGPoint; let time: TimeInterval
+        var touching = false
+        /// Where the finger was last sent, for lifting it where it is.
+        var last: CGPoint
+    }
+    @ObservationIgnored private var press: Press?
+    /// The newest point a drag reached that is not sent yet. Moves go one at a time, and those that
+    /// pile up behind a slow one are folded into the latest: only where the finger is now matters.
+    @ObservationIgnored private var pendingMove: (press: Int, udid: String, point: CGPoint)?
+    @ObservationIgnored private var pressCount = 0
+
     func handle(_ input: DeviceScreenView.Input) {
-        guard !retired, let device, device.state == .booted else { return }
+        guard !retired else { return }
+        // A finger held down is always lifted, even if its device changed or stopped meanwhile:
+        // a touch left down on the device would drag whatever the next press touches.
+        if case .pointer(.up, _, _, _) = input, let current = press, current.touching,
+           device?.udid != current.udid || device?.state != .booted {
+            press = nil
+            lift(current)
+            return
+        }
+        guard let device, device.state == .booted else { return }
         let udid = device.udid
         switch input {
-        case .press(let from, let to, let bounds, let durationMs):
+        case .pointer(let phase, let location, let bounds, let time):
             let frame = frameSize ?? device.pointSize ?? .zero
             let map = { (point: CGPoint, clamped: Bool) in
                 DeviceInputMapping.devicePoint(point, frame: frame, bounds: bounds, pointSize: device.pointSize, clamped: clamped)
             }
-            // A press must start on the picture; a drag may end past its edge, which is the edge.
-            switch DeviceInputMapping.gesture(from: map(from, false), to: map(to, true), durationMs: durationMs) {
-            case .tap(let point): send { try await $0.tap(udid: udid, at: point) }
-            case .swipe(let start, let end, let duration): send { try await $0.swipe(udid: udid, from: start, to: end, durationMs: duration) }
-            case nil: break
+            switch phase {
+            case .down:
+                // A press must start on the picture; a drag may end past its edge, which is the edge.
+                pressCount += 1
+                let id = pressCount
+                press = map(location, false).map { Press(id: id, udid: udid, start: $0, time: time, last: $0) }
+            case .moved:
+                guard var current = press, current.udid == udid, let point = map(location, true) else { return }
+                if !current.touching {
+                    guard DeviceInputMapping.leavesTap(from: current.start, to: point) else { return }
+                    current.touching = true
+                    let start = current.start
+                    send { try await $0.touch(udid: udid, phase: .down, at: start) }
+                }
+                current.last = point; press = current
+                move(current, to: point)
+            case .up:
+                guard let current = press else { return }
+                press = nil
+                let end = map(location, true)
+                if current.touching {
+                    let end = end ?? current.last
+                    send { try await $0.touch(udid: current.udid, phase: .up, at: end) }
+                    return
+                }
+                // Released before it moved past a tap (or so fast no drag was seen): one gesture.
+                switch DeviceInputMapping.gesture(from: current.start, to: end, durationMs: (time - current.time) * 1000) {
+                case .tap(let point): send { try await $0.tap(udid: current.udid, at: point) }
+                case .swipe(let start, let end, let duration):
+                    send { try await $0.swipe(udid: current.udid, from: start, to: end, durationMs: duration) }
+                case nil: break
+                }
             }
         case .text(let text): send { try await $0.type(udid: udid, text: text) }
         case .key(let usage, let modifiers, let down): send { try await $0.key(udid: udid, usage: usage, modifiers: modifiers, down: down) }
@@ -395,6 +445,37 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
     func press(_ button: DeviceKeyboard.Button) {
         guard !retired, let udid = device?.udid, device?.state == .booted else { return }
         send { try await $0.press(udid: udid, button: button) }
+    }
+
+    /// Sends the finger to `point`, folded into a move of the same press still waiting to go. A
+    /// move another press left waiting is the next drag's to replace, never to send: its task finds
+    /// it belongs to a press that is not its own and sends nothing.
+    private func move(_ current: Press, to point: CGPoint) {
+        let queued = pendingMove?.press == current.id
+        pendingMove = (current.id, current.udid, point)
+        guard !queued else { return }
+        let id = current.id
+        send { [weak self] service in
+            guard let move = await self?.takePendingMove(for: id) else { return }
+            try await service.touch(udid: move.udid, phase: .move, at: move.point)
+        }
+    }
+
+    /// Lifts a finger the drag cannot finish, after what was already sent and without reporting a
+    /// failure: its device may be gone.
+    private func lift(_ current: Press) {
+        pendingMove = nil
+        let previous = inputTail
+        inputTail = Task { [service] in
+            await previous?.value
+            try? await service.touch(udid: current.udid, phase: .up, at: current.last)
+        }
+    }
+
+    private func takePendingMove(for press: Int) -> (udid: String, point: CGPoint)? {
+        guard let move = pendingMove, move.press == press else { return nil }
+        pendingMove = nil
+        return (move.udid, move.point)
     }
 
     private func send(_ work: @escaping @Sendable (any DeviceServing) async throws -> Void) {
@@ -415,7 +496,10 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
         disconnect(clearing: true)
         retired = true
         setupPoll?.cancel(); setupPoll = nil
-        inputTail?.cancel(); inputTail = nil
+        // A finger down is lifted before the queue goes, so the device is not left touched.
+        if let current = press, current.touching { lift(current) } else { inputTail?.cancel() }
+        inputTail = nil
+        press = nil; pendingMove = nil
         // Kept, blank and deaf, so a view that still asks for it is not handed a new one.
         screenView?.input = nil
         screenView?.removeFromSuperview()
@@ -427,8 +511,9 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
 /// keyboard only when clicked, so the terminal keeps it otherwise.
 final class DeviceScreenView: NSView {
     enum Input: Equatable {
-        /// A press from `from` to `to`, in the view's points with the origin top left.
-        case press(from: CGPoint, to: CGPoint, bounds: CGSize, durationMs: Double)
+        enum PointerPhase: Equatable { case down, moved, up }
+        /// The mouse on the screen, in the view's points with the origin top left; `time` in seconds.
+        case pointer(PointerPhase, at: CGPoint, bounds: CGSize, time: TimeInterval)
         case text(String)
         case key(UInt16, [DeviceKeyboard.Modifier], down: Bool)
         case button(DeviceKeyboard.Button)
@@ -436,7 +521,6 @@ final class DeviceScreenView: NSView {
     var input: ((Input) -> Void)?
     let display = AVSampleBufferDisplayLayer()
     var renderer: AVSampleBufferVideoRenderer { display.sampleBufferRenderer }
-    private var pressStart: (point: CGPoint, time: TimeInterval)?
     /// Keys sent down, by the Mac's key code, so each goes up as the usage it went down as.
     private var held: [UInt16: (UInt16, [DeviceKeyboard.Modifier])] = [:]
 
@@ -465,13 +549,13 @@ final class DeviceScreenView: NSView {
     override func mouseDown(with event: NSEvent) {
         // The one way the screen takes the keyboard: being clicked.
         window?.makeFirstResponder(self)
-        pressStart = (convert(event.locationInWindow, from: nil), event.timestamp)
+        pointer(.down, event)
     }
-    override func mouseUp(with event: NSEvent) {
-        guard let start = pressStart else { return }
-        pressStart = nil
-        let end = convert(event.locationInWindow, from: nil)
-        input?(.press(from: start.point, to: end, bounds: bounds.size, durationMs: (event.timestamp - start.time) * 1000))
+    // Each step of a drag goes as it happens, so the screen follows the pointer.
+    override func mouseDragged(with event: NSEvent) { pointer(.moved, event) }
+    override func mouseUp(with event: NSEvent) { pointer(.up, event) }
+    private func pointer(_ phase: Input.PointerPhase, _ event: NSEvent) {
+        input?(.pointer(phase, at: convert(event.locationInWindow, from: nil), bounds: bounds.size, time: event.timestamp))
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

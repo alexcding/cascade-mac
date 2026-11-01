@@ -44,6 +44,10 @@ private final class DeviceServiceFixture: DeviceServing, @unchecked Sendable {
     func swipe(udid: String, from: CGPoint, to: CGPoint, durationMs: Int) async throws {
         calls.append("swipe \(udid) \(Int(from.x)),\(Int(from.y))->\(Int(to.x)),\(Int(to.y)) \(durationMs)ms")
     }
+    func touch(udid: String, phase: DeviceTouchPhase, at point: CGPoint) async throws {
+        if inputDelay != .zero { try await Task.sleep(for: inputDelay) }
+        calls.append("touch \(udid) \(phase.rawValue) \(Int(point.x)),\(Int(point.y))")
+    }
     func type(udid: String, text: String) async throws { calls.append("type \(udid) \(text)") }
     func key(udid: String, usage: UInt16, modifiers: [DeviceKeyboard.Modifier], down: Bool) async throws {
         calls.append("key \(udid) \(usage) \(modifiers.map(\.rawValue).joined(separator: "+")) \(down ? "down" : "up")")
@@ -53,6 +57,12 @@ private final class DeviceServiceFixture: DeviceServing, @unchecked Sendable {
         calls.append("frames \(udid)")
         return socketPath
     }
+}
+
+/// A press released at `to` with no drag seen between, as a fast flick can be.
+@MainActor private func press(_ model: SimulatorPaneModel, from: CGPoint, to: CGPoint, bounds: CGSize, durationMs: Double) {
+    model.handle(.pointer(.down, at: from, bounds: bounds, time: 10))
+    model.handle(.pointer(.up, at: to, bounds: bounds, time: 10 + durationMs / 1000))
 }
 
 @MainActor private final class StreamRecorder {
@@ -416,13 +426,13 @@ private func encodedKeyframe(width: Int = 96, height: Int = 64) throws -> (confi
     model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
     // No frame yet: mapped by the device's geometry. A 402×874 view shows it point for point.
     let bounds = CGSize(width: 402, height: 874)
-    model.handle(.press(from: CGPoint(x: 100, y: 200), to: CGPoint(x: 102, y: 201), bounds: bounds, durationMs: 90))
+    press(model, from: CGPoint(x: 100, y: 200), to: CGPoint(x: 102, y: 201), bounds: bounds, durationMs: 90)
     model.handle(.text("hi"))
     model.handle(.key(0x28, [], down: true))
     model.handle(.key(0x28, [], down: false))
-    model.handle(.press(from: CGPoint(x: 200, y: 800), to: CGPoint(x: 200, y: 300), bounds: bounds, durationMs: 250))
+    press(model, from: CGPoint(x: 200, y: 800), to: CGPoint(x: 200, y: 300), bounds: bounds, durationMs: 250)
     model.handle(.button(.home))
-    model.handle(.press(from: CGPoint(x: -5, y: 10), to: CGPoint(x: -5, y: 10), bounds: CGSize(width: 1000, height: 874), durationMs: 50))
+    press(model, from: CGPoint(x: -5, y: 10), to: CGPoint(x: -5, y: 10), bounds: CGSize(width: 1000, height: 874), durationMs: 50)
     await eventually { service.calls.count == 6 }
     #expect(service.calls == ["tap PHONE-1 102,201", "type PHONE-1 hi", "key PHONE-1 40  down", "key PHONE-1 40  up",
                               "swipe PHONE-1 200,800->200,300 250ms", "button PHONE-1 home"],
@@ -499,11 +509,64 @@ private func encodedKeyframe(width: Int = 96, height: Int = 64) throws -> (confi
     model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
     // 402×874 points in a 1000×874 view: the picture spans x 299…701.
     let bounds = CGSize(width: 1000, height: 874)
-    model.handle(.press(from: CGPoint(x: 500, y: 400), to: CGPoint(x: 900, y: 1200), bounds: bounds, durationMs: 200))
+    press(model, from: CGPoint(x: 500, y: 400), to: CGPoint(x: 900, y: 1200), bounds: bounds, durationMs: 200)
     await eventually { !service.calls.isEmpty }
     #expect(service.calls == ["swipe PHONE-1 201,400->402,874 200ms"])
     #expect(DeviceInputMapping.devicePoint(CGPoint(x: 900, y: -40), frame: CGSize(width: 402, height: 874), bounds: bounds,
                                            pointSize: nil, clamped: true) == CGPoint(x: 402, y: 0))
+}
+
+@MainActor @Test func aDragHoldsTheFingerDownAndFollowsThePointer() async {
+    let service = DeviceServiceFixture()
+    service.inputDelay = .milliseconds(40)
+    let model = SimulatorPaneModel(owner: "/w", service: service, connector: StreamRecorder().connector)
+    model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    let bounds = CGSize(width: 402, height: 874)
+    model.handle(.pointer(.down, at: CGPoint(x: 200, y: 600), bounds: bounds, time: 1))
+    // Inside the tap's jitter: nothing touches yet.
+    model.handle(.pointer(.moved, at: CGPoint(x: 203, y: 597), bounds: bounds, time: 1.01))
+    #expect(service.calls.isEmpty)
+    // Past it: the finger goes down where the press began and moves; moves that pile up behind a
+    // slow one are folded into the newest.
+    model.handle(.pointer(.moved, at: CGPoint(x: 200, y: 560), bounds: bounds, time: 1.02))
+    model.handle(.pointer(.moved, at: CGPoint(x: 200, y: 500), bounds: bounds, time: 1.03))
+    model.handle(.pointer(.moved, at: CGPoint(x: 200, y: 450), bounds: bounds, time: 1.04))
+    model.handle(.pointer(.up, at: CGPoint(x: 200, y: 440), bounds: bounds, time: 1.05))
+    await eventually { service.calls.last?.contains(" up ") == true }
+    #expect(service.calls == ["touch PHONE-1 down 200,600", "touch PHONE-1 move 200,450", "touch PHONE-1 up 200,440"])
+}
+
+@MainActor @Test func aDragsLeftoverMoveIsNotSentForTheNextOne() async {
+    let service = DeviceServiceFixture()
+    service.inputDelay = .milliseconds(40)
+    let model = SimulatorPaneModel(owner: "/w", service: service, connector: StreamRecorder().connector)
+    model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    let bounds = CGSize(width: 402, height: 874)
+    // Two drags back to back while the first's steps are still waiting to go.
+    for (x, time) in [(CGFloat(100), 1.0), (CGFloat(300), 2.0)] {
+        model.handle(.pointer(.down, at: CGPoint(x: x, y: 600), bounds: bounds, time: time))
+        model.handle(.pointer(.moved, at: CGPoint(x: x, y: 500), bounds: bounds, time: time + 0.01))
+        model.handle(.pointer(.up, at: CGPoint(x: x, y: 400), bounds: bounds, time: time + 0.02))
+    }
+    await eventually { service.calls.count >= 5 && service.calls.last == "touch PHONE-1 up 300,400" }
+    #expect(service.calls == ["touch PHONE-1 down 100,600", "touch PHONE-1 up 100,400",
+                              "touch PHONE-1 down 300,600", "touch PHONE-1 move 300,500", "touch PHONE-1 up 300,400"]
+            || service.calls == ["touch PHONE-1 down 100,600", "touch PHONE-1 move 100,500", "touch PHONE-1 up 100,400",
+                                 "touch PHONE-1 down 300,600", "touch PHONE-1 move 300,500", "touch PHONE-1 up 300,400"],
+            "each drag's steps go to that drag, in order: \(service.calls)")
+}
+
+@MainActor @Test func aDragCutShortStillLiftsTheFinger() async {
+    let service = DeviceServiceFixture()
+    let model = SimulatorPaneModel(owner: "/w", service: service, connector: StreamRecorder().connector)
+    model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    let bounds = CGSize(width: 402, height: 874)
+    model.handle(.pointer(.down, at: CGPoint(x: 200, y: 600), bounds: bounds, time: 1))
+    model.handle(.pointer(.moved, at: CGPoint(x: 200, y: 500), bounds: bounds, time: 1.01))
+    // The session goes away mid-drag: the finger is lifted where it was, not left down.
+    model.retire()
+    await eventually { service.calls.last?.contains(" up ") == true }
+    #expect(service.calls.last == "touch PHONE-1 up 200,500")
 }
 
 @Test func aConfigThatCannotBeReadWaitsForAnotherAndAsks() throws {
