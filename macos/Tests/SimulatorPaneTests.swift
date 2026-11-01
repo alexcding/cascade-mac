@@ -52,7 +52,14 @@ private final class DeviceServiceFixture: DeviceServing, @unchecked Sendable {
     func key(udid: String, usage: UInt16, modifiers: [DeviceKeyboard.Modifier], down: Bool) async throws {
         calls.append("key \(udid) \(usage) \(modifiers.map(\.rawValue).joined(separator: "+")) \(down ? "down" : "up")")
     }
-    func press(udid: String, button: DeviceKeyboard.Button) async throws { calls.append("button \(udid) \(button.rawValue)") }
+    /// Thrown by the next hardware-button press, once.
+    var pressError: (any Error)?
+    func press(udid: String, button: DeviceKeyboard.Button) async throws {
+        let error = pressError; pressError = nil
+        if inputDelay != .zero { try await Task.sleep(for: inputDelay) }
+        calls.append("button \(udid) \(button.rawValue)")
+        if let error { throw error }
+    }
     func frameSocket(owner: String, udid: String) async throws -> String {
         calls.append("frames \(udid)")
         return socketPath
@@ -612,4 +619,51 @@ private func encodedKeyframe(width: Int = 96, height: Int = 64) throws -> (confi
     #expect(resolved.hasPrefix("/private/") && resolved.hasSuffix("/real"))
     #expect(deviceOwner(" \(link.path)/ ") == resolved)
     #expect(deviceOwner("/nowhere/at/all/") == "/nowhere/at/all")
+}
+
+@MainActor @Test func anInputErrorGoesOnceTheDeviceIsBackOrAnotherIsAttached() async {
+    struct Undelivered: LocalizedError { var errorDescription: String? { "HID events were not delivered" } }
+    let service = DeviceServiceFixture()
+    let down = DeviceDescriptor(udid: "PHONE-1", name: "iPhone 17", runtime: "iOS 27.0", state: .shutdown)
+    let model = SimulatorPaneModel(owner: "/w", service: service, connector: StreamRecorder().connector)
+    model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    service.pressError = Undelivered()
+    model.press(.home)
+    await eventually { model.inputError != nil }
+    #expect(model.bannerError == "HID events were not delivered" && model.actionError == nil)
+    model.receive(OwnerDeviceState(owner: "/w", version: 2, attachedDeviceUdid: "PHONE-1", devices: [down], lastError: "not booted"))
+    #expect(model.inputError != nil, "still down")
+    model.receive(OwnerDeviceState(owner: "/w", version: 3, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    #expect(model.inputError == nil, "booted again")
+
+    service.pressError = Undelivered()
+    model.press(.home)
+    await eventually { model.inputError != nil }
+    model.receive(OwnerDeviceState(owner: "/w", version: 4, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    #expect(model.inputError != nil, "a failure on a device that never went away stays")
+    model.press(.home)
+    await eventually { model.inputError == nil }
+    #expect(service.calls.filter { $0.hasPrefix("button") }.count == 3, "the next input that lands clears it")
+
+    service.pressError = Undelivered()
+    model.press(.home)
+    await eventually { model.inputError != nil }
+    model.receive(OwnerDeviceState(owner: "/w", version: 5, attachedDeviceUdid: "TABLET-1", devices: [phone, tablet]))
+    #expect(model.inputError == nil, "another simulator")
+}
+
+@MainActor @Test func anInputFailingAfterTheDeviceCameBackLeavesNoError() async {
+    struct Undelivered: LocalizedError { var errorDescription: String? { "HID events were not delivered" } }
+    let service = DeviceServiceFixture()
+    service.inputDelay = .milliseconds(150)
+    let down = DeviceDescriptor(udid: "PHONE-1", name: "iPhone 17", runtime: "iOS 27.0", state: .shutdown)
+    let model = SimulatorPaneModel(owner: "/w", service: service, connector: StreamRecorder().connector)
+    model.receive(OwnerDeviceState(owner: "/w", version: 1, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    service.pressError = Undelivered()
+    model.press(.home)
+    model.receive(OwnerDeviceState(owner: "/w", version: 2, attachedDeviceUdid: "PHONE-1", devices: [down]))
+    model.receive(OwnerDeviceState(owner: "/w", version: 3, attachedDeviceUdid: "PHONE-1", devices: [phone]))
+    await eventually { service.calls.contains("button PHONE-1 home") }
+    try? await Task.sleep(for: .milliseconds(50))
+    #expect(model.inputError == nil, "sent before the device came back")
 }

@@ -40,8 +40,16 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
     let owner: String
     private(set) var state: OwnerDeviceState?
     private(set) var loadError: String?
-    /// An action of the user's that failed: shown until the next one.
+    /// An action of the user's that failed (a pick, a boot, a shutdown): shown until the next one.
     private(set) var actionError: String?
+    /// An input that did not reach the device: shown until one does, or until the device it failed
+    /// on is replaced or comes back from being down.
+    private(set) var inputError: String?
+    /// What the pane's banner says: an action's failure, else an input's.
+    var bannerError: String? { actionError ?? inputError }
+    /// Counts the attached device being replaced or coming back, so an input sent before that and
+    /// failing after it reports nothing about the device as it is now.
+    @ObservationIgnored private var deviceEpoch = 0
     /// An action of the user's is under way. Actions may overlap (a boot is slow, a detach is not),
     /// so it is a count, and the first to finish does not clear it for the others.
     var busy: Bool { actionsRunning > 0 }
@@ -129,13 +137,23 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
     func receive(_ state: OwnerDeviceState) {
         guard !retired, deviceOwner(state.owner) == owner else { return }
         if let current = self.state, current.version > state.version { return }
+        let previous = self.state
         self.state = state
+        // An input that failed on a device since gone or come back says nothing about this one.
+        if Self.deviceChanged(from: previous, to: state) { deviceEpoch += 1; inputError = nil }
         // Answered: the backend moved off the attachment the pick was made against, or it is on
         // the picked device with nothing left to wait for.
         if let pending, state.attachedDeviceUdid != pending.supersedes
             || (state.attachedDeviceUdid == pending.device.udid && state.attachPhase == nil) { self.pending = nil }
         if state.availability.blocker?.retryable == true { pollSetup() } else { setupPoll?.cancel(); setupPoll = nil }
         streamFollows()
+    }
+
+    /// Another simulator attached, or the attached one booted again after it was down.
+    private static func deviceChanged(from old: OwnerDeviceState?, to new: OwnerDeviceState) -> Bool {
+        guard let old else { return false }
+        if old.attachedDeviceUdid != new.attachedDeviceUdid { return true }
+        return new.attachedDevice?.state == .booted && old.attachedDevice?.state != .booted
     }
 
     /// An agent asked for the pane on `udid`. The backend has attached it unless the owner already
@@ -480,10 +498,15 @@ typealias DeviceStreamConnector = @MainActor (_ socketPath: String, _ udid: Stri
 
     private func send(_ work: @escaping @Sendable (any DeviceServing) async throws -> Void) {
         let previous = inputTail
+        let epoch = deviceEpoch
         inputTail = Task { [weak self, service] in
             await previous?.value
-            do { try await work(service) }
-            catch { if let self, !self.retired { self.actionError = error.localizedDescription } }
+            do {
+                try await work(service)
+                if let self, !self.retired, self.deviceEpoch == epoch { self.inputError = nil }
+            } catch {
+                if let self, !self.retired, self.deviceEpoch == epoch { self.inputError = error.localizedDescription }
+            }
         }
     }
 

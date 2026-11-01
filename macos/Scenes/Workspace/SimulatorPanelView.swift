@@ -12,7 +12,7 @@ struct SimulatorPanelView: View {
             // Under the pane's bar, not behind it: a background into the top safe area hides its tabs.
             .paneSurface(ignoresSafeAreaEdges: [])
             .overlay(alignment: .bottom) {
-                if let message = model.actionError {
+                if let message = model.bannerError {
                     Text(message)
                         .font(.callout).foregroundStyle(Theme.danger)
                         .padding(.horizontal, 12).padding(.vertical, 8)
