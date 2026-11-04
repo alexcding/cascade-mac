@@ -317,6 +317,11 @@ struct CocoaSidebar: NSViewRepresentable {
             row.hoverable = (item as? Node).map { $0.entry.hoverable } ?? false
             return row
         }
+        /// A row comes in lit or not as the pointer says: after a reload, a folder opening, a scroll.
+        func outlineView(_ outlineView: NSOutlineView, didAdd rowView: NSTableRowView, forRow row: Int) {
+            guard let outline = outlineView as? SidebarOutlineView, let rowView = rowView as? SidebarRowView else { return }
+            rowView.setPointed(row == outline.pointedRow)
+        }
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? Node else { return nil }
             // Headings never share a cell with rows: each kind sets its own font and colour, and a
@@ -393,6 +398,7 @@ struct CocoaSidebar: NSViewRepresentable {
             if row >= 0, let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarCellView {
                 configure(cell, node: node, row: row)
             }
+            (outline as? SidebarOutlineView)?.syncHover()
             guard !updating else { return }
             if isCollapsed { collapsed.insert(Self.collapseKey(node.entry)) } else { collapsed.remove(Self.collapseKey(node.entry)) }
             preferences.set(Array(collapsed).sorted(), forKey: "sidebar.collapsed")
@@ -838,7 +844,6 @@ enum SidebarMetrics {
             needsDisplay = true
         }
     }
-    private var tracking: NSTrackingArea?
     /// The plate's shape, as the source list draws its selection: in from each side and rounded, but
     /// a half point short of the row at top and bottom, so neighbouring plates (a selection and the
     /// hover beside it) keep a point between them. Ours rather than the list's, so the hover plate can share it: a table draws no
@@ -877,14 +882,10 @@ enum SidebarMetrics {
         }
     }
 
-    override func updateTrackingAreas() {
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area); tracking = area
-        super.updateTrackingAreas()
-    }
-    override func mouseEntered(with event: NSEvent) { hovered = hoverable }
-    override func mouseExited(with event: NSEvent) { hovered = false }
+    /// Lights the row or puts it out. Which row is under the pointer is the list's to say
+    /// (`SidebarOutlineView.syncHover`), so no two rows show the hover plate at once.
+    func setPointed(_ pointed: Bool) { hovered = pointed && hoverable }
+
     override func prepareForReuse() { super.prepareForReuse(); hovered = false }
 }
 
@@ -1332,6 +1333,72 @@ enum SidebarMetrics {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row >= 0, let node = item(atRow: row) as? CocoaSidebar.Node else { return nil }
         return contextMenu?(node)
+    }
+
+    // MARK: Hover
+
+    // One row, the one under the pointer, shows the hover plate, and the list says which. Rows
+    // tracking the pointer each for themselves could each keep the plate: AppKit tells a row
+    // nothing when it moves out from under a still pointer (a reload, a folder sliding open or
+    // shut, a scroll), nor of an edge crossed while a menu or a drag held the events. So the list
+    // follows the pointer over all of it, and settles the plate again when rows move under it.
+    private var pointerTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        // Made once: `.inVisibleRect` follows the list's visible part by itself.
+        if pointerTracking == nil {
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self)
+            addTrackingArea(area); pointerTracking = area
+        }
+        super.updateTrackingAreas()
+    }
+    // The pointer's own events: delivered to this window, so it is the one under the pointer.
+    // This area's are the list's alone; passed up, every move would reach the views around it.
+    override func mouseEntered(with event: NSEvent) {
+        guard event.trackingArea === pointerTracking else { return super.mouseEntered(with: event) }
+        pointed(by: event)
+    }
+    override func mouseMoved(with event: NSEvent) { pointed(by: event) }
+    override func mouseExited(with event: NSEvent) {
+        guard event.trackingArea === pointerTracking else { return super.mouseExited(with: event) }
+        syncHover(pointedRow: -1)
+    }
+    private func pointed(by event: NSEvent) { syncHover(pointedRow: row(at: convert(event.locationInWindow, from: nil))) }
+
+    /// The row under the pointer when no event says where it is: -1 when the pointer is off the
+    /// list, or over another window (a menu fading out, a drag's image, another app).
+    var pointedRow: Int {
+        guard let window else { return -1 }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        guard visibleRect.contains(point),
+              NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == window.windowNumber else { return -1 }
+        return row(at: point)
+    }
+    /// Lights the row under the pointer and no other, for rows that moved under a still pointer.
+    func syncHover() { syncHover(pointedRow: pointedRow) }
+    func syncHover(pointedRow: Int) {
+        enumerateAvailableRowViews { view, row in (view as? SidebarRowView)?.setPointed(row == pointedRow) }
+    }
+
+    private var scrollObserver: (any NSObjectProtocol)?
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        scrollObserver = nil
+        guard window != nil, let clip = enclosingScrollView?.contentView else { return }
+        clip.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncHover() }
+        }
+    }
+    // While a closed menu or an ended drag's image is still on screen it is the window under the
+    // pointer, so this puts the plate out, and the pointer's next move puts it back.
+    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
+        super.didCloseMenu(menu, with: event)
+        syncHover()
+    }
+    override func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        super.draggingSession(session, endedAt: screenPoint, operation: operation)
+        syncHover()
     }
 }
 

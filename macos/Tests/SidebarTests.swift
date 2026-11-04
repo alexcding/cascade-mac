@@ -371,6 +371,65 @@ private func workspaceSession(_ id: String, created: String?, pinned: Bool = fal
     #expect(rows().sorted() == before.sorted())
 }
 
+/// A row that moved out from under a still pointer, or whose exit a menu or a drag swallowed,
+/// stayed lit beside the row the pointer went to. The list decides: one row lit, never a heading.
+@MainActor @Test func onlyTheRowUnderThePointerShowsTheHoverPlate() throws {
+    _ = NSApplication.shared
+    let suite = "cascade-sidebar-test-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let sessions = [workspaceSession("a", created: "2026-01"), workspaceSession("b", created: "2026-02")]
+    let value = CocoaSidebar(entries: SidebarEntry.make(projects: [sidebarProject], sessions: sessions),
+                             selection: .overview, pinnedIDs: [], onSelect: { _ in }, onTogglePin: { _ in })
+    let coordinator = CocoaSidebar.Coordinator(parent: value, preferences: preferences)
+    let outline = SidebarOutlineView(frame: NSRect(x: 0, y: 0, width: 260, height: 600))
+    let column = NSTableColumn(identifier: .init("name"))
+    outline.addTableColumn(column); outline.outlineTableColumn = column
+    outline.dataSource = coordinator; outline.delegate = coordinator
+    let window = NSWindow(contentRect: outline.frame, styleMask: [.titled], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = outline
+    coordinator.outline = outline
+    coordinator.update(value)
+    outline.layoutSubtreeIfNeeded()
+    func index(_ id: String) throws -> Int {
+        try #require((0..<outline.numberOfRows).first { (outline.item(atRow: $0) as? CocoaSidebar.Node)?.entry.id == id })
+    }
+    func rowView(_ id: String) throws -> SidebarRowView {
+        try #require(outline.rowView(atRow: try index(id), makeIfNecessary: true) as? SidebarRowView)
+    }
+    func lit() -> [String] {
+        (0..<outline.numberOfRows).compactMap { row in
+            guard let view = outline.rowView(atRow: row, makeIfNecessary: false) as? SidebarRowView, view.hovered else { return nil }
+            return (outline.item(atRow: row) as? CocoaSidebar.Node)?.entry.id
+        }
+    }
+    let a = try rowView("session:a"), b = try rowView("session:b"), heading = try rowView("label:projects")
+    // Each row heard the pointer arrive and neither heard it leave: both lit, the glitch.
+    a.setPointed(true); b.setPointed(true)
+    #expect(lit().sorted() == ["session:a", "session:b"])
+
+    outline.syncHover(pointedRow: try index("session:b"))
+    #expect(lit() == ["session:b"], "the row under the pointer, and no other")
+    outline.syncHover(pointedRow: try index("label:projects"))
+    #expect(lit().isEmpty && !heading.hovered, "a heading with nothing to hover shows no plate")
+    outline.syncHover(pointedRow: -1)
+    #expect(lit().isEmpty, "the pointer is off the list")
+
+    // The pointer moving over a row lights it, wherever the plate was.
+    b.setPointed(true)
+    let point = outline.convert(NSPoint(x: 40, y: outline.rect(ofRow: try index("session:a")).midY), to: nil)
+    outline.mouseMoved(with: try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+                                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)))
+    #expect(lit() == ["session:a"], "the row the pointer moved over, and no other")
+
+    // The list follows the pointer through one area, made once; the rows have none of their own.
+    outline.updateTrackingAreas(); outline.updateTrackingAreas()
+    #expect(outline.trackingAreas.filter { $0.owner === outline && $0.options.contains(.mouseMoved) }.count == 1)
+    #expect(a.trackingAreas.isEmpty && b.trackingAreas.isEmpty)
+    window.close()
+}
+
 /// The gap style hides the pressed row before any pasteboard writer is asked for, so a row with
 /// nothing to drag has to refuse the drag itself, or a wobbly click leaves its slot empty.
 @MainActor @Test func aRowThatCannotMoveRefusesTheDragBeforeTheTableHidesIt() throws {
@@ -924,8 +983,8 @@ private typealias WindowCapture = @convention(c) (CGRect, UInt32, UInt32, UInt32
             try #require((0..<outline.numberOfRows).first { (outline.item(atRow: $0) as? CocoaSidebar.Node)?.entry.id == id })
         }
         let row = try #require(outline.rowView(atRow: try index("automation"), makeIfNecessary: true) as? SidebarRowView)
-        row.mouseEntered(with: try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
-                                                                    windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil)))
+        // As the list lights the row under the pointer (`syncHover`); the real pointer is elsewhere.
+        row.setPointed(true)
         window.displayIfNeeded()
         try await Task.sleep(for: .milliseconds(300))
         let bitmap = NSBitmapImageRep(cgImage: try #require(capture(.null, 1 << 3, UInt32(window.windowNumber), 1 | 8)?.takeRetainedValue()))
