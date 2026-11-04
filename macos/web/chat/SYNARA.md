@@ -7,7 +7,7 @@ menu, run unchanged behind Cascade's native bridge. The backend (`crates/cascade
 Synara's data: `OrchestrationThread`, `OrchestrationEvent`, `ClientOrchestrationCommand`. This
 page reaches it only through the app.
 
-**Pinned commit:** `0cf5ea460d193367feacbe89372afa1a9d8fcce8` (see `vendor/synara/MANIFEST.json`).
+**Pinned commit:** `3e72c70af1f9bfe1fdf3eeafd7fa9e0ba0d5f3b4` (see `vendor/synara/MANIFEST.json`).
 
 ## Layout
 
@@ -337,6 +337,9 @@ subagent's assistant messages as thread metadata; here the child shows the model
 or its parent's); and the end of every subagent task a stop or a crash leaves open (Synara appends
 a `stopped` `task.completed` carrying the launching call; here a card of a session that is
 `stopped` reads "Stopped" from the session alone, and an open task of a live session still counts).
+Synara 3e72c70's task continuation after a usage limit is not reached either: its setting
+(`autoResumeAfterUsageLimits`) is off by default and has no switch in the app, and the composer's
+usage-limit recovery banner reads thread state the backend never keeps.
 
 The diff panel is DiffPanel's turn view only (TurnDiffPanel.tsx): no working-tree, staged,
 branch or compare-ref scopes, no blame, no file tree, no commit and push, since all of them read
