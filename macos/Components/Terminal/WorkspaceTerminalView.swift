@@ -10,8 +10,8 @@ import GhosttyTerminal
     TerminalSurfaceCloseDelegate, TerminalSurfaceBellDelegate,
     TerminalSurfaceDesktopNotificationDelegate, TerminalSurfacePwdDelegate,
     TerminalSurfaceScrollbarDelegate, TerminalSurfaceCommandFinishedDelegate,
-    TerminalSurfaceLifecycleDelegate, TerminalSurfaceTextSelectionRequestDelegate,
-    TerminalSurfaceClipboardConfirmationDelegate {
+    TerminalSurfaceLifecycleDelegate, TerminalSurfaceClipboardConfirmationDelegate,
+    TerminalSurfaceColorChangeDelegate, TerminalSurfaceFontSizeDelegate {
     private weak var recipient: (any TerminalSurfaceViewDelegate)?
     var openLink: (String, String?, Bool) -> Void = { _, _, _ in }
     private weak var linkSurface: TerminalSurface?
@@ -109,8 +109,11 @@ import GhosttyTerminal
     }
     func terminalDidAttachSurface(_ surface: TerminalSurface) { linkSurface = surface; (recipient as? any TerminalSurfaceLifecycleDelegate)?.terminalDidAttachSurface(surface) }
     func terminalDidDetachSurface() { linkSurface = nil; hoveredLink = nil; optionClick = nil; (recipient as? any TerminalSurfaceLifecycleDelegate)?.terminalDidDetachSurface() }
-    func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest) {
-        (recipient as? any TerminalSurfaceTextSelectionRequestDelegate)?.terminalDidRequestTextSelection(request)
+    func terminalDidChangeColor(_ change: TerminalColorChange) {
+        (recipient as? any TerminalSurfaceColorChangeDelegate)?.terminalDidChangeColor(change)
+    }
+    func terminalDidChangeFontSize(_ fontSize: Float) {
+        (recipient as? any TerminalSurfaceFontSizeDelegate)?.terminalDidChangeFontSize(fontSize)
     }
     func terminalDidRequestClipboardConfirmation(_ request: TerminalClipboardConfirmationRequest) {
         if let recipient = recipient as? any TerminalSurfaceClipboardConfirmationDelegate {

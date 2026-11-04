@@ -787,7 +787,7 @@
 			repositoryURL = "https://github.com/alexcding/ghostty-terminal-spm";
 			requirement = {
 				kind = exactVersion;
-				version = "1.6.20260922-cascade.1";
+				version = "2.2.2026103001-cascade.1";
 			};
 		};
 		5F5B00000000000000000001 /* XCRemoteSwiftPackageReference "SFSymbolsPickerForSwiftUI" */ = {

@@ -1,6 +1,6 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
-const REVISION: &str = "3c47ca159368eb4a860ffe5333abdf4a85b2767b";
+const REVISION: &str = "1e9e14af5df14211892f5fc15fd21a49c7d94868";
 
 fn run(command: &mut Command) {
     assert!(

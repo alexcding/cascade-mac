@@ -24,7 +24,7 @@ private struct TerminalStressReport: Encodable {
     let helperConfiguration: String
     let scope = "Native TerminalSession/WorkspaceTerminalView harness; not full-app or key-to-display benchmark"
     let clock = "ContinuousClock; latency ends when parsed viewport contains the echoed key marker"
-    let ghosttyRevision = "3c47ca159368eb4a860ffe5333abdf4a85b2767b"
+    let ghosttyRevision = "1e9e14af5df14211892f5fc15fd21a49c7d94868"
     let workload = "One interactive visible terminal, one hidden Unicode/ANSI flood, eight hidden 10 Hz tickers"
     let machine: String
     let operatingSystem: String
