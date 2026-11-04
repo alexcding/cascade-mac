@@ -40,6 +40,9 @@ pub const ASYNC_USER_INPUT_ALREADY_ANSWERED: &str =
 pub const APPROVAL_ALREADY_ANSWERED_INVARIANT_MARKER: &str = "was already answered.";
 /// Synara `THREAD_NOT_ARCHIVED_INVARIANT_MARKER` (errorMessages.ts)
 pub const THREAD_NOT_ARCHIVED_INVARIANT_MARKER: &str = "is not archived for command";
+/// Synara `NATIVE_REVIEW_ATTACHMENTS_UNSUPPORTED` (Errors.ts)
+pub const NATIVE_REVIEW_ATTACHMENTS_UNSUPPORTED: &str =
+    "Native code reviews do not support attachments. Send the files as a normal message.";
 
 /// Synara `ThreadResumePreconditionViolation` (commandInvariants.ts)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +74,7 @@ pub enum DecideError {
     AsyncUserInputAlreadyAnswered { command_type: &'static str },
     AsyncUserInputAnswerCount { command_type: &'static str },
     MessageTooLong { command_type: &'static str },
+    NativeReviewAttachments { command_type: &'static str },
     ProposedPlanMissing { command_type: &'static str, plan_id: String, thread_id: ThreadId },
     ProposedPlanOtherProject { command_type: &'static str, plan_id: String, thread_id: ThreadId },
     RollbackTargetNotUser { command_type: &'static str },
@@ -111,6 +115,7 @@ impl DecideError {
             | AsyncUserInputAlreadyAnswered { command_type }
             | AsyncUserInputAnswerCount { command_type }
             | MessageTooLong { command_type }
+            | NativeReviewAttachments { command_type }
             | ProposedPlanMissing { command_type, .. }
             | ProposedPlanOtherProject { command_type, .. }
             | RollbackTargetNotUser { command_type }
@@ -199,6 +204,7 @@ impl fmt::Display for DecideError {
             MessageTooLong { .. } => {
                 f.write_str("The question response exceeds the maximum message length.")
             }
+            NativeReviewAttachments { .. } => f.write_str(NATIVE_REVIEW_ATTACHMENTS_UNSUPPORTED),
             ProposedPlanMissing { plan_id, thread_id, .. } => write!(
                 f,
                 "Proposed plan '{plan_id}' does not exist on thread '{thread_id}'."
@@ -1551,6 +1557,11 @@ pub fn decide_turn_start(
 ) -> Result<Vec<OrchestrationEvent>, DecideError> {
     let command_type = "thread.turn.start";
     let target = require_thread(command_type, thread, &command.thread_id)?;
+    // Native reviews accept only their review target, never prompt attachments. Reject before
+    // message acceptance so callers can preserve and resend the draft.
+    if command.review_target.is_some() && !command.message.attachments.is_empty() {
+        return Err(DecideError::NativeReviewAttachments { command_type });
+    }
     if let Some(precondition) = &command.resume_precondition {
         if let Some(violation) = thread_resume_precondition_violation(target, precondition) {
             return Err(DecideError::ResumePrecondition {
@@ -2513,6 +2524,35 @@ pub(crate) mod tests {
         assert_eq!(thread.title, "Renamed");
         assert_eq!(thread.settled_at, Some(iso(T0)));
         assert_eq!(thread.associated_worktree_branch.as_deref(), Some("fix/x"));
+    }
+
+    /// A native review takes its target, not prompt attachments: refused before the message is
+    /// accepted, so the draft can be sent again as a normal message (16aee33e5).
+    #[test]
+    fn a_native_review_with_attachments_is_refused_before_acceptance() {
+        let (thread, _) = created_thread();
+        let review = |attachments: serde_json::Value| {
+            client(json!({
+                "type": "thread.turn.start",
+                "commandId": "cmd-review",
+                "threadId": "thread-1",
+                "message": { "messageId": "msg-review", "role": "user", "text": "Review using this screenshot", "attachments": attachments },
+                "reviewTarget": { "type": "uncommittedChanges" },
+                "runtimeMode": "approval-required",
+                "interactionMode": "default",
+                "createdAt": T0,
+            }))
+        };
+        let image = json!([{ "type": "image", "id": "thread-1-00000000-0000-4000-8000-000000000000", "name": "shot.png", "mimeType": "image/png", "sizeBytes": 4 }]);
+        let error = decide(&review(image.clone()), Some(&thread), &iso(T0)).unwrap_err();
+        assert!(matches!(error, DecideError::NativeReviewAttachments { .. }), "{error:?}");
+        assert_eq!(error.to_string(), NATIVE_REVIEW_ATTACHMENTS_UNSUPPORTED);
+        // The review alone, and the same files as an ordinary message, are accepted.
+        assert!(decide(&review(json!([])), Some(&thread), &iso(T0)).is_ok());
+        let mut message = review(image);
+        let OrchestrationCommand::Client(ClientThreadCommand::TurnStart(start)) = &mut message else { panic!() };
+        start.review_target = None;
+        assert!(decide(&message, Some(&thread), &iso(T0)).is_ok());
     }
 
     /// The page's `/goal` (useComposerSlashCommands): refused, so the composer keeps its text.

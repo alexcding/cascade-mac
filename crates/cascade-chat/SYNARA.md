@@ -64,6 +64,22 @@ that applies is ported):
   its optional `sourcePath` and `attachments` fields are left out of the contracts), and the
   web-only `555a74112`, `dd5373847`, `6c5939957`, `1f05cb442`. Every contract change in the range
   is optional, so nothing this crate sends lacks a field the new schemas require.
+- `16aee33e5` a `thread.turn.start` carrying both a `reviewTarget` and attachments is refused by
+  the decider before its message is accepted (`NATIVE_REVIEW_ATTACHMENTS_UNSUPPORTED`,
+  `DecideError::NativeReviewAttachments`), so the draft and its saved files stay for an ordinary
+  send. Not ported: the reactor's second refusal in `dispatchTurnForThreadCore` and the skipped
+  title and branch generators, which catch a review an older host already accepted into Synara's
+  durable event log and replays; here no turn start outlives a run (the queue is in memory), so
+  every one that reaches the reactor passed the decider.
+- `4633b7917` (server half) a Codex child conversation's `turn/started`, `turn/completed` and
+  `turn/aborted` are no longer suppressed (`should_suppress_child_conversation_notification`): they
+  reach the child's subagent thread, which runs and ends with them, and still never touch the
+  parent session. Not ported: the CodexAdapter's parent-only turn watchdog and usage-limit
+  contexts (neither is ported here); the decider's refusal of a send to a finished or Codex native
+  child, the reactor's rejected-subagent-steer path (with its failure's `messageId`) and the
+  ClaudeAdapter's `turn/steerSubagent` error type, all for `steerSubagent`, which is not ported
+  (the engine refuses every send to a child thread before deciding); the crash-resume record's
+  detail snapshot in `quitResume.ts` (no crash resume here); and the web half.
 
 ## File map
 

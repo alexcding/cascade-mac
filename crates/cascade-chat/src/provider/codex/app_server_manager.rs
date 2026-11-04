@@ -2270,7 +2270,8 @@ fn read_provider_conversation_id(params: Option<&Value>) -> Option<String> {
 }
 
 /// Synara `shouldSuppressChildConversationNotification` (codexAppServerManager.ts:5041). Plan
-/// updates are kept even for a child, so the plan card advances.
+/// updates are kept even for a child, so the plan card advances; so are a child's own turn
+/// lifecycle notifications, which go to its subagent thread and leave the parent session alone.
 fn should_suppress_child_conversation_notification(method: &str) -> bool {
     matches!(
         method,
@@ -2282,9 +2283,6 @@ fn should_suppress_child_conversation_notification(method: &str) -> bool {
             | "thread/compacted"
             | "thread/name/updated"
             | "thread/tokenUsage/updated"
-            | "turn/started"
-            | "turn/completed"
-            | "turn/aborted"
     )
 }
 

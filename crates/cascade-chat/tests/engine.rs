@@ -1858,6 +1858,48 @@ async fn a_saved_attachment_is_read_back_by_its_id_alone() {
     engine.shutdown().await;
 }
 
+/// A native review with an attachment is refused before its message is accepted; the saved file
+/// stays, and the same draft goes as an ordinary message (16aee33e5).
+#[tokio::test]
+async fn a_native_review_with_an_attachment_is_refused_before_its_message() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-review-image";
+    engine.dispatch(create_thread(thread, "codex", "gpt-6-astra", workspace.path())).await.unwrap();
+    let saved = engine
+        .save_attachment(ThreadId::new(thread), "shot.png".into(), "image/png".into(), b"\x89PNG".to_vec())
+        .await
+        .unwrap();
+    let id = serde_json::to_value(&saved).unwrap()["id"].as_str().unwrap().to_owned();
+    let send = |review: bool| {
+        let mut value = serde_json::to_value(turn_start(thread, "msg-review", "Review using this screenshot", "queue")).unwrap();
+        value["message"]["attachments"] = serde_json::to_value([&saved]).unwrap();
+        if review {
+            value["reviewTarget"] = json!({ "type": "uncommittedChanges" });
+        }
+        command(value)
+    };
+
+    let refused = engine.dispatch(send(true)).await;
+    assert!(
+        matches!(&refused, Err(ChatError::Invalid(detail)) if detail.contains("Native code reviews do not support attachments")),
+        "{refused:?}"
+    );
+    let before = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert!(before.messages.is_empty());
+    assert!(before.session.is_none(), "nothing was started");
+    assert!(timeout(Duration::from_millis(200), spawner.next()).await.is_err(), "no CLI was spawned");
+    assert_eq!(engine.read_attachment(id.clone()).await.unwrap().unwrap().1, b"\x89PNG");
+
+    engine.dispatch(send(false)).await.unwrap();
+    let after = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+    assert_eq!(after.messages.len(), 1);
+    assert_eq!(after.messages[0].attachments.as_ref().map(Vec::len), Some(1));
+    engine.shutdown().await;
+}
+
 #[tokio::test]
 async fn a_claude_subagent_gets_a_read_only_child_thread() {
     const SUBAGENT_FIXTURE: &str = include_str!("fixtures/claude-turn-with-subagent.jsonl");
@@ -2096,6 +2138,63 @@ async fn a_parent_turn_shows_at_most_twenty_subagent_threads() {
     assert_eq!(children.len(), 20, "{:?}", children.iter().map(|c| c.id.as_str()).collect::<Vec<_>>());
     assert!(children.iter().all(|c| c.source_turn_id.as_ref() == Some(&parent_turn)));
     assert!(engine.thread(ThreadId::new(format!("subagent:{thread}:{last}"))).await.unwrap().is_none());
+    engine.shutdown().await;
+}
+
+/// A Codex child conversation's own turn lifecycle reaches its subagent thread, which runs and
+/// ends with it, and never settles or aborts the parent's turn (4633b7917).
+#[tokio::test]
+async fn a_codex_child_turn_runs_and_ends_on_its_thread_alone() {
+    let data = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let spawner = ScriptedSpawner::new();
+    let (engine, _) = start(data.path(), &spawner).await;
+    let thread = "thread-codex-children";
+    engine.dispatch(create_thread(thread, "codex", "gpt-6-astra", workspace.path())).await.unwrap();
+    engine.dispatch(turn_start(thread, "msg-1", "Spawn two agents", "queue")).await.unwrap();
+    let child = timeout(WAIT, spawner.next()).await.expect("the engine started no CLI");
+    let mut cli = CodexCli { from_engine: BufReader::new(child.stdin).lines(), to_engine: child.stdout };
+    let recorded = |id: i64| -> Value {
+        serde_json::from_str(CODEX_FIXTURE.lines().find(|l| l.starts_with(&format!("{{\"id\":{id},"))).unwrap()).unwrap()
+    };
+    let initialize = cli.expect_request("initialize").await;
+    cli.write(&json!({ "id": initialize["id"], "result": recorded(1)["result"] })).await;
+    let open = cli.expect_request("thread/start").await;
+    cli.write(&json!({ "id": open["id"], "result": recorded(2)["result"] })).await;
+    let provider_thread = recorded(2)["result"]["thread"]["id"].clone();
+    let start = cli.expect_request("turn/start").await;
+    let turn = "turn-parent";
+    cli.write(&json!({ "id": start["id"], "result": { "turn": { "id": turn, "items": [], "status": "inProgress" } } })).await;
+    cli.write(&json!({ "method": "turn/started", "params": { "threadId": provider_thread, "turn": { "id": turn, "status": "inProgress" } } })).await;
+    wait_for(&engine, thread, "the parent's turn to run", running).await;
+    let parent_runs = |t: &OrchestrationThread| {
+        running(t) && t.session.as_ref().and_then(|s| s.active_turn_id.as_ref()).map(TurnId::as_str) == Some(turn)
+    };
+
+    // A child that completes, and one that is aborted: each ends on its own thread.
+    for (conversation, child_turn, end) in [
+        ("conv-child-a", "turn-child-a", json!({ "method": "turn/completed", "params": { "threadId": "conv-child-a", "turn": { "id": "turn-child-a", "status": "completed" } } })),
+        ("conv-child-b", "turn-child-b", json!({ "method": "turn/aborted", "params": { "threadId": "conv-child-b", "turnId": "turn-child-b" } })),
+    ] {
+        let child_thread = format!("subagent:{thread}:{conversation}");
+        cli.write(&json!({ "method": "turn/started", "params": { "threadId": conversation, "turn": { "id": child_turn, "status": "inProgress" } } })).await;
+        let started = wait_for(&engine, &child_thread, "the child's turn to run", running).await;
+        assert_eq!(started.parent_thread_id.as_ref().map(ThreadId::as_str), Some(thread));
+        assert_eq!(started.latest_turn.as_ref().map(|t| t.turn_id.as_str()), Some(child_turn));
+        assert!(parent_runs(&engine.thread(ThreadId::new(thread)).await.unwrap().unwrap()));
+        cli.write(&end).await;
+        wait_for(&engine, &child_thread, "the child's turn to end", |t| {
+            t.latest_turn.as_ref().is_some_and(|l| l.state != OrchestrationLatestTurnState::Running)
+                && t.session.as_ref().is_some_and(|s| s.active_turn_id.is_none())
+        })
+        .await;
+        let parent = engine.thread(ThreadId::new(thread)).await.unwrap().unwrap();
+        assert!(parent_runs(&parent), "{:?}", parent.session);
+        assert_eq!(parent.latest_turn.as_ref().map(|t| t.state), Some(OrchestrationLatestTurnState::Running));
+    }
+
+    cli.write(&json!({ "method": "turn/completed", "params": { "threadId": provider_thread, "turn": { "id": turn, "status": "completed" } } })).await;
+    wait_for(&engine, thread, "the parent's turn", turn_completed).await;
     engine.shutdown().await;
 }
 
