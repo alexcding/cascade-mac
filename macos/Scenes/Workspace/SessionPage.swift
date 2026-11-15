@@ -25,6 +25,19 @@ struct SessionPage: Equatable, Sendable {
         }
         return nil
     }
+    /// The first link in `text` that names a page, wherever it stands among other words. A link
+    /// ends at the first character no address holds (a space, `。`, `，`), and punctuation closing
+    /// a sentence or bracket is not its own.
+    static func find(in text: String) -> Self? {
+        for match in text.matches(of: #/(?i)https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+/#) {
+            var end = match.range.upperBound
+            while end > match.range.lowerBound, let last = text[..<end].last, ".,;:!?)]}'".contains(last) {
+                end = text.index(before: end)
+            }
+            if let page = parse(String(text[match.range.lowerBound..<end])) { return page }
+        }
+        return nil
+    }
     static func jiraBranch(key: String, summary: String) -> String {
         let slug = slug(summary)
         return slug.isEmpty ? key : "\(key)-\(slug)"

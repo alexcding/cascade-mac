@@ -4,7 +4,8 @@ import Observation
 /// A project's Start page: where every session in the project begins. One field takes a task for
 /// the agent, a GitHub pull request, GitHub issue or Jira link to start on, or — with Shell only, or when it names
 /// a branch the repository has — a branch, read by shape, with a hint saying which reading won.
-/// A task gets a new branch named from its words, and becomes the agent's first prompt — or, with
+/// A link may stand among other words: it finds the session's branch and worktree, and the whole
+/// text is the agent's first prompt. A task gets a new branch named from its words, and becomes the agent's first prompt — or, with
 /// Existing branch chosen, works on the chosen branch itself.
 @MainActor @Observable final class ProjectComposerModel {
     enum Action: Equatable { case created(WorkspaceSession, prompt: String?, launch: AgentLaunchChoice?) }
@@ -45,8 +46,10 @@ import Observation
     private(set) var fetching = false
     private(set) var resolving = false
     private(set) var creating = false
-    /// A lookup or create failure — cleared when the field changes.
-    private(set) var error: String?
+    /// A lookup or create failure — cleared when the field changes, except the link's own lookup
+    /// failure, which stands while only the words around that link change.
+    private(set) var error: String? { didSet { errorFromLookup = false } }
+    private var errorFromLookup = false
     private(set) var inputError: String?
     /// The branch list couldn't be read — independent of what is typed, so edits don't clear it.
     private(set) var referenceError: String?
@@ -69,6 +72,8 @@ import Observation
     private var owners: [String: WorkspaceSession] = [:]
     private var generation = UUID()
     private var inputGeneration = UUID()
+    /// Bumped when the link in the field names another page: what a lookup answers is for its page only.
+    private var pageGeneration = UUID()
     @ObservationIgnored private var referenceTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private var fetchTask: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     @ObservationIgnored private var lookup: Task<SessionDraft?, Never>? { didSet { oldValue?.cancel() } }
@@ -88,8 +93,14 @@ import Observation
     }
     var launchChoice: AgentLaunchChoice? { agent == .shell || model == nil ? nil : AgentLaunchChoice(model: model, effort: effort) }
     private var typed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var urlish: Bool { typed.range(of: "^https?://", options: [.regularExpression, .caseInsensitive]) != nil }
-    var page: SessionPage? { urlish ? SessionPage.parse(typed) : nil }
+    /// The page a link in what is typed names: the first that reads as a pull request, issue or
+    /// ticket, wherever it stands among the words around it.
+    /// Worked out once per edit: the text may be a long prompt, and this is read on every render.
+    private(set) var page: SessionPage?
+    /// What is typed reads as a link: one that names a page, or a lone address that names none.
+    private var urlish: Bool { page != nil || loneAddress }
+    /// The field holds nothing but an address: one that names no page is then a mistake, not a task.
+    private(set) var loneAddress = false
     /// Text that names a branch rather than a task: with Shell only, or one the repository has.
     private var namesBranch: Bool { page == nil && !urlish && (agent == .shell || branches.contains(typed)) }
     var showsPullRequestBranch: Bool { unresolvedPullRequest && page != nil }
@@ -103,7 +114,7 @@ import Observation
     /// CLI's default with nothing to say the choice was dropped.
     private var awaitingChoice: Bool { choices[agent.rawValue]?.model != nil && loadingCatalogs.contains(agent.rawValue) }
     var canStart: Bool {
-        guard !retired, operations != nil, !busy, !awaitingChoice, !project.workspace.isEmpty, !(urlish && page == nil) else { return false }
+        guard !retired, operations != nil, !busy, !awaitingChoice, !project.workspace.isEmpty, !(loneAddress && page == nil) else { return false }
         return usesExistingBranch ? !workBranch.isEmpty && owners[workBranch] == nil : !typed.isEmpty
     }
     /// Picks `branch` for what the chooser is choosing now; false when it can't be picked.
@@ -155,7 +166,7 @@ import Observation
             }
         }
         if typed.isEmpty { return nil }
-        if urlish && page == nil { return (String(localized: "Not a GitHub pull request, GitHub issue or Jira issue link"), true) }
+        if loneAddress && page == nil { return (String(localized: "Not a GitHub pull request, GitHub issue or Jira issue link"), true) }
         if let page {
             if resolving { return (String(localized: "Looking it up…"), false) }
             if let resolved {
@@ -274,13 +285,29 @@ import Observation
     private func cancel() {
         referenceTask = nil; generation = UUID(); loading = false
         fetchTask = nil; fetching = false
-        inputGeneration = UUID(); resolving = false; lookup = nil
+        inputGeneration = UUID(); pageGeneration = UUID(); resolving = false; lookup = nil
     }
 
-    /// Every edit invalidates what the LAST text resolved to, then looks up a pasted address.
+    /// Every edit invalidates what the LAST text was read as. Only a link that names another page
+    /// is looked up again: words typed around the same link leave its lookup, and its error, standing.
     private func textChanged() {
-        inputGeneration = UUID()
-        resolved = nil; unresolvedPullRequest = false; inputError = nil; error = nil
+        inputGeneration = UUID(); inputError = nil
+        let typed = typed
+        loneAddress = typed.range(of: "^https?://\\S*$", options: [.regularExpression, .caseInsensitive]) != nil
+        let page = SessionPage.find(in: typed)
+        guard page != self.page else {
+            if !errorFromLookup { error = nil }
+            return
+        }
+        self.page = page
+        error = nil
+        lookUpAgain()
+    }
+
+    /// Forgets what the link was looked up as, and looks it up afresh.
+    private func lookUpAgain() {
+        pageGeneration = UUID()
+        resolved = nil; unresolvedPullRequest = false
         lookup = nil; resolving = false
         guard !retired, page != nil else { return }
         lookup = Task { [weak self] in await self?.resolvePage() }
@@ -357,18 +384,18 @@ import Observation
 
     private func resolvePage() async -> SessionDraft? {
         guard !retired, !Task.isCancelled, let operations, let page, !resolving else { return nil }
-        let generation = inputGeneration
+        let generation = pageGeneration
         resolving = true; error = nil
-        defer { if inputGeneration == generation { resolving = false } }
+        defer { if pageGeneration == generation { resolving = false } }
         var draft = SessionDraft(); draft.agent = agent; draft.base = base
         do {
             let result = try await operations.resolvePage(page.url, project: project, draft: draft)
-            guard !retired, !Task.isCancelled, inputGeneration == generation else { return nil }
+            guard !retired, !Task.isCancelled, pageGeneration == generation else { return nil }
             resolved = result
             return result
         } catch {
-            guard !retired, !Task.isCancelled, inputGeneration == generation else { return nil }
-            if error is PullRequestBranchUnknown { unresolvedPullRequest = true } else { self.error = error.localizedDescription }
+            guard !retired, !Task.isCancelled, pageGeneration == generation else { return nil }
+            if error is PullRequestBranchUnknown { unresolvedPullRequest = true } else { self.error = error.localizedDescription; errorFromLookup = true }
             return nil
         }
     }
@@ -397,9 +424,13 @@ import Observation
                 if let problem = ProjectSessionStart.branchNameError(branch) { inputError = problem; return }
                 creation.url = page.url; creation.kind = "github"; creation.branch = branch; creation.createBranch = false
             } else {
-                if error == nil { error = String(localized: "Could not look up that page. Check the address and try again.") }
+                if error == nil { error = String(localized: "Could not look up that page. Check the address and try again."); errorFromLookup = true }
                 return
             }
+            // The link only finds the session's branch and worktree; what is typed, link and all, is
+            // the agent's first prompt as it stands, so a link alone has the agent read that page.
+            // A shell takes no prompt.
+            if agent != .shell { prompt = typed }
         } else if usesExistingBranch {
             // The chosen branch is the session's own. No base: the backend picks where the main
             // checkout is parked, should it hold the branch, and nothing forks.
@@ -427,7 +458,9 @@ import Observation
             guard !retired else { return }
             // Only what this session was made from is cleared: text or a page put here while it was
             // being created — Start opened on a link meanwhile — stays for the next one.
-            if inputGeneration == generation { text = "" }
+            // What stays was looked up before this session made its branch and worktree: the
+            // next Create must see them, so the link is looked up again.
+            if inputGeneration == generation { text = "" } else { lookUpAgain() }
             // The branch named for a pull request belongs to that one: it never carries over to a
             // link opened meanwhile, unless it was typed again since.
             if pullRequestBranch == usedBranch { pullRequestBranch = "" }

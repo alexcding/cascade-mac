@@ -162,7 +162,7 @@ private let homeProject = Project(id: "home", name: "Home", repo: "o/r", color: 
     #expect(model.hint?.text == "Opens that pull request on feature/pr")
     await model.submit()
     let draft = try #require(await operations.drafts.last)
-    #expect(draft.branch == "feature/pr" && draft.kind == "github" && draft.agent == .codex && created().last.map { $0.1 == nil } == true)
+    #expect(draft.branch == "feature/pr" && draft.kind == "github" && draft.agent == .codex && created().last.map { $0.1 == "https://github.com/o/r/pull/7" } == true)
     model.text = "https://example.test/page"
     #expect(model.hint?.isError == true && !model.canStart)
     let unknown = StartOperations()

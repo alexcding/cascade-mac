@@ -11,6 +11,16 @@ import Testing
     #expect(SessionPage.jiraBranch(key: "RECORD-123", summary: "") == "RECORD-123")
 }
 
+@Test func aLinkIsFoundAmongTheWordsAroundIt() {
+    let found = SessionPage.find(in: "https://acme.jira.com/browse/MW-137\ntake a look this issue")
+    #expect(found?.key == "MW-137" && found?.url == "https://acme.jira.com/browse/MW-137")
+    #expect(SessionPage.find(in: "Please fix (https://acme.jira.com/browse/MW-9).")?.key == "MW-9")
+    #expect(SessionPage.find(in: "see https://example.com/doc then https://github.com/o/r/pull/3 now")?.kind == "github")
+    #expect(SessionPage.find(in: "read https://example.com/docs and fix it") == nil)
+    #expect(SessionPage.find(in: "https://acme.jira.com/browse/MW-137。请看这个")?.key == "MW-137")
+    #expect(SessionPage.find(in: "看看https://acme.jira.com/browse/MW-137，帮我修一下")?.key == "MW-137")
+}
+
 private final class SessionHTTPFixture: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -136,6 +146,55 @@ private let scriptedProject = Project(id: "fixture", name: "Fixture", repo: "fix
     #expect(await service.creations == 0)
 }
 
+@MainActor @Test(.timeLimit(.minutes(1))) func wordsAroundALinkStartItsSessionAndBecomeTheAgentsPrompt() async {
+    let service = ScriptedSessionService()
+    let model = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: service)
+    var prompt: String??
+    model.onAction = { if case .created(_, let asked, _) = $0 { prompt = asked } }
+    model.text = "https://acme.jira.com/browse/MW-137\ntake a look this issue"
+    #expect(model.page?.key == "MW-137" && model.hint?.isError != true && model.linkTyped && model.canStart)
+    await model.submit()
+    #expect(await service.creations == 1)
+    #expect(prompt == .some("https://acme.jira.com/browse/MW-137\ntake a look this issue"))
+    model.text = "https://acme.jira.com/browse/MW-138"
+    await model.submit()
+    #expect(prompt == .some("https://acme.jira.com/browse/MW-138"), "A link alone is the prompt too")
+    model.text = "https://github.com/fixture/repo/pull/4"
+    await model.submit()
+    #expect(prompt == .some("https://github.com/fixture/repo/pull/4"))
+    model.select(.shell)
+    model.text = "https://acme.jira.com/browse/MW-139 note"
+    await model.submit()
+    #expect(prompt == .some(nil), "A shell takes no prompt")
+    model.text = "read https://example.com/docs and fix it"
+    #expect(model.page == nil && model.hint == nil && model.canStart, "A link to no page is part of a task")
+    model.text = "https://"
+    #expect(model.hint?.isError == true && !model.canStart, "A bare scheme is an address that names nothing")
+    let typing = ScriptedSessionService()
+    let typed = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: typing)
+    typed.text = "https://acme.jira.com/browse/MW-140"
+    #expect(await typed.resolve())
+    for word in [" take", " take a", " take a look"] { typed.text = "https://acme.jira.com/browse/MW-140" + word }
+    #expect(await typed.resolve() && typed.resolved != nil)
+    #expect(await typing.resolutions == 1, "Words typed around the same link do not look it up again")
+    typed.text = "https://acme.jira.com/browse/MW-141 take a look"
+    #expect(await typed.resolve())
+    #expect(await typing.resolutions == 2, "Another link is looked up")
+    await typed.submit()
+    #expect(await typing.creations == 1 && typed.text.isEmpty)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aLinksLookupErrorStandsWhileOnlyTheWordsAroundItChange() async {
+    let service = ScriptedSessionService(resolutionError: BackendError.operation("Worktree lookup failed"))
+    let model = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: service)
+    model.text = "https://jira.test/browse/RECORD-12"
+    #expect(await model.resolve() == false && model.error == "Worktree lookup failed")
+    model.text = "https://jira.test/browse/RECORD-12 please"
+    #expect(model.error == "Worktree lookup failed", "the same link's failure stands")
+    model.text = "https://jira.test/browse/RECORD-13 please"
+    #expect(model.error == nil, "another link clears it")
+}
+
 @MainActor @Test(.timeLimit(.minutes(1))) func sessionAsksForThePullRequestBranchOnlyWhenTheBranchIsUnknown() async {
     let mismatch = ScriptedSessionService(resolutionError: BackendError.operation("This pull request belongs to other/repo."))
     let wrongProject = ProjectComposerModel(project: scriptedProject, agent: .claude, operations: mismatch)
@@ -157,7 +216,7 @@ private let scriptedProject = Project(id: "fixture", name: "Fixture", repo: "fix
     model.pullRequestBranch = "feature/known"
     await model.submit()
     #expect(created?.branch == "feature/known" && created?.url == "https://github.com/fixture/repo/pull/42")
-    #expect(prompt == .some(nil), "A link starts on its page, with no prompt")
+    #expect(prompt == .some("https://github.com/fixture/repo/pull/42"), "A link starts on its page, and is the agent's prompt")
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func sessionBranchListErrorSurvivesEditingTheField() async {
