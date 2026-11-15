@@ -5,8 +5,8 @@ import Observation
 /// sidebar's section per Mac. Read once connected, and kept by the backend's events: `remote-peers`
 /// (a Mac paired or forgotten), `remote-peer` (whether one answers), and `remote` (what one told,
 /// relayed: its sessions or a chat changed). A Mac's lists are read when it comes online and when
-/// it says they changed; one that stops answering keeps what was read, its section says it is
-/// offline.
+/// it says they changed; one that stops answering keeps what was read, and its section leaves the
+/// sidebar until it answers again.
 @MainActor @Observable final class RemotePeersStore {
     private(set) var peers: [RemotePeer] = []
     private(set) var sessions: [String: [WorkspaceSession]] = [:]

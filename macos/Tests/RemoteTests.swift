@@ -169,8 +169,15 @@ private func event(_ json: String) throws -> ServerEvent {
     // Nothing names a path of this Mac's, so nothing offers Finder.
     #expect(tail.allSatisfy { $0.detail.isEmpty })
 
-    let offline = SidebarEntry.make(projects: [], sessions: [], remote: [SidebarRemoteSection(peer: RemotePeer(id: "ab", name: "Mac mini"))])
-    #expect(offline.last?.title == "Mac mini · Offline")
+    // Only while it is there: a Mac in any other state lists nothing, its sessions and chats included.
+    for reach in [RemotePeer.Reach.offline, .connecting, .revoked, .changed] {
+        let away = SidebarEntry.make(projects: [], sessions: [], remote: [
+            SidebarRemoteSection(peer: RemotePeer(id: "ab", name: "Mac mini", reach: reach), sessions: [session("s1", title: "Build")], chats: [chat])
+        ])
+        #expect(!away.contains { $0.id.contains(":ab") }, "\(reach)")
+        #expect(away.map(\.id) == SidebarEntry.make(projects: [], sessions: []).map(\.id), "\(reach)")
+        #expect(SidebarEntry.remoteSection(SidebarRemoteSection(peer: RemotePeer(id: "ab", name: "Mac mini", reach: reach))).isEmpty)
+    }
 }
 
 @MainActor @Test func aPairedMacsSessionsAreListedUnderItsProjects() {

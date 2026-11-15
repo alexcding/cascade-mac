@@ -211,17 +211,12 @@ struct SidebarEntry: Equatable {
     /// folders), then its projects, each a folder of its sessions as this Mac's are, then sessions
     /// of no project it listed, then its chats. Nothing in them is this Mac's: no row names a local
     /// path, so none offers Finder; a session opens its terminal there.
+    /// Only while the Mac is there: offline, still connecting or no longer paired, it has nothing to
+    /// open, and lists nothing; Settings → Remote says which.
     static func remoteSection(_ section: SidebarRemoteSection) -> [Self] {
         let peer = section.peer
-        let state: String? = switch peer.reach {
-        case .online: nil
-        case .connecting: String(localized: "Connecting")
-        case .offline: String(localized: "Offline")
-        case .revoked: String(localized: "Access removed")
-        case .changed: String(localized: "Pair again")
-        }
-        var result = [Self(id: "label:remote:\(peer.id)", title: state.map { "\(peer.name) · \($0)" } ?? peer.name,
-                           symbol: "", role: .label)]
+        guard peer.reach == .online else { return [] }
+        var result = [Self(id: "label:remote:\(peer.id)", title: peer.name, symbol: "", role: .label)]
         func sessionRow(_ session: WorkspaceSession) -> Self {
             let state = section.states.map { states in
                 let state = states[session.id] ?? RemoteSessionStatus()
