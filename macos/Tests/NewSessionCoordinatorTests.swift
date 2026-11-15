@@ -117,7 +117,7 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         model.setMode(.chat)
         let chat = try #require(model.chat)
         await chat.load()
-        #expect(chat.agent == "claude" && chat.model == "opus" && !chat.canStart, "nothing typed yet")
+        #expect(chat.agent == "claude" && chat.model == "opus" && chat.canStart, "nothing typed is a chat too")
         #expect(chat.folder.isEmpty && chat.askPlaceholder == "Ask Claude anything")
         #expect(!chat.offersKnowledge, "the session knowledge is a pane chat's alone")
         chat.prompt = "What does the poller do?"
@@ -135,6 +135,25 @@ private let local = Project(id: "p", name: "P", repo: "", color: nil, workspace:
         #expect(runtime.created.first?.cwd == NewTaskChat.scratch + thread, "in the folder the backend made")
         #expect(root.selection == .chat(thread), "the window goes to the chat")
         #expect(chat.retired && model.chat !== chat && model.chat?.prompt == "", "a fresh form for the next chat")
+    }
+}
+
+@MainActor @Test func chatSideStartsAChatWithNothingTypedAndSendsNoFirstMessage() async throws {
+    try await withCleanNewTaskDefaults {
+        let root = root(), runtime = NewSessionRuntimeFixture()
+        let model = root.makeNewSession(factory: NativeNewSessionFeatureFactory(), runtime: runtime)
+        root.navigate(to: .newSession)
+        model.update(projects: [local])
+        model.setMode(.chat)
+        let chat = try #require(model.chat)
+        await chat.load()
+        chat.prompt = "  \n "
+        #expect(chat.canStart)
+        await chat.start()
+        let commands = runtime.chat.commands
+        #expect(commands.map { $0["type"]?.string } == ["thread.create"], "made, with no turn")
+        let thread = try #require(commands.first?["threadId"]?.string)
+        #expect(root.selection == .chat(thread), "the window goes to the empty chat")
     }
 }
 

@@ -178,9 +178,9 @@ import UniformTypeIdentifiers
         !retired && !busy && !loadingModels && (standalone || !folder.isEmpty) && agents.contains { $0.cli == agent && $0.usable } && !(model ?? "").isEmpty
     }
 
-    private var typedPrompt: String { ChatCompletion.text(of: prompt) }
-    /// Start: only once something is typed or attached, and every file is ready; the chat starts with it.
-    var canStart: Bool { canCreate && staging == 0 && (!typedPrompt.isEmpty || !attachments.isEmpty) }
+    /// Start: once every file is ready. What is typed or attached is the chat's first message; with
+    /// nothing, the chat starts empty and waits for one.
+    var canStart: Bool { canCreate && staging == 0 }
 
     /// A pane's Start: makes the chat and sends the typed text as its first message.
     func start() async {

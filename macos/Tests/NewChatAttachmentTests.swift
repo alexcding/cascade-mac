@@ -116,7 +116,6 @@ private func noisePNG(width: Int, height: Int) throws -> Data {
         let scratch = try Scratch(), service = AttachingChat()
         let notes = try scratch.file("notes.txt")
         let model = await form(service)
-        #expect(!model.canStart)
         model.attach(ChatAttachmentReader.files([notes]))
         #expect(model.canStart, "a file is something to send")
         await model.start()

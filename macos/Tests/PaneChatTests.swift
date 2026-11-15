@@ -275,12 +275,7 @@ private struct QuietPageBackend: ChatPageBackend {
         model.preparePaneChat(tab)
         let form = try #require(model.paneChat(for: tab)?.form)
         await form.load()
-        #expect(form.canCreate && !form.canStart, "as New Task's Start: nothing typed, nothing to start")
-        form.prompt = "  \n "
-        #expect(!form.canStart, "blank is nothing")
-        await form.start()
-        #expect(service.chat.commands.isEmpty)
-
+        #expect(form.canCreate && form.canStart, "as New Task's Start: a chat may start with nothing typed")
         form.prompt = "  Why does the build fail?\n"
         #expect(form.canStart)
         await form.start()
