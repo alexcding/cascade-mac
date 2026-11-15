@@ -303,7 +303,8 @@ pub async fn update_project(
     }
     // A session's own simulator goes with the session, so it is never a project's default. Its
     // scheme still is, the first time: the app seeds again while the project has no simulator, and
-    // the default scheme must not follow every session's choice from then on.
+    // that seed must not move the default scheme. A scheme picked in a session's menu does, and is
+    // sent by itself, so it passes here.
     if let Some(sim) = patch.get("runSim").and_then(Value::as_str).filter(|sim| !sim.is_empty()) {
         if state.db.tasks().await?.iter().any(|task| task.made_sim == sim) {
             patch.remove("runSim");

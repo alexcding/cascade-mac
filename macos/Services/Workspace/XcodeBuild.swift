@@ -31,10 +31,13 @@ struct XcodeBuildService: BuildServing {
         try await api.get(APIClient.query(Routes.XCODE_BUILD_SETTINGS,
             ["path": session.worktree, "rel": project.ideTarget ?? "", "scheme": scheme, "sim": simulator]), timeout: 600)
     }
-    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) async throws {
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, projectScheme: Bool, scheme: String, simulator: String) async throws {
         let body = ["runScheme": scheme, "runSim": simulator]
         let _: OperationOK = try await api.request(Routes.task(session.id), method: "PATCH", body: body)
         if seedingProject { let _: Project = try await api.request(Routes.project(session.projectId), method: "PUT", body: body) }
+        // The scheme alone: the backend keeps a session's own simulator out of the project, and with
+        // it the scheme when the project already has one.
+        if projectScheme { let _: Project = try await api.request(Routes.project(session.projectId), method: "PUT", body: ["runScheme": scheme]) }
     }
     /// Long, since `simctl create` can take a while on a busy Mac.
     func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator? {

@@ -56,12 +56,13 @@ private actor OperationBuildService: BuildServing {
         if let settingsGate { return try await settingsGate.value() }
         return operationSettings
     }
-    var savedSessions: [String] = [], seededProject: [Bool] = [], savedSimulators: [String] = []
+    var savedSessions: [String] = [], seededProject: [Bool] = [], savedSimulators: [String] = [], projectSchemes: [String] = []
     struct SaveFailed: LocalizedError { var errorDescription: String? { "could not save" } }
-    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) throws {
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, projectScheme: Bool, scheme: String, simulator: String) throws {
         saves += 1
         if failsSaves { throw SaveFailed() }
         savedSessions.append(session.id); seededProject.append(seedingProject); savedSimulators.append(simulator)
+        if projectScheme { projectSchemes.append(scheme) }
     }
     /// The session's own already: the one it would run on.
     func sessionSimulator(session: WorkspaceSession, from: String) throws -> BuildSimulator? {
@@ -507,6 +508,33 @@ private func operationSession(_ id: String, scheme: String? = nil, simulator: St
     #expect(asked == ["", "Other"])
     #expect(runtime.scheme == "Fixture" && runtime.canRun, "an unknown scheme resolves back to a real one")
     runtime.disconnect()
+}
+
+/// A scheme picked in one session is where the next starts: the project's default follows the
+/// last pick, not the first scheme the project ran. A simulator pick never moves it.
+@MainActor @Test(.timeLimit(.minutes(1))) func aPickedSchemeBecomesTheProjectsDefaultForTheNextSession() async {
+    let schemes = (BuildSchemes(target: "/tmp/Fixture.xcodeproj", schemes: ["Fixture", "Other"]), twoDestinations.1)
+    let service = OperationBuildService(answer: schemes)
+    // A project of its own: the destinations cache is the app's, keyed by project and scheme.
+    var project = Project(id: "default-scheme", name: "Operation", repo: "", color: nil, workspace: "/tmp/fixture", ide: "xcode")
+    project.runScheme = "Fixture"; project.runSim = "fixture-simulator"
+    let first = BuildWorkspaceViewModel(service: service, project: project, session: operationSession("first"),
+        terminalFactory: { OperationBuildTerminal() })
+    await first.loadDestinations()
+    await first.choose(simulator: "second-simulator")
+    #expect(await service.projectSchemes.isEmpty, "a simulator pick leaves the default scheme")
+    await first.choose(scheme: "Other")
+    #expect(first.scheme == "Other")
+    #expect(await service.projectSchemes == ["Other"])
+    await first.choose(scheme: "Other")
+    #expect(await service.projectSchemes == ["Other"], "the default already is that scheme")
+    await first.choose(scheme: "Fixture")
+    #expect(await service.projectSchemes == ["Other", "Fixture"], "a pick back moves it back")
+    project.runScheme = "Fixture"
+    let next = BuildWorkspaceViewModel(service: service, project: project, session: operationSession("next"),
+        terminalFactory: { OperationBuildTerminal() })
+    #expect(next.scheme == "Fixture")
+    first.disconnect(); next.disconnect()
 }
 
 /// Selecting a session and its toolbar both ask for the kept lists: one request, and the menu

@@ -323,7 +323,7 @@ private final class SessionSimulatorService: BuildServing, @unchecked Sendable {
     func settings(project: Project, session: WorkspaceSession, scheme: String, simulator: String) async throws -> BuildSettings {
         BuildSettings(appPath: "/tmp/Fixture.app", bundleId: "fixture.app", target: "/tmp/Fixture.xcodeproj", configuration: "Debug")
     }
-    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) async throws {
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, projectScheme: Bool, scheme: String, simulator: String) async throws {
         saved.append(simulator)
     }
     func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator? {

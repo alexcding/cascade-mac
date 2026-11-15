@@ -96,8 +96,9 @@ protocol BuildServing: Sendable {
     func destinations(project: Project, session: WorkspaceSession, scheme: String, refresh: Bool) async throws -> (BuildSchemes, [BuildSimulator])
     func settings(project: Project, session: WorkspaceSession, scheme: String, simulator: String) async throws -> BuildSettings
     /// The destination belongs to the session; `seedingProject` also makes it the
-    /// default for a project that has none yet.
-    func saveDestination(session: WorkspaceSession, seedingProject: Bool, scheme: String, simulator: String) async throws
+    /// default for a project that has none yet, and `projectScheme` makes its scheme the project's
+    /// default scheme, which the next session starts on.
+    func saveDestination(session: WorkspaceSession, seedingProject: Bool, projectScheme: Bool, scheme: String, simulator: String) async throws
     /// The session's own simulator, of the model and OS of the simulator `from`: made the first time,
     /// the same one after. Nil when `from` is no simulator.
     func sessionSimulator(session: WorkspaceSession, from: String) async throws -> BuildSimulator?
@@ -173,23 +174,28 @@ protocol BuildServing: Sendable {
     }
     func adopt(_ project: Project) {
         self.project = project
+        // The project speaks for its default again, which another session may have moved since.
+        if savesInFlight == 0 { projectSchemeSent = nil }
         guard !ownsDestination, presentationID == nil, !starting, !running else { return }
         if let scheme = project.runScheme, !scheme.isEmpty, (session.runScheme ?? "").isEmpty { self.scheme = scheme; saved.scheme = scheme }
         if let simulator = project.runSim, !simulator.isEmpty { self.simulator = simulator; saved.simulator = simulator }
     }
     /// Saves go one at a time, so the backend keeps the last pick, and only the newest says what is
     /// saved: two quick picks must not leave the first one as the saved pair.
-    private func saveDestination(scheme: String, simulator: String) async throws {
+    private func saveDestination(scheme: String, simulator: String, projectScheme: Bool = false) async throws {
         let previous = savingTail, generation = UUID(); saveGeneration = generation
         savesInFlight += 1
         defer { savesInFlight -= 1 }
         let seeding = (project.runScheme ?? "").isEmpty || (project.runSim ?? "").isEmpty
         let save = Task { [service, session] in
             await previous?.value
-            try await service.saveDestination(session: session, seedingProject: seeding, scheme: scheme, simulator: simulator)
+            try await service.saveDestination(session: session, seedingProject: seeding, projectScheme: projectScheme, scheme: scheme, simulator: simulator)
         }
         savingTail = Task { _ = try? await save.value }
         try await save.value
+        // Known here at once, so the next save does not seed over it; the app's project list
+        // catches up on its next read.
+        if projectScheme { project.runScheme = scheme }
         guard saveGeneration == generation else { return }
         saved = (scheme, simulator); ownsDestination = true
         if self.scheme == scheme && self.simulator == simulator { picked = false }
@@ -197,6 +203,8 @@ protocol BuildServing: Sendable {
     @ObservationIgnored private var savingTail: Task<Void, Never>?
     @ObservationIgnored private var saveGeneration = UUID()
     @ObservationIgnored private var savesInFlight = 0
+    /// The scheme last sent as the project's default, until the project says so itself.
+    @ObservationIgnored private var projectSchemeSent: String?
     fileprivate func beginPresentation(_ id: UUID) -> Bool {
         guard valid, !starting, !preparing else { return false }
         presentationID = id; loadGeneration = UUID(); loading = false; error = nil; loadFailed = false
@@ -429,11 +437,11 @@ protocol BuildServing: Sendable {
         if scheme != self.scheme {
             self.scheme = scheme
             // Saved at once on the lists already known; the fresh look below only corrects it.
-            if let cached = Self.cachedDestinations[cacheKey(scheme)] { apply(cached); await saveChoice() }
+            if let cached = Self.cachedDestinations[cacheKey(scheme)] { apply(cached); await saveChoice(projectScheme: true) }
             // Another scheme runs on other destinations; the list it loads picks one if this one is not there.
             await loadDestinations()
         }
-        await saveChoice()
+        await saveChoice(projectScheme: true)
     }
     /// A destination picked in the run destination menu, saved at once.
     func choose(simulator: String) async {
@@ -442,7 +450,9 @@ protocol BuildServing: Sendable {
         await saveChoice()
     }
     /// Also when the pick is what was already on screen: the lists may have put it there unsaved.
-    private func saveChoice() async {
+    /// A scheme picked is the project's default scheme from then on: a new session starts on the
+    /// scheme last chosen, not on the first one the project ever ran.
+    private func saveChoice(projectScheme: Bool = false) async {
         let scheme = scheme, simulator = simulator
         guard valid, presentationID == nil, schemes.contains(scheme),
               simulators.contains(where: { $0.udid == simulator }) else { return }
@@ -450,9 +460,16 @@ protocol BuildServing: Sendable {
         error = nil
         // Back to the saved pair while another pick is still being saved: that save would win, so
         // this one is saved too.
-        guard !choosesSaved || savesInFlight > 0 else { picked = false; return }
-        do { try await saveDestination(scheme: scheme, simulator: simulator) }
-        catch { if valid { self.error = error.localizedDescription } }
+        // Against the scheme last sent to the project, so a quick pick back is not taken for no change
+        // while the pick before it is still being saved.
+        let movesDefault = projectScheme && (projectSchemeSent ?? project.runScheme) != scheme
+        if movesDefault { projectSchemeSent = scheme }
+        guard !choosesSaved || savesInFlight > 0 || movesDefault else { picked = false; return }
+        do { try await saveDestination(scheme: scheme, simulator: simulator, projectScheme: movesDefault) }
+        catch {
+            if movesDefault, projectSchemeSent == scheme { projectSchemeSent = nil }
+            if valid { self.error = error.localizedDescription }
+        }
     }
     func stop() async {
         guard valid, running else { return }
