@@ -205,6 +205,10 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
     /// The tabs as last drawn, and whose they were, to tell where a closed one stood.
     @State private var seen: [ID] = []
     @State private var seenScope: AnyHashable?
+    /// Each tab as last drawn. A closed tab is no longer its owner's to draw — the page or file is
+    /// gone from the model, and the pane drew nothing for it — and an empty view takes its frame
+    /// with it: the slot vanished at once and the tabs after it jumped into it. It folds as it was.
+    @State private var lastDrawn = DrawnTabs<ID, Tab>()
     private struct Leaving { let after: ID?; let index: Int; let width: CGFloat?; var folded = false }
 
     /// The unselected tab a gesture has asked to select, so that it asks once and not per event.
@@ -258,7 +262,7 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                     let iconOnly = layout.iconOnly && id != activeID
                     let previous = ids.firstIndex(of: id).flatMap { $0 > 0 ? ids[$0 - 1] : nil }
                     let gone = closed(id)
-                    tab(id, iconOnly)
+                    drawnTab(id, iconOnly: iconOnly, gone: gone)
                         .allowsHitTesting(!gone)
                         .onPreferenceChange(CompactTabTrailingWidth.self) { trailingWidths[id] = $0 }
                         .frame(maxWidth: iconOnly ? CompactTabMetrics.iconTabWidth : maxTabWidth)
@@ -269,11 +273,13 @@ struct CompactTabPill<ID: Hashable, Tab: View>: View {
                         // carries its capsule with it. One capsule gliding between slots arrives
                         // after the tab does, and the field's text shows outside it on the way.
                         .background { if id == activeID { if style == .flat { FlatActiveTab().transition(.identity) } else { ActiveTabCapsule() } } }
-                        // In the gap before the tab, so it moves with it.
+                        // In the gap before the tab, so it moves with it. It goes at once: faded out, it
+                        // stayed where it stood while the tab slid on without it.
                         .overlay(alignment: .leading) {
                             if ruled(id, after: previous) {
                                 Rectangle().fill(Theme.border).frame(width: 1, height: 16)
                                     .offset(x: -(CompactTabMetrics.tabSpacing + 1) / 2)
+                                    .transition(.identity)
                             }
                         }
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(pillSpace)) } action: { frames[id] = $0 }
@@ -305,6 +311,18 @@ extension CompactTabPill {
     /// Whether `id` is a tab that has closed and is folding away.
     private func closed(_ id: ID) -> Bool { !allIDs.contains(id) }
 
+    /// A shown tab, kept as drawn; a closed one, as it was last drawn. Kept outside SwiftUI's
+    /// observation: what it holds is only ever read back for a tab that is no longer shown. Only a
+    /// flat strip folds its closed tabs, so only it keeps them: the others would hold every page
+    /// they ever showed.
+    /// One path either way: two branches would make the closing tab a new view mid-fold, faded in
+    /// over its own copy.
+    @ViewBuilder private func drawnTab(_ id: ID, iconOnly: Bool, gone: Bool) -> some View {
+        let view: Tab? = gone ? lastDrawn.views[id] : tab(id, iconOnly)
+        let _ = { if style == .flat, !gone, let view { lastDrawn.views[id] = view } }()
+        if let view { view }
+    }
+
     /// Where a closed tab stood and how wide it was, before `fold` has recorded it too.
     private func departing(_ id: ID) -> Leaving? {
         if let place = leaving[id] { return place }
@@ -331,8 +349,11 @@ extension CompactTabPill {
     /// Folds the tabs that just closed, and forgets them once folded. Another scope's tabs fold nothing.
     private func fold(_ visible: [ID]) {
         guard style == .flat else { return }
+        // The ids now, for a fold's completion: the copy of `allIDs` it captured is from its start.
+        lastDrawn.ids = Set(allIDs)
         guard seenScope == scope else {
             leaving = [:]; seen = visible; seenScope = scope
+            lastDrawn.views = lastDrawn.views.filter { allIDs.contains($0.key) }
             return
         }
         // A closed tab opened again before it folded is a tab again.
@@ -344,11 +365,20 @@ extension CompactTabPill {
             leaving[id] = Leaving(after: index > 0 ? seen[index - 1] : nil, index: index, width: frames[id]?.width)
         }
         seen = visible
+        // A tab gone without folding (closed while out of view) keeps no view.
+        lastDrawn.views = lastDrawn.views.filter { allIDs.contains($0.key) || leaving[$0.key] != nil }
         guard !closing.isEmpty else { return }
+        // Each fold is its own: a tab closed, opened and closed again within one fold's time is
+        // folding again when the first fold ends, and that ending must not take it away.
+        for id in closing { lastDrawn.folds[id, default: 0] += 1 }
+        let folds = closing.map { ($0, lastDrawn.folds[$0] ?? 0) }
         withAnimation(.snappy(duration: 0.3)) {
             for id in closing { leaving[id]?.folded = true }
         } completion: {
-            for id in closing { leaving[id] = nil }
+            // A tab opened again before its fold ended is a tab again: its view stays.
+            for (id, fold) in folds where !lastDrawn.ids.contains(id) && lastDrawn.folds[id] == fold {
+                leaving[id] = nil; lastDrawn.views[id] = nil; lastDrawn.folds[id] = nil
+            }
         }
     }
 
@@ -835,6 +865,15 @@ private struct BarGlass: ViewModifier {
                 .pixelOutline(Capsule())
         }
     }
+}
+
+/// The tab views a strip last drew, by id (`CompactTabPill.lastDrawn`).
+@MainActor private final class DrawnTabs<ID: Hashable, Tab> {
+    var views: [ID: Tab] = [:]
+    /// The strip's ids as of its latest change.
+    var ids: Set<ID> = []
+    /// How many times each tab has begun to fold, so a fold's end knows whether it is still the latest.
+    var folds: [ID: Int] = [:]
 }
 
 /// The outline of the bar's shapes drawn without glass — the pill, its buttons' capsules, the
