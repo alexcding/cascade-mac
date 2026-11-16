@@ -233,6 +233,7 @@ private final class SessionRequestFixture: URLProtocol, @unchecked Sendable {
     struct Sent: Decodable {
         let projectId: String; let branch: String; let createBranch: Bool; let base: String; let reuseWorktree: String?
         let url: String; let title: String; let kind: String; let cli: String; let sessionId: String
+        let prompt: String
     }
     nonisolated(unsafe) static var sent: [Sent] = []
     static let lock = NSLock()
@@ -296,11 +297,13 @@ private final class SessionRequestFixture: URLProtocol, @unchecked Sendable {
     let reused = try await operations.create(project: project, draft: draft("reuse-me", reuse: "/tmp/fixture.worktrees/reuse-me"))
     #expect(reused.worktree == "/tmp/fixture.worktrees/reuse-me" && reused.title == "reuse-me" && reused.projectId == "fixture")
     var held = draft("held", base: "develop")
-    held.createBranch = false; held.title = "Held work"
+    held.createBranch = false; held.title = "Held work"; held.prompt = "finish the held work"
     let freed = try await operations.create(project: project, draft: held)
     #expect(freed.title == "Held work" && freed.branch == "held")
     let sent = SessionRequestFixture.lock.withLock { SessionRequestFixture.sent }
     #expect(sent.map(\.branch) == ["reuse-me", "held"])
+    // What was typed goes along, for the backend to name the session from; nothing typed, nothing sent.
+    #expect(sent.map(\.prompt) == ["", "finish the held work"])
     #expect(sent[0].reuseWorktree == "/tmp/fixture.worktrees/reuse-me" && sent[0].createBranch)
     // A shell-only session names no CLI, so the backend stores an empty one.
     #expect(sent[1].reuseWorktree == nil && sent[1].base == "develop" && !sent[1].createBranch && sent[1].cli == SessionAgent.shell.rawValue)

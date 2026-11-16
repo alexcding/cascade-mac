@@ -384,6 +384,20 @@ impl Database {
             .await
     }
 
+    /// Names the session while it has no name; `false` when it already had one (a rename made
+    /// meanwhile wins) or is gone.
+    pub async fn name_task_if_unnamed(&self, id: &str, name: &str) -> rusqlite::Result<bool> {
+        let (id, name) = (id.to_owned(), name.to_owned());
+        self.durable
+            .call(move |conn| {
+                Ok(conn.execute(
+                    "UPDATE tasks SET name=?1 WHERE id=?2 AND trim(coalesce(name,''))=''",
+                    params![name, id],
+                )? > 0)
+            })
+            .await
+    }
+
     pub async fn patch_task(&self, id: &str, patch: &Map<String, Value>) -> rusqlite::Result<bool> {
         const FIELDS: &[(&str, &str)] = &[
             ("title", "title"),
@@ -1212,6 +1226,23 @@ mod tests {
             ..task.clone()
         };
         assert!(!opened.upsert_task(&incomplete).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_generated_name_never_overwrites_one_already_given() {
+        let opened = Database::open(tempfile::tempdir().unwrap().path()).unwrap();
+        let task = Session { id: "t".into(), project_id: "p".into(), workspace: "/w".into(), worktree: "/w/t".into(), ..Session::default() };
+        assert!(opened.upsert_task(&task).await.unwrap());
+        assert!(opened.name_task_if_unnamed("t", "Fix login crash").await.unwrap());
+        assert_eq!(opened.tasks().await.unwrap()[0].name, "Fix login crash");
+        // A second name, or one arriving after a rename, is refused; so is one for a session gone.
+        assert!(!opened.name_task_if_unnamed("t", "Something else").await.unwrap());
+        let mut rename = Map::new();
+        rename.insert("name".into(), json!("Mine"));
+        assert!(opened.patch_task("t", &rename).await.unwrap());
+        assert!(!opened.name_task_if_unnamed("t", "Generated").await.unwrap());
+        assert_eq!(opened.tasks().await.unwrap()[0].name, "Mine");
+        assert!(!opened.name_task_if_unnamed("gone", "Generated").await.unwrap());
     }
 
     /// Every store answers from its own thread; the runtime's workers never run a statement.

@@ -2,6 +2,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -499,6 +500,102 @@ async fn a_session_is_created_in_one_request_reusing_or_making_its_worktree() {
     assert!(!root.join("app.worktrees/two").exists());
     let (status, _) = post(&app, "/api/sessions", json!({"projectId":"missing","branch":"feat/two"})).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// The agents' CLIs scripted, everything else (git) run for real.
+struct AgentsScripted(cascade_backend::cli::ScriptedRunner);
+
+impl cascade_backend::cli::CommandRunner for AgentsScripted {
+    fn output<'a>(
+        &'a self,
+        invocation: cascade_backend::cli::Invocation,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Vec<u8>>> + Send + 'a>> {
+        if matches!(invocation.program.as_str(), "claude" | "codex") {
+            self.0.output(invocation)
+        } else {
+            cascade_backend::cli::ProcessRunner.output(invocation)
+        }
+    }
+}
+
+/// The session list's entry for `id` once its name is `name`, or the last one seen.
+async fn named(app: &axum::Router, id: &Value, name: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (_, tasks) = get(app, "/api/tasks").await;
+        let task = tasks.as_array().unwrap().iter().find(|task| task["id"] == *id).cloned().unwrap();
+        if task["name"] == name || Instant::now() > deadline {
+            return task;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+#[tokio::test]
+async fn a_session_is_named_by_its_own_agent_from_what_was_typed_and_a_page_by_its_title() {
+    use cascade_backend::cli::{self, CommandRunner, ScriptedRunner};
+    let (app, _data) = app().await;
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().canonicalize().unwrap();
+    let dir = repo(&root);
+    let (_, project) = post(&app, "/api/projects", json!({"name":"App","repo":"example/app","workspace":dir.to_str().unwrap()})).await;
+    let project_id = project["id"].as_str().unwrap().to_owned();
+
+    let envelope = |title: &str| {
+        json!({ "type": "result", "is_error": false, "structured_output": { "title": title } }).to_string().into_bytes()
+    };
+    let scripted = Arc::new(AgentsScripted(
+        ScriptedRunner::new()
+            .on("claude", move |_| Some(Ok(envelope("Pull latest main and Synara release, port the fixes"))))
+            // Codex refuses the pinned model once; its own default answers.
+            .on("codex", |args| {
+                let pinned = args.iter().any(|arg| arg == "gpt-6-luna");
+                Some(if pinned { Err(cli::Failed::timed_out("codex", Duration::from_secs(1))) } else { Ok(br#"{"title":"Port Synara fixes"}"#.to_vec()) })
+            }),
+    ));
+    let runner: Arc<dyn CommandRunner> = scripted.clone();
+
+    // Typed, on Claude: the reply is held to one title, and the name lands a moment later.
+    let typed = json!({"projectId":project_id,"branch":"pull-latest-mian","createBranch":true,"base":"main","title":"pull latest mian","cli":"claude",
+                       "prompt":"pull latest mian and also pull latest release from Synara see anything we can include"});
+    let (status, session) = cli::scoped(runner.clone(), post(&app, "/api/sessions", typed)).await;
+    assert_eq!(status, StatusCode::OK, "{session}");
+    let task = named(&app, &session["id"], "Pull latest main and Synara release").await;
+    assert_eq!(task["name"], "Pull latest main and Synara release", "{task}");
+    assert_eq!(task["title"], "pull latest mian", "the title stays what was typed");
+
+    // Typed, on Codex: Codex names it, never Claude, which may be installed but signed out.
+    let codex = json!({"projectId":project_id,"branch":"port-fixes","createBranch":true,"base":"main","cli":"codex","prompt":"port the synara fixes"});
+    let (status, on_codex) = cli::scoped(runner.clone(), post(&app, "/api/sessions", codex)).await;
+    assert_eq!(status, StatusCode::OK, "{on_codex}");
+    assert_eq!(named(&app, &on_codex["id"], "Port Synara fixes").await["name"], "Port Synara fixes");
+
+    let asked = scripted.0.asked.lock().unwrap().clone();
+    let args = |call: &cli::Invocation| call.args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>();
+    let claude: Vec<_> = asked.iter().filter(|call| call.program == "claude").collect();
+    assert_eq!(claude.len(), 1, "only the Claude session asked Claude");
+    let claude_args = args(claude[0]);
+    assert_eq!(claude_args[claude_args.iter().position(|arg| arg == "--model").unwrap() + 1], "sonnet");
+    let prompt = String::from_utf8(claude[0].input.clone().unwrap()).unwrap();
+    assert!(prompt.starts_with("You name coding sessions.") && prompt.ends_with("see anything we can include"), "{prompt}");
+    let codex_calls: Vec<Vec<String>> = asked.iter().filter(|call| call.program == "codex").map(args).collect();
+    assert_eq!(codex_calls.len(), 2, "{codex_calls:?}");
+    assert!(codex_calls[0].windows(2).any(|pair| pair == ["--model", "gpt-6-luna"]));
+    assert!(!codex_calls[1].iter().any(|arg| arg == "--model"), "the retry is on Codex's own default");
+
+    // A pull request names its session at once, by number and title; no model is asked.
+    let before = scripted.0.asked.lock().unwrap().len();
+    let page = json!({"projectId":project_id,"branch":"fix-login","createBranch":true,"base":"main","cli":"claude","kind":"github",
+                      "url":"https://github.com/example/app/pull/482","title":"Fix login crash","prompt":"https://github.com/example/app/pull/482"});
+    let (status, from_page) = cli::scoped(runner.clone(), post(&app, "/api/sessions", page)).await;
+    assert_eq!(status, StatusCode::OK, "{from_page}");
+    assert_eq!(from_page["name"], "#482 Fix login crash");
+    assert_eq!(scripted.0.asked.lock().unwrap().len(), before);
+
+    // Nothing typed: no name, and the sidebar keeps the folder.
+    let (status, plain) = cli::scoped(runner, post(&app, "/api/sessions", json!({"projectId":project_id,"branch":"plain","createBranch":true,"base":"main","cli":"claude"}))).await;
+    assert_eq!(status, StatusCode::OK, "{plain}");
+    assert_eq!(plain["name"], "");
 }
 
 /// A project folder must be a git repository: one that is not is refused, and made one, its files

@@ -11,7 +11,7 @@ use serde_json::json;
 use url::Url;
 use uuid::Uuid;
 
-use crate::{error::ApiError, local, AppState, Session};
+use crate::{error::ApiError, local, session_names, AppState, Session};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +40,10 @@ pub struct NewSession {
     /// A conversation id chosen ahead of the launch, for an agent that names its own; else empty.
     #[serde(default)]
     session_id: String,
+    /// What was typed to start it, when it was typed (not a page): the session is named from it
+    /// in the background (`session_names`). Not stored.
+    #[serde(default)]
+    prompt: String,
 }
 
 fn default_kind() -> String {
@@ -62,6 +66,7 @@ impl NewSession {
             jira_key: String::new(),
             cli: cli.into(),
             session_id: String::new(),
+            prompt: String::new(),
         }
     }
 }
@@ -174,6 +179,15 @@ pub async fn create(app: &AppState, body: NewSession) -> Result<Session, ApiErro
         return Err(ApiError::internal(format!(
             "Worktree created at {worktree}, but the session could not be saved{detail}. Use this branch again to recover it."
         )));
+    }
+    // What the sidebar calls it, rather than the branch's folder: a page's own title at once, a
+    // typed task's generated one a few seconds later. A failure leaves it on the folder.
+    if let Some(name) = session_names::page_name(&record.kind, &record.url, &record.title) {
+        if let Err(error) = app.db.name_task_if_unnamed(&id, &name).await {
+            tracing::warn!(session = %id, "could not save the session's name: {error}");
+        }
+    } else if record.kind == "session" && !body.prompt.trim().is_empty() {
+        session_names::name_in_background(app.clone(), id.clone(), body.prompt.clone(), record.cli.clone());
     }
     app.publish(crate::Event::Tasks);
     let saved = app.db.task(&id).await?.unwrap_or(record);

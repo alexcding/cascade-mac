@@ -21,6 +21,7 @@ mod poller;
 pub mod recovery;
 mod remote;
 mod routes;
+mod session_names;
 mod sessions;
 mod settings_file;
 mod tickets;

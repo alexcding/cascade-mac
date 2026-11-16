@@ -440,6 +440,7 @@ import Observation
             // A shell takes no prompt; what is typed still names the session.
             if !typed.isEmpty {
                 creation.title = ProjectSessionStart.title(for: typed)
+                creation.prompt = typed
                 if agent != .shell { prompt = typed }
             }
         } else if namesBranch {
@@ -451,6 +452,8 @@ import Observation
             // Nothing typed: a fresh branch, no title and no first prompt, the agent waiting.
             if !typed.isEmpty {
                 creation.title = ProjectSessionStart.title(for: typed)
+                // The backend names the session from it, in the background (`session_names.rs`).
+                creation.prompt = typed
                 if agent != .shell { prompt = typed }
             }
         }

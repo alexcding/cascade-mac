@@ -11,7 +11,7 @@
 
 mod flight;
 mod knowledge;
-mod titles;
+pub(crate) mod titles;
 mod transcript;
 mod workspace;
 

@@ -107,6 +107,9 @@ struct SessionDraft: Equatable, Sendable {
     var kind = "session"
     var jiraKey = ""
     var reuseWorktree: String?
+    /// What was typed to start it, when it was typed rather than a page: the backend names the
+    /// session from it (`crates/cascade-backend/src/session_names.rs`).
+    var prompt = ""
 }
 
 // Local git operations and durable records stay in the existing backend. A failed
@@ -165,11 +168,13 @@ struct SessionOperations: SessionServing {
         struct Request: Encodable, Sendable {
             let projectId: String; let branch: String; let createBranch: Bool; let base: String; let reuseWorktree: String?
             let url: String; let title: String; let kind: String; let jiraKey: String; let cli: String; let sessionId: String
+            let prompt: String
         }
         return try await api.request(Routes.SESSIONS, method: "POST", body: Request(
             projectId: project.id, branch: branch, createBranch: draft.createBranch, base: draft.base, reuseWorktree: draft.reuseWorktree,
             url: sourceURL, title: draft.title, kind: draft.kind, jiraKey: draft.jiraKey, cli: draft.agent.rawValue,
-            sessionId: draft.agent.driver?.namesConversationAtLaunch == true ? UUID().uuidString.lowercased() : ""))
+            sessionId: draft.agent.driver?.namesConversationAtLaunch == true ? UUID().uuidString.lowercased() : "",
+            prompt: draft.prompt))
     }
 
     struct ResolvedWorktree: Decodable, Sendable {

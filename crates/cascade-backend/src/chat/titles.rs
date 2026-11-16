@@ -1,13 +1,13 @@
-//! A chat's generated title, by its own CLI run once, headless (Synara
+//! A chat's or a session's generated title, by its own CLI run once, headless (Synara
 //! `apps/server/src/git/Layers/ClaudeTextGeneration.ts` and `CodexTextGeneration.ts`): the engine
 //! decides when and applies it (`cascade_chat::text_generation`); this runs the CLI through `cli`,
 //! so it is resolved, grouped and timed out as every other command is, and a test scripts it.
 //!
-//! Claude is asked on its cheapest model (`haiku`) with nothing of the person's setup loaded
+//! Claude is asked on `CLAUDE_TITLE_MODEL` (sonnet) with nothing of the person's setup loaded
 //! (`--safe-mode`, no setting sources, no MCP, no tools, no session kept), in an empty folder of
-//! its own. A Codex chat is titled by Claude when Claude is installed, since Codex's model names
-//! change too often to pick its cheapest; without Claude, `codex exec` runs read-only on the
-//! chat's own model at low effort.
+//! its own. A Codex chat or session is titled by Codex, which is the CLI signed in (a Claude that
+//! is installed may not be): `codex exec`, read-only and ephemeral, on `CODEX_TITLE_MODEL` at low
+//! effort. Only when its own CLI cannot answer is the other one asked.
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
@@ -24,8 +24,14 @@ use crate::cli;
 
 /// How long a title may take (Synara allows 180 s; a title that late is no longer wanted).
 pub(crate) const TITLE_TIMEOUT: Duration = Duration::from_secs(90);
-/// The Claude model titles are asked of.
-pub(crate) const CLAUDE_TITLE_MODEL: &str = "haiku";
+/// The Claude model titles are asked of, a chat's and a session's alike. Sonnet over haiku: in a
+/// side-by-side run on real prompts it kept closer to what was asked (it pulled main rather than
+/// "synced" it) at the same few seconds, and a title is one short call.
+pub(crate) const CLAUDE_TITLE_MODEL: &str = "sonnet";
+/// The Codex model titles are asked of: Synara's `DEFAULT_GIT_TEXT_GENERATION_MODEL`, the model it
+/// writes branch names, commit messages and titles with. A Codex that refuses it is asked again on
+/// its own configured default.
+pub(crate) const CODEX_TITLE_MODEL: &str = "gpt-6-luna";
 
 /// Titles through the chat's CLI. `runner` is a test's scripted one, carried into the engine's
 /// task (`cli::inherited`), which a task-local would not follow.
@@ -53,15 +59,55 @@ impl TextGeneration for CliTitles {
 
 async fn generate(input: ThreadTitleGenerationInput) -> Result<String, String> {
     let prompt = build_thread_title_prompt(&input.message, &input.attachments);
-    let folder = Scratch::new().map_err(|error| format!("no folder for the title's CLI: {error}"))?;
-    let raw = match &input.model_selection {
-        ModelSelection::Codex(selection) if cli::find("claude").is_none() => {
-            codex_title(&prompt, &selection.model, &folder.0).await?
-        }
-        _ => claude_title(&prompt, &folder.0).await?,
+    let cli = match &input.model_selection {
+        ModelSelection::Codex(_) => TitleCli::Codex,
+        ModelSelection::ClaudeAgent(_) => TitleCli::Claude,
     };
     // The engine sanitizes what it is handed (`on_title_generated`).
-    Ok(raw)
+    title_by(cli, &prompt).await
+}
+
+/// Which CLI a title is asked of: the one the chat or session runs, which is the one signed in.
+/// Claude being installed says nothing of whether it is signed in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TitleCli {
+    Claude,
+    Codex,
+}
+
+impl TitleCli {
+    /// The CLI of a session's agent (`claude`, `codex`); Claude for anything else.
+    pub(crate) fn of_session(cli: &str) -> Self {
+        if cli == "codex" {
+            TitleCli::Codex
+        } else {
+            TitleCli::Claude
+        }
+    }
+}
+
+/// A title for `prompt` (a whole title prompt, `{title}` schema) from `cli`: Claude on
+/// `CLAUDE_TITLE_MODEL`, Codex on `CODEX_TITLE_MODEL` and then on its own default model, should
+/// that one be refused. Only when `cli` cannot answer at all is the other asked. Raw: the caller
+/// sanitizes.
+pub(crate) async fn title_by(cli: TitleCli, prompt: &str) -> Result<String, String> {
+    let folder = Scratch::new().map_err(|error| format!("no folder for the title's CLI: {error}"))?;
+    let codex = |folder: std::path::PathBuf| async move {
+        match codex_title(prompt, Some(CODEX_TITLE_MODEL), &folder).await {
+            Ok(title) => Ok(title),
+            Err(pinned) => codex_title(prompt, None, &folder).await.map_err(|default| format!("{pinned}; {default}")),
+        }
+    };
+    match cli {
+        TitleCli::Claude => match claude_title(prompt, &folder.0).await {
+            Ok(title) => Ok(title),
+            Err(claude) => codex(folder.0.clone()).await.map_err(|codex| format!("{claude}; {codex}")),
+        },
+        TitleCli::Codex => match codex(folder.0.clone()).await {
+            Ok(title) => Ok(title),
+            Err(codex) => claude_title(prompt, &folder.0).await.map_err(|claude| format!("{codex}; {claude}")),
+        },
+    }
 }
 
 /// Synara `runClaudeJson`'s arguments, on `CLAUDE_TITLE_MODEL`.
@@ -115,27 +161,25 @@ fn title_of_text(text: &str) -> Option<String> {
     (words > 0 && words <= MAX_CHAT_THREAD_TITLE_WORDS + 4).then(|| text.to_owned())
 }
 
-/// Synara `CodexTextGeneration`'s `codex exec`, at low effort.
-async fn codex_title(prompt: &str, model: &str, folder: &std::path::Path) -> Result<String, String> {
+/// Synara `CodexTextGeneration`'s `codex exec`, at low effort, on `model` or else the person's
+/// configured default.
+async fn codex_title(prompt: &str, model: Option<&str>, folder: &std::path::Path) -> Result<String, String> {
     let schema = folder.join("schema.json");
     let output = folder.join("title.txt");
     std::fs::write(&schema, THREAD_TITLE_OUTPUT_SCHEMA).map_err(|error| error.to_string())?;
-    let args = [
-        "exec".to_owned(),
-        "--ephemeral".into(),
-        "--skip-git-repo-check".into(),
-        "-s".into(),
-        "read-only".into(),
-        "--model".into(),
-        model.to_owned(),
-        "--config".into(),
+    let mut args = vec!["exec".to_owned(), "--ephemeral".into(), "--skip-git-repo-check".into(), "-s".into(), "read-only".into()];
+    if let Some(model) = model {
+        args.extend(["--model".to_owned(), model.to_owned()]);
+    }
+    args.extend([
+        "--config".to_owned(),
         "model_reasoning_effort=\"low\"".into(),
         "--output-schema".into(),
         schema.to_string_lossy().into_owned(),
         "--output-last-message".into(),
         output.to_string_lossy().into_owned(),
         "-".into(),
-    ];
+    ]);
     let stdout = cli::run_with_input("codex", args, prompt.as_bytes(), TITLE_TIMEOUT, Some(folder))
         .await
         .map_err(|error| format!("Codex CLI command failed: {error:#}"))?;

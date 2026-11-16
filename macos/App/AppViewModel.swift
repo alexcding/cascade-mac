@@ -1926,6 +1926,7 @@ public final class AppViewModel {
             var draft = SessionDraft()
             draft.branch = args["branch"]?.string ?? ""
             draft.agent = SessionAgent(rawValue: args["cli"]?.string ?? "") ?? .claude
+            draft.prompt = args["prompt"]?.string ?? ""
             let made = try await operations.create(project: record, draft: draft)
             if !sessions.contains(where: { $0.id == made.id }) { sessions.append(made) }
             if let prompt = args["prompt"]?.string, !prompt.isEmpty { launchPrompts[made.id] = prompt }

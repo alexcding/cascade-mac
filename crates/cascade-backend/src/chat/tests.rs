@@ -855,7 +855,7 @@ fn claude_envelope(title: &str) -> Vec<u8> {
 }
 
 #[tokio::test]
-async fn the_first_message_is_titled_by_a_headless_claude_on_haiku() {
+async fn the_first_message_is_titled_by_a_headless_claude_on_sonnet() {
     let dir = tempfile::tempdir().unwrap();
     let spawner = ScriptedSpawner::new();
     let runner = Arc::new(cli::ScriptedRunner::new().on("claude", |_| Some(Ok(claude_envelope("Basic arithmetic question.")))));
@@ -906,7 +906,7 @@ async fn the_first_message_is_titled_by_a_headless_claude_on_haiku() {
         assert!(args.iter().any(|arg| arg == flag), "{flag}");
     }
     let at = |flag: &str| args[args.iter().position(|arg| arg == flag).unwrap() + 1].clone();
-    assert_eq!((at("--model"), at("--tools"), at("--setting-sources"), at("--output-format")), ("haiku".into(), String::new(), String::new(), "json".into()));
+    assert_eq!((at("--model"), at("--tools"), at("--setting-sources"), at("--output-format")), ("sonnet".into(), String::new(), String::new(), "json".into()));
     let prompt = String::from_utf8(call.input.clone().unwrap()).unwrap();
     assert!(prompt.starts_with("You generate concise chat thread titles.") && prompt.ends_with("User message:\nhi, what's 2+2"));
     // Not in the chat's folder: an empty one of its own, gone once the title came.
@@ -928,6 +928,38 @@ fn a_claude_reply_is_read_for_its_title() {
     let failed = json!({ "type": "result", "is_error": true, "result": "Not logged in" }).to_string();
     assert_eq!(titles::title_of_claude_output(&failed), None);
     assert_eq!(titles::title_of_claude_output("not json"), None);
+}
+
+#[tokio::test]
+async fn a_codex_chat_is_titled_by_codex_and_claude_only_when_codex_cannot() {
+    use cascade_chat::text_generation::TextGeneration;
+    let input = || cascade_chat::text_generation::ThreadTitleGenerationInput {
+        cwd: None,
+        message: "port the fixes".into(),
+        attachments: Vec::new(),
+        model_selection: serde_json::from_value(json!({ "provider": "codex", "model": "gpt-6" })).unwrap(),
+    };
+    let codex_answers = Arc::new(
+        cli::ScriptedRunner::new()
+            .on("codex", |_| Some(Ok(br#"{"title":"Port fixes"}"#.to_vec())))
+            .on("claude", |_| Some(Ok(claude_envelope("From Claude")))),
+    );
+    let runner: Arc<dyn cli::CommandRunner> = codex_answers.clone();
+    let generator = cli::scoped(runner, async { titles::CliTitles::new() }).await;
+    assert_eq!(generator.generate_thread_title(input()).await.unwrap(), "Port fixes");
+    let asked = codex_answers.asked.lock().unwrap().clone();
+    assert!(asked.iter().all(|call| call.program == "codex"), "Claude, perhaps signed out, is not asked");
+    let args: Vec<String> = asked[0].args.iter().map(|arg| arg.to_string_lossy().into_owned()).collect();
+    assert!(args.windows(2).any(|pair| pair == ["--model", titles::CODEX_TITLE_MODEL]), "{args:?}");
+
+    // Codex unable to answer on any model: Claude is the last resort.
+    let codex_down: Arc<dyn cli::CommandRunner> = Arc::new(
+        cli::ScriptedRunner::new()
+            .on("codex", |_| Some(Err(cli::Failed::timed_out("codex", titles::TITLE_TIMEOUT))))
+            .on("claude", |_| Some(Ok(claude_envelope("From Claude")))),
+    );
+    let generator = cli::scoped(codex_down, async { titles::CliTitles::new() }).await;
+    assert_eq!(generator.generate_thread_title(input()).await.unwrap(), "From Claude");
 }
 
 #[tokio::test]

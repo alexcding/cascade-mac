@@ -52,8 +52,10 @@ private actor LifetimeSessionService: SessionCreating {
     }
     private(set) var movedMainCheckoutTo: String?
     func switchMainCheckout(to branch: String, project: Project) { movedMainCheckoutTo = branch }
+    private(set) var drafts: [SessionDraft] = []
     func create(project: Project, draft: SessionDraft) async throws -> WorkspaceSession {
         creations += 1
+        drafts.append(draft)
         if let creation {
             self.creation = nil
             return try await creation.value()
@@ -168,6 +170,24 @@ func creationLifetimeInputChangeDuringResolutionCannotCreateWorktree(failing: Bo
     await model.submit()
     #expect(created == 1 && model.text.isEmpty && model.error == nil)
     #expect(await service.creations == 2)
+}
+
+@MainActor @Test(.timeLimit(.minutes(1))) func aTypedTaskSendsWhatWasTypedForTheBackendToNameTheSession() async throws {
+    let service = LifetimeSessionService()
+    let model = ProjectComposerModel(project: lifetimeProject, agent: .claude, operations: service)
+    model.text = "pull latest mian and also the latest Synara release"
+    await model.submit()
+    let typed = await service.drafts.last
+    #expect(typed?.prompt == "pull latest mian and also the latest Synara release")
+    #expect(typed?.branch == "pull-latest-mian-and-also-the-latest" && typed?.kind == "session")
+    model.retire()
+
+    // A shell named by a branch takes no prompt, and is not named from one.
+    let shell = ProjectComposerModel(project: lifetimeProject, agent: .shell, operations: service)
+    shell.text = "keep-draft"
+    await shell.submit()
+    #expect(await service.drafts.last?.prompt == "")
+    shell.retire()
 }
 
 @MainActor @Test(.timeLimit(.minutes(1))) func creationLifetimeKeepsWhatWasPutOnStartWhileCreating() async throws {
