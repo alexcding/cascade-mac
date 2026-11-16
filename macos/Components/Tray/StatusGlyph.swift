@@ -9,7 +9,7 @@ import AppKit
 enum StatusGlyph {
     /// Where the mark's artwork runs across its 896-wide canvas (MenuBarIcon.svg). The image is cut
     /// to it, so the gap to the title beside it is the bar's own spacing and no empty canvas.
-    private static let artwork = (from: 91.6 / 896, to: 810.4 / 896)
+    private static let artwork = (from: 74.0 / 896, to: 822.0 / 896)
 
     /// `trailing` is room after the artwork, before a title beside it. `named` loads an asset by name;
     /// tests pass their own, having no asset catalog.
